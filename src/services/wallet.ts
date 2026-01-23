@@ -1,0 +1,307 @@
+import api from './api';
+
+export const getWallet = async () => {
+  const res = await api.get('/wallet/me');
+  return res.data?.data;
+};
+
+export const getTransactions = async () => {
+  const res = await api.get('/wallet/me/transactions');
+  return res.data?.data || [];
+};
+
+export default { getWallet, getTransactions };
+ 
+
+interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  message?: string;
+}
+
+const handleApiResponse = <T>(response: any): T => {
+  if (response?.data?.success === false) {
+    throw new Error(response.data.error || 'API request failed');
+  }
+  if (response?.data?.data !== undefined) return response.data.data as T;
+  if (response?.data !== undefined && response.data.success !== false) return response.data as T;
+  return response as T;
+};
+
+const mapWallet = (wallet: any) => {
+  const available = Number(wallet?.available_balance ?? wallet?.availableBalance ?? 0);
+  const pending = Number(wallet?.pending_clearance ?? wallet?.pendingClearance ?? 0);
+  const escrow = Number(wallet?.escrow_balance ?? wallet?.escrowBalance ?? 0);
+  return {
+    ...wallet,
+    id: wallet?.id,
+    user_id: wallet?.user_id ?? wallet?.userId,
+    userId: wallet?.userId ?? wallet?.user_id,
+    available_balance: available,
+    availableBalance: available,
+    pending_clearance: pending,
+    pendingClearance: pending,
+    escrow_balance: escrow,
+    escrowBalance: escrow,
+    frozen: Boolean(wallet?.frozen),
+    currency: wallet?.currency ?? 'USD',
+    updated_at: wallet?.updated_at ?? wallet?.updatedAt
+  };
+};
+
+const mapTransaction = (tx: any) => ({
+  ...tx,
+  id: tx?.id,
+  wallet_id: tx?.wallet_id ?? tx?.walletId,
+  walletId: tx?.walletId ?? tx?.wallet_id,
+  user_id: tx?.user_id ?? tx?.userId,
+  userId: tx?.userId ?? tx?.user_id,
+  type: tx?.type,
+  amount: Number(tx?.amount ?? 0),
+  description: tx?.description ?? '',
+  status: (tx?.status ?? '').toString().toLowerCase(),
+  reference_id: tx?.reference_id ?? tx?.referenceId ?? undefined,
+  referenceId: tx?.referenceId ?? tx?.reference_id ?? undefined,
+  created_at: tx?.created_at ?? tx?.createdAt ?? '',
+  createdAt: tx?.createdAt ?? tx?.created_at ?? '',
+  admin_note: tx?.admin_note ?? tx?.adminNote ?? undefined,
+  adminNote: tx?.adminNote ?? tx?.admin_note ?? undefined
+});
+
+export interface WalletBalances {
+  available: number;
+  pendingClearance: number;
+  escrowHeld: number;
+  total: number;
+}
+
+export interface WalletTransaction {
+  id: string;
+  type: string;
+  amount: number;
+  description: string;
+  status: string;
+  createdAt: string;
+  reference?: string;
+}
+
+export interface WalletInfo {
+  balances: WalletBalances;
+  availableBalance: number;
+  pendingAmount: number;
+  escrowHeld: number;
+  totalEarnings: number;
+  transactions: WalletTransaction[];
+  paymentMethods?: Array<{
+    id: string;
+    type: string;
+    last4: string;
+    bankName?: string;
+    isDefault: boolean;
+  }>;
+}
+
+export interface TransactionsResponse {
+  transactions: WalletTransaction[];
+  pagination?: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+  };
+}
+
+export const walletApi = {
+  getWalletInfo: async (): Promise<WalletInfo> => {
+    const response = await api.get<ApiResponse<any>>('/wallet/me');
+    const data = handleApiResponse<any>(response);
+    const available = Number(data.available_balance ?? data.availableBalance ?? 0);
+    const pending = Number(data.pending_clearance ?? data.pendingClearance ?? 0);
+    const escrow = Number(data.escrow_balance ?? data.escrowBalance ?? 0);
+    const total = available + pending + escrow;
+    return {
+      balances: {
+        available,
+        pendingClearance: pending,
+        escrowHeld: escrow,
+        total
+      },
+      availableBalance: available,
+      pendingAmount: pending,
+      escrowHeld: escrow,
+      totalEarnings: total,
+      transactions: []
+    };
+  },
+
+  getTransactions: async (params: {
+    page?: number;
+    limit?: number;
+    type?: string;
+    status?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  } = {}): Promise<TransactionsResponse> => {
+    const response = await api.get<ApiResponse<TransactionsResponse>>('/wallet/me/transactions', { params });
+    const data = handleApiResponse<any>(response);
+    const txs = Array.isArray(data?.transactions) ? data.transactions : Array.isArray(data) ? data : [];
+    return {
+      transactions: txs.map((tx: any) => ({
+        id: tx.id,
+        type: tx.type,
+        amount: Number(tx.amount ?? 0),
+        description: tx.description ?? '',
+        status: tx.status ?? '',
+        createdAt: tx.created_at ?? tx.createdAt ?? '',
+        reference: tx.reference_id ?? tx.referenceId
+      })),
+      pagination: data?.pagination
+    };
+  }
+};
+
+// High-level service expected by admin UI components
+export const WalletService = {
+  getPlatformFinancials: async (): Promise<any> => {
+    const response = await api.get('/wallet/platform-financials', { params: { role: 'admin' } });
+    const data = handleApiResponse<any>(response);
+    return {
+      ...data,
+      totalEscrow: Number(data?.totalEscrow ?? data?.total_escrow ?? 0),
+      totalClearedUserFunds: Number(data?.totalClearedUserFunds ?? data?.total_cleared_user_funds ?? 0),
+      totalPendingClearance: Number(data?.totalPendingClearance ?? data?.total_pending_clearance ?? 0),
+      platformRevenue: Number(data?.platformRevenue ?? data?.platform_revenue ?? 0),
+      refundPool: Number(data?.refundPool ?? data?.refund_pool ?? 0),
+      total_escrow: Number(data?.total_escrow ?? data?.totalEscrow ?? 0),
+      total_cleared_user_funds: Number(data?.total_cleared_user_funds ?? data?.totalClearedUserFunds ?? 0),
+      total_pending_clearance: Number(data?.total_pending_clearance ?? data?.totalPendingClearance ?? 0),
+      platform_revenue: Number(data?.platform_revenue ?? data?.platformRevenue ?? 0),
+      refund_pool: Number(data?.refund_pool ?? data?.refundPool ?? 0)
+    };
+  },
+
+  getActivityMetrics: async (days = 7): Promise<any[]> => {
+    const response = await api.get('/admin/analytics/activity', { params: { range: `${days}` } });
+    return handleApiResponse(response);
+  },
+
+  getRevenueBreakdown: async (days = 30): Promise<any[]> => {
+    const response = await api.get('/admin/analytics/revenue-breakdown', { params: { range: `${days}` } });
+    return handleApiResponse(response);
+  },
+
+  getCommissionSettings: async (): Promise<any> => {
+    const response = await api.get('/wallet/settings/commission', { params: { role: 'admin' } });
+    const data = handleApiResponse<any>(response);
+    return {
+      ...data,
+      freelancerFeeType: data?.freelancerFeeType ?? data?.freelancer_fee_type ?? 'percentage',
+      freelancerFeeValue: Number(data?.freelancerFeeValue ?? data?.freelancer_fee_value ?? 0),
+      employerFeeType: data?.employerFeeType ?? data?.employer_fee_type ?? 'percentage',
+      employerFeeValue: Number(data?.employerFeeValue ?? data?.employer_fee_value ?? 0),
+      minimumFee: Number(data?.minimumFee ?? data?.minimum_fee ?? 0),
+      maxAdjustment: Number(data?.maxAdjustment ?? data?.max_adjustment ?? 100000),
+      freelancer_fee_type: data?.freelancer_fee_type ?? data?.freelancerFeeType ?? 'percentage',
+      freelancer_fee_value: Number(data?.freelancer_fee_value ?? data?.freelancerFeeValue ?? 0),
+      employer_fee_type: data?.employer_fee_type ?? data?.employerFeeType ?? 'percentage',
+      employer_fee_value: Number(data?.employer_fee_value ?? data?.employerFeeValue ?? 0),
+      minimum_fee: Number(data?.minimum_fee ?? data?.minimumFee ?? 0),
+      max_adjustment: Number(data?.max_adjustment ?? data?.maxAdjustment ?? 100000)
+    };
+  },
+
+  saveCommissionSettings: async (settings: any): Promise<any> => {
+    const payload = {
+      freelancer_fee_type: settings?.freelancer_fee_type ?? settings?.freelancerFeeType ?? 'percentage',
+      freelancer_fee_value: Number(settings?.freelancer_fee_value ?? settings?.freelancerFeeValue ?? 0),
+      employer_fee_type: settings?.employer_fee_type ?? settings?.employerFeeType ?? 'percentage',
+      employer_fee_value: Number(settings?.employer_fee_value ?? settings?.employerFeeValue ?? 0),
+      minimum_fee: Number(settings?.minimum_fee ?? settings?.minimumFee ?? 0),
+      max_adjustment: Number(settings?.max_adjustment ?? settings?.maxAdjustment ?? 100000)
+    };
+    const response = await api.post('/wallet/settings/commission', payload, { params: { role: 'admin' } });
+    return handleApiResponse(response);
+  },
+
+  getAllWallets: async (): Promise<any[]> => {
+    const response = await api.get('/admin/wallets');
+    const data = handleApiResponse<any>(response);
+    return Array.isArray(data) ? data.map(mapWallet) : [];
+  },
+
+  getAllTransactions: async (): Promise<any[]> => {
+    const response = await api.get('/wallet/admin/transactions', { params: { role: 'admin' } });
+    const data = handleApiResponse<any>(response);
+    const list = Array.isArray((data as any).transactions) ? (data as any).transactions : (data as any);
+    return Array.isArray(list) ? list.map(mapTransaction) : [];
+  },
+
+  // Backwards-compatible adapters (aliases) expected by UI
+  getWallet: async (userId?: string): Promise<any> => {
+    if (userId && userId !== 'me') {
+      const response = await api.get(`/wallet/${userId}`);
+      return handleApiResponse(response);
+    }
+    // default to current user's wallet info
+    return walletApi.getWalletInfo();
+  },
+
+  getUserTransactions: async (userId: string): Promise<any[]> => {
+    // Try a user-scoped endpoint, fall back to current transactions
+    try {
+      const response = await api.get(`/wallet/${userId}/transactions`);
+      const data = handleApiResponse(response);
+      const list = Array.isArray((data as any).transactions) ? (data as any).transactions : (data as any);
+      return Array.isArray(list) ? list.map(mapTransaction) : [];
+    } catch (e) {
+      return WalletService.getAllTransactions();
+    }
+  },
+
+  requestWithdrawal: async (userId: string, amount: number, method: any): Promise<any> => {
+    const response = await api.post('/withdrawal/request', { userId, amount, method });
+    return handleApiResponse(response);
+  },
+  addFunds: async (amount: number): Promise<any> => {
+    const response = await api.post('/wallet/topup/initiate', { amount, provider: 'auto' });
+    return handleApiResponse(response);
+  },
+
+  initiateTopup: async (payload: { amount: number; currency?: string; country?: string; provider?: string }): Promise<any> => {
+    const response = await api.post('/wallet/topup/initiate', payload);
+    return handleApiResponse(response);
+  },
+
+  getTopupStatus: async (intentId: string): Promise<any> => {
+    const response = await api.get(`/wallet/topup/status/${intentId}`);
+    return handleApiResponse(response);
+  },
+
+  getTopupProviders: async (params: { currency?: string; country?: string } = {}): Promise<any> => {
+    const response = await api.get('/wallet/topup/providers', { params });
+    return handleApiResponse(response);
+  },
+
+  getUserEscrows: async (userId: string, role?: string): Promise<any> => {
+    const qs = role ? `?role=${encodeURIComponent(role)}` : '';
+    const response = await api.get(`/wallet/${userId}/escrows${qs}`);
+    return handleApiResponse(response);
+  },
+
+  adminFreezeWallet: async (userId: string, reason?: string): Promise<void> => {
+    await api.post(`/wallet/${userId}/freeze`, { reason }, { params: { role: 'admin' } });
+  },
+
+  adminUnfreezeWallet: async (userId: string): Promise<void> => {
+    await api.post(`/wallet/${userId}/unfreeze`, undefined, { params: { role: 'admin' } });
+  },
+
+  adminAdjustBalance: async (userId: string, amount: number, reason?: string): Promise<any> => {
+    const response = await api.post(`/wallet/${userId}/adjust`, { amount, reason }, { params: { role: 'admin' } });
+    return handleApiResponse(response);
+  },
+
+  adminReverseTransaction: async (transactionId: string, adminId?: string): Promise<void> => {
+    await api.post(`/wallet/transactions/${transactionId}/reverse`, { adminId }, { params: { role: 'admin' } });
+  }
+};

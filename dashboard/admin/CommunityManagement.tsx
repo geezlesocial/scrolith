@@ -35,19 +35,19 @@ const CommunityManagement = () => {
         setLogs(l);
     };
 
-    const toggleSetting = async (section: keyof CommunitySettings, key: string) => {
-        if (!settings) return;
-        // Deep copy to avoid mutation issues
-        const updated = JSON.parse(JSON.stringify(settings));
-        // Toggle the specific key in the specific section
-        if (updated[section]) {
-            updated[section][key] = !updated[section][key];
-        }
-        
+const toggleSetting = async (key: keyof CommunitySettings, value: boolean) => {
+    if (!settings) return;
+    
+    try {
+        // Use the new toggleSetting method from CommunityService
+        const updated = await CommunityService.toggleSetting(key, value);
         setSettings(updated);
-        await CommunityService.updateSettings(updated);
         showNotification('success', 'Updated', 'Setting changed successfully.');
-    };
+    } catch (error) {
+        console.error('Failed to update setting:', error);
+        showNotification('error', 'Error', 'Failed to update setting.');
+    }
+};
 
     return (
         <div className="space-y-6">
@@ -718,58 +718,107 @@ const SocialGraphView = () => (
 
 // --- SETTINGS PANEL ---
 
-const SettingsPanel = ({ settings, toggleSetting }: { settings: CommunitySettings, toggleSetting: (s: any, k: string) => void }) => (
-    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm max-w-4xl mx-auto">
-        <h3 className="font-bold text-lg text-gray-900 mb-6 flex items-center">
-            <Settings className="w-5 h-5 mr-2" /> Global Community Settings
-        </h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div>
-                <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Access Control</h4>
-                <div className="space-y-3">
-                    <Toggle label="Require Login to View" checked={settings.permissions?.requireApproval} onChange={() => toggleSetting('permissions', 'requireApproval')} />
-                    <Toggle label="Allow Guest Comments" checked={false} onChange={() => {}} /> 
-                </div>
-            </div>
+const SettingsPanel = ({ settings, toggleSetting }: { 
+    settings: CommunitySettings, 
+    toggleSetting: (key: keyof CommunitySettings, value: boolean) => void 
+}) => {
+    // Handle toggle for individual settings
+    const handleToggle = (key: keyof CommunitySettings) => {
+        const currentValue = settings[key];
+        if (typeof currentValue === 'boolean') {
+            toggleSetting(key, !currentValue);
+        }
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm max-w-4xl mx-auto">
+            <h3 className="font-bold text-lg text-gray-900 mb-6 flex items-center">
+                <Settings className="w-5 h-5 mr-2" /> Global Community Settings
+            </h3>
             
-            <div>
-                <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Content Policy</h4>
-                <div className="space-y-3">
-                    <Toggle label="Allow Media Uploads" checked={settings.permissions?.allowMedia} onChange={() => toggleSetting('permissions', 'allowMedia')} />
-                    <Toggle label="Enable Reposts" checked={true} onChange={() => {}} />
-                    <Toggle label="Allow External Links" checked={settings.permissions?.allowEmbeds} onChange={() => toggleSetting('permissions', 'allowEmbeds')} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div>
+                    <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Access Control</h4>
+                    <div className="space-y-3">
+                        <Toggle 
+                            label="Require Login to View" 
+                            checked={settings.requireLoginToView || false} 
+                            onChange={() => handleToggle('requireLoginToView')} 
+                        />
+                        <Toggle 
+                            label="Allow Guest Comments" 
+                            checked={settings.allowGuestComments || true} 
+                            onChange={() => handleToggle('allowGuestComments')} 
+                        />
+                    </div>
+                </div>
+                
+                <div>
+                    <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Content Policy</h4>
+                    <div className="space-y-3">
+                        <Toggle 
+                            label="Allow Media Uploads" 
+                            checked={settings.allowMediaUploads || true} 
+                            onChange={() => handleToggle('allowMediaUploads')} 
+                        />
+                        <Toggle 
+                            label="Enable Reposts" 
+                            checked={settings.enableReposts || true} 
+                            onChange={() => handleToggle('enableReposts')} 
+                        />
+                        <Toggle 
+                            label="Allow External Links" 
+                            checked={settings.allowExternalLinks || true} 
+                            onChange={() => handleToggle('allowExternalLinks')} 
+                        />
+                    </div>
+                </div>
+
+                <div>
+                    <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">AI Safety</h4>
+                    <div className="space-y-3">
+                        <Toggle 
+                            label="Auto-Moderate Content" 
+                            checked={settings.autoModerateContent || false} 
+                            onChange={() => handleToggle('autoModerateContent')} 
+                        />
+                        <Toggle 
+                            label="Sentiment Analysis" 
+                            checked={settings.sentimentAnalysis || true} 
+                            onChange={() => handleToggle('sentimentAnalysis')} 
+                        />
+                    </div>
+                </div>
+
+                <div>
+                    <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Modules</h4>
+                    <div className="space-y-3">
+                        <Toggle 
+                            label="Enable Clubs" 
+                            checked={settings.enableClubs || true} 
+                            onChange={() => handleToggle('enableClubs')} 
+                        />
+                        <Toggle 
+                            label="Enable Events" 
+                            checked={settings.enableEvents || true} 
+                            onChange={() => handleToggle('enableEvents')} 
+                        />
+                    </div>
                 </div>
             </div>
 
-            <div>
-                <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">AI Safety</h4>
-                <div className="space-y-3">
-                    <Toggle label="Auto-Moderate Content" checked={settings.ai?.moderationEnabled} onChange={() => toggleSetting('ai', 'moderationEnabled')} />
-                    <Toggle label="Sentiment Analysis" checked={settings.ai?.sentimentAnalysis} onChange={() => toggleSetting('ai', 'sentimentAnalysis')} />
-                </div>
-            </div>
-
-            <div>
-                <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Modules</h4>
-                <div className="space-y-3">
-                    <Toggle label="Enable Clubs" checked={settings.modules?.clubs} onChange={() => toggleSetting('modules', 'clubs')} />
-                    <Toggle label="Enable Events" checked={settings.modules?.events} onChange={() => toggleSetting('modules', 'events')} />
+            <div className="mt-8 pt-6 border-t border-gray-100 bg-yellow-50 p-4 rounded-lg flex items-start">
+                <AlertTriangle className="w-5 h-5 text-yellow-600 mr-3 flex-shrink-0 mt-0.5" />
+                <div>
+                    <h5 className="text-sm font-bold text-yellow-800">Sensitive Data Warning</h5>
+                    <p className="text-xs text-yellow-700 mt-1">
+                        Changing "Access Control" settings may expose user content to public search engines immediately.
+                    </p>
                 </div>
             </div>
         </div>
-
-        <div className="mt-8 pt-6 border-t border-gray-100 bg-yellow-50 p-4 rounded-lg flex items-start">
-            <AlertTriangle className="w-5 h-5 text-yellow-600 mr-3 flex-shrink-0 mt-0.5" />
-            <div>
-                <h5 className="text-sm font-bold text-yellow-800">Sensitive Data Warning</h5>
-                <p className="text-xs text-yellow-700 mt-1">
-                    Changing "Access Control" settings may expose user content to public search engines immediately.
-                </p>
-            </div>
-        </div>
-    </div>
-);
+    );
+};
 
 const Toggle = ({ label, checked, onChange }: { label: string, checked: boolean, onChange: () => void }) => (
     <div className="flex items-center justify-between">

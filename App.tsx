@@ -11,6 +11,7 @@ import { NotificationProvider } from './context/NotificationContext';
 import { FavoritesProvider } from './context/FavoritesContext';
 import { MessageProvider } from './context/MessageContext';
 import { UserProvider, useUser } from './context/UserContext';
+import { SocketProvider } from './context/SocketContext';
 import { Loader } from 'lucide-react';
 
 // Lazy Loaded Components
@@ -37,13 +38,13 @@ const BlogPost = React.lazy(() => import('./pages/BlogPost'));
 const StaticPage = React.lazy(() => import('./pages/StaticPage'));
 const Support = React.lazy(() => import('./pages/Support'));
 const AffiliateProgram = React.lazy(() => import('./pages/AffiliateProgram'));
-const Favorites = React.lazy(() => import('./pages/Favorites')); // NEW
+const Favorites = React.lazy(() => import('./pages/Favorites'));
 
 // Community Components
 const CommunityLayout = React.lazy(() => import('./community/CommunityLayout'));
 const CommunityHome = React.lazy(() => import('./community/CommunityHome'));
 const Forum = React.lazy(() => import('./community/Forum'));
-const ThreadDetail = React.lazy(() => import('./community/ThreadDetail')); // NEW
+const ThreadDetail = React.lazy(() => import('./community/ThreadDetail'));
 const Clubs = React.lazy(() => import('./community/Clubs'));
 const Events = React.lazy(() => import('./community/Events'));
 const Chat = React.lazy(() => import('./community/Chat'));
@@ -58,11 +59,13 @@ const AppContent = () => {
   // Dynamic Favicon Update
   useEffect(() => {
     if (settings?.faviconUrl) {
-      const link = document.querySelector("link[rel*='icon']") as HTMLLinkElement || document.createElement('link');
-      link.type = 'image/svg+xml';
-      link.rel = 'icon';
+      let link = document.querySelector("link[rel*='icon']") as HTMLLinkElement;
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        document.getElementsByTagName('head')[0].appendChild(link);
+      }
       link.href = settings.faviconUrl;
-      document.getElementsByTagName('head')[0].appendChild(link);
     }
   }, [settings?.faviconUrl]);
 
@@ -215,14 +218,40 @@ interface ProtectedRouteProps {
   allowedRoles?: UserRole[];
 }
 
+// Replace the ProtectedRoute component in App.tsx with this:
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
-  const { user, isAuthenticated } = useUser();
+  const { user, isAuthenticated, isLoading } = useUser();
+  const navigate = useNavigate();
+  const location = useLocation();
   
+  if (isLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto"></div>
+      </div>
+    );
+  }
+
   if (!isAuthenticated || !user) {
     return <Navigate to="/auth/login" />;
   }
   
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
+  if (allowedRoles && !allowedRoles.includes(user.role as UserRole)) {
+    // Redirect admin users to admin dashboard if they're accessing non-admin routes
+    if (user.role === UserRole.ADMIN && !location.pathname.startsWith('/admin')) {
+      navigate('/admin/dashboard');
+      return null;
+    }
+    // Redirect freelancers to freelancer dashboard
+    if (user.role === UserRole.FREELANCER) {
+      navigate('/freelancer/dashboard');
+      return null;
+    }
+    // Redirect employers to client dashboard
+    if (user.role === UserRole.EMPLOYER) {
+      navigate('/client/dashboard');
+      return null;
+    }
     return <Navigate to="/" />;
   }
   
@@ -235,16 +264,59 @@ function App() {
       <ContentProvider>
         <NotificationProvider>
           <CurrencyProvider>
-            <FavoritesProvider>
-              <MessageProvider>
-                <AppContent />
-              </MessageProvider>
-            </FavoritesProvider>
+            {/* Socket Provider must be INSIDE NotificationProvider and UserProvider as it consumes them */}
+            <SocketProvider>
+              <FavoritesProvider>
+                <MessageProvider>
+                  <AppContent />
+                </MessageProvider>
+              </FavoritesProvider>
+            </SocketProvider>
           </CurrencyProvider>
         </NotificationProvider>
       </ContentProvider>
     </UserProvider>
   );
 }
+
+// Add this component definition at the bottom of App.tsx (before the export)
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+  allowedRoles?: UserRole[];
+}
+
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
+  const { user, isAuthenticated, isLoading } = useUser();
+  const location = useLocation();
+  
+  if (isLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto"></div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !user) {
+    return <Navigate to="/auth/login" state={{ from: location }} replace />;
+  }
+  
+  // If allowedRoles is provided, check if user has the required role
+  if (allowedRoles && !allowedRoles.includes(user.role as UserRole)) {
+    // Redirect unauthorized users to appropriate dashboard
+    switch (user.role) {
+      case UserRole.ADMIN:
+        return <Navigate to="/admin/dashboard" replace />;
+      case UserRole.FREELANCER:
+        return <Navigate to="/freelancer/dashboard" replace />;
+      case UserRole.EMPLOYER:
+        return <Navigate to="/client/dashboard" replace />;
+      default:
+        return <Navigate to="/" replace />;
+    }
+  }
+  
+  return <>{children}</>;
+};
 
 export default App;

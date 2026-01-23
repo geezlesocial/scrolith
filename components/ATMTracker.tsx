@@ -66,6 +66,9 @@ const ATMTracker: React.FC<ATMTrackerProps> = ({ contract, onUpdate }) => {
     const handleStart = async () => {
         try {
             await ContractService.startTracking(contract.id);
+            const key = `atm_active_session_${contract.id}`;
+            const startTime = new Date().toISOString();
+            localStorage.setItem(key, JSON.stringify({ startTime, notes: note }));
             checkActiveSession();
             showNotification('success', 'Tracker Started', `Recording time for ${contract.title}`);
             if (onUpdate) onUpdate();

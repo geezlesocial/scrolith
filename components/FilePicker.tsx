@@ -74,7 +74,6 @@ const FilePicker: React.FC<FilePickerProps> = ({ isOpen, onClose, onSelect, acce
         return <FileText className="w-8 h-8 text-blue-500" />;
     };
 
-    // Use conditional rendering in JSX instead of early return to satisfy React Hook rules in all envs
     if (!isOpen) return null;
 
     return (

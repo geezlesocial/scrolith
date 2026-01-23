@@ -1,0 +1,2498 @@
+// C:\Projects\geezle\src\types.ts
+// Enhanced with consistent naming, union types, pagination, API responses, and dashboard types
+
+// ==================== ENUMS ====================
+export enum UserRole {
+  GUEST = 'guest',
+  FREELANCER = 'freelancer',
+  EMPLOYER = 'employer',
+  ADMIN = 'admin',
+  MODERATOR = 'moderator'
+}
+
+export enum TransactionType {
+  DEPOSIT = 'deposit',
+  WITHDRAWAL = 'withdrawal',
+  ESCROW_HOLD = 'escrow_hold',
+  ESCROW_RELEASE = 'escrow_release',
+  FEE = 'fee',
+  REFUND = 'refund',
+  ADJUSTMENT = 'adjustment',
+  TRANSFER = 'transfer',
+  REWARD = 'reward'
+}
+
+export enum EscrowStatus {
+  HELD = 'Funded',
+  RELEASED = 'Released',
+  REFUNDED = 'Refunded',
+  DISPUTED = 'Disputed'
+}
+
+export enum SkillLevel {
+  BEGINNER = 'Beginner',
+  INTERMEDIATE = 'Intermediate',
+  ADVANCED = 'Advanced',
+  EXPERT = 'Expert'
+}
+
+// ==================== TYPE UNIONS ====================
+export type UserStatus = 'active' | 'suspended' | 'inactive';
+export type KYCDocumentType = 'ID Card' | 'Passport' | 'Driving License';
+export type KYCDocumentStatus = 'Pending' | 'Approved' | 'Rejected';
+export type KYCStatus = 'none' | 'pending' | 'approved' | 'rejected';
+
+export type GigStatus = 'draft' | 'submitted' | 'active' | 'paused' | 'rejected' | 'archived' | 'under_review';
+export type JobStatus = 'active' | 'closed' | 'draft' | 'submitted' | 'under_review' | 'rejected' | 'archived';
+export type OrderStatus = 'Active' | 'Completed' | 'Delivered' | 'Cancelled';
+export type ContractStatus = 'active' | 'paused' | 'terminated' | 'completed';
+export type TimeEntryStatus = 'pending' | 'approved' | 'paid' | 'rejected';
+export type TicketStatus = 'Open' | 'In Review' | 'In Progress' | 'Waiting for User' | 'Resolved' | 'Closed';
+export type TicketPriority = 'Low' | 'Medium' | 'High' | 'Critical';
+export type ThreadStatus = 'open' | 'solved' | 'locked';
+
+export type PricingMode = 'packages' | 'milestones' | 'hourly' | 'fixed';
+export type RequirementType = 'text' | 'file';
+export type PaymentCycle = 'weekly' | 'bi-weekly' | 'monthly';
+export type JobType = 'Fixed Price' | 'Hourly' | 'Contract';
+export type ExperienceLevel = 'Entry' | 'Intermediate' | 'Expert';
+export type Visibility = 'public' | 'private' | 'invite';
+export type PageStatus = 'PUBLISHED' | 'DRAFT';
+export type BlogPostStatus = 'published' | 'draft' | 'scheduled';
+export type StaffStatus = 'active' | 'suspended' | 'inactive';
+export type AffiliateStatus = 'active' | 'inactive';
+export type SubscriberStatus = 'active' | 'verified' | 'pending' | 'unsubscribed';
+export type RiskLevel = 'Low' | 'Medium' | 'High' | 'Critical';
+export type SortOrder = 'asc' | 'desc';
+export type AnomalySeverity = 'info' | 'warning' | 'critical';
+
+export type AIModule = 'Support' | 'Payments' | 'Jobs' | 'Gigs' | 'KYC' | 'General';
+export type PaymentProviderId = 'stripe' | 'paypal' | 'paystack' | 'flutterwave' | 'payoneer' | 'paymongo' | 'monnify' | 'opay' | 'xendit' | 'dragonpay';
+export type ChannelType = 'public' | 'private' | 'club' | 'event';
+export type ChannelVisibility = 'public' | 'private';
+export type HomepageSectionType =
+  | 'hero'
+  | 'trust'
+  | 'categories'
+  | 'how_it_works'
+  | 'featured'
+  | 'cta'
+  | 'skill_matching'
+  | 'trending_opps'
+  | 'growth_dash'
+  | 'gig_creation'
+  | 'market_insights'
+  | 'project_brief_generator'
+  | 'top_pro_services'
+  | 'trust_security'
+  | 'popular_services'
+  | 'promo_banners'
+  | 'trust_value'
+  | 'video_feature'
+  | 'marketplace_tiles'
+  | 'guides_grid'
+  | 'made_on_geezle'
+  | 'footer_cta_strip';
+export type ContentBlockType = 'text' | 'heading' | 'image' | 'video' | 'quote' | 'code';
+export type MediaType = 'image' | 'video' | 'document';
+export type FileCategory = 'portfolio' | 'document' | 'verification' | 'chat';
+export type NotificationType = 'info' | 'success' | 'warning' | 'alert' | 'error';
+export type GcoinTransactionType = 'reward' | 'transfer' | 'conversion' | 'admin_adjustment';
+export type AdPlacement = 'feed' | 'sidebar' | 'forum_top';
+
+// Uploaded file type for Uploaded Files SSOT
+export interface UploadedFileSummary {
+  id: string;
+  url: string;
+  name: string;
+  type: MediaType | string;
+  size?: number;
+  uploadedAt?: string;
+  usedIn?: { type: string; id: string; label?: string }[];
+}
+
+// ==================== CORE USER TYPES ====================
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  username?: string;
+  avatar?: string;
+  isActive?: boolean; // Replaces status
+  status?: UserStatus; // Keep for compatibility if needed, but map from isActive
+  kycStatus?: KYCStatus; // Renamed from kyc_status
+  gcoinBalance?: number; // Renamed from gcoin_balance
+  joinDate?: string; // Renamed from join_date
+  country?: string;
+  location?: string;
+  followersCount?: number; // camelCase
+  followingCount?: number; // camelCase
+  profilePhotoFileId?: string; // camelCase
+
+  // Admin meta
+  meta?: {
+    lastLogin?: string; // camelCase
+    lastActive?: string;
+    loginCount?: number;
+    ipAddress?: string;
+    userAgent?: string;
+  };
+
+  flags?: {
+    isVerified?: boolean; // camelCase
+    isFeatured?: boolean;
+    isBanned?: boolean;
+    isSuspended?: boolean;
+    requiresKyc?: boolean;
+  };
+}
+
+export interface UserProfile {
+  user_id: string;
+  userId?: string;
+  title: string;
+  bio: string;
+  location: string;
+  languages: string[];
+  skills: string[];
+  hourly_rate: number;
+  hourlyRate?: number;
+  portfolio: PortfolioItem[];
+  experience: Experience[];
+  education: Education[];
+  certifications: Certification[];
+  intro_video_url?: string;
+  introVideoUrl?: string;
+  rating?: number;
+  completedJobs?: number;
+  responseRate?: number;
+  responseTime?: number;
+  profile_photo_file_id?: string;
+  profilePhotoFileId?: string;
+  avatar_url?: string;
+  avatarUrl?: string;
+}
+
+export interface UserSettings {
+  email_notifications: boolean;
+  in_app_notifications: boolean;
+  marketing_emails: boolean;
+  two_factor_enabled: boolean;
+  login_alerts: boolean;
+  // CamelCase aliases used in UI
+  emailNotifications?: boolean;
+  inAppNotifications?: boolean;
+  marketingEmails?: boolean;
+  twoFactorEnabled?: boolean;
+  loginAlerts?: boolean;
+}
+
+// ==================== PORTFOLIO & EXPERIENCE ====================
+export interface PortfolioItem {
+  id: string;
+  title: string;
+  description: string;
+  image_url: string;
+  link?: string;
+}
+
+export interface Experience {
+  id: string;
+  title: string;
+  company: string;
+  start_date: string;
+  end_date: string;
+  current: boolean;
+  description: string;
+  country?: string;
+}
+
+export interface Education {
+  id: string;
+  school: string;
+  degree: string;
+  field_of_study: string;
+  start_year: string;
+  end_year: string;
+  country?: string;
+}
+
+export interface Certification {
+  id: string;
+  name: string;
+  issuer: string;
+  issue_date: string;
+  is_verified: boolean;
+  credential_url?: string;
+}
+
+// ==================== GIG TYPES ====================
+export interface GigPackage {
+  name: string;
+  description: string;
+  deliveryDays: number; // camelCase
+  revisions: number;
+  price: number;
+  features: string[];
+}
+
+export interface GigFAQ {
+  id: string;
+  question: string;
+  answer: string;
+}
+
+export interface GigRequirement {
+  id: string;
+  question: string;
+  type: RequirementType;
+  required: boolean;
+}
+
+export interface GigExtra {
+  id: string;
+  title: string;
+  description: string;
+  price: number;
+  additional_days: number;
+  applies_to: 'basic' | 'standard' | 'premium' | 'all';
+}
+
+export interface GigMilestone {
+  title: string;
+  duration: string;
+  price: number;
+}
+
+export interface Gig {
+  id: string;
+  title: string;
+  freelancerId?: string; // camelCase
+  freelancerName: string; // camelCase
+  freelancerAvatar: string; // camelCase
+  price: number;
+  rating: number;
+  reviews: number;
+  image: string;
+  images?: string[];
+  videos?: string[];
+  documents?: string[];
+  category: string;
+  subcategory?: string;
+  status: GigStatus;
+  adminStatus?: 'pending' | 'approved' | 'rejected'; // camelCase
+  isActive?: boolean; // camelCase
+  isVisible?: boolean; // camelCase
+  description: string;
+  packages: GigPackage[];
+  pricingMode?: PricingMode; // camelCase
+  faqs?: GigFAQ[];
+  requirements?: GigRequirement[];
+  extras?: GigExtra[];
+  milestones?: GigMilestone[];
+  createdAt?: string; // camelCase
+  avgResponseTime?: string; // camelCase
+  memberSince?: string; // camelCase
+  languages?: string[];
+  tags?: string[];
+  rankingScore?: number; // camelCase
+  views?: number;
+  clicks?: number;
+  ordersCount?: number; // camelCase
+}
+
+// ==================== JOB TYPES ====================
+export interface Job {
+  id: string;
+  title: string;
+  clientName: string; // camelCase
+  budget: string;
+  type: JobType;
+  postedTime: string; // camelCase
+  experience_level?: ExperienceLevel;
+  description: string;
+  tags: string[];
+  proposals: number;
+  status: JobStatus;
+  isActive?: boolean; // camelCase
+  isVisible?: boolean; // camelCase
+  category: string;
+  subcategory?: string;
+  experienceLevel?: ExperienceLevel; // camelCase
+  visibility?: Visibility;
+  duration?: string;
+  attachments?: string[];
+  isFeatured?: boolean; // camelCase
+  adminStatus?: 'pending' | 'approved' | 'rejected'; // camelCase
+  meta?: any;
+}
+
+// ==================== CONTRACT & TIME TRACKING ====================
+export interface Contract {
+  id: string;
+  title: string;
+  client_id?: string;
+  clientId?: string;
+  client_name?: string;
+  clientName?: string;
+  freelancer_id?: string;
+  freelancerId?: string;
+  freelancer_name?: string;
+  freelancerName?: string;
+  type: 'fixed' | 'hourly';
+  hourly_rate?: number;
+  hourlyRate?: number;
+  payment_cycle: PaymentCycle;
+  status: ContractStatus;
+  total_hours_logged: number;
+  total_paid: number;
+  start_date: string;
+  description: string;
+  hours_today?: number;
+  hours_this_week?: number;
+  earnings_pending?: number;
+  active_session_id?: string;
+}
+
+export interface TimeEntry {
+  id: string;
+  contract_id?: string;
+  contractId?: string;
+  freelancer_id?: string;
+  freelancerId?: string;
+  start_time?: string;
+  startTime?: string;
+  end_time?: string;
+  endTime?: string;
+  duration_minutes?: number;
+  durationMinutes?: number;
+  description: string;
+  status: TimeEntryStatus;
+  earnings?: number;
+  screenshots?: string[];
+  activity_score?: number;
+}
+
+export interface TimeTrackerSession {
+  id: string;
+  contract_id: string;
+  freelancer_id: string;
+  freelancer_name: string;
+  start_time: string;
+  end_time?: string;
+  duration: number; // in minutes
+  status: 'active' | 'paused' | 'completed' | 'disputed';
+  screenshots: {
+    id: string;
+    timestamp: string;
+    url: string;
+    activity_score?: number;
+    is_verified?: boolean;
+  }[];
+  activity_logs: {
+    timestamp: string;
+    type: 'mouse' | 'keyboard' | 'focus' | 'screenshot';
+    details?: any;
+  }[];
+  earnings?: number;
+  hourly_rate?: number;
+}
+
+// ==================== ORDER & ESCROW ====================
+export interface Order {
+  id: string;
+  gig_title?: string;
+  gigTitle?: string;
+  client_id?: string;
+  clientId?: string;
+  client_name?: string;
+  clientName?: string;
+  freelancer_id?: string;
+  freelancerId?: string;
+  freelancer_name?: string;
+  freelancerName?: string;
+  amount: number;
+  status: OrderStatus;
+  escrow_status: EscrowStatus;
+  date_ordered: string;
+  due_date: string;
+}
+
+export interface Escrow {
+  id: string;
+  order_id: string;
+  client_id: string;
+  client_name: string;
+  freelancer_id: string;
+  freelancer_name: string;
+  amount: number;
+  commission: number;
+  status: EscrowStatus;
+  funded_at: string;
+  released_at?: string;
+}
+
+// Permissive aliases: add index signatures to core interfaces so both
+// snake_case and camelCase shapes (and extra backend fields) are accepted.
+// These redeclarations merge with the above interfaces and are intentionally
+// permissive to reduce type errors during the migration phase.
+// Minimal permissive aliases for missing types (avoid duplicating existing declarations)
+export type Category = any;
+export interface ListingCategory { [key: string]: any }
+export interface Recommendation { [key: string]: any }
+export interface PaymentGateway { [key: string]: any }
+export interface FraudAlert { [key: string]: any }
+export interface FraudLog { [key: string]: any }
+// NOTE: Detailed `ApiResponse` is declared lower in this file; remove this permissive duplicate
+export interface Plan { [key: string]: any }
+export interface AdminDashboardStats { [key: string]: any }
+export interface RecommendationItem { [key: string]: any }
+export interface PaymentMethod { [key: string]: any }
+
+export interface EscrowAdvice {
+  escrow_id?: string;
+  recommendation?: 'Release' | 'Hold' | 'Partial Release';
+  confidence?: number;
+  risk_warnings?: string[];
+  riskWarnings?: string[];
+  milestone_progress?: number;
+  milestoneProgress?: number;
+  // camelCase alias
+  escrowId?: string;
+}
+
+// ==================== WALLET & TRANSACTIONS ====================
+export interface Wallet {
+  id: string;
+  user_id: string;
+  available_balance: number;
+  pending_clearance: number;
+  escrow_balance: number;
+  frozen: boolean;
+  currency: string;
+  updated_at: string;
+}
+
+export interface WalletTransaction {
+  id: string;
+  wallet_id: string;
+  walletId?: string;
+  type: TransactionType;
+  amount: number;
+  status: 'cleared' | 'pending' | 'reversed' | 'failed';
+  description: string;
+  reference_id?: string;
+  // camelCase alias
+  reference?: string;
+  created_at: string;
+  createdAt?: string;
+  admin_note?: string;
+}
+
+// ==================== GCOIN SYSTEM ====================
+export interface GcoinWallet {
+  user_id?: string;
+  userId?: string;
+  recipient_id?: string;
+  recipientId?: string;
+  balance?: number;
+  lifetime_earned?: number;
+  lifetimeEarned?: number;
+  transactions?: GcoinTransaction[];
+  status?: 'active' | 'frozen';
+  fraud_score?: number;
+  fraudScore?: number;
+  updated_at?: string;
+  updatedAt?: string;
+  // camelCase aliases
+  // (aliases above)
+}
+
+export interface GcoinTransaction {
+  id: string;
+  user_id?: string;
+  userId?: string;
+  user_name?: string;
+  userName?: string;
+  amount?: number;
+  type: GcoinTransactionType;
+  reason: string;
+  reference_id?: string;
+  recipient_id?: string;
+  timestamp: string;
+  status: 'approved' | 'pending' | 'rejected';
+  source?: string;
+  // camelCase aliases
+  referenceId?: string;
+  recipientId?: string;
+  timeStamp?: string;
+}
+
+export interface GcoinSettings {
+  conversion_rate: number;
+  min_withdrawal?: number;
+  conversion_enabled: boolean;
+  user_transfers_enabled: boolean;
+  // camelCase alias
+  conversionRate?: number;
+  minWithdrawal?: number;
+  conversionEnabled?: boolean;
+  userTransfersEnabled?: boolean;
+}
+
+export interface GcoinConversionRequest {
+  id: string;
+  user_id: string;
+  user_name: string;
+  amount_gcoin: number;
+  amount_fiat: number;
+  status: 'pending' | 'approved' | 'rejected';
+  requested_at: string;
+}
+
+// ==================== CATEGORIES & LISTINGS ====================
+export interface CategorySub {
+  id: string;
+  name: string;
+  slug: string;
+  status: 'active' | 'hidden';
+  sortOrder: number; // camelCase
+  icon?: string;
+}
+
+export interface ListingCategory {
+  id: string;
+  name: string;
+  slug: string;
+  type: 'gig' | 'job';
+  status: 'active' | 'hidden';
+  count: number;
+  sortOrder: number; // camelCase
+  subcategories: CategorySub[];
+  description?: string;
+  logo?: string;
+  image?: string;
+}
+
+export interface PageCategory {
+  id: string;
+  name: string;
+  slug: string;
+  count: number;
+  created_at: string;
+  updated_at: string;
+  status: 'active' | 'hidden';
+  description?: string;
+  image?: string;
+}
+
+export interface BlogCategory {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  status: 'active' | 'hidden';
+  count: number;
+}
+
+export interface AuthPageBranding {
+  show_logo: boolean;
+  logo_url: string;
+  logo_file_id?: string;
+  logo_link_url: string;
+}
+
+export interface LoginPageContent {
+  headline: string;
+  subheadline?: string;
+  email_placeholder?: string;
+  password_placeholder?: string;
+  submit_label: string;
+  footer_text?: string;
+  footer_link_label?: string;
+  footer_link_url?: string;
+}
+
+export interface SignupPageContent {
+  headline: string;
+  subheadline?: string;
+  submit_label: string;
+  terms_url?: string;
+  privacy_url?: string;
+  footer_text?: string;
+  footer_link_label?: string;
+  footer_link_url?: string;
+}
+
+export interface AuthPagesConfig {
+  id: string;
+  branding: AuthPageBranding;
+  login: LoginPageContent;
+  signup: SignupPageContent;
+  updated_at?: string;
+}
+
+// ==================== CURRENCY ====================
+export interface Currency {
+  id?: string;
+  code: string;
+  name: string;
+  symbol: string;
+  rate: number;
+  is_active?: boolean;
+  // camelCase aliases
+  isActive?: boolean;
+  isDefault?: boolean;
+  is_default?: boolean;
+}
+
+// ==================== AFFILIATE & MARKETING ====================
+export interface Affiliate {
+  id: string;
+  user_id?: string;
+  userId?: string;
+  user_name?: string;
+  userName?: string;
+  code: string;
+  earnings: number;
+  referrals: number;
+  status: AffiliateStatus;
+  commission_rate?: number;
+  commissionRate?: number;
+  created_at?: string;
+  createdAt?: string;
+}
+
+export interface Coupon {
+  id: string;
+  code: string;
+  discount_type?: 'percentage' | 'fixed';
+  discountType?: 'percentage' | 'fixed';
+  value?: number;
+  usage_limit?: number;
+  usageLimit?: number;
+  used_count?: number;
+  usedCount?: number;
+  expiry_date?: string;
+  expiryDate?: string;
+  is_active?: boolean;
+  isActive?: boolean;
+}
+
+export interface MarketingCampaign {
+  id: string;
+  name: string;
+  type: 'email' | 'notification' | 'sms';
+  status: 'draft' | 'scheduled' | 'active' | 'completed';
+  target_audience?: 'all' | 'freelancers' | 'employers' | 'inactive';
+  targetAudience?: 'all' | 'freelancers' | 'employers' | 'inactive';
+  stats?: { sent: number; opened: number; clicked: number };
+  created_at?: string;
+  createdAt?: string;
+  scheduled_at?: string;
+  scheduledAt?: string;
+  subject?: string;
+  content?: string;
+}
+
+export interface ReferralIntelligence {
+  top_referrers: { user_id: string; name: string; total_referrals: number; quality_score: number; k_factor: number }[];
+  fraud_alerts: { referrer_id: string; reason: string; severity: string }[];
+  campaign_suggestions: string[];
+}
+
+export interface AdCampaign {
+  id: string;
+  title: string;
+  client_name: string;
+  creative_url: string;
+  target_url: string;
+  placement: AdPlacement;
+  target_roles: UserRole[];
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  start_date: string;
+  end_date: string;
+  status: 'active' | 'paused' | 'draft' | 'completed';
+}
+
+// ==================== MESSAGING ====================
+export interface Conversation {
+  id: string;
+  type: 'direct' | 'group';
+  participants: ({ id: string; name: string; avatar: string; is_online?: boolean; isOnline?: boolean; role?: string })[];
+  last_message?: string;
+  lastMessage?: string;
+  last_message_at?: string;
+  lastMessageAt?: string;
+  unread_count?: number;
+  unreadCount?: number;
+  messages: Message[];
+  // allow other shapes from backend or camelCase/cross-formed payloads
+  [key: string]: any;
+}
+
+export interface MessageReaction {
+  user_id: string;
+  emoji: string;
+  timestamp: string;
+}
+
+export interface Message {
+  id: string;
+  conversation_id?: string;
+  conversationId?: string;
+  sender_id?: string;
+  senderId?: string;
+  sender_role?: string;
+  senderRole?: string;
+  receiver_id?: string;
+  receiverId?: string;
+  text: string;
+  timestamp: string;
+  sentAt?: string;
+  is_read?: boolean;
+  isRead?: boolean;
+  reactions?: MessageReaction[];
+  ai_flagged?: boolean;
+  aiFlagged?: boolean;
+  ai_reason?: string;
+  aiReason?: string;
+  // allow extra properties from backend variations
+  [key: string]: any;
+}
+
+// ==================== KYC VERIFICATION ====================
+export interface KYCDocument {
+  id: string;
+  user_id?: string;
+  userId?: string;
+  user_name?: string;
+  userName?: string;
+  full_name?: string;
+  fullName?: string;
+  address?: string;
+  mobile?: string;
+  dob?: string;
+  nationality?: string;
+  type?: KYCDocumentType;
+  status?: KYCDocumentStatus;
+  date_submitted?: string;
+  dateSubmitted?: string;
+  front_image?: string;
+  frontImage?: string;
+  back_image?: string;
+  backImage?: string;
+  admin_notes?: string;
+  adminNotes?: string;
+}
+
+// ==================== PLATFORM SETTINGS ====================
+export interface PlatformSettings {
+  site_name: string;
+  tagline: string;
+  logo_url: string;
+  logo_file_id?: string;
+  favicon_url: string;
+  favicon_file_id?: string;
+  admin_email: string;
+  support_email: string;
+  footer_about_title: string;
+  footer_about_text: string;
+  footer_copyright: string;
+  footer_links: any[];
+  social_links: any[];
+  system?: SystemConfig;
+
+  // Feature flags
+  features?: {
+    community_enabled: boolean;
+    blog_enabled: boolean;
+    affiliate_enabled: boolean;
+    gcoin_enabled: boolean;
+    time_tracker_enabled: boolean;
+    ai_enabled: boolean;
+    kyc_enabled: boolean;
+  };
+
+  // Platform limits
+  limits?: {
+    max_file_size: number;
+    max_gigs_per_user: number;
+    max_jobs_per_user: number;
+    max_portfolio_items: number;
+  };
+}
+
+export interface PlatformSettingsExtended extends PlatformSettings {
+  // Community feature flags
+  require_login_to_view?: boolean;
+  allow_guest_comments?: boolean;
+  allow_media_uploads?: boolean;
+  enable_reposts?: boolean;
+  allow_external_links?: boolean;
+  auto_moderate_content?: boolean;
+  sentiment_analysis?: boolean;
+  enable_clubs?: boolean;
+  enable_events?: boolean;
+}
+
+export interface SystemConfig {
+  maintenance_mode: boolean;
+  registrations_enabled: boolean;
+  kyc_enforced: boolean;
+  admin_2fa: boolean;
+  currency?: {
+    auto_exchange_rate: boolean;
+    base_currency: string;
+    provider: 'openexchangerates' | 'fixer' | 'mock';
+    api_key?: string;
+  };
+  storage?: {
+    driver: string;
+    s3: { access_key_id: string; secret_access_key: string; region: string; bucket: string };
+    backblaze: { access_key_id: string; secret_access_key: string; region: string; bucket: string };
+  };
+  cache?: {
+    driver: string;
+    redis: { host: string; port: number; password: string };
+  };
+  email?: EmailProviderConfig;
+  regional_compliance?: ComplianceConfig[];
+  // Backward-compatible wrapper used by some UI modules
+  system?: any;
+}
+
+export interface ComplianceConfig {
+  region: string;
+  code: string;
+  gdpr_enabled: boolean;
+  data_residency: string;
+  kyc_provider: string;
+  tax_engine: string;
+  active: boolean;
+}
+
+export interface EmailProviderConfig {
+  provider: 'smtp' | 'ses' | 'sendgrid' | 'mailgun';
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  from_name?: string;
+  fromName?: string;
+  from_email?: string;
+  fromEmail?: string;
+}
+
+// ==================== CMS & CONTENT ====================
+export interface ContentBlock {
+  id: string;
+  type: ContentBlockType;
+  content: string;
+  settings?: any;
+}
+
+export interface BlogPost {
+  id: string;
+  title: string;
+  slug: string;
+  content: string;
+  blocks: ContentBlock[];
+  excerpt: string;
+  short_description?: string;
+  shortDescription?: string;
+  featured_image: string;
+  // camelCase aliases (compat)
+  featuredImage?: string;
+  categoryId?: string;
+  categoryName?: string;
+  allowComments?: boolean;
+  isFeatured?: boolean;
+  status: BlogPostStatus;
+  visibility: Visibility;
+  author_name: string;
+  category_id: string;
+  category_name: string;
+  tags: string[];
+  views: number;
+  seo: ({ meta_title: string; meta_description: string; meta_keywords?: string[]; no_index?: boolean } & {
+    metaTitle?: string;
+    metaDescription?: string;
+    metaKeywords?: string[];
+    noIndex?: boolean;
+  });
+  allow_comments: boolean;
+  is_featured: boolean;
+  created_at: string;
+  updated_at: string;
+  // camelCase compatibility
+  authorName?: string;
+  updatedAt?: string;
+  scheduled_at?: string;
+  scheduledAt?: string;
+}
+
+export interface StaticPage {
+  id: string;
+  title: string;
+  slug: string;
+  content: string;
+  blocks: ContentBlock[];
+  status: PageStatus;
+  visibility: Visibility;
+  updated_at: string;
+  category_id: string;
+  seo?: { meta_title: string; meta_description: string; meta_keywords?: string[] };
+  images?: string[];
+  videos?: string[];
+}
+
+export interface BlogSettings {
+  page_title: string;
+  meta_title: string;
+  meta_description: string;
+  banner_image: string;
+  posts_per_page: number;
+  default_category: string;
+  show_author: boolean;
+  show_date: boolean;
+}
+
+// ==================== HOMEPAGE CONTENT ====================
+export interface LandingContent {
+  hero: HeroContent;
+  stats: { value: string; label: string }[];
+  how_it_works: HowItWorksContent;
+  why_choose: any;
+  testimonials: any[];
+  cta: CTAContent;
+}
+
+export interface HeroContent {
+  headline: string;
+  subheadline: string;
+  primary_cta_text: string;
+  primary_cta_link: string;
+  secondary_cta_text: string;
+  secondary_cta_link: string;
+  background_image: string;
+  show_trust_badges?: boolean;
+  search_placeholder?: string;
+  trusted_brands?: {
+    enabled: boolean;
+    title?: string;
+    logos?: { id: string; src: string; alt?: string }[];
+  };
+  quick_tags?: { id: string; label: string; url: string }[];
+}
+
+export interface HowItWorksContent {
+  show_video: boolean;
+  employer_steps: { icon: string; title: string; description: string }[];
+  freelancer_steps: { icon: string; title: string; description: string }[];
+}
+
+export interface CTAContent {
+  headline: string;
+  subheadline: string;
+  button_text: string;
+  button_link: string;
+}
+
+export interface TrustContent {
+  stats: { value: string; label: string }[];
+}
+
+export interface CategoriesContent {
+  show_icons: boolean;
+  view_more_link: string;
+}
+
+export interface FeaturedContent {
+  source: 'gigs' | 'jobs';
+  count: number;
+  layout?: 'grid' | 'carousel';
+  auto_rotate?: boolean;
+}
+
+export interface SkillMatchingContent {
+  // Add specific fields if needed
+}
+
+export interface TrendingOppsContent {
+  title?: string;
+}
+
+export interface GrowthDashContent {
+  tips?: string[];
+}
+
+export interface GigCreationContent {
+  headline?: string;
+  subheadline?: string;
+  button_text?: string;
+}
+
+export interface MarketInsightsContent {
+  title?: string;
+  regions?: string[];
+}
+
+export interface ProjectBriefContent {
+  title?: string;
+  subtitle?: string;
+}
+
+export interface ProjectBrief {
+  id: string;
+  user_id: string;
+  prompt: string;
+  title: string;
+  category: string;
+  budget_range: string;
+  timeline: string;
+  description: string;
+  required_skills: string[];
+  screening_questions: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TopProServicesContent {
+  title?: string;
+  count?: number;
+}
+
+export interface TrustSecurityContent {
+  title?: string;
+  features?: { icon: string; title: string; description: string }[];
+}
+
+export interface PopularServicesContent {
+  title?: string;
+  subtitle?: string;
+  items?: {
+    id?: string;
+    title?: string;
+    subtitle?: string;
+    image?: string;
+    url?: string;
+    badge?: string;
+    meta?: string;
+    price?: string;
+    rating?: string;
+  }[];
+}
+
+export interface PromoBannersContent {
+  title?: string;
+  items?: {
+    id?: string;
+    heading?: string;
+    body?: string;
+    ctaLabel?: string;
+    ctaUrl?: string;
+    image?: string;
+    background?: string;
+    textColor?: string;
+    imagePosition?: 'left' | 'right';
+  }[];
+}
+
+export interface TrustValueContent {
+  title?: string;
+  subtitle?: string;
+  items?: { id?: string; title?: string; description?: string; icon?: string }[];
+}
+
+export interface VideoFeatureContent {
+  eyebrow?: string;
+  title?: string;
+  subtitle?: string;
+  videoUrl?: string;
+  poster?: string;
+  ctaLabel?: string;
+  ctaUrl?: string;
+}
+
+export interface MarketplaceTilesContent {
+  title?: string;
+  subtitle?: string;
+  items?: {
+    id?: string;
+    title?: string;
+    subtitle?: string;
+    icon?: string;
+    image?: string;
+    url?: string;
+    badge?: string;
+    background?: string;
+    textColor?: string;
+  }[];
+}
+
+export interface GuidesGridContent {
+  title?: string;
+  subtitle?: string;
+  items?: {
+    id?: string;
+    title?: string;
+    excerpt?: string;
+    image?: string;
+    url?: string;
+    category?: string;
+  }[];
+}
+
+export interface MadeOnGeezleContent {
+  title?: string;
+  subtitle?: string;
+  items?: { id?: string; title?: string; image?: string; url?: string }[];
+}
+
+export interface FooterCtaStripContent {
+  title?: string;
+  subtitle?: string;
+  ctaLabel?: string;
+  ctaUrl?: string;
+  secondaryCtaLabel?: string;
+  secondaryCtaUrl?: string;
+  background?: string;
+  textColor?: string;
+}
+
+export interface HomepageSection {
+  id: string;
+  type: HomepageSectionType;
+  name: string;
+  isActive: boolean; // camelCase
+  position: number;
+  content: any;
+  style?: any;
+  startAt?: string; // camelCase
+  endAt?: string; // camelCase
+  targeting?: { roles: UserRole[] };
+  abTestId?: string; // camelCase
+}
+
+export interface ABTest {
+  id: string;
+  name: string;
+  section_id: string;
+  variants: any[];
+  traffic_split: number;
+  status: 'running' | 'paused' | 'completed';
+  metrics: { views: number; conversions: number };
+  created_at: string;
+}
+
+export interface HomepageTemplate {
+  id: string;
+  name: string;
+  type: HomepageSectionType;
+  content: any;
+  style: any;
+}
+
+export interface HomepageVersion {
+  id: string;
+  created_at: string;
+  created_by: string;
+  snapshot: HomepageSection[];
+  description: string;
+}
+
+export interface HomepageAnalytics {
+  views: number;
+  cta_clicks: number;
+  bounce_rate: number;
+  avg_time_on_page: number;
+  device_breakdown: { desktop: number; mobile: number; tablet: number };
+  section_engagement: { name: string; clicks: number; views: number }[];
+}
+
+// ==================== HEADER & NAVIGATION ====================
+export interface HeaderConfig {
+  id: string;
+  home_url: string;
+  variant: 'light' | 'dark';
+  search_enabled: boolean;
+  search_mode: 'keyword' | 'semantic';
+  logo_url: string;
+  logo_file_id?: string;
+  favicon_url: string;
+  favicon_file_id?: string;
+  navigation: NavItem[];
+  actions: { notifications: boolean; messages: boolean; orders: boolean; lists: boolean; switch_selling: boolean; profile: boolean };
+  profile_menu: NavItem[];
+  profile_menu_group_labels?: { primary?: string; business_tools?: string; utilities?: string };
+  guest_primary_dropdown?: NavDropdown;
+  guest_explore_dropdown?: NavDropdown;
+  guest_ctas?: NavItem[];
+  role_switch?: RoleSwitchConfig;
+  guestPrimaryDropdown?: NavDropdown;
+  guestExploreDropdown?: NavDropdown;
+  guestCtas?: NavItem[];
+  roleSwitch?: RoleSwitchConfig;
+}
+
+export interface NavItem {
+  id: string;
+  label: string;
+  url: string;
+  visibility: UserRole[];
+  icon?: string;
+  group?: 'primary' | 'business_tools' | 'utilities' | string;
+  type?: 'link' | 'currency_switcher' | 'sign_out';
+  description?: string;
+}
+
+export interface NavDropdown {
+  id: string;
+  label: string;
+  items: NavItem[];
+  visibility?: UserRole[];
+  description?: string;
+}
+
+export interface RoleSwitchConfig {
+  buyer_label: string;
+  buyer_url: string;
+  seller_label: string;
+  seller_url: string;
+  visibility?: UserRole[];
+}
+
+export interface FooterConfig {
+  id: string;
+  description: string;
+  copyright: string;
+  columns: { id: string; title: string; links: { id: string; label: string; url: string; visibility: UserRole[]; type: 'internal' | 'external' }[] }[];
+  contact: { admin_email: string; support_email: string; ticket_route: string };
+  socials: { id: string; platform: string; url: string; enabled: boolean; icon?: string }[];
+  logo_url?: string;
+}
+
+export interface HomeSlide {
+  id: string;
+  mediaType: 'image' | 'video'; // camelCase
+  mediaUrl: string; // camelCase
+  title?: string;
+  subtitle?: string;
+  redirectUrl?: string; // camelCase
+  roleVisibility: UserRole[]; // camelCase
+  sortOrder: number; // camelCase
+  isActive: boolean; // camelCase
+  createdAt: string; // camelCase
+  updatedAt: string; // camelCase
+  backgroundColor?: string; // camelCase
+  fileId?: string; // camelCase
+}
+
+export interface TrendingConfig {
+  id: string;
+  enabled: boolean;
+  title: string;
+  category_ids: string[];
+  scroll_behavior: 'manual' | 'auto';
+  auto_slide_interval: number;
+  visibility: UserRole[];
+}
+
+export interface AffiliatePageContent {
+  // Support both snake_case and camelCase shapes returned by different services
+  hero_title?: string;
+  hero_subtitle?: string;
+  hero_button_text?: string;
+
+  heroTitle?: string;
+  heroSubtitle?: string;
+  heroButtonText?: string;
+
+  benefits?: { title: string; description: string; icon?: string }[];
+}
+
+export interface ActivityConfig {
+  icons: NavIconConfig[];
+  help_menu: HelpLink[];
+  helpMenu?: HelpLink[];
+  design: {
+    icon_style?: 'outline' | 'filled';
+    icon_size?: number;
+    badge_color?: string;
+    show_badges?: boolean;
+    // camelCase aliases
+    iconStyle?: 'outline' | 'filled';
+    iconSize?: number;
+    badgeColor?: string;
+    showBadges?: boolean;
+  };
+}
+
+export interface NavIconConfig {
+  id: string;
+  type: 'notifications' | 'messages' | 'favorites' | 'help';
+  label: string;
+  is_enabled: boolean;
+  show_label: boolean;
+  sort_order: number;
+  roles: UserRole[];
+  url?: string;
+  link?: string;
+  href?: string;
+}
+
+export interface HelpLink {
+  id: string;
+  label: string;
+  url: string;
+  target: '_self' | '_blank';
+  is_enabled: boolean;
+}
+
+export interface HeroSearchConfig {
+  id?: string;
+  // Support both snake_case and camelCase
+  headline?: string;
+  subheadline?: string;
+  search_placeholder?: string;
+  searchPlaceholder?: string;
+  search_size?: 'normal' | 'large' | 'xl';
+  searchSize?: 'normal' | 'large' | 'xl';
+  search_button_label?: string;
+  searchButtonLabel?: string;
+  search_results_url?: string;
+  searchResultsUrl?: string;
+  search_button_aria_label?: string;
+  searchButtonAriaLabel?: string;
+  ai_badge_label?: string;
+  aiBadgeLabel?: string;
+  ai_badge_description?: string;
+  aiBadgeDescription?: string;
+  quick_tags?: { id: string; label: string; url: string; color?: string; bgColor?: string }[];
+  quickTags?: { id: string; label: string; url: string; color?: string; bgColor?: string }[];
+  trusted_brands?: {
+    enabled: boolean;
+    is_enabled?: boolean;
+    title: string;
+    logos: { id: string; src: string; alt: string; url?: string; clickable?: boolean }[];
+  };
+  trustedBrands?: {
+    enabled: boolean;
+    is_enabled?: boolean;
+    title: string;
+    logos: { id: string; src: string; alt: string; url?: string; clickable?: boolean }[];
+  };
+  value_prop?: {
+    enabled: boolean;
+    heading: string;
+    badges: { id: string; label: string; icon: string }[];
+    primaryCta?: { label: string; url: string };
+    secondaryCta?: { label: string; url: string };
+  };
+  valueProp?: {
+    enabled: boolean;
+    heading: string;
+    badges: { id: string; label: string; icon: string }[];
+    primaryCta?: { label: string; url: string };
+    secondaryCta?: { label: string; url: string };
+  };
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// ==================== MEDIA & FILES ====================
+export interface Attachment {
+  id: string;
+  name: string;
+  url: string;
+  type: MediaType;
+  size: number;
+}
+
+export interface MediaItem {
+  id: string;
+  name: string;
+  url: string;
+  type: MediaType;
+  size: number;
+  created_at: string;
+}
+
+export interface UploadedFile {
+  id: string;
+  fileId?: string;
+  user_id: string;
+  owner_role?: string;
+  owner_id?: string;
+  name: string;
+  type: MediaType | string;
+  size: number;
+  url: string;
+  category: FileCategory;
+  created_at: string;
+  storage_key?: string;
+  visibility?: 'public' | 'private';
+  mime_type?: string;
+  usedIn?: { type: string; id: string; label?: string }[];
+}
+
+// ==================== AI & INTELLIGENCE ====================
+export interface SkillRecommendation {
+  skill: string;
+  demand_growth: number;
+  income_uplift: number;
+  difficulty: string;
+  reason: string;
+}
+
+export interface EnterpriseHiringInsight {
+  employer_id?: string;
+  employerId?: string;
+  shortlisted_candidates?: ({ id: string; name: string; fit_score?: number; risk_score?: number; cost_efficiency?: string; fitScore?: number; riskScore?: number; costEfficiency?: string })[];
+  shortlistedCandidates?: ({ id: string; name: string; fit_score?: number; risk_score?: number; cost_efficiency?: string; fitScore?: number; riskScore?: number; costEfficiency?: string })[];
+  team_gaps: string[];
+  teamGaps?: string[];
+  market_position: string;
+  budget_optimization: string;
+}
+
+export interface BudgetAdvice {
+  recommended_range: string;
+  success_probability?: number;
+  successProbability?: number;
+  market_comparison?: string;
+  marketComparison?: string;
+  optimization_tips?: string[];
+  optimizationTips?: string[];
+}
+
+export interface TrustScore {
+  user_id?: string;
+  userId?: string;
+  overall_score?: number;
+  overallScore?: number;
+  reliability?: number;
+  fairness?: number;
+  professionalism?: number;
+  trend?: 'up' | 'down' | 'stable';
+  risk_indicators?: string[];
+  riskIndicators?: string[];
+  history?: any[];
+}
+
+export interface PricingAdvice {
+  min: number;
+  optimal: number;
+  max: number;
+  confidence: number;
+  reasoning: string;
+}
+
+export interface AIAbuseReport {
+  user_id: string;
+  user_name: string;
+  message: string;
+  reason: string;
+  timestamp: string;
+  action_taken: string;
+  severity: string;
+}
+
+export interface AIPrompt {
+  id: string;
+  module: AIModule;
+  role: string;
+  system_prompt: string;
+  enabled: boolean;
+  updated_at: string;
+  updated_by: string;
+  version: number;
+}
+
+export interface AIConversationLog {
+  id: string;
+  user_id: string;
+  user_role: string;
+  user_name: string;
+  timestamp: string;
+  messages: { sender: 'user' | 'agent'; text: string; timestamp: string }[];
+  source: 'AI' | 'STATIC';
+  status: 'active' | 'resolved';
+}
+
+export interface AIAnalytics {
+  total_conversations: number;
+  cost_estimate: number;
+  avg_response_time: number;
+  safety_stats: { spam_triggers: number };
+  top_roles: { role: string; count: number }[];
+  conversion_impact: { ai_gigs_created: number; ai_hire_rate: number; revenue_uplift: number };
+}
+
+export interface AIConfig {
+  providers: {
+    google: { provider: 'google'; api_key: string; enabled: boolean; model: string };
+    openai: { provider: 'openai'; api_key: string; enabled: boolean; model: string };
+  };
+  routing: {
+    support_chat: 'google' | 'openai';
+    seo_tags: 'google' | 'openai';
+    semantic_search: 'google' | 'openai';
+    content_moderation: 'google' | 'openai';
+  };
+  safety: {
+    max_tokens: number;
+    temperature: number;
+  };
+  cost_control?: {
+    enabled?: boolean;
+    monthly_limit_usd: number;
+    current_spend_usd?: number;
+  };
+  // CamelCase alias for UI
+  costControl?: {
+    enabled?: boolean;
+    monthlyLimitUSD?: number;
+    currentSpendUSD?: number;
+  };
+  fallback?: any;
+}
+
+export interface HiringPrediction {
+  freelancer_id?: string;
+  freelancerId?: string;
+  job_id?: string;
+  jobId?: string;
+  success_probability?: number;
+  successProbability?: number;
+  risk_level?: string;
+  riskLevel?: string;
+  top_factors?: string[];
+  topFactors?: string[];
+  red_flags?: string[];
+  redFlags?: string[];
+}
+
+// ==================== PAYMENTS & FINANCE ====================
+export interface PaymentGateway {
+  id: string;
+  name: string;
+  is_enabled: boolean;
+  mode: 'live' | 'test';
+  logo: string;
+  supported_currencies: string[];
+  config?: any;
+}
+
+export interface WithdrawalRequest {
+  id: string;
+  user_id: string;
+  user_name: string;
+  user_role: string;
+  amount: number;
+  method: string;
+  details: string;
+  status: 'pending' | 'approved' | 'rejected';
+  requested_at: string;
+  risk_score?: number;
+  risk_level?: string;
+}
+
+export interface CommissionRule {
+  id: string;
+  role: UserRole;
+  type: 'percentage' | 'fixed';
+  value: number;
+  min_amount?: number;
+  max_amount?: number;
+}
+
+export interface GlobalCommissionSettings {
+  freelancer_fee_type: 'percentage' | 'fixed';
+  freelancer_fee_value: number;
+  employer_fee_type: 'percentage' | 'fixed';
+  employer_fee_value: number;
+  minimum_fee: number;
+  max_adjustment?: number;
+  maxAdjustment?: number;
+  freelancerFeeType?: 'percentage' | 'fixed';
+  freelancerFeeValue?: number;
+  employerFeeType?: 'percentage' | 'fixed';
+  employerFeeValue?: number;
+  minimumFee?: number;
+}
+
+export interface PlatformFinancials {
+  total_escrow: number;
+  total_cleared_user_funds: number;
+  total_pending_clearance: number;
+  platform_revenue: number;
+  refund_pool: number;
+}
+
+export interface MarketingROI {
+  channel: string;
+  spend: number;
+  conversions: number;
+  cost_per_acquisition: number;
+  revenue: number;
+  roi: number;
+}
+
+// ==================== SUBSCRIPTIONS & PLANS ====================
+export interface Subscriber {
+  id: string;
+  email: string;
+  source: 'footer' | 'popup' | 'checkout' | 'blog';
+  status: SubscriberStatus;
+  subscribed_at: string;
+}
+
+export interface Plan {
+  id: string;
+  name: string;
+  type: 'freelancer' | 'employer';
+  price: number;
+  interval: 'monthly' | 'yearly' | 'lifetime';
+  currency: string;
+  isActive: boolean; // camelCase
+  isPopular: boolean; // camelCase
+  features: PlanFeature[];
+}
+
+export interface PlanFeature {
+  id: string;
+  name: string;
+  included: boolean;
+  limit?: string;
+}
+
+// ==================== STAFF MANAGEMENT ====================
+export interface StaffMember {
+  id: string;
+  name: string;
+  email: string;
+  username?: string;
+  role_id: string;
+  role_name: string;
+  roleId?: string;
+  roleName?: string;
+  role_level?: number;
+  roleLevel?: number;
+  avatar?: string;
+  status: StaffStatus;
+  two_factor_enabled?: boolean;
+  force_password_reset?: boolean;
+}
+
+export interface StaffRole {
+  id: string;
+  name: string;
+  level: number;
+  permissions: any;
+}
+
+// ==================== SUPPORT & DISPUTES ====================
+export interface TicketReply {
+  id: string;
+  ticket_id: string;
+  sender: 'user' | 'admin';
+  sender_name: string;
+  senderName?: string;
+  message: string;
+  timestamp: string;
+  attachments?: string[];
+  internal_note?: boolean;
+  internalNote?: boolean;
+}
+
+export interface SupportTicket {
+  id: string;
+  tracking_code?: string;
+  trackingCode?: string;
+  user_id: string;
+  userId?: string;
+  full_name: string;
+  fullName?: string;
+  email: string;
+  mobile?: string;
+  subject: string;
+  message: string;
+  status: TicketStatus;
+  priority: TicketPriority;
+  category: string;
+  created_at: string;
+  createdAt?: string;
+  updated_at: string;
+  updatedAt?: string;
+  replies: TicketReply[];
+  is_read_by_admin: boolean;
+  isReadByAdmin?: boolean;
+  is_read_by_user: boolean;
+  isReadByUser?: boolean;
+  attachments?: string[];
+}
+
+export interface TicketCategory {
+  id: string;
+  name: string;
+  is_active?: boolean;
+  isActive?: boolean;
+}
+
+export interface DisputePrediction {
+  ticket_id?: string;
+  ticketId?: string;
+  dispute_id?: string;
+  disputeId?: string;
+  predicted_outcome?: string;
+  predictedOutcome?: string;
+  confidence_score?: number;
+  confidenceScore?: number;
+  risk_level?: RiskLevel;
+  riskLevel?: RiskLevel;
+  key_factors?: string[];
+  keyFactors?: string[];
+  suggested_resolution?: string;
+  suggestedResolution?: string;
+  evidence_gaps?: string[];
+  evidenceGaps?: string[];
+  ai_model_used?: string;
+  aiModelUsed?: string;
+}
+
+// ==================== FRAUD & SECURITY ====================
+export interface FraudAlert {
+  id?: string;
+  user_id?: string;
+  userId?: string;
+  user_name?: string;
+  userName?: string;
+  user_role?: string;
+  userRole?: string;
+  score?: number;
+  risk_level?: RiskLevel;
+  riskLevel?: RiskLevel;
+  reason?: string;
+  content_snippet?: string;
+  contentSnippet?: string;
+  action?: 'Allow' | 'Flagged' | 'Restricted' | 'Auto-Frozen' | 'Blocked';
+  reviewed?: boolean;
+  timestamp?: string;
+}
+
+export interface FraudLog {
+  id?: string;
+  email?: string;
+  ip?: string;
+  risk_score?: number;
+  riskScore?: number;
+  risk_level?: RiskLevel;
+  riskLevel?: RiskLevel;
+  reasons?: string[];
+  action_taken?: FraudAlert['action'];
+  actionTaken?: FraudAlert['action'];
+  timestamp?: string;
+}
+
+// ==================== ANALYTICS & INSIGHTS ====================
+export interface ChurnRisk {
+  user_id: string;
+  user_name: string;
+  role: string;
+  score: number;
+  window: string;
+  factors: string[];
+  last_active: string;
+  projected_loss: number;
+}
+
+export interface GrowthForecast {
+  date: string;
+  subscribers: number;
+  revenue: number;
+  source: 'current' | 'predicted';
+}
+
+export interface OptimizationProposal {
+  id: string;
+  module: string;
+  issue: string;
+  recommendation: string;
+  impact: string;
+  status: 'pending' | 'approved' | 'rejected' | 'applied';
+  generated_at: string;
+  details?: string;
+}
+
+export interface AnomalyAlert {
+  id: string;
+  severity: AnomalySeverity;
+  area: string;
+  message: string;
+  value: string;
+  baseline: string;
+  timestamp: string;
+  status: 'active' | 'resolved' | 'dismissed';
+}
+
+export interface LTVMetric {
+  user_id: string;
+  user_name: string;
+  role: UserRole;
+  predicted_ltv: number;
+  confidence_score: number;
+  revenue_velocity: 'Low' | 'Medium' | 'High';
+  churn_risk: number;
+  next_action: string;
+}
+
+export interface DemandForecast {
+  skill: string;
+  growth_rate: number;
+  recommended_price_range: string;
+  regions: string[];
+  confidence: number;
+  timeframe: string;
+  category: string;
+}
+
+// ==================== SEARCH & DISCOVERY ====================
+export interface TrendingSearch {
+  id: string;
+  keyword: string;
+  count: number;
+  is_pinned: boolean;
+  is_blocked: boolean;
+  trend: 'up' | 'down' | 'stable';
+  last_searched_at: string;
+}
+
+export interface SearchResult {
+  id: string;
+  type: 'gig' | 'job' | 'blog';
+  title: string;
+  description: string;
+  image?: string;
+  url: string;
+  relevance_score?: number;
+  meta?: any;
+}
+
+export interface SearchConfig {
+  sender_name?: string;
+  personalized_suggestions: boolean;
+  max_trending_items: number;
+  blocked_keywords: string[];
+}
+
+export interface SearchSuggestion {
+  text: string;
+  type: 'keyword' | 'category' | 'history';
+  category?: string;
+}
+
+export interface SearchHistory {
+  id: string;
+  user_id: string;
+  query: string;
+  created_at: string;
+}
+
+export interface RecommendedItem {
+  id: string;
+  type: 'gig' | 'job';
+  title: string;
+  description: string;
+  image?: string;
+  score: number;
+  meta: any;
+}
+
+// ==================== MATCHING & RANKING ====================
+export interface ContractClauseSuggestion {
+  id: string;
+  title: string;
+  text: string;
+  category: string;
+  reason: string;
+  risk_level?: string;
+  riskLevel?: string;
+}
+
+export interface HiringMatch {
+  freelancer_id: string;
+  freelancer_name: string;
+  score: number;
+  match_reason: string;
+}
+
+export interface MatchingConfig {
+  enabled: boolean;
+  weights: {
+    skills: number;
+    experience: number;
+    rating: number;
+    response_time: number;
+    budget_fit: number;
+  };
+}
+
+export interface RankingConfig {
+  enabled: boolean;
+  weights: {
+    quality_score: number;
+    conversion_rate: number;
+    review_sentiment: number;
+    engagement: number;
+  };
+  demote_spam: boolean;
+  boost_verified: boolean;
+}
+
+// ==================== SKILLS & CERTIFICATIONS ====================
+export interface SkillCertification {
+  id: string;
+  user_id: string;
+  skill: string;
+  level: SkillLevel;
+  score: number;
+  confidence: number;
+  expires_at: string;
+  verified_by_ai: boolean;
+  issued_at: string;
+  badge_url: string;
+}
+
+export interface TalentCreditScore {
+  user_id: string;
+  score: number;
+  risk_level: string;
+  recommended_limit: number;
+  confidence: number;
+  last_updated: string;
+}
+
+// ==================== COMMUNITY & FORUM ====================
+export interface ForumThread {
+  id: string;
+  // Support both snake_case (backend) and camelCase (frontend)
+  category_id?: string;
+  categoryId?: string;
+  category_name?: string;
+  categoryName?: string;
+  user_id?: string;
+  userId?: string;
+  user_name?: string;
+  userName?: string;
+  user_avatar?: string;
+  userAvatar?: string;
+  title: string;
+  content: string;
+  status: ThreadStatus;
+  views: number;
+  replies_count?: number;
+  repliesCount?: number;
+  upvotes: number;
+  is_pinned?: boolean;
+  isPinned?: boolean;
+  is_locked?: boolean;
+  isLocked?: boolean;
+  created_at?: string;
+  createdAt?: string;
+  tags: string[];
+  interactions?: InteractionCounts;
+  user_state?: InteractionState;
+  userState?: InteractionState;
+}
+
+export interface CommunityClub {
+  id: string;
+  name: string;
+  description: string;
+  visibility: ChannelVisibility;
+  member_count: number;
+  cover_image: string;
+  owner_id: string;
+  is_joined?: boolean;
+  created_at?: string;
+}
+
+export interface CommunityEvent {
+  id: string;
+  title: string;
+  description: string;
+  start_time: string;
+  end_time: string;
+  type: 'workshop' | 'meetup' | 'webinar';
+  host_name: string;
+  attendees: number;
+  image: string;
+  is_registered?: boolean;
+  location?: string;
+  max_attendees?: number;
+}
+
+export interface ContributorProfile {
+  user_id: string;
+  user_name: string;
+  avatar: string;
+  points: number;
+  reputation: string;
+  badges: string[];
+  join_date?: string;
+}
+
+export interface CommunityChannel {
+  id: string;
+  name: string;
+  type: ChannelType;
+  is_paid: boolean;
+  price: number;
+  unread_count: number;
+  online_count: number;
+  is_locked?: boolean;
+  description?: string;
+  members?: number;
+  is_public?: boolean;
+  is_joined?: boolean;
+  created_at?: string;
+  last_activity?: string;
+}
+
+export interface CommunityMessage {
+  id: string;
+  channel_id?: string;
+  channelId?: string;
+  user_id?: string;
+  userId?: string;
+  user_name?: string;
+  userName?: string;
+  user_avatar?: string;
+  userAvatar?: string;
+  content: string;
+  timestamp: string;
+  ai_flagged?: boolean;
+  aiFlagged?: boolean;
+  ai_reason?: string;
+  aiReason?: string;
+}
+
+export interface CommunityComment {
+  id: string;
+  thread_id: string;
+  parent_id: string | null;
+  user_id: string;
+  user_name: string;
+  user_avatar: string;
+  user_role: string;
+  content: string;
+  created_at: string;
+  likes: number;
+  is_liked: boolean;
+  replies?: CommunityComment[];
+  mentions?: string[];
+}
+
+export interface LeaderboardEntry {
+  rank: number;
+  user_id: string;
+  user_name: string;
+  user_avatar: string;
+  score: number;
+  trend: 'up' | 'down' | 'stable';
+  contributions: number;
+  category: string;
+}
+
+export interface InteractionCounts {
+  likes: number;
+  comments: number;
+  reposts: number;
+  shares: number;
+}
+
+export interface InteractionState {
+  liked: boolean;
+  reposted: boolean;
+}
+
+export interface ReputationScore {
+  user_id: string;
+  score: number;
+  trust_level: string;
+  badges: string[];
+  signals: { name: string; impact: number }[];
+  history?: any[];
+}
+
+export interface CommunitySettings {
+  id: string;
+  site_name: string;
+  site_description: string;
+  site_tagline: string;
+  logo_url: string;
+  favicon_url: string;
+  primary_color: string;
+  secondary_color: string;
+  accent_color: string;
+  currency: string;
+  timezone: string;
+  language: string;
+  date_format: string;
+  time_format: string;
+  maintenance_mode: boolean;
+  registration_enabled: boolean;
+  email_verification_required: boolean;
+  default_user_role: string;
+  max_file_size: number;
+  allowed_file_types: string[];
+  seo_title: string;
+  seo_description: string;
+  seo_keywords: string[];
+
+  // Community feature flags - FLAT PROPERTIES (not nested)
+  require_login_to_view: boolean;
+  allow_guest_comments: boolean;
+  allow_media_uploads: boolean;
+  enable_reposts: boolean;
+  allow_external_links: boolean;
+  auto_moderate_content: boolean;
+  sentiment_analysis: boolean;
+  enable_clubs: boolean;
+  enable_events: boolean;
+
+  // camelCase aliases (compat)
+  requireLoginToView?: boolean;
+  allowGuestComments?: boolean;
+  allowMediaUploads?: boolean;
+  enableReposts?: boolean;
+  allowExternalLinks?: boolean;
+  autoModerateContent?: boolean;
+  sentimentAnalysis?: boolean;
+  enableClubs?: boolean;
+  enableEvents?: boolean;
+
+  // Payment settings
+  payment_currency: string;
+  payment_test_mode: boolean;
+  payment_stripe_key: string | null;
+  payment_stripe_secret: string | null;
+  payment_paypal_client_id: string | null;
+  payment_paypal_secret: string | null;
+
+  // Social
+  social_facebook: string | null;
+  social_twitter: string | null;
+  social_linkedin: string | null;
+  social_instagram: string | null;
+
+  // SMTP
+  smtp_host: string | null;
+  smtp_port: number | null;
+  smtp_user: string | null;
+  smtp_password: string | null;
+  smtp_encryption: string;
+  mail_from_name: string;
+
+  // Analytics
+  google_analytics_id: string | null;
+  facebook_pixel_id: string | null;
+  recaptcha_site_key: string | null;
+
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LegacyCommunitySettings {
+  modules: { forum: boolean; clubs: boolean; events: boolean; content: boolean; contributors: boolean };
+  ai: { moderation_enabled: boolean; auto_summary: boolean; sentiment_analysis: boolean; admin_override: boolean };
+  permissions: { require_approval: boolean; allow_media: boolean; allow_embeds: boolean; allow_tagging: boolean };
+  editor: { enabled_features: string[]; max_content_length: number };
+}
+
+export interface CommunityAnalytics {
+  health_score: number;
+  healthScore?: number;
+  active_users: number;
+  messages_today: number;
+  ai_flagged_count: number;
+  engagement_trend: number[];
+  top_channels: { name: string; activity: number }[];
+  toxicity_score: number;
+  total_members?: number;
+  active_today?: number;
+  new_this_week?: number;
+  total_threads?: number;
+  total_comments?: number;
+  total_clubs?: number;
+  total_events?: number;
+  growth_rate?: number;
+  engagement_rate?: number;
+  top_topics?: string[];
+  weekly_activity?: { day: string; count: number }[];
+  popular_clubs?: { name: string; members: number }[];
+}
+
+export interface ModerationLog {
+  id: string;
+  user_name: string;
+  snippet: string;
+  risk_level: RiskLevel;
+  reason: string;
+  action_taken: string;
+  timestamp?: string;
+  moderator_id?: string;
+  moderator_name?: string;
+  target_id?: string;
+  target_type?: string;
+  notes?: string;
+  severity?: string;
+  // camelCase aliases
+  userName?: string;
+  riskLevel?: RiskLevel;
+  actionTaken?: string;
+  moderatorName?: string;
+}
+
+// ==================== NOTIFICATIONS ====================
+export interface Notification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  action_url?: string;
+  actionUrl?: string;
+  entity_id?: string;
+  entityId?: string;
+  is_read?: boolean;
+  isRead?: boolean;
+  timestamp: string;
+}
+
+// ==================== ADMIN DASHBOARD TYPES ====================
+export interface AdminDashboardStats {
+  totals: {
+    users: number;
+    freelancers: number;
+    employers: number;
+    gigs: number;
+    jobs: number;
+    orders: number;
+    revenue: number;
+    disputes: number;
+  };
+  today: {
+    new_users: number;
+    new_gigs: number;
+    new_jobs: number;
+    new_orders: number;
+    revenue: number;
+  };
+  charts: {
+    user_growth: { date: string; count: number }[];
+    revenue_trend: { date: string; amount: number }[];
+    category_distribution: { category: string; count: number }[];
+  };
+  recent_activity: {
+    id: string;
+    type: 'user' | 'gig' | 'job' | 'order' | 'support';
+    action: 'created' | 'updated' | 'deleted' | 'approved' | 'rejected';
+    title: string;
+    user: string;
+    time: string;
+  }[];
+}
+
+export interface AnalyticsDashboard {
+  total_users: number;
+  active_users: number;
+  new_signups: { daily: number; weekly: number; monthly: number };
+  revenue_metrics: {
+    total_revenue: number;
+    escrow_balance: number;
+    commission_earned: number;
+    pending_withdrawals: number;
+  };
+  top_performing: {
+    categories: { name: string; count: number; revenue: number }[];
+    freelancers: { name: string; earnings: number; completed_orders: number }[];
+    employers: { name: string; spend: number; posted_jobs: number }[];
+  };
+  growth_metrics: {
+    user_growth: number;
+    revenue_growth: number;
+    conversion_rate: number;
+    churn_rate: number;
+  };
+}
+
+export interface SystemHealth {
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  services: {
+    database: { status: 'up' | 'down'; latency?: number };
+    redis: { status: 'up' | 'down'; latency?: number };
+    storage: { status: 'up' | 'down'; usage?: string };
+    email: { status: 'up' | 'down' };
+    payment_gateways: { name: string; status: 'up' | 'down' }[];
+  };
+  metrics: {
+    cpu_usage: number;
+    memory_usage: number;
+    disk_usage: number;
+    request_rate: number;
+    error_rate: number;
+  };
+  uptime: number;
+  last_checked: string;
+}
+
+// ==================== API & PAGINATION TYPES ====================
+export interface PaginationParams {
+  page?: number;
+  limit?: number;
+  sort_by?: string;
+  sort_order?: SortOrder;
+}
+
+export interface FilterParams {
+  search?: string;
+  status?: string;
+  category?: string;
+  date_from?: string;
+  date_to?: string;
+  [key: string]: any;
+}
+
+export interface PaginatedResponse<T = any> {
+  success: boolean;
+  data: T[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    total_pages: number;
+  };
+  filters?: FilterParams;
+}
+
+export interface ApiResponse<T = any> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  error?: string;
+  errors?: Record<string, string[]>;
+  timestamp: string;
+}
+
+export interface ApiErrorResponse {
+  success: false;
+  error: string;
+  code?: string;
+  details?: any;
+  timestamp: string;
+}
+
+// ==================== VALIDATION TYPES ====================
+export interface ValidationError {
+  field: string;
+  message: string;
+  code?: string;
+}
+
+export interface ValidationResult {
+  is_valid: boolean;
+  errors?: ValidationError[];
+}
+
+// ==================== UTILITY TYPES ====================
+// Make all properties optional for partial updates
+export type PartialGig = Partial<Gig>;
+export type PartialUser = Partial<User>;
+
+// Make all properties required
+export type RequiredGig = Required<Gig>;
+
+// Pick specific properties
+export type GigSummary = Pick<Gig, 'id' | 'title' | 'price' | 'rating' | 'reviews' | 'image'>;
+
+// Omit sensitive properties
+export type SafeUser = Omit<User, 'password' | 'tokens' | 'meta'>;
+
+// Add timestamps automatically
+export type WithTimestamps<T> = T & {
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
+};
+
+// Flexible objects for settings/config
+export interface DynamicSettings {
+  [key: string]: string | number | boolean | any[];
+}
+
+export interface PluginConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  settings: DynamicSettings;
+}
+
+// Main types file - Re-exports from modular files
+export * from './types/modules/user-types';
+export * from './types/modules/gig-types';
+export * from './types/modules/job-types';
+export * from './types/modules/commerce-types';
+export * from './types/modules/payment-types';
+export * from './types/modules/community-types';
+export * from './types/modules/admin-types';
+export * from './types/modules/api-types';
+export * from './types/modules/ai-types';
+export * from './types/modules/misc-types';
+
+// ==================== TYPE GUARDS ====================
+export function isGig(obj: any): obj is import('./types/modules/gig-types').Gig {
+  return obj &&
+    typeof obj.id === 'string' &&
+    typeof obj.title === 'string' &&
+    typeof obj.price === 'number' &&
+    Array.isArray(obj.packages);
+}
+
+export function isUser(obj: any): obj is import('./types/modules/user-types').User {
+  return obj &&
+    typeof obj.id === 'string' &&
+    typeof obj.email === 'string' &&
+    typeof obj.role === 'string';
+}
+
+export function isApiResponse(obj: any): obj is import('./types/modules/api-types').ApiResponse {
+  return obj &&
+    typeof obj.success === 'boolean' &&
+    typeof obj.timestamp === 'string';
+}
+
+// ==================== EXPORT GROUPS ====================
+// Remove or comment out these lines - they're duplicate exports:
+// export * as UserTypes from './user-types';
+// export * as GigTypes from './gig-types';
+// export * as PaymentTypes from './payment-types';
+// export * as CommunityTypes from './community-types';
+// export * as AdminTypes from './admin-types';
+// export * as ApiTypes from './api-types';
+
+// Export namespaces for easier access
+export * as UserTypes from './types/modules/user-types';
+export * as GigTypes from './types/modules/gig-types';
+export * as JobTypes from './types/modules/job-types';
+export * as CommerceTypes from './types/modules/commerce-types';
+export * as PaymentTypes from './types/modules/payment-types';
+export * as CommunityTypes from './types/modules/community-types';
+export * as AdminTypes from './types/modules/admin-types';
+export * as ApiTypes from './types/modules/api-types';
+export * as AiTypes from './types/modules/ai-types';
+export * as MiscTypes from './types/modules/misc-types';

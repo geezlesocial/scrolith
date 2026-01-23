@@ -293,13 +293,21 @@ const CategoriesList = ({ items, type, reload }: { items: ListingCategory[], typ
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
     const [uploadTarget, setUploadTarget] = useState<'category' | { subIndex: number }>('category');
 
+    const generateSlug = (text: string) => {
+        return text
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-') // Replace non-alphanumeric chars with hyphen
+            .replace(/(^-|-$)+/g, '');   // Trim hyphens from start/end
+    };
+
     const handleSave = async () => {
         if (!editing?.name) {
             showNotification('alert', 'Error', 'Category name is required.');
             return;
         }
         
-        const slug = editing.slug || editing.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        // Final fallback for slug if empty even after auto-gen attempt
+        const slug = editing.slug || generateSlug(editing.name);
 
         const categoryToSave: ListingCategory = {
             id: editing.id || `cat-${Date.now()}`,
@@ -333,7 +341,7 @@ const CategoriesList = ({ items, type, reload }: { items: ListingCategory[], typ
         const newSub: CategorySub = {
             id: `sub-${Date.now()}`,
             name: 'New Subcategory',
-            slug: 'new-sub',
+            slug: 'new-subcategory',
             status: 'active',
             sortOrder: (editing.subcategories?.length || 0) + 1
         };
@@ -344,6 +352,17 @@ const CategoriesList = ({ items, type, reload }: { items: ListingCategory[], typ
         if (!editing || !editing.subcategories) return;
         const subs = [...editing.subcategories];
         subs[index] = { ...subs[index], [field]: val };
+        setEditing({ ...editing, subcategories: subs });
+    };
+
+    const handleSubNameChange = (index: number, val: string) => {
+        if (!editing || !editing.subcategories) return;
+        const subs = [...editing.subcategories];
+        subs[index] = { 
+            ...subs[index], 
+            name: val, 
+            slug: generateSlug(val) 
+        };
         setEditing({ ...editing, subcategories: subs });
     };
 
@@ -358,7 +377,10 @@ const CategoriesList = ({ items, type, reload }: { items: ListingCategory[], typ
         if (uploadTarget === 'category') {
             setEditing({ ...editing, logo: file.url });
         } else {
-            updateSub(uploadTarget.subIndex, 'icon', file.url);
+            // This case requires uploadTarget to be object {subIndex: number}
+            if (typeof uploadTarget !== 'string') {
+                updateSub(uploadTarget.subIndex, 'icon', file.url);
+            }
         }
         setIsFilePickerOpen(false);
     };
@@ -372,7 +394,7 @@ const CategoriesList = ({ items, type, reload }: { items: ListingCategory[], typ
                     <h3 className="font-bold text-gray-900">{type === 'gig' ? 'Gig' : 'Job'} Categories</h3>
                     <p className="text-xs text-gray-500">Manage structure for {type} listings</p>
                 </div>
-                <button onClick={() => setEditing({ type, subcategories: [], status: 'active' })} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center hover:bg-blue-700 transition">
+                <button onClick={() => setEditing({ type, subcategories: [], status: 'active', name: '', slug: '' })} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center hover:bg-blue-700 transition">
                     <Plus className="w-4 h-4 mr-2" /> Add Category
                 </button>
             </div>
@@ -428,11 +450,24 @@ const CategoriesList = ({ items, type, reload }: { items: ListingCategory[], typ
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Name</label>
-                                    <input className="w-full border-gray-300 rounded-lg p-2" value={editing.name || ''} onChange={e => setEditing({...editing, name: e.target.value})} placeholder="Category Name" />
+                                    <input 
+                                        className="w-full border-gray-300 rounded-lg p-2" 
+                                        value={editing.name || ''} 
+                                        onChange={e => {
+                                            const name = e.target.value;
+                                            setEditing({...editing, name, slug: generateSlug(name)});
+                                        }} 
+                                        placeholder="Category Name" 
+                                    />
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Slug</label>
-                                    <input className="w-full border-gray-300 rounded-lg p-2 bg-gray-50" value={editing.slug || ''} onChange={e => setEditing({...editing, slug: e.target.value})} placeholder="Auto-generated" />
+                                    <input 
+                                        className="w-full border-gray-300 rounded-lg p-2 bg-gray-50" 
+                                        value={editing.slug || ''} 
+                                        onChange={e => setEditing({...editing, slug: e.target.value})} 
+                                        placeholder="Auto-generated" 
+                                    />
                                 </div>
                                 <div className="col-span-2">
                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Description</label>
@@ -470,7 +505,7 @@ const CategoriesList = ({ items, type, reload }: { items: ListingCategory[], typ
                                             <input 
                                                 className="flex-1 border-gray-300 rounded p-1.5 text-sm" 
                                                 value={sub.name} 
-                                                onChange={e => updateSub(idx, 'name', e.target.value)} 
+                                                onChange={e => handleSubNameChange(idx, e.target.value)} 
                                                 placeholder="Subcategory Name"
                                             />
                                             <input 

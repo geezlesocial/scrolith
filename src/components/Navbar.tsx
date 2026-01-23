@@ -1,0 +1,869 @@
+// src/components/Navbar.tsx
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { Link, useLocation } from "react-router-dom";
+import * as LucideIcons from "lucide-react";
+import { ChevronDown } from "lucide-react";
+import { useUser } from "../context/UserContext";
+import { useContent } from "../context/ContentContext";
+import { useNotification } from "../context/NotificationContext";
+import { useCurrency } from "../context/CurrencyContext";
+import { useSocket } from "../context/SocketContext";
+import { CMSService } from "../services/cms";
+import { HeaderConfig, ActivityConfig, UserRole, HeroSearchConfig } from "../types";
+import SearchInput from "./SearchInput";
+
+type LucideIconComponent = React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
+
+const normalizeBoolean = (value: any, fallback: boolean) => {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["false", "0", "no", "off"].includes(normalized)) return false;
+    if (["true", "1", "yes", "on"].includes(normalized)) return true;
+    return Boolean(normalized);
+  }
+  return Boolean(value);
+};
+
+const normalizeRole = (role: any): string => {
+  if (!role) return "guest";
+  const r = String(role).toLowerCase().trim();
+  if (r === "public") return "guest";
+  if (r === "client") return "employer";
+  if (r === "all" || r === "*") return "all";
+  return r;
+};
+
+const normalizeRoleList = (value: any): string[] => {
+  if (Array.isArray(value)) return value.map(normalizeRole);
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map(normalizeRole);
+  }
+  return [];
+};
+
+const ensureArray = <T,>(value: any): T[] => (Array.isArray(value) ? value : []);
+
+const Navbar = () => {
+  const location = useLocation();
+
+  const { user, isAuthenticated, logout } = useUser();
+  const { settings } = useContent();
+  const { notifications, markAsRead } = useNotification();
+  const { currency, setCurrency, availableCurrencies } = useCurrency();
+  const { socket } = useSocket();
+
+  const [headerConfig, setHeaderConfig] = useState<HeaderConfig | null>(null);
+  const [activityConfig, setActivityConfig] = useState<ActivityConfig | null>(null);
+  const [heroSearchConfig, setHeroSearchConfig] = useState<HeroSearchConfig | null>(null);
+
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showMessagesDropdown, setShowMessagesDropdown] = useState(false);
+  const [showHelpDropdown, setShowHelpDropdown] = useState(false);
+  const [showCurrencyDropdown, setShowCurrencyDropdown] = useState(false);
+  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [showGuestPrimaryDropdown, setShowGuestPrimaryDropdown] = useState(false);
+  const [showGuestExploreDropdown, setShowGuestExploreDropdown] = useState(false);
+
+  const [loading, setLoading] = useState(true);
+
+  const notifRef = useRef<HTMLDivElement>(null);
+  const msgRef = useRef<HTMLDivElement>(null);
+  const helpRef = useRef<HTMLDivElement>(null);
+  const currencyRef = useRef<HTMLDivElement>(null);
+  const profileRef = useRef<HTMLDivElement>(null);
+  const guestPrimaryRef = useRef<HTMLDivElement>(null);
+  const guestExploreRef = useRef<HTMLDivElement>(null);
+  const mountedRef = useRef(true);
+
+  const refreshConfigs = useCallback(async () => {
+    try {
+      const [header, activity, heroCfg] = await Promise.all([
+        CMSService.getHeaderConfig(),
+        CMSService.getActivityConfig(),
+        CMSService.getHeroSearchConfig(),
+      ]);
+
+      if (!mountedRef.current) return;
+
+      setHeaderConfig({
+        ...header,
+        navigation: Array.isArray((header as any)?.navigation) ? (header as any).navigation : [],
+        userMenu: Array.isArray((header as any)?.userMenu) ? (header as any).userMenu : [],
+      } as any);
+
+      const normalizedIcons = Array.isArray((activity as any)?.icons)
+        ? (activity as any).icons.map((icon: any) => ({
+            ...icon,
+            isEnabled: icon.isEnabled ?? icon.is_enabled ?? true,
+            showLabel: icon.showLabel ?? icon.show_label ?? false,
+            sortOrder: icon.sortOrder ?? icon.sort_order ?? 0,
+            roles: normalizeRoleList(icon.roles),
+          }))
+        : [];
+
+      const normalizedHelpMenu = Array.isArray((activity as any)?.helpMenu || (activity as any)?.help_menu)
+        ? ((activity as any).helpMenu || (activity as any).help_menu).map((link: any) => ({
+            ...link,
+            isEnabled: link.isEnabled ?? link.is_enabled ?? true,
+          }))
+        : [];
+
+      const designSource = (activity as any)?.design || {};
+      const normalizedDesign = {
+        iconStyle: designSource.iconStyle || designSource.icon_style || "outline",
+        iconSize: designSource.iconSize || designSource.icon_size || 20,
+        badgeColor: designSource.badgeColor || designSource.badge_color || "#EF4444",
+        showBadges: designSource.showBadges ?? designSource.show_badges ?? true,
+      };
+
+      setActivityConfig({
+        ...activity,
+        icons: normalizedIcons,
+        helpMenu: normalizedHelpMenu,
+        design: normalizedDesign,
+      } as any);
+
+      setHeroSearchConfig(heroCfg);
+    } catch (error) {
+      console.error("Failed to load navbar configs:", error);
+
+      if (!mountedRef.current) return;
+
+      // Minimal fallback to avoid crashes
+      setHeaderConfig({
+        navigation: [],
+        userMenu: [],
+        searchEnabled: true,
+        searchMode: "keyword",
+      } as any);
+
+      setActivityConfig({
+        icons: [],
+        helpMenu: [],
+        design: { iconStyle: "outline", iconSize: 20, badgeColor: "#EF4444", showBadges: true },
+      } as any);
+
+      setHeroSearchConfig({
+        headline: "",
+        subheadline: "",
+        searchPlaceholder: "",
+        searchSize: "large",
+        quickTags: [],
+        trustedBrands: { enabled: false, title: "", logos: [] },
+        valueProp: { enabled: false, heading: "", badges: [] },
+      } as any);
+    } finally {
+      if (mountedRef.current) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    refreshConfigs();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [refreshConfigs]);
+
+  useEffect(() => {
+    if (!socket) return;
+    const handleRefresh = () => {
+      refreshConfigs();
+    };
+    socket.on("cms:header_updated", handleRefresh);
+    socket.on("cms:activity_updated", handleRefresh);
+    socket.on("cms:hero_search_updated", handleRefresh);
+    return () => {
+      socket.off("cms:header_updated", handleRefresh);
+      socket.off("cms:activity_updated", handleRefresh);
+      socket.off("cms:hero_search_updated", handleRefresh);
+    };
+  }, [socket, refreshConfigs]);
+
+  useEffect(() => {
+    if (socket) return;
+    const id = window.setInterval(() => {
+      refreshConfigs();
+    }, 5000);
+    return () => window.clearInterval(id);
+  }, [socket, refreshConfigs]);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) setShowNotifications(false);
+      if (msgRef.current && !msgRef.current.contains(event.target as Node)) setShowMessagesDropdown(false);
+      if (helpRef.current && !helpRef.current.contains(event.target as Node)) setShowHelpDropdown(false);
+      if (currencyRef.current && !currencyRef.current.contains(event.target as Node)) setShowCurrencyDropdown(false);
+      if (profileRef.current && !profileRef.current.contains(event.target as Node)) setShowProfileDropdown(false);
+      if (guestPrimaryRef.current && !guestPrimaryRef.current.contains(event.target as Node)) setShowGuestPrimaryDropdown(false);
+      if (guestExploreRef.current && !guestExploreRef.current.contains(event.target as Node)) setShowGuestExploreDropdown(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleLogout = () => {
+    logout();
+    window.location.href = "/";
+  };
+
+  const handleNotificationClick = (id: string, actionUrl?: string) => {
+    markAsRead(id);
+    setShowNotifications(false);
+    if (actionUrl) window.location.href = actionUrl;
+  };
+
+  const userRole = user?.role || UserRole.GUEST;
+  const normalizedUserRole = normalizeRole(userRole || UserRole.GUEST);
+  const isHome = location.pathname === "/";
+  const isPathActive = (path: string) => {
+    if (!path) return false;
+    if (location.pathname === path) return true;
+    return location.pathname.startsWith(path + '/') || location.pathname.startsWith(path + '?');
+  };
+
+  const resolveUrl = (item: any) => item?.url ?? item?.href ?? item?.link ?? "";
+
+  const isVisibleToRole = (item: any) => {
+    const normalizedVisibility = normalizeRoleList(
+      item?.visibility ?? item?.roles ?? item?.target_roles ?? item?.visible_to ?? item?.visibleTo
+    );
+    if (normalizedVisibility.length === 0) return true;
+    if (normalizedVisibility.includes("all") || normalizedVisibility.includes("*")) return true;
+    return normalizedVisibility.includes(normalizedUserRole);
+  };
+
+  const renderLink = (item: any, className: string, onClick?: () => void) => {
+    const url = resolveUrl(item);
+    if (!url) return null;
+    const isExternal = url.startsWith("http");
+
+    // Compute active state for internal links
+    const isActiveInternal = !isExternal && isPathActive(url);
+    const activeClasses = isActiveInternal ? 'text-blue-600 bg-blue-50' : '';
+
+    if (isExternal) {
+      return (
+        <a
+          key={item.id || url}
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          className={`${className} ${activeClasses}`.trim()}
+          onClick={onClick}
+        >
+          {item.label}
+        </a>
+      );
+    }
+
+    return (
+      <Link key={item.id || url} to={url} className={`${className} ${activeClasses}`.trim()} onClick={onClick}>
+        {item.label}
+      </Link>
+    );
+  };
+
+  const renderNavItem = (item: any) => {
+    const url = resolveUrl(item);
+    if (!item || !item.label || !url) return null;
+    if (!isVisibleToRole(item)) return null;
+    return renderLink(
+      item,
+      `px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+        location.pathname === url
+          ? "text-blue-600 bg-blue-50"
+          : "text-gray-700 hover:text-blue-600 hover:bg-gray-50"
+      }`
+    );
+  };
+
+  const renderDropdown = (
+    dropdown: any,
+    isOpen: boolean,
+    setOpen: (open: boolean) => void,
+    ref: React.RefObject<HTMLDivElement>
+  ) => {
+    if (!dropdown || !dropdown.label || !isVisibleToRole(dropdown)) return null;
+    const items = ensureArray<any>(dropdown.items ?? dropdown.links ?? dropdown.menu).filter(
+      (item: any) => item?.label && resolveUrl(item) && isVisibleToRole(item)
+    );
+    if (items.length === 0) return null;
+
+    return (
+      <div className="relative" ref={ref}>
+        <button
+          onClick={() => setOpen(!isOpen)}
+          className="text-sm font-medium text-gray-700 hover:text-gray-900 flex items-center gap-1 px-2 py-1 rounded hover:bg-gray-50 transition"
+        >
+          {dropdown.label}
+          <ChevronDown className="w-3 h-3" />
+        </button>
+        {isOpen && (
+          <div className="absolute left-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 animate-fade-in-up">
+            <div className="py-2">
+              {items.map((item: any) =>
+                renderLink(
+                  item,
+                  "block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-blue-600",
+                  () => setOpen(false)
+                )
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const getCtaClass = (cta: any) => {
+    const variant = String(cta?.variant || cta?.style || "").toLowerCase();
+    if (variant === "primary") {
+      return "inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700";
+    }
+    if (variant === "ghost") {
+      return "inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-gray-700 hover:bg-gray-100";
+    }
+    if (variant === "outline") {
+      return "inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-gray-700 border border-gray-200 hover:bg-gray-50";
+    }
+    return "inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-gray-700 border border-gray-200 hover:bg-gray-50";
+  };
+
+  const renderProfileItem = (item: any) => {
+    const type = String(item?.type || "link").toLowerCase();
+
+    if (type === "currency_switcher") {
+      return (
+        <div key={item.id || item.label} className="relative px-4 py-2" ref={currencyRef}>
+          <button
+            onClick={() => setShowCurrencyDropdown(!showCurrencyDropdown)}
+            className="w-full flex items-center justify-between text-sm text-gray-700 hover:text-gray-900"
+          >
+            <span>{item.label}</span>
+            <span className="flex items-center gap-1 text-gray-500">
+              {currency.code}
+              <ChevronDown className="w-3 h-3" />
+            </span>
+          </button>
+          {showCurrencyDropdown && (
+            <div className="absolute right-0 mt-2 w-44 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 max-h-64 overflow-y-auto animate-fade-in-up">
+              {availableCurrencies
+                .filter((c) => c.isActive)
+                .map((c) => (
+                  <button
+                    key={c.code}
+                    onClick={() => {
+                      setCurrency(c.code);
+                      setShowCurrencyDropdown(false);
+                    }}
+                    className={`block w-full text-left px-4 py-2 text-xs hover:bg-gray-50 flex justify-between items-center ${
+                      currency.code === c.code ? "font-bold text-blue-600 bg-blue-50" : "text-gray-700"
+                    }`}
+                  >
+                    <span>{c.code}</span>
+                    <span className="text-gray-400">{c.symbol}</span>
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (type === "sign_out") {
+      return (
+        <button
+          key={item.id || item.label}
+          onClick={handleLogout}
+          className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+        >
+          {item.label}
+        </button>
+      );
+    }
+
+    return renderLink(
+      item,
+      "block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-blue-600",
+      () => setShowProfileDropdown(false)
+    );
+  };
+
+  const getDynamicIcon = (type: string, size: number, style: "outline" | "filled") => {
+    const pascalCaseType = type
+      .split(/[-_\s]/)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join("");
+
+    const IconComponent = (LucideIcons as Record<string, LucideIconComponent>)[pascalCaseType];
+
+    if (IconComponent) {
+      return <IconComponent size={size} className={`${style === "filled" ? "fill-current" : ""}`} />;
+    }
+    return <LucideIcons.Star size={size} className={`${style === "filled" ? "fill-current" : ""}`} />;
+  };
+
+  const isActionEnabled = (type: string) => {
+    if (type === "notifications") return normalizeBoolean(headerActions.notifications, true);
+    if (type === "messages") return normalizeBoolean(headerActions.messages, true);
+    if (type === "favorites") return normalizeBoolean(headerActions.lists, true);
+    return true;
+  };
+
+  const showHeaderSearch = useMemo(() => {
+    const enabled = (headerConfig as any)?.searchEnabled ?? (headerConfig as any)?.search_enabled;
+    return !isHome && normalizeBoolean(enabled, true);
+  }, [headerConfig, isHome]);
+
+  const profileEnabled = normalizeBoolean(
+    (headerConfig as any)?.actions?.profile ??
+      (headerConfig as any)?.profileEnabled ??
+      (headerConfig as any)?.profile_enabled,
+    true
+  );
+
+  const searchPlaceholder =
+    (heroSearchConfig as any)?.searchPlaceholder || (heroSearchConfig as any)?.search_placeholder || "";
+  const searchButtonLabel =
+    (heroSearchConfig as any)?.searchButtonLabel || (heroSearchConfig as any)?.search_button_label || "";
+  const searchButtonAriaLabel =
+    (heroSearchConfig as any)?.searchButtonAriaLabel || (heroSearchConfig as any)?.search_button_aria_label || "";
+  const searchResultsUrl =
+    (heroSearchConfig as any)?.searchResultsUrl || (heroSearchConfig as any)?.search_results_url || "";
+  const rawSize = (heroSearchConfig as any)?.searchSize || (heroSearchConfig as any)?.search_size || "large";
+  const sizeKey = String(rawSize).toLowerCase();
+  const normalizedSize =
+    sizeKey === "xl" || sizeKey === "extralarge" || sizeKey === "extra_large" ? "xl" : sizeKey;
+  const searchSize = (["normal", "large", "xl"].includes(normalizedSize) ? normalizedSize : "large") as
+    | "normal"
+    | "large"
+    | "xl";
+
+  const headerWrapperClass = `${isHome ? "relative" : "sticky top-0"} z-40 bg-white border-b border-gray-200`;
+  const brandName = (headerConfig as any)?.title || settings?.siteName || "";
+  const avatarName =
+    (user as any)?.name || (user as any)?.username || (user as any)?.email || "";
+  const avatarUrl =
+    (user as any)?.avatar ||
+    (avatarName
+      ? `https://ui-avatars.com/api/?name=${encodeURIComponent(avatarName)}&background=0D8ABC&color=fff`
+      : "");
+
+  const headerActions = (headerConfig as any)?.actions || {};
+  const headerSearchMode =
+    (headerConfig as any)?.searchMode || (headerConfig as any)?.search_mode || "keyword";
+
+  const roleSwitchConfig = (headerConfig as any)?.roleSwitch ?? (headerConfig as any)?.role_switch ?? {};
+  const roleSwitchVisibility = normalizeRoleList(roleSwitchConfig.visibility);
+  const roleSwitchVisibleForRole =
+    roleSwitchVisibility.length === 0 ||
+    roleSwitchVisibility.includes("all") ||
+    roleSwitchVisibility.includes("*") ||
+    roleSwitchVisibility.includes(normalizedUserRole);
+  const roleSwitchLabel =
+    normalizedUserRole === "freelancer"
+      ? roleSwitchConfig.buyer_label ?? roleSwitchConfig.buyerLabel ?? ""
+      : normalizedUserRole === "employer"
+        ? roleSwitchConfig.seller_label ?? roleSwitchConfig.sellerLabel ?? ""
+        : "";
+  const roleSwitchUrl =
+    normalizedUserRole === "freelancer"
+      ? roleSwitchConfig.buyer_url ?? roleSwitchConfig.buyerUrl ?? ""
+      : normalizedUserRole === "employer"
+        ? roleSwitchConfig.seller_url ?? roleSwitchConfig.sellerUrl ?? ""
+        : "";
+  const showRoleSwitch =
+    isAuthenticated &&
+    roleSwitchVisibleForRole &&
+    !!roleSwitchLabel &&
+    !!roleSwitchUrl &&
+    normalizeBoolean(headerActions.switchSelling ?? headerActions.switch_selling, true);
+
+  const guestPrimaryDropdown =
+    (headerConfig as any)?.guestPrimaryDropdown ?? (headerConfig as any)?.guest_primary_dropdown;
+  const guestExploreDropdown =
+    (headerConfig as any)?.guestExploreDropdown ?? (headerConfig as any)?.guest_explore_dropdown;
+  const guestCtas = ensureArray<any>(
+    (headerConfig as any)?.guestCtas ?? (headerConfig as any)?.guest_ctas ?? (headerConfig as any)?.guestActions
+  ).filter((cta: any) => cta?.label && resolveUrl(cta) && isVisibleToRole(cta));
+
+  const normalizeProfileGroup = (group: any) => {
+    const raw = String(group || "").toLowerCase().replace(/\s+/g, "_");
+    if (raw === "business_tools" || raw === "businesstools") return "business_tools";
+    if (raw === "utilities" || raw === "utility") return "utilities";
+    return "primary";
+  };
+
+  const profileMenuGroupLabels =
+    (headerConfig as any)?.profileMenuGroupLabels ?? (headerConfig as any)?.profile_menu_group_labels ?? {};
+
+  const rawProfileMenuItems = ensureArray<any>(
+    (headerConfig as any)?.userMenu || (headerConfig as any)?.profileMenu || (headerConfig as any)?.profile_menu
+  ).filter((item: any) => {
+    if (!item || !isVisibleToRole(item)) return false;
+    const type = String(item.type || "link").toLowerCase();
+    if (type === "currency_switcher" || type === "sign_out") {
+      return Boolean(item.label);
+    }
+    return Boolean(item.label && resolveUrl(item));
+  });
+
+  const groupedProfileItems: Record<string, any[]> = {
+    primary: [],
+    business_tools: [],
+    utilities: [],
+  };
+
+  rawProfileMenuItems.forEach((item: any) => {
+    const groupKey = normalizeProfileGroup(item.group ?? item.section ?? item.menu_group);
+    groupedProfileItems[groupKey] = groupedProfileItems[groupKey] || [];
+    groupedProfileItems[groupKey].push(item);
+  });
+
+  if (showRoleSwitch) {
+    const hasRoleSwitch = rawProfileMenuItems.some(
+      (item: any) => resolveUrl(item) === roleSwitchUrl || item?.type === "role_switch"
+    );
+    if (!hasRoleSwitch) {
+      groupedProfileItems.primary.unshift({
+        id: "role-switch",
+        label: roleSwitchLabel,
+        url: roleSwitchUrl,
+        type: "link",
+        group: "primary",
+      });
+    }
+  }
+
+  // Ensure a Dashboard link exists in the profile menu for mobile/compact views
+  const dashboardLinkUrl = normalizedUserRole === "freelancer" ? "/freelancer/dashboard" : normalizedUserRole === "employer" ? "/client/dashboard" : "";
+  if (isAuthenticated && dashboardLinkUrl) {
+    const hasDashboard = rawProfileMenuItems.some((item: any) => resolveUrl(item) === dashboardLinkUrl);
+    if (!hasDashboard) {
+      groupedProfileItems.primary.unshift({
+        id: "nav-dashboard",
+        label: "Dashboard",
+        url: dashboardLinkUrl,
+        type: "link",
+        group: "primary",
+      });
+    }
+  }
+
+  if (isAuthenticated) {
+    const hasEditProfile = rawProfileMenuItems.some((item: any) => resolveUrl(item) === "/profile/edit");
+    if (!hasEditProfile) {
+      groupedProfileItems.primary.push({
+        id: "nav-edit-profile",
+        label: "Edit Profile",
+        url: "/profile/edit",
+        type: "link",
+        group: "primary",
+      });
+    }
+
+    const hasSettings = rawProfileMenuItems.some((item: any) => resolveUrl(item) === "/settings");
+    if (!hasSettings) {
+      groupedProfileItems.utilities.push({
+        id: "nav-settings",
+        label: "Settings",
+        url: "/settings",
+        type: "link",
+        group: "utilities",
+      });
+    }
+  }
+
+  if (loading) {
+    return (
+      <nav className={headerWrapperClass}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-16 items-center">
+            <div className="flex items-center">
+              <div className="w-8 h-8 bg-gray-200 rounded animate-pulse"></div>
+              <div className="ml-3 w-24 h-6 bg-gray-200 rounded animate-pulse"></div>
+            </div>
+            <div className="hidden md:flex items-center space-x-4">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-8 w-20 bg-gray-200 rounded animate-pulse"></div>
+              ))}
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="h-8 w-16 bg-gray-200 rounded animate-pulse"></div>
+              <div className="h-8 w-20 bg-gray-200 rounded animate-pulse"></div>
+            </div>
+          </div>
+        </div>
+      </nav>
+    );
+  }
+
+  return (
+    <div className={headerWrapperClass}>
+      {/* TOP NAV */}
+      <nav className="bg-white transition-colors">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-16 items-center">
+            {/* Left: Logo */}
+            <div className="flex items-center">
+              <Link
+                to={(headerConfig as any)?.homeUrl || (headerConfig as any)?.home_url || "/"}
+                className="flex-shrink-0 flex items-center mr-8"
+              >
+                {(headerConfig as any)?.logoUrl || (headerConfig as any)?.logo_url || settings?.logoUrl ? (
+                  <img
+                    src={(headerConfig as any)?.logoUrl || (headerConfig as any)?.logo_url || settings?.logoUrl}
+                    alt={brandName || ""}
+                    className="h-8 w-auto object-contain"
+                  />
+                ) : (
+                  <div className="w-8 h-8 bg-gray-200 rounded-lg" aria-hidden="true" />
+                )}
+                {brandName ? (
+                  <span className="ml-2 text-xl font-bold text-gray-900 hidden sm:block">{brandName}</span>
+                ) : null}
+              </Link>
+            </div>
+
+            {/* Center: Navigation Links */}
+            <div className="hidden md:flex md:items-center md:space-x-6">
+              {!isAuthenticated ? (
+                <>
+                  {renderDropdown(guestPrimaryDropdown, showGuestPrimaryDropdown, setShowGuestPrimaryDropdown, guestPrimaryRef)}
+                  {renderDropdown(guestExploreDropdown, showGuestExploreDropdown, setShowGuestExploreDropdown, guestExploreRef)}
+                </>
+              ) : null}
+              {(() => {
+                const rawNav = Array.isArray((headerConfig as any)?.navigation) ? (headerConfig as any).navigation : [];
+                const navCopy = Array.from(rawNav);
+                // Inject dashboard link if missing for authenticated users
+                if (isAuthenticated && dashboardLinkUrl) {
+                  const exists = navCopy.some((n: any) => resolveUrl(n) === dashboardLinkUrl);
+                  if (!exists) {
+                    navCopy.unshift({ id: 'dashboard-nav', label: 'Dashboard', url: dashboardLinkUrl });
+                  }
+                }
+                return navCopy.map(renderNavItem);
+              })()}
+            </div>
+
+            {/* Right: Actions */}
+            <div className="flex items-center space-x-2 md:space-x-4">
+              {/* Dynamic Activity Icons */}
+              {isAuthenticated && activityConfig ? (
+                <div className="flex items-center space-x-1 sm:space-x-2">
+                  {Array.isArray((activityConfig as any).icons) &&
+                    (activityConfig as any).icons
+                      .filter((icon: any) => {
+                        if (!icon.isEnabled) return false;
+                        const roles = normalizeRoleList(icon.roles);
+                        if (roles.length === 0) return true;
+                        if (roles.includes("all") || roles.includes("*")) return true;
+                        return roles.includes(normalizedUserRole);
+                      })
+                      .filter((icon: any) => isActionEnabled(icon.type))
+                      .sort((a: any, b: any) => a.sortOrder - b.sortOrder)
+                      .map((icon: any) => (
+                        <div
+                          key={icon.id}
+                          ref={icon.type === "notifications" ? notifRef : icon.type === "messages" ? msgRef : helpRef}
+                        >
+                          <button
+                            onClick={() => {
+                              if (icon.type === "notifications") setShowNotifications(!showNotifications);
+                              if (icon.type === "messages") setShowMessagesDropdown(!showMessagesDropdown);
+                              if (icon.type === "help") setShowHelpDropdown(!showHelpDropdown);
+                              if (icon.type === "favorites") {
+                                const favUrl = icon.url ?? icon.link ?? icon.href ?? "";
+                                if (favUrl) {
+                                  window.location.href = favUrl;
+                                }
+                              }
+                            }}
+                            className={`text-gray-500 hover:text-gray-900 p-2 rounded-full hover:bg-gray-100 relative flex items-center ${
+                              icon.showLabel ? "flex-col items-center space-y-1" : ""
+                            }`}
+                            title={icon.label}
+                          >
+                            {getDynamicIcon(icon.type, (activityConfig as any).design.iconSize, (activityConfig as any).design.iconStyle)}
+                            {(activityConfig as any).design.showBadges &&
+                              icon.type === "notifications" &&
+                              notifications.filter((n) => !n.isRead).length > 0 && (
+                                <span
+                                  className="absolute top-1 right-1 h-4 min-w-[16px] px-1 rounded-full text-white text-[10px] flex items-center justify-center font-bold"
+                                  style={{ backgroundColor: (activityConfig as any).design.badgeColor }}
+                                >
+                                  {notifications.filter((n) => !n.isRead).length}
+                                </span>
+                              )}
+                            {icon.showLabel && <span className="text-[10px] font-medium hidden lg:block">{icon.label}</span>}
+                          </button>
+
+                          {/* Notifications Dropdown */}
+                          {icon.type === "notifications" && showNotifications && (
+                            <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 animate-fade-in-up">
+                              <div className="px-4 py-3 border-b border-gray-50 bg-gray-50 flex justify-between items-center">
+                                <h3 className="font-bold text-sm text-gray-700">Notifications</h3>
+                                <span className="text-xs text-gray-500">{notifications.filter((n) => !n.isRead).length} new</span>
+                              </div>
+                              <div className="max-h-96 overflow-y-auto">
+                                {notifications.length === 0 ? (
+                                  <div className="p-6 text-center text-gray-400 text-sm">No new notifications</div>
+                                ) : (
+                                  notifications.map((notif) => (
+                                    <div
+                                      key={notif.id}
+                                      onClick={() => handleNotificationClick(notif.id, (notif as any).actionUrl)}
+                                      className={`p-4 border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors relative ${
+                                        !notif.isRead ? "bg-blue-50/30" : ""
+                                      }`}
+                                    >
+                                      <div className="flex justify-between items-start mb-1">
+                                        <h4 className={`text-sm ${!notif.isRead ? "font-bold text-gray-900" : "font-medium text-gray-700"}`}>
+                                          {notif.title}
+                                        </h4>
+                                        <span className="text-[10px] text-gray-400 whitespace-nowrap ml-2">
+                                          {new Date((notif as any).timestamp || Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                        </span>
+                                      </div>
+                                      <p className="text-xs text-gray-500 line-clamp-2">{(notif as any).message}</p>
+                                      {!notif.isRead && <span className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500"></span>}
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                </div>
+              ) : null}
+
+              {isAuthenticated && showRoleSwitch
+                ? renderLink(
+                    { id: "role-switch-nav", label: roleSwitchLabel, url: roleSwitchUrl },
+                    "hidden lg:inline-flex items-center px-3 py-2 text-sm font-semibold text-gray-700 border border-gray-200 rounded-full hover:bg-gray-50"
+                  )
+                : null}
+
+              {/* Direct Dashboard links for desktop */}
+              {isAuthenticated && normalizedUserRole === 'freelancer' && (
+                <Link
+                  to="/freelancer/dashboard"
+                  className={`hidden lg:inline-flex items-center px-3 py-2 text-sm font-semibold rounded hover:bg-gray-50 transition ${
+                    isPathActive('/freelancer/dashboard') ? 'text-blue-600 bg-blue-50' : 'text-gray-700'
+                  }`}
+                >
+                  Dashboard
+                </Link>
+              )}
+              {isAuthenticated && normalizedUserRole === 'employer' && (
+                <Link
+                  to="/client/dashboard"
+                  className={`hidden lg:inline-flex items-center px-3 py-2 text-sm font-semibold rounded hover:bg-gray-50 transition ${
+                    isPathActive('/client/dashboard') ? 'text-blue-600 bg-blue-50' : 'text-gray-700'
+                  }`}
+                >
+                  Dashboard
+                </Link>
+              )}
+
+              {/* Profile Dropdown */}
+              {isAuthenticated && user ? (
+                profileEnabled ? (
+                  <div className="relative ml-3" ref={profileRef}>
+                    <button
+                      onClick={() => setShowProfileDropdown(!showProfileDropdown)}
+                      className="flex items-center space-x-2 focus:outline-none"
+                    >
+                      {avatarUrl ? (
+                        <img
+                          className="h-8 w-8 rounded-full object-cover border border-indigo-200"
+                          src={avatarUrl}
+                          alt={avatarName || ""}
+                        />
+                      ) : (
+                        <div className="h-8 w-8 rounded-full bg-gray-200" aria-hidden="true" />
+                      )}
+                      {avatarName ? (
+                        <span className="hidden lg:block text-sm font-medium text-gray-700">{avatarName}</span>
+                      ) : null}
+                      <ChevronDown className="h-4 w-4 text-gray-400" />
+                    </button>
+
+                    {showProfileDropdown && (
+                      <div className="origin-top-right absolute right-0 mt-2 w-72 rounded-xl shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50 animate-fade-in-up">
+                        <div className="py-2">
+                          {(["primary", "business_tools", "utilities"] as const).map((groupKey, index) => {
+                            const items = groupedProfileItems[groupKey] || [];
+                            if (items.length === 0) return null;
+                            const groupLabel = profileMenuGroupLabels[groupKey];
+                            return (
+                              <div
+                                key={groupKey}
+                                className={index === 0 ? "pb-1" : "border-t border-gray-100 pt-2 pb-1"}
+                              >
+                                {groupLabel ? (
+                                  <div className="px-4 pb-1 text-[10px] uppercase tracking-wide text-gray-400 font-semibold">
+                                    {groupLabel}
+                                  </div>
+                                ) : null}
+                                {items.map((item: any) => renderProfileItem(item))}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : null
+              ) : (
+                <div className="flex items-center space-x-2">
+                  {guestCtas.map((cta: any) =>
+                    renderLink(
+                      cta,
+                      getCtaClass(cta),
+                      () => {
+                        setShowGuestPrimaryDropdown(false);
+                        setShowGuestExploreDropdown(false);
+                      }
+                    )
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      {/* HEADER SEARCH (non-home only) */}
+      {showHeaderSearch ? (
+        <div className="bg-white border-t border-gray-100">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div className="max-w-3xl mx-auto">
+              <SearchInput
+                placeholder={searchPlaceholder}
+                size={searchSize}
+                showButton
+                buttonLabel={searchButtonLabel}
+                buttonAriaLabel={searchButtonAriaLabel || searchButtonLabel || searchPlaceholder}
+                searchMode={headerSearchMode}
+                searchPath={searchResultsUrl || undefined}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+    </div>
+  );
+};
+
+export default Navbar;

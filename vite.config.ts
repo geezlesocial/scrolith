@@ -1,35 +1,57 @@
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { defineConfig, loadEnv } from 'vite';
-import react from '@vitejs/plugin-react';
+// C:\Projects\geezle\vite.config.ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import path from 'path'
+import getBackendTarget from './scripts/getBackendTarget'
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+export default defineConfig({
+  plugins: [react()],
+  server: (() => {
+    const backendTarget = getBackendTarget();
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, '.', '');
-  return {
-    server: {
+    return {
       port: 3000,
-      host: '0.0.0.0',
+      host: true,
       proxy: {
         '/api': {
-          target: 'http://localhost:5000',
+          target: backendTarget,
           changeOrigin: true,
           secure: false,
           rewrite: (path) => path,
+        },
+        '/socket.io': {
+          target: backendTarget,
+          changeOrigin: true,
+          ws: true,
+          secure: false,
+          rewrite: (path) => path,
+          configure: (proxy, _options) => {
+            proxy.on('error', (err, _req, _res) => {
+              console.log('Vite proxy error:', err)
+            })
+            proxy.on('proxyReq', (proxyReq, req, _res) => {
+              console.log('Proxy request:', req.method, req.url)
+            })
+            proxy.on('proxyRes', (proxyRes, req, _res) => {
+              console.log('Proxy response:', proxyRes.statusCode, req.url)
+            })
+          }
         }
+      },
+      hmr: {
+        clientPort: 3000,
+        protocol: 'ws',
+        host: 'localhost'
       }
-    },
-    plugins: [react()],
-    define: {
-      'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
-    },
-    resolve: {
-      alias: {
-        '@': __dirname,
-      }
+    };
+  })(),
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      'src': path.resolve(__dirname, './src'), // Add this line
     }
-  };
-});
+  },
+  css: {
+    postcss: './postcss.config.cjs',
+  }
+})

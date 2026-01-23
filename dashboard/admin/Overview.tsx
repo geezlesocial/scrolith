@@ -14,18 +14,24 @@ const StatsCard = ({ title, value, change, icon: Icon, color }: any) => {
     purple: 'bg-purple-100 text-purple-600',
     indigo: 'bg-indigo-100 text-indigo-600',
   };
-  return (
-    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex items-start justify-between">
-      <div>
-        <p className="text-sm font-medium text-gray-500">{title}</p>
-        <h3 className="text-2xl font-bold text-gray-900 mt-1">{value}</h3>
-        {change && <p className={`text-xs font-medium mt-1 ${change.includes('+') ? 'text-green-600' : 'text-gray-500'}`}>{change}</p>}
-      </div>
-      <div className={`p-3 rounded-lg ${colors[color] || 'bg-gray-100 text-gray-600'}`}>
-        <Icon size={24} />
-      </div>
-    </div>
-  );
+    return (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex items-start justify-between h-32">
+            <div>
+                <p className="text-sm font-medium text-gray-500">{title}</p>
+                <h3 className="text-2xl font-bold text-gray-900 mt-1 leading-7">{value}</h3>
+                <p className="mt-1 h-4">
+                    {change ? (
+                        <span className={`text-xs font-medium ${change.includes('+') ? 'text-green-600' : 'text-gray-500'}`}>{change}</span>
+                    ) : (
+                        <span className="text-xs text-transparent">placeholder</span>
+                    )}
+                </p>
+            </div>
+            <div className={`p-3 rounded-lg ${colors[color] || 'bg-gray-100 text-gray-600'}`}>
+                <Icon size={24} />
+            </div>
+        </div>
+    );
 };
 
 const Overview = () => {
@@ -48,7 +54,17 @@ const Overview = () => {
                 </div>
             ) : (
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    {[1,2,3,4].map(i => <div key={i} className="h-32 bg-gray-100 rounded-xl animate-pulse"></div>)}
+                    {[1,2,3,4].map(i => (
+                        <div key={i} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 h-32 animate-pulse">
+                            <div className="h-full flex flex-col justify-between">
+                                <div>
+                                    <div className="w-24 h-3 bg-gray-200 rounded mb-2"></div>
+                                    <div className="w-32 h-6 bg-gray-200 rounded mb-2"></div>
+                                </div>
+                                <div className="w-10 h-10 bg-gray-200 rounded self-end"></div>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             )}
             

@@ -4,6 +4,7 @@ import { Plus, Edit2, Trash2, Save, ArrowLeft, Image as ImageIcon, Link as LinkI
 import { StaticPage, PageCategory, MediaItem, ContentBlock, BlogCategory, BlogSettings } from '../../types';
 import { CMSService } from '../../services/cms';
 import { useNotification } from '../../context/NotificationContext';
+import AuthPagesManager from './AuthPagesManager';
 
 const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab, setView }: any) => (
     <button 
@@ -17,7 +18,7 @@ const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab, setView }: 
 const CMSPages = () => {
     const [pages, setPages] = useState<StaticPage[]>([]);
     const [categories, setCategories] = useState<PageCategory[]>([]);
-    const [view, setView] = useState<'list' | 'editor' | 'categories'>('list');
+    const [view, setView] = useState<'list' | 'editor' | 'categories' | 'auth-pages'>('list');
     const [editingPage, setEditingPage] = useState<StaticPage | null>(null);
     const { showNotification } = useNotification();
 
@@ -289,6 +290,8 @@ const CMSPages = () => {
                     </div>
                 </div>
             </div>
+    ) : view === 'auth-pages' ? (
+        <AuthPagesManager setView={setView} />
     ) : (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -296,6 +299,9 @@ const CMSPages = () => {
                 <div className="flex space-x-2">
                     <button onClick={() => setView('categories')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
                         <Folder className="w-4 h-4 mr-2" /> Manage Categories
+                    </button>
+                    <button onClick={() => setView('auth-pages')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
+                        <Settings className="w-4 h-4 mr-2" /> Auth Pages
                     </button>
                     <button onClick={handleCreate} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 shadow-sm">
                         <Plus className="w-4 h-4 mr-2" /> Create New Page

@@ -1,0 +1,153 @@
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { PlatformSettings } from '../types';
+import { CMSService } from '../services/cms';
+import { AdminService } from '../services/admin';
+import { SocketContext } from './SocketContext';
+
+interface ContentContextType {
+  settings: PlatformSettings | null;
+  loading: boolean;
+  updateSettings?: (settings: PlatformSettings) => Promise<void>;
+}
+
+const ContentContext = createContext<ContentContextType | undefined>(undefined);
+
+export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [settings, setSettings] = useState<PlatformSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const socketContext = useContext(SocketContext);
+  const socket = socketContext?.socket ?? null;
+
+  const fetchSettings = useCallback(async () => {
+    try {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      // Load platform (site) settings and system settings, then merge so
+      // components (like SystemSettings) always see both.
+      const [platformData, systemData] = await Promise.all([
+        AdminService.getPlatformSettings(),
+        AdminService.getSystemSettings().catch(() => null)
+      ]);
+
+      let merged: any = platformData || {};
+
+      // Attach system under `system` key if available
+      if (systemData) {
+        merged = { ...merged, system: systemData };
+      }
+
+      // If assets missing, try header config as fallback
+      const faviconValue = merged?.favicon_url || merged?.faviconUrl;
+      const logoValue = merged?.logo_url || merged?.logoUrl;
+      if (!faviconValue || !logoValue) {
+        try {
+          const header = await CMSService.getHeaderConfig();
+          if (header) {
+            const headerFavicon = (header as any)?.favicon_url || (header as any)?.faviconUrl;
+            const headerLogo = (header as any)?.logo_url || (header as any)?.logoUrl;
+            merged = {
+              ...merged,
+              ...(headerFavicon ? { favicon_url: headerFavicon, faviconUrl: headerFavicon } : {}),
+              ...(headerLogo ? { logo_url: headerLogo, logoUrl: headerLogo } : {})
+            };
+          }
+        } catch (e) {
+          console.warn('Failed to load header config for assets', e);
+        }
+      }
+
+      setSettings(merged as PlatformSettings);
+    } catch (error) {
+      console.error('Failed to load settings, using defaults', error);
+      const defaultSettings: any = {
+        siteName: 'Geezle',
+        tagline: 'The Freelance Marketplace',
+        logoUrl: 'https://ui-avatars.com/api/?name=Geezle&background=0D8ABC&color=fff&size=128&bold=true',
+        faviconUrl: 'https://ui-avatars.com/api/?name=G&background=0D8ABC&color=fff&size=64&bold=true',
+        favicon_url: 'https://ui-avatars.com/api/?name=G&background=0D8ABC&color=fff&size=64&bold=true',
+        adminEmail: 'admin@geezle.com',
+        supportEmail: 'support@geezle.com',
+        footerAboutTitle: 'About Geezle',
+        footerAboutText: 'Connecting talent with opportunity.',
+        footerCopyright: 'Ac 2024 Geezle Inc.',
+        footerLinks: [],
+        socialLinks: [],
+        system: {
+          maintenanceMode: false,
+          registrationsEnabled: true,
+          kycEnforced: false,
+          admin2FA: false
+        }
+      };
+      setSettings(defaultSettings);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const updateSettings = useCallback(async (newSettings: PlatformSettings) => {
+    try {
+      // If system settings provided, save via admin system endpoint
+      let savedSystem: any = null;
+      if ((newSettings as any).system) {
+        try {
+          savedSystem = await AdminService.saveSystemSettings((newSettings as any).system);
+        } catch (e) {
+          console.error('Failed to save system settings via AdminService', e);
+          throw e;
+        }
+      }
+
+      // Save platform-level settings if present (siteName, tagline, logo, etc.)
+      const platformPayload: Partial<PlatformSettings> = { ...newSettings };
+      // remove system before sending to platform endpoint
+      delete (platformPayload as any).system;
+      try {
+        await AdminService.savePlatformSettings(platformPayload as PlatformSettings);
+      } catch (e) {
+        console.error('Failed to save platform settings via AdminService', e);
+        // not fatal for system save; rethrow if nothing was saved
+        if (!((newSettings as any).system)) throw e;
+      }
+
+      // Optimistically update local settings so UI reflects changes immediately.
+      // If backend returned a merged system payload, prefer it to keep local state in sync.
+      setSettings(prev => ({ ...(prev as any), ...(newSettings as any), ...(savedSystem ? { system: savedSystem } : {}) }));
+    } catch (error) {
+      console.error('updateSettings failed', error);
+      throw error;
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleSettingsUpdated = () => {
+      fetchSettings();
+    };
+
+    socket.on('settings:updated', handleSettingsUpdated);
+    socket.on('cms:header_updated', handleSettingsUpdated);
+    return () => {
+      socket.off('settings:updated', handleSettingsUpdated);
+      socket.off('cms:header_updated', handleSettingsUpdated);
+    };
+  }, [socket, fetchSettings]);
+
+  return (
+    <ContentContext.Provider value={{ settings, loading, updateSettings }}>
+      {children}
+    </ContentContext.Provider>
+  );
+};
+
+export const useContent = (): ContentContextType => {
+  const context = useContext(ContentContext);
+  if (context === undefined) {
+    throw new Error('useContent must be used within a ContentProvider');
+  }
+  return context;
+};

@@ -20,16 +20,38 @@ import FilePicker from '../../components/FilePicker';
 // --- 1. AFFILIATE MANAGER ---
 const AffiliateManager = ({ formatPrice, showNotification }: any) => {
     const [affiliates, setAffiliates] = useState<Affiliate[]>([]);
-    
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    const loadAffiliates = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const data = await MarketingService.getAffiliates();
+            setAffiliates(data);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Unable to load affiliates';
+            setError(message);
+            showNotification('alert', 'Unable to load affiliates', message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
-        MarketingService.getAffiliates().then(setAffiliates);
+        loadAffiliates();
     }, []);
 
     const toggleStatus = async (affiliate: Affiliate) => {
         const newStatus = affiliate.status === 'active' ? 'inactive' : 'active';
-        await MarketingService.updateAffiliateStatus(affiliate.id, newStatus);
-        setAffiliates(prev => prev.map(a => a.id === affiliate.id ? { ...a, status: newStatus } : a));
-        showNotification('success', 'Status Updated', `Affiliate is now ${newStatus}`);
+        try {
+            await MarketingService.updateAffiliateStatus(affiliate.id, newStatus);
+            showNotification('success', 'Status Updated', `Affiliate is now ${newStatus}`);
+            await loadAffiliates();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Unable to update status';
+            showNotification('alert', 'Status update failed', message);
+        }
     };
 
     return (
@@ -38,6 +60,11 @@ const AffiliateManager = ({ formatPrice, showNotification }: any) => {
                 <h3 className="font-bold text-gray-900">Affiliate Partners</h3>
                 <span className="text-xs text-gray-500">{affiliates.length} total</span>
             </div>
+            {loading ? (
+                <div className="p-6 text-center text-xs text-gray-500">Loading affiliates...</div>
+            ) : error ? (
+                <div className="p-6 text-center text-xs text-red-500">{error}</div>
+            ) : (
             <table className="w-full text-sm text-left">
                 <thead className="bg-gray-50 text-gray-500">
                     <tr>
@@ -70,6 +97,7 @@ const AffiliateManager = ({ formatPrice, showNotification }: any) => {
                     ))}
                 </tbody>
             </table>
+            )}
         </div>
     );
 };
@@ -78,35 +106,64 @@ const AffiliateManager = ({ formatPrice, showNotification }: any) => {
 const CouponManager = ({ formatPrice, showNotification }: any) => {
     const [coupons, setCoupons] = useState<Coupon[]>([]);
     const [isEditing, setIsEditing] = useState<Partial<Coupon> | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    const loadCoupons = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const data = await MarketingService.getCoupons();
+            setCoupons(data);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Unable to load coupons';
+            setError(message);
+            showNotification('alert', 'Unable to load coupons', message);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        MarketingService.getCoupons().then(setCoupons);
+        loadCoupons();
     }, []);
 
     const handleSave = async () => {
-        if (isEditing && isEditing.code) {
-            const saved = await MarketingService.saveCoupon({
-                ...isEditing,
-                id: isEditing.id || `cpn-${Date.now()}`,
-                usedCount: isEditing.usedCount || 0,
-                isActive: isEditing.isActive !== undefined ? isEditing.isActive : true
-            } as Coupon);
-            
-            // Update list
-            const exists = coupons.find(c => c.id === saved.id);
-            if(exists) setCoupons(prev => prev.map(c => c.id === saved.id ? saved : c));
-            else setCoupons(prev => [saved, ...prev]);
-            
-            setIsEditing(null);
+        if (!isEditing?.code) {
+            showNotification('alert', 'Validation', 'Coupon code is required.');
+            return;
+        }
+
+        const payload: Partial<Coupon> = {
+            ...isEditing,
+            usedCount: isEditing.usedCount ?? 0,
+            usageLimit: isEditing.usageLimit ?? 0,
+            isActive: isEditing.isActive !== undefined ? isEditing.isActive : true
+        };
+        if (isEditing.id) {
+            payload.id = isEditing.id;
+        }
+
+        try {
+            const saved = await MarketingService.saveCoupon(payload as Coupon);
             showNotification('success', 'Coupon Saved', `Code ${saved.code} is ready.`);
+            setIsEditing(null);
+            await loadCoupons();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to save coupon';
+            showNotification('alert', 'Save Failed', message);
         }
     };
 
     const handleDelete = async (id: string) => {
-        if(confirm('Delete coupon?')) {
+        if (!confirm('Delete coupon?')) return;
+        try {
             await MarketingService.deleteCoupon(id);
-            setCoupons(prev => prev.filter(c => c.id !== id));
             showNotification('success', 'Deleted', 'Coupon removed.');
+            await loadCoupons();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to delete coupon';
+            showNotification('alert', 'Delete Failed', message);
         }
     };
 
@@ -149,27 +206,33 @@ const CouponManager = ({ formatPrice, showNotification }: any) => {
                 </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {coupons.map(cpn => (
-                    <div key={cpn.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm relative group">
-                        <div className="flex justify-between items-start mb-2">
-                            <span className="font-mono font-bold text-lg text-gray-800 bg-gray-100 px-2 py-1 rounded">{cpn.code}</span>
-                            <span className={`text-xs px-2 py-1 rounded font-bold ${cpn.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{cpn.isActive ? 'ACTIVE' : 'INACTIVE'}</span>
+            {loading ? (
+                <div className="p-4 text-center text-xs text-gray-500">Loading coupons...</div>
+            ) : error ? (
+                <div className="p-4 text-center text-xs text-red-500">{error}</div>
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {coupons.map(cpn => (
+                        <div key={cpn.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm relative group">
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="font-mono font-bold text-lg text-gray-800 bg-gray-100 px-2 py-1 rounded">{cpn.code}</span>
+                                <span className={`text-xs px-2 py-1 rounded font-bold ${cpn.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{cpn.isActive ? 'ACTIVE' : 'INACTIVE'}</span>
+                            </div>
+                            <div className="text-2xl font-bold text-green-600 mb-1">
+                                {cpn.discountType === 'percentage' ? `${cpn.value}% OFF` : `-${formatPrice(cpn.value)}`}
+                            </div>
+                            <div className="text-xs text-gray-500 flex justify-between mt-2">
+                                <span>Used: {cpn.usedCount} / {cpn.usageLimit}</span>
+                                <span>Exp: {cpn.expiryDate || 'Never'}</span>
+                            </div>
+                            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                                <button onClick={() => setIsEditing(cpn)} className="p-1.5 bg-white border rounded text-blue-600 hover:bg-blue-50"><Edit2 className="w-3 h-3"/></button>
+                                <button onClick={() => handleDelete(cpn.id)} className="p-1.5 bg-white border rounded text-red-600 hover:bg-red-50"><Trash2 className="w-3 h-3"/></button>
+                            </div>
                         </div>
-                        <div className="text-2xl font-bold text-green-600 mb-1">
-                            {cpn.discountType === 'percentage' ? `${cpn.value}% OFF` : `-${formatPrice(cpn.value)}`}
-                        </div>
-                        <div className="text-xs text-gray-500 flex justify-between mt-2">
-                            <span>Used: {cpn.usedCount} / {cpn.usageLimit}</span>
-                            <span>Exp: {cpn.expiryDate || 'Never'}</span>
-                        </div>
-                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
-                            <button onClick={() => setIsEditing(cpn)} className="p-1.5 bg-white border rounded text-blue-600 hover:bg-blue-50"><Edit2 className="w-3 h-3"/></button>
-                            <button onClick={() => handleDelete(cpn.id)} className="p-1.5 bg-white border rounded text-red-600 hover:bg-red-50"><Trash2 className="w-3 h-3"/></button>
-                        </div>
-                    </div>
-                ))}
-            </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 };
@@ -190,14 +253,27 @@ const CampaignManager = ({ showNotification }: any) => {
         content: '',
         scheduledAt: ''
     });
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    const loadData = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const data = await MarketingService.getCampaigns();
+            setCampaigns(data);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Unable to load campaigns';
+            setError(message);
+            showNotification('alert', 'Campaigns failed to load', message);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
         loadData();
     }, []);
-
-    const loadData = () => {
-        MarketingService.getCampaigns().then(setCampaigns);
-    };
 
     const handleCreate = () => {
         setEditingId(null);
@@ -224,10 +300,14 @@ const CampaignManager = ({ showNotification }: any) => {
     };
 
     const handleDelete = async (id: string) => {
-        if (confirm("Are you sure you want to delete this campaign?")) {
+        if (!confirm("Are you sure you want to delete this campaign?")) return;
+        try {
             await MarketingService.deleteCampaign(id);
             showNotification('success', 'Deleted', 'Campaign removed.');
-            loadData();
+            await loadData();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Delete failed';
+            showNotification('alert', 'Delete Failed', message);
         }
     };
 
@@ -250,23 +330,29 @@ const CampaignManager = ({ showNotification }: any) => {
             return;
         }
 
-        const campaignToSave: MarketingCampaign = {
-            id: editingId || `cmp-${Date.now()}`,
+        const existing = campaigns.find(c => c.id === editingId);
+        const payload: Partial<MarketingCampaign> = {
             name: formData.name,
             type: formData.type || 'email',
             status: formData.scheduledAt ? 'scheduled' : (formData.status || 'draft'),
             targetAudience: formData.targetAudience || 'all',
             subject: formData.subject,
             content: formData.content,
-            stats: editingId ? (campaigns.find(c => c.id === editingId)?.stats || { sent: 0, opened: 0, clicked: 0 }) : { sent: 0, opened: 0, clicked: 0 },
-            createdAt: editingId ? (campaigns.find(c => c.id === editingId)?.createdAt || new Date().toISOString()) : new Date().toISOString(),
-            scheduledAt: formData.scheduledAt
+            stats: existing?.stats ?? { sent: 0, opened: 0, clicked: 0 },
+            createdAt: existing?.createdAt || new Date().toISOString(),
+            scheduledAt: formData.scheduledAt || undefined
         };
+        if (editingId) payload.id = editingId;
 
-        await MarketingService.saveCampaign(campaignToSave);
-        showNotification('success', 'Saved', `Campaign ${editingId ? 'updated' : 'created'} successfully.`);
-        setIsModalOpen(false);
-        loadData();
+        try {
+            await MarketingService.saveCampaign(payload as MarketingCampaign);
+            showNotification('success', 'Saved', `Campaign ${editingId ? 'updated' : 'created'} successfully.`);
+            setIsModalOpen(false);
+            await loadData();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to save campaign';
+            showNotification('alert', 'Save Failed', message);
+        }
     };
 
     const handleSendNow = async (id: string) => {
@@ -276,7 +362,7 @@ const CampaignManager = ({ showNotification }: any) => {
         showNotification('info', 'Sending...', 'Campaign is being broadcasted.');
         
         try {
-            await MarketingService.simulateSendCampaign(id);
+            await MarketingService.sendCampaign(id);
             showNotification('success', 'Sent', 'Campaign broadcast completed successfully.');
             loadData();
         } catch (e) {
@@ -298,6 +384,11 @@ const CampaignManager = ({ showNotification }: any) => {
                 </button>
             </div>
 
+            {loading ? (
+                <div className="p-6 text-center text-xs text-gray-500">Loading campaigns...</div>
+            ) : error ? (
+                <div className="p-6 text-center text-xs text-red-500">{error}</div>
+            ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {campaigns.map(c => (
                     <div key={c.id} className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col overflow-hidden hover:shadow-md transition-shadow">
@@ -379,6 +470,7 @@ const CampaignManager = ({ showNotification }: any) => {
                     <span className="font-bold text-sm">Create New Campaign</span>
                 </div>
             </div>
+            )}
 
             {/* Campaign Modal */}
             {isModalOpen && (
@@ -480,38 +572,54 @@ const CampaignManager = ({ showNotification }: any) => {
 const AffiliatePageEditor = () => {
     const [content, setContent] = useState<AffiliatePageContent | null>(null);
     const [loading, setLoading] = useState(true);
+    const { showNotification } = useNotification();
+
+    const loadContent = async () => {
+        setLoading(true);
+        try {
+            const data = await CMSService.getAffiliateContent();
+            setContent(data ?? { heroTitle: '', heroSubtitle: '' });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Unable to load content';
+            showNotification('alert', 'Load Failed', message);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        CMSService.getAffiliateContent().then(data => {
-            setContent(data);
-            setLoading(false);
-        });
+        loadContent();
     }, []);
 
     const handleSave = async () => {
-        if(content) {
+        if (!content) return;
+        try {
             await CMSService.saveAffiliateContent(content);
-            alert("Page content saved!");
+            showNotification('success', 'Page Saved', 'Affiliate landing page content updated.');
+            await loadContent();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Save failed';
+            showNotification('alert', 'Save Failed', message);
         }
     };
 
     return (
         <>
             {loading ? (
-                <div>Loading Editor...</div>
+                <div className="p-6 text-xs text-gray-500">Loading Editor...</div>
             ) : !content ? (
-                <div>No content found.</div>
+                <div className="p-6 text-xs text-gray-500">No content found.</div>
             ) : (
                 <div className="bg-white p-6 rounded-xl border border-gray-200 space-y-6">
                     <h3 className="font-bold text-gray-900">Affiliate Landing Page</h3>
                     <div className="space-y-4">
                         <div>
                             <label className="block text-sm font-medium mb-1">Hero Title</label>
-                            <input className="w-full border rounded p-2" value={content.heroTitle} onChange={e => setContent({...content, heroTitle: e.target.value})} />
+                            <input className="w-full border rounded p-2" value={content.heroTitle} onChange={e => setContent({ ...content, heroTitle: e.target.value })} />
                         </div>
                         <div>
                             <label className="block text-sm font-medium mb-1">Hero Subtitle</label>
-                            <textarea className="w-full border rounded p-2" value={content.heroSubtitle} onChange={e => setContent({...content, heroSubtitle: e.target.value})} />
+                            <textarea className="w-full border rounded p-2" value={content.heroSubtitle} onChange={e => setContent({ ...content, heroSubtitle: e.target.value })} />
                         </div>
                         <button onClick={handleSave} className="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700">Save Content</button>
                     </div>
@@ -535,8 +643,9 @@ const ROIAnalytics = ({ formatPrice }: any) => {
 
     return (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="p-4 bg-gray-50 border-b border-gray-200">
+            <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
                 <h3 className="font-bold text-gray-900">Campaign ROI Performance</h3>
+                <span className="text-[10px] uppercase text-gray-500">Placeholder demo data</span>
             </div>
             <table className="w-full text-sm text-left">
                 <thead className="bg-gray-50 text-gray-500">
@@ -567,60 +676,72 @@ const ROIAnalytics = ({ formatPrice }: any) => {
 };
 
 // --- 6. REFERRAL INTELLIGENCE (keep as is) ---
-const ReferralIntelligencePanel = () => {
-    const [data, setData] = useState<ReferralIntelligence | null>(null);
-
-    useEffect(() => {
-        MarketService.getReferralIntelligence().then(setData);
-    }, []);
-
-    if(!data) return <div>Loading Intel...</div>;
-
-    return (
-        <div className="space-y-6">
-            <div className="bg-gradient-to-r from-teal-900 to-emerald-800 text-white p-6 rounded-xl shadow-lg">
-                <h3 className="font-bold text-lg mb-2 flex items-center"><Sparkles className="w-5 h-5 mr-2" /> AI Referral Insights</h3>
-                <ul className="list-disc pl-5 space-y-1 text-sm text-emerald-100">
-                    {data.campaignSuggestions.map((s, i) => <li key={i}>{s}</li>)}
-                </ul>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white p-6 rounded-xl border border-gray-200">
-                    <h4 className="font-bold text-gray-900 mb-4">Top Referrers (High Quality)</h4>
-                    <div className="space-y-3">
-                        {data.topReferrers.map((ref, i) => (
-                            <div key={i} className="flex justify-between items-center border-b pb-2 last:border-0">
-                                <div>
-                                    <div className="font-medium text-sm">{ref.name}</div>
-                                    <div className="text-xs text-gray-500">K-Factor: {ref.kFactor}</div>
-                                </div>
-                                <div className="text-right">
-                                    <div className="font-bold text-green-600">{ref.totalReferrals} refs</div>
-                                    <div className="text-xs text-gray-400">Quality: {ref.qualityScore}/100</div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="bg-red-50 p-6 rounded-xl border border-red-200">
-                    <h4 className="font-bold text-red-900 mb-4 flex items-center"><Shield className="w-4 h-4 mr-2"/> Fraud / Self-Referral Alerts</h4>
-                    {data.fraudAlerts.length === 0 ? <p className="text-sm text-red-600">No active alerts.</p> : (
-                        <div className="space-y-2">
-                            {data.fraudAlerts.map((alert, i) => (
-                                <div key={i} className="bg-white p-3 rounded border border-red-100 shadow-sm text-sm">
-                                    <span className="font-bold text-red-700 block">{alert.reason}</span>
-                                    <span className="text-xs text-gray-500">Referrer ID: {alert.referrerId} â€¢ Severity: {alert.severity}</span>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-};
+const ReferralIntelligencePanel = () => {
+    const [data, setData] = useState<ReferralIntelligence | null>(null);
+
+    useEffect(() => {
+        MarketService.getReferralIntelligence().then(setData);
+    }, []);
+
+    if (!data) return <div className="p-6 text-xs text-gray-500">Loading Intel...</div>;
+
+    const suggestions = data.campaignSuggestions ?? [];
+    const referrers = data.topReferrers ?? [];
+    const fraudAlerts = data.fraudAlerts ?? [];
+
+    return (
+        <div className="space-y-6">
+            <div className="bg-gradient-to-r from-teal-900 to-emerald-800 text-white p-6 rounded-xl shadow-lg">
+                <h3 className="font-bold text-lg mb-2 flex items-center"><Sparkles className="w-5 h-5 mr-2" /> AI Referral Insights</h3>
+                {suggestions.length === 0 ? (
+                    <p className="text-sm text-emerald-100">No suggestions available yet.</p>
+                ) : (
+                    <ul className="list-disc pl-5 space-y-1 text-sm text-emerald-100">
+                        {suggestions.map((s, i) => <li key={i}>{s}</li>)}
+                    </ul>
+                )}
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-white p-6 rounded-xl border border-gray-200">
+                    <h4 className="font-bold text-gray-900 mb-4">Top Referrers (High Quality)</h4>
+                    {referrers.length === 0 ? (
+                        <p className="text-sm text-gray-500">No referrers tracked yet.</p>
+                    ) : (
+                        <div className="space-y-3">
+                            {referrers.map((ref, i) => (
+                                <div key={i} className="flex justify-between items-center border-b pb-2 last:border-0">
+                                    <div>
+                                        <div className="font-medium text-sm">{ref.name}</div>
+                                        <div className="text-xs text-gray-500">K-Factor: {ref.kFactor}</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="font-bold text-green-600">{ref.totalReferrals} refs</div>
+                                        <div className="text-xs text-gray-400">Quality: {ref.qualityScore}/100</div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
+                <div className="bg-red-50 p-6 rounded-xl border border-red-200">
+                    <h4 className="font-bold text-red-900 mb-4 flex items-center"><Shield className="w-4 h-4 mr-2"/> Fraud / Self-Referral Alerts</h4>
+                    {fraudAlerts.length === 0 ? <p className="text-sm text-red-600">No active alerts.</p> : (
+                        <div className="space-y-2">
+                            {fraudAlerts.map((alert, i) => (
+                                <div key={i} className="bg-white p-3 rounded border border-red-100 shadow-sm text-sm">
+                                    <span className="font-bold text-red-700 block">{alert.reason}</span>
+                                    <span className="text-xs text-gray-500">Referrer ID: {alert.referrerId} • Severity: {alert.severity}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const MarketingTab = () => {
     const [activeTab, setActiveTab] = useState<'affiliates' | 'page_content' | 'coupons' | 'campaigns' | 'roi' | 'referral-ai'>('affiliates');

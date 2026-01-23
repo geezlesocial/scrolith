@@ -1,0 +1,75 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Wallet {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  balances  String?
+  currency  String   @default("USD")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id        String   @id @default(cuid())
+  walletId  String
+  wallet    Wallet   @relation(fields: [walletId], references: [id])
+  type      String
+  amount    Float?
+  method    String?
+  status    String?
+  meta      String?
+  createdAt DateTime @default(now())
+}
+
+model Order {
+  id         String   @id @default(cuid())
+  assigneeId String?
+  clientId   String?
+  status     String?
+  gigTitle   String?
+  clientName String?
+  dueDate    DateTime?
+  messages   String?
+  revisions  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model KYCSubmission {
+  id              String   @id @default(cuid())
+  userId          String
+  status          String   @default("not_submitted")
+  submission      String?
+  rejectionReason String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Job {
+  id        String   @id @default(cuid())
+  ownerId   String
+  title     String?
+  description String?
+  status    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Proposal {
+  id        String   @id @default(cuid())
+  jobId     String?
+  ownerId   String?
+  toUserId  String?
+  status    String?
+  data      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
