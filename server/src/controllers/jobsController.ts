@@ -4,7 +4,7 @@ import { prisma } from '../db';
 const jobs: any[] = [];
 
 export const listJobs = async (req: Request, res: Response) => {
-  const user = (req as any).user;
+  const user = (req as unknown as { user?: { id?: string } }).user as { id?: string } | undefined;
   const ownerId = (req.query.ownerId === 'me' ? user?.id : req.query.ownerId) || null;
   if (prisma) {
     if (ownerId) return res.json({ success: true, data: await prisma.job.findMany({ where: { ownerId } }) });
@@ -15,7 +15,7 @@ export const listJobs = async (req: Request, res: Response) => {
 };
 
 export const createJob = async (req: Request, res: Response) => {
-  const user = (req as any).user;
+  const user = (req as unknown as { user?: { id?: string } }).user as { id?: string } | undefined;
   const payload = req.body;
   if (prisma) {
     const job = await prisma.job.create({ data: { ownerId: user?.id || 'anonymous', title: payload.title || null, description: payload.description || null, status: payload.status || null } });

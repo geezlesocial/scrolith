@@ -117,13 +117,13 @@ export const PaymentService = {
   // --- ESCROW & ADMIN ---
 
   updateGateway: async (gateway: PaymentGateway): Promise<void> => {
-    const payload = {
-      id: gateway.id,
-      isEnabled: (gateway as any).isEnabled ?? (gateway as any).is_enabled ?? false
-    };
-    const response = await api.post('/wallet/admin/gateways', payload);
-    const data = response?.data?.data ?? response?.data ?? [];
-    gateways = Array.isArray(data) ? data : [];
+        const payload = {
+            id: gateway.id,
+            isEnabled: gateway.isEnabled ?? (gateway as any).is_enabled ?? false
+        };
+        const response = await api.post('/wallet/admin/gateways', payload);
+        const data = response?.data?.data ?? response?.data ?? [];
+        gateways = Array.isArray(data) ? data : [];
   },
 
   // For Admin Dashboard

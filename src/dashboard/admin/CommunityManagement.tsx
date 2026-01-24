@@ -39,6 +39,8 @@ const CommunityManagement = () => {
         loadData();
     }, []);
 
+    const s = (settings ?? {}) as Partial<Record<string, unknown>>;
+
     const loadData = async () => {
         try {
             const [settingsResult, logsResult] = await Promise.allSettled([
@@ -550,7 +552,7 @@ const AdManager = () => {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 mb-1">Placement</label>
-                                    <select className="w-full border rounded p-2 text-sm" value={isEditing.placement} onChange={e => setIsEditing({...isEditing, placement: e.target.value as any})}>
+                                    <select className="w-full border rounded p-2 text-sm" value={isEditing.placement} onChange={e => setIsEditing({...isEditing, placement: e.target.value as string})}>
                                         <option value="feed">Feed</option>
                                         <option value="sidebar">Sidebar</option>
                                         <option value="forum_top">Forum Top</option>
@@ -558,7 +560,7 @@ const AdManager = () => {
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 mb-1">Status</label>
-                                    <select className="w-full border rounded p-2 text-sm" value={isEditing.status} onChange={e => setIsEditing({...isEditing, status: e.target.value as any})}>
+                                    <select className="w-full border rounded p-2 text-sm" value={isEditing.status} onChange={e => setIsEditing({...isEditing, status: e.target.value as string})}>
                                         <option value="active">Active</option>
                                         <option value="paused">Paused</option>
                                         <option value="draft">Draft</option>
@@ -689,7 +691,7 @@ const ChannelManager = () => {
                     <h4 className="font-bold text-sm mb-3">Create Channel</h4>
                     <div className="grid grid-cols-2 gap-4 mb-4">
                         <input className="border rounded p-2 text-sm" placeholder="Channel Name" value={newChannel.name} onChange={e => setNewChannel({...newChannel, name: e.target.value})} />
-                        <select className="border rounded p-2 text-sm" value={newChannel.type} onChange={e => setNewChannel({...newChannel, type: e.target.value as any})}>
+                        <select className="border rounded p-2 text-sm" value={newChannel.type} onChange={e => setNewChannel({...newChannel, type: e.target.value as string})}>
                             <option value="public">Public</option>
                             <option value="private">Private</option>
                             <option value="club">Club (Paid)</option>
@@ -917,18 +919,21 @@ const SettingsPanel = ({ settings, toggleSetting }: {
             {/* DEBUG SECTION - Remove in production */}
             <div className="mt-8 pt-6 border-t border-gray-100 bg-gray-50 p-4 rounded-lg text-xs">
                 <h5 className="font-bold text-gray-800 mb-2">Debug Info:</h5>
-                <pre className="text-gray-600 overflow-auto max-h-40">
-                    {JSON.stringify({
-                        require_login_to_view: (settings as any).require_login_to_view ?? settings.requireLoginToView,
-                        allow_guest_comments: (settings as any).allow_guest_comments ?? settings.allowGuestComments,
-                        allow_media_uploads: (settings as any).allow_media_uploads ?? settings.allowMediaUploads,
-                        enable_reposts: (settings as any).enable_reposts ?? settings.enableReposts,
-                        allow_external_links: (settings as any).allow_external_links ?? settings.allowExternalLinks,
-                        auto_moderate_content: (settings as any).auto_moderate_content ?? settings.autoModerateContent,
-                        sentiment_analysis: (settings as any).sentiment_analysis ?? settings.sentimentAnalysis,
-                        enable_clubs: (settings as any).enable_clubs ?? (settings as any).enableClubs,
-                        enable_events: (settings as any).enable_events ?? (settings as any).enableEvents,
-                    }, null, 2)}
+                    <pre className="text-gray-600 overflow-auto max-h-40">
+                    {(() => {
+                        const sLocal = (settings ?? {}) as Record<string, unknown>;
+                        return JSON.stringify({
+                            require_login_to_view: sLocal['require_login_to_view'] ?? sLocal['requireLoginToView'],
+                            allow_guest_comments: sLocal['allow_guest_comments'] ?? sLocal['allowGuestComments'],
+                            allow_media_uploads: sLocal['allow_media_uploads'] ?? sLocal['allowMediaUploads'],
+                            enable_reposts: sLocal['enable_reposts'] ?? sLocal['enableReposts'],
+                            allow_external_links: sLocal['allow_external_links'] ?? sLocal['allowExternalLinks'],
+                            auto_moderate_content: sLocal['auto_moderate_content'] ?? sLocal['autoModerateContent'],
+                            sentiment_analysis: sLocal['sentiment_analysis'] ?? sLocal['sentimentAnalysis'],
+                            enable_clubs: sLocal['enable_clubs'] ?? sLocal['enableClubs'],
+                            enable_events: sLocal['enable_events'] ?? sLocal['enableEvents'],
+                        }, null, 2);
+                    })()}
                 </pre>
             </div>
         </div>

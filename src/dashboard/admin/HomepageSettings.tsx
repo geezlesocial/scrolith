@@ -130,7 +130,7 @@ function normalizeHeroConfig(raw: any): HeroSearchConfig {
         icon: b.icon || "",
       })),
     },
-  } as any;
+  };
 }
 
 function normalizeFooterConfig(raw: any): FooterConfig {
@@ -170,7 +170,7 @@ function normalizeFooterConfig(raw: any): FooterConfig {
     },
     socials,
     logo_url: source.logo_url ?? source.logoUrl ?? "",
-  } as any;
+  };
 }
 
 function normalizeTrendingConfig(raw: any): TrendingConfig {
@@ -184,7 +184,7 @@ function normalizeTrendingConfig(raw: any): TrendingConfig {
     visibility: raw?.visibility || [],
     // additional optional field used by strip (safe)
     ...(raw?.show_icons !== undefined ? { show_icons: raw.show_icons } : {}),
-  } as any;
+  };
 }
 
 // -------------------------
@@ -285,7 +285,7 @@ const HeaderBuilder = () => {
       try {
         const header = await CMSService.getHeaderConfig();
         const hero = await CMSService.getHeroSearchConfig();
-        setConfig(header as any);
+        setConfig(header as unknown as HeaderConfig);
         setHeroConfig(normalizeHeroConfig(hero));
       } catch (e) {
         console.error(e);
@@ -324,7 +324,7 @@ const HeaderBuilder = () => {
         CMSService.getHeroSearchConfig(),
       ]);
 
-      setConfig(updatedHeader as any);
+      setConfig(updatedHeader as unknown as HeaderConfig);
       setHeroConfig(normalizeHeroConfig(updatedHero));
 
       showNotification("success", "Saved", "Configuration saved successfully! Changes are now live.");
@@ -342,11 +342,11 @@ const HeaderBuilder = () => {
     if (typeof targetLogo === "object") {
       if (targetLogo.type === "brand") {
         const logos = [...ensureArray(heroConfig.trustedBrands?.logos)];
-        logos[targetLogo.index] = { ...(logos[targetLogo.index] || {}), src: file.url };
+        logos[targetLogo.index] = { ...((logos[targetLogo.index] as any) || {}), src: file.url };
         setHeroConfig({ ...heroConfig, trustedBrands: { ...heroConfig.trustedBrands, logos } as any });
       } else if (targetLogo.type === "badge") {
         const badges = [...ensureArray(heroConfig.valueProp?.badges)];
-        badges[targetLogo.index] = { ...(badges[targetLogo.index] || {}), icon: file.url };
+        badges[targetLogo.index] = { ...((badges[targetLogo.index] as any) || {}), icon: file.url };
         setHeroConfig({ ...heroConfig, valueProp: { ...heroConfig.valueProp, badges } as any });
       }
     } else {
@@ -380,16 +380,16 @@ const HeaderBuilder = () => {
       id: `nav-${uid()}`,
       label: "",
       url: "",
-      visibility: [] as any,
+      visibility: []
     };
 
-    setConfig({ ...(config as any), navigation: [...nav, newItem] } as any);
+    setConfig((prev) => (prev ? { ...prev, navigation: [...ensureArray<NavItem>((prev as unknown as any).navigation), newItem] } : prev));
   };
 
   const removeNavItem = (id: string) => {
     if (!config) return;
     const nav = ensureArray<NavItem>((config as any).navigation);
-    setConfig({ ...(config as any), navigation: nav.filter((n: any) => n.id !== id) } as any);
+    setConfig((prev) => (prev ? { ...prev, navigation: ensureArray<NavItem>((prev as unknown as any).navigation).filter((n) => n.id !== id) } : prev));
   };
 
   const updateNavItem = (id: string, field: keyof NavItem, value: any) => {
@@ -397,16 +397,15 @@ const HeaderBuilder = () => {
     const nav = ensureArray<NavItem>((config as any).navigation);
 
     const updated = nav.map((n: any) => (n.id === id ? { ...n, [field]: value } : n));
-    setConfig({ ...(config as any), navigation: updated } as any);
+    setConfig((prev) => (prev ? { ...prev, navigation: updated } : prev));
   };
 
   // PROFILE MENU helpers
   const getProfileMenu = () =>
-    ensureArray<NavItem>((config as any).profileMenu ?? (config as any).profile_menu ?? (config as any).userMenu);
+    ensureArray<NavItem>((config as unknown as Record<string, unknown>).profileMenu ?? (config as unknown as Record<string, unknown>).profile_menu ?? (config as unknown as Record<string, unknown>).userMenu);
 
   const updateProfileMenu = (next: NavItem[]) => {
-    if (!config) return;
-    setConfig({ ...(config as any), profileMenu: next, profile_menu: next, userMenu: next } as any);
+    setConfig((prev) => (prev ? { ...prev, profileMenu: next, profile_menu: next, userMenu: next } : prev));
   };
 
   const toggleProfileRole = (itemId: string, role: UserRole) => {

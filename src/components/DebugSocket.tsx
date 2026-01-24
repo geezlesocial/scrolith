@@ -28,8 +28,8 @@ const DebugSocket: React.FC = () => {
     console.log('🔗 Connection check:', {
       connected: socket?.connected,
       id: socket?.id,
-      transport: socket?.io?.engine?.transport?.name,
-      url: socket?.io?.uri
+      transport: (socket as any)?.io?.engine?.transport?.name,
+      url: (socket as any)?.io?.uri
     });
   };
 
@@ -125,7 +125,7 @@ const DebugSocket: React.FC = () => {
         paddingTop: '10px',
         lineHeight: '1.4'
       }}>
-        <div>URL: <span style={{ wordBreak: 'break-all' }}>{socket?.io?.uri || 'N/A'}</span></div>
+        <div>URL: <span style={{ wordBreak: 'break-all' }}>{(socket as any)?.io?.uri || 'N/A'}</span></div>
         <div style={{ marginTop: '4px', fontStyle: 'italic' }}>Open console for detailed logs</div>
       </div>
     </div>

@@ -55,7 +55,7 @@ export const saveCategory = async (req: any, res: any) => {
         if (existingIndex >= 0) {
             categories[existingIndex] = { ...categories[existingIndex], ...payload };
         } else {
-            categories.push(payload as any);
+            categories.push(payload);
         }
 
         console.log('[Mock DB] Category saved:', payload);

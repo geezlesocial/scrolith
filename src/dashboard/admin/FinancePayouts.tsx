@@ -256,9 +256,9 @@ const FinancialsTab: React.FC = () => {
         if (confirm(`Are you sure you want to ${wallet.frozen ? 'UNFREEZE' : 'FREEZE'} this wallet?`)) {
             try {
                 if (wallet.frozen) {
-                    await WalletService.adminUnfreezeWallet(wallet.user_id as any);
+                    await WalletService.adminUnfreezeWallet(wallet.user_id as string);
                 } else {
-                    await WalletService.adminFreezeWallet(wallet.user_id as any, 'Admin Manual Action');
+                    await WalletService.adminFreezeWallet(wallet.user_id as string, 'Admin Manual Action');
                 }
                 
                 showNotification('success', 'Status Updated', `Wallet ${wallet.frozen ? 'unfrozen' : 'frozen'}`);
@@ -313,7 +313,7 @@ const FinancialsTab: React.FC = () => {
         try {
             setAdjusting(true);
             await WalletService.adminAdjustBalance(
-                (adjustTarget as any).userId || (adjustTarget as any).user_id,
+                (adjustTarget as unknown as Record<string, any>).userId || (adjustTarget as unknown as Record<string, any>).user_id,
                 amount,
                 adjustReason || 'Admin adjustment'
             );

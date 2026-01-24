@@ -1,4 +1,5 @@
 import { PlatformSettings, HomepageSection, HomeSlide, HeaderConfig, FooterConfig, TrendingConfig, ActivityConfig, UserRole, HeroSearchConfig, StaticPage, PageCategory, MediaItem, AuthPagesConfig } from '../types';
+import { AdminService } from './admin';
 
 // FIXED: Use relative URL for proxy instead of hardcoded localhost:5000
 // Resolve API base: prefer explicit backend URL in builds, otherwise use proxy '/api' in dev.
@@ -411,9 +412,21 @@ const api = {
 export const CMSService = {
 
     // --- System Settings (Synced Real-Time) ---
-    // FIXED: Updated to use correct endpoints
+    // Prefer the explicit admin platform settings endpoint when available so
+    // callers of CMSService.getSettings() receive the same persisted values
+    // that AdminService.savePlatformSettings writes to (dev file or DB).
     getSettings: async (): Promise<PlatformSettings> => {
-        const raw = unwrap(await api.get('/admin/settings'));
+        // Try platform settings first (this hits /api/admin/platform/settings)
+        let platformSource: any = null;
+        try {
+            platformSource = await AdminService.getPlatformSettings();
+        } catch (e) {
+            // ignore - fall back to legacy admin settings endpoint below
+            devWarn('AdminService.getPlatformSettings() failed, falling back to /admin/settings', e);
+            platformSource = null;
+        }
+
+        const raw = platformSource ?? unwrap(await api.get('/admin/settings'));
         const source = raw?.settings ?? raw?.data?.settings ?? raw ?? {};
 
         const siteName = source.siteName ?? source.site_name ?? 'Geezle';
@@ -452,7 +465,7 @@ export const CMSService = {
             socialLinks,
             social_links: socialLinks,
             system: source.system || { maintenanceMode: false, registrationsEnabled: true, kycEnforced: false, admin2FA: false }
-        } as any;
+        } as unknown as PlatformSettings;
     },
 
     updateSettings: async (settings: Partial<PlatformSettings>): Promise<PlatformSettings> => {
@@ -465,7 +478,7 @@ export const CMSService = {
         try {
             const data = unwrap(await api.get('/cms/pages'));
             const items = ensureArray<any>(data);
-            if (items.length === 0) return import.meta.env.PROD ? [] : (fallbackData.pages as any as StaticPage[]);
+            if (items.length === 0) return import.meta.env.PROD ? [] : (fallbackData.pages as unknown as StaticPage[]);
             return items.map((page: any) => ({
                 ...page,
                 updatedAt: page.updatedAt ?? page.updated_at ?? new Date().toISOString(),
@@ -479,7 +492,7 @@ export const CMSService = {
             })) as StaticPage[];
         } catch (error) {
             console.error('Failed to fetch CMS pages:', error);
-            return import.meta.env.PROD ? [] : (fallbackData.pages as any as StaticPage[]);
+            return import.meta.env.PROD ? [] : (fallbackData.pages as unknown as StaticPage[]);
         }
     },
 
@@ -502,7 +515,7 @@ export const CMSService = {
             console.error(`Failed to fetch page ${slug}:`, error);
             return import.meta.env.PROD
                 ? undefined
-                : ((fallbackData.pages as any[]).find((page: any) => page.slug === slug) as StaticPage | undefined);
+                : ((fallbackData.pages as unknown as StaticPage[]).find((page: any) => page.slug === slug) as StaticPage | undefined);
         }
     },
 
@@ -523,7 +536,7 @@ export const CMSService = {
                 ...page,
                 id: page.id || `page-${Date.now()}`,
                 updated_at: new Date().toISOString()
-            } as any) as StaticPage;
+            }) as unknown as StaticPage;
         }
     },
 
@@ -542,7 +555,7 @@ export const CMSService = {
         try {
             const data = unwrap(await api.get('/cms/categories'));
             const items = ensureArray<any>(data);
-            if (items.length === 0) return import.meta.env.PROD ? [] : (fallbackData.pageCategories as any as PageCategory[]);
+            if (items.length === 0) return import.meta.env.PROD ? [] : (fallbackData.pageCategories as unknown as PageCategory[]);
             return items.map((cat: any) => ({
                 ...cat,
                 sortOrder: cat.sortOrder ?? cat.sort_order ?? 0,
@@ -552,7 +565,7 @@ export const CMSService = {
             })) as PageCategory[];
         } catch (error) {
             console.error('Failed to fetch page categories:', error);
-            return import.meta.env.PROD ? [] : (fallbackData.pageCategories as any as PageCategory[]);
+            return import.meta.env.PROD ? [] : (fallbackData.pageCategories as unknown as PageCategory[]);
         }
     },
 
@@ -573,6 +586,57 @@ export const CMSService = {
                 id: category.id || `cat-${Date.now()}`,
                 slug: category.slug || category.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
             };
+        }
+    },
+
+    // --- Trending / Community Helper Endpoints (compatibility shims) ---
+    getTrendingTopics: async (): Promise<any[]> => {
+        try {
+            const data = unwrap(await api.get('/cms/trending/topics'));
+            return Array.isArray(data) ? data : [];
+        } catch (e) {
+            devWarn('getTrendingTopics failed, returning empty array', e);
+            return [];
+        }
+    },
+
+    getUpcomingEvents: async (): Promise<any[]> => {
+        try {
+            const data = unwrap(await api.get('/cms/upcoming/events'));
+            return Array.isArray(data) ? data : [];
+        } catch (e) {
+            devWarn('getUpcomingEvents failed, returning empty array', e);
+            return [];
+        }
+    },
+
+    getTopContributors: async (): Promise<any[]> => {
+        try {
+            const data = unwrap(await api.get('/cms/top/contributors'));
+            return Array.isArray(data) ? data : [];
+        } catch (e) {
+            devWarn('getTopContributors failed, returning empty array', e);
+            return [];
+        }
+    },
+
+    getDiscussions: async (): Promise<any[]> => {
+        try {
+            const data = unwrap(await api.get('/cms/discussions'));
+            return Array.isArray(data) ? data : [];
+        } catch (e) {
+            devWarn('getDiscussions failed, returning empty array', e);
+            return [];
+        }
+    },
+
+    getAds: async (): Promise<any[]> => {
+        try {
+            const data = unwrap(await api.get('/cms/ads'));
+            return Array.isArray(data) ? data : [];
+        } catch (e) {
+            devWarn('getAds failed, returning empty array', e);
+            return [];
         }
     },
 
@@ -787,7 +851,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             console.error('Failed to fetch home slides:', error);
         }
 
-        let slides = rawSlides as any[];
+        let slides = rawSlides as HomeSlide[];
         if (slides.length === 0) {
             const homepage = await CMSService.getHomepage();
             const homepageSlides =
@@ -799,7 +863,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 (Array.isArray(homepage?.data?.home_slides) ? homepage.data.home_slides : null) ||
                 (Array.isArray(homepage?.data) ? homepage.data : null) ||
                 [];
-            slides = homepageSlides as any[];
+            slides = homepageSlides as HomeSlide[];
         }
 
         return slides.map((slide: any, index: number) => {
@@ -970,7 +1034,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 guest_ctas: guestCtas,
                 roleSwitch: roleSwitch,
                 role_switch: roleSwitch
-            } as any;
+            } as unknown as HeaderConfig;
         } catch (error) {
             console.error('Failed to fetch header config:', error);
             return {
@@ -1009,7 +1073,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 guest_ctas: [],
                 roleSwitch: null,
                 role_switch: null
-            } as any;
+            } as unknown as HeaderConfig;
         }
     },
 
@@ -1129,7 +1193,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 socials,
                 logo_url: logoUrl,
                 logoUrl
-            } as any;
+            } as unknown as FooterConfig;
         } catch (error) {
             console.error('Failed to fetch footer config:', error);
             return {
@@ -1222,7 +1286,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                     ),
                     ...(data.show_icons !== undefined ? { show_icons: normalizeBoolean(data.show_icons, false) } : {}),
                     ...(data.showIcons !== undefined ? { show_icons: normalizeBoolean(data.showIcons, false) } : {})
-                } as any;
+                } as unknown as TrendingConfig;
             }
             return {
                 id: `trending-default-${Date.now()}`,
@@ -1251,7 +1315,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                     ),
                     ...(trendingRaw.show_icons !== undefined ? { show_icons: normalizeBoolean(trendingRaw.show_icons, false) } : {}),
                     ...(trendingRaw.showIcons !== undefined ? { show_icons: normalizeBoolean(trendingRaw.showIcons, false) } : {})
-                } as any;
+                } as unknown as TrendingConfig;
             } catch (fallbackError) {
                 console.error('Failed to fallback trending config from homepage:', fallbackError);
                 return {
@@ -1298,7 +1362,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                         badge_color: '',
                         show_badges: true
                     }
-                } as any)
+                } as unknown as ActivityConfig)
             );
         } catch (error) {
             console.error('Failed to fetch activity config:', error);
@@ -1316,7 +1380,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                     badge_color: '',
                     show_badges: true
                 }
-            } as any;
+            } as unknown as ActivityConfig;
         }
     },
 
@@ -1508,7 +1572,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
     getAuthPagesConfig: async (): Promise<AuthPagesConfig | null> => {
         try {
             const data = unwrap(await api.get('/cms/auth-pages'));
-            return (data || null) as any;
+            return (data || null) as unknown as AuthPagesConfig | null;
         } catch (error) {
             console.error('Failed to fetch auth pages config:', error);
             return null;
@@ -1518,7 +1582,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
     saveAuthPagesConfig: async (config: AuthPagesConfig): Promise<AuthPagesConfig> => {
         try {
             const data = unwrap(await api.post('/cms/auth-pages', config));
-            return (data || config) as any;
+            return (data || config) as unknown as AuthPagesConfig;
         } catch (error) {
             console.error('Failed to save auth pages config:', error);
             throw error;
@@ -1880,12 +1944,12 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 heroSubtitle: affiliate.heroSubtitle || affiliate.hero_subtitle || affiliate.subtitle || '',
                 heroButtonText: affiliate.heroButtonText || affiliate.hero_button_text || affiliate.buttonText || '',
                 benefits: Array.isArray(affiliate.benefits) ? affiliate.benefits : []
-            } as any;
+            } as unknown as { heroTitle: string; heroSubtitle: string; heroButtonText: string; benefits: any[] };
         } catch (error) {
             console.error('Failed to fetch affiliate content:', error);
             return import.meta.env.PROD
                 ? { heroTitle: '', heroSubtitle: '', heroButtonText: '', benefits: [] }
-                : (devAffiliateFallback as any);
+                : (devAffiliateFallback as unknown as { heroTitle: string; heroSubtitle: string; heroButtonText: string; benefits: any[] });
         }
     },
 

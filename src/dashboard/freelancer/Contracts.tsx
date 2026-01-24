@@ -79,16 +79,13 @@ export const Contracts: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">My Contracts</h1>
+        <Table
+          data={contracts}
+          columns={columns}
+          loading={loading}
+          emptyMessage="No contracts found. Contracts will appear here once you start working with clients."
+        />
       </div>
-
-      <Table
-        data={contracts}
-        columns={columns}
-        loading={loading}
-        emptyMessage="No contracts found. Contracts will appear here once you start working with clients."
-        keyExtractor={(item) => item.id}
-      />
     </div>
   );
 };

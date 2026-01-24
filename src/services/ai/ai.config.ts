@@ -4,7 +4,7 @@ const DEFAULT_AI_CONFIG: AIConfig = {
     providers: {
         google: {
             provider: 'google',
-            api_key: (import.meta.env as any).VITE_GEMINI_API_KEY || '',  // keep env access defensive
+            api_key: ((import.meta.env as Record<string, unknown>)['VITE_GEMINI_API_KEY'] as string) || '',
             enabled: true,
             model: 'gemini-3-flash-preview'
         },

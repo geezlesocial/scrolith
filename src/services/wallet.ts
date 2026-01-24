@@ -232,8 +232,14 @@ export const WalletService = {
   getAllTransactions: async (): Promise<any[]> => {
     const response = await api.get('/wallet/admin/transactions', { params: { role: 'admin' } });
     const data = handleApiResponse<any>(response);
-    const list = Array.isArray((data as any).transactions) ? (data as any).transactions : (data as any);
-    return Array.isArray(list) ? list.map(mapTransaction) : [];
+    const d = data as unknown;
+    let list: unknown[] = [];
+    if (d && typeof d === 'object') {
+      const obj = d as Record<string, unknown>;
+      if (Array.isArray(obj.transactions)) list = obj.transactions as unknown[];
+      else if (Array.isArray(d)) list = d as unknown[];
+    }
+    return Array.isArray(list) ? list.map((t) => mapTransaction(t as Record<string, unknown>)) : [];
   },
 
   // Backwards-compatible adapters (aliases) expected by UI
@@ -251,8 +257,14 @@ export const WalletService = {
     try {
       const response = await api.get(`/wallet/${userId}/transactions`);
       const data = handleApiResponse(response);
-      const list = Array.isArray((data as any).transactions) ? (data as any).transactions : (data as any);
-      return Array.isArray(list) ? list.map(mapTransaction) : [];
+      const d = data as unknown;
+      let list: unknown[] = [];
+      if (d && typeof d === 'object') {
+        const obj = d as Record<string, unknown>;
+        if (Array.isArray(obj.transactions)) list = obj.transactions as unknown[];
+        else if (Array.isArray(d)) list = d as unknown[];
+      }
+      return Array.isArray(list) ? list.map((t) => mapTransaction(t as Record<string, unknown>)) : [];
     } catch (e) {
       return WalletService.getAllTransactions();
     }

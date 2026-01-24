@@ -10,7 +10,7 @@ interface UserContextType {
   updateAdminProfile: (data: any) => void;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => void;
-  register: (email: string, name: string, password: string) => Promise<boolean>;
+  register: (email: string, name: string, password: string, role?: any) => Promise<boolean>;
   updateUser: (updates: any) => void;
   switchRole: () => void;
 }
@@ -87,7 +87,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return JSON.parse(stored);
       }
       return {
-        username: (user as any)?.username || (user as any)?.name || 'admin',
+        username: user?.username || user?.name || 'admin',
         email: user?.email || 'admin@geezle.com',
         password: '',
         avatar: user?.avatar || null
@@ -193,11 +193,11 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const register = async (email: string, name: string, password: string): Promise<boolean> => {
+  const register = async (email: string, name: string, password: string, role?: any): Promise<boolean> => {
     setIsLoading(true);
     
     try {
-      const result = await AuthService.register({ email, name, password });
+      const result = await AuthService.register({ email, name, password, role });
       
       if (result.success && result.user) {
         const rr = (result.user.role || '').toString().toLowerCase();

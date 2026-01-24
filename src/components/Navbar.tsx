@@ -80,6 +80,24 @@ const Navbar = () => {
   const guestExploreRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
 
+  const _asRecord = (v: unknown) => (v && typeof v === 'object' ? (v as Record<string, unknown>) : null);
+  const hc = _asRecord(headerConfig);
+  const ac = _asRecord(activityConfig);
+  const hsc = _asRecord(heroSearchConfig);
+  const uobj = _asRecord(user);
+  const pick = (obj: Record<string, unknown> | null | undefined, ...keys: string[]) => {
+    if (!obj) return undefined;
+    for (const k of keys) {
+      if (Object.prototype.hasOwnProperty.call(obj, k)) return obj[k];
+    }
+    return undefined;
+  };
+
+  const _acDesign = (ac && (ac.design || ac.design)) as Record<string, unknown> | undefined;
+  const acIconSize = Number(_acDesign?.iconSize ?? _acDesign?.icon_size ?? 20);
+  const acIconStyle = (String(_acDesign?.iconStyle ?? _acDesign?.icon_style ?? 'outline') === 'filled' ? 'filled' : 'outline') as 'outline' | 'filled';
+  const acBadgeColor = String(_acDesign?.badgeColor ?? _acDesign?.badge_color ?? '#EF4444');
+  const acShowBadges = Boolean(_acDesign?.showBadges ?? _acDesign?.show_badges ?? true);
   const refreshConfigs = useCallback(async () => {
     try {
       const [header, activity, heroCfg] = await Promise.all([
@@ -90,14 +108,16 @@ const Navbar = () => {
 
       if (!mountedRef.current) return;
 
+      const hdr = _asRecord(header);
       setHeaderConfig({
-        ...header,
-        navigation: Array.isArray((header as any)?.navigation) ? (header as any).navigation : [],
-        userMenu: Array.isArray((header as any)?.userMenu) ? (header as any).userMenu : [],
-      } as any);
+        ...(header as any),
+        navigation: ensureArray<any>(hdr?.navigation),
+        userMenu: ensureArray<any>(hdr?.userMenu),
+      } as unknown as HeaderConfig);
 
-      const normalizedIcons = Array.isArray((activity as any)?.icons)
-        ? (activity as any).icons.map((icon: any) => ({
+      const act = _asRecord(activity);
+      const normalizedIcons = Array.isArray(act?.icons)
+        ? (act?.icons as any[]).map((icon: any) => ({
             ...icon,
             isEnabled: icon.isEnabled ?? icon.is_enabled ?? true,
             showLabel: icon.showLabel ?? icon.show_label ?? false,
@@ -106,14 +126,14 @@ const Navbar = () => {
           }))
         : [];
 
-      const normalizedHelpMenu = Array.isArray((activity as any)?.helpMenu || (activity as any)?.help_menu)
-        ? ((activity as any).helpMenu || (activity as any).help_menu).map((link: any) => ({
+      const normalizedHelpMenu = Array.isArray(act?.helpMenu || act?.help_menu)
+        ? ((act?.helpMenu as any[]) || (act?.help_menu as any[])).map((link: any) => ({
             ...link,
             isEnabled: link.isEnabled ?? link.is_enabled ?? true,
           }))
         : [];
 
-      const designSource = (activity as any)?.design || {};
+      const designSource = (act?.design as Record<string, unknown>) || {};
       const normalizedDesign = {
         iconStyle: designSource.iconStyle || designSource.icon_style || "outline",
         iconSize: designSource.iconSize || designSource.icon_size || 20,
@@ -122,11 +142,11 @@ const Navbar = () => {
       };
 
       setActivityConfig({
-        ...activity,
+        ...(activity as any),
         icons: normalizedIcons,
         helpMenu: normalizedHelpMenu,
         design: normalizedDesign,
-      } as any);
+      } as ActivityConfig);
 
       setHeroSearchConfig(heroCfg);
     } catch (error) {
@@ -139,24 +159,24 @@ const Navbar = () => {
         navigation: [],
         userMenu: [],
         searchEnabled: true,
-        searchMode: "keyword",
-      } as any);
+        searchMode: 'keyword'
+      } as unknown as HeaderConfig);
 
       setActivityConfig({
         icons: [],
         helpMenu: [],
-        design: { iconStyle: "outline", iconSize: 20, badgeColor: "#EF4444", showBadges: true },
-      } as any);
+        design: { iconStyle: 'outline', iconSize: 20, badgeColor: '#EF4444', showBadges: true },
+      } as ActivityConfig);
 
       setHeroSearchConfig({
-        headline: "",
-        subheadline: "",
-        searchPlaceholder: "",
-        searchSize: "large",
+        headline: '',
+        subheadline: '',
+        searchPlaceholder: '',
+        searchSize: 'large',
         quickTags: [],
-        trustedBrands: { enabled: false, title: "", logos: [] },
-        valueProp: { enabled: false, heading: "", badges: [] },
-      } as any);
+        trustedBrands: { enabled: false, title: '', logos: [] },
+        valueProp: { enabled: false, heading: '', badges: [] },
+      } as HeroSearchConfig);
     } finally {
       if (mountedRef.current) setLoading(false);
     }
@@ -418,26 +438,20 @@ const Navbar = () => {
   };
 
   const showHeaderSearch = useMemo(() => {
-    const enabled = (headerConfig as any)?.searchEnabled ?? (headerConfig as any)?.search_enabled;
+    const enabled = pick(hc, 'searchEnabled', 'search_enabled');
     return !isHome && normalizeBoolean(enabled, true);
-  }, [headerConfig, isHome]);
+  }, [hc, isHome]);
 
   const profileEnabled = normalizeBoolean(
-    (headerConfig as any)?.actions?.profile ??
-      (headerConfig as any)?.profileEnabled ??
-      (headerConfig as any)?.profile_enabled,
+    (pick(hc, 'actions') as any)?.profile ?? pick(hc, 'profileEnabled') ?? pick(hc, 'profile_enabled'),
     true
   );
 
-  const searchPlaceholder =
-    (heroSearchConfig as any)?.searchPlaceholder || (heroSearchConfig as any)?.search_placeholder || "";
-  const searchButtonLabel =
-    (heroSearchConfig as any)?.searchButtonLabel || (heroSearchConfig as any)?.search_button_label || "";
-  const searchButtonAriaLabel =
-    (heroSearchConfig as any)?.searchButtonAriaLabel || (heroSearchConfig as any)?.search_button_aria_label || "";
-  const searchResultsUrl =
-    (heroSearchConfig as any)?.searchResultsUrl || (heroSearchConfig as any)?.search_results_url || "";
-  const rawSize = (heroSearchConfig as any)?.searchSize || (heroSearchConfig as any)?.search_size || "large";
+  const searchPlaceholder = String(pick(hsc, 'searchPlaceholder', 'search_placeholder') ?? '');
+  const searchButtonLabel = String(pick(hsc, 'searchButtonLabel', 'search_button_label') ?? '');
+  const searchButtonAriaLabel = String(pick(hsc, 'searchButtonAriaLabel', 'search_button_aria_label') ?? '') || String(searchButtonLabel || searchPlaceholder);
+  const searchResultsUrl = String(pick(hsc, 'searchResultsUrl', 'search_results_url') ?? '');
+  const rawSize = String(pick(hsc, 'searchSize', 'search_size') ?? 'large');
   const sizeKey = String(rawSize).toLowerCase();
   const normalizedSize =
     sizeKey === "xl" || sizeKey === "extralarge" || sizeKey === "extra_large" ? "xl" : sizeKey;
@@ -447,20 +461,14 @@ const Navbar = () => {
     | "xl";
 
   const headerWrapperClass = `${isHome ? "relative" : "sticky top-0"} z-40 bg-white border-b border-gray-200`;
-  const brandName = (headerConfig as any)?.title || settings?.siteName || "";
-  const avatarName =
-    (user as any)?.name || (user as any)?.username || (user as any)?.email || "";
-  const avatarUrl =
-    (user as any)?.avatar ||
-    (avatarName
-      ? `https://ui-avatars.com/api/?name=${encodeURIComponent(avatarName)}&background=0D8ABC&color=fff`
-      : "");
+  const brandName = String(pick(hc, 'title') ?? settings?.siteName ?? '');
+  const avatarName = String(pick(uobj, 'name', 'username', 'email') ?? '');
+  const avatarUrl = String(pick(uobj, 'avatar') ?? (avatarName ? `https://ui-avatars.com/api/?name=${encodeURIComponent(avatarName)}&background=0D8ABC&color=fff` : ''));
 
-  const headerActions = (headerConfig as any)?.actions || {};
-  const headerSearchMode =
-    (headerConfig as any)?.searchMode || (headerConfig as any)?.search_mode || "keyword";
+  const headerActions = (pick(hc, 'actions') as Record<string, unknown>) || {};
+  const headerSearchMode = String(pick(hc, 'searchMode', 'search_mode') ?? 'keyword');
 
-  const roleSwitchConfig = (headerConfig as any)?.roleSwitch ?? (headerConfig as any)?.role_switch ?? {};
+  const roleSwitchConfig = (pick(hc, 'roleSwitch') as Record<string, unknown>) ?? (pick(hc, 'role_switch') as Record<string, unknown>) ?? {};
   const roleSwitchVisibility = normalizeRoleList(roleSwitchConfig.visibility);
   const roleSwitchVisibleForRole =
     roleSwitchVisibility.length === 0 ||
@@ -486,13 +494,10 @@ const Navbar = () => {
     !!roleSwitchUrl &&
     normalizeBoolean(headerActions.switchSelling ?? headerActions.switch_selling, true);
 
-  const guestPrimaryDropdown =
-    (headerConfig as any)?.guestPrimaryDropdown ?? (headerConfig as any)?.guest_primary_dropdown;
-  const guestExploreDropdown =
-    (headerConfig as any)?.guestExploreDropdown ?? (headerConfig as any)?.guest_explore_dropdown;
-  const guestCtas = ensureArray<any>(
-    (headerConfig as any)?.guestCtas ?? (headerConfig as any)?.guest_ctas ?? (headerConfig as any)?.guestActions
-  ).filter((cta: any) => cta?.label && resolveUrl(cta) && isVisibleToRole(cta));
+  const guestPrimaryDropdown = pick(hc, 'guestPrimaryDropdown') ?? pick(hc, 'guest_primary_dropdown');
+  const guestExploreDropdown = pick(hc, 'guestExploreDropdown') ?? pick(hc, 'guest_explore_dropdown');
+  const guestCtas = ensureArray<any>(pick(hc, 'guestCtas') ?? pick(hc, 'guest_ctas') ?? pick(hc, 'guestActions'))
+    .filter((cta: any) => cta?.label && resolveUrl(cta) && isVisibleToRole(cta));
 
   const normalizeProfileGroup = (group: any) => {
     const raw = String(group || "").toLowerCase().replace(/\s+/g, "_");
@@ -501,8 +506,7 @@ const Navbar = () => {
     return "primary";
   };
 
-  const profileMenuGroupLabels =
-    (headerConfig as any)?.profileMenuGroupLabels ?? (headerConfig as any)?.profile_menu_group_labels ?? {};
+  const profileMenuGroupLabels = (pick(hc, 'profileMenuGroupLabels') ?? pick(hc, 'profile_menu_group_labels')) ?? {};
 
   const rawProfileMenuItems = ensureArray<any>(
     (headerConfig as any)?.userMenu || (headerConfig as any)?.profileMenu || (headerConfig as any)?.profile_menu
@@ -659,18 +663,18 @@ const Navbar = () => {
               {/* Dynamic Activity Icons */}
               {isAuthenticated && activityConfig ? (
                 <div className="flex items-center space-x-1 sm:space-x-2">
-                  {Array.isArray((activityConfig as any).icons) &&
-                    (activityConfig as any).icons
-                      .filter((icon: any) => {
-                        if (!icon.isEnabled) return false;
-                        const roles = normalizeRoleList(icon.roles);
-                        if (roles.length === 0) return true;
-                        if (roles.includes("all") || roles.includes("*")) return true;
-                        return roles.includes(normalizedUserRole);
-                      })
-                      .filter((icon: any) => isActionEnabled(icon.type))
-                      .sort((a: any, b: any) => a.sortOrder - b.sortOrder)
-                      .map((icon: any) => (
+                  {Array.isArray(ac?.icons) &&
+                      (ac?.icons as any[])
+                        .filter((icon: any) => {
+                          if (!icon.isEnabled) return false;
+                          const roles = normalizeRoleList(icon.roles);
+                          if (roles.length === 0) return true;
+                          if (roles.includes("all") || roles.includes("*")) return true;
+                          return roles.includes(normalizedUserRole);
+                        })
+                        .filter((icon: any) => isActionEnabled(icon.type))
+                        .sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0))
+                        .map((icon: any) => (
                         <div
                           key={icon.id}
                           ref={icon.type === "notifications" ? notifRef : icon.type === "messages" ? msgRef : helpRef}
@@ -692,13 +696,13 @@ const Navbar = () => {
                             }`}
                             title={icon.label}
                           >
-                            {getDynamicIcon(icon.type, (activityConfig as any).design.iconSize, (activityConfig as any).design.iconStyle)}
-                            {(activityConfig as any).design.showBadges &&
+                            {getDynamicIcon(icon.type, acIconSize, acIconStyle)}
+                            {acShowBadges &&
                               icon.type === "notifications" &&
                               notifications.filter((n) => !n.isRead).length > 0 && (
                                 <span
                                   className="absolute top-1 right-1 h-4 min-w-[16px] px-1 rounded-full text-white text-[10px] flex items-center justify-center font-bold"
-                                  style={{ backgroundColor: (activityConfig as any).design.badgeColor }}
+                                  style={{ backgroundColor: acBadgeColor }}
                                 >
                                   {notifications.filter((n) => !n.isRead).length}
                                 </span>
@@ -720,7 +724,7 @@ const Navbar = () => {
                                   notifications.map((notif) => (
                                     <div
                                       key={notif.id}
-                                      onClick={() => handleNotificationClick(notif.id, (notif as any).actionUrl)}
+                                      onClick={() => handleNotificationClick(notif.id, (pick(notif as any, 'actionUrl', 'action_url') as string) ?? undefined)}
                                       className={`p-4 border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors relative ${
                                         !notif.isRead ? "bg-blue-50/30" : ""
                                       }`}
@@ -730,10 +734,10 @@ const Navbar = () => {
                                           {notif.title}
                                         </h4>
                                         <span className="text-[10px] text-gray-400 whitespace-nowrap ml-2">
-                                          {new Date((notif as any).timestamp || Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                          {new Date((pick(notif as any, 'timestamp') as string) ?? Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                         </span>
                                       </div>
-                                      <p className="text-xs text-gray-500 line-clamp-2">{(notif as any).message}</p>
+                                      <p className="text-xs text-gray-500 line-clamp-2">{(pick(notif as any, 'message') as string) ?? ''}</p>
                                       {!notif.isRead && <span className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500"></span>}
                                     </div>
                                   ))

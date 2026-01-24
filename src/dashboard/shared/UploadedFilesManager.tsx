@@ -57,7 +57,7 @@ export default function UploadedFilesManager({ role }: Props) {
         type: type === 'all' ? undefined : type,
         limit: 50,
         page: 1
-      } as any);
+      });
       setFiles(res.files || []);
     } catch (err: any) {
       setError(err?.message || 'Failed to load files');
@@ -227,12 +227,21 @@ export default function UploadedFilesManager({ role }: Props) {
                 <div className="text-[11px] text-gray-500 mt-1 truncate">{f.url}</div>
               </button>
 
-              {Array.isArray((f as any).usedIn) && (f as any).usedIn.length > 0 && (
-                <div className="mt-2 text-[10px] text-gray-500">
-                  Used in: {(f as any).usedIn.slice(0, 2).map((u: any) => `${u.type} #${u.id}`).join(', ')}
-                  {(f as any).usedIn.length > 2 ? '...' : ''}
-                </div>
-              )}
+              {(() => {
+                const usedIn = (f as unknown as { usedIn?: unknown }).usedIn;
+                if (Array.isArray(usedIn) && usedIn.length > 0) {
+                  const first = usedIn.slice(0, 2).map((u: unknown) => {
+                    const obj = u as { type?: string; id?: string | number };
+                    return `${obj.type ?? 'item'} #${obj.id ?? '?'}`;
+                  });
+                  return (
+                    <div className="mt-2 text-[10px] text-gray-500">
+                      Used in: {first.join(', ')}{usedIn.length > 2 ? '...' : ''}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
 
               <div className="mt-3 flex gap-2">
                 <button

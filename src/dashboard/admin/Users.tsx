@@ -479,7 +479,8 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                   const wallet = getUserWallet(u.id);
                   const isSelected = selectedUsers.includes(u.id);
                   const statusValue = String(u.status ?? (u.isActive === false ? 'inactive' : 'active')).toLowerCase();
-                  const userFlags = (u as any).flags ?? {};
+                  const ru = u as unknown as Record<string, any>;
+                  const userFlags = ru.flags ?? (u as any).flags ?? {};
                   const isBanned = statusValue === 'banned' || userFlags.isBanned;
                   const isRestricted = statusValue === 'restricted' || userFlags.isRestricted;
                   const isSuspended = statusValue === 'suspended' || userFlags.isSuspended;

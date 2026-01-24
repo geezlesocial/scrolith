@@ -52,7 +52,7 @@ const FreelancerDashboard = () => {
         const tabParam = params.tab;
         const allowed = ['overview', 'growth', 'contracts', 'gigs', 'orders', 'proposals', 'wallet', 'gcoin', 'messages', 'support', 'kyc', 'reviews', 'likes', 'profile', 'settings', 'uploaded-files'];
         const tab = tabParam || tabQuery;
-        if (tab && allowed.includes(tab)) setActiveTab(tab as any);
+        if (tab && allowed.includes(tab)) setActiveTab(tab as unknown as typeof activeTab);
     }, [searchParams, params.tab]);
 
     const handleLogout = () => {
@@ -110,7 +110,7 @@ const FreelancerDashboard = () => {
                             icon={item.icon} 
                             active={activeTab === item.id} 
                             onClick={(id: string) => {
-                                setActiveTab(id as any);
+                                setActiveTab(id as unknown as typeof activeTab);
                                 navigate(`/freelancer/dashboard/${id}`);
                             }} 
                         />

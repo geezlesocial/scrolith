@@ -9,33 +9,47 @@ const extractData = <T>(response: any): T => {
 
 const mapGcoinTransaction = (t: any) => ({
   id: t.id,
+  user_id: t.user_id ?? t.userId,
   userId: t.user_id ?? t.userId,
+  user_name: t.user_name ?? t.userName,
   userName: t.user_name ?? t.userName,
   amount: t.amount,
   type: t.type,
   reason: t.reason,
+  reference_id: t.reference_id ?? t.referenceId,
   referenceId: t.reference_id ?? t.referenceId,
+  recipient_id: t.recipient_id ?? t.recipientId,
   recipientId: t.recipient_id ?? t.recipientId,
   timestamp: t.timestamp ?? t.created_at ?? t.createdAt,
+  created_at: t.timestamp ?? t.created_at ?? t.createdAt,
   status: t.status,
   source: t.source
 });
 
 const mapGcoinWallet = (w: any) => ({
+  user_id: w.user_id ?? w.userId,
   userId: w.user_id ?? w.userId,
+  recipient_id: w.recipient_id ?? w.recipientId,
   recipientId: w.recipient_id ?? w.recipientId,
   balance: w.balance ?? 0,
+  lifetime_earned: w.lifetime_earned ?? w.lifetimeEarned ?? 0,
   lifetimeEarned: w.lifetime_earned ?? w.lifetimeEarned ?? 0,
   transactions: Array.isArray(w.transactions) ? w.transactions.map(mapGcoinTransaction) : [],
   status: w.status ?? 'active',
+  fraud_score: w.fraud_score ?? w.fraudScore ?? 0,
   fraudScore: w.fraud_score ?? w.fraudScore ?? 0,
+  updated_at: w.updated_at ?? w.updatedAt,
   updatedAt: w.updated_at ?? w.updatedAt
 });
 
 const mapGcoinSettings = (s: any) => ({
+  conversion_rate: s.conversion_rate ?? s.conversionRate ?? 0,
   conversionRate: s.conversion_rate ?? s.conversionRate ?? 0,
+  min_withdrawal: s.min_withdrawal ?? s.minWithdrawal ?? 0,
   minWithdrawal: s.min_withdrawal ?? s.minWithdrawal ?? 0,
+  conversion_enabled: s.conversion_enabled ?? s.conversionEnabled ?? false,
   conversionEnabled: s.conversion_enabled ?? s.conversionEnabled ?? false,
+  user_transfers_enabled: s.user_transfers_enabled ?? s.userTransfersEnabled ?? false,
   userTransfersEnabled: s.user_transfers_enabled ?? s.userTransfersEnabled ?? false
 });
 
@@ -48,11 +62,16 @@ const unmapGcoinSettings = (s: any) => ({
 
 const mapGcoinConversionRequest = (r: any) => ({
   id: r.id,
+  user_id: r.user_id ?? r.userId,
   userId: r.user_id ?? r.userId,
+  user_name: r.user_name ?? r.userName ?? '',
   userName: r.user_name ?? r.userName ?? '',
+  amount_gcoin: r.amount_gcoin ?? r.amountGcoin ?? 0,
   amountGcoin: r.amount_gcoin ?? r.amountGcoin ?? 0,
+  amount_fiat: r.amount_fiat ?? r.amountFiat ?? 0,
   amountFiat: r.amount_fiat ?? r.amountFiat ?? 0,
   status: r.status ?? 'pending',
+  requested_at: r.requested_at ?? r.requestedAt,
   requestedAt: r.requested_at ?? r.requestedAt
 });
 

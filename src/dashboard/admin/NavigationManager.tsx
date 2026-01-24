@@ -47,6 +47,22 @@ const NavigationManager = () => {
         setLoading(false);
     };
 
+    const normalizeIconUpdate = (u: Partial<Record<string, unknown>>) => {
+        const src = u as Record<string, unknown>;
+        const out: Partial<NavIconConfig> = {};
+        if ('sortOrder' in src && typeof src.sortOrder === 'number') out.sort_order = src.sortOrder as number;
+        if ('isEnabled' in src) out.is_enabled = Boolean(src.isEnabled);
+        if ('showLabel' in src) out.show_label = Boolean(src.showLabel);
+        return out;
+    };
+
+    const normalizeHelpLinkUpdate = (u: Partial<Record<string, unknown>>) => {
+        const src = u as Record<string, unknown>;
+        const out: Partial<HelpLink> = {};
+        if ('isEnabled' in src) out.is_enabled = Boolean(src.isEnabled);
+        return out;
+    };
+
     const handleSave = async () => {
         if (!config) return;
         await CMSService.saveActivityConfig(config);
@@ -78,7 +94,7 @@ const NavigationManager = () => {
             label: 'New Link',
             url: '/',
             target: '_self',
-            isEnabled: true
+            is_enabled: true
         };
         setConfig({ ...config, helpMenu: [...config.helpMenu, newLink] });
     };
@@ -142,11 +158,11 @@ const NavigationManager = () => {
                                                             type="number" 
                                                             className="w-12 border rounded p-1 text-center text-sm"
                                                             value={icon.sortOrder}
-                                                            onChange={(e) => updateIcon(icon.id, { sortOrder: parseInt(e.target.value), sort_order: parseInt(e.target.value) } as any)}
+                                                            onChange={(e) => updateIcon(icon.id, normalizeIconUpdate({ sortOrder: parseInt(e.target.value) }))}
                                                         />
                                                     </div>
                                                     <button 
-                                                        onClick={() => updateIcon(icon.id, { isEnabled: !icon.isEnabled, is_enabled: !icon.isEnabled } as any)}
+                                                        onClick={() => updateIcon(icon.id, normalizeIconUpdate({ isEnabled: !icon.isEnabled }))}
                                                         className={`text-2xl transition-colors ${icon.isEnabled ? 'text-green-500' : 'text-gray-300'}`}
                                                     >
                                                         {icon.isEnabled ? <ToggleRight /> : <ToggleLeft />}
@@ -159,7 +175,7 @@ const NavigationManager = () => {
                                                     <div>
                                                         <label className="block text-xs font-bold text-gray-500 mb-2">Display Settings</label>
                                                         <div className="flex items-center gap-2">
-                                                                <input 
+                                                                            <input 
                                                                     type="text" 
                                                                     className="border rounded px-2 py-1 text-sm" 
                                                                     value={icon.label} 
@@ -169,7 +185,7 @@ const NavigationManager = () => {
                                                                 <input 
                                                                     type="checkbox" 
                                                                             checked={icon.showLabel} 
-                                                                            onChange={(e) => updateIcon(icon.id, { showLabel: e.target.checked, show_label: e.target.checked } as any)} 
+                                                                            onChange={(e) => updateIcon(icon.id, normalizeIconUpdate({ showLabel: e.target.checked }))} 
                                                                     className="mr-2 rounded"
                                                                 />
                                                                 Show Label
@@ -231,19 +247,19 @@ const NavigationManager = () => {
                                                 <select
                                                     className="border rounded px-2 py-1 text-sm"
                                                     value={link.target}
-                                                    onChange={(e) => updateHelpLink(link.id, { target: e.target.value as any })}
+                                                    onChange={(e) => updateHelpLink(link.id, { target: e.target.value as '_self' | '_blank' })}
                                                 >
                                                     <option value="_self">Same Tab</option>
                                                     <option value="_blank">New Tab</option>
                                                 </select>
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                 <button 
-                                                      onClick={() => updateHelpLink(link.id, { isEnabled: !link.isEnabled } as any)}                                                                                   
-                                                    className={`text-xl ${link.isEnabled ? 'text-green-500' : 'text-gray-300'}`}
-                                                >
-                                                    {link.isEnabled ? <ToggleRight /> : <ToggleLeft />}
-                                                </button>
+                                                                                                        <button 
+                                                                                                                    onClick={() => updateHelpLink(link.id, normalizeHelpLinkUpdate({ isEnabled: !link.isEnabled }))}                                                                                   
+                                                                                                                className={`text-xl ${link.isEnabled ? 'text-green-500' : 'text-gray-300'}`}
+                                                                                                        >
+                                                            {link.isEnabled ? <ToggleRight /> : <ToggleLeft />}
+                                                        </button>
                                                 <button onClick={() => deleteHelpLink(link.id)} className="text-gray-400 hover:text-red-500 p-1">
                                                     <Trash2 className="w-4 h-4" />
                                                 </button>

@@ -60,7 +60,7 @@ const ATMTrackerModule = () => {
     };
 
     const normalizeLog = (log: TimeEntry) => {
-        const raw = log as any;
+        const raw = log as unknown as Record<string, any>;
         return {
             ...log,
             contractId: raw.contractId ?? raw.contract_id ?? '',
@@ -78,8 +78,8 @@ const ATMTrackerModule = () => {
             const response = await ContractService.getAllTimeEntries();
             const normalized = response.items.map(normalizeLog);
             normalized.sort((a, b) => {
-                const aTime = Date.parse((a as any).startTime ?? '');
-                const bTime = Date.parse((b as any).startTime ?? '');
+                const aTime = Date.parse((a as unknown as Record<string, any>).startTime ?? '');
+                const bTime = Date.parse((b as unknown as Record<string, any>).startTime ?? '');
                 return bTime - aTime;
             });
             setLogs(normalized);
@@ -132,9 +132,9 @@ const ATMTrackerModule = () => {
 
     const getContractField = (contract: Contract | undefined, field: 'title' | 'freelancer' | 'rate') => {
         if (!contract) return '';
-        const raw = contract as any;
-        if (field === 'title') return raw.title ?? 'Untitled';
-        if (field === 'freelancer') return raw.freelancerName ?? raw.freelancer_name ?? 'Freelancer';
+        const raw = contract as unknown as Record<string, any>;
+        if (field === 'title') return raw.title ?? contract.title ?? 'Untitled';
+        if (field === 'freelancer') return raw.freelancerName ?? raw.freelancer_name ?? (contract as any).freelancerName ?? 'Freelancer';
         return raw.hourlyRate ?? raw.hourly_rate ?? 0;
     };
 
@@ -218,12 +218,23 @@ const ATMTrackerModule = () => {
                             )}
                             {contracts.map(c => (
                                 <tr key={c.id} className="hover:bg-gray-50">
-                                    <td className="px-6 py-4 font-medium">{(c as any).title ?? c.title}</td>
-                                    <td className="px-6 py-4">{(c as any).clientName ?? c.client_name}</td>
-                                    <td className="px-6 py-4">{(c as any).freelancerName ?? c.freelancer_name}</td>
-                                    <td className="px-6 py-4">{formatPrice((c as any).hourlyRate ?? c.hourly_rate ?? 0)}/hr</td>
-                                    <td className="px-6 py-4 font-bold">{Number((c as any).totalHoursLogged ?? c.total_hours_logged ?? 0).toFixed(1)} hrs</td>
-                                    <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs uppercase ${((c as any).status ?? c.status) === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100'}`}>{(c as any).status ?? c.status}</span></td>
+                                    {(() => {
+                                        const r = c as unknown as Record<string, any>;
+                                        const title = r.title ?? c.title ?? 'Untitled';
+                                        const clientName = r.clientName ?? c.client_name ?? 'Client';
+                                        const freelancerName = r.freelancerName ?? c.freelancer_name ?? 'Freelancer';
+                                        const hourly = Number(r.hourlyRate ?? c.hourly_rate ?? 0);
+                                        const totalHours = Number(r.totalHoursLogged ?? c.total_hours_logged ?? 0).toFixed(1);
+                                        const status = (r.status ?? c.status) ?? 'inactive';
+                                        return (<>
+                                            <td className="px-6 py-4 font-medium">{title}</td>
+                                            <td className="px-6 py-4">{clientName}</td>
+                                            <td className="px-6 py-4">{freelancerName}</td>
+                                            <td className="px-6 py-4">{formatPrice(hourly)}/hr</td>
+                                            <td className="px-6 py-4 font-bold">{totalHours} hrs</td>
+                                            <td className="px-6 py-4"><span className={`px-2 py-1 rounded text-xs uppercase ${status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100'}`}>{status}</span></td>
+                                        </>);
+                                    })()}
                                 </tr>
                             ))}
                             {!loadingContracts && !contractsError && contracts.length === 0 && (
@@ -246,17 +257,25 @@ const ATMTrackerModule = () => {
                                 <tr><td colSpan={6} className="p-8 text-center text-red-600">{logsError}</td></tr>
                             )}
                             {logs.map(log => {
-                                const contractId = (log as any).contractId ?? (log as any).contract_id;
-                                const freelancerId = (log as any).freelancerId ?? (log as any).freelancer_id;
-                                const startTime = (log as any).startTime ?? (log as any).start_time;
-                                const durationMinutes = (log as any).durationMinutes ?? (log as any).duration_minutes ?? 0;
-                                const activityScore = (log as any).activityScore ?? (log as any).activity_score;
+                                const l = log as unknown as Record<string, any>;
+                                const contractId = l.contractId ?? l.contract_id;
+                                const freelancerId = l.freelancerId ?? l.freelancer_id;
+                                const startTime = l.startTime ?? l.start_time;
+                                const durationMinutes = l.durationMinutes ?? l.duration_minutes ?? 0;
+                                const activityScore = l.activityScore ?? l.activity_score;
                                 const contract = contracts.find(c => c.id === contractId);
                                 return (
                                     <tr key={log.id} className="hover:bg-gray-50">
                                         <td className="px-6 py-4 text-gray-500">{startTime ? new Date(startTime).toLocaleDateString() : '--'}</td>
-                                        <td className="px-6 py-4 font-medium">{(contract as any)?.title || contractId}</td>
-                                        <td className="px-6 py-4">{(contract as any)?.freelancerName || (contract as any)?.freelancer_name || freelancerId}</td>
+                                        {(() => {
+                                            const cr = contract as unknown as Record<string, any> | undefined;
+                                            const ctTitle = cr?.title ?? contract?.title ?? contractId;
+                                            const crFreelancer = cr?.freelancerName ?? cr?.freelancer_name ?? (contract as any)?.freelancer_name ?? freelancerId;
+                                            return (<>
+                                                <td className="px-6 py-4 font-medium">{ctTitle}</td>
+                                                <td className="px-6 py-4">{crFreelancer}</td>
+                                            </>);
+                                        })()}
                                         <td className="px-6 py-4 font-bold">{(durationMinutes / 60).toFixed(2)} hrs</td>
                                         <td className="px-6 py-4">
                                             {activityScore ? <span className={`font-bold ${activityScore < 50 ? 'text-red-500' : 'text-green-600'}`}>{activityScore}%</span> : '-'}

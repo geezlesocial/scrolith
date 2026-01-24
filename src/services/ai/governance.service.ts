@@ -52,7 +52,7 @@ export const GovernanceService = {
     },
 
     // 3. AI Contract Clause Suggestions
-    suggestContractClauses: async (jobType: string): Promise<ContractClauseSuggestion[]> => {
+    suggestContractClauses: async (jobType: string, jobDescription?: string): Promise<ContractClauseSuggestion[]> => {
         return new Promise(resolve => setTimeout(() => resolve([
             {
                 id: 'cl-1',
@@ -75,7 +75,7 @@ export const GovernanceService = {
 
     // 4. AI Enterprise Hiring Assistant
     getEnterpriseInsights: async (employerId: string): Promise<EnterpriseHiringInsight> => {
-        return new Promise(resolve => setTimeout(() => resolve({
+        return new Promise(resolve => setTimeout(() => resolve(({
             employer_id: employerId,
             employerId,
             shortlisted_candidates: [
@@ -94,6 +94,6 @@ export const GovernanceService = {
             marketPosition: 'Leading (Top 10% Budget)',
             budget_optimization: 'Consider switching 2 senior roles to mid-level to extend runway by 3 months.',
             budgetOptimization: 'Consider switching 2 senior roles to mid-level to extend runway by 3 months.'
-        }), 1500));
+        }) as EnterpriseHiringInsight), 1500));
     }
 };

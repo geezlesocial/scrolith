@@ -6,7 +6,7 @@ const orders: any[] = [];
 
 export const listOrders = async (req: Request, res: Response) => {
   const role = req.query.role as string;
-  const user = (req as any).user;
+  const user = (req as unknown as { user?: { id?: string } }).user as { id?: string } | undefined;
   const userId = user?.id || null;
 
   if (prisma) {
@@ -29,7 +29,7 @@ export const listOrders = async (req: Request, res: Response) => {
 
 export const getOrder = async (req: Request, res: Response) => {
   const { id } = req.params;
-  const user = (req as any).user;
+  const user = (req as unknown as { user?: { id?: string } }).user as { id?: string } | undefined;
   const userId = user?.id || null;
 
   if (prisma) {

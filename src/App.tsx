@@ -9,6 +9,7 @@ import {
 import Navbar from './components/Navbar';
 import DynamicFooter from './components/DynamicFooter';
 import SupportWidget from './components/SupportWidget';
+import ToastContainer from './components/ToastContainer';
 import { UserRole } from './types';
 import { CurrencyProvider } from './context/CurrencyContext';
 import { ContentProvider, useContent } from './context/ContentContext';
@@ -59,35 +60,29 @@ const Chat = React.lazy(() => import('./community/Chat'));
 const Leaderboard = React.lazy(() => import('./community/Leaderboard'));
 
 // Error Boundary Component
-class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
-  constructor(props: { children: React.ReactNode }) {
+type ErrorBoundaryState = { hasError: boolean };
+class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBoundaryState> {
+  public props: React.PropsWithChildren<{}>;
+  public state: ErrorBoundaryState;
+
+  constructor(props: React.PropsWithChildren<{}>) {
     super(props);
     this.state = { hasError: false };
   }
 
-  static getDerivedStateFromError(error: any) {
+  static getDerivedStateFromError(): ErrorBoundaryState {
     return { hasError: true };
   }
 
-  componentDidCatch(error: any, errorInfo: any) {
-    console.error("Uncaught error:", error, errorInfo);
+  componentDidCatch(error: unknown, info: unknown) {
+    console.error(error, info);
   }
 
   render() {
     if (this.state.hasError) {
-      return (
-        <div className="flex flex-col items-center justify-center h-screen bg-gray-50 text-center p-4">
-          <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-gray-900">Something went wrong.</h2>
-          <p className="text-gray-600 mb-4">We encountered an unexpected error displaying this page.</p>
-          <button onClick={() => window.location.reload()} className="bg-blue-600 text-white px-4 py-2 rounded-lg">
-            Reload Page
-          </button>
-        </div>
-      );
+      return <div>Something went wrong.</div>;
     }
-
-    return this.props.children;
+    return this.props.children as React.ReactElement;
   }
 }
 
@@ -114,6 +109,27 @@ const AppContent = () => {
       console.warn('⚠️ No favicon URL in settings');
     }
   }, [settings?.favicon_url, settings?.faviconUrl]);
+
+  // Dynamic title and meta description from platform settings
+  useEffect(() => {
+    try {
+      const siteName = settings?.siteName || settings?.site_name || 'Geezle';
+      const tagline = settings?.tagline || settings?.siteTagline || settings?.site_tagline || '';
+      const title = tagline ? `${siteName} | ${tagline}` : siteName;
+      if (document.title !== title) document.title = title;
+
+      const descContent = (settings as any)?.siteDescription || (settings as any)?.site_description || tagline || '';
+      let desc = document.querySelector("meta[name='description']") as HTMLMetaElement | null;
+      if (!desc) {
+        desc = document.createElement('meta');
+        desc.name = 'description';
+        document.head.appendChild(desc);
+      }
+      if (desc.content !== descContent) desc.content = descContent;
+    } catch (e) {
+      console.warn('Failed to update document title/meta from settings', e);
+    }
+  }, [settings?.siteName, settings?.site_name, settings?.tagline, settings?.siteTagline, settings?.site_tagline, settings]);
 
   useEffect(() => {
     const storedTheme = localStorage.getItem(themeKey);
@@ -342,6 +358,7 @@ function App() {
         <SocketProvider>
           <ContentProvider>
             <NotificationProvider>
+              <ToastContainer />
               <CurrencyProvider>
                 <FavoritesProvider>
                   <MessageProvider>

@@ -94,7 +94,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const getSidebarItems = () => {
-    if (user?.role === 'freelancer') {
+    if (user?.role === UserRole.FREELANCER) {
       return [
         { tab: 'overview', label: 'Overview' },
         { tab: 'my-gigs', label: 'My Gigs' },
@@ -111,7 +111,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
         { tab: 'uploaded-files', label: 'Uploaded Files' },
         { tab: 'kyc', label: 'KYC Verification' },
       ];
-    } else if (user?.role === 'employer' || user?.role === 'client') {
+    } else if (user?.role === UserRole.EMPLOYER) {
       return [
         { tab: 'overview', label: 'Overview' },
         { tab: 'my-jobs', label: 'My Jobs' },

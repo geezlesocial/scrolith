@@ -406,9 +406,9 @@ export const AdminService = {
   },
 
   saveSystemSettings: async (settings: SystemConfig): Promise<SystemConfig> => {
-    const data = await adminPost<any>('/system/settings', settings);
+    const data = await adminPost<SystemConfig>('/system/settings', settings);
     // adminPost/extractData returns the inner `data` payload when server responds { success:true, data: ... }
-    return (data as any) ?? settings;
+    return data ?? settings;
   },
 
   getPlatformSettings: async (): Promise<PlatformSettings> => {

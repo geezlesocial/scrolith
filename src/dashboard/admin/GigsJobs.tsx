@@ -668,7 +668,7 @@ const CategoriesList = ({ items, type, reload, loading }: {
                                     <select
                                         className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                                         value={editing.status}
-                                        onChange={e => setEditing({ ...editing, status: e.target.value as any })}
+                                        onChange={e => setEditing({ ...editing, status: e.target.value as string })}
                                     >
                                         <option value="active">Active</option>
                                         <option value="hidden">Hidden</option>
@@ -884,7 +884,7 @@ const PlanManager = () => {
                             <select
                                 className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                                 value={editingPlan.type}
-                                onChange={e => setEditingPlan({ ...editingPlan, type: e.target.value as any })}
+                                onChange={e => setEditingPlan({ ...editingPlan, type: e.target.value as string })}
                             >
                                 <option value="freelancer">Freelancer</option>
                                 <option value="employer">Employer</option>
@@ -895,7 +895,7 @@ const PlanManager = () => {
                             <select
                                 className="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                                 value={editingPlan.interval}
-                                onChange={e => setEditingPlan({ ...editingPlan, interval: e.target.value as any })}
+                                onChange={e => setEditingPlan({ ...editingPlan, interval: e.target.value as string })}
                             >
                                 <option value="monthly">Monthly</option>
                                 <option value="yearly">Yearly</option>
@@ -1135,7 +1135,7 @@ const GigWizard = ({ categories, onComplete }: { categories: ListingCategory[], 
     const handleSave = async () => {
         try {
             await AdminService.saveGig(gig as Gig);
-            showNotification('success', 'Published', 'Gig is now live!', `/gigs/new`, 'new');
+            showNotification('success', 'Published', 'Gig is now live!', `/gigs/new`);
             onComplete();
         } catch (e) {
             showNotification('error', 'Error', 'Failed to publish gig.');
@@ -1302,7 +1302,7 @@ const GigWizard = ({ categories, onComplete }: { categories: ListingCategory[], 
                                     <button onClick={() => removeExtra(i)} className="absolute top-2 right-2 text-gray-400 hover:text-red-500"><X className="w-4 h-4" /></button>
                                     <input className="border-gray-300 rounded p-2 text-sm flex-1" placeholder="Title (e.g. Fast Delivery)" value={extra.title} onChange={e => updateExtra(i, 'title', e.target.value)} />
                                     <input className="border-gray-300 rounded p-2 text-sm w-24" placeholder="Price ($)" type="number" value={extra.price} onChange={e => updateExtra(i, 'price', parseInt(e.target.value))} />
-                                    <input className="border-gray-300 rounded p-2 text-sm w-32" placeholder="Add. Days" type="number" value={extra.additionalDays} onChange={e => updateExtra(i, 'additionalDays', parseInt(e.target.value))} />
+                                    <input className="border-gray-300 rounded p-2 text-sm w-32" placeholder="Add. Days" type="number" value={extra.additional_days} onChange={e => updateExtra(i, 'additional_days' as any, parseInt(e.target.value))} />
                                 </div>
                             ))}
                         </div>

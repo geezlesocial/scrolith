@@ -94,12 +94,12 @@ type ActivityRecord = {
 };
 
 const lineChartKeys: (keyof ActivityRecord)[] = ['messages', 'newUsers', 'orders'];
-const lineChartColors: Record<keyof ActivityRecord, string> = {
+const lineChartColors: Record<string, string> = {
   messages: '#3b82f6',
   newUsers: '#10b981',
   orders: '#f97316'
 };
-const lineChartLabels: Record<keyof ActivityRecord, string> = {
+const lineChartLabels: Record<string, string> = {
   messages: 'Messages',
   newUsers: 'New Users',
   orders: 'Orders'

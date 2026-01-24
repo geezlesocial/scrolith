@@ -706,8 +706,11 @@ export interface AdCampaign {
   id: string;
   title: string;
   client_name: string;
+  clientName?: string;
   creative_url: string;
+  creativeUrl?: string;
   target_url: string;
+  targetUrl?: string;
   placement: AdPlacement;
   target_roles: UserRole[];
   impressions: number;
@@ -717,6 +720,11 @@ export interface AdCampaign {
   end_date: string;
   status: 'active' | 'paused' | 'draft' | 'completed';
 }
+
+// Additional exported convenience types expected by frontend
+export type StepsContent = any;
+export type TestimonialsContent = any;
+
 
 // ==================== MESSAGING ====================
 export interface Conversation {
@@ -805,6 +813,23 @@ export interface PlatformSettings {
   footer_links: any[];
   social_links: any[];
   system?: SystemConfig;
+
+  // CamelCase aliases (backend may return snake_case or camelCase)
+  siteName?: string;
+  siteTagline?: string;
+  site_tagline?: string;
+  logoUrl?: string;
+  faviconUrl?: string;
+  adminEmail?: string;
+  supportEmail?: string;
+  footerAboutTitle?: string;
+  footerAboutText?: string;
+  footerCopyright?: string;
+  footerLinks?: any[];
+  socialLinks?: any[];
+
+  // Allow additional backend variations
+  [key: string]: any;
 
   // Feature flags
   features?: {
@@ -995,11 +1020,24 @@ export interface HowItWorksContent {
   freelancer_steps: { icon: string; title: string; description: string }[];
 }
 
+// camelCase aliases
+export interface HowItWorksContent {
+  showVideo?: boolean;
+  employerSteps?: { icon: string; title: string; description: string }[];
+  freelancerSteps?: { icon: string; title: string; description: string }[];
+}
+
 export interface CTAContent {
   headline: string;
   subheadline: string;
   button_text: string;
   button_link: string;
+}
+
+// camelCase aliases
+export interface CTAContent {
+  buttonText?: string;
+  buttonLink?: string;
 }
 
 export interface TrustContent {
@@ -1009,6 +1047,12 @@ export interface TrustContent {
 export interface CategoriesContent {
   show_icons: boolean;
   view_more_link: string;
+}
+
+// camelCase aliases
+export interface CategoriesContent {
+  showIcons?: boolean;
+  viewMoreLink?: string;
 }
 
 export interface FeaturedContent {
@@ -1687,6 +1731,9 @@ export interface StaffMember {
   status: StaffStatus;
   two_factor_enabled?: boolean;
   force_password_reset?: boolean;
+  // camelCase aliases
+  twoFactorEnabled?: boolean;
+  forcePasswordReset?: boolean;
 }
 
 export interface StaffRole {
@@ -2022,6 +2069,15 @@ export interface CommunityClub {
   created_at?: string;
 }
 
+// camelCase aliases for CommunityClub
+export interface CommunityClub {
+  memberCount?: number;
+  coverImage?: string;
+  ownerId?: string;
+  isJoined?: boolean;
+  createdAt?: string;
+}
+
 export interface CommunityEvent {
   id: string;
   title: string;
@@ -2096,6 +2152,18 @@ export interface CommunityComment {
   is_liked: boolean;
   replies?: CommunityComment[];
   mentions?: string[];
+}
+
+// camelCase aliases for frontend compatibility
+export interface CommunityComment {
+  threadId?: string;
+  parentId?: string | null;
+  userId?: string;
+  userName?: string;
+  userAvatar?: string;
+  userRole?: string;
+  createdAt?: string;
+  isLiked?: boolean;
 }
 
 export interface LeaderboardEntry {
@@ -2313,6 +2381,7 @@ export interface AnalyticsDashboard {
   active_users: number;
   new_signups: { daily: number; weekly: number; monthly: number };
   revenue_metrics: {
+    
     total_revenue: number;
     escrow_balance: number;
     commission_earned: number;
@@ -2404,6 +2473,15 @@ export interface ValidationError {
   code?: string;
 }
 
+
+// camelCase aliases
+export interface CommunityEvent {
+  startTime?: string;
+  endTime?: string;
+  hostName?: string;
+  isRegistered?: boolean;
+  maxAttendees?: number;
+}
 export interface ValidationResult {
   is_valid: boolean;
   errors?: ValidationError[];

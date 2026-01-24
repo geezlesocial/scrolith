@@ -4,7 +4,7 @@ import { prisma } from '../db';
 const proposals: any[] = [];
 
 export const listProposals = async (req: Request, res: Response) => {
-  const ownerId = req.query.ownerId === 'me' ? (req as any).user?.id : req.query.ownerId;
+  const ownerId = req.query.ownerId === 'me' ? (req as unknown as { user?: { id?: string } }).user?.id : req.query.ownerId;
   const jobId = req.query.jobId as string | undefined;
   const status = req.query.status as string | undefined;
 
@@ -55,10 +55,10 @@ export const rejectProposal = async (req: Request, res: Response) => {
 export const inviteProposal = async (req: Request, res: Response) => {
   const { jobId, toUserId } = req.body;
   if (prisma) {
-    const p = await prisma.proposal.create({ data: { jobId, toUserId, ownerId: (req as any).user?.id || null, status: 'invited', data: null } });
+    const p = await prisma.proposal.create({ data: { jobId, toUserId, ownerId: (req as unknown as { user?: { id?: string } }).user?.id || null, status: 'invited', data: null } });
     return res.json({ success: true, data: p });
   }
-  const p = { id: `proposal_${Date.now()}`, jobId, toUserId, ownerId: (req as any).user?.id || null, status: 'invited' };
+  const p = { id: `proposal_${Date.now()}`, jobId, toUserId, ownerId: (req as unknown as { user?: { id?: string } }).user?.id || null, status: 'invited' };
   proposals.push(p);
   return res.json({ success: true, data: p });
 };

@@ -48,8 +48,8 @@ app.use(cors());
 app.use(express.json());
 
 // Attach IO to request for controllers
-app.use((req, res, next) => {
-  (req as any).io = io;
+app.use((req: express.Request & { io?: Server }, res, next) => {
+  req.io = io;
   next();
 });
 

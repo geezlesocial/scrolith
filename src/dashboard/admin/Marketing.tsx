@@ -185,8 +185,8 @@ const CouponManager = ({ formatPrice, showNotification }: any) => {
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Type</label>
-                            <select className="w-full border rounded p-2" value={isEditing.discountType} onChange={e => setIsEditing({...isEditing, discountType: e.target.value as any})}>
-                                <option value="percentage">Percentage (%)</option>
+                            <select className="w-full border rounded p-2" value={isEditing.discountType} onChange={e => setIsEditing({...isEditing, discountType: e.target.value as string})}>
+                            <option value="percentage">Percentage (%)</option>
                                 <option value="fixed">Fixed Amount ($)</option>
                             </select>
                         </div>
@@ -497,7 +497,7 @@ const CampaignManager = ({ showNotification }: any) => {
                                     <select 
                                         className="w-full border rounded-lg p-2.5 focus:ring-purple-500 focus:border-purple-500" 
                                         value={formData.type} 
-                                        onChange={e => setFormData({...formData, type: e.target.value as any})}
+                                        onChange={e => setFormData({...formData, type: e.target.value as string})}
                                     >
                                         <option value="email">Email Blast</option>
                                         <option value="notification">Push Notification</option>
@@ -509,7 +509,7 @@ const CampaignManager = ({ showNotification }: any) => {
                                     <select 
                                         className="w-full border rounded-lg p-2.5 focus:ring-purple-500 focus:border-purple-500" 
                                         value={formData.targetAudience} 
-                                        onChange={e => setFormData({...formData, targetAudience: e.target.value as any})}
+                                        onChange={e => setFormData({...formData, targetAudience: e.target.value as string})}
                                     >
                                         <option value="all">All Users</option>
                                         <option value="freelancers">Freelancers Only</option>

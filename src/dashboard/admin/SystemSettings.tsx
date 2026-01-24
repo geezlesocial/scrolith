@@ -3,11 +3,10 @@ import { useContent } from '../../context/ContentContext';
 import { AdminService } from '../../services/admin';
 import { useNotification } from '../../context/NotificationContext';
 import { useCurrency } from '../../context/CurrencyContext';
-import { Save, Settings, Mail, HardDrive, DollarSign, Cpu, CheckCircle, ShieldCheck, Globe, FileText, Lock, Database, Server, RefreshCw, Plus, Trash2, Zap, X, Network, Send, Upload, Image as ImageIcon, Eye, Loader2 } from 'lucide-react';
+import { Save, Settings, Mail, HardDrive, DollarSign, Cpu, CheckCircle, ShieldCheck, Globe, FileText, Lock, Database, Server, RefreshCw, Plus, Trash2, Zap, X, Network, Send, Eye, Loader2 } from 'lucide-react';
 import { AIConfigManager } from '../../services/ai/ai.config';
-import { AIConfig, ComplianceConfig, Currency, PlatformSettings, EmailProviderConfig, UploadedFile, UserRole } from '../../types';
+import { AIConfig, ComplianceConfig, Currency, PlatformSettings, EmailProviderConfig } from '../../types';
 import { INITIAL_CURRENCIES } from '../../constants';
-import FilePickerModal from '../shared/FilePickerModal';
 import { CMSService } from '../../services/cms';
 
 const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab }: any) => (
@@ -29,9 +28,7 @@ const SystemSettings = () => {
     const [activeTab, setActiveTab] = useState('general');
     const [localSettings, setLocalSettings] = useState<Partial<PlatformSettings>>({});
     
-    // File Picker
-    const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
-    const [uploadTarget, setUploadTarget] = useState<'logo' | 'favicon' | null>(null);
+    // File Picker (removed here - Header & Hero manages logo/favicon)
 
     // AI Settings State
     const [aiConfig, setAiConfig] = useState<AIConfig>(AIConfigManager.getConfig());
@@ -83,28 +80,48 @@ const SystemSettings = () => {
         loadSystemSettings();
     }, []);
 
+    // When global content settings update (via socket or external save), reflect them here
+    useEffect(() => {
+        if (!isSaving && settings) {
+            setLocalSettings(settings);
+            const s = settings as unknown as Record<string, any>;
+            const systemSource = s?.system ?? s;
+            if (systemSource?.storage) setStorageConfig(systemSource.storage);
+            if (systemSource?.email) setEmailConfig(systemSource.email);
+            if (systemSource?.currency) setCurrencyConfig(systemSource.currency);
+            if (s?.currencies) setCurrencies(s.currencies as Currency[]);
+            setAiConfig(AIConfigManager.getConfig());
+        }
+    }, [settings, isSaving]);
+
     const loadSystemSettings = async () => {
         try {
             setIsLoading(true);
-            // Try to load from backend
+            // Try to load from backend. Prefer the merged settings available in ContentContext
             try {
                 const systemSettings = await AdminService.getSystemSettings();
-                if (systemSettings) {
-                    setLocalSettings(systemSettings);
-                    
-                    // Set nested configurations
-                    if (systemSettings.system?.storage) {
-                        setStorageConfig(systemSettings.system.storage);
-                    }
-                    if (systemSettings.system?.email) {
-                        setEmailConfig(systemSettings.system.email);
-                    }
-                    if (systemSettings.system?.currency) {
-                        setCurrencyConfig(systemSettings.system.currency as any);
-                    }
+
+                // `settings` from ContentContext already contains platform + system merged.
+                // Prefer it when present so we don't lose platform-level fields (siteName, tagline, etc.).
+                const merged = settings ?? (systemSettings ? { system: systemSettings } : {});
+
+                setLocalSettings(merged as PlatformSettings);
+
+                // Determine source for nested configs (system namespace if present, otherwise the returned object)
+                const m = merged as unknown as Record<string, any>;
+                const systemSource = m?.system ?? systemSettings ?? merged;
+
+                if (systemSource?.storage) {
+                    setStorageConfig(systemSource.storage);
+                }
+                if (systemSource?.email) {
+                    setEmailConfig(systemSource.email);
+                }
+                if (systemSource?.currency) {
+                    setCurrencyConfig(systemSource.currency);
                 }
             } catch (error) {
-                console.warn('Failed to load system settings from API, using local state:', error);
+                console.warn('Failed to load system settings from API, using context/default state:', error);
                 // Fallback to context settings
                 if (settings) {
                     setLocalSettings(settings);
@@ -127,8 +144,11 @@ const SystemSettings = () => {
         setIsSaving(true);
         try {
             // Avoid overwriting secrets with empty values: only include secrets when provided
-            const safeEmail = { ...(emailConfig || {}) } as any;
-            if (!safeEmail.password) delete safeEmail.password;
+            const safeEmail: Partial<EmailProviderConfig> = { ...(emailConfig || {}) };
+            if (!safeEmail.password) {
+                const _safe = safeEmail as unknown as Record<string, any>;
+                delete _safe.password;
+            }
 
             const safeStorage: any = { ...(storageConfig || {}) };
             if (safeStorage.driver && safeStorage.driver !== 'local') {
@@ -193,27 +213,12 @@ const SystemSettings = () => {
         } else {
             setLocalSettings(prev => ({
                 ...prev,
-                [section]: { ...(prev as any)[section] || {}, [field]: value }
+                [section]: { ...((prev as unknown as Record<string, any>)[section]) || {}, [field]: value }
             }));
         }
     };
 
-    const handleFileSelect = (file: UploadedFile) => {
-        if (uploadTarget === 'logo') {
-            setLocalSettings(prev => ({ 
-                ...prev, 
-                logoUrl: file.url,
-                logoFileId: file.id 
-            }));
-        } else if (uploadTarget === 'favicon') {
-            setLocalSettings(prev => ({ 
-                ...prev, 
-                faviconUrl: file.url,
-                faviconFileId: file.id 
-            }));
-        }
-        setIsFilePickerOpen(false);
-    };
+    // File selection handled in Header & Hero editor; no local file picker here.
 
     const handleAIChange = (section: keyof AIConfig, field: string, value: any) => {
         if (section === 'providers') {
@@ -239,7 +244,7 @@ const SystemSettings = () => {
         } else {
             setAiConfig(prev => ({
                 ...prev,
-                [section]: { ...prev[section as any] || {}, [field]: value }
+                [section]: { ...((prev as unknown as Record<string, any>)[section]) || {}, [field]: value }
             }));
         }
     };
@@ -437,40 +442,7 @@ const SystemSettings = () => {
                     <div className="space-y-6 max-w-lg animate-fade-in">
                         <h3 className="text-lg font-bold mb-4 border-b pb-2">General Configuration</h3>
                         
-                        <div className="grid grid-cols-2 gap-6">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Platform Logo</label>
-                                <div 
-                                    onClick={() => { setUploadTarget('logo'); setIsFilePickerOpen(true); }}
-                                    className="h-24 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50 transition"
-                                >
-                                    {localSettings.logoUrl ? (
-                                        <img src={localSettings.logoUrl} alt="Logo" className="h-full object-contain p-2" />
-                                    ) : (
-                                        <div className="text-gray-400 text-center">
-                                            <ImageIcon className="w-6 h-6 mx-auto mb-1" />
-                                            <span className="text-xs">Upload</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Favicon</label>
-                                <div 
-                                    onClick={() => { setUploadTarget('favicon'); setIsFilePickerOpen(true); }}
-                                    className="h-24 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50 transition"
-                                >
-                                    {localSettings.faviconUrl ? (
-                                        <img src={localSettings.faviconUrl} alt="Favicon" className="h-8 w-8 object-contain" />
-                                    ) : (
-                                        <div className="text-gray-400 text-center">
-                                            <Upload className="w-6 h-6 mx-auto mb-1" />
-                                            <span className="text-xs">Upload</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
+                        {/* Platform Logo and Favicon are managed in Header & Hero - removed here */}
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Site Name</label>
@@ -721,7 +693,7 @@ const SystemSettings = () => {
                                 <select 
                                     className="border-gray-300 rounded-md text-sm p-1"
                                     value={currencyConfig.provider}
-                                    onChange={e => setCurrencyConfig({...currencyConfig, provider: e.target.value as any})}
+                                    onChange={e => setCurrencyConfig({...currencyConfig, provider: e.target.value as unknown as typeof currencyConfig.provider})}
                                 >
                                     <option value="openexchangerates">Open Exchange Rates</option>
                                     <option value="fixer">Fixer.io</option>
@@ -869,7 +841,7 @@ const SystemSettings = () => {
                                     <select 
                                         className="w-full border-gray-300 rounded-lg p-2" 
                                         value={emailConfig.provider} 
-                                        onChange={e => setEmailConfig({...emailConfig, provider: e.target.value as any})}
+                                        onChange={e => setEmailConfig({...emailConfig, provider: e.target.value as unknown as EmailProviderConfig['provider']})}
                                     >
                                         <option value="smtp">Custom SMTP</option>
                                         <option value="ses">Amazon SES</option>
@@ -1235,15 +1207,7 @@ const SystemSettings = () => {
                 </button>
             </div>
 
-            <FilePickerModal
-                isOpen={isFilePickerOpen}
-                onClose={() => setIsFilePickerOpen(false)}
-                onSelect={handleFileSelect}
-                acceptedTypes="image/*"
-                filterType="image"
-                title={`Select ${uploadTarget === 'logo' ? 'Logo' : 'Favicon'}`}
-                role="admin"
-            />
+            {/* File picker removed from System Settings; Header & Hero manages uploads. */}
         </div>
     );
 };

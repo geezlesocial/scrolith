@@ -6,7 +6,7 @@ const wallets = new Map<string, any>();
 const transactions = new Map<string, any[]>();
 
 export const getMyWallet = async (req: Request, res: Response) => {
-  const user = (req as any).user;
+  const user = (req as unknown as { user?: { id?: string } }).user as { id?: string } | undefined;
   const userId = user?.id || 'anonymous';
 
   if (prisma) {
@@ -35,7 +35,7 @@ export const getMyWallet = async (req: Request, res: Response) => {
 };
 
 export const getMyTransactions = async (req: Request, res: Response) => {
-  const user = (req as any).user;
+  const user = (req as unknown as { user?: { id?: string } }).user as { id?: string } | undefined;
   const userId = user?.id || 'anonymous';
 
   if (prisma) {
@@ -51,7 +51,7 @@ export const getMyTransactions = async (req: Request, res: Response) => {
 };
 
 export const requestWithdrawal = async (req: Request, res: Response) => {
-  const user = (req as any).user;
+  const user = (req as unknown as { user?: { id?: string } }).user as { id?: string } | undefined;
   const userId = user?.id || 'anonymous';
   const { amount, method } = req.body;
 
@@ -73,7 +73,7 @@ export const requestWithdrawal = async (req: Request, res: Response) => {
 };
 
 export const getMyWithdrawals = async (req: Request, res: Response) => {
-  const user = (req as any).user;
+  const user = (req as unknown as { user?: { id?: string } }).user as { id?: string } | undefined;
   const userId = user?.id || 'anonymous';
   if (prisma) {
     const w = await prisma.wallet.findUnique({ where: { userId } });

@@ -235,7 +235,7 @@ const CMSPages = () => {
                                     <select 
                                         className="w-full border-gray-300 rounded-lg"
                                         value={editingPage.status}
-                                        onChange={e => setEditingPage({ ...editingPage, status: e.target.value as any })}
+                                        onChange={e => setEditingPage({ ...editingPage, status: e.target.value as string })}
                                     >
                                         <option value="DRAFT">Draft</option>
                                         <option value="PUBLISHED">Published</option>
@@ -338,7 +338,7 @@ const CMSPages = () => {
                                         {page.status}
                                     </span>
                                 </td>
-                                <td className="px-6 py-4 text-gray-500">{new Date(page.updatedAt || (page as any).updated_at).toLocaleDateString()}</td>
+                                <td className="px-6 py-4 text-gray-500">{new Date(page.updatedAt || (page as unknown as Record<string, unknown>)['updated_at']).toLocaleDateString()}</td>
                                 <td className="px-6 py-4 text-right space-x-2">
                                     <button onClick={() => handleEdit(page)} className="text-blue-600 hover:bg-blue-50 p-2 rounded transition-colors" title="Edit"><Edit2 className="w-4 h-4" /></button>
                                     <button onClick={() => handleDelete(page.id)} className="text-red-600 hover:bg-red-50 p-2 rounded transition-colors" title="Delete"><Trash2 className="w-4 h-4" /></button>

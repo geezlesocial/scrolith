@@ -75,6 +75,6 @@ export class RankingService {
             return { ...gig, rankingScore: score };
         });
 
-        return rankedGigs.sort((a, b) => (b as any).rankingScore - (a as any).rankingScore);
+        return rankedGigs.sort((a, b) => (b.rankingScore ?? 0) - (a.rankingScore ?? 0));
     }
 }

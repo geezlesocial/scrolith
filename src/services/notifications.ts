@@ -67,9 +67,9 @@ export const notificationsApi = {
 
   getUnreadCount: async (): Promise<{ count: number }> => {
     const response = await api.get<ApiResponse<{ count: number }>>('/notifications', { params: { unreadOnly: true } });
-    const data = handleApiResponse(response);
+    const data: any = handleApiResponse(response);
     return {
-      count: Array.isArray(data) ? data.filter((n: Notification) => !n.isRead).length : data.count || 0
+      count: Array.isArray(data) ? data.filter((n: Notification) => !n.isRead).length : (data?.count || 0)
     };
   }
 };

@@ -106,7 +106,8 @@ const SettingsModule = () => {
 
     const handleToggle = async (key: keyof UserSettings) => {
         if (!settings) return;
-        const newValue = !(settings as any)[key];
+        const s = settings as unknown as Record<string, any>;
+        const newValue = !s[key];
         const newSettings = normalizeSettings({ ...settings, [key]: newValue } as UserSettings);
         setSettings(newSettings);
         setSavingSettings(true);

@@ -5,7 +5,7 @@ import {
     Settings, List, Layout, Globe, Calendar, CheckCircle, XCircle, Type, 
     MoreVertical, Video, Quote, Code, ArrowUp, ArrowDown, Upload
 } from 'lucide-react';
-import { BlogPost, BlogCategory, BlogSettings, ContentBlock } from '../../types';
+import { BlogPost, BlogCategory, BlogSettings, ContentBlock, BlogPostStatus } from '../../types';
 import { CMSService } from '../../services/cms';
 import { useNotification } from '../../context/NotificationContext';
 
@@ -449,7 +449,10 @@ const BlogEditor = ({ post, setPost, onSave, onCancel, categories }: {
                                 <select 
                                     className="w-full border-gray-300 rounded-lg text-sm"
                                     value={post.status}
-                                    onChange={e => setPost({...post, status: e.target.value as any})}
+                                    onChange={e => {
+                                        const v = e.target.value as unknown as BlogPostStatus;
+                                        setPost({...post, status: v});
+                                    }}
                                 >
                                     <option value="draft">Draft</option>
                                     <option value="published">Published</option>

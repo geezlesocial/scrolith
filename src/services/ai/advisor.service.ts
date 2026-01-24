@@ -21,7 +21,7 @@ export const AdvisorService = {
     },
 
     optimizeBudget: async (title: string, requirements: string): Promise<BudgetAdvice> => {
-        return new Promise(resolve => setTimeout(() => resolve({
+        return new Promise(resolve => setTimeout(() => resolve(({
             recommended_range: "$800 - $1,200",
             recommendedRange: "$800 - $1,200",
             success_probability: 92,
@@ -30,6 +30,6 @@ export const AdvisorService = {
             marketComparison: "Competitive",
             optimization_tips: ["Mention specific deliverables to attract experts.", "Set milestones for payments."],
             optimizationTips: ["Mention specific deliverables to attract experts.", "Set milestones for payments."]
-        }), 900));
+        }) as BudgetAdvice), 900));
     }
 };

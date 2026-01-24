@@ -53,14 +53,25 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
   const loadFiles = async () => {
     setLoading(true);
     try {
-      const response = await FileService.getFiles({
+      const visibilityKey = visibility === 'public' || visibility === 'private' ? visibility : undefined;
+
+      const options: {
+        role?: string;
+        visibility?: 'public' | 'private';
+        type?: 'image' | 'video' | 'document' | 'other';
+        search?: string;
+        page?: number;
+        limit?: number;
+      } = {
         role,
-        visibility,
+        visibility: visibilityKey,
         type: filter === 'all' ? undefined : filter,
         search: search || undefined,
         limit: 50,
         page: 1
-      } as any);
+      };
+
+      const response = await FileService.getFiles(options);
       setFiles(response?.files ?? []);
     } catch (e) {
       console.error('Failed to load files:', e);
@@ -122,12 +133,15 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
   const uploadNew = async (file: File) => {
     setUploading(true);
     try {
-      const category = file.type.startsWith('image/') || file.type.startsWith('video/') ? 'portfolio' : 'document';
-      await FileService.uploadFile(file, category as any, {
+      const category: UploadedFile['category'] =
+        file.type.startsWith('image/') || file.type.startsWith('video/') ? 'portfolio' : 'document';
+
+      await FileService.uploadFile(file, category, {
         role: role || user?.role,
         visibility,
         userId: user?.id
       });
+
       await loadFiles();
     } catch (err: any) {
       console.error('Failed to upload file:', err);
@@ -175,7 +189,11 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
             </div>
             <select
               value={filter}
-              onChange={(ev) => setFilter(ev.target.value as any)}
+              onChange={(ev) => {
+                const v = ev.target.value;
+                if (v === 'all' || v === 'image' || v === 'video' || v === 'document') setFilter(v);
+                else setFilter('all');
+              }}
               className="px-4 py-2 border rounded-lg"
             >
               <option value="all">All Types</option>

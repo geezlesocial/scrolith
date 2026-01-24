@@ -107,9 +107,9 @@ export const AdminService = {
             setTimeout(() => {
                 const stored = localStorage.getItem('geezle_user'); 
                 const users: User[] = [
-                    { id: 'u1', name: 'John Freelancer', email: 'john@example.com', role: 'freelancer' as any, status: 'active', avatar: 'https://ui-avatars.com/api/?name=John+Freelancer' },
-                    { id: 'client-1', name: 'Alice Client', email: 'alice@example.com', role: 'employer' as any, status: 'active', avatar: 'https://ui-avatars.com/api/?name=Alice+Client' },
-                    { id: 'admin-1', name: 'Super Admin', email: 'admin@geezle.com', role: 'admin' as any, status: 'active', avatar: 'https://ui-avatars.com/api/?name=Admin' }
+                    { id: 'u1', name: 'John Freelancer', email: 'john@example.com', role: 'freelancer', status: 'active', avatar: 'https://ui-avatars.com/api/?name=John+Freelancer' },
+                    { id: 'client-1', name: 'Alice Client', email: 'alice@example.com', role: 'employer', status: 'active', avatar: 'https://ui-avatars.com/api/?name=Alice+Client' },
+                    { id: 'admin-1', name: 'Super Admin', email: 'admin@geezle.com', role: 'admin', status: 'active', avatar: 'https://ui-avatars.com/api/?name=Admin' }
                 ];
                 if (stored) {
                     const current = JSON.parse(stored);
@@ -277,15 +277,15 @@ export const AdminService = {
             const gigs = await AdminService.getAdminGigs();
             const gig = gigs.find(g => g.id === id);
             if (gig) {
-                gig.status = status as any;
-                gig.adminStatus = status === 'active' ? 'approved' : status as any;
+                gig.status = status;
+                gig.adminStatus = status === 'active' ? 'approved' : status;
                 await AdminService.saveGig(gig);
             }
         } else {
             const jobs = await AdminService.getAdminJobs();
             const job = jobs.find(j => j.id === id);
             if (job) {
-                job.status = status as any;
+                job.status = status;
                 await AdminService.saveJob(job);
             }
         }

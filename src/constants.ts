@@ -172,7 +172,7 @@ export const MOCK_JOBS: Job[] = [
     }
 ];
 
-export const MOCK_ORDERS: Order[] = [
+export const MOCK_ORDERS: Order[] = ([
     {
         id: 'o1',
         gigTitle: 'I will build a modern React website',
@@ -183,8 +183,11 @@ export const MOCK_ORDERS: Order[] = [
         amount: 300,
         status: 'Active',
         escrowStatus: 'Funded',
+        escrow_status: 'Funded',
         dateOrdered: '2023-10-25',
-        dueDate: '2023-11-01'
+        date_ordered: '2023-10-25',
+        dueDate: '2023-11-01',
+        due_date: '2023-11-01'
     },
     {
         id: 'o2',
@@ -196,8 +199,11 @@ export const MOCK_ORDERS: Order[] = [
         amount: 50,
         status: 'Completed',
         escrowStatus: 'Released',
+        escrow_status: 'Released',
         dateOrdered: '2023-10-15',
-        dueDate: '2023-10-18'
+        date_ordered: '2023-10-15',
+        dueDate: '2023-10-18',
+        due_date: '2023-10-18'
     },
     {
         id: 'o3',
@@ -209,12 +215,15 @@ export const MOCK_ORDERS: Order[] = [
         amount: 90,
         status: 'Delivered',
         escrowStatus: 'Funded',
+        escrow_status: 'Funded',
         dateOrdered: '2023-10-28',
-        dueDate: '2023-10-30'
+        date_ordered: '2023-10-28',
+        dueDate: '2023-10-30',
+        due_date: '2023-10-30'
     }
-];
+] as unknown) as Order[];
 
-export const MOCK_CONTRACTS: Contract[] = [
+export const MOCK_CONTRACTS: Contract[] = ([
     {
         id: 'cnt-101',
         title: 'Ongoing Frontend Development',
@@ -225,6 +234,7 @@ export const MOCK_CONTRACTS: Contract[] = [
         type: 'hourly',
         hourlyRate: 45,
         paymentCycle: 'weekly',
+        payment_cycle: 'weekly',
         status: 'active',
         totalHoursLogged: 12.5,
         totalPaid: 450,
@@ -241,13 +251,14 @@ export const MOCK_CONTRACTS: Contract[] = [
         type: 'hourly',
         hourlyRate: 65,
         paymentCycle: 'bi-weekly',
+        payment_cycle: 'bi-weekly',
         status: 'active',
         totalHoursLogged: 5.0,
         totalPaid: 0,
         startDate: '2023-11-01',
         description: 'UI/UX design for new iOS app.'
     }
-];
+] as unknown) as Contract[];
 
 export const MOCK_TIME_ENTRIES: TimeEntry[] = [
     {
@@ -285,37 +296,45 @@ export const MOCK_TIME_ENTRIES: TimeEntry[] = [
     }
 ];
 
-export const MOCK_TRANSACTIONS: WalletTransaction[] = [
+export const MOCK_TRANSACTIONS: WalletTransaction[] = ([
     {
         id: 'tx-1',
         walletId: 'w-u1',
+        wallet_id: 'w-u1',
         type: TransactionType.DEPOSIT,
         amount: 500,
         status: 'cleared',
         description: 'Deposit via PayPal',
-        createdAt: '2023-10-01T10:00:00Z'
+        createdAt: '2023-10-01T10:00:00Z',
+        created_at: '2023-10-01T10:00:00Z'
     },
     {
         id: 'tx-2',
         walletId: 'w-u1',
+        wallet_id: 'w-u1',
         type: TransactionType.ESCROW_HOLD,
         amount: -300,
         status: 'cleared',
         referenceId: 'o1',
+        reference_id: 'o1',
         description: 'Escrow for Order #o1',
-        createdAt: '2023-10-25T14:30:00Z'
+        createdAt: '2023-10-25T14:30:00Z',
+        created_at: '2023-10-25T14:30:00Z'
     },
     {
         id: 'tx-3',
         walletId: 'w-u1',
+        wallet_id: 'w-u1',
         type: TransactionType.ESCROW_RELEASE,
         amount: 50,
         status: 'cleared',
         referenceId: 'o2',
+        reference_id: 'o2',
         description: 'Payment released for Order #o2',
-        createdAt: '2023-10-18T16:00:00Z'
+        createdAt: '2023-10-18T16:00:00Z',
+        created_at: '2023-10-18T16:00:00Z'
     }
-];
+] as unknown) as WalletTransaction[];
 
 export const MOCK_AFFILIATES: Affiliate[] = [
     { id: 'aff-1', userId: 'u10', userName: 'Tech Blogger', code: 'TECH20', earnings: 1540, referrals: 125, status: 'active', commissionRate: 0.15, createdAt: '2023-01-15' },

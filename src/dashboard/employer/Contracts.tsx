@@ -87,7 +87,6 @@ export const Contracts: React.FC = () => {
         columns={columns}
         loading={loading}
         emptyMessage="No contracts found. Contracts will appear here once freelancers accept your job offers."
-        keyExtractor={(item) => item.id}
       />
     </div>
   );

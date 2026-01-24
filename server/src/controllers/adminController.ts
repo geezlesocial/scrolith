@@ -1,11 +1,12 @@
 import { Request, Response } from 'express';
+import { Server } from 'socket.io';
 // Fix: Removed PrismaClient to fix build errors
 // import { PrismaClient } from '@prisma/client';
 
 // const prisma = new PrismaClient();
 
 // Fix: Use 'any' for req/res to resolve type mismatches
-export const updateSystemSettings = async (req: any, res: any) => {
+export const updateSystemSettings = async (req: Request & { io?: Server }, res: Response) => {
   const settings = req.body;
   
   try {
@@ -22,8 +23,8 @@ export const updateSystemSettings = async (req: any, res: any) => {
 
     // ⚡️ REAL-TIME TRIGGER
     // Notify all connected clients that settings changed
-    const io = (req as any).io;
-    io.emit('settings:updated', updated);
+    const io = req.io;
+    if (io) io.emit('settings:updated', updated);
 
     res.json({ success: true, data: updated });
   } catch (error) {
@@ -32,7 +33,7 @@ export const updateSystemSettings = async (req: any, res: any) => {
 };
 
 // Fix: Use 'any' for req/res
-export const updateUserStatus = async (req: any, res: any) => {
+export const updateUserStatus = async (req: Request & { io?: Server }, res: Response) => {
   const { userId, status } = req.body;
 
   try {
@@ -48,11 +49,11 @@ export const updateUserStatus = async (req: any, res: any) => {
 
     // ⚡️ REAL-TIME TRIGGER
     // Notify Admin Dashboard List
-    const io = (req as any).io;
-    io.emit('admin:user_updated', user);
-    
-    // Notify Specific User (e.g., force logout if suspended)
-    io.to(`user_${userId}`).emit('account:status_change', { status });
+    const io = req.io;
+    if (io) {
+      io.emit('admin:user_updated', user);
+      io.to(`user_${userId}`).emit('account:status_change', { status });
+    }
 
     res.json({ success: true, data: user });
   } catch (error) {

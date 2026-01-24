@@ -11,7 +11,7 @@ import {
   VideoFeatureContent,
 } from "../../types";
 
-const ensureArray = <T,>(value: any): T[] => (Array.isArray(value) ? value : []);
+const ensureArray = <T = any,>(value: any): T[] => (Array.isArray(value) ? value : []);
 
 const resolveUrl = (item: any) => item?.url ?? item?.href ?? item?.link ?? "";
 

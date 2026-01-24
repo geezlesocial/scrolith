@@ -39,6 +39,78 @@ const Forum = () => {
         loadData();
     }, [user]);
 
+    // Real-time listeners forwarded from SocketContext via window CustomEvents
+    useEffect(() => {
+        const onThreadCreated = (e: any) => {
+            const payload = e.detail?.thread;
+            if (!payload) return;
+            setThreads(prev => [payload as ForumThread, ...prev]);
+            showNotification('info', 'New Thread', 'A new discussion was started.');
+        };
+
+        const onThreadDeleted = (e: any) => {
+            const { id } = e.detail || {};
+            if (!id) return;
+            setThreads(prev => prev.filter(t => t.id !== id));
+            showNotification('info', 'Thread Removed', 'A thread was deleted.');
+        };
+
+        const onThreadPinned = (e: any) => {
+            const { id, isPinned } = e.detail || {};
+            if (!id) return;
+            setThreads(prev => prev.map(t => t.id === id ? { ...t, isPinned, is_pinned: isPinned } : t));
+        };
+
+        const onThreadLocked = (e: any) => {
+            const { id, isLocked, status } = e.detail || {};
+            if (!id) return;
+            setThreads(prev => prev.map(t => t.id === id ? { ...t, isLocked, is_locked: isLocked, status: status ? status.toLowerCase() : (isLocked ? 'locked' : t.status) } : t));
+        };
+
+        const onLikeToggled = (e: any) => {
+            const { id, type, userId: actorId, liked } = e.detail || {};
+            if (!id || type !== 'thread') return;
+            setThreads(prev => prev.map(t => {
+                if (t.id !== id) return t;
+                const upvotes = (t.upvotes || t.interactions?.likes || 0) + (liked ? 1 : -1);
+                const userState = { ...(t.userState || {}), liked: actorId === user?.id ? liked : (t.userState?.liked || false) };
+                const interactions = { ...(t.interactions || {}), likes: Math.max(0, upvotes) };
+                return { ...t, upvotes, interactions, userState } as ForumThread;
+            }));
+        };
+
+        const onCommentCreated = (e: any) => {
+            const { comment } = e.detail || {};
+            if (!comment || !comment.threadId) return;
+            setThreads(prev => prev.map(t => t.id === comment.threadId ? { ...t, repliesCount: (t.repliesCount || 0) + 1 } : t));
+        };
+
+        const onCommentDeleted = (e: any) => {
+            const { id } = e.detail || {};
+            if (!id) return;
+            // We don't have threadId here; optimistically re-fetch to be safe
+            CommunityService.getThreads().then(data => setThreads(data)).catch(() => {});
+        };
+
+        window.addEventListener('community:thread_created', onThreadCreated as EventListener);
+        window.addEventListener('community:thread_deleted', onThreadDeleted as EventListener);
+        window.addEventListener('community:thread_pinned', onThreadPinned as EventListener);
+        window.addEventListener('community:thread_locked', onThreadLocked as EventListener);
+        window.addEventListener('community:like_toggled', onLikeToggled as EventListener);
+        window.addEventListener('community:comment_created', onCommentCreated as EventListener);
+        window.addEventListener('community:comment_deleted', onCommentDeleted as EventListener);
+
+        return () => {
+            window.removeEventListener('community:thread_created', onThreadCreated as EventListener);
+            window.removeEventListener('community:thread_deleted', onThreadDeleted as EventListener);
+            window.removeEventListener('community:thread_pinned', onThreadPinned as EventListener);
+            window.removeEventListener('community:thread_locked', onThreadLocked as EventListener);
+            window.removeEventListener('community:like_toggled', onLikeToggled as EventListener);
+            window.removeEventListener('community:comment_created', onCommentCreated as EventListener);
+            window.removeEventListener('community:comment_deleted', onCommentDeleted as EventListener);
+        };
+    }, [user, showNotification]);
+
     const handleCreatePost = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!user) {

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { StaffMember, StaffRole } from '../../types';
+import { StaffMember, StaffRole, StaffStatus } from '../../types';
 import { AdminService } from '../../services/admin';
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
@@ -207,7 +207,7 @@ const StaffManagementTab = () => {
                                 <td className="px-6 py-4">
                                     <select 
                                         value={s.status}
-                                        onChange={(e) => handleStatusChange(s, e.target.value as any)}
+                                        onChange={(e) => handleStatusChange(s, e.target.value as any as StaffStatus)}
                                         disabled={s.roleName === 'Super Admin'}
                                         className={`text-xs font-bold px-2 py-1 rounded border-0 cursor-pointer focus:ring-2 focus:ring-offset-1 transition-colors ${
                                             s.status === 'active' ? 'bg-green-100 text-green-700 focus:ring-green-500' : 
@@ -375,7 +375,7 @@ const StaffManagementTab = () => {
                                         <select 
                                             className="w-full border border-gray-300 rounded-lg p-2.5"
                                             value={currentStaff.status || 'active'}
-                                            onChange={e => setCurrentStaff({...currentStaff, status: e.target.value as any})}
+                                            onChange={e => setCurrentStaff({...currentStaff, status: e.target.value as string})}
                                         >
                                             <option value="active">Active</option>
                                             <option value="suspended">Suspended (Blocked)</option>

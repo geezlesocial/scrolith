@@ -306,7 +306,7 @@ const CreateJob = () => {
                                             {['Fixed Price', 'Hourly', 'Contract'].map(type => (
                                                 <button
                                                     key={type}
-                                                    onClick={() => setJob({...job, type: type as any})}
+                                                    onClick={() => setJob({...job, type: type as string})}
                                                     className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${job.type === type ? 'bg-white shadow text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
                                                 >
                                                     {type}
@@ -321,7 +321,7 @@ const CreateJob = () => {
                                         <select 
                                             className="w-full border-gray-300 rounded-xl p-3 shadow-sm bg-white"
                                             value={job.experienceLevel}
-                                            onChange={e => setJob({...job, experienceLevel: e.target.value as any})}
+                                            onChange={e => setJob({...job, experienceLevel: e.target.value as string})}
                                         >
                                             <option>Entry</option>
                                             <option>Intermediate</option>
@@ -333,7 +333,7 @@ const CreateJob = () => {
                                         <select 
                                             className="w-full border-gray-300 rounded-xl p-3 shadow-sm bg-white"
                                             value={job.visibility}
-                                            onChange={e => setJob({...job, visibility: e.target.value as any})}
+                                            onChange={e => setJob({...job, visibility: e.target.value as string})}
                                         >
                                             <option value="public">Public (Anyone can apply)</option>
                                             <option value="invite">Invite Only (Private)</option>

@@ -67,10 +67,14 @@ export class OpenAIProvider implements AIProvider {
         const moderation = await this.client.moderations.create({ input: input.content });
         const result = moderation.results[0];
 
+        const categoriesObj = (result.categories as unknown) as Record<string, unknown> | undefined;
+        const categoryKeys = categoriesObj ? Object.keys(categoriesObj).filter(k => Boolean(categoriesObj[k])) : [];
+        const categoryScores = Object.values(result.category_scores || {}).map(v => Number(v) || 0);
+
         return {
             flagged: result.flagged,
-            categories: Object.keys(result.categories).filter(k => (result.categories as any)[k]),
-            score: Math.max(...(Object.values(result.category_scores) as number[]))
+            categories: categoryKeys,
+            score: categoryScores.length ? Math.max(...categoryScores) : 0
         };
     }
 

@@ -177,13 +177,13 @@ const AdminMessages = () => {
           ) : (
             filteredConversations.map(convo => {
               const participants = convo.participants ?? [];
-              const lastTime = convo.last_message_at || (convo as any).lastMessageAt;
+              const lastTime = convo.last_message_at || convo.lastMessageAt || '';
               const formattedLastTime =
                 lastTime && !Number.isNaN(Date.parse(lastTime))
                   ? new Date(lastTime).toLocaleString()
                   : '--';
               const safeLastMessage =
-                convo.last_message || (convo as any).lastMessage || 'No messages yet';
+                convo.last_message || convo.lastMessage || 'No messages yet';
               return (
                 <div
                   key={convo.id}

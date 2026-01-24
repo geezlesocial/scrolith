@@ -3,7 +3,7 @@ import { Request, Response, NextFunction } from 'express';
 // Lightweight dev auth middleware used only for dashboard-scoped routes.
 // It extracts a user id from `x-user-id` header or a Bearer token and attaches
 // `req.user = { id, role }`. This intentionally does NOT replace real auth.
-export const devAuth = (req: Request, res: Response, next: NextFunction) => {
+export const devAuth = (req: Request & { user?: { id: string | null; role: string } }, res: Response, next: NextFunction) => {
   const hdr = (req.headers['x-user-id'] as string) || '';
   let userId = hdr;
 
@@ -17,10 +17,9 @@ export const devAuth = (req: Request, res: Response, next: NextFunction) => {
 
   if (!userId) {
     // Do not block; attach anonymous placeholder so controllers can decide.
-    (req as any).user = { id: null, role: 'guest' };
+    req.user = { id: null, role: 'guest' };
     return next();
   }
-
-  (req as any).user = { id: userId, role: 'user' };
+  req.user = { id: userId, role: 'user' };
   return next();
 };

@@ -22,6 +22,34 @@ const ThreadDetail = () => {
         loadData();
     }, [id]);
 
+    // Listen for comment events forwarded from SocketContext
+    useEffect(() => {
+        const onCommentCreated = (e: any) => {
+            const comment = e.detail?.comment;
+            if (!comment) return;
+            // Only add if it belongs to this thread
+            if (comment.threadId === id || comment.thread_id === id) {
+                setComments(prev => [...prev, comment as CommunityComment]);
+                showNotification('info', 'New Comment', 'A new comment was posted.');
+            }
+        };
+
+        const onCommentDeleted = (e: any) => {
+            const { id: deletedId } = e.detail || {};
+            if (!deletedId) return;
+            setComments(prev => prev.filter(c => c.id !== deletedId));
+            showNotification('info', 'Comment Removed', 'A comment was deleted.');
+        };
+
+        window.addEventListener('community:comment_created', onCommentCreated as EventListener);
+        window.addEventListener('community:comment_deleted', onCommentDeleted as EventListener);
+
+        return () => {
+            window.removeEventListener('community:comment_created', onCommentCreated as EventListener);
+            window.removeEventListener('community:comment_deleted', onCommentDeleted as EventListener);
+        };
+    }, [id, showNotification]);
+
     const loadData = async () => {
         if (!id) return;
         setLoading(true);

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useUser } from '../context/UserContext';
 import { DashboardLayout } from './shared/DashboardLayout';
+import { UserRole } from '../types';
 
 // Import all dashboard components
 import { Overview as FreelancerOverview, MyGigs, Orders, Contracts as FreelancerContracts, MyProposals, UploadedFiles as FreelancerUploadedFiles, WalletModule } from './freelancer';
@@ -40,7 +41,7 @@ export const DashboardRouter: React.FC = () => {
   if (!user) return null;
 
   const renderContent = () => {
-    if (user.role === 'freelancer') {
+    if (user.role === UserRole.FREELANCER) {
       switch (currentTab) {
         case 'overview':
           return <FreelancerOverview />;
@@ -73,7 +74,7 @@ export const DashboardRouter: React.FC = () => {
         default:
           return <FreelancerOverview />;
       }
-    } else if (user.role === 'employer' || user.role === 'client') {
+    } else if (user.role === UserRole.EMPLOYER) {
       switch (currentTab) {
         case 'overview':
           return <EmployerOverview />;

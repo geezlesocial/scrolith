@@ -58,7 +58,7 @@ const ClientDashboard = () => {
         const tab = tabParam || tabQuery;
         if (tab === 'settings') setActiveTab('settings');
         else if (tab === 'proposals-offers') setActiveTab('proposals');
-        else if (tab && allowed.includes(tab)) setActiveTab(tab as any);
+        else if (tab && allowed.includes(tab)) setActiveTab(tab as unknown as typeof activeTab);
     }, [searchParams, params.tab]);
 
     const handleLogout = () => {
@@ -116,7 +116,7 @@ const ClientDashboard = () => {
                             icon={item.icon} 
                             active={activeTab === item.id} 
                             onClick={(id: string) => {
-                                setActiveTab(id as any);
+                                setActiveTab(id as unknown as typeof activeTab);
                                 navigate(`/client/dashboard/${id}`);
                             }} 
                         />

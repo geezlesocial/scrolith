@@ -55,6 +55,22 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       }
 
+      // If tagline is missing from platform payload, try CMSService.getSettings()
+      // which normalizes sources (settings, header, hero, etc.) and provides a
+      // consolidated `tagline` value used by the UI. This ensures updates made
+      // in header/hero sources still surface when the platform write path only
+      // persisted one of the sources.
+      if (!merged?.tagline) {
+        try {
+          const cmsSettings = await CMSService.getSettings();
+          if (cmsSettings && cmsSettings.tagline) {
+            merged = { ...merged, tagline: cmsSettings.tagline };
+          }
+        } catch (e) {
+          // Non-fatal
+        }
+      }
+
       setSettings(merged as PlatformSettings);
     } catch (error) {
       console.error('Failed to load settings, using defaults', error);
@@ -112,6 +128,17 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // Optimistically update local settings so UI reflects changes immediately.
       // If backend returned a merged system payload, prefer it to keep local state in sync.
       setSettings(prev => ({ ...(prev as any), ...(newSettings as any), ...(savedSystem ? { system: savedSystem } : {}) }));
+
+      // Ensure canonical server state is applied client-side even if socket events are missed
+      // (sometimes dev proxies or auth can prevent a live socket reconnection). Fetch
+      // the latest settings from the server to guarantee everything (platform + system)
+      // is in sync with the backend.
+      try {
+        await fetchSettings();
+      } catch (e) {
+        // Non-fatal: keep optimistic state if re-fetch fails
+        console.warn('Re-fetch after save failed', e);
+      }
     } catch (error) {
       console.error('updateSettings failed', error);
       throw error;

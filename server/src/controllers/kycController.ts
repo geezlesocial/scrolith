@@ -6,7 +6,7 @@ type KYCStatus = 'not_submitted' | 'pending' | 'approved' | 'rejected';
 const kycStore = new Map<string, any>();
 
 export const getKYC = async (req: Request, res: Response) => {
-  const user = (req as any).user;
+  const user = (req as unknown as { user?: { id?: string } }).user as { id?: string } | undefined;
   const userId = user?.id || 'anonymous';
   if (prisma) {
     // Note: Prisma model name is `KYCSubmission` -> client property becomes `kYCSubmission`
@@ -20,7 +20,7 @@ export const getKYC = async (req: Request, res: Response) => {
 };
 
 export const submitKYC = async (req: Request, res: Response) => {
-  const user = (req as any).user;
+  const user = (req as unknown as { user?: { id?: string } }).user as { id?: string } | undefined;
   const userId = user?.id || 'anonymous';
   const payload = req.body || {};
   if (prisma) {

@@ -17,6 +17,35 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const { user, isAuthenticated } = useUser()
 
   useEffect(() => {
+    // Attach community event listeners when socket is available
+    if (!socket) return;
+
+    const forward = (eventName: string) => (payload: any) => {
+      try {
+        window.dispatchEvent(new CustomEvent(eventName, { detail: payload }));
+        console.log(`Forwarded socket event -> ${eventName}`, payload);
+      } catch (e) {
+        console.error(`Failed to forward socket event ${eventName}:`, e);
+      }
+    }
+
+    const handlers: Array<{ ev: string; fn: (...args: any[]) => void }> = [
+      { ev: 'community:thread_created', fn: forward('community:thread_created') },
+      { ev: 'community:comment_created', fn: forward('community:comment_created') },
+      { ev: 'community:like_toggled', fn: forward('community:like_toggled') },
+      { ev: 'community:thread_pinned', fn: forward('community:thread_pinned') },
+      { ev: 'community:thread_locked', fn: forward('community:thread_locked') },
+      { ev: 'community:thread_deleted', fn: forward('community:thread_deleted') },
+      { ev: 'community:comment_deleted', fn: forward('community:comment_deleted') }
+    ];
+
+    handlers.forEach(h => socket.on(h.ev, h.fn));
+
+    return () => {
+      handlers.forEach(h => socket.off(h.ev, h.fn));
+    };
+  }, [socket]);
+  useEffect(() => {
     const cleanupSocket = () => {
       socketService.disconnect()
       setSocket(null)

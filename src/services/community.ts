@@ -155,12 +155,12 @@ class CommunityService {
     return this.updateSettings({ [key]: value });
   }
 
-  static async getCommunityAnalytics(): Promise<CommunityAnalytics> {
+    static async getCommunityAnalytics(): Promise<CommunityAnalytics> {
     try {
       return await this.get('/community/analytics');
     } catch (error) {
       console.error('Failed to load community analytics:', error);
-      return {
+      return ({
         healthScore: 0,
         activeUsers: 0,
         messagesToday: 0,
@@ -175,8 +175,14 @@ class CommunityService {
         engagement_trend: [],
         top_channels: [],
         toxicity_score: 0
-      };
+      }) as unknown as CommunityAnalytics;
     }
+  }
+
+  // Helper to read boolean flags supporting camelCase and snake_case
+  static readBool(settings: PlatformSettings, camel: string, snake: string, fallback: boolean): boolean {
+    const s = settings as unknown as Record<string, any>;
+    return s?.[camel] ?? s?.[snake] ?? fallback;
   }
 
   static async getThreads(filters?: { category?: string; limit?: number }): Promise<ForumThread[]> {
@@ -297,6 +303,16 @@ class CommunityService {
     return Boolean(response?.success);
   }
 
+  static async deleteClub(clubId: string): Promise<boolean> {
+    const response = await this.post(`/community/clubs/${clubId}/delete`, {});
+    return Boolean(response?.success);
+  }
+
+  static async deleteEvent(eventId: string): Promise<boolean> {
+    const response = await this.post(`/community/events/${eventId}/delete`, {});
+    return Boolean(response?.success);
+  }
+
   static async getTopContributors(limit: number = 5): Promise<ContributorProfile[]> {
     const data = await this.get(`/community/contributors?limit=${limit}`);
     return Array.isArray(data) ? data : [];
@@ -379,39 +395,39 @@ class CommunityService {
   }
 
   static getRequireLoginToView(settings: PlatformSettings): boolean {
-    return (settings as any).requireLoginToView ?? (settings as any).require_login_to_view ?? false;
+    return this.readBool(settings, 'requireLoginToView', 'require_login_to_view', false);
   }
 
   static getAllowGuestComments(settings: PlatformSettings): boolean {
-    return (settings as any).allowGuestComments ?? (settings as any).allow_guest_comments ?? true;
+    return this.readBool(settings, 'allowGuestComments', 'allow_guest_comments', true);
   }
 
   static getAllowMediaUploads(settings: PlatformSettings): boolean {
-    return (settings as any).allowMediaUploads ?? (settings as any).allow_media_uploads ?? true;
+    return this.readBool(settings, 'allowMediaUploads', 'allow_media_uploads', true);
   }
 
   static getEnableReposts(settings: PlatformSettings): boolean {
-    return (settings as any).enableReposts ?? (settings as any).enable_reposts ?? true;
+    return this.readBool(settings, 'enableReposts', 'enable_reposts', true);
   }
 
   static getAllowExternalLinks(settings: PlatformSettings): boolean {
-    return (settings as any).allowExternalLinks ?? (settings as any).allow_external_links ?? true;
+    return this.readBool(settings, 'allowExternalLinks', 'allow_external_links', true);
   }
 
   static getAutoModerateContent(settings: PlatformSettings): boolean {
-    return (settings as any).autoModerateContent ?? (settings as any).auto_moderate_content ?? false;
+    return this.readBool(settings, 'autoModerateContent', 'auto_moderate_content', false);
   }
 
   static getSentimentAnalysis(settings: PlatformSettings): boolean {
-    return (settings as any).sentimentAnalysis ?? (settings as any).sentiment_analysis ?? true;
+    return this.readBool(settings, 'sentimentAnalysis', 'sentiment_analysis', true);
   }
 
   static getEnableClubs(settings: PlatformSettings): boolean {
-    return (settings as any).enableClubs ?? (settings as any).enable_clubs ?? true;
+    return this.readBool(settings, 'enableClubs', 'enable_clubs', true);
   }
 
   static getEnableEvents(settings: PlatformSettings): boolean {
-    return (settings as any).enableEvents ?? (settings as any).enable_events ?? true;
+    return this.readBool(settings, 'enableEvents', 'enable_events', true);
   }
 
   static async getAnalytics(): Promise<CommunityAnalytics> {

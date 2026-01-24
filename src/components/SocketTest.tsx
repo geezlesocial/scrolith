@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSocket } from '../context/SocketContext';
 
 const SocketTest = () => {
-  const { isConnected, socket, joinRoom, sendMessage, sendTypingIndicator } = useSocket();
+  const { isConnected, socket, joinRoom, sendMessage, sendTypingIndicator } = useSocket() as any;
   const [messages, setMessages] = useState<string[]>([]);
   const [input, setInput] = useState('');
   const [roomId, setRoomId] = useState('test-room');

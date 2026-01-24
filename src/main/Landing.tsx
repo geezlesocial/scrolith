@@ -227,14 +227,14 @@ const Landing = () => {
     }
 
     if (heroResult.status === 'fulfilled') {
-      setHeroConfig(heroResult.value as any);
+      setHeroConfig(heroResult.value as any as HeroSearchConfig);
     } else {
       console.error('Failed to load hero search config', heroResult.reason);
       setHeroConfig(null);
     }
 
     if (headerResult.status === 'fulfilled') {
-      setHeaderConfig(headerResult.value as any);
+      setHeaderConfig(headerResult.value as any as HeaderConfig);
     } else {
       console.error('Failed to load header config', headerResult.reason);
       setHeaderConfig(null);
@@ -335,7 +335,11 @@ const Landing = () => {
         <HomeSlider
           slides={slides}
           heroConfig={heroConfig}
-          searchMode={(headerConfig as any)?.searchMode || (headerConfig as any)?.search_mode || "keyword"}
+          searchMode={(() => {
+            if (!headerConfig) return 'keyword';
+            const h = headerConfig as Record<string, unknown>;
+            return (h['searchMode'] as string) || (h['search_mode'] as string) || 'keyword';
+          })()}
         />
       </div>
 

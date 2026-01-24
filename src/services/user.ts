@@ -61,22 +61,25 @@ const mapSettings = (s: any): UserSettings => ({
   loginAlerts: Boolean(s.login_alerts ?? s.loginAlerts)
 });
 
-const toProfilePayload = (profile: Partial<UserProfile>) => ({
-  user_id: (profile as any).user_id ?? (profile as any).userId,
-  title: (profile as any).title ?? '',
-  bio: profile.bio ?? '',
-  location: profile.location ?? '',
-  languages: Array.isArray(profile.languages) ? profile.languages : [],
-  skills: Array.isArray(profile.skills) ? profile.skills : [],
-  hourly_rate: Number((profile as any).hourlyRate ?? profile.hourly_rate ?? 0),
-  intro_video_url: (profile as any).introVideoUrl ?? profile.intro_video_url ?? null,
-  profile_photo_file_id: (profile as any).profile_photo_file_id ?? (profile as any).profilePhotoFileId ?? null,
-  avatar_url: (profile as any).avatar_url ?? (profile as any).avatarUrl ?? (profile as any).avatar ?? null,
-  portfolio: Array.isArray(profile.portfolio) ? profile.portfolio : [],
-  experience: Array.isArray(profile.experience) ? profile.experience : [],
-  education: Array.isArray(profile.education) ? profile.education : [],
-  certifications: Array.isArray(profile.certifications) ? profile.certifications : []
-});
+const toProfilePayload = (profile: Partial<UserProfile>) => {
+  const p = profile as unknown as Record<string, unknown>;
+  return {
+    user_id: (p['user_id'] as string | undefined) ?? (p['userId'] as string | undefined),
+    title: (p['title'] as string | undefined) ?? '',
+    bio: (profile.bio as string | undefined) ?? '',
+    location: (profile.location as string | undefined) ?? '',
+    languages: Array.isArray(profile.languages) ? (profile.languages as string[]) : [],
+    skills: Array.isArray(profile.skills) ? (profile.skills as string[]) : [],
+    hourly_rate: Number((p['hourlyRate'] as number | string | undefined) ?? (p['hourly_rate'] as number | string | undefined) ?? 0),
+    intro_video_url: (p['introVideoUrl'] as string | undefined) ?? (p['intro_video_url'] as string | undefined) ?? null,
+    profile_photo_file_id: (p['profile_photo_file_id'] as string | undefined) ?? (p['profilePhotoFileId'] as string | undefined) ?? null,
+    avatar_url: (p['avatar_url'] as string | undefined) ?? (p['avatarUrl'] as string | undefined) ?? (p['avatar'] as string | undefined) ?? null,
+    portfolio: Array.isArray(profile.portfolio) ? profile.portfolio : [],
+    experience: Array.isArray(profile.experience) ? profile.experience : [],
+    education: Array.isArray(profile.education) ? profile.education : [],
+    certifications: Array.isArray(profile.certifications) ? profile.certifications : []
+  };
+};
 
 const toSettingsPayload = (settings: Partial<UserSettings>) => ({
   email_notifications: settings.email_notifications ?? settings.emailNotifications,

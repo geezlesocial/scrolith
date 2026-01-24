@@ -32,16 +32,18 @@ const GatewaysTab = () => {
     }, []);
 
     const toggleGateway = async (gw: PaymentGateway) => {
-        const updated = {
+        const r = gw as unknown as Record<string, any>;
+        const enabled = !(r.isEnabled ?? r.is_enabled ?? false);
+        const updated: PaymentGateway = {
             ...gw,
-            isEnabled: !(gw as any).isEnabled,
-            is_enabled: !(gw as any).isEnabled,
-            supportedCurrencies: (gw as any).supportedCurrencies ?? (gw as any).supported_currencies ?? [],
-            supported_currencies: (gw as any).supportedCurrencies ?? (gw as any).supported_currencies ?? []
-        };
-        await PaymentService.updateGateway(updated as any);
+            isEnabled: enabled,
+            is_enabled: enabled,
+            supportedCurrencies: r.supportedCurrencies ?? r.supported_currencies ?? [],
+            supported_currencies: r.supportedCurrencies ?? r.supported_currencies ?? []
+        } as PaymentGateway;
+        await PaymentService.updateGateway(updated);
         setGateways(prev => prev.map(g => g.id === gw.id ? updated : g));
-        showNotification('success', 'Gateway Updated', `${(gw as any).name} is now ${updated.isEnabled ? 'Active' : 'Disabled'}`);
+        showNotification('success', 'Gateway Updated', `${r.name ?? gw.name} is now ${updated.isEnabled ? 'Active' : 'Disabled'}`);
     };
 
     return (

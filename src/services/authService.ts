@@ -22,7 +22,7 @@ const normalizeUser = (user?: User): User | null => {
   if (!user) return null;
   return {
     ...user,
-    role: mapRole((user as any).role)
+    role: mapRole(user.role)
   };
 };
 
@@ -45,7 +45,7 @@ class AuthService {
     }
   }
 
-  static async register(userData: { email: string; name: string; password: string }) {
+  static async register(userData: any) {
     try {
       const response = await api.post('/auth/register', userData);
       const payload = extractData<AuthResponse>(response);

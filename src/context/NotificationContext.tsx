@@ -4,9 +4,10 @@ import { Notification } from '../types';
 interface NotificationContextType {
   notifications: Notification[];
   addNotification: (notification: any) => void;
+  removeNotification: (id: string) => void;
   markAsRead: (id: string) => void;
   clearNotifications: () => void;
-  showNotification: (type: 'success' | 'error' | 'warning' | 'info' | 'alert', title: string, message: string, actionUrl?: string) => void;
+  showNotification: (type: 'success' | 'error' | 'warning' | 'info' | 'alert', title: string, message: string, actionUrl?: string, durationMs?: number) => void;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
@@ -17,18 +18,38 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const addNotification = useCallback((notificationData: any) => {
     const newNotification: Notification = {
       id: `notif-${Date.now()}`,
-      title: notificationData.title,
-      message: notificationData.message,
-      type: notificationData.type,
+      title: String(notificationData.title ?? ''),
+      message: String(notificationData.message ?? ''),
+      type: (notificationData.type as Notification['type']) ?? 'info',
       timestamp: new Date().toISOString(),
-      // provide both snake_case and camelCase for compatibility
       isRead: false,
-      is_read: false as any,
-      actionUrl: notificationData.actionUrl,
-      action_url: notificationData.actionUrl
-    } as any;
-    
+      is_read: false,
+      actionUrl: notificationData.actionUrl as string | undefined,
+      action_url: notificationData.actionUrl as string | undefined
+    };
+
     setNotifications(prev => [newNotification, ...prev.slice(0, 9)]); // Keep only latest 10
+
+    // Auto-dismiss notifications after the configured duration (default 2000ms)
+    const duration = typeof notificationData.durationMs === 'number' ? notificationData.durationMs : 2000;
+    if (duration > 0) {
+      setTimeout(() => {
+        // Mark as dismissed to allow exit animation in UI
+        setNotifications(prev => prev.map(n => n.id === newNotification.id ? { ...n, dismissed: true } : n));
+        // Remove from list after short exit animation (300ms)
+        setTimeout(() => {
+          setNotifications(prev => prev.filter(n => n.id !== newNotification.id));
+        }, 300);
+      }, duration);
+    }
+  }, []);
+
+  const removeNotification = useCallback((id: string) => {
+    // Trigger dismiss animation then remove
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, dismissed: true } : n));
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    }, 300);
   }, []);
 
   const markAsRead = useCallback((id: string) => {
@@ -45,14 +66,16 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     type: 'success' | 'error' | 'warning' | 'info' | 'alert', 
     title: string, 
     message: string, 
-    actionUrl?: string
+    actionUrl?: string,
+    durationMs?: number
   ) => {
-    addNotification({ type, title, message, actionUrl });
+    addNotification({ type, title, message, actionUrl, durationMs });
   }, [addNotification]);
 
   const contextValue = useMemo(() => ({
     notifications,
     addNotification,
+    removeNotification,
     markAsRead,
     clearNotifications,
     showNotification

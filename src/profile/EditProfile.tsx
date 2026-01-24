@@ -254,7 +254,7 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                 ].map(item => (
                                     <button
                                         key={item.id}
-                                        onClick={() => setActiveTab(item.id as any)}
+                                        onClick={() => setActiveTab(item.id as unknown as typeof activeTab)}
                                         className={`w-full flex items-center px-4 py-3 text-sm font-medium transition-colors border-l-4 ${
                                             activeTab === item.id 
                                             ? 'border-blue-600 bg-blue-50 text-blue-700' 

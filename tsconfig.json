@@ -24,4 +24,12 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   }
+    ,
+    "include": [
+      "global.d.ts",
+      "server/src/types/**/*.d.ts",
+      "server/src/**/*.ts",
+      "src/**/*.ts",
+      "src/**/*.tsx"
+    ]
 }

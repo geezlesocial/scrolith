@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useUser } from '../../context/UserContext';
+import { UserRole } from '../../types';
 import { useSocket } from '../../context/SocketContext';
 import { notificationsApi as NotificationsService } from '../../services/notifications';
 import { MessagingService } from '../../services/messaging';
@@ -30,12 +31,14 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (pollRef.current) return;
     pollRef.current = window.setInterval(async () => {
       if (!user) return;
-      const role = normalizeRole(user.role as string);
+      const roleStr = normalizeRole(String(user.role));
+      const messagingRole = roleStr === 'freelancer' ? UserRole.FREELANCER : roleStr === 'client' ? UserRole.EMPLOYER : roleStr === 'admin' ? UserRole.ADMIN : UserRole.GUEST;
+      const contractRole = roleStr === 'client' ? 'client' : roleStr === 'freelancer' ? 'freelancer' : roleStr === 'admin' ? 'admin' : 'client';
       await Promise.allSettled([
         NotificationsService.getUnreadCount?.(),
-        MessagingService.getAllConversations?.(user.id, user.role as any),
-        OrdersService.getOrders?.({ ownerId: 'me', role, limit: 1 }),
-        ContractService.getContracts?.(user.id, role as any),
+        MessagingService.getAllConversations?.(user.id, messagingRole),
+        OrdersService.getOrders?.({ ownerId: 'me', role: contractRole, limit: 1 }),
+        ContractService.getContracts?.(user.id, contractRole),
         WalletApi.getWalletInfo?.(),
       ]);
     }, 45000);
@@ -78,15 +81,21 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
 
     socket.on('messages:new', () => {
-      MessagingService.getAllConversations?.(user.id, user.role as any).catch(() => {});
+      const mRole = normalizeRole(String(user.role));
+      const messagingRole = mRole === 'freelancer' ? UserRole.FREELANCER : mRole === 'client' ? UserRole.EMPLOYER : mRole === 'admin' ? UserRole.ADMIN : UserRole.GUEST;
+      MessagingService.getAllConversations?.(user.id, messagingRole).catch(() => {});
     });
 
     socket.on('orders:updated', () => {
-      OrdersService.getOrders?.({ ownerId: 'me', role: normalizeRole(user.role as string), limit: 1 }).catch(() => {});
+      const oRole = normalizeRole(String(user.role));
+      const contractRole = oRole === 'client' ? 'client' : oRole === 'freelancer' ? 'freelancer' : oRole === 'admin' ? 'admin' : 'client';
+      OrdersService.getOrders?.({ ownerId: 'me', role: contractRole, limit: 1 }).catch(() => {});
     });
 
     socket.on('contracts:updated', () => {
-      ContractService.getContracts?.(user.id, normalizeRole(user.role as string) as any).catch(() => {});
+      const cRole = normalizeRole(String(user.role));
+      const contractRole = cRole === 'client' ? 'client' : cRole === 'freelancer' ? 'freelancer' : cRole === 'admin' ? 'admin' : 'client';
+      ContractService.getContracts?.(user.id, contractRole).catch(() => {});
     });
 
     socket.on('wallet:updated', () => {
