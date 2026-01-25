@@ -1,0 +1,1487 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  passwordHash       String?
+  name               String?
+  role               Role      @default(USER)
+  avatar             String?
+  profilePhotoFileId String?
+  phone              String?
+  country            String?
+  timezone           String?
+  kycStatus          KYCStatus @default(PENDING)
+  isVerified         Boolean   @default(false)
+  isActive           Boolean   @default(true)
+  lastLoginAt        DateTime?
+  stripeAccountId    String?
+  refreshToken       String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relationships
+  profile              Profile?
+  settings             UserSettings?
+  gigs                 Gig[]
+  jobs                 Job[]
+  wallet               Wallet?
+  transactions         Transaction[]
+  walletFundingIntents WalletFundingIntent[]
+
+  // Order relationships
+  clientOrders     Order[] @relation("OrderClient")
+  freelancerOrders Order[] @relation("OrderFreelancer")
+
+  // Contracts (ATM Tracker)
+  clientContracts     Contract[] @relation("ClientContracts")
+  freelancerContracts Contract[] @relation("FreelancerContracts")
+
+  // Reviews
+  reviewsWritten  Review[] @relation("ReviewAuthor")
+  reviewsReceived Review[] @relation("ReviewSubject")
+
+  // Proposals
+  proposals Proposal[]
+
+  // Favorites
+  favorites Favorite[]
+
+  // Gcoin
+  gcoinWallet       GcoinWallet?
+  gcoinTransactions GcoinTransaction[]       @relation("GcoinUserTransactions")
+  gcoinConversions  GcoinConversionRequest[] @relation("GcoinUserConversions")
+
+  // Withdrawal requests
+  withdrawalRequests WithdrawalRequest[]
+
+  // CMS Config updates
+  cmsConfigUpdates CMSConfig[]
+
+  // Admin-created Gcoin configs
+  gcoinConfigsUpdated GcoinConfig[]
+
+  // Market intelligence relationships
+  ltvPredictions LtvPrediction[]
+
+  // Community relationships
+  forumThreads       ForumThread[]
+  forumComments      ForumComment[]
+  forumLikes         ForumLike[]
+  communityClubs     CommunityClub[]     @relation("ClubOwner")
+  clubMemberships    ClubMembership[]
+  communityEvents    CommunityEvent[]    @relation("EventHost")
+  eventRegistrations EventRegistration[]
+  communityChannels  CommunityChannel[]  @relation("ChannelOwner")
+  channelMemberships ChannelMembership[]
+  communityMessages  CommunityMessage[]
+  kycSubmissions     KYCSubmission[]
+  kycDocuments       KYCDocument[]
+
+  // Social relations (followers & following)
+  following UserFollow[] @relation("UserFollows")
+  followers UserFollow[] @relation("UserFollowers")
+
+  // Notifications
+  notifications      Notification[] @relation("NotificationUser")
+  notificationsActed Notification[] @relation("NotificationActor")
+
+  // Community posts, earnings, and ads relations
+  communityPosts     CommunityPost[]
+  gcoinEarningEvents GcoinEarningEvent[]
+  communityAds       CommunityAd[]
+}
+
+model Profile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  title           String?
+  bio             String?
+  location        String?
+  skills          String[]
+  hourlyRate      Float?
+  experience      String?
+  education       String?
+  languages       String[]
+  introVideoUrl   String?
+  portfolio       Json?
+  experienceItems Json?
+  educationItems  Json?
+  certifications  Json?
+  portfolioUrl    String?
+  githubUrl       String?
+  linkedinUrl     String?
+  websiteUrl      String?
+  rating          Float    @default(0)
+  completedJobs   Int      @default(0)
+  responseRate    Float    @default(0)
+  responseTime    Int? // in hours
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model UserSettings {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  emailNotifications Boolean  @default(true)
+  inAppNotifications Boolean  @default(true)
+  marketingEmails    Boolean  @default(true)
+  // Earning rules
+  viewsUnit            Int      @default(10000)
+  likesUnit            Int      @default(100)
+  repostsUnit          Int      @default(50)
+  sharesUnit           Int      @default(200)
+  coinPerViewsUnit     Float    @default(1)
+  coinPerLikesUnit     Float    @default(1)
+  coinPerRepostsUnit   Float    @default(1)
+  coinPerSharesUnit    Float    @default(1)
+  // Admin fee on earnings (e.g., 0.1 = 10%)
+  adminFeePercent      Float    @default(0.1)
+  // Transfer fee settings
+  transferFeeType      String   @default("percentage")
+  transferFeeValue     Float    @default(0)
+  twoFactorEnabled   Boolean  @default(false)
+  loginAlerts        Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Gig {
+  id           String      @id @default(cuid())
+  title        String
+  slug         String      @unique
+  description  String
+  price        Float
+  deliveryTime Int // in days
+  revisions    Int         @default(1)
+  categoryId   String?
+  userId       String
+  rating       Float?      @default(0)
+  reviewCount  Int         @default(0)
+  isActive     Boolean     @default(true)
+  isFeatured   Boolean     @default(false)
+  status       GigStatus   @default(PENDING)
+  adminStatus  AdminStatus @default(PENDING)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  // Relationships
+  category Category? @relation(fields: [categoryId], references: [id])
+  user     User      @relation(fields: [userId], references: [id])
+  orders   Order[]
+  reviews  Review[]
+}
+
+model Job {
+  id              String           @id @default(cuid())
+  title           String
+  description     String
+  budget          String?
+  type            JobType          @default(FIXED_PRICE)
+  postedTime      DateTime         @default(now())
+  tags            String[]
+  proposalsCount  Int              @default(0)
+  status          JobStatus        @default(DRAFT)
+  isActive        Boolean          @default(true)
+  isVisible       Boolean          @default(true)
+  categoryId      String?
+  subcategory     String?
+  experienceLevel ExperienceLevel?
+  visibility      Visibility       @default(PUBLIC)
+  duration        String?
+  attachments     String[]
+  isFeatured      Boolean          @default(false)
+  adminStatus     AdminStatus      @default(PENDING)
+  clientId        String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  category  Category?  @relation(fields: [categoryId], references: [id])
+  client    User       @relation(fields: [clientId], references: [id])
+  proposals Proposal[]
+
+  @@index([clientId])
+  @@index([categoryId])
+  @@index([status])
+}
+
+model Proposal {
+  id               String         @id @default(cuid())
+  jobId            String
+  freelancerId     String
+  coverLetter      String         @db.Text
+  proposedAmount   Float
+  proposedTimeline Int
+  attachments      String[]       @default([])
+  status           ProposalStatus @default(PENDING)
+  rejectionReason  String?
+  contractId       String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  job        Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  freelancer User @relation(fields: [freelancerId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@index([freelancerId])
+  @@index([status])
+}
+
+model Contract {
+  id          String       @id @default(cuid())
+  title       String
+  description String?      @db.Text
+  type        ContractType @default(HOURLY)
+
+  clientId       String
+  freelancerId   String
+  clientName     String?
+  freelancerName String?
+
+  hourlyRate   Float        @default(0)
+  paymentCycle PaymentCycle @default(WEEKLY)
+
+  status    ContractStatus @default(ACTIVE)
+  startDate DateTime       @default(now())
+
+  jobId            String?
+  sourceProposalId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client     User @relation("ClientContracts", fields: [clientId], references: [id], onDelete: Cascade)
+  freelancer User @relation("FreelancerContracts", fields: [freelancerId], references: [id], onDelete: Cascade)
+
+  timeEntries TimeEntry[]
+  sessions    TrackingSession[]
+
+  @@index([clientId])
+  @@index([freelancerId])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model TimeEntry {
+  id           String @id @default(cuid())
+  contractId   String
+  freelancerId String
+
+  startTime       DateTime
+  endTime         DateTime?
+  durationMinutes Int
+  description     String
+  status          TimeEntryStatus @default(PENDING)
+  earnings        Float           @default(0)
+  screenshots     String[]        @default([])
+  activityScore   Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([contractId])
+  @@index([freelancerId])
+  @@index([status])
+  @@index([startTime])
+  @@index([createdAt])
+}
+
+model TrackingSession {
+  id           String        @id @default(cuid())
+  contractId   String
+  freelancerId String
+  startedAt    DateTime      @default(now())
+  endedAt      DateTime?
+  status       SessionStatus @default(ACTIVE)
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([contractId])
+  @@index([freelancerId])
+  @@index([status])
+  @@index([startedAt])
+}
+
+model Category {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  slug        String       @unique
+  icon        String?
+  description String?
+  type        CategoryType @default(GIG)
+  isActive    Boolean      @default(true)
+  order       Int          @default(0)
+  parentId    String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // Relationships
+  parent       Category?     @relation("CategoryChildren", fields: [parentId], references: [id])
+  children     Category[]    @relation("CategoryChildren")
+  gigs         Gig[]
+  jobs         Job[]
+  forumThreads ForumThread[] @relation("ForumCategory")
+}
+
+model Order {
+  id             String      @id @default(cuid())
+  gigId          String?
+  clientId       String
+  freelancerId   String
+  amount         Float
+  status         OrderStatus @default(PENDING)
+  requirements   String?
+  deliveryDate   DateTime?
+  completedAt    DateTime?
+  cancelledAt    DateTime?
+  stripeIntentId String?
+  transactionId  String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  // Relationships
+  gig          Gig?          @relation(fields: [gigId], references: [id])
+  client       User          @relation("OrderClient", fields: [clientId], references: [id])
+  freelancer   User          @relation("OrderFreelancer", fields: [freelancerId], references: [id])
+  escrow       Escrow?
+  transactions Transaction[]
+  review       Review?
+}
+
+model Review {
+  id          String       @id @default(cuid())
+  rating      Int
+  title       String?
+  comment     String?      @db.Text
+  gigId       String?
+  orderId     String?      @unique
+  authorId    String
+  subjectId   String
+  status      ReviewStatus @default(PENDING)
+  editedAt    DateTime?
+  publishedAt DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  gig     Gig?   @relation(fields: [gigId], references: [id], onDelete: SetNull)
+  order   Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  author  User   @relation("ReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  subject User   @relation("ReviewSubject", fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@index([gigId])
+  @@index([authorId])
+  @@index([subjectId])
+  @@index([status])
+}
+
+model KYCSubmission {
+  id              String              @id @default(cuid())
+  userId          String
+  status          KYCSubmissionStatus @default(PENDING)
+  personalInfo    Json
+  reviewedAt      DateTime?
+  reviewedBy      String?
+  rejectionReason String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents KYCDocument[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model KYCDocument {
+  id              String   @id @default(cuid())
+  submissionId    String?
+  userId          String
+  type            String
+  fileId          String
+  fileUrl         String
+  status          String   @default("pending")
+  rejectionReason String?
+  uploadedAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  submission KYCSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+  @@index([userId])
+}
+
+// Application-level settings storage for scoped JSON config
+model AppSetting {
+  id        String   @id @default(cuid())
+  scope     String   @unique
+  data      Json
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+model Favorite {
+  id         String             @id @default(cuid())
+  userId     String
+  entityType FavoriteEntityType
+  entityId   String
+  createdAt  DateTime           @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, entityType, entityId])
+  @@index([userId])
+  @@index([entityType])
+  @@index([createdAt])
+}
+
+model Escrow {
+  id              String       @id @default(cuid())
+  orderId         String       @unique
+  clientId        String
+  freelancerId    String
+  amount          Float
+  commission      Float        @default(0) // Platform commission/fee
+  status          EscrowStatus @default(PENDING)
+  fundedAt        DateTime?
+  releasedAt      DateTime?
+  refundedAt      DateTime?
+  autoReleaseDays Int          @default(14) // Auto-release after 14 days
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id])
+}
+
+model Wallet {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  balance          Float    @default(0) // availableBalance
+  pendingClearance Float    @default(0)
+  escrowBalance    Float    @default(0)
+  frozen           Boolean  @default(false)
+  currency         String   @default("USD")
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user           User                  @relation(fields: [userId], references: [id])
+  transactions   Transaction[]
+  fundingIntents WalletFundingIntent[]
+}
+
+model Transaction {
+  id             String            @id @default(cuid())
+  walletId       String?
+  userId         String
+  orderId        String?
+  type           TransactionType
+  amount         Float
+  currency       String            @default("USD")
+  status         TransactionStatus @default(PENDING)
+  description    String?
+  referenceId    String?
+  adminNote      String?
+  stripeIntentId String?
+  stripeChargeId String?
+  metadata       Json?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  wallet Wallet? @relation(fields: [walletId], references: [id])
+  user   User    @relation(fields: [userId], references: [id])
+  order  Order?  @relation(fields: [orderId], references: [id])
+}
+
+model WalletFundingIntent {
+  id                  String    @id @default(cuid())
+  userId              String
+  walletId            String
+  provider            String
+  amount              Float
+  currency            String
+  country             String?
+  status              String
+  providerReferenceId String?
+  providerCheckoutUrl String?
+  providerPayload     Json?
+  expiresAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet            Wallet             @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  paymentSettlement PaymentSettlement?
+
+  @@index([userId])
+  @@index([walletId])
+  @@index([status])
+  @@index([provider])
+  @@index([createdAt])
+}
+
+model PaymentSettlement {
+  id                  String   @id @default(cuid())
+  provider            String
+  providerReferenceId String
+  intentId            String
+  createdAt           DateTime @default(now())
+
+  intent WalletFundingIntent @relation(fields: [intentId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerReferenceId])
+  @@unique([intentId])
+  @@index([intentId])
+  @@index([createdAt])
+}
+
+model GcoinSettings {
+  id                   String   @id @default(cuid())
+  conversionRate       Float    @default(0)
+  minWithdrawal        Int      @default(0)
+  conversionEnabled    Boolean  @default(false)
+  userTransfersEnabled Boolean  @default(false)
+  // Transfer fee settings (admin-configurable)
+  transferFeeType      String   @default("percentage")
+  transferFeeValue     Float    @default(0)
+  // Earning rate configuration: X events => Y Gcoin
+  viewsUnit            Int      @default(10000)
+  likesUnit            Int      @default(100)
+  repostsUnit          Int      @default(50)
+  sharesUnit           Int      @default(200)
+  coinPerViewsUnit     Float    @default(1)
+  coinPerLikesUnit     Float    @default(1)
+  coinPerRepostsUnit   Float    @default(1)
+  coinPerSharesUnit    Float    @default(1)
+  // Admin take-rate (percentage applied to earned rewards)
+  adminFeePercent      Float    @default(0.1)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model GcoinWallet {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  recipientId    String   @unique
+  balance        Float    @default(0)
+  lifetimeEarned Float    @default(0)
+  status         String   @default("active")
+  fraudScore     Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user         User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions GcoinTransaction[]       @relation("GcoinWalletTransactions")
+  conversions  GcoinConversionRequest[] @relation("GcoinWalletConversions")
+
+  @@index([status])
+  @@index([updatedAt])
+}
+
+model GcoinTransaction {
+  id          String   @id @default(cuid())
+  userId      String
+  amount       Decimal  @default(0)
+  type         String
+  source       String?
+  reason       String?
+  referenceId  String?
+  status       String   @default("completed")
+  createdBy    String?
+  createdAt    DateTime @default(now())
+
+  // New fields for fee breakdown and explicit wallet linkage
+  walletId     String?  
+  fromUserId   String?
+  toUserId     String?
+  feeAmount    Decimal  @default(0)
+  netAmount    Decimal  @default(0)
+  metadata     Json?
+
+  user   User?        @relation("GcoinUserTransactions", fields: [userId], references: [id], onDelete: Cascade, map: "gcoin_transaction_user_fkey")
+  wallet GcoinWallet? @relation("GcoinWalletTransactions", fields: [walletId], references: [id], onDelete: SetNull, map: "gcoin_transaction_wallet_fkey")
+
+  @@index([userId])
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Admin-controlled Gcoin configuration (rates, fees, feature flags)
+model GcoinConfig {
+  id                   String   @id @default(cuid())
+  key                  String   @unique
+  data                 Json
+  description          String?
+  createdById          String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @default(now())
+
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([key])
+  @@index([createdById])
+}
+
+model GcoinConversionRequest {
+  id          String    @id @default(cuid())
+  userId      String
+  amountGcoin Float
+  amountFiat  Float
+  status      String    @default("pending")
+  requestedAt DateTime  @default(now())
+  processedAt DateTime?
+  processedBy String?
+
+  user   User        @relation("GcoinUserConversions", fields: [userId], references: [id], onDelete: Cascade, map: "gcoin_conversion_user_fkey")
+  wallet GcoinWallet @relation("GcoinWalletConversions", fields: [userId], references: [userId], map: "gcoin_conversion_wallet_fkey")
+
+  @@index([userId])
+  @@index([status])
+  @@index([requestedAt])
+}
+
+model WithdrawalRequest {
+  id          String           @id @default(cuid())
+  userId      String
+  amount      Float
+  method      String // "bank", "paypal", "stripe"
+  details     Json // Bank details or PayPal email
+  status      WithdrawalStatus @default(PENDING)
+  processedAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model SupportTicketCategory {
+  id        String   @id @default(cuid())
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([name])
+}
+
+model SupportTicket {
+  id            String               @id @default(cuid())
+  trackingCode  String               @unique
+  userId        String?
+  fullName      String
+  email         String
+  mobile        String?
+  subject       String
+  message       String               @db.Text
+  status        String               @default("Open")
+  priority      String               @default("Low")
+  category      String
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  isReadByAdmin Boolean              @default(false)
+  isReadByUser  Boolean              @default(true)
+  attachments   String[]             @default([])
+  replies       SupportTicketReply[]
+
+  @@index([email])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+}
+
+model SupportTicketReply {
+  id          String   @id @default(cuid())
+  ticketId    String
+  userId      String?
+  message     String   @db.Text
+  isFromAdmin Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([createdAt])
+}
+
+// ADDED: Settings model to store platform-wide configurations including community features
+model Settings {
+  id                        String  @id @default(cuid())
+  siteName                  String  @default("Geezle Marketplace")
+  siteDescription           String  @default("Connect with top freelancers and find your next project")
+  siteTagline               String  @default("Find, hire, and work with the best talent")
+  logoUrl                   String  @default("/logo.svg")
+  faviconUrl                String  @default("/favicon.ico")
+  primaryColor              String  @default("#3b82f6")
+  secondaryColor            String  @default("#10b981")
+  accentColor               String  @default("#8b5cf6")
+  currency                  String  @default("USD")
+  timezone                  String  @default("UTC")
+  language                  String  @default("en")
+  dateFormat                String  @default("MM/DD/YYYY")
+  timeFormat                String  @default("HH:mm")
+  maintenanceMode           Boolean @default(false)
+  registrationEnabled       Boolean @default(true)
+  emailVerificationRequired Boolean @default(true)
+  defaultUserRole           String  @default("GUEST")
+  maxFileSize               Int     @default(5242880) // 5MB in bytes
+  allowedFileTypes          String  @default("[\"image/jpeg\",\"image/png\",\"image/gif\",\"application/pdf\"]") // Corrected: Standard JSON string with escaped quotes
+  seoTitle                  String  @default("Geezle - Freelance Marketplace")
+  seoDescription            String  @default("Connect with top freelancers and find your next project")
+  seoKeywords               String  @default("[\"freelance\",\"marketplace\",\"jobs\",\"talent\",\"hire\"]") // Corrected: Standard JSON string with escaped quotes
+  googleAnalyticsId         String?
+  facebookPixelId           String?
+  recaptchaSiteKey          String?
+  smtpHost                  String?
+  smtpPort                  Int?
+  smtpUser                  String?
+  smtpPassword              String?
+  smtpEncryption            String  @default("tls") // "tls", "ssl", or "none"
+  mailFromName              String  @default("Geezle Support")
+  socialFacebook            String?
+  socialTwitter             String?
+  socialLinkedin            String?
+  socialInstagram           String?
+  paymentStripeKey          String?
+  paymentStripeSecret       String?
+  paymentPaypalClientId     String?
+  paymentPaypalSecret       String?
+  paymentCurrency           String  @default("USD")
+  paymentTestMode           Boolean @default(true)
+  walletFundingEnabled      Boolean @default(true)
+  walletFundingRouting      Json?
+  walletFundingProviders    Json?
+  walletFundingLimits       Json?
+
+  // --- NEW: Community Feature Flags ---
+  requireLoginToView  Boolean @default(false)
+  allowGuestComments  Boolean @default(false)
+  allowMediaUploads   Boolean @default(false)
+  enableReposts       Boolean @default(false)
+  allowExternalLinks  Boolean @default(true)
+  autoModerateContent Boolean @default(false)
+  sentimentAnalysis   Boolean @default(false)
+  enableClubs         Boolean @default(true)
+  enableEvents        Boolean @default(true)
+  // Add other community-specific settings here as needed
+  // --- END NEW: Community Feature Flags ---
+
+  // --- Reviews Settings ---
+  reviewsRequireApproval Boolean @default(false)
+  reviewMinOrderStatus   String  @default("COMPLETED")
+  reviewEditWindowHours  Int     @default(0)
+  // --- END Reviews Settings ---
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// END ADDED: Settings model
+
+// ADDED: CMS Config model for storing homepage and CMS content
+model CMSConfig {
+  id          String    @id @default(cuid())
+  target      CmsTarget @default(HOMEPAGE)
+  version     Int       @default(1)
+  data        Json // Stores all CMS data (header, footer, heroSearch, homeSlides, etc.)
+  updatedById String?
+  updatedBy   User?     @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([target])
+  @@index([version])
+  @@index([updatedById])
+}
+
+// END ADDED: CMS Config model
+
+// Uploaded Files (single source of truth)
+model File {
+  id           String         @id @default(cuid())
+  ownerId      String?        @map("owner_id")
+  ownerRole    FileOwnerRole  @default(ADMIN)
+  filename     String
+  originalName String         @map("original_name")
+  mimeType     String         @map("mime_type")
+  size         BigInt
+  url          String
+  storageKey   String         @unique @map("storage_key")
+  visibility   FileVisibility @default(PUBLIC)
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  @@index([ownerId])
+  @@index([ownerRole])
+  @@index([createdAt])
+  @@map("files")
+}
+
+// Enums
+enum Role {
+  ADMIN
+  FREELANCER
+  EMPLOYER
+  CLIENT
+  USER
+  GUEST
+  MODERATOR
+}
+
+enum FileOwnerRole {
+  ADMIN
+  FREELANCER
+  CLIENT
+}
+
+enum FileVisibility {
+  PRIVATE
+  PUBLIC
+}
+
+enum KYCStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  UNDER_REVIEW
+}
+
+enum KYCSubmissionStatus {
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  REQUIRES_UPDATES
+}
+
+enum CmsTarget {
+  HOMEPAGE
+  FOOTER
+  GLOBAL
+  HEADER
+}
+
+enum GigStatus {
+  DRAFT
+  PENDING
+  ACTIVE
+  PAUSED
+  REJECTED
+}
+
+enum AdminStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum JobStatus {
+  DRAFT
+  SUBMITTED
+  ACTIVE
+  CLOSED
+  UNDER_REVIEW
+  REJECTED
+  ARCHIVED
+}
+
+enum JobType {
+  FIXED_PRICE
+  HOURLY
+  CONTRACT
+}
+
+enum ExperienceLevel {
+  ENTRY
+  INTERMEDIATE
+  EXPERT
+}
+
+enum Visibility {
+  PUBLIC
+  PRIVATE
+  INVITE
+}
+
+enum CategoryType {
+  GIG
+  JOB
+  BOTH
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  IN_PROGRESS
+  UNDER_REVIEW
+  COMPLETED
+  CANCELLED
+  DISPUTED
+  REFUNDED
+}
+
+enum ProposalStatus {
+  PENDING
+  SHORTLISTED
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
+enum ContractType {
+  FIXED
+  HOURLY
+}
+
+enum PaymentCycle {
+  WEEKLY
+  BI_WEEKLY
+  MONTHLY
+}
+
+enum ContractStatus {
+  ACTIVE
+  PAUSED
+  TERMINATED
+  COMPLETED
+}
+
+enum TimeEntryStatus {
+  PENDING
+  APPROVED
+  PAID
+  REJECTED
+}
+
+enum SessionStatus {
+  ACTIVE
+  STOPPED
+}
+
+enum EscrowStatus {
+  PENDING
+  FUNDED
+  RELEASED
+  REFUNDED
+  DISPUTED
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  PAYMENT
+  REFUND
+  ESCROW_HOLD
+  ESCROW_RELEASE
+  COMMISSION
+  BONUS
+  FEE
+  ADJUSTMENT
+  TRANSFER
+  REWARD
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+  CLEARED
+  REVERSED
+}
+
+enum ReviewStatus {
+  PENDING
+  PUBLISHED
+  HIDDEN
+  REMOVED
+  FLAGGED
+}
+
+enum FavoriteEntityType {
+  GIG
+  JOB
+  FREELANCER
+}
+
+enum WithdrawalStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// Community Forum Models
+model ForumThread {
+  id         String       @id @default(cuid())
+  categoryId String?
+  userId     String
+  title      String
+  content    String       @db.Text
+  status     ThreadStatus @default(OPEN)
+  isPinned   Boolean      @default(false)
+  isLocked   Boolean      @default(false)
+  views      Int          @default(0)
+  upvotes    Int          @default(0)
+  tags       String[]
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  // Relationships
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category?      @relation("ForumCategory", fields: [categoryId], references: [id])
+  comments ForumComment[]
+  likes    ForumLike[]    @relation("ThreadLikes")
+
+  @@index([userId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([isPinned])
+  @@index([createdAt])
+}
+
+model ForumComment {
+  id        String   @id @default(cuid())
+  threadId  String
+  parentId  String?
+  userId    String
+  content   String   @db.Text
+  likes     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  thread       ForumThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  parent       ForumComment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies      ForumComment[] @relation("CommentReplies")
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  commentLikes ForumLike[]    @relation("CommentLikes")
+
+  @@index([threadId])
+  @@index([userId])
+  @@index([parentId])
+  @@index([createdAt])
+}
+
+model ForumLike {
+  id        String   @id @default(cuid())
+  userId    String
+  threadId  String?
+  commentId String?
+  createdAt DateTime @default(now())
+
+  // Relationships
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  thread  ForumThread?  @relation("ThreadLikes", fields: [threadId], references: [id], onDelete: Cascade)
+  comment ForumComment? @relation("CommentLikes", fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, threadId])
+  @@unique([userId, commentId])
+  @@index([userId])
+}
+
+model CommunityClub {
+  id          String            @id @default(cuid())
+  name        String
+  description String            @db.Text
+  coverImage  String?
+  visibility  ChannelVisibility @default(PUBLIC)
+  ownerId     String
+  memberCount Int               @default(0)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  // Relationships
+  owner       User             @relation("ClubOwner", fields: [ownerId], references: [id])
+  memberships ClubMembership[]
+
+  @@index([ownerId])
+  @@index([visibility])
+}
+
+model ClubMembership {
+  id       String   @id @default(cuid())
+  clubId   String
+  userId   String
+  joinedAt DateTime @default(now())
+
+  // Relationships
+  club CommunityClub @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clubId, userId])
+  @@index([userId])
+}
+
+model CommunityEvent {
+  id            String    @id @default(cuid())
+  title         String
+  description   String    @db.Text
+  startTime     DateTime
+  endTime       DateTime
+  type          EventType @default(WORKSHOP)
+  hostId        String
+  location      String?
+  maxAttendees  Int?
+  image         String?
+  attendeeCount Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relationships
+  host          User                @relation("EventHost", fields: [hostId], references: [id])
+  registrations EventRegistration[]
+
+  @@index([hostId])
+  @@index([startTime])
+}
+
+model EventRegistration {
+  id           String   @id @default(cuid())
+  eventId      String
+  userId       String
+  registeredAt DateTime @default(now())
+
+  // Relationships
+  event CommunityEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([userId])
+}
+
+model CommunityChannel {
+  id           String      @id @default(cuid())
+  name         String
+  description  String?     @db.Text
+  type         ChannelType @default(PUBLIC)
+  ownerId      String
+  isPublic     Boolean     @default(true)
+  memberCount  Int         @default(0)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  lastActivity DateTime?
+
+  // Relationships
+  owner       User                @relation("ChannelOwner", fields: [ownerId], references: [id])
+  memberships ChannelMembership[]
+  messages    CommunityMessage[]
+
+  @@index([ownerId])
+  @@index([type])
+}
+
+model ChannelMembership {
+  id        String   @id @default(cuid())
+  channelId String
+  userId    String
+  joinedAt  DateTime @default(now())
+
+  // Relationships
+  channel CommunityChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+  @@index([userId])
+}
+
+model CommunityMessage {
+  id        String   @id @default(cuid())
+  channelId String
+  userId    String
+  content   String   @db.Text
+  aiFlagged Boolean  @default(false)
+  aiReason  String?
+  createdAt DateTime @default(now())
+
+  // Relationships
+  channel CommunityChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([channelId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// Community Post model for feed-style posts (separate from ForumThread)
+model CommunityPost {
+  id           String   @id @default(cuid())
+  authorId     String
+  title        String?
+  content      String   @db.Text
+  attachments  String[] @default([])
+  viewsCount   Int      @default(0)
+  likesCount   Int      @default(0)
+  sharesCount  Int      @default(0)
+  repostsCount Int      @default(0)
+  status       String   @default("active") // active, draft, deleted
+  isPinned     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  author User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  // Earning events and relations
+  earningEvents GcoinEarningEvent[]
+
+  @@index([authorId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// Tracks deduplicated events that contribute toward Gcoin earnings (idempotent)
+model GcoinEarningEvent {
+  id        String   @id @default(cuid())
+  postId    String
+  actorId   String? // the user who caused the event (viewer/liker/sharer)
+  eventType String // view|like|share|repost
+  eventKey  String // idempotency key (e.g. sessionHash|actorId|day)
+  value     Float    @default(0) // coins awarded when threshold crossed
+  credited  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  post  CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  actor User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@unique([eventKey])
+  @@index([postId])
+  @@index([actorId])
+  @@index([eventType])
+}
+
+// Ads models scoped to Community
+model CommunityAd {
+  id                   String    @id @default(cuid())
+  creatorId            String
+  title                String
+  body                 String    @db.Text
+  placement            String
+  targeting            Json?
+  mediaFileIds         String[]  @default([])
+  status               AdStatus  @default(DRAFT)
+  currency             String    @default("USD")
+  budget               Float     @default(0)
+  remainingBudget      Float     @default(0)
+  cpm                  Float     @default(0) // cost per 1000 impressions
+  impressionsBought    Int       @default(0)
+  impressionsLeft      Int       @default(0)
+  clicks               Int       @default(0)
+  impressions          Int       @default(0)
+  startAt              DateTime?
+  endAt                DateTime?
+  paymentTransactionId String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  creator  User             @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  metrics  AdMetricsDaily[]
+  payments AdPayment[]
+
+  @@index([creatorId])
+  @@index([status])
+  @@index([placement])
+}
+
+// Aggregated daily metrics for ads (scale-friendly)
+model AdMetricsDaily {
+  id          String   @id @default(cuid())
+  adId        String
+  date        DateTime
+  impressions Int      @default(0)
+  clicks      Int      @default(0)
+  spend       Float    @default(0)
+  createdAt   DateTime @default(now())
+
+  ad CommunityAd @relation(fields: [adId], references: [id], onDelete: Cascade)
+
+  @@unique([adId, date])
+  @@index([adId])
+  @@index([date])
+}
+
+// Payment record for ad prepayments (links to existing Transaction if available)
+model AdPayment {
+  id            String   @id @default(cuid())
+  adId          String
+  transactionId String?
+  amount        Float
+  currency      String   @default("USD")
+  status        String   @default("completed")
+  createdAt     DateTime @default(now())
+
+  ad CommunityAd @relation(fields: [adId], references: [id], onDelete: Cascade)
+
+  @@index([adId])
+  @@index([transactionId])
+}
+
+// Social: followers/following
+model UserFollow {
+  id         String   @id @default(cuid())
+  followerId String
+  followeeId String
+  createdAt  DateTime @default(now())
+
+  follower User @relation("UserFollows", fields: [followerId], references: [id], onDelete: Cascade)
+  followee User @relation("UserFollowers", fields: [followeeId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followeeId])
+  @@index([followerId])
+  @@index([followeeId])
+}
+
+// Notifications for in-app alerts
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  actorId   String?
+  type      String
+  title     String?
+  body      String?
+  meta      Json?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user  User  @relation("NotificationUser", fields: [userId], references: [id], onDelete: Cascade)
+  actor User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([actorId])
+  @@index([isRead])
+}
+
+// ===== Market Intelligence Models =====
+model AiAutomationLog {
+  id          String   @id @default(cuid())
+  eventType   String
+  handledByAI Boolean  @default(true)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([eventType])
+  @@index([handledByAI])
+  @@index([createdAt])
+}
+
+model LtvPrediction {
+  id               String   @id @default(cuid())
+  userId           String
+  name             String
+  role             String
+  predictedLtv     Float
+  velocity         String
+  churnRiskPercent Float
+  recommendation   String
+  confidence       String
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([confidence])
+  @@index([createdAt])
+}
+
+model DemandForecast {
+  id                String   @id @default(cuid())
+  domain            String
+  skill             String
+  horizon           String
+  growthPct         Float
+  suggestedRateMin  Float
+  suggestedRateMax  Float
+  suggestedRateUnit String
+  confidencePct     Float
+  createdAt         DateTime @default(now())
+
+  @@index([domain])
+  @@index([horizon])
+  @@index([createdAt])
+}
+
+model OpportunityRadarSnapshot {
+  id             String   @id @default(cuid())
+  signalsScanned Int
+  summary        String
+  reportRoute    String
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model MarketInsightSnapshot {
+  id                 String   @id @default(cuid())
+  range              String
+  gmv                Float
+  previousGmv        Float
+  takeRatePercent    Float
+  netRevenue         Float
+  automationPercent  Float?
+  automationChange   Float?
+  disputePercent     Float
+  industryAvgPercent Float
+  createdAt          DateTime @default(now())
+
+  @@index([range])
+  @@index([createdAt])
+}
+
+// Community Enums
+enum ThreadStatus {
+  OPEN
+  SOLVED
+  LOCKED
+}
+
+enum ChannelVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum ChannelType {
+  PUBLIC
+  PRIVATE
+  CLUB
+  EVENT
+}
+
+enum EventType {
+  WORKSHOP
+  MEETUP
+  WEBINAR
+}
+
+// Ads lifecycle status
+enum AdStatus {
+  DRAFT
+  AWAITING_PAYMENT
+  PAID
+  SUBMITTED_FOR_REVIEW
+  APPROVED
+  ACTIVE
+  PAUSED
+  ENDED
+  REJECTED
+}
