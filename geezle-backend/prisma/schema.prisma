@@ -645,17 +645,18 @@ model GcoinConfig {
 model GcoinConversionRequest {
   id          String    @id @default(cuid())
   userId      String
+  walletId    String?
   amountGcoin Float
   amountFiat  Float
   status      String    @default("pending")
   requestedAt DateTime  @default(now())
   processedAt DateTime?
   processedBy String?
-
-  user   User        @relation("GcoinUserConversions", fields: [userId], references: [id], onDelete: Cascade, map: "gcoin_conversion_user_fkey")
-  wallet GcoinWallet @relation("GcoinWalletConversions", fields: [userId], references: [userId], map: "gcoin_conversion_wallet_fkey")
+  user   User         @relation("GcoinUserConversions", fields: [userId], references: [id], onDelete: Cascade, map: "gcoin_conversion_user_fkey")
+  wallet GcoinWallet? @relation("GcoinWalletConversions", fields: [walletId], references: [id], map: "gcoin_conversion_wallet_fkey")
 
   @@index([userId])
+  @@index([walletId])
   @@index([status])
   @@index([requestedAt])
 }
