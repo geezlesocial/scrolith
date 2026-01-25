@@ -1,0 +1,6 @@
+iteration,timestamp,redis_key,zcard,ttl_seconds
+1,2026-01-24T16:53:36Z,gcoin:conversions:dev-user-id-123,3,538
+2,2026-01-24T16:53:47Z,gcoin:conversions:dev-user-id-123,3,525
+3,2026-01-24T16:53:58Z,gcoin:conversions:dev-user-id-123,3,512
+4,2026-01-24T16:54:09Z,gcoin:conversions:dev-user-id-123,3,499
+5,2026-01-24T16:54:20Z,gcoin:conversions:dev-user-id-123,3,486

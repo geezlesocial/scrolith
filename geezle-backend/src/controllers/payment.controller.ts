@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import { PrismaClient } from '@prisma/client';
-import { reconcileAdPayments } from '../../scripts/reconcileAdPayments';
+import { reconcileAdPayments } from '../scripts/reconcileAdPayments';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_mock_key', {
   apiVersion: '2023-10-16' as any

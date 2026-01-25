@@ -1,0 +1,35 @@
+{
+  "email": {
+    "host": "smtp.mailtrap.io",
+    "port": 587,
+    "fromName": "Geezle",
+    "provider": "smtp",
+    "username": "mailtrap_user_placeholder",
+    "password": "mailtrap_pass_placeholder",
+    "fromEmail": "noreply@geezle.com"
+  },
+  "aiConfig": {
+    "providers": {
+      "google": {
+        "apiKey": "PLACEHOLDER_API_KEY",
+        "api_key": "your_gemini_key_here",
+        "enabled": true,
+        "provider": "google"
+      },
+      "openai": {
+        "apiKey": "PLACEHOLDER_OPENAI_KEY",
+        "enabled": false,
+        "provider": "openai"
+      }
+    }
+  },
+  "storage": {
+    "driver": "local",
+    "s3": { "bucket": "", "region": "us-east-1", "accessKeyId": "", "secretAccessKey": "" },
+    "backblaze": { "bucket": "", "region": "us-east-1", "accessKeyId": "", "secretAccessKey": "" }
+  },
+  "currency": {
+    "provider": "openexchangerates",
+    "apiKey": ""
+  }
+}
