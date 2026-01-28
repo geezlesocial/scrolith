@@ -20,6 +20,16 @@ jobs:
           fetch-depth: 1
           submodules: false
 
+      - name: Remove .gitmodules (avoid checkout post-step failure)
+        run: |
+          if [ -f .gitmodules ]; then
+            echo ".gitmodules present — removing to avoid post-checkout submodule errors"
+            rm -f .gitmodules || true
+          else
+            echo ".gitmodules not present"
+          fi
+        shell: bash
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
