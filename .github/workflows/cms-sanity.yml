@@ -13,9 +13,18 @@ env:
 jobs:
   cms-sanity:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: repo
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Download repository archive
+        run: |
+          echo "Downloading repo archive for ${{ github.sha }}"
+          mkdir repo
+          curl -L -o repo.tar.gz "https://codeload.github.com/${{ github.repository }}/tar.gz/${{ github.sha }}"
+          tar -xzf repo.tar.gz -C repo --strip-components=1
+          ls -la repo | sed -n '1,200p'
+        shell: bash
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
