@@ -73,12 +73,13 @@ export class GcoinService {
       await prismaTx.gcoinWallet.update({ where: { userId: recipient.userId }, data: { balance: { increment: net }, lifetimeEarned: { increment: net } } as any });
       // credit admin fee to admin wallet
       const adminUserId = 'admin-user';
-      let adminWallet = await prismaTx.gcoinWallet.findUnique({ where: { userId: adminUserId } });
-      if (!adminWallet) {
-        await prismaTx.gcoinWallet.create({ data: { userId: adminUserId, recipientId: `GC-${Date.now().toString().slice(-8)}`, balance: fee || 0, lifetimeEarned: fee || 0 } as any });
-      } else {
-        await prismaTx.gcoinWallet.update({ where: { userId: adminUserId }, data: { balance: { increment: fee } } as any });
-      }
+      // Use upsert to atomically create or increment the admin wallet balance
+      const adminUpsert = await prismaTx.gcoinWallet.upsert({
+        where: { userId: adminUserId },
+        update: { balance: { increment: fee } } as any,
+        create: { userId: adminUserId, recipientId: `GC-${Date.now().toString().slice(-8)}`, balance: fee || 0, lifetimeEarned: fee || 0 } as any
+      });
+      
 
       // create GcoinTransaction record
       const gtx = await prismaTx.gcoinTransaction.create({ data: {

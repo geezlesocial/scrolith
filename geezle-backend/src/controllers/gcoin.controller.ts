@@ -21,6 +21,9 @@ const getOrCreateGcoinSettings = async () => {
 };
 
 const getAdminRevenueUserId = async () => {
+  // Prefer a dedicated revenue account if present (test fixtures use 'admin-user')
+  const preferred = await prisma.user.findUnique({ where: { id: 'admin-user' } });
+  if (preferred) return preferred.id;
   const admin = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
   return admin ? admin.id : null;
 };
