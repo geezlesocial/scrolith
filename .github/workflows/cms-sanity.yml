@@ -13,9 +13,6 @@ env:
 jobs:
   cms-sanity:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: repo
     steps:
       - name: Download repository archive
         run: |
@@ -34,9 +31,11 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+        working-directory: repo
 
       - name: Run CMS sanity script (direct)
         run: node ./scripts/cms_sanity.cjs
+        working-directory: repo
         env:
           VITE_API_URL: ${{ env.VITE_API_URL }}
           NODE_ENV: ${{ env.NODE_ENV }}
