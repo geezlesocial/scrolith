@@ -2,9 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    # allow running on any branch so feature branches trigger CI
+    branches: [ '**' ]
   pull_request:
     branches: [ main, master ]
+  # allow manual dispatch from the Actions UI or `gh workflow run`
+  workflow_dispatch: {}
 
 jobs:
   test:
