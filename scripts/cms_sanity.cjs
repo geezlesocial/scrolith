@@ -14,6 +14,11 @@ async function main() {
 
     const repoRoot = path.resolve(__dirname, '..');
     const entry = path.resolve(repoRoot, 'geezle/src/services/cms.ts');
+    if (!fs.existsSync(entry)) {
+      console.warn('CMS sanity target not present:', entry);
+      console.warn('This repository layout uses a nested submodule for the frontend; skipping CMS sanity bundle.');
+      process.exit(0);
+    }
     const outDir = path.resolve(repoRoot, 'geezle/tmp');
     const out = path.resolve(outDir, 'cms_bundle.cjs');
 
