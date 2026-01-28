@@ -21,9 +21,28 @@ export const authMiddleware = async (
   req: Request,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
-    // For development: bypass auth check
+    // If an Authorization header is present, verify the JWT and populate req.user.
+    const authHeader = req.headers.authorization as string | undefined;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.split(' ')[1];
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+        // Lookup user in DB to ensure it's still valid/active
+        const user = await prisma.user.findUnique({ where: { id: decoded.id }, select: { id: true, email: true, role: true, isActive: true } });
+        if (!user) { res.status(401).json({ error: 'User not found' }); return; }
+        if (!user.isActive) { res.status(403).json({ error: 'Account is deactivated' }); return; }
+        req.user = { id: user.id, email: user.email, role: user.role } as unknown as Express.Request['user'];
+        next();
+        return;
+      } catch (e) {
+        res.status(401).json({ error: 'Invalid token' });
+        return;
+      }
+    }
+
+    // No token provided: fall back to development bypass behavior below
     // Development: Create mock user
     const fullPath = `${req.baseUrl || ''}${req.path || ''}`;
     const roleHint =
@@ -48,26 +67,31 @@ export const authMiddleware = async (
       email: 'dev@example.com',
       role: normalizeRole(roleHint)
     };
+    // Only enable dev bypass when not in production
+    if ((process.env.NODE_ENV || 'development') !== 'production') {
+      try {
+        await prisma.user.upsert({
+          where: { id: devUser.id },
+          update: { email: devUser.email, role: devUser.role, isActive: true },
+          create: {
+            id: devUser.id,
+            email: devUser.email,
+            role: devUser.role,
+            isActive: true,
+            isVerified: true
+          }
+        });
+      } catch (error) {
+        console.warn('Dev user upsert failed:', error);
+      }
 
-    try {
-      await prisma.user.upsert({
-        where: { id: devUser.id },
-        update: { email: devUser.email, role: devUser.role, isActive: true },
-        create: {
-          id: devUser.id,
-          email: devUser.email,
-          role: devUser.role,
-          isActive: true,
-          isVerified: true
-        }
-      });
-    } catch (error) {
-      console.warn('Dev user upsert failed:', error);
+      req.user = devUser as unknown as Express.Request['user'];
+      next();
+      return;
     }
 
-    req.user = devUser as unknown as Express.Request['user'];
-    
-    next();
+    // If in production and no token provided, reject
+    res.status(401).json({ error: 'No token provided' });
     return;
     
     /*
@@ -112,8 +136,9 @@ export const authMiddleware = async (
       return res.status(401).json({ error: 'Invalid token' });
     }
     */
-  } catch (error) {
+    } catch (error) {
     console.error('Auth middleware error:', error);
     res.status(500).json({ error: 'Authentication failed' });
+    return;
   }
 };

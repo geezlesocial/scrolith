@@ -1,0 +1,10 @@
+{
+  "platform": {
+    "siteName": "Geezle",
+    "tagline": "Find, hire, and work with the best talent",
+    "logoUrl": "/logo.svg",
+    "faviconUrl": "/favicon.ico",
+    "adminEmail": "admin@geezle.com",
+    "supportEmail": "support@geezle.com"
+  }
+}

@@ -22,6 +22,7 @@ const Navbar = () => {
   const [showMessagesDropdown, setShowMessagesDropdown] = useState(false);
   const [showHelpDropdown, setShowHelpDropdown] = useState(false);
   const [showCurrencyDropdown, setShowCurrencyDropdown] = useState(false);
+    const [showProfileCurrency, setShowProfileCurrency] = useState(false);
   const [headerConfig, setHeaderConfig] = useState<HeaderConfig | null>(null);
   const [activityConfig, setActivityConfig] = useState<ActivityConfig | null>(null);
 
@@ -349,9 +350,30 @@ const Navbar = () => {
 
                                 {/* Footer & Preferences */}
                                 <div className="border-t border-gray-100 py-2">
-                                    <div className="px-4 py-2 flex justify-between items-center text-sm text-gray-600">
-                                        <span className="flex items-center"><Globe className="w-3 h-3 mr-2"/> English</span>
-                                        {/* No duplicate currency switcher here if top bar has it, keeping it clean */}
+                                    <div className="px-4 py-2 text-sm text-gray-600">
+                                        <div className="flex justify-between items-center">
+                                            <span className="flex items-center"><Globe className="w-3 h-3 mr-2"/> English</span>
+                                            <button
+                                                onClick={() => setShowProfileCurrency(!showProfileCurrency)}
+                                                className="text-sm text-gray-700 hover:text-blue-600"
+                                            >
+                                                Switch currency
+                                            </button>
+                                        </div>
+                                        {showProfileCurrency && (
+                                            <div className="mt-2 grid grid-cols-1 gap-1 max-h-40 overflow-y-auto">
+                                                {availableCurrencies.filter(c => c.isActive).map(c => (
+                                                    <button
+                                                        key={c.code}
+                                                        onClick={() => { setCurrency(c.code); setShowProfileCurrency(false); }}
+                                                        className={`text-left px-2 py-1 rounded text-sm ${currency.code === c.code ? 'font-bold text-blue-600 bg-blue-50' : 'text-gray-700 hover:bg-gray-50'}`}
+                                                    >
+                                                        <span className="inline-block w-14">{c.code}</span>
+                                                        <span className="text-gray-400 ml-2">{c.symbol}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                     <button onClick={handleLogout} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center">
                                         <LogOut className="w-4 h-4 mr-3"/> Sign out

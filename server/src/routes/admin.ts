@@ -1,6 +1,6 @@
 
 import express from 'express';
-import { updateSystemSettings, updateUserStatus } from '../controllers/adminController';
+import { updateSystemSettings, updateUserStatus, updateAdminProfile } from '../controllers/adminController';
 import { 
     getCategories, saveCategory, deleteCategory,
     getGigs, saveGig, deleteGig,
@@ -12,6 +12,7 @@ const router = express.Router();
 // System
 router.post('/settings/update', updateSystemSettings);
 router.post('/users/status', updateUserStatus);
+router.put('/profile', updateAdminProfile);
 
 // Commerce - Categories
 router.get('/commerce/categories', getCategories);

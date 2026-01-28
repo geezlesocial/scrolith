@@ -44,6 +44,7 @@ import {
 } from '../controllers/community.extras.controller';
 import {
   createAdDraft,
+  getPublicAds,
   payAd,
   submitAd,
   getMyAds,
@@ -53,8 +54,11 @@ import {
   rejectAd,
   pauseAd,
   resumeAd,
-  getAdsAnalytics
-  ,getAd, updateAd, getAllCampaigns
+  getAdsAnalytics,
+  getAd,
+  updateAd,
+  deleteAd,
+  getAllCampaigns
 } from '../controllers/community.ads.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { adminMiddleware } from '../middleware/admin.middleware';
@@ -107,12 +111,14 @@ router.post('/posts/:id/like', authMiddleware, async (req, res, next) => { try {
 router.delete('/posts/:id/like', authMiddleware, async (req, res, next) => { try { const c = require('../controllers/community.controller'); return c.postUnlike(req, res); } catch(e){ next(e); } });
 
 // Ads routes (community-scoped)
+router.get('/ads', getPublicAds);
 router.post('/ads/draft', authMiddleware, createAdDraft);
 router.post('/ads/:id/pay', authMiddleware, payAd);
 router.post('/ads/:id/submit', authMiddleware, submitAd);
 router.put('/ads/:id', authMiddleware, updateAd);
 router.get('/ads/:id', authMiddleware, getAd);
 router.get('/ads/me', authMiddleware, getMyAds);
+router.delete('/ads/:id', authMiddleware, deleteAd);
 router.get('/ads/:id/performance', authMiddleware, getAdPerformance);
 
 // Admin ads routes

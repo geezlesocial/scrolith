@@ -4,7 +4,9 @@ import prisma from '../utils/prismaClient';
 
 describe('Gcoin transfer with fees', () => {
   beforeAll(async () => {
-    // Ensure admin user exists
+    // Clean possible conflicting recipientIds from other tests
+    await prisma.gcoinWallet.deleteMany({ where: { recipientId: { in: ['GC-RECIP', 'GC-SRC', 'GC-ADMIN'] } } });
+    // Ensure admin user exists and has a wallet
     await prisma.user.upsert({ where: { id: 'admin-user' }, update: { email: 'admin@local' , role: 'ADMIN' }, create: { id: 'admin-user', email: 'admin@local', role: 'ADMIN', isActive: true } });
     await prisma.gcoinWallet.upsert({ where: { userId: 'admin-user' }, update: { balance: 0 }, create: { userId: 'admin-user', recipientId: 'GC-ADMIN', balance: 0 } });
   });
@@ -43,6 +45,13 @@ describe('Gcoin transfer with fees', () => {
     } else {
       await prisma.gcoinSettings.update({ where: { id: settings.id }, data: { transferFeeType: 'percentage', transferFeeValue: 0.1 } });
     }
+
+    // Ensure gcoinConfig.default explicitly sets the transfer fee for deterministic behavior
+    await prisma.gcoinConfig.upsert({
+      where: { key: 'default' },
+      update: { data: { transferFeeType: 'percentage', transferFeeValue: 0.1 } as any },
+      create: { key: 'default', data: { transferFeeType: 'percentage', transferFeeValue: 0.1 } as any }
+    });
 
     const senderWalletBefore = await prisma.gcoinWallet.findUnique({ where: { userId: 'dev-user-id-123' } });
     const recipientWalletBefore = await prisma.gcoinWallet.findUnique({ where: { userId: 'recipient-user' } });

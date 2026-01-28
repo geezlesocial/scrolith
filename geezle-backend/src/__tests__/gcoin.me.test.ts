@@ -9,6 +9,8 @@ describe('Gcoin user endpoints', () => {
     // ensure clean state for wallets/transactions for dev user
     await prisma.gcoinTransaction.deleteMany({ where: { userId: devUserId } });
     await prisma.gcoinWallet.deleteMany({ where: { userId: devUserId } });
+    // ensure dev user exists
+    await prisma.user.upsert({ where: { id: devUserId }, update: {}, create: { id: devUserId, email: `${devUserId}@local.dev`, role: 'USER' } });
     await prisma.gcoinWallet.create({ data: { userId: devUserId, recipientId: 'GC-TEST-1', balance: 100, lifetimeEarned: 50, status: 'active' } });
     // create some transactions
     await prisma.gcoinTransaction.createMany({

@@ -12,6 +12,8 @@ describe('Gcoin transfer, donate, conversion endpoints', () => {
     // clean
     await prisma.gcoinTransaction.deleteMany({ where: { OR: [{ userId: devUserId }, { userId: recipientUserId }] } });
     await prisma.gcoinWallet.deleteMany({ where: { OR: [{ userId: devUserId }, { userId: recipientUserId }] } });
+    // remove any wallets that might conflict by recipientId
+    await prisma.gcoinWallet.deleteMany({ where: { recipientId: { in: ['GC-DEV', 'GC-RECIP'] } } });
     await prisma.gcoinConversionRequest.deleteMany({ where: { userId: devUserId } });
 
     // ensure users

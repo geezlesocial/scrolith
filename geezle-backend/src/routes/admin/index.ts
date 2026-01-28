@@ -20,6 +20,8 @@ import adminCommunityRoutes from './community/routes';
 const router = express.Router();
 
 import { getSystemSettings, updateSystemSettings } from '../../controllers/admin.systemSettings.controller';
+import prisma from '../../utils/prismaClient';
+import bcrypt from 'bcrypt';
 
 // Simple file-backed persistence for platform/system settings in development
 // Persist to repository-level `geezle-backend/data` so it's easy to find and permissions are typical.
@@ -233,6 +235,84 @@ router.get('/test', (req, res) => {
       'GET    /api/admin/gigs-jobs/dashboard/stats'
     ]
   });
+});
+
+// ============ ADMIN PROFILE ============
+// Backwards-compatible endpoint for frontend that expects /api/admin/profile
+router.put('/profile', async (req, res) => {
+  const io = req.app.get('io');
+  const payload = req.body || {};
+  // Authenticated user id (authMiddleware ensures req.user exists)
+  const authReq = req as AuthRequest;
+  const userId = authReq.user?.id;
+
+  try {
+    // If request contains user fields, update the user record
+    if (userId && (payload.email || payload.displayName || payload.username || payload.password)) {
+      const updates: any = {};
+      const displayName = payload.displayName || payload.username;
+      if (displayName) updates.name = displayName;
+      if (payload.email) {
+        const existingEmail = await prisma.user.findUnique({ where: { email: payload.email } });
+        if (existingEmail && existingEmail.id !== userId) {
+          return res.status(400).json({ success: false, error: 'Email already in use' });
+        }
+        updates.email = payload.email;
+      }
+      if (payload.password) {
+        const hashed = await bcrypt.hash(payload.password, 10);
+        updates.passwordHash = hashed;
+      }
+      if (Object.keys(updates).length) {
+        try {
+          const updatedUser = await prisma.user.update({ where: { id: userId }, data: updates });
+          // Notify the user's other sessions (room + global fallback)
+          try { io?.to(userId).emit('user:profile_updated', { userId, updates: updates }); } catch (e) {}
+          try { io?.emit('user:profile_updated', { userId, updates: updates }); } catch (e) {}
+        } catch (userErr) {
+          console.error('[admin] Failed to update user record:', userErr);
+          return res.status(500).json({ success: false, error: 'Failed to update user' });
+        }
+      }
+    }
+
+    // Persist admin profile meta in appSetting (for display/legacy usage)
+    const existing = await prisma.appSetting.findUnique({ where: { scope: 'admin_profile' } });
+    const merged = Object.assign({}, existing?.data ?? {}, payload);
+    await prisma.appSetting.upsert({
+      where: { scope: 'admin_profile' },
+      create: { scope: 'admin_profile', data: merged },
+      update: { data: merged }
+    });
+
+    // Emit admin-specific event for legacy frontend listeners
+    try { io?.emit('admin:profile_updated', { profile: merged }); } catch (e) {}
+    try { io?.to('admins').emit('admin:profile_updated', { profile: merged }); } catch (e) {}
+
+    return res.json({ success: true, data: merged });
+  } catch (dbErr) {
+    console.warn('[admin] admin/profile DB error, attempting file fallback', dbErr);
+    try {
+      const SETTINGS_DIR = path.resolve(__dirname, '../../../data');
+      const SETTINGS_FILE = path.join(SETTINGS_DIR, 'platform-system-settings.json');
+      fs.mkdirSync(SETTINGS_DIR, { recursive: true });
+      const existingRaw = fs.existsSync(SETTINGS_FILE) ? fs.readFileSync(SETTINGS_FILE, 'utf-8') : '{}';
+      let existing: any = {};
+      try { existing = existingRaw ? JSON.parse(existingRaw) : {}; } catch (e) { existing = {}; }
+      existing['admin_profile'] = Object.assign({}, existing['admin_profile'] || {}, payload);
+      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2), 'utf-8');
+
+      // Emit fallback events
+      try { io?.emit('admin:profile_updated', { profile: existing['admin_profile'] }); } catch (e) {}
+      try { io?.to('admins').emit('admin:profile_updated', { profile: existing['admin_profile'] }); } catch (e) {}
+
+      console.log('[admin] Persisted admin profile to', SETTINGS_FILE);
+      return res.json({ success: true, data: existing['admin_profile'], fallback: 'file' });
+    } catch (fsErr) {
+      console.error('[admin] Failed to persist admin profile', fsErr);
+      return res.status(500).json({ success: false, error: 'Failed to save admin profile' });
+    }
+  }
 });
 
 export default router;

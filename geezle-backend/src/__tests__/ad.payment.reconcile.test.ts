@@ -34,6 +34,8 @@ describe('Ad payment and reconciliation flow', () => {
     await prisma.gcoinConversionRequest.deleteMany({ where: { userId: 'dev-user-id-123' } });
     await prisma.gcoinTransaction.deleteMany({ where: { userId: 'dev-user-id-123' } });
     await prisma.gcoinWallet.deleteMany({ where: { userId: 'dev-user-id-123' } });
+    // remove profile which has a foreign key to user
+    await prisma.profile.deleteMany({ where: { userId: 'dev-user-id-123' } });
     await prisma.user.deleteMany({ where: { id: 'dev-user-id-123' } });
     await prisma.$disconnect();
   });

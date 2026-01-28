@@ -53,6 +53,8 @@ router.post('/donate', authMiddleware, donateGcoin);
 router.get('/earnings/summary', authMiddleware, getEarningsSummary);
 router.get('/earnings/by-post', authMiddleware, getEarningsByPost);
 
+router.post('/admin/recompute', authMiddleware, adminMiddleware, (async (req, res) => { return (await import('../controllers/gcoin.controller')).recomputeFraudScores(req, res); }) as any);
+
 router.post('/rewards', authMiddleware, checkAndAward);
 router.get('/admin/fraud', authMiddleware, adminMiddleware, (async (req, res) => { return (await import('../controllers/gcoin.controller')).getFraudReports(req, res); }) as any);
 

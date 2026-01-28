@@ -1,3 +1,4 @@
+import 'dotenv/config';
 // C:\Projects\geezle-backend\src\server.ts
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
@@ -6,6 +7,9 @@ import cors from 'cors';
 import http from 'http';
 import { Server } from 'socket.io';
 import helmet from 'helmet';
+import prisma from './utils/prismaClient';
+import fs from 'fs';
+import jwt from 'jsonwebtoken'; // Ensure jwt import exists
 import rateLimit from 'express-rate-limit';
 import validateEnv from './utils/validateEnv';
 
@@ -83,9 +87,144 @@ const io = new Server(server, {
 const communityNs = io.of('/community');
 communityNs.on('connection', (socket) => {
   console.log('Client connected to /community namespace', { id: socket.id, handshake: socket.handshake.query });
+  // Attempt to apply JWT auth for namespace sockets (mirrors io.use middleware)
+  try {
+    const hs = socket.handshake as any;
+    const tokenRaw = (hs.auth && hs.auth.token) || (hs.query && hs.query.token) || '';
+    const token = tokenRaw && tokenRaw.toString().startsWith('Bearer ') ? tokenRaw.toString().slice('Bearer '.length) : tokenRaw;
+    if (token) {
+      const secret = process.env.JWT_SECRET || 'dev_jwt_secret';
+      try {
+        const decoded = jwt.verify(token, secret) as any;
+        if (decoded && decoded.id) {
+          prisma.user.findUnique({ where: { id: decoded.id }, select: { id: true, email: true, role: true, isActive: true } })
+            .then(user => {
+              if (user && user.isActive) {
+                (socket as any).data = (socket as any).data || {};
+                (socket as any).data.user = { id: user.id, role: user.role, email: user.email };
+              }
+            })
+            .catch(e => console.warn('communityNs auth prisma error:', e));
+        }
+      } catch (e) {
+        console.warn('communityNs JWT verify failed:', (e as any)?.message ?? String(e));
+      }
+    }
+  } catch (e) {
+    console.error('communityNs auth setup error:', e);
+  }
+
   socket.on('handshake', (data) => {
     console.log('Community handshake:', data);
   });
+  // Also allow listening sockets in /community to perform room joins so they receive targeted emits
+  socket.on('join:wallet', (payload: { userId: string }) => {
+    const handleJoinWallet = async (pl: { userId: string }): Promise<void> => {
+      try {
+        console.log(`communityNs join:wallet invoked for socket ${socket.id}`, { payload: pl, user: (socket as any).data?.user });
+        const requested = pl?.userId;
+        const identity = (socket as any).data?.user?.id || null;
+        if (!requested) { socket.emit('error', { code: 'MISSING_USERID', message: 'userId required' }); return; }
+        const allowTestJoins = String(process.env.SOCKET_ALLOW_TEST_JOIN || '').toLowerCase() === 'true';
+        if (identity === requested || process.env.NODE_ENV === 'development' || allowTestJoins) {
+          socket.join(`wallet:${requested}`);
+          socket.join(requested);
+          socket.emit('joined', { room: `wallet:${requested}` });
+          console.log(`Socket ${socket.id} joined wallet:${requested}`);
+        } else {
+          socket.emit('error', { code: 'FORBIDDEN', message: 'Not authorized to join wallet room' });
+        }
+      } catch (e) {
+        console.error('join:wallet error (community ns):', e);
+      }
+      return;
+    };
+    void handleJoinWallet(payload);
+  });
+
+  socket.on('join:post', (payload: { postId: string }) => {
+    const handleJoinPost = async (pl: { postId: string }): Promise<void> => {
+      try {
+        console.log(`communityNs join:post invoked for socket ${socket.id}`, { payload: pl, user: (socket as any).data?.user });
+        const postId = pl?.postId;
+        if (!postId) { socket.emit('error', { code: 'MISSING_POSTID', message: 'postId required' }); return; }
+        const identity = (socket as any).data?.user?.id || null;
+        const post = await prisma.communityPost.findUnique({ where: { id: postId } });
+        if (!post) { socket.emit('error', { code: 'NOT_FOUND', message: 'Post not found' }); return; }
+        const isOwner = identity && post.authorId === identity;
+        const isPublic = (post.status || 'active') === 'active';
+        const role = (socket as any).data?.user?.role || '';
+        const allowTestJoins = String(process.env.SOCKET_ALLOW_TEST_JOIN || '').toLowerCase() === 'true';
+        const isAdmin = (role || '').toString().toLowerCase().includes('admin') || process.env.NODE_ENV === 'development' || allowTestJoins;
+        if (isOwner || isPublic || isAdmin) {
+          socket.join(`post:${postId}`);
+          socket.emit('joined', { room: `post:${postId}` });
+          console.log(`Socket ${socket.id} joined post:${postId}`);
+        } else {
+          socket.emit('error', { code: 'FORBIDDEN', message: 'Not authorized to join post room' });
+        }
+      } catch (e) {
+        console.error('join:post error (community ns):', e);
+      }
+      return;
+    };
+    void handleJoinPost(payload);
+  });
+
+  socket.on('join:ad', (payload: { adId: string }) => {
+    const handleJoinAd = async (pl: { adId: string }): Promise<void> => {
+      try {
+        console.log(`communityNs join:ad invoked for socket ${socket.id}`, { payload: pl, user: (socket as any).data?.user });
+        const adId = pl?.adId;
+        if (!adId) { socket.emit('error', { code: 'MISSING_ADID', message: 'AdId required' }); return; }
+        const identity = (socket as any).data?.user?.id || null;
+        const ad = await prisma.communityAd.findUnique({ where: { id: adId } });
+        if (!ad) { socket.emit('error', { code: 'NOT_FOUND', message: 'Ad not found' }); return; }
+        const isOwner = identity && ad.creatorId === identity;
+        const isActive = (ad.status || '').toString().toUpperCase() === 'ACTIVE';
+        const role = (socket as any).data?.user?.role || '';
+        const isAdmin = (role || '').toString().toLowerCase().includes('admin') || process.env.NODE_ENV === 'development';
+        if (isOwner || isActive || isAdmin) {
+          socket.join(`ad:${adId}`);
+          socket.emit('joined', { room: `ad:${adId}` });
+          console.log(`Socket ${socket.id} joined ad:${adId}`);
+        } else {
+          socket.emit('error', { code: 'FORBIDDEN', message: 'Not authorized to join ad room' });
+        }
+      } catch (e) {
+        console.error('join:ad error (community ns):', e);
+      }
+      return;
+    };
+    void handleJoinAd(payload);
+  });
+});
+
+// Socket auth: verify JWT if provided, attach user to socket.data.user
+io.use(async (socket, next) => {
+  try {
+    const hs = socket.handshake as any;
+    const tokenRaw = (hs.auth && hs.auth.token) || (hs.query && hs.query.token) || '';
+    const token = tokenRaw && tokenRaw.toString().startsWith('Bearer ') ? tokenRaw.toString().slice('Bearer '.length) : tokenRaw;
+    if (!token) return next(); // allow unauthenticated sockets for public use
+    const secret = process.env.JWT_SECRET || 'dev_jwt_secret';
+    let decoded: any = null;
+    try {
+      decoded = jwt.verify(token, secret) as any;
+    } catch (e) {
+      console.warn('Socket JWT verification failed:', (e as any)?.message ?? String(e));
+      return next(new Error('unauthorized'));
+    }
+    if (!decoded || !decoded.id) return next(new Error('unauthorized'));
+    const user = await prisma.user.findUnique({ where: { id: decoded.id }, select: { id: true, email: true, role: true, isActive: true } });
+    if (!user || !user.isActive) return next(new Error('unauthorized'));
+    (socket as any).data = (socket as any).data || {};
+    (socket as any).data.user = { id: user.id, role: user.role, email: user.email };
+    return next();
+  } catch (err) {
+    console.error('Socket auth error:', err);
+    return next(new Error('unauthorized'));
+  }
 });
 
 app.set('io', io);
@@ -184,6 +323,24 @@ app.use('/uploads', (req, res, next) => {
 });
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
+// Serve favicon from uploads if present so platform settings that point to
+// `/favicon.ico` resolve even when the file was uploaded to /uploads.
+app.get('/favicon.ico', (req: Request, res: Response) => {
+  try {
+    const uploadsDir = path.join(__dirname, '..', 'uploads');
+    if (!fs.existsSync(uploadsDir)) return res.status(404).end();
+    const files = fs.readdirSync(uploadsDir);
+    // Prefer common favicon filenames (ico, png) that include 'favicon' or start with 'favicon'
+    const candidate = files.find(f => /(^favicon\.|favicon\.|favicon_)/i.test(f) || /favicon/i.test(f));
+    if (!candidate) return res.status(404).end();
+    const filePath = path.join(uploadsDir, candidate);
+    return res.sendFile(filePath);
+  } catch (e) {
+    console.error('Failed to serve favicon from uploads', e);
+    return res.status(500).end();
+  }
+});
+
 // Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {
   try {
@@ -213,6 +370,77 @@ app.get('/api/health', (req: Request, res: Response) => {
       error: error instanceof Error ? error.message : 'Unknown error',
       timestamp: new Date().toISOString()
     });
+  }
+});
+
+// Prometheus metrics endpoint (optional)
+app.get('/metrics', async (req: Request, res: Response) => {
+  try {
+    // Optional security: IP allowlist and basic auth
+    const allowListRaw = process.env.METRICS_ALLOW_IPS || '';
+    const allowList = allowListRaw.split(',').map(s => s.trim()).filter(Boolean);
+    const metricsUser = process.env.METRICS_USERNAME;
+    const metricsPass = process.env.METRICS_PASSWORD;
+
+    const clientIpRaw = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '').toString();
+    const clientIp = clientIpRaw.replace(/^::ffff:/, '').split(',')[0].trim();
+
+    // support CIDR entries in allow list (e.g. 10.0.0.0/8)
+    const isValidIpv4 = (ip: string) => /^\d{1,3}(?:\.\d{1,3}){3}$/.test(ip);
+    const ipv4ToInt = (ip: string) => {
+      const p = ip.split('.').map(n => Number(n) & 0xff);
+      return ((p[0] << 24) >>> 0) + ((p[1] << 16) >>> 0) + ((p[2] << 8) >>> 0) + (p[3] >>> 0);
+    };
+    const cidrMatch = (ip: string, cidr: string) => {
+      try {
+        if (!cidr.includes('/')) return ip === cidr;
+        const [base, prefixRaw] = cidr.split('/');
+        const prefix = Number(prefixRaw);
+        if (!isValidIpv4(ip) || !isValidIpv4(base) || isNaN(prefix) || prefix < 0 || prefix > 32) return false;
+        const ipInt = ipv4ToInt(ip);
+        const baseInt = ipv4ToInt(base);
+        const mask = prefix === 0 ? 0 : (~((1 << (32 - prefix)) - 1) >>> 0);
+        return (ipInt & mask) === (baseInt & mask);
+      } catch (e) {
+        return false;
+      }
+    };
+
+    const ipAllowed = allowList.length === 0 ? false : allowList.some(entry => cidrMatch(clientIp, entry));
+    const requireAuth = Boolean(metricsUser && metricsPass) || allowList.length > 0;
+
+    if (requireAuth) {
+      // allow if IP is allowlisted
+      if (ipAllowed) {
+        // proceed
+      } else if (metricsUser && metricsPass) {
+        const auth = (req.headers.authorization || '').toString();
+        if (!auth.startsWith('Basic ')) {
+          res.setHeader('WWW-Authenticate', 'Basic realm="metrics"');
+          return res.status(401).json({ error: 'Unauthorized' });
+        }
+        const token = auth.slice('Basic '.length).trim();
+        let cred = '';
+        try { cred = Buffer.from(token, 'base64').toString('utf8'); } catch (e) { cred = ''; }
+        const [u, p] = cred.split(':');
+        if (u !== metricsUser || p !== metricsPass) {
+          res.setHeader('WWW-Authenticate', 'Basic realm="metrics"');
+          return res.status(403).json({ error: 'Forbidden' });
+        }
+      } else {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
+
+    const metrics = await import('./utils/metrics');
+    const registry = metrics.getPromRegistry && metrics.getPromRegistry();
+    if (!registry) return res.status(404).json({ error: 'Metrics not enabled' });
+    const body = await registry.metrics();
+    res.setHeader('Content-Type', registry.contentType || 'text/plain; version=0.0.4');
+    return res.send(body);
+  } catch (e) {
+    console.error('Metrics endpoint error:', e);
+    return res.status(500).json({ error: 'Failed to collect metrics' });
   }
 });
 
@@ -335,6 +563,97 @@ io.on('connection', (socket) => {
         console.log(`User ${socket.id} joined room ${roomId}`);
       } catch (error) {
         console.error(`Error joining room ${roomId}:`, error);
+      }
+    });
+
+    // Authenticated, typed room joins
+    socket.on('join:wallet', (payload: { userId: string }) => {
+      const handleJoinWallet = async (pl: { userId: string }): Promise<void> => {
+        try {
+          const requested = pl?.userId;
+          const identity = (socket as any).data?.user?.id || null;
+          if (!requested) { socket.emit('error', { code: 'MISSING_USERID', message: 'userId required' }); return; }
+          // Allow join if identity matches requested userId or in development mode
+          const allowTestJoins = String(process.env.SOCKET_ALLOW_TEST_JOIN || '').toLowerCase() === 'true';
+          if (identity === requested || process.env.NODE_ENV === 'development' || allowTestJoins) {
+            socket.join(`wallet:${requested}`);
+            socket.join(requested); // legacy user room
+            socket.emit('joined', { room: `wallet:${requested}` });
+            console.log(`Socket ${socket.id} joined wallet:${requested}`);
+          } else {
+            socket.emit('error', { code: 'FORBIDDEN', message: 'Not authorized to join wallet room' });
+          }
+        } catch (e) {
+          console.error('join:wallet error:', e);
+        }
+        return;
+      };
+      void handleJoinWallet(payload);
+    });
+
+    socket.on('join:post', (payload: { postId: string }) => {
+      const handleJoinPost = async (pl: { postId: string }): Promise<void> => {
+        try {
+          const postId = pl?.postId;
+          if (!postId) { socket.emit('error', { code: 'MISSING_POSTID', message: 'postId required' }); return; }
+          const identity = (socket as any).data?.user?.id || null;
+          // fetch post and verify visibility/ownership
+          const post = await prisma.communityPost.findUnique({ where: { id: postId } });
+          if (!post) { socket.emit('error', { code: 'NOT_FOUND', message: 'Post not found' }); return; }
+          const isOwner = identity && post.authorId === identity;
+          const isPublic = (post.status || 'active') === 'active';
+          const role = (socket as any).data?.user?.role || '';
+          const allowTestJoins = String(process.env.SOCKET_ALLOW_TEST_JOIN || '').toLowerCase() === 'true';
+          const isAdmin = (role || '').toString().toLowerCase().includes('admin') || process.env.NODE_ENV === 'development' || allowTestJoins;
+          if (isOwner || isPublic || isAdmin) {
+            socket.join(`post:${postId}`);
+            socket.emit('joined', { room: `post:${postId}` });
+            console.log(`Socket ${socket.id} joined post:${postId}`);
+          } else {
+            socket.emit('error', { code: 'FORBIDDEN', message: 'Not authorized to join post room' });
+          }
+        } catch (e) {
+          console.error('join:post error:', e);
+        }
+        return;
+      };
+      void handleJoinPost(payload);
+    });
+
+    socket.on('join:ad', (payload: { adId: string }) => {
+      const handleJoinAd = async (pl: { adId: string }): Promise<void> => {
+        try {
+          const adId = pl?.adId;
+          if (!adId) { socket.emit('error', { code: 'MISSING_ADID', message: 'adId required' }); return; }
+          const identity = (socket as any).data?.user?.id || null;
+          const ad = await prisma.communityAd.findUnique({ where: { id: adId } });
+          if (!ad) { socket.emit('error', { code: 'NOT_FOUND', message: 'Ad not found' }); return; }
+          const isOwner = identity && ad.creatorId === identity;
+          const isActive = (ad.status || '').toString().toUpperCase() === 'ACTIVE';
+          const role = (socket as any).data?.user?.role || '';
+          const isAdmin = (role || '').toString().toLowerCase().includes('admin') || process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
+          if (isOwner || isActive || isAdmin) {
+            socket.join(`ad:${adId}`);
+            socket.emit('joined', { room: `ad:${adId}` });
+            console.log(`Socket ${socket.id} joined ad:${adId}`);
+          } else {
+            socket.emit('error', { code: 'FORBIDDEN', message: 'Not authorized to join ad room' });
+          }
+        } catch (e) {
+          console.error('join:ad error:', e);
+        }
+        return;
+      };
+      void handleJoinAd(payload);
+    });
+
+    socket.on('leave-room', (roomId: string) => {
+      try {
+        socket.leave(roomId);
+        socket.emit('left', { room: roomId });
+        console.log(`Socket ${socket.id} left room ${roomId}`);
+      } catch (e) {
+        console.error('leave-room error:', e);
       }
     });
 
@@ -496,3 +815,4 @@ if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
 }
 
 export default app;
+export { server, io, communityNs };

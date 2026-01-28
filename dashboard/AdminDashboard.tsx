@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 import { useUser } from '../context/UserContext'; // Added useUser import
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { SupportService } from '../services/support'; 
 
 // Import New Modules
@@ -39,6 +39,7 @@ const AdminDashboard: React.FC = () => {
   const [unreadSupportCount, setUnreadSupportCount] = useState(0); 
   const { showNotification } = useNotification();
   const { user, logout } = useUser(); // Use user context
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
@@ -187,6 +188,12 @@ const AdminDashboard: React.FC = () => {
               <div className="hidden md:flex items-center px-3 py-1.5 bg-green-50 border border-green-200 rounded-full text-green-700 text-sm font-medium">
                 <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
                 System Operational
+              </div>
+              {/* Role switch buttons for admin to impersonate or view other dashboards */}
+              <div className="hidden sm:flex items-center space-x-2">
+                <button onClick={() => navigate('/client/dashboard?as=employer')} className="px-2 py-1 text-xs bg-white border border-gray-200 rounded text-gray-700 hover:bg-gray-50">Client</button>
+                <button onClick={() => navigate('/freelancer/dashboard?as=freelancer')} className="px-2 py-1 text-xs bg-white border border-gray-200 rounded text-gray-700 hover:bg-gray-50">Freelancer</button>
+                <button onClick={() => navigate('/admin/dashboard')} className="px-2 py-1 text-xs bg-white border border-gray-200 rounded text-gray-700 hover:bg-gray-50">Switch to Admin</button>
               </div>
               <button className="relative p-2 text-gray-400 hover:text-gray-500">
                 <Bell size={20} />

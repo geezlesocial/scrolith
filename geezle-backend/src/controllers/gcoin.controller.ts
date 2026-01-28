@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
+import realtime from '../utils/realtime';
+import { computeWalletFraudScore, recomputeAllWalletScores } from '../services/fraudDetector';
 
 interface AuthRequest extends Request {
   user?: { id: string; email?: string; role?: string };
@@ -225,6 +227,12 @@ export const creditUser = async (req: AuthRequest, res: Response) => {
     const io = (req.app as any).get('io');
     try { io?.emit('community:gcoin_transaction_created', { tx }); } catch(e){}
     try { io?.emit('community:gcoin_balance_updated', { userId, balance: newBal }); } catch(e){}
+    try { realtime.emitToWallet(userId, 'community:gcoin_balance_updated', { userId, balance: newBal }); } catch(e){}
+    try { realtime.emitToUser(userId, 'community:gcoin_transaction_created', { tx }); } catch(e){}
+    try { realtime.emitToWallet(userId, 'community:gcoin_balance_updated', { userId, balance: newBal }); } catch(e){}
+    try { realtime.emitToUser(userId, 'community:gcoin_transaction_created', { tx }); } catch(e){}
+    try { realtime.emitToWallet(userId, 'community:gcoin_balance_updated', { userId, balance: newBal }); } catch(e){}
+    try { realtime.emitToUser(userId, 'community:gcoin_transaction_created', { tx }); } catch(e){}
     // emit fiat wallet balance for UI consistency (if exists)
     try {
       const fiatWallet = await prisma.wallet.findUnique({ where: { userId } });
@@ -255,6 +263,8 @@ export const adminAdjustBalance = async (req: AuthRequest, res: Response) => {
     const io = (req.app as any).get('io');
     try { io?.emit('community:gcoin_transaction_created', { tx }); } catch(e){}
     try { io?.emit('community:gcoin_balance_updated', { userId, balance: newBal }); } catch(e){}
+    try { realtime.emitToWallet(userId, 'community:gcoin_balance_updated', { userId, balance: newBal }); } catch(e){}
+    try { realtime.emitToUser(userId, 'community:gcoin_transaction_created', { tx }); } catch(e){}
     // Emit fiat wallet update if present
     try {
       const fiatWallet = await prisma.wallet.findUnique({ where: { userId } });
@@ -367,6 +377,8 @@ export const checkAndAward = async (req: AuthRequest, res: Response) => {
     const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
     try { io?.emit('community:gcoin_earned', { userId, metric: type, totalCoins, creatorShare, adminShare }); } catch(e){}
     try { io?.emit('community:gcoin_balance_updated', { userId, balance: (await prisma.gcoinWallet.findUnique({ where: { userId } }))?.balance }); } catch(e){}
+    try { realtime.emitToWallet(userId, 'community:gcoin_earned', { userId, metric: type, totalCoins, creatorShare, adminShare }); } catch(e){}
+    try { realtime.emitToWallet(userId, 'community:gcoin_balance_updated', { userId, balance: (await prisma.gcoinWallet.findUnique({ where: { userId } }))?.balance }); } catch(e){}
 
     return ok(res, { success: true, awarded: totalCoins, units: awardableUnits });
   } catch (e: any) {
@@ -384,12 +396,37 @@ export const getFraudReports = async (req: AuthRequest, res: Response) => {
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
     const reports = await Promise.all(wallets.map(async (w) => {
       const recent = await prisma.gcoinEarningEvent.count({ where: { actorId: w.userId, createdAt: { gt: tenMinutesAgo } } });
-      return { userId: w.userId, recipientId: w.recipientId, balance: w.balance, lifetimeEarned: w.lifetimeEarned, fraudScore: w.fraudScore, recentEvents: recent, status: w.status };
+      // recompute live score and reasons
+      const computed = await computeWalletFraudScore(w.userId);
+      return {
+        userId: w.userId,
+        recipientId: w.recipientId,
+        balance: w.balance,
+        lifetimeEarned: w.lifetimeEarned,
+        fraudScore: computed.fraudScore,
+        riskLevel: computed.riskLevel,
+        reasons: computed.reasons,
+        recentEvents: recent,
+        status: w.status
+      };
     }));
     return ok(res, { suspiciousWallets: reports });
   } catch (e: any) {
     console.error(e);
     return fail(res, 500, 'Failed to load fraud reports');
+  }
+};
+
+export const recomputeFraudScores = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!isAdminRole(req.user?.role)) return fail(res, 403, 'Forbidden');
+    const summary = await recomputeAllWalletScores();
+    const total = Array.isArray(summary.results) ? summary.results.length : 0;
+    console.log(`[gcoin.controller] recomputeFraudScores: total=${total} changed=${summary.changedCount} durationMs=${summary.durationMs}`);
+    return ok(res, { recomputed: total, changedCount: summary.changedCount, durationMs: summary.durationMs, sample: Array.isArray(summary.results) ? summary.results.slice(0, 10) : [] });
+  } catch (e: any) {
+    console.error('recomputeFraudScores error:', e);
+    return fail(res, 500, 'Failed to recompute fraud scores');
   }
 };
 
@@ -489,6 +526,11 @@ export const transferGcoin = async (req: AuthRequest, res: Response) => {
     try { io?.emit('community:gcoin_transaction_created', { from: sender.id, to: recipientUser.id, amount: value, note }); } catch(e){}
     try { io?.emit('community:gcoin_balance_updated', { userId: sender.id, balance: Number(senderW.balance) - totalDeduct }); } catch(e){}
     try { io?.emit('community:gcoin_balance_updated', { userId: recipientUser.id, balance: Number(recipientW.balance) + value }); } catch(e){}
+    // targeted emits for affected users/wallets
+    try { realtime.emitToUser(sender.id, 'community:gcoin_transaction_created', { from: sender.id, to: recipientUser.id, amount: value, note }); } catch(e){}
+    try { realtime.emitToUser(recipientUser.id, 'community:gcoin_transaction_created', { from: sender.id, to: recipientUser.id, amount: value, note }); } catch(e){}
+    try { realtime.emitToWallet(sender.id, 'community:gcoin_balance_updated', { userId: sender.id, balance: Number(senderW.balance) - totalDeduct }); } catch(e){}
+    try { realtime.emitToWallet(recipientUser.id, 'community:gcoin_balance_updated', { userId: recipientUser.id, balance: Number(recipientW.balance) + value }); } catch(e){}
     return ok(res, { from: sender.id, to: recipientUser.id, amount: value });
   } catch (e: any) {
     console.error(e);
@@ -639,31 +681,16 @@ export const donateGcoin = async (req: AuthRequest, res: Response) => {
     
     // Emit socket events
     const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
-    try { 
-      io?.emit('community:gcoin_donated', {
-        postId,
-        donorId: sender.id,
-        recipientId: recipientUser.id,
-        amount: value
-      }); 
-    } catch (e) {
-      console.error('Socket emit error (gcoin_donated):', e);
-    }
-    try { 
-      io?.emit('community:gcoin_transaction_created', { 
-        from: sender.id, 
-        to: recipientUser.id, 
-        amount: value, 
-        type: 'donation',
-        postId 
-      }); 
-    } catch (e) {}
-    try { 
-      io?.emit('community:gcoin_balance_updated', { userId: sender.id, balance: Number(senderW.balance) - totalDeduct }); 
-    } catch (e) {}
-    try { 
-      io?.emit('community:gcoin_balance_updated', { userId: recipientUser.id, balance: Number(recipientWallet.balance) + value }); 
-    } catch (e) {}
+    try { io?.emit('community:gcoin_donated', { postId, donorId: sender.id, recipientId: recipientUser.id, amount: value }); } catch (e) { console.error('Socket emit error (gcoin_donated):', e); }
+    try { io?.emit('community:gcoin_transaction_created', { from: sender.id, to: recipientUser.id, amount: value, type: 'donation', postId }); } catch (e) {}
+    try { io?.emit('community:gcoin_balance_updated', { userId: sender.id, balance: Number(senderW.balance) - totalDeduct }); } catch (e) {}
+    try { io?.emit('community:gcoin_balance_updated', { userId: recipientUser.id, balance: Number(recipientWallet.balance) + value }); } catch (e) {}
+    // targeted emits
+    try { realtime.emitToPost(postId, 'community:gcoin_donated', { postId, donorId: sender.id, recipientId: recipientUser.id, amount: value }); } catch (e) {}
+    try { realtime.emitToUser(sender.id, 'community:gcoin_transaction_created', { from: sender.id, to: recipientUser.id, amount: value, type: 'donation', postId }); } catch (e) {}
+    try { realtime.emitToUser(recipientUser.id, 'community:gcoin_transaction_created', { from: sender.id, to: recipientUser.id, amount: value, type: 'donation', postId }); } catch (e) {}
+    try { realtime.emitToWallet(sender.id, 'community:gcoin_balance_updated', { userId: sender.id, balance: Number(senderW.balance) - totalDeduct }); } catch (e) {}
+    try { realtime.emitToWallet(recipientUser.id, 'community:gcoin_balance_updated', { userId: recipientUser.id, balance: Number(recipientWallet.balance) + value }); } catch (e) {}
     
     return ok(res, { 
       success: true,
@@ -714,15 +741,8 @@ export const requestConversion = async (req: AuthRequest, res: Response) => {
     // Store payoutMethodId separately if needed (can be added to model later or stored in metadata via Transaction)
     // For now, we'll note it in the response
     const io = (req.app as any).get('io');
-    try { 
-      io?.emit('community:gcoin_conversion_requested', { 
-        id: rec.id, 
-        userId: user.id, 
-        amountGcoin: value, 
-        amountFiat,
-        payoutMethodId: payoutMethodId || null
-      }); 
-    } catch(e){}
+    try { io?.emit('community:gcoin_conversion_requested', { id: rec.id, userId: user.id, amountGcoin: value, amountFiat, payoutMethodId: payoutMethodId || null }); } catch(e){}
+    try { realtime.emitToUser(user.id, 'community:gcoin_conversion_requested', { id: rec.id, userId: user.id, amountGcoin: value, amountFiat, payoutMethodId: payoutMethodId || null }); } catch(e){}
     
     return ok(res, { ...rec, payoutMethodId: payoutMethodId || null });
   } catch (e: any) {
@@ -794,12 +814,19 @@ export const processConversion = async (req: AuthRequest, res: Response) => {
           try { io?.emit('community:gcoin_conversion_processed', { id, status: 'approved', userId: reqRec.userId, amountGcoin: reqRec.amountGcoin, amountFiat: reqRec.amountFiat }); } catch(e){}
           // publish updated gcoin balance
           try { io?.emit('community:gcoin_balance_updated', { userId: reqRec.userId, balance: Number(w.balance) - Number(reqRec.amountGcoin) }); } catch(e){}
+          try {
+            realtime.emitToUser(reqRec.userId, 'community:gcoin_conversion_processed', { id, status: 'approved', userId: reqRec.userId, amountGcoin: reqRec.amountGcoin, amountFiat: reqRec.amountFiat });
+          } catch (e) {}
+          try {
+            realtime.emitToWallet(reqRec.userId, 'community:gcoin_balance_updated', { userId: reqRec.userId, balance: Number(w.balance) - Number(reqRec.amountGcoin) });
+          } catch (e) {}
 
           // publish fiat balance update (reconciled from Wallet)
           try {
             const fiatWallet = await prisma.wallet.findUnique({ where: { userId: reqRec.userId } });
             if (fiatWallet) {
               try { io?.emit('community:fiat_balance_updated', { userId: reqRec.userId, fiatBalance: fiatWallet.balance }); } catch(e){}
+              try { realtime.emitToUser(reqRec.userId, 'community:fiat_balance_updated', { userId: reqRec.userId, fiatBalance: fiatWallet.balance }); } catch(e){}
             }
           } catch(e) {
             console.error('Failed to publish fiat balance after conversion:', e);
@@ -854,6 +881,7 @@ export const freezeWallet = async (req: AuthRequest, res: Response) => {
     const w = await prisma.gcoinWallet.update({ where: { userId }, data: { status: 'frozen' } });
     const io = (req.app as any).get('io');
     try { io?.emit('community:gcoin_wallet_status', { userId, status: 'frozen' }); } catch(e){}
+    try { realtime.emitToWallet(userId, 'community:gcoin_wallet_status', { userId, status: 'frozen' }); } catch(e){}
     return ok(res, w);
   } catch (e: any) {
     console.error(e);
@@ -870,6 +898,7 @@ export const unfreezeWallet = async (req: AuthRequest, res: Response) => {
     const w = await prisma.gcoinWallet.update({ where: { userId }, data: { status: 'active' } });
     const io = (req.app as any).get('io');
     try { io?.emit('community:gcoin_wallet_status', { userId, status: 'active' }); } catch(e){}
+    try { realtime.emitToWallet(userId, 'community:gcoin_wallet_status', { userId, status: 'active' }); } catch(e){}
     return ok(res, w);
   } catch (e: any) {
     console.error(e);

@@ -608,6 +608,9 @@ export const saveHeaderConfig = async (req: Request, res: Response) => {
       navItems: Array.isArray(normalized.navigation) ? normalized.navigation.length : 0
     });
 
+    // Emit realtime event so connected clients can refresh immediately
+    emitCmsEvent(req, 'cms:header_updated', normalized);
+
     res.json({
       success: true,
       message: 'Header configuration saved successfully',
@@ -650,6 +653,9 @@ export const saveFooterConfig = async (req: Request, res: Response) => {
       socials: Array.isArray(normalized.socials) ? normalized.socials.length : 0
     });
 
+    // Emit realtime event for footer updates (clients may ignore if not subscribed)
+    emitCmsEvent(req, 'cms:footer_updated', normalized);
+
     res.json({
       success: true,
       message: 'Footer configuration saved successfully',
@@ -670,6 +676,8 @@ export const saveActivityConfig = async (req: Request, res: Response) => {
       ...config,
       updatedAt: new Date()
     };
+    // Emit activity update so UI components depending on activity can refresh
+    emitCmsEvent(req, 'cms:activity_updated', cmsData.activity);
     res.json({
       success: true,
       message: 'Activity configuration saved successfully',

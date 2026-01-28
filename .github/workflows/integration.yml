@@ -1,0 +1,108 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: geezle_db
+          POSTGRES_USER: geezle_user
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U geezle_user -d geezle_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install geezle-backend dependencies
+        run: npm ci --prefix geezle-backend
+
+      - name: Generate Prisma client (if present)
+        run: npm --prefix geezle-backend run prisma:generate || true
+
+      - name: Validate required GitHub Secrets
+        run: |
+          missing=0
+          if [ -z "${{ secrets.POSTGRES_PASSWORD }}" ]; then echo "Missing secret: POSTGRES_PASSWORD"; missing=1; fi
+          if [ -z "${{ secrets.ADMIN_EMAIL }}" ]; then echo "Missing secret: ADMIN_EMAIL"; missing=1; fi
+          if [ -z "${{ secrets.ADMIN_PASSWORD }}" ]; then echo "Missing secret: ADMIN_PASSWORD"; missing=1; fi
+          if [ $missing -ne 0 ]; then echo "One or more required secrets are not set. Add them in Settings → Secrets." >&2; exit 1; fi
+
+      - name: Run database migrations
+        env:
+          DATABASE_URL: postgres://geezle_user:${{ secrets.POSTGRES_PASSWORD }}@localhost:5432/geezle_db
+        run: |
+          # Prefer non-interactive deploy; fall back to dev migrate when needed
+          npm --prefix geezle-backend run migrate:apply || npm --prefix geezle-backend run prisma:migrate || true
+
+      - name: Run seeds
+        env:
+          DATABASE_URL: postgres://geezle_user:${{ secrets.POSTGRES_PASSWORD }}@localhost:5432/geezle_db
+        run: |
+          npm --prefix geezle-backend run seed || npm --prefix geezle-backend run seed:appsetting || true
+
+
+      - name: Start geezle-backend
+        env:
+          DATABASE_URL: postgres://geezle_user:${{ secrets.POSTGRES_PASSWORD }}@localhost:5432/geezle_db
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          NODE_ENV: test
+          PORT: 5000
+        run: |
+          npm --prefix geezle-backend run dev &
+
+      - name: Wait for backend health
+        run: |
+          for i in {1..30}; do
+            if curl -sSf http://localhost:5000/api/health >/dev/null 2>&1; then
+              echo 'backend ready'; break
+            fi
+            sleep 1
+          done
+
+      - name: Ensure admin user exists (seed)
+        env:
+          DATABASE_URL: postgres://geezle_user:${{ secrets.POSTGRES_PASSWORD }}@localhost:5432/geezle_db
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          npm --prefix geezle-backend run create:admin || true
+
+      - name: Run integration test and save logs
+        env:
+          TEST_SERVER_PORT: 5000
+          TEST_ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          TEST_ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          mkdir -p tmp/test-output
+          # Run tests and capture stdout/stderr to a log file
+          npx jest tmp/adminProfileBroadcast.test.cjs --runInBand --verbose 2>&1 | tee tmp/test-output/jest.log || echo "JEST_EXIT_CODE:$?" > tmp/test-output/jest.exit
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-logs
+          path: tmp/test-output

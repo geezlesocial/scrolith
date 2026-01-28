@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import prisma from '../utils/prismaClient';
+import realtime from '../utils/realtime';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_mock_key', {
   apiVersion: '2023-10-16' as any
@@ -26,7 +27,10 @@ export const createAdDraft = async (req: Request, res: Response) => {
     });
 
     const io = (req.app as any).get('io');
+    const communityIo = (req.app as any).get('communityIo');
     try { io?.emit('community:ad_created', { ad }); } catch(e){}
+    try { communityIo?.emit('community:ad_created', { ad }); } catch(e){}
+    try { realtime.emitToAd(ad.id, 'community:ad_created', { ad }); } catch (e) {}
 
     return res.json({ success: true, data: ad });
   } catch (error: any) {
@@ -68,6 +72,8 @@ export const payAd = async (req: Request, res: Response) => {
       const io = (req.app as any).get('io');
       try { io?.emit('community:ad_status_updated', { adId, status: 'AWAITING_PAYMENT' }); } catch(e){}
       try { io?.emit('community:ad_payment_initiated', { adId, paymentIntentId: paymentIntent.id }); } catch(e){}
+      try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: 'AWAITING_PAYMENT' }); } catch (e) {}
+      try { realtime.emitToAd(adId, 'community:ad_payment_initiated', { adId, paymentIntentId: paymentIntent.id }); } catch (e) {}
     } catch (err) {
       console.error('Failed to create pending ad payment record:', err);
     }
@@ -96,6 +102,7 @@ export const submitAd = async (req: Request, res: Response) => {
     const updated = await prisma.communityAd.update({ where: { id: adId }, data: { status: 'SUBMITTED_FOR_REVIEW' } });
     const io = (req.app as any).get('io');
     try { io?.emit('community:ad_status_updated', { adId, status: 'SUBMITTED_FOR_REVIEW' }); } catch(e){}
+    try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: 'SUBMITTED_FOR_REVIEW' }); } catch (e) {}
     return res.json({ success: true, data: updated });
   } catch (error: any) {
     console.error('Submit ad error:', error);
@@ -152,6 +159,7 @@ export const approveAd = async (req: Request, res: Response) => {
     await prisma.communityAd.update({ where: { id: adId }, data: { status: 'ACTIVE' } });
     const io = (req.app as any).get('io');
     try { io?.emit('community:ad_status_updated', { adId, status: 'ACTIVE' }); } catch(e){}
+    try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: 'ACTIVE' }); } catch (e) {}
     return res.json({ success: true, data: ad });
   } catch (error: any) {
     console.error('Approve ad error:', error);
@@ -198,6 +206,7 @@ export const rejectAd = async (req: Request, res: Response) => {
     }
     const io = (req.app as any).get('io');
     try { io?.emit('community:ad_status_updated', { adId, status: 'REJECTED' }); } catch(e){}
+    try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: 'REJECTED' }); } catch (e) {}
     return res.json({ success: true });
   } catch (error: any) {
     console.error('Reject ad error:', error);
@@ -211,6 +220,7 @@ export const pauseAd = async (req: Request, res: Response) => {
     const ad = await prisma.communityAd.update({ where: { id: adId }, data: { status: 'PAUSED' } });
     const io = (req.app as any).get('io');
     try { io?.emit('community:ad_status_updated', { adId, status: 'PAUSED' }); } catch(e){}
+    try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: 'PAUSED' }); } catch (e) {}
     return res.json({ success: true, data: ad });
   } catch (error: any) {
     console.error('Pause ad error:', error);
@@ -224,6 +234,7 @@ export const resumeAd = async (req: Request, res: Response) => {
     const ad = await prisma.communityAd.update({ where: { id: adId }, data: { status: 'ACTIVE' } });
     const io = (req.app as any).get('io');
     try { io?.emit('community:ad_status_updated', { adId, status: 'ACTIVE' }); } catch(e){}
+    try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: 'ACTIVE' }); } catch (e) {}
     return res.json({ success: true, data: ad });
   } catch (error: any) {
     console.error('Resume ad error:', error);
@@ -241,6 +252,23 @@ export const getAdsAnalytics = async (_req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Get ads analytics error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load analytics' });
+  }
+};
+
+// Public: list ads available for placement (only ACTIVE/PAID)
+export const getPublicAds = async (req: Request, res: Response) => {
+  try {
+    const roleParam = (req.query.role as string | undefined) || undefined;
+    const where: any = { status: { in: ['ACTIVE', 'PAID'] } };
+    if (roleParam) {
+      // allow filtering by placement or role-based targeting if needed
+      where.placement = roleParam;
+    }
+    const ads = await prisma.communityAd.findMany({ where, orderBy: { createdAt: 'desc' } });
+    return res.json({ success: true, data: ads });
+  } catch (error: any) {
+    console.error('Get public ads error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load ads' });
   }
 };
 
@@ -313,10 +341,37 @@ export const updateAd = async (req: Request, res: Response) => {
     const updated = await prisma.communityAd.update({ where: { id: adId }, data: allowed });
     const io = (req.app as any).get('io');
     try { io?.emit('community:ad_status_updated', { adId, status: updated.status }); } catch(e){}
+    try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: updated.status }); } catch (e) {}
     return res.json({ success: true, data: updated });
   } catch (error: any) {
     console.error('Update ad error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to update ad' });
+  }
+};
+
+// Creator: delete own ad when in deletable statuses
+export const deleteAd = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const adId = req.params.id;
+    const ad = await prisma.communityAd.findUnique({ where: { id: adId } });
+    if (!ad) return res.status(404).json({ success: false, error: 'Ad not found' });
+    if (ad.creatorId !== userId) return res.status(403).json({ success: false, error: 'Forbidden' });
+
+    const deletable = ['DRAFT', 'REJECTED'];
+    if (!deletable.includes((ad.status || '').toString().toUpperCase())) {
+      return res.status(403).json({ success: false, error: 'Ad cannot be deleted in its current status' });
+    }
+
+    await prisma.communityAd.delete({ where: { id: adId } });
+    const io = (req.app as any).get('io');
+    try { io?.emit('community:ad_deleted', { adId }); } catch (e) {}
+    try { realtime.emitToAd(adId, 'community:ad_deleted', { adId }); } catch (e) {}
+    return res.json({ success: true });
+  } catch (error: any) {
+    console.error('Delete ad error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to delete ad' });
   }
 };
 

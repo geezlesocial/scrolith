@@ -101,7 +101,15 @@ const AppContent = () => {
         link.rel = 'icon';
         document.head.appendChild(link);
       }
-      link.href = settings.faviconUrl;
+      // Append a cache-busting query param so browsers pick up updated favicons
+      try {
+        const url = String(settings.faviconUrl || '');
+        const separator = url.includes('?') ? '&' : '?';
+        const cacheBusted = `${url}${separator}v=${Date.now()}`;
+        link.href = cacheBusted;
+      } catch (e) {
+        link.href = settings.faviconUrl as string;
+      }
     }
   }, [settings?.faviconUrl]);
 

@@ -1486,3 +1486,175 @@ enum AdStatus {
   ENDED
   REJECTED
 }
+
+// Gcoin & Ads Models (Community-scoped)
+
+enum GcoinEventType {
+  VIEW
+  LIKE
+  REPOST
+  SHARE
+}
+
+enum GcoinConversionStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+enum GcoinTransactionDirection {
+  CREDIT
+  DEBIT
+}
+
+model GcoinWallet {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  recipientId  String   @unique
+  balance      Decimal  @default(0)
+  pending      Decimal  @default(0)
+  frozen       Boolean  @default(false)
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  gcoinTransactions GcoinTransaction[]
+  gcoinConversions  GcoinConversionRequest[]
+
+  @@index([recipientId])
+}
+
+model GcoinTransaction {
+  id             String   @id @default(cuid())
+  walletId       String
+  actorId        String?  // who initiated
+  direction      GcoinTransactionDirection
+  amount         Decimal
+  fee            Decimal  @default(0)
+  netAmount      Decimal
+  referenceType  String?
+  referenceId    String?
+  note           String?
+  createdAt      DateTime @default(now())
+
+  wallet GcoinWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  actor  User?       @relation(fields: [actorId], references: [id])
+
+  @@index([walletId])
+  @@index([actorId])
+}
+
+model GcoinEarningEvent {
+  id         String        @id @default(cuid())
+  postId     String
+  actorId    String
+  eventType  GcoinEventType
+  eventKey   String        @unique
+  value      Int           @default(1)
+  awarded    Decimal       @default(0)
+  processed  Boolean       @default(false)
+  createdAt  DateTime      @default(now())
+
+  actor User @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([postId])
+  @@index([actorId])
+}
+
+model GcoinConversionRequest {
+  id             String                 @id @default(cuid())
+  userId         String
+  walletId       String
+  amount         Decimal
+  requestedRate  Decimal?               // optional snapshot
+  status         GcoinConversionStatus  @default(PENDING)
+  payoutMethodId String?
+  adminNote      String?
+  approvedBy     String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet GcoinWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+model GcoinConfig {
+  id                   String   @id @default(cuid())
+  key                  String   @unique
+  viewsUnit            Int      @default(10000)
+  coinPerViewsUnit     Decimal  @default(1)
+  likesUnit            Int      @default(100)
+  coinPerLikesUnit     Decimal  @default(1)
+  repostsUnit          Int      @default(50)
+  coinPerRepostsUnit   Decimal  @default(1)
+  sharesUnit           Int      @default(200)
+  coinPerSharesUnit    Decimal  @default(1)
+  adminFeePercent      Decimal  @default(0.1)
+  transferFeeType      String   @default("percentage")
+  transferFeeValue     Decimal  @default(0)
+  conversionRate       Decimal  @default(0.1)
+  minPayout            Decimal  @default(10)
+  createdById          String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  createdBy User? @relation(fields: [createdById], references: [id])
+}
+
+// Ads models
+model CommunityAd {
+  id             String    @id @default(cuid())
+  userId         String
+  title          String
+  body           String?   @db.Text
+  placement      String
+  targeting      Json?
+  mediaFiles     String[]  @default([])
+  budget         Decimal
+  remainingBudget Decimal  @default(0)
+  cpm            Decimal
+  currency       String   @default("USD")
+  status         AdStatus @default(DRAFT)
+  impressions    Int      @default(0)
+  clicks         Int      @default(0)
+  startAt        DateTime?
+  endAt          DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments AdPayment[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model AdImpressionDaily {
+  id        String   @id @default(cuid())
+  adId      String
+  day       DateTime
+  impressions Int    @default(0)
+  clicks     Int     @default(0)
+
+  ad CommunityAd @relation(fields: [adId], references: [id], onDelete: Cascade)
+  @@unique([adId, day])
+}
+
+model AdPayment {
+  id             String   @id @default(cuid())
+  adId           String
+  transactionId  String?
+  amount         Decimal
+  currency       String   @default("USD")
+  gateway        String?
+  status         String   @default("pending")
+  createdAt      DateTime @default(now())
+
+  ad CommunityAd @relation(fields: [adId], references: [id], onDelete: Cascade)
+  @@index([adId])
+}

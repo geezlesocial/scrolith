@@ -1,6 +1,7 @@
 import express from 'express';
 import { body, query } from 'express-validator';
 import gcoinService from '../../services/gcoinService';
+import realtime from '../../utils/realtime';
 
 const router = express.Router();
 
@@ -33,6 +34,16 @@ router.post('/transfer', [body('amount').exists(), body('toRecipientId').optiona
     if (!userId) return res.status(401).json({ success: false, error: { code: 'UNAUTHORIZED' } });
     const { toRecipientId, toEmail, amount, note, reference } = req.body;
     const result = await gcoinService.transfer(userId, { toRecipientId, toEmail, amount: Number(amount), note, reference });
+
+    // Emit realtime updates to sender and recipient wallets/users
+    try {
+      realtime.emitToWallet(String(userId), 'community:gcoin_balance_updated', { userId, wallet: result.fromWallet, transaction: result.transaction });
+      if (result.toUserId) realtime.emitToWallet(String(result.toUserId), 'community:gcoin_balance_updated', { userId: result.toUserId, wallet: result.toWallet, transaction: result.transaction });
+      // emit a transfer event to both parties
+      realtime.emitToUser(String(userId), 'community:gcoin_transfer', { transaction: result.transaction });
+      if (result.toUserId) realtime.emitToUser(String(result.toUserId), 'community:gcoin_transfer', { transaction: result.transaction });
+    } catch (e) {}
+
     return res.json({ success: true, data: result });
   } catch (e) {
     const msg = (e as any)?.message ?? String(e);
@@ -52,6 +63,14 @@ router.post('/donate', [body('postId').exists(), body('amount').exists()], async
     const recipientWallet = await gcoinService.getWallet(recipientId);
     if (!recipientWallet) await gcoinService.ensureWalletForUser(recipientId);
     const result = await gcoinService.transfer(fromUser, { toRecipientId: recipientWallet?.recipientId, amount: Number(amount), note, reference: { type:'post', id: postId } });
+
+    // Emit donation events: update donor and recipient wallets and notify post room
+    try {
+      realtime.emitToWallet(String(fromUser), 'community:gcoin_balance_updated', { userId: fromUser, wallet: result.fromWallet, transaction: result.transaction });
+      if (recipientWallet?.userId) realtime.emitToWallet(String(recipientWallet.userId), 'community:gcoin_balance_updated', { userId: recipientWallet.userId, wallet: result.toWallet, transaction: result.transaction });
+      realtime.emitToPost(postId, 'community:gcoin_donation', { postId, transaction: result.transaction });
+    } catch (e) {}
+
     return res.json({ success:true, data: result });
   } catch (e: any) { return res.status(400).json({ success:false, error:{code:'ERR', message:e?.message ?? String(e)} }); }
 });
@@ -62,6 +81,13 @@ router.post('/convert/request', [body('amount').exists(), body('payoutMethodId')
     const userId = req.user?.id; if (!userId) return res.status(401).json({ success:false, error:{code:'UNAUTHORIZED'} });
     const { amount, payoutMethodId } = req.body;
     const reqRec = await gcoinService.createConversionRequest(userId, Number(amount), payoutMethodId);
+
+    // Emit conversion request created event to the user's wallet room
+    try {
+      realtime.emitToWallet(String(userId), 'community:gcoin_conversion_requested', { requestId: reqRec.id, status: reqRec.status });
+      realtime.emitToUser(String(userId), 'community:gcoin_conversion_requested', { requestId: reqRec.id, status: reqRec.status });
+    } catch (e) {}
+
     return res.json({ success:true, data: { requestId: reqRec.id, status: reqRec.status } });
   } catch (e: any) { return res.status(500).json({ success:false, error:{code:'ERR_INTERNAL', message:e?.message ?? String(e)} }); }
 });

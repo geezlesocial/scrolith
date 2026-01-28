@@ -9,18 +9,30 @@ describe('Gcoin admin endpoints', () => {
   beforeAll(async () => {
     // ensure wallet exists and has balance
     await prisma.gcoinWallet.deleteMany({ where: { userId: devUserId } });
+    // ensure dev user exists before creating wallet to satisfy foreign key
+    await prisma.user.upsert({ where: { id: devUserId }, update: {}, create: { id: devUserId, email: 'dev@example.com', role: 'USER', isActive: true } });
     await prisma.gcoinWallet.create({ data: { userId: devUserId, recipientId: 'GC-ADMIN-TEST', balance: 100, lifetimeEarned: 100, status: 'active' } });
     // create a pending conversion request directly
     const rec = await prisma.gcoinConversionRequest.create({ data: { userId: devUserId, amountGcoin: 10, amountFiat: 0.1, status: 'pending' } });
     convId = rec.id;
-    // set up a suspicious wallet for fraud report
-    await prisma.gcoinWallet.upsert({ where: { userId: 'suspicious-user' }, update: { fraudScore: 5, status: 'active' }, create: { userId: 'suspicious-user', recipientId: 'GC-SUS', balance: 1, lifetimeEarned: 1, fraudScore: 5, status: 'active' } as any });
+    // set up a unique suspicious user and wallet for fraud report (avoid collisions)
+    const suspiciousId = `suspicious-user-${Date.now()}`;
+    const suspiciousEmail = `suspicious+${Date.now()}@local.dev`;
+    await prisma.user.create({ data: { id: suspiciousId, email: suspiciousEmail, name: 'Suspicious Seed', role: 'USER' } });
+    const recipientId = `GC-SUS-${Date.now()}`;
+    await prisma.gcoinWallet.create({ data: { userId: suspiciousId, recipientId, balance: 1, lifetimeEarned: 1, fraudScore: 5, status: 'active' } as any });
+    // attach to test context for cleanup/assertion
+    (global as any).__suspiciousId = suspiciousId;
   });
 
   afterAll(async () => {
     await prisma.gcoinConversionRequest.deleteMany({ where: { userId: devUserId } });
     await prisma.gcoinWallet.deleteMany({ where: { userId: devUserId } });
-    await prisma.gcoinWallet.deleteMany({ where: { userId: 'suspicious-user' } });
+    const cleanupSuspicious = (global as any).__suspiciousId;
+    if (cleanupSuspicious) {
+      await prisma.gcoinWallet.deleteMany({ where: { userId: cleanupSuspicious } });
+      await prisma.user.deleteMany({ where: { id: cleanupSuspicious } });
+    }
     await prisma.$disconnect();
   });
 
@@ -55,6 +67,9 @@ describe('Gcoin admin endpoints', () => {
     expect(res.body).toHaveProperty('success', true);
     const data = res.body.data;
     expect(Array.isArray(data.suspiciousWallets)).toBe(true);
-    expect(data.suspiciousWallets.find((w: any) => w.userId === 'suspicious-user')).toBeTruthy();
+    // the seeded suspicious wallet should be present with expected userId and fraudScore
+    const expectedId = (global as any).__suspiciousId;
+    expect(expectedId).toBeTruthy();
+    expect(data.suspiciousWallets.find((w: any) => w.userId === expectedId && Number(w.fraudScore) >= 5)).toBeTruthy();
   });
 });

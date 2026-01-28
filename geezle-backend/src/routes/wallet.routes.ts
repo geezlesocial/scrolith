@@ -32,7 +32,9 @@ router.get('/me', authMiddleware, getWallet);
 router.get('/me/transactions', authMiddleware, getTransactions);
 router.get('/me/escrows', authMiddleware, getEscrows);
 router.get('/topup/providers', authMiddleware, listWalletTopupProviders);
-router.post('/topup/initiate', authMiddleware, initiateWalletTopup);
+import { idempotency } from '../middleware/idempotency';
+
+router.post('/topup/initiate', authMiddleware, idempotency(), initiateWalletTopup);
 router.get('/topup/status/:intentId', authMiddleware, getWalletTopupStatus);
 
 // Settings

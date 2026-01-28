@@ -1,0 +1,33 @@
+name: CMS Sanity
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  NODE_ENV: test
+  VITE_API_URL: http://localhost:5000/api
+
+jobs:
+  cms-sanity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run CMS sanity script
+        run: npm run cms:sanity
+        env:
+          VITE_API_URL: ${{ env.VITE_API_URL }}
+          NODE_ENV: ${{ env.NODE_ENV }}

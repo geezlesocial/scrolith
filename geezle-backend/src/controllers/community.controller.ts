@@ -3,14 +3,7 @@ import { PrismaClient, Prisma } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// Extend Request to include user from auth middleware
-interface AuthRequest extends Request {
-  user?: {
-    id: string;
-    email?: string;
-    role?: string;
-  };
-}
+import realtime from '../utils/realtime';
 
 // Safe helper to retrieve the `io` instance from `req.app` without broad `as any` casts
 const getAppIo = (req: Request) => {
@@ -28,7 +21,7 @@ const getAppIo = (req: Request) => {
 };
 
 // Get all threads
-export const getThreads = async (req: AuthRequest, res: Response) => {
+export const getThreads = async (req: Request, res: Response) => {
   try {
     const { category, limit = 50, offset = 0 } = req.query;
 
@@ -116,7 +109,7 @@ export const getThreads = async (req: AuthRequest, res: Response) => {
 };
 
 // Get thread by ID
-export const getThreadById = async (req: AuthRequest, res: Response) => {
+export const getThreadById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -201,7 +194,7 @@ export const getThreadById = async (req: AuthRequest, res: Response) => {
 };
 
 // Create thread
-export const createThread = async (req: AuthRequest, res: Response) => {
+export const createThread = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
@@ -276,6 +269,7 @@ export const createThread = async (req: AuthRequest, res: Response) => {
     } catch (e) {
       console.error('Socket emit error (thread_created):', e);
     }
+    try { realtime.emitToUser(payload.userId, 'community:thread_created', { thread: payload }); } catch(e) {}
 
     return res.json({ success: true, data: payload });
   } catch (error: any) {
@@ -285,7 +279,7 @@ export const createThread = async (req: AuthRequest, res: Response) => {
 };
 
 // Get comments for a thread
-export const getComments = async (req: AuthRequest, res: Response) => {
+export const getComments = async (req: Request, res: Response) => {
   try {
     const { threadId } = req.query;
 
@@ -372,7 +366,7 @@ export const getComments = async (req: AuthRequest, res: Response) => {
 };
 
 // Post comment
-export const postComment = async (req: AuthRequest, res: Response) => {
+export const postComment = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
@@ -447,6 +441,8 @@ export const postComment = async (req: AuthRequest, res: Response) => {
     } catch (e) {
       console.error('Socket emit error (comment_created):', e);
     }
+    try { realtime.emitToUser(payload.userId, 'community:comment_created', { comment: payload }); } catch(e) {}
+    try { realtime.emitToPost(payload.threadId, 'community:comment_created', { comment: payload }); } catch(e) {}
 
     return res.json({ success: true, data: payload });
   } catch (error: any) {
@@ -456,7 +452,7 @@ export const postComment = async (req: AuthRequest, res: Response) => {
 };
 
 // Toggle like
-export const toggleLike = async (req: AuthRequest, res: Response) => {
+export const toggleLike = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
@@ -479,11 +475,13 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
         await prisma.forumLike.delete({ where: { id: existing.id } });
         const io = getAppIo(req);
         try { io?.emit('community:like_toggled', { id, type: 'thread', userId, liked: false }); } catch (e) { console.error('Socket emit error (like_toggled):', e); }
+        try { realtime.emitToUser(userId, 'community:like_toggled', { id, type: 'thread', userId, liked: false }); } catch (e) {}
         return res.json({ success: true, data: { liked: false } });
       } else {
         await prisma.forumLike.create({ data: { userId, threadId: id } });
         const io = getAppIo(req);
         try { io?.emit('community:like_toggled', { id, type: 'thread', userId, liked: true }); } catch (e) { console.error('Socket emit error (like_toggled):', e); }
+        try { realtime.emitToUser(userId, 'community:like_toggled', { id, type: 'thread', userId, liked: true }); } catch (e) {}
         return res.json({ success: true, data: { liked: true } });
       }
     } else if (type === 'comment') {
@@ -500,11 +498,13 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
         await prisma.forumLike.delete({ where: { id: existing.id } });
         const io = getAppIo(req);
         try { io?.emit('community:like_toggled', { id, type: 'comment', userId, liked: false }); } catch (e) { console.error('Socket emit error (like_toggled):', e); }
+        try { realtime.emitToUser(userId, 'community:like_toggled', { id, type: 'comment', userId, liked: false }); } catch (e) {}
         return res.json({ success: true, data: { liked: false } });
       } else {
         await prisma.forumLike.create({ data: { userId, commentId: id } });
         const io = (req.app as any).get('io');
         try { io?.emit('community:like_toggled', { id, type: 'comment', userId, liked: true }); } catch (e) { console.error('Socket emit error (like_toggled):', e); }
+        try { realtime.emitToUser(userId, 'community:like_toggled', { id, type: 'comment', userId, liked: true }); } catch (e) {}
         return res.json({ success: true, data: { liked: true } });
       }
     }
@@ -517,7 +517,7 @@ export const toggleLike = async (req: AuthRequest, res: Response) => {
 };
 
 // Toggle thread pin (admin/moderator only)
-export const toggleThreadPin = async (req: AuthRequest, res: Response) => {
+export const toggleThreadPin = async (req: Request, res: Response) => {
   try {
     if (req.user?.role !== 'ADMIN' && req.user?.role !== 'MODERATOR') {
       return res.status(403).json({ error: 'Forbidden' });
@@ -546,7 +546,7 @@ export const toggleThreadPin = async (req: AuthRequest, res: Response) => {
 };
 
 // Toggle thread lock (admin/moderator only)
-export const toggleThreadLock = async (req: AuthRequest, res: Response) => {
+export const toggleThreadLock = async (req: Request, res: Response) => {
   try {
     if (req.user?.role !== 'ADMIN' && req.user?.role !== 'MODERATOR') {
       return res.status(403).json({ error: 'Forbidden' });
@@ -578,7 +578,7 @@ export const toggleThreadLock = async (req: AuthRequest, res: Response) => {
 };
 
 // Delete thread (admin/moderator or owner)
-export const deleteThread = async (req: AuthRequest, res: Response) => {
+export const deleteThread = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
@@ -617,7 +617,7 @@ export const deleteThread = async (req: AuthRequest, res: Response) => {
 };
 
 // Delete comment (admin/moderator or owner)
-export const deleteComment = async (req: AuthRequest, res: Response) => {
+export const deleteComment = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
@@ -803,6 +803,7 @@ const processThresholds = async (postId: string, io: any) => {
           }});
         });
         try { io?.emit('community:gcoin_award_pending', { postId, metric: chk.type, awardableUnits, totalCoins }); } catch(e){}
+        try { realtime.emitToPost(postId, 'community:gcoin_award_pending', { postId, metric: chk.type, awardableUnits, totalCoins }); } catch(e){}
         continue;
       }
 
@@ -854,11 +855,12 @@ const processThresholds = async (postId: string, io: any) => {
       try {
         io?.emit('community:gcoin_earned', { postId, authorId: post.authorId, metric: chk.type, totalCoins, creatorShare, adminShare });
       } catch(e) { console.error('Socket emit error (gcoin_earned):', e); }
+      try { realtime.emitToPost(postId, 'community:gcoin_earned', { postId, authorId: post.authorId, metric: chk.type, totalCoins, creatorShare, adminShare }); } catch(e) {}
     }
   }
 };
 
-export const postView = async (req: AuthRequest, res: Response) => {
+export const postView = async (req: Request, res: Response) => {
   try {
     const postId = req.params.id;
     const actorId = req.user?.id;
@@ -873,6 +875,7 @@ export const postView = async (req: AuthRequest, res: Response) => {
 
     const io = (req.app as any).get('io');
     try { io?.emit('community:post_metrics_updated', { postId, metric: 'view' }); } catch(e){}
+    try { realtime.emitToPost(postId, 'community:post_metrics_updated', { postId, metric: 'view' }); } catch(e){}
 
     // process thresholds asynchronously but don't block response
     processThresholds(postId, io).catch(e => console.error('Threshold processing error:', e));
@@ -884,7 +887,7 @@ export const postView = async (req: AuthRequest, res: Response) => {
   }
 };
 
-export const postShare = async (req: AuthRequest, res: Response) => {
+export const postShare = async (req: Request, res: Response) => {
   try {
     const postId = req.params.id;
     const actorId = req.user?.id;
@@ -899,6 +902,7 @@ export const postShare = async (req: AuthRequest, res: Response) => {
 
     const io = (req.app as any).get('io');
     try { io?.emit('community:post_metrics_updated', { postId, metric: 'share' }); } catch(e){}
+    try { realtime.emitToPost(postId, 'community:post_metrics_updated', { postId, metric: 'share' }); } catch(e){}
 
     processThresholds(postId, io).catch(e => console.error('Threshold processing error:', e));
 
@@ -909,7 +913,7 @@ export const postShare = async (req: AuthRequest, res: Response) => {
   }
 };
 
-export const postRepost = async (req: AuthRequest, res: Response) => {
+export const postRepost = async (req: Request, res: Response) => {
   try {
     const postId = req.params.id;
     const actorId = req.user?.id;
@@ -923,6 +927,7 @@ export const postRepost = async (req: AuthRequest, res: Response) => {
 
     const io = (req.app as any).get('io');
     try { io?.emit('community:post_metrics_updated', { postId, metric: 'repost' }); } catch(e){}
+    try { realtime.emitToPost(postId, 'community:post_metrics_updated', { postId, metric: 'repost' }); } catch(e){}
 
     processThresholds(postId, io).catch(e => console.error('Threshold processing error:', e));
 
@@ -933,7 +938,7 @@ export const postRepost = async (req: AuthRequest, res: Response) => {
   }
 };
 
-export const postLike = async (req: AuthRequest, res: Response) => {
+export const postLike = async (req: Request, res: Response) => {
   try {
     const postId = req.params.id;
     const actorId = req.user?.id;
@@ -948,6 +953,7 @@ export const postLike = async (req: AuthRequest, res: Response) => {
 
     const io = (req.app as any).get('io');
     try { io?.emit('community:post_metrics_updated', { postId, metric: 'like' }); } catch(e){}
+    try { realtime.emitToPost(postId, 'community:post_metrics_updated', { postId, metric: 'like' }); } catch(e){}
 
     processThresholds(postId, io).catch(e => console.error('Threshold processing error:', e));
 
@@ -958,7 +964,7 @@ export const postLike = async (req: AuthRequest, res: Response) => {
   }
 };
 
-export const postUnlike = async (req: AuthRequest, res: Response) => {
+export const postUnlike = async (req: Request, res: Response) => {
   try {
     const postId = req.params.id;
     const actorId = req.user?.id;
@@ -974,6 +980,7 @@ export const postUnlike = async (req: AuthRequest, res: Response) => {
 
     const io = (req.app as any).get('io');
     try { io?.emit('community:post_metrics_updated', { postId, metric: 'unlike' }); } catch(e){}
+    try { realtime.emitToPost(postId, 'community:post_metrics_updated', { postId, metric: 'unlike' }); } catch(e){}
 
     return res.json({ success: true });
   } catch (error: any) {
@@ -985,7 +992,7 @@ export const postUnlike = async (req: AuthRequest, res: Response) => {
 // ========== CommunityPost CRUD Endpoints ==========
 
 // Get all community posts (feed)
-export const getPosts = async (req: AuthRequest, res: Response) => {
+export const getPosts = async (req: Request, res: Response) => {
   try {
     const { limit = 50, offset = 0, status = 'active' } = req.query;
     const userId = req.user?.id;
@@ -1069,7 +1076,7 @@ export const getPosts = async (req: AuthRequest, res: Response) => {
 };
 
 // Get single post by ID
-export const getPostById = async (req: AuthRequest, res: Response) => {
+export const getPostById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const userId = req.user?.id;
@@ -1152,7 +1159,7 @@ export const getPostById = async (req: AuthRequest, res: Response) => {
 };
 
 // Create community post
-export const createPost = async (req: AuthRequest, res: Response) => {
+export const createPost = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
@@ -1226,6 +1233,7 @@ export const createPost = async (req: AuthRequest, res: Response) => {
     } catch (e) {
       console.error('Socket emit error (post_created):', e);
     }
+    try { realtime.emitToPost(post.id, 'community:post_created', { post: payload }); } catch (e) {}
 
     return res.json({ success: true, data: payload });
   } catch (error: any) {
@@ -1235,7 +1243,7 @@ export const createPost = async (req: AuthRequest, res: Response) => {
 };
 
 // Update community post
-export const updatePost = async (req: AuthRequest, res: Response) => {
+export const updatePost = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
@@ -1322,6 +1330,7 @@ export const updatePost = async (req: AuthRequest, res: Response) => {
     } catch (e) {
       console.error('Socket emit error (post_updated):', e);
     }
+    try { realtime.emitToPost(updated.id, 'community:post_updated', { post: payload }); } catch (e) {}
 
     return res.json({ success: true, data: payload });
   } catch (error: any) {
@@ -1331,7 +1340,7 @@ export const updatePost = async (req: AuthRequest, res: Response) => {
 };
 
 // Delete community post
-export const deletePost = async (req: AuthRequest, res: Response) => {
+export const deletePost = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) {
@@ -1366,6 +1375,7 @@ export const deletePost = async (req: AuthRequest, res: Response) => {
     } catch (e) {
       console.error('Socket emit error (post_deleted):', e);
     }
+    try { realtime.emitToPost(id, 'community:post_deleted', { postId: id }); } catch (e) {}
 
     return res.json({ success: true });
   } catch (error: any) {

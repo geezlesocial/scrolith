@@ -13,17 +13,27 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 // Registration Controller
 export const register = async (req: Request, res: Response) => {
   try {
-    const { email, name, password, role = 'EMPLOYER' } = req.body; // Default role to EMPLOYER if not provided
+    let { email, name, password, role = 'EMPLOYER' } = req.body; // Default role to EMPLOYER if not provided
+
+    // Normalize inputs
+    email = (email || '').toString().trim().toLowerCase();
+    name = (name || '').toString().trim();
+    role = (role || 'EMPLOYER').toString().trim().toUpperCase();
 
     // Validate input
     if (!email || !name || !password) {
       return res.status(400).json({ error: 'Email, name, and password are required' });
     }
 
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-    });
+    // Validate role - only allow known roles for self-registration
+    const allowedRoles = new Set(['FREELANCER', 'EMPLOYER', 'CLIENT']);
+    if (!allowedRoles.has(role)) {
+      // default to EMPLOYER if invalid
+      role = 'EMPLOYER';
+    }
+
+    // Check if user already exists (email is stored normalized)
+    const existingUser = await prisma.user.findUnique({ where: { email } });
 
     if (existingUser) {
       return res.status(409).json({ error: 'User with this email already exists' });
@@ -33,15 +43,14 @@ export const register = async (req: Request, res: Response) => {
     const saltRounds = 12; // Consider making this configurable
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    // Create the user in the database using the CORRECT field name (passwordHash) and CORRECT syntax
-    // CRITICAL: Wrap the data object with { data: { ... } }
+    // Create the user in the database
     const user = await prisma.user.create({
       data: {
-        email: email,
-        name: name,
+        email,
+        name,
         passwordHash: hashedPassword,
         role: role as PrismaRole,
-        isActive: true, // Use isActive instead of status
+        isActive: true,
         kycStatus: 'PENDING' as PrismaKYCStatus,
       },
     });
@@ -79,21 +88,27 @@ export const register = async (req: Request, res: Response) => {
 // Login Controller
 export const login = async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    let { email, password } = req.body;
+    email = (email || '').toString().trim().toLowerCase();
 
     // Validate input
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // Find user by email
-    const user = await prisma.user.findUnique({
-      where: { email },
-    });
+    // Find user by normalized email
+    const user = await prisma.user.findUnique({ where: { email } });
 
-    // Check if user exists and password is correct - CRITICAL: Compare against passwordHash
-    if (!user || !(await bcrypt.compare(password, user.passwordHash))) { // <--- CORRECTED: Compare against user.passwordHash
+    // Check if user exists and password is correct
+    if (!user || !user.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) {
       return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Update last login timestamp
+    try {
+      await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+    } catch (e) {
+      console.warn('Failed to update lastLoginAt for user', user.id, e);
     }
 
     // Generate JWT token
@@ -111,8 +126,6 @@ export const login = async (req: Request, res: Response) => {
         email: user.email,
         name: user.name,
         role: user.role,
-        // Include other necessary user fields (e.g., avatar, joinDate)
-        // Exclude sensitive fields like passwordHash from the response
       },
       token,
     });

@@ -44,6 +44,22 @@ io.on('connection', (socket) => {
     socket.join(room); // e.g., 'admin_updates', 'user_123'
   });
 
+  // Handle handshake messages from client to map roles -> rooms
+  socket.on('handshake', (payload) => {
+    try {
+      const userId = payload?.userId;
+      const role = (payload?.role || '').toString().toLowerCase();
+      if (userId) {
+        socket.join(`user_${userId}`);
+      }
+      if (role && role.includes('admin')) {
+        socket.join('admins');
+      }
+    } catch (e) {
+      // ignore
+    }
+  });
+
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
   });

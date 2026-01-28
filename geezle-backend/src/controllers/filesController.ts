@@ -407,6 +407,28 @@ export const uploadFile = async (req: Request, res: Response) => {
       created_at: created.createdAt
     });
 
+    // If caller requested this upload to be used as the site's favicon,
+    // create a canonical copy in the uploads folder named starting with 'favicon'.
+    try {
+      const applyAsFavicon = (req.body?.applyAsFavicon || req.body?.asFavicon || req.body?.favicon) as any;
+      if (applyAsFavicon && typeof applyAsFavicon !== 'undefined') {
+        const uploadedPath = req.file.path || path.join(UPLOAD_DIR, req.file.filename);
+        const ext = path.extname(req.file.originalname) || path.extname(req.file.filename) || '.png';
+        const faviconName = `favicon${ext}`;
+        const faviconPath = path.join(UPLOAD_DIR, faviconName);
+        try {
+          fs.copyFileSync(uploadedPath, faviconPath);
+          // Ensure the file is readable
+          fs.chmodSync(faviconPath, 0o644);
+          console.log('✅ Created favicon copy at uploads/', faviconName);
+        } catch (e) {
+          console.warn('Failed to create favicon copy:', e);
+        }
+      }
+    } catch (e) {
+      console.warn('Error while handling favicon copy flag:', e);
+    }
+
     res.json({ success: true, data: toClientFile(responseRecord) });
   } catch (error) {
     console.error('Failed to upload file:', error);
