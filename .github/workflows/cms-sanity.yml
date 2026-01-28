@@ -27,7 +27,7 @@ jobs:
         run: npm ci
 
       - name: Run CMS sanity script (direct)
-        run: node ./geezle/scripts/cms_sanity.cjs
+        run: node ./scripts/cms_sanity.cjs
         env:
           VITE_API_URL: ${{ env.VITE_API_URL }}
           NODE_ENV: ${{ env.NODE_ENV }}
