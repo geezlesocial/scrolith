@@ -17,8 +17,8 @@ jobs:
       - name: Download repository archive
         run: |
           echo "Downloading repo archive for ${{ github.sha }}"
-          mkdir repo
-          curl -L -o repo.tar.gz "https://codeload.github.com/${{ github.repository }}/tar.gz/${{ github.sha }}"
+          mkdir -p repo
+          curl -L -o repo.tar.gz "https://github.com/${{ github.repository }}/archive/${{ github.sha }}.tar.gz"
           tar -xzf repo.tar.gz -C repo --strip-components=1
           ls -la repo | sed -n '1,200p'
         shell: bash
