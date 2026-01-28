@@ -1,3 +1,17 @@
+C:\Projects\geezle>npm run dev
+
+> atmyworks@0.0.0 dev
+> vite
+
+
+  VITE v6.4.1  ready in 752 ms
+
+  ➜  Local:   http://localhost:3000/
+  ➜  Network: http://192.168.1.168:3000/
+  ➜  Network: http://172.19.144.1:3000/
+  ➜  press h + enter to show help
+
+
 const axios = require('axios');
 const { io } = require('socket.io-client');
 
