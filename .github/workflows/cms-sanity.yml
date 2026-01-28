@@ -14,14 +14,11 @@ jobs:
   cms-sanity:
     runs-on: ubuntu-latest
     steps:
-      - name: Download repository archive
-        run: |
-          echo "Downloading repo archive for ${{ github.sha }}"
-          mkdir -p repo
-          curl -L -o repo.tar.gz "https://github.com/${{ github.repository }}/archive/${{ github.sha }}.tar.gz"
-          tar -xzf repo.tar.gz -C repo --strip-components=1
-          ls -la repo | sed -n '1,200p'
-        shell: bash
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          submodules: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -31,11 +28,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-        working-directory: repo
 
       - name: Run CMS sanity script (direct)
         run: node ./scripts/cms_sanity.cjs
-        working-directory: repo
         env:
           VITE_API_URL: ${{ env.VITE_API_URL }}
           NODE_ENV: ${{ env.NODE_ENV }}
