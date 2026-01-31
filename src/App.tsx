@@ -27,6 +27,7 @@ import { DashboardRouter } from './dashboard/DashboardRouter';
 const Landing = React.lazy(() => import('./main/Landing'));
 const Login = React.lazy(() => import('./auth/Login'));
 const Signup = React.lazy(() => import('./auth/Signup'));
+const OAuthCallback = React.lazy(() => import('./auth/OAuthCallback'));
 const BrowseTalent = React.lazy(() => import('./main/BrowseTalent'));
 const BrowseJobs = React.lazy(() => import('./main/BrowseJobs'));
 const SearchResults = React.lazy(() => import('./pages/SearchResults'));
@@ -39,11 +40,16 @@ const Messages = React.lazy(() => import('./messages/Messages'));
 const FreelancerProfile = React.lazy(() => import('./profile/FreelancerProfile'));
 const EditProfile = React.lazy(() => import('./profile/EditProfile'));
 const DeveloperDocs = React.lazy(() => import('./dashboard/DeveloperDocs'));
+const LanguagesAdmin = React.lazy(() => import('./dashboard/admin/Languages'));
 const GigDetail = React.lazy(() => import('./main/GigDetail'));
 const JobDetail = React.lazy(() => import('./main/JobDetail'));
 const Blog = React.lazy(() => import('./pages/Blog'));
 const BlogPost = React.lazy(() => import('./pages/BlogPost'));
 const StaticPage = React.lazy(() => import('./pages/StaticPage'));
+const AnswersPage = React.lazy(() => import('./pages/AnswersPage'));
+const GuidesPage = React.lazy(() => import('./pages/GuidesPage'));
+const HirePage = React.lazy(() => import('./pages/HirePage'));
+const FreelancerPage = React.lazy(() => import('./pages/FreelancerPage'));
 const Support = React.lazy(() => import('./pages/Support'));
 const AffiliateProgram = React.lazy(() => import('./pages/AffiliateProgram'));
 const Favorites = React.lazy(() => import('./pages/Favorites'));
@@ -58,6 +64,8 @@ const Clubs = React.lazy(() => import('./community/Clubs'));
 const Events = React.lazy(() => import('./community/Events'));
 const Chat = React.lazy(() => import('./community/Chat'));
 const Leaderboard = React.lazy(() => import('./community/Leaderboard'));
+const GcoinDash = React.lazy(() => import('./community/GcoinDash'));
+const MyAds = React.lazy(() => import('./pages/MyAds'));
 
 // Error Boundary Component
 type ErrorBoundaryState = { hasError: boolean };
@@ -95,20 +103,104 @@ const AppContent = () => {
 
   // Dynamic Favicon Update
   useEffect(() => {
-    const faviconUrl = settings?.favicon_url || settings?.faviconUrl;
-    if (faviconUrl) {
-      let link = document.querySelector("link[rel*='icon']") as HTMLLinkElement;
-      if (!link) {
-        link = document.createElement('link');
-        link.rel = 'icon';
-        document.head.appendChild(link);
-      }
-      link.href = faviconUrl;
-      console.log('✅ Favicon updated:', faviconUrl);
-    } else {
+    // Try multiple possible keys coming from platform or header config
+    const candidateKeys = [
+      (settings as any)?.favicon_url,
+      (settings as any)?.faviconUrl,
+      (settings as any)?.favicon,
+      (settings as any)?.faviconFile,
+      (settings as any)?.favicon_file,
+      (settings as any)?.favicon_file_id
+    ];
+
+    const faviconUrl = candidateKeys.find(Boolean) as string | undefined;
+
+    if (!faviconUrl) {
       console.warn('⚠️ No favicon URL in settings');
+      return;
     }
-  }, [settings?.favicon_url, settings?.faviconUrl]);
+
+    const updateLinks = (href: string, type?: string) => {
+      // Determine whether the favicon is cross-origin so we only set
+      // `crossOrigin` when necessary (avoids CORS failures for same-origin)
+      const isCrossOrigin = (() => {
+        try {
+          const resolved = new URL(href, window.location.origin);
+          return resolved.origin !== window.location.origin;
+        } catch (e) {
+          return false;
+        }
+      })();
+
+      const selectors = ["link[rel*='icon']", "link[rel='shortcut icon']"];
+      selectors.forEach(sel => {
+        const existing = Array.from(document.querySelectorAll(sel));
+        if (existing.length) {
+          existing.forEach((el: Element) => {
+            const link = el as HTMLLinkElement;
+            link.href = href;
+            if (type) link.type = type;
+            if (isCrossOrigin) link.crossOrigin = 'anonymous'; else link.removeAttribute('crossorigin');
+          });
+        } else if (sel === "link[rel='shortcut icon']") {
+          const l = document.createElement('link');
+          l.rel = 'shortcut icon';
+          l.href = href;
+          if (type) l.type = type;
+          if (isCrossOrigin) l.crossOrigin = 'anonymous';
+          document.head.appendChild(l);
+        }
+      });
+    };
+
+    (async () => {
+      try {
+        const resolved = faviconUrl && (faviconUrl.startsWith('http://') || faviconUrl.startsWith('https://'))
+          ? faviconUrl
+          : new URL(faviconUrl, window.location.origin).toString();
+
+        // Try to fetch to validate resource and determine content-type
+        try {
+          const resp = await fetch(resolved, { method: 'GET', cache: 'no-store' });
+          if (resp.ok) {
+            const contentType = resp.headers.get('content-type') || undefined;
+            const isSvg = contentType?.includes('svg') || resolved.endsWith('.svg');
+            const type = isSvg ? 'image/svg+xml' : contentType || undefined;
+            updateLinks(resolved, type);
+            console.log('✅ Favicon updated:', resolved, 'type=', type);
+            return;
+          }
+          // Throw so we handle non-OK statuses in the catch below
+          throw new Error(`HTTP ${resp.status}`);
+        } catch (fetchErr: any) {
+          // If the resource is a 404, prefer the inline SVG fallback instead of
+          // applying a raw URL which will cause the browser to request a missing
+          // file and spam the console with 404s. For other errors (403, network),
+          // we still attempt to apply the raw URL which may be behind auth/proxy.
+          const is404 = typeof fetchErr === 'string' ? fetchErr.includes('HTTP 404') : (fetchErr?.message || '').includes('HTTP 404') || fetchErr?.status === 404;
+          if (!is404) {
+            try {
+              updateLinks(resolved);
+              console.warn('Favicon fetch failed but applied raw URL:', fetchErr);
+              return;
+            } catch (e) {
+              console.warn('Failed to apply raw favicon URL, will fallback to inline SVG', e);
+            }
+          } else {
+            console.warn('Favicon returned 404; skipping raw URL and using inline fallback', fetchErr);
+          }
+        }
+      } catch (e) {
+        console.warn('Could not resolve favicon URL, using raw value:', faviconUrl, e);
+      }
+
+      // Final fallback: inline SVG data URL
+      const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%230D8ABC'/><text x='50' y='55' font-size='55' text-anchor='middle' fill='white' font-family='Arial,Helvetica,sans-serif'>G</text></svg>`;
+      const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+      updateLinks(dataUrl, 'image/svg+xml');
+      console.warn('Favicon fetch failed, using inline fallback favicon');
+    })();
+  }, [settings]);
 
   // Dynamic title and meta description from platform settings
   useEffect(() => {
@@ -156,8 +248,23 @@ const AppContent = () => {
           }>
             <Routes>
               <Route path="/" element={<Landing />} />
-              <Route path="/auth/login" element={<Login />} />
-              <Route path="/auth/signup" element={<Signup />} />
+              <Route
+                path="/auth/login"
+                element={
+                  <PublicOnlyRoute>
+                    <Login />
+                  </PublicOnlyRoute>
+                }
+              />
+              <Route
+                path="/auth/signup"
+                element={
+                  <PublicOnlyRoute>
+                    <Signup />
+                  </PublicOnlyRoute>
+                }
+              />
+              <Route path="/auth/oauth/callback" element={<OAuthCallback />} />
               
               {/* Browse & Search Pages */}
               <Route path="/browse" element={<BrowseTalent />} />
@@ -171,6 +278,10 @@ const AppContent = () => {
               {/* CMS Pages */}
               <Route path="/blog" element={<Blog />} />
               <Route path="/blog/:slug" element={<BlogPost />} />
+              <Route path="/answers" element={<AnswersPage />} />
+              <Route path="/guides" element={<GuidesPage />} />
+              <Route path="/hire" element={<HirePage />} />
+              <Route path="/freelancer" element={<FreelancerPage />} />
               <Route path="/p/:slug" element={<StaticPage />} />
               
               {/* Support Page */}
@@ -179,17 +290,32 @@ const AppContent = () => {
               {/* Affiliate Program */}
               <Route path="/affiliate-program" element={<AffiliateProgram />} />
               
-              {/* Community Platform Routes */}
-              <Route path="/community" element={<CommunityLayout />}>
-                  <Route index element={<CommunityHome />} />
-                  <Route path="forum" element={<Forum />} />
-                  <Route path="thread/:id" element={<ThreadDetail />} />
-                  <Route path="chat" element={<Chat />} />
-                  <Route path="clubs" element={<Clubs />} />
-                  <Route path="events" element={<Events />} />
-                  <Route path="leaderboard" element={<Leaderboard />} />
-                  <Route path="content" element={<div className="p-12 text-center text-gray-500">Knowledge Hub Coming Soon</div>} />
+              {/* Community Platform Routes (auth required) */}
+              <Route
+                path="/community"
+                element={
+                  <ProtectedRoute>
+                    <CommunityLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<CommunityHome />} />
+                <Route path="forum" element={<Forum />} />
+                <Route path="thread/:id" element={<ThreadDetail />} />
+                <Route path="gcoin" element={<GcoinDash />} />
+                <Route path="chat" element={<Chat />} />
+                <Route path="clubs" element={<Clubs />} />
+                <Route path="events" element={<Events />} />
+                <Route path="leaderboard" element={<Leaderboard />} />
+                <Route path="content" element={<div className="p-12 text-center text-gray-500">Knowledge Hub Coming Soon</div>} />
               </Route>
+
+              {/* My Ads - user-owned ads */}
+              <Route path="/my-ads" element={
+                <ProtectedRoute>
+                  <MyAds />
+                </ProtectedRoute>
+              } />
               
               {/* Profiles */}
               <Route path="/profile/:id" element={<FreelancerProfile />} />
@@ -239,12 +365,22 @@ const AppContent = () => {
                   </ProtectedRoute>
                 } 
               />
+              <Route
+                path="/admin/settings/languages"
+                element={
+                  <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                    <React.Suspense fallback={<div>Loading...</div>}>
+                      <LanguagesAdmin />
+                    </React.Suspense>
+                  </ProtectedRoute>
+                }
+              />
               
-              {/* Freelancer Routes */}
+              {/* Freelancer Routes (allow any authenticated user to view; dashboard will respect `as` query) */}
               <Route
                 path="/freelancer/dashboard/*"
                 element={
-                    <ProtectedRoute allowedRoles={[UserRole.FREELANCER]}>
+                    <ProtectedRoute>
                       <DashboardRouter />
                     </ProtectedRoute>
                 }
@@ -262,7 +398,7 @@ const AppContent = () => {
                 <Route
                   path="/client/dashboard/*"
                   element={
-                      <ProtectedRoute allowedRoles={[UserRole.EMPLOYER]}>
+                      <ProtectedRoute>
                         <DashboardRouter />
                       </ProtectedRoute>
                   }
@@ -310,6 +446,38 @@ interface ProtectedRouteProps {
   allowedRoles?: UserRole[];
 }
 
+const resolveDashboardPath = (role?: UserRole | string) => {
+  const normalizedRole = (role || '').toString().toLowerCase() as UserRole;
+  switch (normalizedRole) {
+    case UserRole.ADMIN:
+      return '/admin/dashboard';
+    case UserRole.FREELANCER:
+      return '/freelancer/dashboard';
+    case UserRole.EMPLOYER:
+      return '/client/dashboard';
+    default:
+      return '/';
+  }
+};
+
+const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, isAuthenticated, isLoading } = useUser();
+
+  if (isLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto"></div>
+      </div>
+    );
+  }
+
+  if (isAuthenticated && user) {
+    return <Navigate to={resolveDashboardPath(user.role)} replace />;
+  }
+
+  return <>{children}</>;
+};
+
 // Update the ProtectedRoute component to NOT redirect for homepage
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
   const { user, isAuthenticated, isLoading } = useUser();
@@ -328,18 +496,12 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles 
   }
 
   // If allowedRoles is provided, check if user has the required role
-  if (allowedRoles && !allowedRoles.includes(user.role as UserRole)) {
-    // Only redirect if the current path is NOT the homepage
-    if (location.pathname !== '/') {
-      switch (user.role) {
-        case UserRole.ADMIN:
-          return <Navigate to="/admin/dashboard" replace />;
-        case UserRole.FREELANCER:
-          return <Navigate to="/freelancer/dashboard" replace />;
-        case UserRole.EMPLOYER:
-          return <Navigate to="/client/dashboard" replace />;
-        default:
-          return <Navigate to="/" replace />;
+  if (allowedRoles) {
+    const normalizedRole = (user.role || '').toString().toLowerCase() as UserRole;
+    if (!allowedRoles.includes(normalizedRole)) {
+      // Only redirect if the current path is NOT the homepage
+      if (location.pathname !== '/') {
+        return <Navigate to={resolveDashboardPath(normalizedRole)} replace />;
       }
     }
   }

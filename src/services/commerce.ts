@@ -25,14 +25,30 @@ export const commerceService = {
 
   // Get categories
   async getCategories(): Promise<Category[]> {
-    const response = await api.get("/commerce/categories");
-    const data = unwrap<any>(response);
+    // Try the canonical public endpoint first, fall back to admin-mounted endpoint
+    try {
+      const response = await api.get("/commerce/categories");
+      const data = unwrap<any>(response);
 
-    // Supports multiple backend shapes:
-    // { categories: [...] } OR [...] OR { data: { categories: [...] } }
-    if (Array.isArray(data)) return data as Category[];
-    if (data?.categories && Array.isArray(data.categories)) return data.categories as Category[];
-    if (data?.data?.categories && Array.isArray(data.data.categories)) return data.data.categories as Category[];
+      if (Array.isArray(data)) return data as Category[];
+      if (data?.categories && Array.isArray(data.categories)) return data.categories as Category[];
+      if (data?.data?.categories && Array.isArray(data.data.categories)) return data.data.categories as Category[];
+      // If the canonical endpoint returned an empty/unknown shape, fall through to admin fallback
+    } catch (e) {
+      // ignore and try admin-mounted route below
+    }
+
+    // Fallback: some dev servers mount commerce routes under /api/admin
+    try {
+      const adminResp = await api.get("/admin/commerce/categories");
+      const adminData = unwrap<any>(adminResp);
+      if (Array.isArray(adminData)) return adminData as Category[];
+      if (adminData?.categories && Array.isArray(adminData.categories)) return adminData.categories as Category[];
+      if (adminData?.data?.categories && Array.isArray(adminData.data.categories)) return adminData.data.categories as Category[];
+    } catch (e) {
+      // final fallback: return empty
+    }
+
     return [];
   },
 

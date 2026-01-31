@@ -37,6 +37,16 @@ export default defineConfig({
             })
           }
         }
+        ,
+        // During local dev, forward requests for the root favicon to the backend
+        // so admin-uploaded favicons (served from the backend uploads folder)
+        // are available at /favicon.ico in the dev server.
+        '/favicon.ico': {
+          target: backendTarget,
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path,
+        }
       },
       hmr: {
         clientPort: 3000,

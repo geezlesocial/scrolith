@@ -19,6 +19,7 @@ import MyGigs from './freelancer/MyGigs'; // Integrated
 import FreelancerUploadedFiles from './freelancer/UploadedFiles';
 import MyProposals from './freelancer/MyProposals';
 import { Overview as FreelancerOverview } from './freelancer/Overview';
+import MyAds from '../pages/MyAds';
 import FreelancerReviews from './freelancer/Reviews';
 import FreelancerLikes from './freelancer/Likes';
 import GcoinPanel from './shared/GcoinPanel';
@@ -62,24 +63,33 @@ const FreelancerDashboard = () => {
 
     if (!user) return null;
 
-    const navItems = [
-        { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-        { id: 'growth', label: 'Growth & Upskilling', icon: TrendingUp },
-        { id: 'contracts', label: 'Contracts', icon: Clock },
-        { id: 'gigs', label: 'My Gigs', icon: Briefcase },
-        { id: 'orders', label: 'Active Orders', icon: FileText },
-        { id: 'proposals', label: 'My Proposals', icon: FileText },
-        { id: 'wallet', label: 'Wallet & Earnings', icon: DollarSign },
-        { id: 'gcoin', label: 'Gcoin', icon: Coins },
-        { id: 'messages', label: 'Messages', icon: MessageSquare },
-        { id: 'support', label: 'Support', icon: LifeBuoy },
-        { id: 'kyc', label: 'KYC', icon: Shield },
-        { id: 'reviews', label: 'Reviews', icon: Star },
-        { id: 'likes', label: 'Likes', icon: Heart },
-        { id: 'uploaded-files', label: 'Uploaded Files', icon: Folder },
+    // Respect optional `?as=` override so admins can view as employer/freelancer
+    const asParam = searchParams.get('as') || '';
+    const isEmployerView = asParam.toLowerCase() === 'employer';
+
+    const freelancerNav = [
         { id: 'profile', label: 'My Profile', icon: User },
+        { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
+        { id: 'post-brief', label: 'Post a project brief', icon: FileText },
+        { id: 'your-briefs', label: 'Your briefs', icon: Folder },
+        { id: 'refer', label: 'Refer a friend', icon: ArrowRight },
+        { id: 'billing', label: 'Billing and payments', icon: DollarSign },
         { id: 'settings', label: 'Settings', icon: Settings },
+        { id: 'sign-out', label: 'Sign Out', icon: LogOut },
     ];
+
+    const employerNav = [
+        { id: 'profile', label: 'Profile', icon: User },
+        { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
+        { id: 'refer', label: 'Refer a friend', icon: ArrowRight },
+        { id: 'account-settings', label: 'Account settings', icon: Lock },
+        { id: 'billing', label: 'Billing and payments', icon: DollarSign },
+        { id: 'currency', label: 'Currency Switcher', icon: Coins },
+        { id: 'settings', label: 'Settings', icon: Settings },
+        { id: 'sign-out', label: 'Sign out', icon: LogOut },
+    ];
+
+    const navItems = isEmployerView ? employerNav : freelancerNav;
 
     return (
         <RealtimeProvider>
@@ -110,6 +120,60 @@ const FreelancerDashboard = () => {
                             icon={item.icon} 
                             active={activeTab === item.id} 
                             onClick={(id: string) => {
+                                if (id === 'sign-out') {
+                                    handleLogout();
+                                    return;
+                                }
+
+                                // Map ids to explicit routes based on view
+                                if (id === 'profile') {
+                                    // Freelancer profile tab
+                                    navigate('/freelancer/dashboard?tab=profile');
+                                    setActiveTab('profile');
+                                    return;
+                                }
+
+                                if (id === 'overview') {
+                                    navigate('/freelancer/dashboard');
+                                    setActiveTab('overview');
+                                    return;
+                                }
+
+                                if (id === 'post-brief') {
+                                    navigate('/create-job');
+                                    return;
+                                }
+
+                                if (id === 'your-briefs') {
+                                    navigate('/client/dashboard?tab=jobs');
+                                    return;
+                                }
+
+                                if (id === 'refer') {
+                                    navigate('/affiliate-program');
+                                    return;
+                                }
+
+                                if (id === 'billing') {
+                                    // If employer view, go to client wallet; else freelancer wallet
+                                    if (isEmployerView) {
+                                        navigate('/client/dashboard?tab=wallet');
+                                    } else {
+                                        navigate('/freelancer/dashboard?tab=wallet');
+                                    }
+                                    return;
+                                }
+
+                                if (id === 'settings') {
+                                    if (isEmployerView) {
+                                        navigate('/client/dashboard?tab=settings');
+                                    } else {
+                                        navigate('/freelancer/dashboard?tab=settings');
+                                    }
+                                    return;
+                                }
+
+                                // Fallback: navigate to a dashboard sub-route
                                 setActiveTab(id as unknown as typeof activeTab);
                                 navigate(`/freelancer/dashboard/${id}`);
                             }} 
@@ -120,9 +184,6 @@ const FreelancerDashboard = () => {
                 <div className="p-4 border-t border-gray-200 space-y-2">
                     <button onClick={switchRole} className="w-full flex items-center px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 rounded-lg transition-colors">
                         <User className="w-4 h-4 mr-3" /> Switch to Buying
-                    </button>
-                    <button onClick={handleLogout} className="w-full flex items-center px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                        <LogOut className="w-4 h-4 mr-3" /> Sign Out
                     </button>
                 </div>
             </aside>
@@ -152,6 +213,7 @@ const FreelancerDashboard = () => {
                     {activeTab === 'wallet' && <WalletModule />}
                     {activeTab === 'gcoin' && <GcoinPanel />}
                     {activeTab === 'profile' && <EditProfile isEmbedded={true} />}
+                    {activeTab === 'my-ads' && <MyAds />}
                     {activeTab === 'settings' && <SettingsModule />}
                 </div>
             </main>

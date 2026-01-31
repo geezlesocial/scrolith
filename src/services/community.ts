@@ -323,6 +323,53 @@ class CommunityService {
     return Array.isArray(data) ? data : [];
   }
 
+  // Community feed posts (CommunityPost)
+  static async getPosts(params?: { limit?: number; offset?: number; status?: string }): Promise<any[]> {
+    const search = new URLSearchParams();
+    if (params?.limit !== undefined) search.set('limit', String(params.limit));
+    if (params?.offset !== undefined) search.set('offset', String(params.offset));
+    if (params?.status) search.set('status', params.status);
+    const endpoint = `/community/posts${search.toString() ? `?${search.toString()}` : ''}`;
+    const data = await this.get(endpoint);
+    return Array.isArray(data) ? data : [];
+  }
+
+  static async createPost(data: { title?: string; content: string; attachments?: string[]; status?: string }): Promise<any> {
+    const payload = {
+      title: data.title,
+      content: data.content,
+      attachments: data.attachments || [],
+      status: data.status || 'active'
+    };
+    const response = await this.post('/community/posts', payload);
+    return response;
+  }
+
+  static async postView(postId: string): Promise<boolean> {
+    const response = await this.post(`/community/posts/${postId}/view`, {});
+    return Boolean(response?.success ?? true);
+  }
+
+  static async postShare(postId: string, platform?: string): Promise<boolean> {
+    const response = await this.post(`/community/posts/${postId}/share`, { platform });
+    return Boolean(response?.success ?? true);
+  }
+
+  static async postRepost(postId: string): Promise<boolean> {
+    const response = await this.post(`/community/posts/${postId}/repost`, {});
+    return Boolean(response?.success ?? true);
+  }
+
+  static async postLike(postId: string): Promise<boolean> {
+    const response = await this.post(`/community/posts/${postId}/like`, {});
+    return Boolean(response?.success ?? true);
+  }
+
+  static async postUnlike(postId: string): Promise<boolean> {
+    const response = await api.delete(`/community/posts/${postId}/like`);
+    return Boolean(response?.data?.success ?? true);
+  }
+
   static async getChannels(): Promise<CommunityChannel[]> {
     try {
       const data = await this.get('/community/channels');
@@ -440,6 +487,16 @@ class CommunityService {
 
   static async saveSettings(settings: Partial<CommunitySettings>): Promise<CommunitySettings> {
     return this.updateSettings(settings);
+  }
+
+  static async getCommunityHomepage(): Promise<any> {
+    const data = await this.get('/community/homepage');
+    return data || {};
+  }
+
+  static async saveCommunityHomepage(config: any): Promise<any> {
+    const response = await api.put('/community/admin/homepage', { data: config });
+    return extractData<any>(response);
   }
 }
 

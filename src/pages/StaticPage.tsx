@@ -1,30 +1,75 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Loader, AlertCircle } from 'lucide-react';
 import { StaticPage as StaticPageType } from '../types';
 import { CMSService } from '../services/cms';
+import { useSocket } from '../context/SocketContext';
 
 const StaticPage = () => {
   const { slug } = useParams<{ slug: string }>();
   const [page, setPage] = useState<StaticPageType | null>(null);
   const [loading, setLoading] = useState(true);
+  const { socket } = useSocket();
+  const slugRef = useRef<string | undefined>(slug);
 
   useEffect(() => {
-    const loadPage = async () => {
-      if (!slug) return;
-      setLoading(true);
-      try {
-        const data = await CMSService.getPageBySlug(slug);
-        setPage(data || null);
-      } catch (error) {
-        console.error("Failed to load page", error);
-      } finally {
-        setLoading(false);
+    slugRef.current = slug;
+  }, [slug]);
+
+  const loadPage = async () => {
+    if (!slugRef.current) return;
+    setLoading(true);
+    try {
+      const data = await CMSService.getPageBySlug(slugRef.current);
+      setPage(data || null);
+    } catch (error) {
+      console.error("Failed to load page", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPage();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug]);
+
+  useEffect(() => {
+    if (!socket) return;
+    const handlePageUpdate = (payload: any) => {
+      const updatedSlug = payload?.slug || payload?.data?.slug;
+      if (!updatedSlug || updatedSlug === slugRef.current) {
+        loadPage();
       }
     };
-    loadPage();
-  }, [slug]);
+    const handlePagesUpdate = () => loadPage();
+    const handlePageDelete = (payload: any) => {
+      const deletedId = payload?.id || payload?.data?.id;
+      if (page?.id && deletedId && deletedId === page.id) {
+        setPage(null);
+      } else {
+        loadPage();
+      }
+    };
+
+    socket.on('cms:page_updated', handlePageUpdate);
+    socket.on('cms:pages_updated', handlePagesUpdate);
+    socket.on('cms:page_deleted', handlePageDelete);
+    return () => {
+      socket.off('cms:page_updated', handlePageUpdate);
+      socket.off('cms:pages_updated', handlePagesUpdate);
+      socket.off('cms:page_deleted', handlePageDelete);
+    };
+  }, [socket, page?.id]);
+
+  useEffect(() => {
+    if (socket) return;
+    const id = window.setInterval(() => {
+      loadPage();
+    }, 60000);
+    return () => window.clearInterval(id);
+  }, [socket]);
 
   return (
     <>

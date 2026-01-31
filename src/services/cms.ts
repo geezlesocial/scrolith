@@ -1,5 +1,6 @@
-import { PlatformSettings, HomepageSection, HomeSlide, HeaderConfig, FooterConfig, TrendingConfig, ActivityConfig, UserRole, HeroSearchConfig, StaticPage, PageCategory, MediaItem, AuthPagesConfig } from '../types';
+import { PlatformSettings, HomepageSection, HomeSlide, HeaderConfig, FooterConfig, TrendingConfig, ActivityConfig, UserRole, HeroSearchConfig, StaticPage, PageCategory, MediaItem, AuthPagesConfig, AnswersPageConfig, GuidesPageConfig, HirePageConfig, FreelancerPageConfig } from '../types';
 import { AdminService } from './admin';
+import { tokenStore } from './tokenStore';
 
 // FIXED: Use relative URL for proxy instead of hardcoded localhost:5000
 // Resolve API base: prefer explicit backend URL in builds, otherwise use proxy '/api' in dev.
@@ -280,11 +281,13 @@ const normalizeNavItem = (item: any) => {
     const label = item.label ?? item.title ?? item.name ?? '';
     const url = item.url ?? item.href ?? item.link ?? '';
     const group = item.group ?? item.section ?? item.menu_group ?? item.menuGroup ?? '';
+    const description = item.description ?? item.subtitle ?? item.tagline ?? '';
     return {
         ...item,
         label,
         url,
         group,
+        description,
         visibility
     };
 };
@@ -312,7 +315,7 @@ const normalizeDropdown = (value: any, fallbackId: string) => {
 };
 
 const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
+    const token = tokenStore.get();
     return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
@@ -410,23 +413,29 @@ const api = {
 };
 
 export const CMSService = {
+    getPublicPlatformSettings: async (): Promise<PlatformSettings> => {
+        const raw = unwrap(await api.get('/cms/platform-settings'));
+        return raw?.data ?? raw ?? {};
+    },
 
     // --- System Settings (Synced Real-Time) ---
     // Prefer the explicit admin platform settings endpoint when available so
     // callers of CMSService.getSettings() receive the same persisted values
     // that AdminService.savePlatformSettings writes to (dev file or DB).
     getSettings: async (): Promise<PlatformSettings> => {
-        // Try platform settings first (this hits /api/admin/platform/settings)
+        // Use admin platform settings only when a token is present
         let platformSource: any = null;
-        try {
-            platformSource = await AdminService.getPlatformSettings();
-        } catch (e) {
-            // ignore - fall back to legacy admin settings endpoint below
-            devWarn('AdminService.getPlatformSettings() failed, falling back to /admin/settings', e);
-            platformSource = null;
+        const hasToken = Boolean(tokenStore.get());
+        if (hasToken) {
+            try {
+                platformSource = await AdminService.getPlatformSettings();
+            } catch (e) {
+                devWarn('AdminService.getPlatformSettings() failed, falling back to public settings', e);
+                platformSource = null;
+            }
         }
 
-        const raw = platformSource ?? unwrap(await api.get('/admin/settings'));
+        const raw = platformSource ?? unwrap(await api.get('/cms/platform-settings'));
         const source = raw?.settings ?? raw?.data?.settings ?? raw ?? {};
 
         const siteName = source.siteName ?? source.site_name ?? 'Geezle';
@@ -1037,6 +1046,171 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             } as unknown as HeaderConfig;
         } catch (error) {
             console.error('Failed to fetch header config:', error);
+            // Try public homepage endpoint as a fallback (some deployments restrict admin endpoints)
+            try {
+                const homepageRaw = unwrap(await api.get('/cms/homepage')) || {};
+                const source = (homepageRaw && (homepageRaw.header || homepageRaw.homepage || homepageRaw)) || {};
+
+                const homeUrl = source.homeUrl ?? source.home_url ?? '/';
+                const searchEnabled = normalizeBoolean(source.searchEnabled ?? source.search_enabled, true);
+                const searchMode = source.searchMode ?? source.search_mode ?? 'keyword';
+                const logoUrl = source.logoUrl ?? source.logo_url ?? source.logo ?? '';
+                const faviconUrl = source.faviconUrl ?? source.favicon_url ?? '';
+
+                const actionsRaw = source.actions || {};
+                const normalizedActions = {
+                    notifications: normalizeBoolean(actionsRaw.notifications, true),
+                    messages: normalizeBoolean(actionsRaw.messages, true),
+                    orders: normalizeBoolean(actionsRaw.orders, true),
+                    lists: normalizeBoolean(actionsRaw.lists, true),
+                    switchSelling: normalizeBoolean(actionsRaw.switchSelling ?? actionsRaw.switch_selling, true),
+                    switch_selling: normalizeBoolean(actionsRaw.switch_selling ?? actionsRaw.switchSelling, true),
+                    profile: normalizeBoolean(actionsRaw.profile, true)
+                };
+
+                const normalizeMenuSource = (value: any) => {
+                    if (Array.isArray(value)) return value;
+                    if (value && typeof value === 'object') return Object.values(value);
+                    return [];
+                };
+
+                const navigationSource = source.navigation ?? source.navItems ?? source.nav_items;
+                const navigation = normalizeMenuSource(navigationSource)
+                    .map(normalizeNavItem)
+                    .filter(Boolean);
+
+                const profileMenuSource = source.profileMenu ?? source.profile_menu ?? source.userMenu ?? source.user_menu;
+                const profileMenu = normalizeMenuSource(profileMenuSource)
+                    .map(normalizeNavItem)
+                    .filter(Boolean);
+
+                const profileGroupLabelsSource =
+                    source.profileMenuGroupLabels ?? source.profile_menu_group_labels ?? source.profile_group_labels ?? {};
+                const profileMenuGroupLabels = {
+                    primary: profileGroupLabelsSource.primary ?? profileGroupLabelsSource.primary_label ?? '',
+                    business_tools:
+                        profileGroupLabelsSource.business_tools ??
+                        profileGroupLabelsSource.businessTools ??
+                        profileGroupLabelsSource.business_tools_label ??
+                        '',
+                    utilities: profileGroupLabelsSource.utilities ?? profileGroupLabelsSource.utilities_label ?? ''
+                };
+
+                const guestPrimaryDropdown = normalizeDropdown(
+                    source.guestPrimaryDropdown ??
+                        source.guest_primary_dropdown ??
+                        source.guestProDropdown ??
+                        source.guest_pro_dropdown,
+                    'guest-primary'
+                );
+
+                const guestExploreDropdown = normalizeDropdown(
+                    source.guestExploreDropdown ??
+                        source.guest_explore_dropdown ??
+                        source.guestExplore ??
+                        source.guest_explore,
+                    'guest-explore'
+                );
+
+                const guestCtasSource =
+                    source.guestCtas ?? source.guest_ctas ?? source.guestActions ?? source.guest_actions;
+                const guestCtas = normalizeMenuSource(guestCtasSource)
+                    .map(normalizeNavItem)
+                    .filter(Boolean);
+
+                const roleSwitchSource = source.roleSwitch ?? source.role_switch ?? source.switchRole ?? {};
+                const roleSwitch = {
+                    buyer_label: roleSwitchSource.buyer_label ?? roleSwitchSource.buyerLabel ?? '',
+                    buyer_url: roleSwitchSource.buyer_url ?? roleSwitchSource.buyerUrl ?? '',
+                    seller_label: roleSwitchSource.seller_label ?? roleSwitchSource.sellerLabel ?? '',
+                    seller_url: roleSwitchSource.seller_url ?? roleSwitchSource.sellerUrl ?? '',
+                    visibility: normalizeRoleList(
+                        roleSwitchSource.visibility ??
+                            roleSwitchSource.roles ??
+                            roleSwitchSource.target_roles ??
+                            roleSwitchSource.visible_to
+                    )
+                };
+
+                return {
+                    ...source,
+                    id: source.id || 'default',
+                    homeUrl,
+                    home_url: homeUrl,
+                    variant: source.variant || 'light',
+                    searchEnabled,
+                    search_enabled: searchEnabled,
+                    searchMode,
+                    search_mode: searchMode,
+                    logoUrl,
+                    logo_url: logoUrl,
+                    faviconUrl,
+                    favicon_url: faviconUrl,
+                    navigation,
+                    actions: normalizedActions,
+                    profileMenu,
+                    profile_menu: profileMenu,
+                    userMenu: profileMenu,
+                    profileMenuGroupLabels: profileMenuGroupLabels,
+                    profile_menu_group_labels: profileMenuGroupLabels,
+                    guestPrimaryDropdown: guestPrimaryDropdown,
+                    guest_primary_dropdown: guestPrimaryDropdown,
+                    guestExploreDropdown: guestExploreDropdown,
+                    guest_explore_dropdown: guestExploreDropdown,
+                    guestCtas: guestCtas,
+                    guest_ctas: guestCtas,
+                    roleSwitch: roleSwitch,
+                    role_switch: roleSwitch
+                } as unknown as HeaderConfig;
+            } catch (e2) {
+                console.error('Failed to fetch public homepage as fallback for header config:', e2);
+                // As a last resort, attempt to read platform settings which include faviconUrl
+                try {
+                    const platformRaw = unwrap(await api.get('/admin/platform/settings')) || {};
+                    const platformData = (platformRaw?.data ?? platformRaw) || {};
+                    const faviconUrl = platformData.faviconUrl ?? platformData.favicon_url ?? '';
+
+                    return {
+                        id: 'default',
+                        homeUrl: '/',
+                        home_url: '/',
+                        variant: 'light',
+                        searchEnabled: true,
+                        search_enabled: true,
+                        searchMode: 'keyword',
+                        search_mode: 'keyword',
+                        logoUrl: platformData.logoUrl ?? platformData.logo_url ?? '',
+                        logo_url: platformData.logoUrl ?? platformData.logo_url ?? '',
+                        faviconUrl,
+                        favicon_url: faviconUrl,
+                        navigation: [],
+                        actions: {
+                            notifications: true,
+                            messages: true,
+                            orders: true,
+                            lists: true,
+                            switchSelling: true,
+                            switch_selling: true,
+                            profile: true
+                        },
+                        profileMenu: [],
+                        profile_menu: [],
+                        userMenu: [],
+                        profileMenuGroupLabels: {},
+                        profile_menu_group_labels: {},
+                        guestPrimaryDropdown: null,
+                        guest_primary_dropdown: null,
+                        guestExploreDropdown: null,
+                        guest_explore_dropdown: null,
+                        guestCtas: [],
+                        guest_ctas: [],
+                        roleSwitch: null,
+                        role_switch: null
+                    } as unknown as HeaderConfig;
+                } catch (e3) {
+                    console.error('Failed to fetch platform settings as fallback for header config:', e3);
+                }
+            }
             return {
                 id: 'default',
                 homeUrl: '/',
@@ -1126,7 +1300,12 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             return res?.data?.data || res?.data || config;
         } catch (error) {
             console.error('Failed to save header config:', error);
-            throw error; // Re-throw so handlers can show error messages
+            // Surface a clearer message for 403 admin access failures
+            const status = error?.response?.status || error?.status;
+            if (status === 403) {
+                throw new Error(`HTTP 403: Admin access required`);
+            }
+            throw error; // Re-throw other errors
         }
     },
 
@@ -1333,9 +1512,31 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
 
     saveTrendingConfig: async (config: TrendingConfig): Promise<TrendingConfig> => {
         try {
-            const res = await api.post(`/cms/trending?role=admin`, config);
-            // Backend returns { success: true, message: '...', data: {...} }
-            return res?.data?.data || res?.data || config;
+            // Some deployments expose the legacy admin-only endpoint but not the newer
+            // canonical `/cms/trending-config` POST. Try the legacy admin POST first
+            // to maximize compatibility, then attempt the canonical endpoint as a
+            // fallback if needed.
+            try {
+                const resLegacy = await api.post(`/cms/trending?role=admin`, config);
+                return resLegacy?.data?.data || resLegacy?.data || config;
+            } catch (legacyErr: any) {
+                // If legacy fails with 404 or similar, try the canonical endpoint
+                let legacyStatus = legacyErr?.response?.status || legacyErr?.status;
+                if (!legacyStatus) {
+                    const msg = String(legacyErr?.message || '');
+                    if (msg.includes('HTTP 404')) legacyStatus = 404;
+                }
+                // Try canonical endpoint regardless of legacyStatus unless it's a permission error
+                try {
+                    const res = await api.post(`/cms/trending-config`, config);
+                    return res?.data?.data || res?.data || config;
+                } catch (err: any) {
+                    // If canonical also fails, surface a combined error so UI can show meaningful message
+                    console.error('Both legacy and canonical trending save endpoints failed', { legacyErr, err });
+                    // Re-throw the canonical error (preferred) so caller sees HTTP status/message
+                    throw err;
+                }
+            }
         } catch (error) {
             console.error('Failed to save trending config:', error);
             throw error; // Re-throw so handlers can show error messages
@@ -1396,8 +1597,9 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
 
     // --- Hero Search Config ---
     getHeroSearchConfig: async () => {
-        const raw = unwrap(await api.get('/cms/hero-search'));
-        const source = raw || {};
+        try {
+            const raw = unwrap(await api.get('/cms/hero-search'));
+            const source = raw || {};
         const now = Date.now();
         const quickTagsSource = source.quickTags ?? source.quick_tags ?? [];
         const quickTags = ensureArray<any>(quickTagsSource)
@@ -1519,8 +1721,8 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             badges
         };
 
-        return {
-            ...source,
+            return {
+                ...source,
             headline: source.headline || source.title || '',
             subheadline: source.subheadline || source.subtitle || '',
             searchPlaceholder: source.searchPlaceholder || source.search_placeholder || '',
@@ -1541,7 +1743,161 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             quick_tags: quickTags,
             trusted_brands: trustedBrands,
             value_prop: valueProp
-        };
+            };
+        } catch (error) {
+            console.error('Failed to fetch hero search config:', error);
+            // Fallback to unified public homepage endpoint
+            try {
+                const homepage = unwrap(await api.get('/cms/homepage')) || {};
+                const source = homepage?.heroSearch ?? homepage?.hero_search ?? homepage;
+                // reuse parsing logic by assigning to raw-like structure
+                const now = Date.now();
+                const quickTagsSource = source.quickTags ?? source.quick_tags ?? [];
+                const quickTags = ensureArray<any>(quickTagsSource)
+                    .map((tag: any, index: number) => {
+                        if (typeof tag === 'string') {
+                            return {
+                                id: `qt-${now}-${index}`,
+                                label: tag,
+                                url: '',
+                                bgColor: ''
+                            };
+                        }
+
+                        const label = tag.label ?? tag.name ?? tag.title ?? '';
+                        const url = tag.url ?? tag.link ?? tag.href ?? '';
+                        return {
+                            id: tag.id || `qt-${now}-${index}`,
+                            label,
+                            url,
+                            bgColor: tag.bgColor || tag.bg_color || tag.color || ''
+                        };
+                    })
+                    .filter((tag: any) => tag.label);
+
+                const trustedBrandsRaw = source.trustedBrands ?? source.trusted_brands ?? {};
+                const trustedBrandsSource = Array.isArray(trustedBrandsRaw) ? { logos: trustedBrandsRaw } : trustedBrandsRaw;
+                const trustedLogos = ensureArray<any>(
+                    trustedBrandsSource.logos ?? trustedBrandsSource.logo ?? trustedBrandsSource.items
+                )
+                    .map((logo: any, index: number) => {
+                        if (typeof logo === 'string') {
+                            return {
+                                id: `logo-${now}-${index}`,
+                                src: logo,
+                                alt: '',
+                                url: '',
+                                clickable: false
+                            };
+                        }
+
+                        return {
+                            id: logo.id || `logo-${now}-${index}`,
+                            src: logo.src || logo.image || '',
+                            alt: logo.alt || logo.name || 'Brand',
+                            url: logo.url || logo.link || '',
+                            clickable: Boolean(logo.clickable ?? false)
+                        };
+                    })
+                    .filter((logo: any) => logo.src);
+
+                const trustedBrands = {
+                    enabled: normalizeBoolean(
+                        trustedBrandsSource.enabled ?? trustedBrandsSource.is_enabled,
+                        trustedLogos.length > 0
+                    ),
+                    title: trustedBrandsSource.title || trustedBrandsSource.heading || '',
+                    logos: trustedLogos
+                };
+
+                const valuePropRaw = source.valueProp ?? source.value_prop ?? {};
+                const valuePropSource = Array.isArray(valuePropRaw) ? { badges: valuePropRaw } : valuePropRaw;
+                const badges = ensureArray<any>(valuePropSource.badges ?? valuePropSource.items)
+                    .map((badge: any, index: number) => {
+                        if (typeof badge === 'string') {
+                            return { id: `badge-${now}-${index}`, label: badge, icon: '' };
+                        }
+
+                        return {
+                            id: badge.id || `badge-${now}-${index}`,
+                            label: badge.label || badge.title || '',
+                            icon: badge.icon || badge.image || ''
+                        };
+                    })
+                    .filter((badge: any) => badge.label);
+
+                const primaryCtaRaw = valuePropSource.primaryCta ?? valuePropSource.primary_cta ?? {};
+                const secondaryCtaRaw = valuePropSource.secondaryCta ?? valuePropSource.secondary_cta ?? {};
+                const hasValuePropContent =
+                    Boolean(valuePropSource.heading || valuePropSource.title) ||
+                    badges.length > 0 ||
+                    Boolean(valuePropSource.primaryCta || valuePropSource.primary_cta || valuePropSource.primary_cta_text) ||
+                    Boolean(valuePropSource.secondaryCta || valuePropSource.secondary_cta || valuePropSource.secondary_cta_text);
+
+                const valueProp = {
+                    enabled: normalizeBoolean(valuePropSource.enabled, hasValuePropContent),
+                    heading: valuePropSource.heading || valuePropSource.title || '',
+                    primaryCta: {
+                        label:
+                            primaryCtaRaw.label ??
+                            primaryCtaRaw.text ??
+                            primaryCtaRaw.title ??
+                            valuePropSource.primaryCtaText ??
+                            valuePropSource.primary_cta_text ??
+                            '',
+                        url:
+                            primaryCtaRaw.url ??
+                            primaryCtaRaw.link ??
+                            valuePropSource.primaryCtaLink ??
+                            valuePropSource.primary_cta_link ??
+                            ''
+                    },
+                    secondaryCta: {
+                        label:
+                            secondaryCtaRaw.label ??
+                            secondaryCtaRaw.text ??
+                            secondaryCtaRaw.title ??
+                            valuePropSource.secondaryCtaText ??
+                            valuePropSource.secondary_cta_text ??
+                            '',
+                        url:
+                            secondaryCtaRaw.url ??
+                            secondaryCtaRaw.link ??
+                            valuePropSource.secondaryCtaLink ??
+                            valuePropSource.secondary_cta_link ??
+                            ''
+                    },
+                    badges
+                };
+
+                return {
+                    ...source,
+                    headline: source.headline || source.title || '',
+                    subheadline: source.subheadline || source.subtitle || '',
+                    searchPlaceholder: source.searchPlaceholder || source.search_placeholder || '',
+                    searchSize: source.searchSize || source.search_size || 'large',
+                    searchButtonLabel: source.searchButtonLabel || source.search_button_label || '',
+                    search_button_label: source.searchButtonLabel || source.search_button_label || '',
+                    searchButtonAriaLabel: source.searchButtonAriaLabel || source.search_button_aria_label || '',
+                    search_button_aria_label: source.searchButtonAriaLabel || source.search_button_aria_label || '',
+                    searchResultsUrl: source.searchResultsUrl || source.search_results_url || '',
+                    search_results_url: source.searchResultsUrl || source.search_results_url || '',
+                    aiBadgeLabel: source.aiBadgeLabel || source.ai_badge_label || '',
+                    ai_badge_label: source.aiBadgeLabel || source.ai_badge_label || '',
+                    aiBadgeDescription: source.aiBadgeDescription || source.ai_badge_description || '',
+                    ai_badge_description: source.aiBadgeDescription || source.ai_badge_description || '',
+                    quickTags,
+                    trustedBrands,
+                    valueProp,
+                    quick_tags: quickTags,
+                    trusted_brands: trustedBrands,
+                    value_prop: valueProp
+                };
+            } catch (fallbackError) {
+                console.error('Failed to fallback hero search config from homepage:', fallbackError);
+                return {} as any;
+            }
+        }
     },
     saveHeroSearchConfig: async (c: any) => {
         const sizeRaw = c?.search_size ?? c?.searchSize;
@@ -1565,7 +1921,16 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 ? { ai_badge_description: aiBadgeDescription, aiBadgeDescription }
                 : {})
         };
-        return api.post('/cms/hero-search', payload);
+        try {
+            return await api.post('/cms/hero-search', payload);
+        } catch (error) {
+            console.error('Failed to save hero search config:', error);
+            const status = error?.response?.status || error?.status;
+            if (status === 403) {
+                throw new Error(`HTTP 403: Admin access required`);
+            }
+            throw error;
+        }
     },
 
     // --- Auth Pages Config ---
@@ -1585,6 +1950,90 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             return (data || config) as unknown as AuthPagesConfig;
         } catch (error) {
             console.error('Failed to save auth pages config:', error);
+            throw error;
+        }
+    },
+
+    // --- Answers Page Config ---
+    getAnswersPageConfig: async (): Promise<AnswersPageConfig | null> => {
+        try {
+            const data = unwrap(await api.get('/cms/answers'));
+            return (data?.data || data) as AnswersPageConfig;
+        } catch (error) {
+            console.error('Failed to fetch answers page config:', error);
+            return null;
+        }
+    },
+
+    saveAnswersPageConfig: async (config: AnswersPageConfig): Promise<AnswersPageConfig> => {
+        try {
+            const data = unwrap(await api.post('/cms/answers', { data: config }));
+            return (data?.data || data || config) as AnswersPageConfig;
+        } catch (error) {
+            console.error('Failed to save answers page config:', error);
+            throw error;
+        }
+    },
+
+    // --- Guides Page Config ---
+    getGuidesPageConfig: async (): Promise<GuidesPageConfig | null> => {
+        try {
+            const data = unwrap(await api.get('/cms/guides'));
+            return (data?.data || data) as GuidesPageConfig;
+        } catch (error) {
+            console.error('Failed to fetch guides page config:', error);
+            return null;
+        }
+    },
+
+    saveGuidesPageConfig: async (config: GuidesPageConfig): Promise<GuidesPageConfig> => {
+        try {
+            const data = unwrap(await api.post('/cms/guides', { data: config }));
+            return (data?.data || data || config) as GuidesPageConfig;
+        } catch (error) {
+            console.error('Failed to save guides page config:', error);
+            throw error;
+        }
+    },
+
+    // --- Hire Page Config ---
+    getHirePageConfig: async (): Promise<HirePageConfig | null> => {
+        try {
+            const data = unwrap(await api.get('/cms/hire'));
+            return (data?.data || data) as HirePageConfig;
+        } catch (error) {
+            console.error('Failed to fetch hire page config:', error);
+            return null;
+        }
+    },
+
+    saveHirePageConfig: async (config: HirePageConfig): Promise<HirePageConfig> => {
+        try {
+            const data = unwrap(await api.post('/cms/hire', { data: config }));
+            return (data?.data || data || config) as HirePageConfig;
+        } catch (error) {
+            console.error('Failed to save hire page config:', error);
+            throw error;
+        }
+    },
+
+    // --- Freelancer Page Config ---
+    getFreelancerPageConfig: async (): Promise<FreelancerPageConfig | null> => {
+        try {
+            const data = unwrap(await api.get('/cms/freelancer'));
+            return (data?.data || data) as FreelancerPageConfig;
+        } catch (error) {
+            console.error('Failed to fetch freelancer page config:', error);
+            return null;
+        }
+    },
+
+    saveFreelancerPageConfig: async (config: FreelancerPageConfig): Promise<FreelancerPageConfig> => {
+        try {
+            const data = unwrap(await api.post('/cms/freelancer', { data: config }));
+            return (data?.data || data || config) as FreelancerPageConfig;
+        } catch (error) {
+            console.error('Failed to save freelancer page config:', error);
             throw error;
         }
     },

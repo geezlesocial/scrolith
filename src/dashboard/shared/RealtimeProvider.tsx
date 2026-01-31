@@ -22,7 +22,7 @@ const normalizeRole = (role?: string) => {
 };
 
 export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, isAuthenticated } = useUser();
+  const { user, isAuthenticated, updateAdminProfile, updateUser } = useUser();
   const { socket } = useSocket();
   const [socketConnected, setSocketConnected] = useState(false);
   const pollRef = useRef<number | null>(null);
@@ -100,6 +100,16 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     socket.on('wallet:updated', () => {
       WalletApi.getWalletInfo?.().catch(() => {});
+    });
+
+    // Admin profile updates (from other sessions)
+    socket.on('admin:profile_updated', (payload: any) => {
+      try {
+        if (updateAdminProfile) updateAdminProfile(payload);
+        if (updateUser) updateUser({ name: payload.username || payload.name, email: payload.email, avatar: payload.avatar });
+      } catch (e) {
+        console.warn('Failed to apply remote admin profile update', e);
+      }
     });
 
     socket.on('gigs:status_updated', () => {});

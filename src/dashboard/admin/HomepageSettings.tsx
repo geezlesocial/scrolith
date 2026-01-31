@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { CMSService } from "../../services/cms";
 import { AdminService } from "../../services/admin";
+import api from "../../services/api";
 import { SearchService } from "../../services/search";
 import { AIService } from "../../services/ai/ai.service";
 
@@ -20,6 +21,8 @@ import type {
 import { UserRole } from "../../types";
 
 import { useNotification } from "../../context/NotificationContext";
+import { useContent } from "../../context/ContentContext";
+import { useSocket } from "../../context/SocketContext";
 
 import {
   Eye,
@@ -53,6 +56,29 @@ import {
 } from "lucide-react";
 
 import FilePickerModal from "../shared/FilePickerModal";
+
+// Apply favicon helper: updates <link rel="icon"> and <link rel="shortcut icon"> with cache-bust
+function applyFaviconToDocument(url?: string | null) {
+  try {
+    if (!url) return;
+    const busted = url + (url.includes("?") ? "&v=" : "?v=") + Date.now();
+    const setLink = (rel: string) => {
+      let el = document.querySelector(`link[rel='${rel}']`) as HTMLLinkElement | null;
+      if (!el) {
+        el = document.createElement('link');
+        el.rel = rel;
+        document.head.appendChild(el);
+      }
+      el.href = busted;
+    };
+    setLink('icon');
+    setLink('shortcut icon');
+  } catch (e) {
+    // non-fatal
+    // eslint-disable-next-line no-console
+    console.warn('Failed to apply favicon to document', e);
+  }
+}
 
 // -------------------------
 // Small helpers
@@ -214,27 +240,9 @@ const HomepageSettings = () => {
 
       <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit overflow-x-auto">
         <TabButton id="header" label="Header & Hero" icon={Menu} activeTab={activeTab} setActiveTab={setActiveTab} />
-        <TabButton
-          id="trending"
-          label="Trending Categories"
-          icon={TrendingUp}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-        />
-        <TabButton
-          id="slider"
-          label="Home Slider (Media)"
-          icon={GalleryHorizontal}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-        />
-        <TabButton
-          id="sections"
-          label="Sections Manager"
-          icon={Layers}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-        />
+        <TabButton id="trending" label="Trending Categories" icon={TrendingUp} activeTab={activeTab} setActiveTab={setActiveTab} />
+        <TabButton id="slider" label="Home Slider (Media)" icon={GalleryHorizontal} activeTab={activeTab} setActiveTab={setActiveTab} />
+        <TabButton id="sections" label="Sections Manager" icon={Layers} activeTab={activeTab} setActiveTab={setActiveTab} />
         <TabButton id="footer" label="Footer Builder" icon={Columns} activeTab={activeTab} setActiveTab={setActiveTab} />
         <TabButton id="ai" label="AI Optimization" icon={Cpu} activeTab={activeTab} setActiveTab={setActiveTab} />
         <TabButton id="analytics" label="Analytics" icon={BarChart2} activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -255,6 +263,7 @@ const HomepageSettings = () => {
 
 const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab }: any) => (
   <button
+    data-testid={`tab-${id}`}
     onClick={() => setActiveTab(id)}
     className={`px-4 py-2 text-sm font-medium rounded-md flex items-center transition-all whitespace-nowrap ${
       activeTab === id ? "bg-white shadow text-blue-600" : "text-gray-600 hover:bg-gray-200"
@@ -262,11 +271,13 @@ const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab }: any) => (
   >
     <Icon className="w-4 h-4 mr-2" /> {label}
   </button>
-);// -------------------------
+); // -------------------------
 // 1) Header & Hero Builder
 // -------------------------
 const HeaderBuilder = () => {
   const { showNotification } = useNotification();
+  const { mergeHeaderConfig } = useContent();
+  const { socket } = useSocket();
 
   const [config, setConfig] = useState<HeaderConfig | null>(null);
   const [heroConfig, setHeroConfig] = useState<HeroSearchConfig | null>(null);
@@ -279,6 +290,10 @@ const HeaderBuilder = () => {
   >("main");
 
   const [isSaving, setIsSaving] = useState(false);
+  const autoSaveTimer = useRef<number | null>(null);
+  const lastSaved = useRef<string>('');
+  const hasLoaded = useRef(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   useEffect(() => {
     (async () => {
@@ -287,12 +302,58 @@ const HeaderBuilder = () => {
         const hero = await CMSService.getHeroSearchConfig();
         setConfig(header as unknown as HeaderConfig);
         setHeroConfig(normalizeHeroConfig(hero));
+        lastSaved.current = JSON.stringify(header || {});
+        hasLoaded.current = true;
+        setAutoSaveStatus('idle');
       } catch (e) {
         console.error(e);
         showNotification("error", "Error", "Failed to load header/hero configuration");
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!config || !hasLoaded.current) return;
+    if (subTab !== "nav") return;
+    const next = JSON.stringify(config || {});
+    if (next === lastSaved.current) return;
+    if (autoSaveTimer.current) window.clearTimeout(autoSaveTimer.current);
+    setAutoSaveStatus('saving');
+    autoSaveTimer.current = window.setTimeout(async () => {
+      try {
+        await CMSService.saveHeaderConfig(config);
+        // Immediately apply favicon so admin sees changes without waiting for client re-fetch
+        try {
+          const candidate = (config as any)?.favicon_url || (config as any)?.faviconUrl;
+          applyFaviconToDocument(candidate);
+          // Merge header into global settings so other components pick up new assets
+          try {
+            if (mergeHeaderConfig) mergeHeaderConfig(config as any);
+            try {
+              socket?.emit?.('cms:header_updated', { source: 'admin', timestamp: Date.now() });
+            } catch (e) {
+              /* ignore */
+            }
+          } catch (e) {
+            /* ignore */
+          }
+        } catch (e) {
+          /* ignore */
+        }
+        lastSaved.current = JSON.stringify(config || {});
+        setAutoSaveStatus('saved');
+        window.setTimeout(() => setAutoSaveStatus('idle'), 1200);
+      } catch (e: any) {
+        console.error("Auto-save failed:", e);
+        showNotification("error", "Auto-save failed", e?.message || "Unable to save header config.");
+        setAutoSaveStatus('error');
+        window.setTimeout(() => setAutoSaveStatus('idle'), 2000);
+      }
+    }, 800);
+    return () => {
+      if (autoSaveTimer.current) window.clearTimeout(autoSaveTimer.current);
+    };
+  }, [config, subTab]);
 
   const handleSave = async () => {
     if (!config || !heroConfig) {
@@ -327,7 +388,22 @@ const HeaderBuilder = () => {
       setConfig(updatedHeader as unknown as HeaderConfig);
       setHeroConfig(normalizeHeroConfig(updatedHero));
 
+      // Apply favicon immediately after save and merge header into global settings
+      try {
+        const headerAny: any = updatedHeader || {};
+        const faviconCandidate = headerAny?.favicon_url || headerAny?.faviconUrl;
+        applyFaviconToDocument(faviconCandidate);
+        if (mergeHeaderConfig) await mergeHeaderConfig(headerAny);
+      } catch (e) {
+        // non-fatal
+      }
+
       showNotification("success", "Saved", "Configuration saved successfully! Changes are now live.");
+      try {
+        socket?.emit?.('cms:header_updated', { source: 'admin', timestamp: Date.now() });
+      } catch (e) {
+        /* non-fatal */
+      }
     } catch (error: any) {
       console.error("Save failed:", error);
       showNotification("error", "Error", `Failed to save: ${error?.message || "Unknown error"}`);
@@ -489,6 +565,7 @@ const HeaderBuilder = () => {
         {
           id: `gd-${uid()}`,
           label: "",
+          description: "",
           url: "",
           visibility: [] as any,
         },
@@ -610,6 +687,7 @@ const HeaderBuilder = () => {
     <div className="space-y-6">
       <div className="flex gap-4 border-b border-gray-200 pb-2 mb-4">
         <button
+          data-testid="subtab-nav"
           onClick={() => setSubTab("nav")}
           className={`pb-2 text-sm font-medium flex items-center ${
             subTab === "nav" ? "text-blue-600 border-b-2 border-blue-600" : "text-gray-500"
@@ -618,6 +696,7 @@ const HeaderBuilder = () => {
           <LayoutIcon className="w-4 h-4 mr-2" /> Navigation Bar
         </button>
         <button
+          data-testid="subtab-hero"
           onClick={() => setSubTab("hero")}
           className={`pb-2 text-sm font-medium flex items-center ${
             subTab === "hero" ? "text-blue-600 border-b-2 border-blue-600" : "text-gray-500"
@@ -723,10 +802,101 @@ const HeaderBuilder = () => {
             </div>
           </div>
 
+          <div className="flex items-center justify-between px-4 py-2 bg-gray-50 rounded-lg border border-gray-200">
+            <div className="text-xs text-gray-600">Navigation Bar auto‑save status</div>
+            {autoSaveStatus === 'saving' && <div className="text-xs font-semibold text-blue-600">Saving…</div>}
+            {autoSaveStatus === 'saved' && <div className="text-xs font-semibold text-green-600">Saved ✔</div>}
+            {autoSaveStatus === 'error' && <div className="text-xs font-semibold text-red-600">Save failed</div>}
+            {autoSaveStatus === 'idle' && <div className="text-xs font-semibold text-gray-500">Up to date</div>}
+          </div>
+
+          {/* Right-column quick favicon upload (convenience) */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+            <h4 className="text-sm font-semibold text-gray-800 mb-2">Quick Favicon Upload</h4>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-6 w-6 bg-gray-50 rounded border border-dashed flex items-center justify-center overflow-hidden">
+                  {(config as any).favicon_url ? (
+                    <img src={(config as any).favicon_url} className="h-full object-contain" alt="Favicon" />
+                  ) : (
+                    <span className="text-[8px] text-gray-400">F</span>
+                  )}
+                </div>
+                <div className="text-xs text-gray-500">Upload and apply favicon</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={(el) => { /* placeholder for typing */ }}
+                  id="favicon-direct-input"
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                />
+                <button
+                  onClick={() => {
+                    setTargetLogo("favicon");
+                    setIsFilePickerOpen(true);
+                  }}
+                  className="text-xs bg-gray-100 px-2 py-1 rounded hover:bg-gray-200"
+                >
+                  Upload (modal)
+                </button>
+                <button
+                  onClick={() => document.getElementById('favicon-direct-input')?.click()}
+                  className="text-xs bg-gray-100 px-2 py-1 rounded hover:bg-gray-200"
+                >
+                  Choose File
+                </button>
+              </div>
+            </div>
+            <input
+              id="favicon-direct-input-handler"
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={async (e) => {
+                const file = (e.target as HTMLInputElement).files?.[0];
+                if (!file) return;
+                try {
+                  const form = new FormData();
+                  form.append('file', file);
+                  form.append('role', 'admin');
+                  // Tell backend to also mark this upload as the site's favicon so a canonical
+                  // favicon copy is created server-side for /favicon.ico resolution.
+                  form.append('applyAsFavicon', 'true');
+                  const resp = await api.post('/files/upload', form, {
+                    headers: { 'Content-Type': 'multipart/form-data' }
+                  });
+                  const fileData = resp?.data?.data || resp?.data;
+                  const url = fileData?.url || fileData?.file?.url;
+                  if (url && config) {
+                    const next = { ...(config as any), favicon_url: url, faviconUrl: url } as any;
+                    setConfig(next);
+                    try {
+                      await CMSService.saveHeaderConfig(next as any);
+                      showNotification('success', 'Uploaded', 'Favicon uploaded and saved');
+                    } catch (saveErr) {
+                      console.error('Failed to save header after favicon upload', saveErr);
+                      showNotification('error', 'Save failed', 'Uploaded but failed to save settings');
+                    }
+                  } else {
+                    showNotification('error', 'Upload failed', 'No file URL returned from server');
+                  }
+                } catch (err: any) {
+                  console.error('Favicon upload failed', err);
+                  showNotification('error', 'Upload failed', err?.message || String(err));
+                } finally {
+                  (e.target as HTMLInputElement).value = '';
+                }
+              }}
+            />
+          </div>
+
           <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-gray-900">Navigation Items</h3>
               <button
+                data-testid="nav-add-item"
                 onClick={addNavItem}
                 className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded hover:bg-blue-700 flex items-center"
               >
@@ -742,12 +912,14 @@ const HeaderBuilder = () => {
                 >
                   <div className="flex-1 grid grid-cols-2 gap-2">
                     <input
+                      data-testid={`nav-label-${nav.id}`}
                       className="border rounded px-2 py-1 text-sm"
                       value={nav.label || ""}
                       onChange={(e) => updateNavItem(nav.id, "label", e.target.value)}
                       placeholder="Label"
                     />
                     <input
+                      data-testid={`nav-url-${nav.id}`}
                       className="border rounded px-2 py-1 text-sm text-gray-500"
                       value={nav.url || ""}
                       onChange={(e) => updateNavItem(nav.id, "url", e.target.value)}
@@ -759,6 +931,7 @@ const HeaderBuilder = () => {
                     {[UserRole.GUEST, UserRole.FREELANCER, UserRole.EMPLOYER, UserRole.ADMIN].map((role: any) => (
                       <button
                         key={`${nav.id}-${role}`}
+                        data-testid={`nav-role-${nav.id}-${String(role)}`}
                         onClick={() => toggleNavRole(nav.id, role)}
                         className={`text-[10px] px-2 py-1 rounded uppercase border ${
                           ensureArray<any>(nav.visibility).includes(role)
@@ -816,6 +989,7 @@ const HeaderBuilder = () => {
             <div className="flex justify-between items-center">
               <h3 className="font-bold text-gray-900">Profile Menu Builder</h3>
               <button
+                data-testid="profile-add-item"
                 onClick={addProfileItem}
                 className="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded font-bold hover:bg-blue-100"
               >
@@ -850,6 +1024,7 @@ const HeaderBuilder = () => {
                 >
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
                     <input
+                      data-testid={`profile-label-${item.id}`}
                       className="border rounded px-2 py-1 text-sm"
                       value={item.label || ""}
                       onChange={(e) => updateProfileItem(item.id, "label", e.target.value)}
@@ -874,6 +1049,7 @@ const HeaderBuilder = () => {
                       <option value="sign_out">Sign Out</option>
                     </select>
                     <input
+                      data-testid={`profile-url-${item.id}`}
                       className="border rounded px-2 py-1 text-sm text-gray-600"
                       value={item.url || ""}
                       onChange={(e) => updateProfileItem(item.id, "url", e.target.value)}
@@ -886,6 +1062,7 @@ const HeaderBuilder = () => {
                     {[UserRole.GUEST, UserRole.FREELANCER, UserRole.EMPLOYER, UserRole.ADMIN].map((role: any) => (
                       <button
                         key={`${item.id}-${role}`}
+                        data-testid={`profile-role-${item.id}-${String(role)}`}
                         onClick={() => toggleProfileRole(item.id, role)}
                         className={`text-[10px] px-2 py-1 rounded uppercase border ${
                           ensureArray<any>(item.visibility).includes(role)
@@ -916,6 +1093,7 @@ const HeaderBuilder = () => {
             <h3 className="font-bold text-gray-900">Role Switch Configuration</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <input
+                data-testid="role-switch-buyer-label"
                 className="border rounded p-2"
                 value={roleSwitchConfig.buyer_label ?? roleSwitchConfig.buyerLabel ?? ""}
                 onChange={(e) =>
@@ -930,6 +1108,7 @@ const HeaderBuilder = () => {
                 placeholder="Buyer switch label"
               />
               <input
+                data-testid="role-switch-buyer-url"
                 className="border rounded p-2 text-gray-600"
                 value={roleSwitchConfig.buyer_url ?? roleSwitchConfig.buyerUrl ?? ""}
                 onChange={(e) =>
@@ -944,6 +1123,7 @@ const HeaderBuilder = () => {
                 placeholder="Buyer switch URL"
               />
               <input
+                data-testid="role-switch-seller-label"
                 className="border rounded p-2"
                 value={roleSwitchConfig.seller_label ?? roleSwitchConfig.sellerLabel ?? ""}
                 onChange={(e) =>
@@ -958,6 +1138,7 @@ const HeaderBuilder = () => {
                 placeholder="Seller switch label"
               />
               <input
+                data-testid="role-switch-seller-url"
                 className="border rounded p-2 text-gray-600"
                 value={roleSwitchConfig.seller_url ?? roleSwitchConfig.sellerUrl ?? ""}
                 onChange={(e) =>
@@ -985,6 +1166,7 @@ const HeaderBuilder = () => {
                   <div className="flex items-center justify-between">
                     <h4 className="font-semibold text-gray-800">{label}</h4>
                     <button
+                      data-testid={`guest-add-item-${dropdownKey}`}
                       onClick={() => addDropdownItem(dropdownKey)}
                       className="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded font-bold hover:bg-blue-100"
                     >
@@ -993,6 +1175,7 @@ const HeaderBuilder = () => {
                   </div>
 
                   <input
+                    data-testid={`guest-dropdown-label-${dropdownKey}`}
                     className="w-full border rounded p-2"
                     value={dropdown.label || ""}
                     onChange={(e) => updateDropdown(dropdownKey, { ...dropdown, label: e.target.value })}
@@ -1003,6 +1186,7 @@ const HeaderBuilder = () => {
                     {[UserRole.GUEST, UserRole.FREELANCER, UserRole.EMPLOYER, UserRole.ADMIN].map((role: any) => (
                       <button
                         key={`${dropdownKey}-${role}`}
+                        data-testid={`guest-dropdown-role-${dropdownKey}-${String(role)}`}
                         onClick={() => toggleDropdownRole(dropdownKey, role)}
                         className={`text-[10px] px-2 py-1 rounded uppercase border ${
                           ensureArray<any>(dropdown.visibility).includes(role)
@@ -1019,13 +1203,22 @@ const HeaderBuilder = () => {
                     {ensureArray<any>(dropdown.items).map((item: any) => (
                       <div key={item.id} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
                         <input
+                          data-testid={`guest-dropdown-item-label-${item.id}`}
                           className="border rounded px-2 py-2 text-sm md:col-span-4"
                           value={item.label || ""}
                           onChange={(e) => updateDropdownItem(dropdownKey, item.id, "label", e.target.value)}
                           placeholder="Label"
                         />
                         <input
-                          className="border rounded px-2 py-2 text-sm text-gray-600 md:col-span-5"
+                          data-testid={`guest-dropdown-item-desc-${item.id}`}
+                          className="border rounded px-2 py-2 text-sm text-gray-600 md:col-span-4"
+                          value={item.description || ""}
+                          onChange={(e) => updateDropdownItem(dropdownKey, item.id, "description", e.target.value)}
+                          placeholder="Tagline / Description"
+                        />
+                        <input
+                          data-testid={`guest-dropdown-item-url-${item.id}`}
+                          className="border rounded px-2 py-2 text-sm text-gray-600 md:col-span-3"
                           value={item.url || ""}
                           onChange={(e) => updateDropdownItem(dropdownKey, item.id, "url", e.target.value)}
                           placeholder="/url"
@@ -1034,6 +1227,7 @@ const HeaderBuilder = () => {
                           {[UserRole.GUEST, UserRole.FREELANCER, UserRole.EMPLOYER].map((role: any) => (
                             <button
                               key={`${item.id}-${role}`}
+                              data-testid={`guest-dropdown-item-role-${item.id}-${String(role)}`}
                               onClick={() => toggleDropdownItemRole(dropdownKey, item.id, role)}
                               className={`text-[10px] px-2 py-1 rounded uppercase border ${
                                 ensureArray<any>(item.visibility).includes(role)
@@ -1046,6 +1240,7 @@ const HeaderBuilder = () => {
                           ))}
                         </div>
                         <button
+                          data-testid={`guest-dropdown-item-remove-${item.id}`}
                           onClick={() => removeDropdownItem(dropdownKey, item.id)}
                           className="text-red-400 hover:text-red-600 p-2 md:col-span-1 justify-self-end"
                           title="Remove"
@@ -1066,6 +1261,7 @@ const HeaderBuilder = () => {
               <div className="flex items-center justify-between">
                 <h4 className="font-semibold text-gray-800">Guest CTAs</h4>
                 <button
+                  data-testid="guest-add-cta"
                   onClick={addGuestCta}
                   className="text-xs bg-blue-50 text-blue-600 px-3 py-1 rounded font-bold hover:bg-blue-100"
                 >
@@ -1077,12 +1273,14 @@ const HeaderBuilder = () => {
                 {getGuestCtas().map((cta: any) => (
                   <div key={cta.id} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
                     <input
+                      data-testid={`guest-cta-label-${cta.id}`}
                       className="border rounded px-2 py-2 text-sm md:col-span-4"
                       value={cta.label || ""}
                       onChange={(e) => updateGuestCta(cta.id, "label", e.target.value)}
                       placeholder="Label"
                     />
                     <input
+                      data-testid={`guest-cta-url-${cta.id}`}
                       className="border rounded px-2 py-2 text-sm text-gray-600 md:col-span-5"
                       value={cta.url || ""}
                       onChange={(e) => updateGuestCta(cta.id, "url", e.target.value)}
@@ -1092,6 +1290,7 @@ const HeaderBuilder = () => {
                       {[UserRole.GUEST, UserRole.FREELANCER, UserRole.EMPLOYER].map((role: any) => (
                         <button
                           key={`${cta.id}-${role}`}
+                          data-testid={`guest-cta-role-${cta.id}-${String(role)}`}
                           onClick={() => toggleGuestCtaRole(cta.id, role)}
                           className={`text-[10px] px-2 py-1 rounded uppercase border ${
                             ensureArray<any>(cta.visibility).includes(role)
@@ -1104,6 +1303,7 @@ const HeaderBuilder = () => {
                       ))}
                     </div>
                     <button
+                      data-testid={`guest-cta-remove-${cta.id}`}
                       onClick={() => removeGuestCta(cta.id)}
                       className="text-red-400 hover:text-red-600 p-2 md:col-span-1 justify-self-end"
                       title="Remove"
@@ -1510,6 +1710,7 @@ const HeaderBuilder = () => {
 
       <div className="flex justify-end pt-4 border-t border-gray-200">
         <button
+          data-testid="header-save-config"
           onClick={handleSave}
           disabled={isSaving}
           className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 shadow-lg flex items-center disabled:opacity-70 disabled:cursor-not-allowed"
@@ -1546,6 +1747,7 @@ const TrendingManager = () => {
   const [catSearch, setCatSearch] = useState("");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const { showNotification } = useNotification();
+  const { socket } = useSocket();
 
   useEffect(() => {
     (async () => {
@@ -1632,12 +1834,32 @@ const TrendingManager = () => {
   const handleSave = async () => {
     if (!config) return;
     try {
-      await CMSService.saveTrendingConfig(config);
+      // Convert admin-only category IDs to stable slugs when saving so
+      // the public site (which uses public category API) can map them.
+      const payload = { ...(config as any) } as any;
+      try {
+        const currentIds = ensureArray<string>((config as any).category_ids);
+        payload.category_ids = currentIds.map((id) => {
+          const match = allCategories.find((c) => String(c.id) === String(id) || String((c as any)._id) === String(id));
+          // Prefer slug when available, otherwise fall back to id so backend keeps something stable
+          return (match && (match.slug || match.id)) ?? String(id);
+        });
+      } catch (e) {
+        // If anything goes wrong transforming IDs, fall back to sending raw config
+        payload.category_ids = (config as any).category_ids || [];
+      }
+
+      await CMSService.saveTrendingConfig(payload);
 
       const updated = await CMSService.getTrendingConfig();
       setConfig(normalizeTrendingConfig(updated));
 
       showNotification("success", "Saved", "Trending categories updated! Changes are now live.");
+      try {
+        socket?.emit?.('cms:trending_config_updated', { source: 'admin', timestamp: Date.now() });
+      } catch (e) {
+        /* non-fatal */
+      }
     } catch (e: any) {
       console.error(e);
       showNotification("error", "Error", `Failed to save trending config: ${e?.message || "Unknown error"}`);

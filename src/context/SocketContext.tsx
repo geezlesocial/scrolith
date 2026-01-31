@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 import { Socket } from 'socket.io-client'
 import { useUser } from './UserContext'
 import { socketService } from '../utils/socket'
+import { tokenStore } from '../services/tokenStore'
 
 export interface SocketContextType {
   socket: Socket | null
@@ -31,12 +32,25 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const handlers: Array<{ ev: string; fn: (...args: any[]) => void }> = [
       { ev: 'community:thread_created', fn: forward('community:thread_created') },
+      { ev: 'community:post_created', fn: forward('community:post_created') },
       { ev: 'community:comment_created', fn: forward('community:comment_created') },
       { ev: 'community:like_toggled', fn: forward('community:like_toggled') },
       { ev: 'community:thread_pinned', fn: forward('community:thread_pinned') },
       { ev: 'community:thread_locked', fn: forward('community:thread_locked') },
       { ev: 'community:thread_deleted', fn: forward('community:thread_deleted') },
       { ev: 'community:comment_deleted', fn: forward('community:comment_deleted') }
+      ,{ ev: 'community:ad_created', fn: forward('community:ad_created') }
+      ,{ ev: 'community:ad_status_updated', fn: forward('community:ad_status_updated') }
+      ,{ ev: 'community:ad_payment_initiated', fn: forward('community:ad_payment_initiated') }
+      ,{ ev: 'community:ad_metrics_updated', fn: forward('community:ad_metrics_updated') }
+      ,{ ev: 'community:gcoin_transaction_created', fn: forward('community:gcoin_transaction_created') }
+      ,{ ev: 'community:gcoin_balance_updated', fn: forward('community:gcoin_balance_updated') }
+      ,{ ev: 'community:gcoin_settings_updated', fn: forward('community:gcoin_settings_updated') }
+      ,{ ev: 'community:gcoin_conversion_requested', fn: forward('community:gcoin_conversion_requested') }
+      ,{ ev: 'community:gcoin_conversion_processed', fn: forward('community:gcoin_conversion_processed') }
+      ,{ ev: 'community:post_metrics_updated', fn: forward('community:post_metrics_updated') }
+      ,{ ev: 'community:homepage_updated', fn: forward('community:homepage_updated') }
+      ,{ ev: 'community:fiat_balance_updated', fn: forward('community:fiat_balance_updated') }
     ];
 
     handlers.forEach(h => socket.on(h.ev, h.fn));
@@ -83,16 +97,22 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } catch (e) {
       socketUrl = '/'
     }
-    const token = localStorage.getItem('token') || ''
+    const token = tokenStore.get() || ''
 
     socketService.connect({
       url: socketUrl,
+      namespace: '/community',
       userId: user.id,
       role: user.role,
       token,
       onConnect: (connectedSocket) => {
         setIsConnected(true)
         setSocket(connectedSocket)
+        try {
+          connectedSocket.emit('join:wallet', { userId: user.id })
+        } catch (e) {
+          console.warn('Failed to join wallet room', e)
+        }
       },
       onDisconnect: () => {
         setIsConnected(false)

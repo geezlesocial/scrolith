@@ -51,6 +51,18 @@ const mapGcoinSettings = (s: any) => ({
   conversionEnabled: s.conversion_enabled ?? s.conversionEnabled ?? false,
   user_transfers_enabled: s.user_transfers_enabled ?? s.userTransfersEnabled ?? false,
   userTransfersEnabled: s.user_transfers_enabled ?? s.userTransfersEnabled ?? false
+  ,
+  viewsUnit: s.views_unit ?? s.viewsUnit ?? s.viewsUnit ?? 200,
+  likesUnit: s.likes_unit ?? s.likesUnit ?? 30,
+  repostsUnit: s.reposts_unit ?? s.repostsUnit ?? 40,
+  sharesUnit: s.shares_unit ?? s.sharesUnit ?? 50,
+  coinPerViewsUnit: s.coin_per_views_unit ?? s.coinPerViewsUnit ?? s.coinPerViewsUnit ?? 1,
+  coinPerLikesUnit: s.coin_per_likes_unit ?? s.coinPerLikesUnit ?? 1,
+  coinPerRepostsUnit: s.coin_per_reposts_unit ?? s.coinPerRepostsUnit ?? 1,
+  coinPerSharesUnit: s.coin_per_shares_unit ?? s.coinPerSharesUnit ?? 1,
+  adminFeePercent: s.admin_fee_percent ?? s.adminFeePercent ?? 0.1,
+  transferFeeType: s.transfer_fee_type ?? s.transferFeeType ?? 'percentage',
+  transferFeeValue: s.transfer_fee_value ?? s.transferFeeValue ?? 0
 });
 
 const unmapGcoinSettings = (s: any) => ({
@@ -58,6 +70,18 @@ const unmapGcoinSettings = (s: any) => ({
   min_withdrawal: s.minWithdrawal ?? s.min_withdrawal ?? 0,
   conversion_enabled: s.conversionEnabled ?? s.conversion_enabled ?? false,
   user_transfers_enabled: s.userTransfersEnabled ?? s.user_transfers_enabled ?? false
+  ,
+  views_unit: s.viewsUnit ?? s.views_unit,
+  likes_unit: s.likesUnit ?? s.likes_unit,
+  reposts_unit: s.repostsUnit ?? s.reposts_unit,
+  shares_unit: s.sharesUnit ?? s.shares_unit,
+  coin_per_views_unit: s.coinPerViewsUnit ?? s.coin_per_views_unit,
+  coin_per_likes_unit: s.coinPerLikesUnit ?? s.coin_per_likes_unit,
+  coin_per_reposts_unit: s.coinPerRepostsUnit ?? s.coin_per_reposts_unit,
+  coin_per_shares_unit: s.coinPerSharesUnit ?? s.coin_per_shares_unit,
+  admin_fee_percent: s.adminFeePercent ?? s.admin_fee_percent,
+  transfer_fee_type: s.transferFeeType ?? s.transfer_fee_type,
+  transfer_fee_value: s.transferFeeValue ?? s.transfer_fee_value
 });
 
 const mapGcoinConversionRequest = (r: any) => ({
@@ -81,25 +105,45 @@ export const GcoinService = {
     return mapGcoinWallet(extractData<any>(response));
   },
 
+  getMe: async (): Promise<GcoinWallet> => {
+    const response = await api.get('/gcoin/me');
+    const data = extractData<any>(response);
+    return mapGcoinWallet(data?.wallet ?? data);
+  },
+
   getAllWallets: async (): Promise<GcoinWallet[]> => {
     const response = await api.get('/gcoin/wallets');
     const data = extractData<any[]>(response);
     return Array.isArray(data) ? data.map(mapGcoinWallet) : [];
   },
 
-  creditUser: async (identifier: string, amount: number, reason: string): Promise<{ success: boolean; message: string }> => {
-    const response = await api.post('/gcoin/admin/credit', { identifier, amount, reason });
+  creditUser: async (userId: string, amount: number, note?: string): Promise<{ success: boolean; message: string }> => {
+    const response = await api.post('/gcoin/admin/credit', { userId, amount, note });
     return extractData<{ success: boolean; message: string }>(response);
   },
 
   transfer: async (
-    senderId: string,
     recipientIdentifier: string,
     amount: number,
-    note: string
+    note?: string
   ): Promise<{ success: boolean; message: string }> => {
-    const response = await api.post('/gcoin/transfer', { senderId, recipientIdentifier, amount, note });
-    return extractData<{ success: boolean; message: string }>(response);
+    const payload: any = { amount: Number(amount) };
+    if (recipientIdentifier && recipientIdentifier.includes('@')) payload.toEmail = recipientIdentifier;
+    else if (recipientIdentifier) payload.toRecipientId = recipientIdentifier;
+    if (note) payload.note = note;
+    const response = await api.post('/gcoin/transfer', payload);
+    if (response?.data?.success === false) {
+      return { success: false, message: response?.data?.error || 'Transfer failed' };
+    }
+    return { success: true, message: 'Transfer completed' };
+  },
+
+  donate: async (postId: string, amount: number, note?: string): Promise<{ success: boolean; message: string }> => {
+    const response = await api.post('/gcoin/donate', { postId, amount, note });
+    if (response?.data?.success === false) {
+      return { success: false, message: response?.data?.error || 'Donation failed' };
+    }
+    return { success: true, message: 'Donation completed' };
   },
 
   checkAndAward: async (userId: string, type: 'like' | 'repost' | 'share', count: number): Promise<boolean> => {
@@ -127,9 +171,12 @@ export const GcoinService = {
     await api.post('/gcoin/settings', unmapGcoinSettings(settings));
   },
 
-  requestConversion: async (userId: string, amountGcoin: number): Promise<{ success: boolean; message: string }> => {
-    const response = await api.post('/gcoin/conversions', { userId, amountGcoin });
-    return extractData<{ success: boolean; message: string }>(response);
+  requestConversion: async (_userId: string, amountGcoin: number): Promise<{ success: boolean; message: string }> => {
+    const response = await api.post('/gcoin/convert/request', { amount: amountGcoin });
+    if (response?.data?.success === false) {
+      return { success: false, message: response?.data?.error || 'Request failed' };
+    }
+    return { success: true, message: 'Request submitted' };
   },
 
   getConversionRequests: async (): Promise<GcoinConversionRequest[]> => {
@@ -138,8 +185,8 @@ export const GcoinService = {
     return Array.isArray(data) ? data.map(mapGcoinConversionRequest) : [];
   },
 
-  processConversion: async (requestId: string, action: 'approve' | 'reject', adminId: string): Promise<void> => {
-    await api.post(`/gcoin/conversions/${requestId}`, { action, adminId });
+  processConversion: async (requestId: string, action: 'approve' | 'reject', adminId: string, note?: string): Promise<void> => {
+    await api.post(`/gcoin/conversions/${requestId}`, { action, adminId, note });
   },
 
   freezeWallet: async (userId: string): Promise<void> => {
@@ -164,5 +211,15 @@ export const GcoinService = {
     const response = await api.get('/gcoin/admin/transactions');
     const data = extractData<any[]>(response);
     return Array.isArray(data) ? data.map(mapGcoinTransaction) : [];
+  }
+,
+  getAdminSummary: async (): Promise<any> => {
+    const response = await api.get('/gcoin/admin/summary');
+    return extractData<any>(response);
+  }
+,
+  getFraudReports: async (): Promise<any> => {
+    const response = await api.get('/gcoin/admin/fraud');
+    return extractData<any>(response);
   }
 };

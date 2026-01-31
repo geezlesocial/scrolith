@@ -248,3 +248,38 @@ export interface ModerationLog {
   notes?: string;
   severity?: string;
 }
+
+export interface CommunityHomepageSlide {
+  id: string;
+  title?: string;
+  subtitle?: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  ctaLabel?: string;
+  ctaUrl?: string;
+}
+
+export interface CommunityHomepageSection {
+  id: string;
+  type: 'text' | 'image' | 'video' | 'slider';
+  title?: string;
+  body?: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  slides?: CommunityHomepageSlide[];
+}
+
+export interface CommunityHomepageConfig {
+  hero: {
+    title: string;
+    subtitle: string;
+    backgroundImage?: string;
+    backgroundColor?: string;
+  };
+  banner: {
+    enabled: boolean;
+    text: string;
+  };
+  sliders: CommunityHomepageSlide[];
+  sections: CommunityHomepageSection[];
+}

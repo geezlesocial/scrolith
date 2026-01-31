@@ -62,9 +62,10 @@ import {
   RefreshCw
 } from 'lucide-react';
 
-import { User as UserType, UserRole } from '../../types';
+import { User as UserType, UserRole, GcoinWallet } from '../../types';
 import { AdminService } from '../../services/admin';
 import { WalletService } from '../../services/wallet';
+import { GcoinService } from '../../services/gcoin';
 import { useNotification } from '../../context/NotificationContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useUser } from '../../context/UserContext';
@@ -136,6 +137,7 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
   const [subTab, setSubTab] = useState<'users' | 'subscribers' | 'analytics'>('users');
   const [users, setUsers] = useState<UserType[]>([]);
   const [wallets, setWallets] = useState<Wallet[]>([]);
+  const [gcoinWallets, setGcoinWallets] = useState<GcoinWallet[]>([]);
   const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
   const [analytics, setAnalytics] = useState<SubscriberAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
@@ -150,6 +152,10 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
   const [editingUser, setEditingUser] = useState<EditableUser | null>(null);
   const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isAdjustingBalance, setIsAdjustingBalance] = useState(false);
+  const [isAdjustingGcoin, setIsAdjustingGcoin] = useState(false);
+  const [balanceAdjustment, setBalanceAdjustment] = useState({ amount: '', reason: '' });
+  const [gcoinAdjustment, setGcoinAdjustment] = useState({ amount: '', reason: '' });
 
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [bulkAction, setBulkAction] = useState<string>('');
@@ -168,14 +174,16 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     setRefreshing(true);
     setError(null);
     try {
-      const [uData, wData, sData] = await Promise.all([
+      const [uData, wData, sData, gData] = await Promise.all([
         AdminService.getUsers(),
         WalletService.getAllWallets(),
-        AdminService.getSubscribers()
+        AdminService.getSubscribers(),
+        GcoinService.getAllWallets()
       ]);
       setUsers(uData || []);
       setWallets(wData || []);
       setSubscribers(sData || []);
+      setGcoinWallets(gData || []);
       showNotification('success', 'Data Loaded', 'User data refreshed successfully.');
     } catch (error) {
       console.error('Failed to load users/subscribers data:', error);
@@ -202,9 +210,16 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
   };
 
   const getUserWallet = (userId: string) => wallets.find(w => w.userId === userId);
+  const getGcoinWallet = (userId: string) => gcoinWallets.find(w => w.userId === userId || w.user_id === userId);
+  const formatGcoin = (value?: number) => {
+    if (value === undefined || value === null || Number.isNaN(Number(value))) return '—';
+    return Number(value).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+  };
 
   const handleEditUser = (user: UserType) => {
     setEditingUser({ ...user, password: '' });
+    setBalanceAdjustment({ amount: '', reason: '' });
+    setGcoinAdjustment({ amount: '', reason: '' });
     setIsEditModalOpen(true);
   };
 
@@ -225,7 +240,11 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
 
     setIsSaving(true);
     try {
-      await AdminService.updateUserDetail(editingUser.id, editingUser, adminId);
+      const { password, ...userPayload } = editingUser;
+      await AdminService.updateUserDetail(editingUser.id, userPayload, adminId);
+      if (password && password.trim()) {
+        await AdminService.updateUserPassword(editingUser.id, password.trim(), adminId);
+      }
       showNotification('success', 'User Updated', 'User details saved successfully.');
       setIsEditModalOpen(false);
       loadData();
@@ -235,6 +254,48 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
       showNotification('error', 'Update Error', 'Failed to update user details.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleAdjustBalance = async () => {
+    if (!editingUser?.id) return;
+    const amount = Number(balanceAdjustment.amount);
+    if (!Number.isFinite(amount) || amount === 0) {
+      showNotification('warning', 'Invalid Amount', 'Enter a non-zero balance adjustment.');
+      return;
+    }
+    setIsAdjustingBalance(true);
+    try {
+      await WalletService.adminAdjustBalance(editingUser.id, amount, balanceAdjustment.reason || 'Admin adjustment');
+      showNotification('success', 'Balance Updated', 'Wallet balance adjusted successfully.');
+      setBalanceAdjustment({ amount: '', reason: '' });
+      loadData();
+    } catch (error) {
+      console.error('Failed to adjust balance:', error);
+      showNotification('error', 'Adjustment Error', 'Failed to adjust wallet balance.');
+    } finally {
+      setIsAdjustingBalance(false);
+    }
+  };
+
+  const handleAdjustGcoin = async () => {
+    if (!editingUser?.id) return;
+    const amount = Number(gcoinAdjustment.amount);
+    if (!Number.isFinite(amount) || amount === 0) {
+      showNotification('warning', 'Invalid Amount', 'Enter a non-zero Gcoin adjustment.');
+      return;
+    }
+    setIsAdjustingGcoin(true);
+    try {
+      await GcoinService.adminAdjustBalance(editingUser.id, amount, gcoinAdjustment.reason || 'Admin adjustment');
+      showNotification('success', 'Gcoin Updated', 'Gcoin balance adjusted successfully.');
+      setGcoinAdjustment({ amount: '', reason: '' });
+      loadData();
+    } catch (error) {
+      console.error('Failed to adjust Gcoin:', error);
+      showNotification('error', 'Adjustment Error', 'Failed to adjust Gcoin balance.');
+    } finally {
+      setIsAdjustingGcoin(false);
     }
   };
 
@@ -338,6 +399,9 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     u.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     u.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const editingWallet = editingUser?.id ? getUserWallet(editingUser.id) : undefined;
+  const editingGcoinWallet = editingUser?.id ? getGcoinWallet(editingUser.id) : undefined;
 
   if (loading) {
     return (
@@ -470,6 +534,7 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                   <th className="px-6 py-3">Role</th>
                   <th className="px-6 py-3">Status</th>
                   <th className="px-6 py-3">Wallet Balance</th>
+                  <th className="px-6 py-3">Gcoin Balance</th>
                   <th className="px-6 py-3">Joined</th>
                   <th className="px-6 py-3 text-right">Actions</th>
                 </tr>
@@ -477,6 +542,7 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
               <tbody className="divide-y divide-gray-200">
                 {filteredUsers.map(u => {
                   const wallet = getUserWallet(u.id);
+                  const gcoinWallet = getGcoinWallet(u.id);
                   const isSelected = selectedUsers.includes(u.id);
                   const statusValue = String(u.status ?? (u.isActive === false ? 'inactive' : 'active')).toLowerCase();
                   const ru = u as unknown as Record<string, any>;
@@ -514,6 +580,16 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                         <div>
                           <div className="font-medium text-gray-900">{u.name || u.username}</div>
                           <div className="text-xs text-gray-500">{u.email}</div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col">
+                          <span className="font-bold text-gray-900">
+                            {formatGcoin(gcoinWallet?.balance)}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {gcoinWallet?.recipientId || gcoinWallet?.recipient_id || 'No wallet'}
+                          </span>
                         </div>
                       </td>
                       <td className="px-6 py-4 capitalize">
@@ -848,7 +924,7 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
 
       {isEditModalOpen && editingUser && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-xl w-full max-w-md p-6 shadow-2xl">
+          <div className="bg-white rounded-xl w-full max-w-md p-6 shadow-2xl max-h-[85vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-lg">Edit User</h3>
               <button onClick={() => setIsEditModalOpen(false)}>
@@ -903,6 +979,97 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                     <option value="suspended">Suspended</option>
                     <option value="banned">Banned</option>
                   </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Set New Password</label>
+                  <input
+                    type="password"
+                    className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={editingUser.password || ''}
+                    onChange={e => setEditingUser({ ...editingUser, password: e.target.value })}
+                    placeholder="Leave blank to keep current password"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Leave blank if you don't want to change the password.</p>
+                </div>
+              </div>
+              <div className="mt-6 border-t pt-4 space-y-4">
+                <h4 className="text-sm font-semibold text-gray-800">Wallet & Gcoin Management</h4>
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                    <div className="text-xs uppercase text-gray-500">Wallet Balance</div>
+                    <div className="text-lg font-semibold text-gray-900">
+                      {editingWallet ? formatPrice(editingWallet.availableBalance, editingWallet.currency) : '—'}
+                    </div>
+                    {editingWallet && editingWallet.escrowBalance > 0 && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        Escrow: {formatPrice(editingWallet.escrowBalance, editingWallet.currency)}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                    <div className="text-xs uppercase text-gray-500">Gcoin Balance</div>
+                    <div className="text-lg font-semibold text-gray-900">
+                      {formatGcoin(editingGcoinWallet?.balance)}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Recipient ID: {editingGcoinWallet?.recipientId || editingGcoinWallet?.recipient_id || 'Not created'}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium">Adjust Wallet Balance</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={balanceAdjustment.amount}
+                      onChange={e => setBalanceAdjustment({ ...balanceAdjustment, amount: e.target.value })}
+                      placeholder="Use negative amount to debit (e.g., -50)"
+                    />
+                    <input
+                      type="text"
+                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={balanceAdjustment.reason}
+                      onChange={e => setBalanceAdjustment({ ...balanceAdjustment, reason: e.target.value })}
+                      placeholder="Reason (optional)"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAdjustBalance}
+                      disabled={isAdjustingBalance}
+                      className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      {isAdjustingBalance ? 'Adjusting...' : 'Apply Wallet Adjustment'}
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium">Adjust Gcoin Balance</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={gcoinAdjustment.amount}
+                      onChange={e => setGcoinAdjustment({ ...gcoinAdjustment, amount: e.target.value })}
+                      placeholder="Use negative amount to debit (e.g., -25)"
+                    />
+                    <input
+                      type="text"
+                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={gcoinAdjustment.reason}
+                      onChange={e => setGcoinAdjustment({ ...gcoinAdjustment, reason: e.target.value })}
+                      placeholder="Reason (optional)"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAdjustGcoin}
+                      disabled={isAdjustingGcoin}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {isAdjustingGcoin ? 'Adjusting...' : 'Apply Gcoin Adjustment'}
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="flex justify-end gap-3 mt-6">

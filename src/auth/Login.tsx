@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { AuthPagesConfig } from '../types';
+import { Eye, EyeOff } from 'lucide-react';
 import { CMSService } from '../services/cms';
+import AuthSocialButtons from './AuthSocialButtons';
 
 const Login = () => {
   const { login } = useUser(); // Ensure login function accepts email and password only
-  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [authConfig, setAuthConfig] = useState<AuthPagesConfig | null>(null);
@@ -50,6 +51,7 @@ const Login = () => {
 
   const loginContent = authConfig?.login ?? defaultLoginContent;
   const branding = authConfig?.branding ?? defaultBranding;
+  const socialConfig = authConfig?.social_auth;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,11 +63,8 @@ const Login = () => {
       const success = await login(email, password);
       
       if (success) {
-        // The UserContext should now have the correct user role
-        // Redirect based on the role stored in the context
-        // This logic should ideally be handled in the UserContext or App component after login
-        // For now, a simple redirect to home
-        navigate('/');
+        // UserContext handles role-based redirect after login.
+        return;
       } else {
         setError('Invalid credentials');
       }
@@ -96,7 +95,9 @@ const Login = () => {
             </p>
           )}
         </div>
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+        <div className="mt-8 space-y-6">
+          <AuthSocialButtons mode="login" config={socialConfig || undefined} />
+          <form className="space-y-6" onSubmit={handleSubmit}>
           {error && (
             <div className="rounded-md bg-red-50 p-4">
               <div className="text-sm text-red-700">{error}</div>
@@ -119,21 +120,29 @@ const Login = () => {
                 placeholder={loginContent.email_placeholder || 'Email address'}
               />
             </div>
-            <div>
+            <div className="relative">
               <label htmlFor="password" className="sr-only">
                 Password
               </label>
               <input
                 id="password"
                 name="password"
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 autoComplete="current-password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                className="appearance-none rounded-none relative block w-full px-3 py-2 pr-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
                 placeholder={loginContent.password_placeholder || 'Password'}
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(prev => !prev)}
+                className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 hover:text-gray-700"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
             </div>
           </div>
 
@@ -155,7 +164,8 @@ const Login = () => {
               </a>
             </p>
           </div>
-        </form>
+          </form>
+        </div>
       </div>
     </div>
   );

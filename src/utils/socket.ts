@@ -2,6 +2,7 @@ import { io, Socket } from 'socket.io-client'
 
 export type SocketConnectOptions = {
   url: string
+  namespace?: string
   userId: string
   role?: string
   token?: string
@@ -27,7 +28,9 @@ class SocketService {
 
     this.disconnect()
 
-    this.socket = io(options.url, {
+    const namespace = options.namespace ? (options.namespace.startsWith('/') ? options.namespace : `/${options.namespace}`) : ''
+    const socketUrl = `${options.url}${namespace}`
+    this.socket = io(socketUrl, {
       path: '/socket.io',
       transports: ['websocket', 'polling'],
       reconnection: true,

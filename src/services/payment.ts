@@ -42,6 +42,13 @@ export const PaymentService = {
     return gateways;
   },
 
+  getPublicGateways: async (): Promise<PaymentGateway[]> => {
+    const response = await api.get('/wallet/gateways');
+    const data = response?.data?.data ?? response?.data ?? [];
+    gateways = Array.isArray(data) ? data : [];
+    return gateways;
+  },
+
   getAvailableProviders: (currency: string): PaymentGateway[] => {
       return gateways.filter(g => (g.is_enabled ?? g.isEnabled) && ((g.supported_currencies && g.supported_currencies.includes(currency)) || (g.supportedCurrencies && g.supportedCurrencies.includes(currency))));
   },

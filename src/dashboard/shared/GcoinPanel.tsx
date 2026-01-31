@@ -45,6 +45,20 @@ const GcoinPanel = () => {
     load();
   }, [user?.id]);
 
+  useEffect(() => {
+    const onSettings = async () => {
+      if (!user) return;
+      try {
+        const gs = await GcoinService.getSettings();
+        setSettings(gs);
+      } catch (e) {
+        console.error('Failed to refresh gcoin settings', e);
+      }
+    };
+    window.addEventListener('community:gcoin_settings_updated', onSettings as EventListener);
+    return () => window.removeEventListener('community:gcoin_settings_updated', onSettings as EventListener);
+  }, [user?.id]);
+
   const conversionRate = settings?.conversionRate ?? 0;
   const canConvert = Boolean(settings?.conversionEnabled && wallet && wallet.balance > 0);
 

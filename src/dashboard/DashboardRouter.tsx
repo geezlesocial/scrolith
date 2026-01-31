@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { DashboardLayout } from './shared/DashboardLayout';
 import { UserRole } from '../types';
@@ -8,6 +9,8 @@ import { Overview as FreelancerOverview, MyGigs, Orders, Contracts as Freelancer
 import { Overview as EmployerOverview, MyJobs, ProposalsOffers, Contracts as EmployerContracts, UploadedFiles as EmployerUploadedFiles } from './employer';
 import FreelancerReviews from './freelancer/Reviews';
 import FreelancerLikes from './freelancer/Likes';
+import MyAds from '../pages/MyAds';
+import CommunityDashboard from './shared/CommunityDashboard';
 import EmployerFavorites from './employer/Favorites';
 import EmployerReviews from './employer/Reviews';
 import SupportCenter from './shared/SupportCenter';
@@ -15,10 +18,33 @@ import GcoinPanel from './shared/GcoinPanel';
 import MessagesPanel from './shared/MessagesPanel';
 import Favorites from '../pages/Favorites';
 import { KYCVerification } from './shared';
+import EditProfile from '../profile/EditProfile';
+import SettingsModule from './shared/SettingsModule';
 
 export const DashboardRouter: React.FC = () => {
   const { user } = useUser();
   const [currentTab, setCurrentTab] = useState('overview');
+  const location = useLocation();
+
+  // Determine which role view to render: either the user's role or an override via `?as=freelancer|employer`
+  const urlParams = new URLSearchParams(location.search);
+  const asParam = (urlParams.get('as') || urlParams.get('view') || '').toString().toLowerCase();
+
+  const effectiveRole = React.useMemo(() => {
+    // If explicit override provided via query param, honor it
+    if (asParam) {
+      if (asParam.startsWith('f')) return UserRole.FREELANCER;
+      if (asParam.startsWith('e') || asParam.startsWith('c')) return UserRole.EMPLOYER;
+    }
+
+    // If the current route indicates a dashboard type, prefer that view for admins
+    const path = location.pathname || '';
+    if (path.startsWith('/freelancer')) return UserRole.FREELANCER;
+    if (path.startsWith('/client')) return UserRole.EMPLOYER;
+
+    // Default to the user's role or guest
+    return (user?.role as UserRole) || UserRole.GUEST;
+  }, [asParam, user, location.pathname]);
 
   useEffect(() => {
     const handleNavigation = (event: CustomEvent) => {
@@ -41,12 +67,16 @@ export const DashboardRouter: React.FC = () => {
   if (!user) return null;
 
   const renderContent = () => {
-    if (user.role === UserRole.FREELANCER) {
+    if (effectiveRole === UserRole.FREELANCER) {
       switch (currentTab) {
         case 'overview':
           return <FreelancerOverview />;
+        case 'community':
+          return <CommunityDashboard />;
         case 'my-gigs':
           return <MyGigs />;
+        case 'my-ads':
+          return <MyAds />;
         case 'orders':
           return <Orders />;
         case 'contracts':
@@ -55,6 +85,10 @@ export const DashboardRouter: React.FC = () => {
           return <MyProposals />;
         case 'wallet':
           return <WalletModule />;
+        case 'profile':
+          return <EditProfile isEmbedded={true} />;
+        case 'settings':
+          return <SettingsModule />;
         case 'gcoin':
           return <GcoinPanel />;
         case 'messages':
@@ -74,10 +108,14 @@ export const DashboardRouter: React.FC = () => {
         default:
           return <FreelancerOverview />;
       }
-    } else if (user.role === UserRole.EMPLOYER) {
+    } else if (effectiveRole === UserRole.EMPLOYER) {
       switch (currentTab) {
         case 'overview':
           return <EmployerOverview />;
+        case 'community':
+          return <CommunityDashboard />;
+        case 'my-ads':
+          return <MyAds />;
         case 'my-jobs':
           return <MyJobs />;
         case 'proposals-offers':
@@ -86,6 +124,10 @@ export const DashboardRouter: React.FC = () => {
           return <EmployerContracts />;
         case 'wallet':
           return <WalletModule />;
+        case 'profile':
+          return <EditProfile isEmbedded={true} />;
+        case 'settings':
+          return <SettingsModule />;
         case 'gcoin':
           return <GcoinPanel />;
         case 'messages':
@@ -110,6 +152,11 @@ export const DashboardRouter: React.FC = () => {
 
   return (
     <DashboardLayout>
+      {effectiveRole !== user.role && (
+        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-800">
+          Viewing dashboard as <strong>{effectiveRole}</strong>. Use the <code>?as=freelancer</code> or <code>?as=employer</code> query to toggle views, or switch roles in your profile.
+        </div>
+      )}
       {renderContent()}
     </DashboardLayout>
   );

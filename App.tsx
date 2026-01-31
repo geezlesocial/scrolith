@@ -213,50 +213,7 @@ const AppContent = () => {
   );
 };
 
-interface ProtectedRouteProps {
-  children: React.ReactNode;
-  allowedRoles?: UserRole[];
-}
 
-// Replace the ProtectedRoute component in App.tsx with this:
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
-  const { user, isAuthenticated, isLoading } = useUser();
-  const navigate = useNavigate();
-  const location = useLocation();
-  
-  if (isLoading) {
-    return (
-      <div className="h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto"></div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated || !user) {
-    return <Navigate to="/auth/login" />;
-  }
-  
-  if (allowedRoles && !allowedRoles.includes(user.role as UserRole)) {
-    // Redirect admin users to admin dashboard if they're accessing non-admin routes
-    if (user.role === UserRole.ADMIN && !location.pathname.startsWith('/admin')) {
-      navigate('/admin/dashboard');
-      return null;
-    }
-    // Redirect freelancers to freelancer dashboard
-    if (user.role === UserRole.FREELANCER) {
-      navigate('/freelancer/dashboard');
-      return null;
-    }
-    // Redirect employers to client dashboard
-    if (user.role === UserRole.EMPLOYER) {
-      navigate('/client/dashboard');
-      return null;
-    }
-    return <Navigate to="/" />;
-  }
-  
-  return <>{children}</>;
-};
 
 function App() {
   return (

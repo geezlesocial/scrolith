@@ -146,6 +146,17 @@ const TrendingCategoriesStrip: React.FC<Props> = ({ config: configOverride }) =>
       }
 
       if (!mountedRef.current) return;
+
+      // Debug: log effective config and resolved categories for non-admin users
+      try {
+        if (normalizedUserRole !== (UserRole as any).ADMIN && typeof console !== 'undefined') {
+          // eslint-disable-next-line no-console
+          console.info('[Trending Debug] effectiveConfig=', conf, 'normalizedUserRole=', normalizedUserRole, 'categoryIds=', categoryIds, 'allCatsCount=', allCats.length, 'matchedCount=', displayCats.length, 'allCatsSample=', (allCats || []).slice(0, 6).map(c => ({ id: c.id, slug: c.slug, name: c.name })), 'displayCatsSample=', (displayCats || []).slice(0, 12).map(c => ({ id: c.id, slug: c.slug, name: c.name })));
+        }
+      } catch (e) {
+        // ignore debug failures
+      }
+
       setCategories(displayCats);
     } catch (error: any) {
       console.error("Error loading trending categories:", error);

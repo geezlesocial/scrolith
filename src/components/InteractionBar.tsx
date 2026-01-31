@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Heart, MessageCircle, Repeat, Share2, Loader2 } from 'lucide-react';
+import { Heart, MessageCircle, Repeat, Share2, Loader2, Zap } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { CommunityService } from '../services/community';
 import { useNotification } from '../context/NotificationContext';
 import { InteractionCounts, InteractionState } from '../types';
 import ShareModal from './ShareModal';
+import SendGcoinModal from './SendGcoinModal';
 
 interface Props {
     type: 'thread' | 'comment' | 'post';
@@ -20,6 +21,7 @@ const InteractionBar: React.FC<Props> = ({ type, id, initialCounts, initialState
     const [counts, setCounts] = useState<InteractionCounts>(initialCounts || { likes: 0, comments: 0, reposts: 0, shares: 0 });
     const [state, setState] = useState<InteractionState>(initialState || { liked: false, reposted: false });
     const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+    const [isSendModalOpen, setIsSendModalOpen] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
 
     // Guard check for guest
@@ -46,7 +48,12 @@ const InteractionBar: React.FC<Props> = ({ type, id, initialCounts, initialState
 
         setIsProcessing(true);
         try {
-            await CommunityService.toggleLike(id, type);
+            if (type === 'post') {
+                if (newLiked) await CommunityService.postLike(id);
+                else await CommunityService.postUnlike(id);
+            } else {
+                await CommunityService.toggleLike(id, type);
+            }
         } catch (e) {
             console.error('Like toggle failed:', e);
             // Revert on error
@@ -69,7 +76,9 @@ const InteractionBar: React.FC<Props> = ({ type, id, initialCounts, initialState
         
         setIsProcessing(true);
         try {
-            const success = await CommunityService.repost(id, type);
+            const success = type === 'post'
+                ? await CommunityService.postRepost(id)
+                : await CommunityService.repost(id, type);
             if (success) {
                 showNotification('success', 'Reposted', 'Shared to your profile.');
             } else {
@@ -95,6 +104,9 @@ const InteractionBar: React.FC<Props> = ({ type, id, initialCounts, initialState
     const handleShareComplete = () => {
         setCounts(prev => ({ ...prev, shares: prev.shares + 1 }));
         setIsShareModalOpen(false);
+        if (type === 'post') {
+            CommunityService.postShare(id).catch((e) => console.error('Share event failed:', e));
+        }
     };
 
     return (
@@ -147,6 +159,17 @@ const InteractionBar: React.FC<Props> = ({ type, id, initialCounts, initialState
                 <span>{counts.shares}</span>
             </button>
 
+            <button
+                onClick={() => {
+                    if (!checkAuth()) return;
+                    setIsSendModalOpen(true);
+                }}
+                className="flex items-center space-x-1 hover:text-yellow-500 transition"
+            >
+                <Zap className="w-4 h-4" />
+                <span className="text-xs">Donate</span>
+            </button>
+
             <ShareModal 
                 isOpen={isShareModalOpen} 
                 onClose={() => setIsShareModalOpen(false)} 
@@ -154,6 +177,8 @@ const InteractionBar: React.FC<Props> = ({ type, id, initialCounts, initialState
                 title={document.title}
                 onShare={handleShareComplete}
             />
+
+            <SendGcoinModal isOpen={isSendModalOpen} onClose={() => setIsSendModalOpen(false)} donatePostId={type === 'post' ? id : undefined} />
         </div>
     );
 };

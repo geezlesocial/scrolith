@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
 import { AdminService } from '../services/admin';
+import { categoriesApi } from '../services/categories';
 import { Gig, ListingCategory, GigPackage, UploadedFile, GigFAQ, GigRequirement } from '../types';
 import { Briefcase, CheckCircle, X, Trash2, Plus, Sparkles, ChevronRight, ChevronLeft, Image as ImageIcon, Video, HelpCircle, Loader2, Save, FileText } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -58,26 +59,53 @@ const CreateGig = () => {
 
     useEffect(() => {
         const init = async () => {
-            const cats = await AdminService.getGigCategories();
-            setCategories(cats);
-
-            if (isEditMode) {
-                // Fetch existing gig (Mock fetch)
-                const existing = (await AdminService.getAdminGigs()).find(g => g.id === gigId);
-                if (existing) {
-                    setGig(existing);
-                } else {
-                    showNotification('alert', 'Error', 'Gig not found');
-                    navigate('/freelancer/dashboard');
+            try {
+                // Prefer admin endpoint, but fall back to public categories if admin access denied
+                try {
+                    const cats = await AdminService.getGigCategories();
+                    setCategories(cats);
+                } catch (adminCatErr) {
+                    console.warn('Admin getGigCategories failed, falling back to public categories:', adminCatErr);
+                    try {
+                        const publicCats = await categoriesApi.getGigCategories();
+                        // categoriesApi returns { categories: [...] }
+                        setCategories(publicCats.categories || [] as any);
+                    } catch (publicErr) {
+                        console.error('Public categories fetch also failed:', publicErr);
+                        throw publicErr; // will be caught by outer try/catch
+                    }
                 }
-            } else if (searchParams.get('mode') === 'ai_draft') {
+
+                if (isEditMode) {
+                    // Fetch existing gig (Mock fetch)
+                    try {
+                        const adminGigs = await AdminService.getAdminGigs();
+                        const existing = adminGigs.find(g => g.id === gigId);
+                        if (existing) {
+                            setGig(existing);
+                        } else {
+                            showNotification('alert', 'Error', 'Gig not found');
+                            navigate('/freelancer/dashboard');
+                        }
+                    } catch (gErr) {
+                        console.warn('Failed to load admin gigs:', gErr);
+                        showNotification('alert', 'Error', 'Unable to load gig for editing.');
+                        navigate('/freelancer/dashboard');
+                    }
+                } else if (searchParams.get('mode') === 'ai_draft') {
                  // Load AI draft from session storage
                  const draft = sessionStorage.getItem('ai_job_brief'); // Reusing brief logic or new
                  if(draft) {
                      // logic to parse draft
                  }
             }
-            setLoadingData(false);
+            } catch (error) {
+                console.error('Failed to initialize CreateGig data:', error);
+                showNotification('alert', 'Error', 'Failed to load categories. Please try again later.');
+                setCategories([]);
+            } finally {
+                setLoadingData(false);
+            }
         };
         init();
     }, [gigId]);

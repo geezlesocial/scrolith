@@ -1,8 +1,58 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, Save, Upload } from 'lucide-react';
 import { CMSService } from '../../services/cms';
-import { AuthPagesConfig } from '../../types';
+import { AuthPagesConfig, AuthProviderKey, UserRole } from '../../types';
 import { useNotification } from '../../context/NotificationContext';
+import { useSocket } from '../../context/SocketContext';
+
+const defaultSocialConfig: AuthPagesConfig['social_auth'] = {
+    enabled: true,
+    divider_text: 'Or continue with',
+    login_enabled: true,
+    signup_enabled: true,
+    providers: {
+        google: {
+            enabled: false,
+            client_id: '',
+            client_secret: '',
+            scopes: 'openid profile email',
+            button_label: 'Continue with Google',
+            login_enabled: true,
+            signup_enabled: true,
+            allow_roles: [UserRole.FREELANCER, UserRole.EMPLOYER]
+        },
+        facebook: {
+            enabled: false,
+            client_id: '',
+            client_secret: '',
+            scopes: 'public_profile email',
+            button_label: 'Continue with Facebook',
+            login_enabled: true,
+            signup_enabled: true,
+            allow_roles: [UserRole.FREELANCER, UserRole.EMPLOYER]
+        },
+        twitter: {
+            enabled: false,
+            client_id: '',
+            client_secret: '',
+            scopes: 'tweet.read users.read offline.access',
+            button_label: 'Continue with Twitter',
+            login_enabled: true,
+            signup_enabled: true,
+            allow_roles: [UserRole.FREELANCER, UserRole.EMPLOYER]
+        },
+        linkedin: {
+            enabled: false,
+            client_id: '',
+            client_secret: '',
+            scopes: 'openid profile email',
+            button_label: 'Continue with LinkedIn',
+            login_enabled: true,
+            signup_enabled: true,
+            allow_roles: [UserRole.FREELANCER, UserRole.EMPLOYER]
+        }
+    }
+};
 
 const defaultAuthConfig: AuthPagesConfig = {
     id: 'auth_pages',
@@ -30,10 +80,36 @@ const defaultAuthConfig: AuthPagesConfig = {
         footer_text: 'Already have an account?',
         footer_link_label: 'Sign in here',
         footer_link_url: '/auth/login'
-    }
+    },
+    social_auth: defaultSocialConfig
 };
 
-type AuthTab = 'branding' | 'login' | 'signup';
+type AuthTab = 'branding' | 'login' | 'signup' | 'social';
+
+const providerMeta: Record<AuthProviderKey, { label: string; description: string }> = {
+    google: { label: 'Google', description: 'OpenID Connect (profile + email).' },
+    facebook: { label: 'Facebook', description: 'OAuth 2.0 with email permission.' },
+    twitter: { label: 'Twitter', description: 'OAuth 2.0 with PKCE (users.read).' },
+    linkedin: { label: 'LinkedIn', description: 'OpenID Connect (profile + email).' }
+};
+
+const normalizeRoleValue = (value: any) => {
+    if (!value) return '';
+    return value.toString().trim().toLowerCase();
+};
+
+const normalizeAllowRoles = (roles: any[] | undefined) => {
+    const list = Array.isArray(roles) ? roles : [];
+    const seen = new Set<string>();
+    return list
+        .map(normalizeRoleValue)
+        .filter(Boolean)
+        .filter((role) => {
+            if (seen.has(role)) return false;
+            seen.add(role);
+            return true;
+        }) as UserRole[];
+};
 
 const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'categories' | 'auth-pages') => void }) => {
     const [config, setConfig] = useState<AuthPagesConfig>(defaultAuthConfig);
@@ -41,6 +117,7 @@ const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'ca
     const [isSaving, setIsSaving] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const { showNotification } = useNotification();
+    const { socket } = useSocket();
 
     useEffect(() => {
         let isMounted = true;
@@ -48,7 +125,20 @@ const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'ca
             try {
                 const data = await CMSService.getAuthPagesConfig();
                 if (isMounted && data) {
-                    setConfig({ ...defaultAuthConfig, ...data });
+                    const socialIncoming = (data as any)?.social_auth || (data as any)?.socialAuth;
+                    const mergedSocial = {
+                        ...defaultSocialConfig,
+                        ...(socialIncoming || {}),
+                        providers: {
+                            ...defaultSocialConfig.providers,
+                            ...(socialIncoming?.providers || {})
+                        }
+                    };
+                    (Object.keys(mergedSocial.providers) as AuthProviderKey[]).forEach((key) => {
+                        const provider = mergedSocial.providers[key];
+                        provider.allow_roles = normalizeAllowRoles(provider.allow_roles ?? defaultSocialConfig.providers[key].allow_roles);
+                    });
+                    setConfig({ ...defaultAuthConfig, ...data, social_auth: mergedSocial });
                 }
             } catch (error) {
                 showNotification('alert', 'Error', 'Failed to load auth pages config.');
@@ -61,6 +151,37 @@ const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'ca
             isMounted = false;
         };
     }, [showNotification]);
+
+    useEffect(() => {
+        if (!socket) return;
+        const refresh = async () => {
+            try {
+                const data = await CMSService.getAuthPagesConfig();
+                if (data) {
+                    const socialIncoming = (data as any)?.social_auth || (data as any)?.socialAuth;
+                    const mergedSocial = {
+                        ...defaultSocialConfig,
+                        ...(socialIncoming || {}),
+                        providers: {
+                            ...defaultSocialConfig.providers,
+                            ...(socialIncoming?.providers || {})
+                        }
+                    };
+                    (Object.keys(mergedSocial.providers) as AuthProviderKey[]).forEach((key) => {
+                        const provider = mergedSocial.providers[key];
+                        provider.allow_roles = normalizeAllowRoles(provider.allow_roles ?? defaultSocialConfig.providers[key].allow_roles);
+                    });
+                    setConfig({ ...defaultAuthConfig, ...data, social_auth: mergedSocial });
+                }
+            } catch (error) {
+                // silent refresh failure
+            }
+        };
+        socket.on('cms:auth_pages_updated', refresh);
+        return () => {
+            socket.off('cms:auth_pages_updated', refresh);
+        };
+    }, [socket]);
 
     const updateBranding = (updates: Partial<AuthPagesConfig['branding']>) => {
         setConfig((prev) => ({
@@ -81,6 +202,38 @@ const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'ca
             ...prev,
             signup: { ...prev.signup, ...updates }
         }));
+    };
+
+    const updateSocial = (updates: Partial<NonNullable<AuthPagesConfig['social_auth']>>) => {
+        setConfig((prev) => ({
+            ...prev,
+            social_auth: { ...(prev.social_auth || defaultSocialConfig), ...updates }
+        }));
+    };
+
+    const updateProvider = (provider: AuthProviderKey, updates: Partial<NonNullable<AuthPagesConfig['social_auth']>['providers'][AuthProviderKey]>) => {
+        setConfig((prev) => {
+            const current = prev.social_auth || defaultSocialConfig;
+            return {
+                ...prev,
+                social_auth: {
+                    ...current,
+                    providers: {
+                        ...current.providers,
+                        [provider]: { ...current.providers[provider], ...updates }
+                    }
+                }
+            };
+        });
+    };
+
+    const toggleProviderRole = (provider: AuthProviderKey, role: UserRole) => {
+        const currentRoles = normalizeAllowRoles(config.social_auth?.providers?.[provider]?.allow_roles);
+        const roleKey = normalizeRoleValue(role);
+        const next = currentRoles.some((r) => normalizeRoleValue(r) === roleKey)
+            ? currentRoles.filter((r) => normalizeRoleValue(r) !== roleKey)
+            : [...currentRoles, role];
+        updateProvider(provider, { allow_roles: normalizeAllowRoles(next) });
     };
 
     const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -112,6 +265,7 @@ const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'ca
 
     const previewHeadline = activeTab === 'signup' ? config.signup.headline : config.login.headline;
     const previewButton = activeTab === 'signup' ? config.signup.submit_label : config.login.submit_label;
+    const socialConfig = config.social_auth || defaultSocialConfig;
 
     return (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 animate-fade-in">
@@ -147,6 +301,12 @@ const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'ca
                     className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'signup' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
                 >
                     Signup
+                </button>
+                <button
+                    onClick={() => setActiveTab('social')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'social' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+                >
+                    Social Auth
                 </button>
             </div>
 
@@ -335,6 +495,164 @@ const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'ca
                                     onChange={(e) => updateSignup({ footer_link_url: e.target.value })}
                                 />
                             </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'social' && (
+                        <div className="space-y-6">
+                            <div className="space-y-4">
+                                <label className="flex items-center space-x-3">
+                                    <input
+                                        type="checkbox"
+                                        checked={socialConfig.enabled}
+                                        onChange={(e) => updateSocial({ enabled: e.target.checked })}
+                                        className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                                    />
+                                    <span className="text-sm font-medium text-gray-700">Enable Social Sign-in</span>
+                                </label>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <label className="flex items-center space-x-3">
+                                        <input
+                                            type="checkbox"
+                                            checked={socialConfig.login_enabled ?? true}
+                                            onChange={(e) => updateSocial({ login_enabled: e.target.checked })}
+                                            className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                                        />
+                                        <span className="text-sm font-medium text-gray-700">Show on Login</span>
+                                    </label>
+                                    <label className="flex items-center space-x-3">
+                                        <input
+                                            type="checkbox"
+                                            checked={socialConfig.signup_enabled ?? true}
+                                            onChange={(e) => updateSocial({ signup_enabled: e.target.checked })}
+                                            className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                                        />
+                                        <span className="text-sm font-medium text-gray-700">Show on Signup</span>
+                                    </label>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Divider Text</label>
+                                    <input
+                                        className="w-full border-gray-300 rounded-lg p-2.5"
+                                        value={socialConfig.divider_text || ''}
+                                        onChange={(e) => updateSocial({ divider_text: e.target.value })}
+                                        placeholder="Or continue with"
+                                    />
+                                </div>
+                                <p className="text-xs text-gray-500">
+                                    Leave provider secrets blank to keep the existing values.
+                                </p>
+                            </div>
+
+                            {(['google', 'facebook', 'twitter', 'linkedin'] as AuthProviderKey[]).map((provider) => {
+                                const providerConfig = socialConfig.providers[provider];
+                                return (
+                                    <div key={provider} className="border border-gray-200 rounded-xl p-4 space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <h4 className="text-sm font-semibold text-gray-900">{providerMeta[provider].label}</h4>
+                                                <p className="text-xs text-gray-500">{providerMeta[provider].description}</p>
+                                            </div>
+                                            <label className="flex items-center space-x-2">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={providerConfig.enabled}
+                                                    onChange={(e) => updateProvider(provider, { enabled: e.target.checked })}
+                                                    className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                                                />
+                                                <span className="text-xs font-medium text-gray-600">Enabled</span>
+                                            </label>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">Client ID</label>
+                                                <input
+                                                    className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                                                    value={providerConfig.client_id || ''}
+                                                    onChange={(e) => updateProvider(provider, { client_id: e.target.value })}
+                                                    placeholder="Client ID"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">Client Secret</label>
+                                                <input
+                                                    type="password"
+                                                    className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                                                    value={providerConfig.client_secret || ''}
+                                                    onChange={(e) => updateProvider(provider, { client_secret: e.target.value })}
+                                                    placeholder="Leave blank to keep"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">Scopes</label>
+                                                <input
+                                                    className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                                                    value={providerConfig.scopes || ''}
+                                                    onChange={(e) => updateProvider(provider, { scopes: e.target.value })}
+                                                    placeholder="space-separated scopes"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">Redirect URI (optional)</label>
+                                                <input
+                                                    className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                                                    value={providerConfig.redirect_uri || ''}
+                                                    onChange={(e) => updateProvider(provider, { redirect_uri: e.target.value })}
+                                                    placeholder="https://api.yoursite.com/api/auth/oauth/{provider}/callback"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">Button Label</label>
+                                                <input
+                                                    className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                                                    value={providerConfig.button_label || ''}
+                                                    onChange={(e) => updateProvider(provider, { button_label: e.target.value })}
+                                                    placeholder={`Continue with ${providerMeta[provider].label}`}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            <label className="flex items-center space-x-2">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={providerConfig.login_enabled ?? true}
+                                                    onChange={(e) => updateProvider(provider, { login_enabled: e.target.checked })}
+                                                    className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                                                />
+                                                <span className="text-xs text-gray-600">Show on Login</span>
+                                            </label>
+                                            <label className="flex items-center space-x-2">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={providerConfig.signup_enabled ?? true}
+                                                    onChange={(e) => updateProvider(provider, { signup_enabled: e.target.checked })}
+                                                    className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                                                />
+                                                <span className="text-xs text-gray-600">Show on Signup</span>
+                                            </label>
+                                        </div>
+
+                                        <div>
+                                            <p className="text-xs font-medium text-gray-600 mb-2">Allowed Roles (Signup)</p>
+                                            <div className="flex flex-wrap gap-3">
+                                                {[UserRole.FREELANCER, UserRole.EMPLOYER].map((role) => (
+                                                    <label key={`${provider}-${role}`} className="flex items-center space-x-2 text-xs text-gray-600">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={normalizeAllowRoles(providerConfig.allow_roles || []).includes(role)}
+                                                            onChange={() => toggleProviderRole(provider, role)}
+                                                            className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                                                        />
+                                                        <span>{role === UserRole.FREELANCER ? 'Freelancer' : 'Employer'}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
                 </div>

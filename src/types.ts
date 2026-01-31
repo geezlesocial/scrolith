@@ -534,11 +534,37 @@ export interface GcoinSettings {
   min_withdrawal?: number;
   conversion_enabled: boolean;
   user_transfers_enabled: boolean;
+  // Earning rule units
+  views_unit?: number;
+  likes_unit?: number;
+  reposts_unit?: number;
+  shares_unit?: number;
+  // Coins awarded per unit
+  coin_per_views_unit?: number;
+  coin_per_likes_unit?: number;
+  coin_per_reposts_unit?: number;
+  coin_per_shares_unit?: number;
+  // Admin fee percentage (0-1)
+  admin_fee_percent?: number;
+  // Transfer fee config
+  transfer_fee_type?: 'percentage' | 'flat';
+  transfer_fee_value?: number;
   // camelCase alias
   conversionRate?: number;
   minWithdrawal?: number;
   conversionEnabled?: boolean;
   userTransfersEnabled?: boolean;
+  viewsUnit?: number;
+  likesUnit?: number;
+  repostsUnit?: number;
+  sharesUnit?: number;
+  coinPerViewsUnit?: number;
+  coinPerLikesUnit?: number;
+  coinPerRepostsUnit?: number;
+  coinPerSharesUnit?: number;
+  adminFeePercent?: number;
+  transferFeeType?: 'percentage' | 'flat';
+  transferFeeValue?: number;
 }
 
 export interface GcoinConversionRequest {
@@ -625,11 +651,34 @@ export interface SignupPageContent {
   footer_link_url?: string;
 }
 
+export type AuthProviderKey = 'google' | 'facebook' | 'twitter' | 'linkedin';
+
+export interface SocialAuthProviderConfig {
+  enabled: boolean;
+  client_id?: string;
+  client_secret?: string;
+  redirect_uri?: string;
+  scopes?: string;
+  button_label?: string;
+  login_enabled?: boolean;
+  signup_enabled?: boolean;
+  allow_roles?: UserRole[];
+}
+
+export interface SocialAuthConfig {
+  enabled: boolean;
+  divider_text?: string;
+  login_enabled?: boolean;
+  signup_enabled?: boolean;
+  providers: Record<AuthProviderKey, SocialAuthProviderConfig>;
+}
+
 export interface AuthPagesConfig {
   id: string;
   branding: AuthPageBranding;
   login: LoginPageContent;
   signup: SignupPageContent;
+  social_auth?: SocialAuthConfig;
   updated_at?: string;
 }
 
@@ -918,6 +967,158 @@ export interface ContentBlock {
   type: ContentBlockType;
   content: string;
   settings?: any;
+}
+
+export interface AnswersCategory {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface FeaturedQuestion {
+  id: string;
+  question: string;
+  tags?: string[];
+}
+
+export interface AnswersPageConfig {
+  hero: {
+    title: string;
+    subtitle: string;
+    primaryCtaLabel?: string;
+    primaryCtaUrl?: string;
+    backgroundImage?: string;
+    badgeLabel?: string;
+  };
+  ai: {
+    enabled: boolean;
+    allowGuest: boolean;
+    disclaimer?: string;
+  };
+  categories: AnswersCategory[];
+  featuredQuestions: FeaturedQuestion[];
+  faq: { id: string; question: string; answer: string }[];
+  updated_at?: string;
+}
+
+export interface GuideTopic {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface FeaturedGuide {
+  id: string;
+  title: string;
+  excerpt: string;
+  category?: string;
+  readTime?: string;
+  coverImage?: string;
+}
+
+export interface GuidesPageConfig {
+  hero: {
+    title: string;
+    subtitle: string;
+    primaryCtaLabel?: string;
+    primaryCtaUrl?: string;
+    backgroundImage?: string;
+    badgeLabel?: string;
+  };
+  ai: {
+    enabled: boolean;
+    allowGuest: boolean;
+    disclaimer?: string;
+  };
+  topics: GuideTopic[];
+  featuredGuides: FeaturedGuide[];
+  callToAction?: {
+    title?: string;
+    subtitle?: string;
+    ctaLabel?: string;
+    ctaUrl?: string;
+  };
+  updated_at?: string;
+}
+
+export interface HireHighlight {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+export interface HireStep {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+export interface HireTestimonial {
+  id: string;
+  name: string;
+  role?: string;
+  quote: string;
+}
+
+export interface HirePageConfig {
+  hero: {
+    title: string;
+    subtitle: string;
+    primaryCtaLabel?: string;
+    primaryCtaUrl?: string;
+    secondaryCtaLabel?: string;
+    secondaryCtaUrl?: string;
+    backgroundImage?: string;
+    badgeLabel?: string;
+  };
+  ai: {
+    enabled: boolean;
+    allowGuest: boolean;
+    disclaimer?: string;
+  };
+  highlights: HireHighlight[];
+  steps: HireStep[];
+  testimonials: HireTestimonial[];
+  updated_at?: string;
+}
+
+export interface FreelancerService {
+  id: string;
+  title: string;
+  description?: string;
+}
+
+export interface FreelancerProof {
+  id: string;
+  metric: string;
+  label: string;
+}
+
+export interface FreelancerPageConfig {
+  hero: {
+    title: string;
+    subtitle: string;
+    primaryCtaLabel?: string;
+    primaryCtaUrl?: string;
+    secondaryCtaLabel?: string;
+    secondaryCtaUrl?: string;
+    backgroundImage?: string;
+    badgeLabel?: string;
+  };
+  ai: {
+    enabled: boolean;
+    allowGuest: boolean;
+    disclaimer?: string;
+  };
+  services: FreelancerService[];
+  proof: FreelancerProof[];
+  callToAction?: {
+    title?: string;
+    subtitle?: string;
+    ctaLabel?: string;
+    ctaUrl?: string;
+  };
+  updated_at?: string;
 }
 
 export interface BlogPost {

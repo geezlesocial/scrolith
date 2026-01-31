@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
     Users, MessageSquare, AlertTriangle, ShieldCheck, Settings, BarChart2, ToggleLeft, ToggleRight, 
-    Lock, CheckCircle, XCircle, FileText, Gavel, Radio, Flag, Hash, Activity, DollarSign, Pin, Trash2, Plus, X, Coins, Megaphone, Share2, Search, Filter, Send, Upload, Edit2, Save, Unlock, Copy, AlertOctagon, Ban, Image as ImageIcon
+    Lock, CheckCircle, XCircle, FileText, Gavel, Radio, Flag, Hash, Activity, DollarSign, Pin, Trash2, Plus, X, Coins, Megaphone, Share2, Search, Filter, Send, Upload, Edit2, Save, Unlock, Copy, AlertOctagon, Ban, Image as ImageIcon, Building2
 } from 'lucide-react';
 import { CommunityService } from '../../services/community';
 import { GcoinService } from '../../services/gcoin';
@@ -15,7 +15,17 @@ import CommunityAnalytics from './CommunityAnalytics';
 import { useCurrency } from '../../context/CurrencyContext';
 import FilePickerModal from '../shared/FilePickerModal';
 
-type AdminTab = 'overview' | 'threads' | 'channels' | 'moderation' | 'gcoin' | 'ads' | 'social' | 'settings';
+type AdminTab =
+    | 'overview'
+    | 'homepage'
+    | 'threads'
+    | 'channels'
+    | 'moderation'
+    | 'gcoin'
+    | 'ads'
+    | 'business'
+    | 'social'
+    | 'settings';
 
 const defaultSettings: CommunitySettings = {
     requireLoginToView: false,
@@ -34,6 +44,7 @@ const CommunityManagement = () => {
     const [settings, setSettings] = useState<CommunitySettings | null>(null);
     const [logs, setLogs] = useState<ModerationLog[]>([]);
     const { showNotification } = useNotification();
+    const { user } = useUser();
 
     useEffect(() => {
         loadData();
@@ -110,8 +121,10 @@ const CommunityManagement = () => {
             {/* Navigation Bar */}
             <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit overflow-x-auto max-w-full">
                 <TabButton id="overview" label="Overview" icon={Activity} active={activeTab === 'overview'} onClick={setActiveTab} />
+                <TabButton id="homepage" label="Home Page" icon={ImageIcon} active={activeTab === 'homepage'} onClick={setActiveTab} />
                 <TabButton id="gcoin" label="Gcoin Rewards" icon={Coins} active={activeTab === 'gcoin'} onClick={setActiveTab} />
                 <TabButton id="ads" label="Ads Manager" icon={Megaphone} active={activeTab === 'ads'} onClick={setActiveTab} />
+                <TabButton id="business" label="Business Pages" icon={Building2} active={activeTab === 'business'} onClick={setActiveTab} />
                 <TabButton id="threads" label="Threads" icon={FileText} active={activeTab === 'threads'} onClick={setActiveTab} />
                 <TabButton id="channels" label="Channels" icon={Hash} active={activeTab === 'channels'} onClick={setActiveTab} />
                 <TabButton id="moderation" label="Moderation" icon={Gavel} active={activeTab === 'moderation'} onClick={setActiveTab} />
@@ -122,18 +135,246 @@ const CommunityManagement = () => {
             <div className="animate-fade-in">
                 {activeTab === 'overview' && (
                     <div className="space-y-6">
-                        <CommunityAnalytics /> 
+                        <CommunityAnalytics />
                     </div>
                 )}
 
+                {activeTab === 'homepage' && <CommunityHomepageManager />}
                 {activeTab === 'gcoin' && <GcoinManager />}
                 {activeTab === 'ads' && <AdManager />}
+                {activeTab === 'business' && <BusinessPagesManager />}
                 {activeTab === 'threads' && <ThreadManager />}
                 {activeTab === 'channels' && <ChannelManager />}
                 {activeTab === 'moderation' && <ModerationQueue logs={logs} refresh={() => CommunityService.getModerationLogs().then(setLogs)} />}
                 {activeTab === 'social' && <SocialGraphView />}
                 {activeTab === 'settings' && settings && <SettingsPanel settings={settings} toggleSetting={toggleSetting} />}
             </div>
+        </div>
+    );
+};
+
+type BusinessPageRecord = {
+    id: string;
+    name: string;
+    tagline?: string;
+    industry?: string;
+    orgSize?: string;
+    orgType?: string;
+    category?: string;
+    slug?: string;
+    website?: string;
+    email?: string;
+    phone?: string;
+    location?: string;
+    description?: string;
+    logoUrl?: string;
+    coverUrl?: string;
+    followers?: string[];
+    ownerId?: string;
+    ownerName?: string;
+    updatedAt?: string;
+};
+
+const BusinessPagesManager = () => {
+    const { showNotification } = useNotification();
+    const [pages, setPages] = useState<BusinessPageRecord[]>([]);
+    const [editing, setEditing] = useState<BusinessPageRecord | null>(null);
+    const storageKey = 'community_business_pages';
+
+    const loadPages = () => {
+        try {
+            const raw = localStorage.getItem(storageKey);
+            const parsed = raw ? JSON.parse(raw) : [];
+            setPages(Array.isArray(parsed) ? parsed : []);
+        } catch (error) {
+            setPages([]);
+        }
+    };
+
+    useEffect(() => {
+        loadPages();
+        const handler = () => loadPages();
+        window.addEventListener('community:business_pages_updated', handler);
+        return () => window.removeEventListener('community:business_pages_updated', handler);
+    }, []);
+
+    const persistPages = (next: BusinessPageRecord[]) => {
+        localStorage.setItem(storageKey, JSON.stringify(next));
+        setPages(next);
+        window.dispatchEvent(new CustomEvent('community:business_pages_updated'));
+    };
+
+    const handleEdit = (page: BusinessPageRecord) => {
+        setEditing({ ...page });
+    };
+
+    const handleDelete = (id: string) => {
+        const updated = pages.filter((page) => page.id !== id);
+        persistPages(updated);
+        showNotification('success', 'Business Pages', 'Page removed.');
+    };
+
+    const handleCreate = () => {
+        setEditing({
+            id: `biz-${Date.now()}`,
+            name: '',
+            slug: '',
+            tagline: '',
+            industry: '',
+            orgSize: '',
+            orgType: '',
+            website: '',
+            description: '',
+            followers: []
+        });
+    };
+
+    const handleSave = () => {
+        if (!editing) return;
+        if (!editing.name?.trim()) {
+            showNotification('alert', 'Business Pages', 'Name is required.');
+            return;
+        }
+        const updated = [
+            ...pages.filter((page) => page.id !== editing.id),
+            { ...editing, updatedAt: new Date().toISOString() }
+        ];
+        persistPages(updated);
+        setEditing(null);
+        showNotification('success', 'Business Pages', 'Changes saved.');
+    };
+
+    return (
+        <div className="space-y-6">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h3 className="text-lg font-bold text-gray-900">Business Pages Directory</h3>
+                    <p className="text-sm text-gray-500">Manage, edit, or remove company pages.</p>
+                </div>
+                <button
+                    onClick={handleCreate}
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700"
+                >
+                    <Plus className="mr-1 inline h-3 w-3" />
+                    Add new
+                </button>
+            </div>
+            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                <table className="w-full text-sm">
+                    <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                        <tr>
+                            <th className="px-4 py-3 text-left">Business</th>
+                            <th className="px-4 py-3 text-left">Industry</th>
+                            <th className="px-4 py-3 text-left">Followers</th>
+                            <th className="px-4 py-3 text-left">Owner</th>
+                            <th className="px-4 py-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {pages.length === 0 ? (
+                            <tr>
+                                <td colSpan={5} className="px-4 py-6 text-center text-gray-500">
+                                    No business pages saved yet.
+                                </td>
+                            </tr>
+                        ) : (
+                            pages.map((page) => (
+                                <tr key={page.id} className="border-t border-gray-100">
+                                    <td className="px-4 py-3">
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-10 w-10 rounded-full bg-gray-100 overflow-hidden">
+                                                {page.logoUrl ? (
+                                                    <img src={page.logoUrl} alt={page.name} className="h-full w-full object-cover" />
+                                                ) : (
+                                                    <Building2 className="mx-auto mt-2 h-5 w-5 text-gray-400" />
+                                                )}
+                                            </div>
+                                            <div>
+                                                <p className="font-semibold text-gray-900">{page.name}</p>
+                                                <p className="text-xs text-gray-500">@{page.slug || 'business'}</p>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="px-4 py-3 text-gray-600">{page.industry || '—'}</td>
+                                    <td className="px-4 py-3 text-gray-600">{page.followers?.length || 0}</td>
+                                    <td className="px-4 py-3 text-gray-600">{page.ownerName || '—'}</td>
+                                    <td className="px-4 py-3 text-right">
+                                        <button onClick={() => handleEdit(page)} className="mr-3 text-blue-600 hover:underline">
+                                            Edit
+                                        </button>
+                                        <button onClick={() => handleDelete(page.id)} className="text-red-600 hover:underline">
+                                            Delete
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
+                </table>
+            </div>
+            {editing && (
+                <div className="rounded-xl border border-gray-200 bg-white p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                        <h4 className="text-base font-bold text-gray-900">Edit business page</h4>
+                        <button onClick={() => setEditing(null)} className="text-gray-400 hover:text-gray-600">
+                            <X className="h-4 w-4" />
+                        </button>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                        <input
+                            value={editing.name}
+                            onChange={(e) => setEditing((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+                            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            placeholder="Business name"
+                        />
+                        <input
+                            value={editing.slug || ''}
+                            onChange={(e) => setEditing((prev) => (prev ? { ...prev, slug: e.target.value } : prev))}
+                            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            placeholder="Geezle address"
+                        />
+                        <input
+                            value={editing.industry || ''}
+                            onChange={(e) => setEditing((prev) => (prev ? { ...prev, industry: e.target.value } : prev))}
+                            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            placeholder="Industry"
+                        />
+                        <input
+                            value={editing.orgType || ''}
+                            onChange={(e) => setEditing((prev) => (prev ? { ...prev, orgType: e.target.value } : prev))}
+                            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            placeholder="Organization type"
+                        />
+                        <input
+                            value={editing.orgSize || ''}
+                            onChange={(e) => setEditing((prev) => (prev ? { ...prev, orgSize: e.target.value } : prev))}
+                            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            placeholder="Organization size"
+                        />
+                        <input
+                            value={editing.website || ''}
+                            onChange={(e) => setEditing((prev) => (prev ? { ...prev, website: e.target.value } : prev))}
+                            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            placeholder="Website"
+                        />
+                    </div>
+                    <textarea
+                        value={editing.description || ''}
+                        onChange={(e) => setEditing((prev) => (prev ? { ...prev, description: e.target.value } : prev))}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                        rows={3}
+                        placeholder="Description"
+                    />
+                    <div className="flex justify-end gap-3">
+                        <button onClick={() => setEditing(null)} className="rounded-lg border px-4 py-2 text-xs font-semibold text-gray-600">
+                            Cancel
+                        </button>
+                        <button onClick={handleSave} className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white">
+                            Save changes
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -146,6 +387,9 @@ const GcoinManager = () => {
     const [conversions, setConversions] = useState<GcoinConversionRequest[]>([]);
     const [transactions, setTransactions] = useState<any[]>([]);
     const [config, setConfig] = useState<GcoinSettings>({ conversionRate: 0, minWithdrawal: 0, conversionEnabled: false, userTransfersEnabled: false });
+    const [fraudReports, setFraudReports] = useState<any[] | null>(null);
+    const [fraudQuery, setFraudQuery] = useState('');
+    const [summary, setSummary] = useState<any>(null);
     
     // Transfer Modal
     const [isSendModalOpen, setIsSendModalOpen] = useState(false);
@@ -161,10 +405,37 @@ const GcoinManager = () => {
         GcoinService.getSettings().then(setConfig);
     }, []);
 
+    useEffect(() => {
+        // preload fraud reports when manager mounts
+        if (subTab === 'fraud') {
+            GcoinService.getFraudReports().then((r) => {
+                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                // @ts-ignore
+                setFraudReports(r.suspiciousWallets || []);
+            }).catch(() => {});
+        }
+    }, [subTab]);
+
+    useEffect(() => {
+        const refresh = () => { refreshData(); };
+        window.addEventListener('community:gcoin_transaction_created', refresh as EventListener);
+        window.addEventListener('community:gcoin_balance_updated', refresh as EventListener);
+        window.addEventListener('community:gcoin_conversion_processed', refresh as EventListener);
+        window.addEventListener('community:gcoin_settings_updated', refresh as EventListener);
+        return () => {
+            window.removeEventListener('community:gcoin_transaction_created', refresh as EventListener);
+            window.removeEventListener('community:gcoin_balance_updated', refresh as EventListener);
+            window.removeEventListener('community:gcoin_conversion_processed', refresh as EventListener);
+            window.removeEventListener('community:gcoin_settings_updated', refresh as EventListener);
+        };
+    }, []);
+
     const refreshData = () => {
         GcoinService.getAllWallets().then(setWallets);
         GcoinService.getConversionRequests().then(setConversions);
         GcoinService.getAllTransactions().then(setTransactions);
+        GcoinService.getAdminSummary().then(setSummary).catch(() => {});
+        GcoinService.getSettings().then(setConfig).catch(() => {});
     };
 
     const handleSendCoins = async () => {
@@ -203,7 +474,8 @@ const GcoinManager = () => {
 
     const processConversion = async (req: GcoinConversionRequest, action: 'approve' | 'reject') => {
         try {
-            await GcoinService.processConversion(req.id, action, user?.id || '');
+            const note = window.prompt(`Add an optional admin note for this ${action} (optional):`, '');
+            await GcoinService.processConversion(req.id, action, user?.id || '', note || undefined);
             showNotification('success', 'Processed', `Conversion ${action}d.`);
             refreshData();
         } catch (e) {
@@ -253,6 +525,19 @@ const GcoinManager = () => {
                     </div>
                 </div>
             )}
+            {summary && subTab === 'overview' && (
+                <div className="mt-4">
+                    <div className="bg-white p-4 rounded-xl border border-gray-200">
+                        <h4 className="font-bold">Gcoin System Summary</h4>
+                        <div className="grid grid-cols-2 gap-4 mt-3 text-sm text-gray-700">
+                            <div>Total Supply: <span className="font-medium">{summary.totalSupply} GC</span></div>
+                            <div>Lifetime Earned: <span className="font-medium">{summary.totalLifetimeEarned} GC</span></div>
+                            <div>Platform Fees: <span className="font-medium">{summary.platformFees} GC</span></div>
+                            <div>Pending Conversions: <span className="font-medium">{summary.pendingConversions} GC</span></div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {subTab === 'wallets' && (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -278,6 +563,39 @@ const GcoinManager = () => {
                                         <button onClick={() => handleFreezeWallet(w.userId, w.status === 'frozen')} className="text-red-600 hover:underline">
                                             {w.status === 'frozen' ? 'Unfreeze' : 'Freeze'}
                                         </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+            {subTab === 'fraud' && (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden p-4">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="font-bold">Fraud Center</h3>
+                        <div className="flex gap-2">
+                            <input placeholder="Search user id or recipient id" className="border rounded p-2 text-sm" onChange={e => setFraudQuery(e.target.value)} />
+                        </div>
+                    </div>
+                    <div className="text-sm text-gray-600 mb-3">Suspicious wallets flagged by velocity or rules. Use freeze/unfreeze to restrict payouts.</div>
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-gray-50 text-gray-500"><tr><th>User</th><th>Recipient</th><th>Balance</th><th>Fraud Score</th><th>Recent Events (10m)</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody className="divide-y">
+                            {(fraudReports || []).filter((r:any) => {
+                                if (!fraudQuery) return true;
+                                const q = fraudQuery.toString().toLowerCase();
+                                return (r.userId || '').toString().toLowerCase().includes(q) || (r.recipientId || '').toString().toLowerCase().includes(q);
+                            }).map((r:any) => (
+                                <tr key={r.userId} className="hover:bg-gray-50">
+                                    <td className="px-6 py-3">{r.userId}</td>
+                                    <td className="px-6 py-3 font-mono text-xs text-gray-600">{r.recipientId}</td>
+                                    <td className="px-6 py-3 font-bold text-yellow-600">{r.balance}</td>
+                                    <td className="px-6 py-3 text-red-600 font-bold">{r.fraudScore}</td>
+                                    <td className="px-6 py-3">{r.recentEvents}</td>
+                                    <td className="px-6 py-3">{r.status}</td>
+                                    <td className="px-6 py-3 text-right">
+                                        <button onClick={() => handleFreezeWallet(r.userId, r.status === 'frozen')} className="text-sm text-red-600">{r.status === 'frozen' ? 'Unfreeze' : 'Freeze'}</button>
                                     </td>
                                 </tr>
                             ))}
@@ -370,6 +688,62 @@ const GcoinManager = () => {
                                 <input type="number" className="w-full border rounded p-2" value={config.minWithdrawal} onChange={e => setConfig({...config, minWithdrawal: Number(e.target.value || 0)})} />
                             </div>
                         </div>
+                        <div className="grid grid-cols-4 gap-4 mt-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Views Unit</label>
+                                <input type="number" className="w-full border rounded p-2" value={config.viewsUnit ?? 200} onChange={e => setConfig({...config, viewsUnit: Number(e.target.value || 0)})} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Likes Unit</label>
+                                <input type="number" className="w-full border rounded p-2" value={config.likesUnit ?? 30} onChange={e => setConfig({...config, likesUnit: Number(e.target.value || 0)})} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Reposts Unit</label>
+                                <input type="number" className="w-full border rounded p-2" value={config.repostsUnit ?? 40} onChange={e => setConfig({...config, repostsUnit: Number(e.target.value || 0)})} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Shares Unit</label>
+                                <input type="number" className="w-full border rounded p-2" value={config.sharesUnit ?? 50} onChange={e => setConfig({...config, sharesUnit: Number(e.target.value || 0)})} />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-4 mt-3">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Coins / Views Unit</label>
+                                <input type="number" step="0.0001" className="w-full border rounded p-2" value={config.coinPerViewsUnit ?? 1} onChange={e => setConfig({...config, coinPerViewsUnit: Number(e.target.value || 0)})} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Coins / Likes Unit</label>
+                                <input type="number" step="0.0001" className="w-full border rounded p-2" value={config.coinPerLikesUnit ?? 1} onChange={e => setConfig({...config, coinPerLikesUnit: Number(e.target.value || 0)})} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Coins / Reposts Unit</label>
+                                <input type="number" step="0.0001" className="w-full border rounded p-2" value={config.coinPerRepostsUnit ?? 1} onChange={e => setConfig({...config, coinPerRepostsUnit: Number(e.target.value || 0)})} />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Coins / Shares Unit</label>
+                                <input type="number" step="0.0001" className="w-full border rounded p-2" value={config.coinPerSharesUnit ?? 1} onChange={e => setConfig({...config, coinPerSharesUnit: Number(e.target.value || 0)})} />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-6 mt-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Admin Fee (%)</label>
+                                <input type="number" step="0.001" className="w-full border rounded p-2" value={(config.adminFeePercent ?? 0.1) * 100} onChange={e => setConfig({...config, adminFeePercent: Number(e.target.value || 0) / 100})} />
+                                <p className="text-xs text-gray-400">Enter percent (e.g. 10 for 10%)</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Transfer Fee</label>
+                                <div className="flex gap-2">
+                                    <select className="border rounded p-2 w-36" value={config.transferFeeType ?? 'percentage'} onChange={e => setConfig({...config, transferFeeType: e.target.value as any})}>
+                                        <option value="percentage">Percentage</option>
+                                        <option value="flat">Flat</option>
+                                    </select>
+                                    <input type="number" step="0.0001" className="w-full border rounded p-2" value={config.transferFeeValue ?? 0} onChange={e => setConfig({...config, transferFeeValue: Number(e.target.value || 0)})} />
+                                </div>
+                                <p className="text-xs text-gray-400">If percentage, enter e.g. 1 for 1%</p>
+                            </div>
+                        </div>
                         
                         <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                             <div>
@@ -427,37 +801,382 @@ const GcoinManager = () => {
 
 // --- ADS MANAGER ---
 
+const CommunityHomepageManager = () => {
+    const [config, setConfig] = useState<any>(null);
+    const [isSaving, setIsSaving] = useState(false);
+    const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
+    const [fileTarget, setFileTarget] = useState<{ scope: 'hero' | 'slide' | 'section'; id?: string; field: 'backgroundImage' | 'imageUrl' | 'videoUrl' } | null>(null);
+    const { showNotification } = useNotification();
+
+    useEffect(() => {
+        CommunityService.getCommunityHomepage().then(setConfig).catch((e) => {
+            console.error('Failed to load community homepage config', e);
+            setConfig(null);
+        });
+    }, []);
+
+    useEffect(() => {
+        const onUpdate = async () => {
+            try {
+                const updated = await CommunityService.getCommunityHomepage();
+                setConfig(updated);
+            } catch (e) {
+                console.error('Failed to refresh community homepage config', e);
+            }
+        };
+        window.addEventListener('community:homepage_updated', onUpdate as EventListener);
+        return () => window.removeEventListener('community:homepage_updated', onUpdate as EventListener);
+    }, []);
+
+    const save = async () => {
+        setIsSaving(true);
+        try {
+            const updated = await CommunityService.saveCommunityHomepage(config);
+            setConfig(updated);
+            showNotification('success', 'Saved', 'Community homepage updated.');
+        } catch (e: any) {
+            showNotification('error', 'Failed', e?.message || 'Unable to save homepage.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const addSlide = () => {
+        const next = {
+            id: `slide-${Date.now()}`,
+            title: 'New Slide',
+            subtitle: '',
+            imageUrl: '',
+            videoUrl: '',
+            ctaLabel: '',
+            ctaUrl: ''
+        };
+        setConfig((prev: any) => ({ ...prev, sliders: [...(prev?.sliders || []), next] }));
+    };
+
+    const removeSlide = (id: string) => {
+        setConfig((prev: any) => ({ ...prev, sliders: (prev?.sliders || []).filter((s: any) => s.id !== id) }));
+    };
+
+    const updateSlide = (id: string, patch: any) => {
+        setConfig((prev: any) => ({
+            ...prev,
+            sliders: (prev?.sliders || []).map((s: any) => (s.id === id ? { ...s, ...patch } : s))
+        }));
+    };
+
+    const addSection = (type: 'text' | 'image' | 'video') => {
+        const next = {
+            id: `section-${Date.now()}`,
+            type,
+            title: type === 'text' ? 'Section Title' : '',
+            body: '',
+            imageUrl: '',
+            videoUrl: ''
+        };
+        setConfig((prev: any) => ({ ...prev, sections: [...(prev?.sections || []), next] }));
+    };
+
+    const removeSection = (id: string) => {
+        setConfig((prev: any) => ({ ...prev, sections: (prev?.sections || []).filter((s: any) => s.id !== id) }));
+    };
+
+    const updateSection = (id: string, patch: any) => {
+        setConfig((prev: any) => ({
+            ...prev,
+            sections: (prev?.sections || []).map((s: any) => (s.id === id ? { ...s, ...patch } : s))
+        }));
+    };
+
+    const handleFileSelect = (file: UploadedFile) => {
+        if (!fileTarget) return;
+        const url = file.url || file.path || '';
+        if (!url) return;
+        if (fileTarget.scope === 'hero') {
+            setConfig((prev: any) => ({ ...prev, hero: { ...(prev?.hero || {}), [fileTarget.field]: url } }));
+        } else if (fileTarget.scope === 'slide' && fileTarget.id) {
+            updateSlide(fileTarget.id, { [fileTarget.field]: url });
+        } else if (fileTarget.scope === 'section' && fileTarget.id) {
+            updateSection(fileTarget.id, { [fileTarget.field]: url });
+        }
+        setIsFilePickerOpen(false);
+        setFileTarget(null);
+    };
+
+    if (!config) {
+        return <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">Loading homepage config...</div>;
+    }
+
+    return (
+        <div className="space-y-6">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-4">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h3 className="font-bold text-gray-900">Community Home Page</h3>
+                        <p className="text-xs text-gray-500">Edit hero, banner, sliders, and content blocks in real time.</p>
+                    </div>
+                    <button onClick={save} disabled={isSaving} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded">
+                        {isSaving ? 'Saving...' : 'Save Changes'}
+                    </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">Hero Title</label>
+                        <input className="w-full border rounded p-2" value={config.hero?.title || ''} onChange={(e) => setConfig({ ...config, hero: { ...(config.hero || {}), title: e.target.value } })} />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">Hero Subtitle</label>
+                        <input className="w-full border rounded p-2" value={config.hero?.subtitle || ''} onChange={(e) => setConfig({ ...config, hero: { ...(config.hero || {}), subtitle: e.target.value } })} />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">Hero Background Color</label>
+                        <input type="text" className="w-full border rounded p-2" value={config.hero?.backgroundColor || ''} onChange={(e) => setConfig({ ...config, hero: { ...(config.hero || {}), backgroundColor: e.target.value } })} placeholder="#4f46e5" />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">Hero Background Image</label>
+                        <div className="flex gap-2">
+                            <input className="w-full border rounded p-2" value={config.hero?.backgroundImage || ''} onChange={(e) => setConfig({ ...config, hero: { ...(config.hero || {}), backgroundImage: e.target.value } })} />
+                            <button
+                                onClick={() => { setFileTarget({ scope: 'hero', field: 'backgroundImage' }); setIsFilePickerOpen(true); }}
+                                className="px-3 py-2 text-xs border rounded"
+                            >
+                                Select
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                    <div>
+                        <div className="font-semibold text-sm">Security Banner</div>
+                        <div className="text-xs text-gray-500">Shown at top of community home.</div>
+                    </div>
+                    <input type="checkbox" checked={config.banner?.enabled !== false} onChange={(e) => setConfig({ ...config, banner: { ...(config.banner || {}), enabled: e.target.checked } })} />
+                </div>
+                <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Banner Text</label>
+                    <input className="w-full border rounded p-2" value={config.banner?.text || ''} onChange={(e) => setConfig({ ...config, banner: { ...(config.banner || {}), text: e.target.value } })} />
+                </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-4">
+                <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-gray-900">Slider Items</h4>
+                    <button onClick={addSlide} className="px-3 py-1 text-xs bg-blue-600 text-white rounded">Add Slide</button>
+                </div>
+                {(config.sliders || []).length === 0 && <div className="text-xs text-gray-500">No slides added yet.</div>}
+                <div className="space-y-3">
+                    {(config.sliders || []).map((slide: any) => (
+                        <div key={slide.id} className="border rounded p-3 space-y-2">
+                            <div className="flex justify-between items-center">
+                                <div className="font-semibold text-sm">Slide</div>
+                                <button onClick={() => removeSlide(slide.id)} className="text-xs text-red-600">Remove</button>
+                            </div>
+                            <input className="w-full border rounded p-2 text-sm" placeholder="Title" value={slide.title || ''} onChange={(e) => updateSlide(slide.id, { title: e.target.value })} />
+                            <input className="w-full border rounded p-2 text-sm" placeholder="Subtitle" value={slide.subtitle || ''} onChange={(e) => updateSlide(slide.id, { subtitle: e.target.value })} />
+                            <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Image URL</label>
+                                    <div className="flex gap-2">
+                                        <input className="w-full border rounded p-2 text-sm" value={slide.imageUrl || ''} onChange={(e) => updateSlide(slide.id, { imageUrl: e.target.value })} />
+                                        <button
+                                            onClick={() => { setFileTarget({ scope: 'slide', id: slide.id, field: 'imageUrl' }); setIsFilePickerOpen(true); }}
+                                            className="px-2 text-xs border rounded"
+                                        >
+                                            Select
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Video URL</label>
+                                    <div className="flex gap-2">
+                                        <input className="w-full border rounded p-2 text-sm" value={slide.videoUrl || ''} onChange={(e) => updateSlide(slide.id, { videoUrl: e.target.value })} />
+                                        <button
+                                            onClick={() => { setFileTarget({ scope: 'slide', id: slide.id, field: 'videoUrl' }); setIsFilePickerOpen(true); }}
+                                            className="px-2 text-xs border rounded"
+                                        >
+                                            Select
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <input className="w-full border rounded p-2 text-sm" placeholder="CTA Label" value={slide.ctaLabel || ''} onChange={(e) => updateSlide(slide.id, { ctaLabel: e.target.value })} />
+                                <input className="w-full border rounded p-2 text-sm" placeholder="CTA URL" value={slide.ctaUrl || ''} onChange={(e) => updateSlide(slide.id, { ctaUrl: e.target.value })} />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-4">
+                <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-gray-900">Content Sections</h4>
+                    <div className="flex gap-2">
+                        <button onClick={() => addSection('text')} className="px-3 py-1 text-xs border rounded">Add Text</button>
+                        <button onClick={() => addSection('image')} className="px-3 py-1 text-xs border rounded">Add Image</button>
+                        <button onClick={() => addSection('video')} className="px-3 py-1 text-xs border rounded">Add Video</button>
+                    </div>
+                </div>
+                {(config.sections || []).length === 0 && <div className="text-xs text-gray-500">No content sections added.</div>}
+                <div className="space-y-3">
+                    {(config.sections || []).map((section: any) => (
+                        <div key={section.id} className="border rounded p-3 space-y-2">
+                            <div className="flex justify-between items-center">
+                                <div className="text-xs font-semibold uppercase text-gray-500">{section.type}</div>
+                                <button onClick={() => removeSection(section.id)} className="text-xs text-red-600">Remove</button>
+                            </div>
+                            <input className="w-full border rounded p-2 text-sm" placeholder="Title" value={section.title || ''} onChange={(e) => updateSection(section.id, { title: e.target.value })} />
+                            <textarea className="w-full border rounded p-2 text-sm" placeholder="Body" value={section.body || ''} onChange={(e) => updateSection(section.id, { body: e.target.value })} />
+                            {section.type === 'image' && (
+                                <div className="flex gap-2">
+                                    <input className="w-full border rounded p-2 text-sm" placeholder="Image URL" value={section.imageUrl || ''} onChange={(e) => updateSection(section.id, { imageUrl: e.target.value })} />
+                                    <button
+                                        onClick={() => { setFileTarget({ scope: 'section', id: section.id, field: 'imageUrl' }); setIsFilePickerOpen(true); }}
+                                        className="px-2 text-xs border rounded"
+                                    >
+                                        Select
+                                    </button>
+                                </div>
+                            )}
+                            {section.type === 'video' && (
+                                <div className="flex gap-2">
+                                    <input className="w-full border rounded p-2 text-sm" placeholder="Video URL" value={section.videoUrl || ''} onChange={(e) => updateSection(section.id, { videoUrl: e.target.value })} />
+                                    <button
+                                        onClick={() => { setFileTarget({ scope: 'section', id: section.id, field: 'videoUrl' }); setIsFilePickerOpen(true); }}
+                                        className="px-2 text-xs border rounded"
+                                    >
+                                        Select
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <FilePickerModal
+                isOpen={isFilePickerOpen}
+                onClose={() => { setIsFilePickerOpen(false); setFileTarget(null); }}
+                onSelect={handleFileSelect}
+                allowUpload={true}
+                filterType="all"
+                role="admin"
+            />
+        </div>
+    );
+};
+
 const AdManager = () => {
     const [campaigns, setCampaigns] = useState<AdCampaign[]>([]);
+    const [reviewQueue, setReviewQueue] = useState<AdCampaign[]>([]);
+    const [adsConfig, setAdsConfig] = useState<any>(null);
+    const [adsAnalytics, setAdsAnalytics] = useState<any>(null);
     const [isEditing, setIsEditing] = useState<Partial<AdCampaign> | null>(null);
+    const [originalEditing, setOriginalEditing] = useState<Partial<AdCampaign> | null>(null);
+    const [errors, setErrors] = useState<Record<string,string>>({});
+    const [isSaving, setIsSaving] = useState(false);
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
     const { showNotification } = useNotification();
 
     useEffect(() => {
-        AdService.getAllCampaigns().then(setCampaigns);
+        const refresh = async () => {
+            try {
+                const [allCampaigns, queue, cfg, analytics] = await Promise.all([
+                    AdService.getAllCampaigns(),
+                    AdService.getReviewQueue(),
+                    AdService.getConfig(),
+                    AdService.getAnalytics()
+                ]);
+                setCampaigns(allCampaigns);
+                setReviewQueue(queue);
+                setAdsConfig(cfg);
+                setAdsAnalytics(analytics);
+            } catch (e) {
+                console.error('Failed to load ads data', e);
+            }
+        };
+        refresh();
+    }, []);
+
+    // Local UI: search + simple pagination for campaigns
+    const [campaignSearch, setCampaignSearch] = React.useState('');
+    const [campaignPage, setCampaignPage] = React.useState(1);
+    const campaignPageSize = 6;
+    const filteredCampaigns = campaigns.filter(c => {
+        if (!campaignSearch) return true;
+        const s = campaignSearch.toString().toLowerCase();
+        return String(c.title || '').toLowerCase().includes(s) || String(c.clientName || '').toLowerCase().includes(s) || String(c.id || '').toLowerCase().includes(s);
+    });
+    const campaignPages = Math.max(1, Math.ceil(filteredCampaigns.length / campaignPageSize));
+    const visibleCampaigns = filteredCampaigns.slice((campaignPage - 1) * campaignPageSize, campaignPage * campaignPageSize);
+
+    useEffect(() => {
+        const refreshCampaigns = async () => {
+            try { const all = await AdService.getAllCampaigns(); setCampaigns(all); } catch(e){ console.error('Failed to refresh campaigns on socket event', e); }
+            try { const queue = await AdService.getReviewQueue(); setReviewQueue(queue); } catch (e) {}
+            try { const analytics = await AdService.getAnalytics(); setAdsAnalytics(analytics); } catch (e) {}
+        };
+        window.addEventListener('community:ad_created', refreshCampaigns as EventListener);
+        window.addEventListener('community:ad_status_updated', refreshCampaigns as EventListener);
+        window.addEventListener('community:ad_payment_initiated', refreshCampaigns as EventListener);
+        return () => {
+            window.removeEventListener('community:ad_created', refreshCampaigns as EventListener);
+            window.removeEventListener('community:ad_status_updated', refreshCampaigns as EventListener);
+            window.removeEventListener('community:ad_payment_initiated', refreshCampaigns as EventListener);
+        };
     }, []);
 
     const handleSave = async () => {
         if (!isEditing || !isEditing.title) return;
-        const toSave = {
+        const toSavePartial = {
             ...isEditing,
-            id: isEditing.id || `ad-${Date.now()}`,
             status: isEditing.status || 'draft',
             impressions: isEditing.impressions || 0,
             clicks: isEditing.clicks || 0,
             ctr: isEditing.ctr || 0,
             creativeUrl: isEditing.creativeUrl || 'https://via.placeholder.com/400x200'
-        } as AdCampaign;
-        
-        await AdService.saveCampaign(toSave);
-        setCampaigns(prev => {
-            const idx = prev.findIndex(c => c.id === toSave.id);
-            if(idx >= 0) {
-                const newC = [...prev];
-                newC[idx] = toSave;
-                return newC;
+        } as Partial<AdCampaign>;
+        // Client-side validation with inline errors
+        const nextErrors: Record<string,string> = {};
+        if (!toSavePartial.title || !toSavePartial.title.toString().trim()) nextErrors.title = 'Title is required';
+        if (toSavePartial.budget !== undefined && Number(toSavePartial.budget) < 0) nextErrors.budget = 'Budget must be 0 or greater';
+        if (toSavePartial.cpm !== undefined && Number(toSavePartial.cpm) < 0) nextErrors.cpm = 'CPM must be 0 or greater';
+        setErrors(nextErrors);
+        if (Object.keys(nextErrors).length > 0) return;
+        // If this is an existing campaign (has id), update; otherwise create draft
+        setIsSaving(true);
+        try {
+            if (isEditing?.id) {
+                const updated = await AdService.updateAd(isEditing.id, toSavePartial);
+                if (updated) {
+                    setCampaigns(prev => prev.map(c => c.id === updated.id ? { ...c, ...updated } : c));
+                    // per-field success toasts
+                    const prev = originalEditing || {};
+                    const changed: string[] = [];
+                    ['title','budget','cpm','placement','targetUrl','creativeUrl','clientName'].forEach(k => {
+                        if ((prev as any)[k] !== (updated as any)[k]) changed.push(k);
+                    });
+                    if (changed.length === 0) showNotification('success', 'Saved', 'No visible changes');
+                    for (const f of changed) showNotification('success', `Saved ${f}`, `${f} updated`);
+                }
+            } else {
+                const created: any = await AdService.saveCampaign(toSavePartial as any);
+                if (created && created.id) {
+                    setCampaigns(prev => [created, ...prev]);
+                    showNotification('success', 'Ad Created', 'Draft created successfully');
+                }
             }
-            return [...prev, toSave];
+        } catch (e) {
+            showNotification('alert', 'Error', 'Failed to save ad');
+            setIsSaving(false);
+            return;
+        } finally {
+            setIsSaving(false);
+        }
+        setCampaigns(prev => {
+            return prev;
         });
         setIsEditing(null);
         showNotification('success', 'Ad Saved', 'Campaign updated successfully.');
@@ -478,6 +1197,28 @@ const AdManager = () => {
         }
     };
 
+    const handleConfigSave = async () => {
+        try {
+            const updated = await AdService.updateConfig({ data: adsConfig });
+            setAdsConfig(updated);
+            showNotification('success', 'Saved', 'Ads config updated.');
+        } catch (e) {
+            showNotification('error', 'Failed', 'Unable to save ads config.');
+        }
+    };
+
+    const approve = async (id: string) => {
+        await AdService.approveAd(id);
+        setReviewQueue(prev => prev.filter(a => a.id !== id));
+        showNotification('success', 'Approved', 'Ad is now active.');
+    };
+
+    const reject = async (id: string) => {
+        await AdService.rejectAd(id, false);
+        setReviewQueue(prev => prev.filter(a => a.id !== id));
+        showNotification('success', 'Rejected', 'Ad rejected.');
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
@@ -486,15 +1227,130 @@ const AdManager = () => {
                     <p className="text-xs text-gray-500">Manage community advertisements</p>
                 </div>
                 <button 
-                    onClick={() => setIsEditing({ title: '', clientName: '', targetUrl: '', targetRoles: [], placement: 'feed' })}
+                    onClick={() => { setOriginalEditing(null); setIsEditing({ title: '', clientName: '', targetUrl: '', targetRoles: [], placement: 'feed', budget: 0, cpm: 0, currency: 'USD', status: 'draft' }); }}
                     className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center hover:bg-blue-700"
                 >
                     <Plus className="w-4 h-4 mr-2" /> Create Ad
                 </button>
             </div>
 
+            {adsAnalytics && (
+                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                    <h4 className="font-bold text-gray-900 mb-2">Ads Analytics</h4>
+                    <div className="grid grid-cols-4 gap-4 text-sm">
+                        <div>
+                            <div className="text-gray-500">Impressions</div>
+                            <div className="font-semibold">{adsAnalytics?._sum?.impressions ?? adsAnalytics?.impressions ?? 0}</div>
+                        </div>
+                        <div>
+                            <div className="text-gray-500">Clicks</div>
+                            <div className="font-semibold">{adsAnalytics?._sum?.clicks ?? adsAnalytics?.clicks ?? 0}</div>
+                        </div>
+                        <div>
+                            <div className="text-gray-500">Spend</div>
+                            <div className="font-semibold">{adsAnalytics?._sum?.spend ?? adsAnalytics?.spend ?? 0}</div>
+                        </div>
+                        <div>
+                            <div className="text-gray-500">Admin Revenue</div>
+                            <div className="font-semibold">{adsAnalytics?.adminRevenue ?? 0}</div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {adsConfig && (
+                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                    <div className="flex items-center justify-between">
+                        <h4 className="font-bold text-gray-900">Ads Pricing & Rules</h4>
+                        <button onClick={handleConfigSave} className="px-3 py-1 text-sm bg-green-600 text-white rounded">Save Config</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">CPM Feed</label>
+                            <input
+                                type="number"
+                                className="w-full border rounded p-2"
+                                value={adsConfig?.cpmByPlacement?.feed ?? 0}
+                                onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, cpmByPlacement: { ...(prev?.cpmByPlacement || {}), feed: Number(e.target.value || 0) } }))}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">CPM Forum Listing</label>
+                            <input
+                                type="number"
+                                className="w-full border rounded p-2"
+                                value={adsConfig?.cpmByPlacement?.forum_listing ?? 0}
+                                onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, cpmByPlacement: { ...(prev?.cpmByPlacement || {}), forum_listing: Number(e.target.value || 0) } }))}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">CPM Thread Detail</label>
+                            <input
+                                type="number"
+                                className="w-full border rounded p-2"
+                                value={adsConfig?.cpmByPlacement?.thread_detail ?? 0}
+                                onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, cpmByPlacement: { ...(prev?.cpmByPlacement || {}), thread_detail: Number(e.target.value || 0) } }))}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">CPM Chat</label>
+                            <input
+                                type="number"
+                                className="w-full border rounded p-2"
+                                value={adsConfig?.cpmByPlacement?.chat ?? 0}
+                                onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, cpmByPlacement: { ...(prev?.cpmByPlacement || {}), chat: Number(e.target.value || 0) } }))}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">Min Budget</label>
+                            <input
+                                type="number"
+                                className="w-full border rounded p-2"
+                                value={adsConfig?.minBudget ?? 0}
+                                onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, minBudget: Number(e.target.value || 0) }))}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">Max Budget</label>
+                            <input
+                                type="number"
+                                className="w-full border rounded p-2"
+                                value={adsConfig?.maxBudget ?? 0}
+                                onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, maxBudget: Number(e.target.value || 0) }))}
+                            />
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                <h4 className="font-bold text-gray-900 mb-3">Review Queue</h4>
+                {reviewQueue.length === 0 ? (
+                    <div className="text-sm text-gray-500">No ads pending review.</div>
+                ) : (
+                    <div className="space-y-3">
+                        {reviewQueue.map((ad) => (
+                            <div key={ad.id} className="flex items-center justify-between border rounded p-3">
+                                <div>
+                                    <div className="font-medium">{ad.title}</div>
+                                    <div className="text-xs text-gray-500">Placement: {ad.placement} • Budget: {ad.budget}</div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button onClick={() => approve(ad.id)} className="px-3 py-1 text-xs bg-green-600 text-white rounded">Approve</button>
+                                    <button onClick={() => reject(ad.id)} className="px-3 py-1 text-xs bg-red-600 text-white rounded">Reject</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {campaigns.map(c => (
+                <div className="col-span-1 md:col-span-2 mb-2 flex items-center justify-between">
+                    <input value={campaignSearch} onChange={e => { setCampaignSearch(e.target.value); setCampaignPage(1); }} placeholder="Search campaigns by title, client or id" className="text-sm border rounded px-3 py-1 w-64" />
+                    <div className="text-sm text-gray-500">Showing {filteredCampaigns.length} campaigns</div>
+                </div>
+                {visibleCampaigns.map(c => (
                     <div key={c.id} className="bg-white p-4 rounded-xl border border-gray-200 flex gap-4 group">
                         <div className="w-24 h-24 flex-shrink-0 bg-gray-100 rounded overflow-hidden">
                             <img src={c.creativeUrl} className="w-full h-full object-cover" />
@@ -512,11 +1368,18 @@ const AdManager = () => {
                             </div>
                         </div>
                         <div className="flex flex-col gap-2 justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => setIsEditing(c)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Edit2 className="w-4 h-4"/></button>
+                            <button onClick={() => { setOriginalEditing(c); setIsEditing(c); }} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Edit2 className="w-4 h-4"/></button>
                             <button onClick={() => handleDelete(c.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4"/></button>
                         </div>
                     </div>
                 ))}
+            </div>
+            <div className="flex items-center justify-between mt-4">
+                <div className="text-sm text-gray-600">Page {campaignPage} / {campaignPages}</div>
+                <div className="flex gap-2">
+                    <button onClick={() => setCampaignPage(p => Math.max(1, p-1))} className="px-3 py-1 rounded bg-gray-100">Prev</button>
+                    <button onClick={() => setCampaignPage(p => Math.min(campaignPages, p+1))} className="px-3 py-1 rounded bg-gray-100">Next</button>
+                </div>
             </div>
 
             {/* Ad Editor Modal */}
@@ -539,10 +1402,31 @@ const AdManager = () => {
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 mb-1">Title</label>
                                     <input className="w-full border rounded p-2 text-sm" value={isEditing.title} onChange={e => setIsEditing({...isEditing, title: e.target.value})} />
+                                    {errors.title && <div className="text-xs text-red-600 mt-1">{errors.title}</div>}
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 mb-1">Client Name</label>
                                     <input className="w-full border rounded p-2 text-sm" value={isEditing.clientName} onChange={e => setIsEditing({...isEditing, clientName: e.target.value})} />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Budget</label>
+                                    <input type="number" min="0" step="0.01" className="w-full border rounded p-2 text-sm" value={isEditing.budget ?? 0} onChange={e => setIsEditing({...isEditing, budget: Number(e.target.value)})} />
+                                    {errors.budget && <div className="text-xs text-red-600 mt-1">{errors.budget}</div>}
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">CPM</label>
+                                    <input type="number" min="0" step="0.01" className="w-full border rounded p-2 text-sm" value={isEditing.cpm ?? 0} onChange={e => setIsEditing({...isEditing, cpm: Number(e.target.value)})} />
+                                    {errors.cpm && <div className="text-xs text-red-600 mt-1">{errors.cpm}</div>}
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Currency</label>
+                                    <select className="w-full border rounded p-2 text-sm" value={isEditing.currency ?? 'USD'} onChange={e => setIsEditing({...isEditing, currency: e.target.value})}>
+                                        <option value="USD">USD</option>
+                                        <option value="EUR">EUR</option>
+                                        <option value="GBP">GBP</option>
+                                    </select>
                                 </div>
                             </div>
                             <div>
@@ -560,11 +1444,12 @@ const AdManager = () => {
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 mb-1">Status</label>
-                                    <select className="w-full border rounded p-2 text-sm" value={isEditing.status} onChange={e => setIsEditing({...isEditing, status: e.target.value as string})}>
+                                    <select className="w-full border rounded p-2 text-sm" value={isEditing.status} onChange={e => setIsEditing({...isEditing, status: e.target.value as string})} disabled={!(user && (user.role || '').toString().toUpperCase() === 'ADMIN') }>
                                         <option value="active">Active</option>
                                         <option value="paused">Paused</option>
                                         <option value="draft">Draft</option>
                                     </select>
+                                    {!(user && (user.role || '').toString().toUpperCase() === 'ADMIN') && <div className="text-xs text-gray-400 mt-1">Status editing restricted to admins.</div>}
                                 </div>
                             </div>
                             <div>
@@ -587,9 +1472,11 @@ const AdManager = () => {
                             </div>
                         </div>
 
-                        <div className="flex justify-end gap-2 mt-6">
+                            <div className="flex justify-end gap-2 mt-6">
                             <button onClick={() => setIsEditing(null)} className="px-4 py-2 border rounded text-gray-600">Cancel</button>
-                            <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white rounded font-bold">Save Ad</button>
+                            <button onClick={handleSave} disabled={isSaving} className={`px-4 py-2 ${isSaving ? 'bg-gray-400' : 'bg-blue-600'} text-white rounded font-bold`}>
+                                {isSaving ? 'Saving…' : 'Save Ad'}
+                            </button>
                         </div>
                     </div>
                 </div>

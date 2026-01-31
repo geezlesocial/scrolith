@@ -1,9 +1,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Plus, Edit2, Trash2, Save, ArrowLeft, Image as ImageIcon, Link as LinkIcon, Type, Eye, Upload, X, Code, Bold, Italic, List, Video, Folder, Globe, Settings } from 'lucide-react';
-import { StaticPage, PageCategory, MediaItem, ContentBlock, BlogCategory, BlogSettings } from '../../types';
+import { StaticPage, PageCategory, MediaItem, ContentBlock, BlogCategory, BlogSettings, AnswersPageConfig, GuidesPageConfig, HirePageConfig, FreelancerPageConfig } from '../../types';
 import { CMSService } from '../../services/cms';
 import { useNotification } from '../../context/NotificationContext';
+import { useSocket } from '../../context/SocketContext';
+import FilePickerModal from '../shared/FilePickerModal';
 import AuthPagesManager from './AuthPagesManager';
 
 const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab, setView }: any) => (
@@ -18,9 +20,13 @@ const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab, setView }: 
 const CMSPages = () => {
     const [pages, setPages] = useState<StaticPage[]>([]);
     const [categories, setCategories] = useState<PageCategory[]>([]);
-    const [view, setView] = useState<'list' | 'editor' | 'categories' | 'auth-pages'>('list');
+    const [view, setView] = useState<'list' | 'editor' | 'categories' | 'auth-pages' | 'answers' | 'guides' | 'hire' | 'freelancer'>('list');
     const [editingPage, setEditingPage] = useState<StaticPage | null>(null);
+    const [isPreviewing, setIsPreviewing] = useState(false);
+    const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
+    const [filePickerType, setFilePickerType] = useState<'image' | 'video'>('image');
     const { showNotification } = useNotification();
+    const { socket } = useSocket();
 
     // Editor Refs
     const contentRef = useRef<HTMLTextAreaElement>(null);
@@ -28,6 +34,25 @@ const CMSPages = () => {
     useEffect(() => {
         loadData();
     }, []);
+
+    useEffect(() => {
+        if (!socket) return;
+        const handleRefresh = () => loadData();
+        socket.on('cms:pages_updated', handleRefresh);
+        socket.on('cms:page_updated', handleRefresh);
+        socket.on('cms:page_deleted', handleRefresh);
+        socket.on('cms:categories_updated', handleRefresh);
+        socket.on('cms:category_updated', handleRefresh);
+        socket.on('cms:category_deleted', handleRefresh);
+        return () => {
+            socket.off('cms:pages_updated', handleRefresh);
+            socket.off('cms:page_updated', handleRefresh);
+            socket.off('cms:page_deleted', handleRefresh);
+            socket.off('cms:categories_updated', handleRefresh);
+            socket.off('cms:category_updated', handleRefresh);
+            socket.off('cms:category_deleted', handleRefresh);
+        };
+    }, [socket]);
 
     const loadData = async () => {
         try {
@@ -92,6 +117,29 @@ const CMSPages = () => {
         }
     };
 
+    const handlePreview = async () => {
+        if (!editingPage || !editingPage.title) {
+            showNotification('alert', 'Error', 'Page Title is required to preview.');
+            return;
+        }
+
+        const slug = editingPage.slug || editingPage.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+        const payload = { ...editingPage, slug };
+
+        try {
+            setIsPreviewing(true);
+            const saved = await CMSService.savePage(payload);
+            setEditingPage({ ...payload, ...(saved || {}) });
+            showNotification('success', 'Preview Ready', 'Opening preview in a new tab.');
+            const previewSlug = saved?.slug || payload.slug;
+            window.open(`/p/${previewSlug}`, '_blank', 'noopener,noreferrer');
+        } catch (error) {
+            showNotification('alert', 'Error', 'Failed to prepare preview.');
+        } finally {
+            setIsPreviewing(false);
+        }
+    };
+
     const handleDelete = async (id: string) => {
         if (confirm('Are you sure you want to delete this page? This cannot be undone.')) {
             await CMSService.deletePage(id);
@@ -122,28 +170,45 @@ const CMSPages = () => {
         setTimeout(() => textarea.focus(), 0);
     };
 
-    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'video') => {
-        if (e.target.files && e.target.files[0] && editingPage) {
-            try {
-                const media = await CMSService.uploadMedia(e.target.files[0]);
-                if (type === 'image') {
-                    setEditingPage({ 
-                        ...editingPage, 
-                        images: [...(editingPage.images || []), media.url],
-                        // Auto-insert into content
-                        content: editingPage.content + `\n<img src="${media.url}" alt="${media.name}" class="w-full rounded-lg my-4" />`
-                    });
-                } else {
-                    setEditingPage({ 
-                        ...editingPage, 
-                        videos: [...(editingPage.videos || []), media.url] 
-                    });
-                }
-                showNotification('success', 'Media Uploaded', 'File added to page gallery.');
-            } catch (err) {
-                showNotification('alert', 'Error', 'Upload failed.');
-            }
+    const openFilePicker = (type: 'image' | 'video') => {
+        setFilePickerType(type);
+        setIsFilePickerOpen(true);
+    };
+
+    const handleFilePicked = (file: { url: string; name: string; type?: string }) => {
+        if (!editingPage || !file?.url) return;
+        if (filePickerType === 'image') {
+            setEditingPage({
+                ...editingPage,
+                images: [...(editingPage.images || []), file.url],
+                content: editingPage.content + `\n<img src="${file.url}" alt="${file.name || 'Image'}" class="w-full rounded-lg my-4" />`
+            });
+        } else {
+            setEditingPage({
+                ...editingPage,
+                videos: [...(editingPage.videos || []), file.url],
+                content: editingPage.content + `\n<video src="${file.url}" controls class="w-full rounded-lg my-4"></video>`
+            });
         }
+        showNotification('success', 'Media Added', 'File added from Uploaded Files.');
+    };
+
+    const handleFilesPicked = (files: { url: string; name: string }[]) => {
+        if (!editingPage) return;
+        if (filePickerType !== 'image') {
+            if (files[0]) handleFilePicked(files[0]);
+            return;
+        }
+        const urls = files.map((f) => f.url).filter(Boolean);
+        const newContent = files.reduce((acc, f) => (
+            acc + `\n<img src="${f.url}" alt="${f.name || 'Image'}" class="w-full rounded-lg my-4" />`
+        ), editingPage.content);
+        setEditingPage({
+            ...editingPage,
+            images: [...(editingPage.images || []), ...urls],
+            content: newContent
+        });
+        if (files.length > 0) showNotification('success', 'Media Added', 'Files added from Uploaded Files.');
     };
 
     // --- Render ---
@@ -152,13 +217,32 @@ const CMSPages = () => {
         <CategoryManager categories={categories} reload={loadData} setView={setView} />
     ) : view === 'editor' && editingPage ? (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 animate-fade-in">
+                <FilePickerModal
+                    isOpen={isFilePickerOpen}
+                    onClose={() => setIsFilePickerOpen(false)}
+                    onSelect={handleFilePicked}
+                    onSelectMultiple={handleFilesPicked}
+                    allowUpload={true}
+                    multiple={filePickerType === 'image'}
+                    filterType={filePickerType}
+                    acceptedTypes={filePickerType === 'image' ? 'image/*' : 'video/*'}
+                    role="admin"
+                    visibility="public"
+                    title={filePickerType === 'image' ? 'Select Images' : 'Select Video'}
+                />
                 <div className="flex justify-between items-center mb-6 border-b pb-4">
                     <button onClick={() => setView('list')} className="text-gray-500 hover:text-gray-900 flex items-center">
                         <ArrowLeft className="w-4 h-4 mr-2" /> Back to Pages
                     </button>
                     <h2 className="text-xl font-bold">{editingPage.id ? 'Edit Page' : 'New Page'}</h2>
                     <div className="flex space-x-3">
-                        <button className="px-4 py-2 border rounded-lg text-gray-700 hover:bg-gray-50 flex items-center"><Eye className="w-4 h-4 mr-2" /> Preview</button>
+                        <button
+                            onClick={handlePreview}
+                            disabled={isPreviewing}
+                            className="px-4 py-2 border rounded-lg text-gray-700 hover:bg-gray-50 flex items-center disabled:opacity-60"
+                        >
+                            <Eye className="w-4 h-4 mr-2" /> {isPreviewing ? 'Preparing...' : 'Preview'}
+                        </button>
                         <button onClick={handleSave} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 shadow-sm">
                             <Save className="w-4 h-4 mr-2" /> {editingPage.status === 'PUBLISHED' ? 'Update Page' : 'Save Draft'}
                         </button>
@@ -287,17 +371,38 @@ const CMSPages = () => {
                                 ))}
                             </div>
 
-                            <label className="block w-full border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:bg-gray-50 transition">
-                                <Upload className="w-6 h-6 text-gray-400 mx-auto mb-2" />
-                                <span className="text-xs text-gray-500">Upload Image</span>
-                                <input type="file" className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'image')} />
-                            </label>
+                            <div className="grid grid-cols-1 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => openFilePicker('image')}
+                                    className="w-full border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:bg-gray-50 transition"
+                                >
+                                    <Upload className="w-6 h-6 text-gray-400 mx-auto mb-2" />
+                                    <span className="text-xs text-gray-500">Add Image from Uploaded Files</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => openFilePicker('video')}
+                                    className="w-full border-2 border-dashed border-gray-300 rounded-lg p-4 text-center cursor-pointer hover:bg-gray-50 transition"
+                                >
+                                    <Video className="w-6 h-6 text-gray-400 mx-auto mb-2" />
+                                    <span className="text-xs text-gray-500">Add Video from Uploaded Files</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
     ) : view === 'auth-pages' ? (
         <AuthPagesManager setView={setView} />
+    ) : view === 'answers' ? (
+        <AnswersPageManager setView={setView} />
+    ) : view === 'guides' ? (
+        <GuidesPageManager setView={setView} />
+    ) : view === 'hire' ? (
+        <HirePageManager setView={setView} />
+    ) : view === 'freelancer' ? (
+        <FreelancerPageManager setView={setView} />
     ) : (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -308,6 +413,18 @@ const CMSPages = () => {
                     </button>
                     <button onClick={() => setView('auth-pages')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
                         <Settings className="w-4 h-4 mr-2" /> Auth Pages
+                    </button>
+                    <button onClick={() => setView('answers')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
+                        <Code className="w-4 h-4 mr-2" /> Answers Page
+                    </button>
+                    <button onClick={() => setView('guides')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
+                        <Globe className="w-4 h-4 mr-2" /> Guides Page
+                    </button>
+                    <button onClick={() => setView('hire')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
+                        <Settings className="w-4 h-4 mr-2" /> Hire Page
+                    </button>
+                    <button onClick={() => setView('freelancer')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
+                        <Settings className="w-4 h-4 mr-2" /> Freelancer Page
                     </button>
                     <button onClick={handleCreate} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 shadow-sm">
                         <Plus className="w-4 h-4 mr-2" /> Create New Page
@@ -387,15 +504,24 @@ const CategoryManager = ({ categories, reload, setView }: { categories: PageCate
         }
     };
 
-    const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files?.[0] && editingCat) {
-            const media = await CMSService.uploadMedia(e.target.files[0]);
-            setEditingCat({ ...editingCat, image: media.url });
-        }
+    const handleLogoSelect = (file: { url: string }) => {
+        if (!editingCat || !file?.url) return;
+        setEditingCat({ ...editingCat, image: file.url });
     };
 
     return (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+            <FilePickerModal
+                isOpen={isFilePickerOpen}
+                onClose={() => setIsFilePickerOpen(false)}
+                onSelect={handleLogoSelect}
+                allowUpload={true}
+                filterType="image"
+                acceptedTypes="image/*"
+                role="admin"
+                visibility="public"
+                title="Select Category Logo"
+            />
             <div className="flex justify-between items-center mb-6">
                 <button onClick={() => setView('list')} className="text-gray-500 hover:text-gray-900 flex items-center">
                     <ArrowLeft className="w-4 h-4 mr-2" /> Back to Pages
@@ -423,11 +549,14 @@ const CategoryManager = ({ categories, reload, setView }: { categories: PageCate
                         <input className="w-full border-gray-300 rounded-md" value={editingCat.description} onChange={e => setEditingCat({ ...editingCat, description: e.target.value })} />
                     </div>
                     <div className="flex items-center space-x-4">
-                        <label className="flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                        <button
+                            type="button"
+                            onClick={() => setIsFilePickerOpen(true)}
+                            className="flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+                        >
                             <Upload className="w-4 h-4 mr-2 text-gray-500" />
-                            <span className="text-sm">Upload Logo</span>
-                            <input type="file" className="hidden" accept="image/*" onChange={handleLogoUpload} />
-                        </label>
+                            <span className="text-sm">Select Logo from Uploaded Files</span>
+                        </button>
                         {editingCat.image && <img src={editingCat.image} className="h-10 w-10 object-cover rounded" alt="Logo" />}
                     </div>
                     <div className="flex justify-end space-x-2">
@@ -460,6 +589,920 @@ const CategoryManager = ({ categories, reload, setView }: { categories: PageCate
                     ))}
                 </tbody>
             </table>
+        </div>
+    );
+};
+
+// --- Answers Page Manager ---
+
+const AnswersPageManager = ({ setView }: { setView: (v: any) => void }) => {
+    const { showNotification } = useNotification();
+    const { socket } = useSocket();
+    const [config, setConfig] = useState<AnswersPageConfig | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [heroPickerOpen, setHeroPickerOpen] = useState(false);
+
+    const fallback: AnswersPageConfig = {
+        hero: {
+            title: 'Geezle Answers',
+            subtitle: 'Get expert answers and AI-powered insights for your business challenges.',
+            primaryCtaLabel: 'Ask a Question',
+            primaryCtaUrl: '#ask-ai',
+            backgroundImage: '',
+            badgeLabel: 'AI Powered'
+        },
+        ai: { enabled: true, allowGuest: true, disclaimer: 'AI responses are for informational purposes only.' },
+        categories: [],
+        featuredQuestions: [],
+        faq: [],
+        updated_at: new Date().toISOString()
+    };
+
+    const loadConfig = async () => {
+        setLoading(true);
+        try {
+            const data = await CMSService.getAnswersPageConfig();
+            setConfig(data || fallback);
+        } catch (e) {
+            setConfig(fallback);
+            showNotification('alert', 'Error', 'Failed to load Answers page config.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadConfig();
+    }, []);
+
+    useEffect(() => {
+        if (!socket) return;
+        const refresh = () => loadConfig();
+        socket.on('cms:answers_updated', refresh);
+        return () => {
+            socket.off('cms:answers_updated', refresh);
+        };
+    }, [socket]);
+
+    const updateConfig = (updates: Partial<AnswersPageConfig>) => {
+        setConfig((prev) => ({ ...(prev || fallback), ...updates }));
+    };
+
+    const handleSave = async () => {
+        if (!config) return;
+        setSaving(true);
+        try {
+            const saved = await CMSService.saveAnswersPageConfig({ ...config, updated_at: new Date().toISOString() });
+            setConfig(saved);
+            showNotification('success', 'Saved', 'Answers page updated.');
+        } catch (e) {
+            showNotification('alert', 'Error', 'Failed to save Answers page.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const onHeroSelect = (file: { url: string }) => {
+        if (!config) return;
+        updateConfig({ hero: { ...config.hero, backgroundImage: file.url } });
+    };
+
+    if (loading || !config) {
+        return (
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <div className="text-gray-500">Loading Answers page settings...</div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 animate-fade-in space-y-6">
+            <FilePickerModal
+                isOpen={heroPickerOpen}
+                onClose={() => setHeroPickerOpen(false)}
+                onSelect={onHeroSelect}
+                allowUpload={true}
+                filterType="image"
+                acceptedTypes="image/*"
+                role="admin"
+                visibility="public"
+                title="Select Answers Hero Background"
+            />
+
+            <div className="flex justify-between items-center border-b pb-4">
+                <button onClick={() => setView('list')} className="text-gray-500 hover:text-gray-900 flex items-center">
+                    <ArrowLeft className="w-4 h-4 mr-2" /> Back to Pages
+                </button>
+                <h2 className="text-xl font-bold">Answers Page</h2>
+                <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 shadow-sm disabled:opacity-60"
+                >
+                    <Save className="w-4 h-4 mr-2" /> {saving ? 'Saving...' : 'Save'}
+                </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                    <h3 className="font-semibold text-gray-900">Hero</h3>
+                    <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.title} onChange={e => updateConfig({ hero: { ...config.hero, title: e.target.value } })} placeholder="Hero Title" />
+                    <textarea className="w-full border-gray-300 rounded-lg p-2.5 h-24" value={config.hero.subtitle} onChange={e => updateConfig({ hero: { ...config.hero, subtitle: e.target.value } })} placeholder="Hero Subtitle" />
+                    <div className="grid grid-cols-2 gap-3">
+                        <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.primaryCtaLabel || ''} onChange={e => updateConfig({ hero: { ...config.hero, primaryCtaLabel: e.target.value } })} placeholder="CTA Label" />
+                        <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.primaryCtaUrl || ''} onChange={e => updateConfig({ hero: { ...config.hero, primaryCtaUrl: e.target.value } })} placeholder="CTA URL" />
+                    </div>
+                    <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.badgeLabel || ''} onChange={e => updateConfig({ hero: { ...config.hero, badgeLabel: e.target.value } })} placeholder="Badge Label" />
+                    <div className="flex items-center gap-3">
+                        <button type="button" onClick={() => setHeroPickerOpen(true)} className="px-4 py-2 border rounded-lg text-sm">
+                            Select Background Image
+                        </button>
+                        {config.hero.backgroundImage ? <span className="text-xs text-gray-500">Image selected</span> : null}
+                    </div>
+                </div>
+
+                <div className="space-y-4">
+                    <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                    <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={config.ai.enabled} onChange={e => updateConfig({ ai: { ...config.ai, enabled: e.target.checked } })} />
+                        Enable AI Answers
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={config.ai.allowGuest} onChange={e => updateConfig({ ai: { ...config.ai, allowGuest: e.target.checked } })} />
+                        Allow Guests to Use AI
+                    </label>
+                    <textarea className="w-full border-gray-300 rounded-lg p-2.5 h-24" value={config.ai.disclaimer || ''} onChange={e => updateConfig({ ai: { ...config.ai, disclaimer: e.target.value } })} placeholder="AI Disclaimer" />
+                </div>
+            </div>
+
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-gray-900">Categories</h3>
+                    <button
+                        onClick={() => updateConfig({ categories: [...config.categories, { id: `cat-${Date.now()}`, label: '', description: '' }] })}
+                        className="text-sm text-blue-600"
+                    >
+                        + Add Category
+                    </button>
+                </div>
+                {config.categories.map((cat, idx) => (
+                    <div key={cat.id} className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        <input className="border rounded-lg p-2" value={cat.label} onChange={e => {
+                            const next = [...config.categories];
+                            next[idx] = { ...cat, label: e.target.value };
+                            updateConfig({ categories: next });
+                        }} placeholder="Label" />
+                        <input className="border rounded-lg p-2 md:col-span-2" value={cat.description || ''} onChange={e => {
+                            const next = [...config.categories];
+                            next[idx] = { ...cat, description: e.target.value };
+                            updateConfig({ categories: next });
+                        }} placeholder="Description" />
+                        <button className="text-xs text-red-500 md:col-span-3 text-left" onClick={() => updateConfig({ categories: config.categories.filter((_, i) => i !== idx) })}>Remove</button>
+                    </div>
+                ))}
+            </div>
+
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-gray-900">Featured Questions</h3>
+                    <button
+                        onClick={() => updateConfig({ featuredQuestions: [...config.featuredQuestions, { id: `q-${Date.now()}`, question: '', tags: [] }] })}
+                        className="text-sm text-blue-600"
+                    >
+                        + Add Question
+                    </button>
+                </div>
+                {config.featuredQuestions.map((q, idx) => (
+                    <div key={q.id} className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        <input className="border rounded-lg p-2 md:col-span-2" value={q.question} onChange={e => {
+                            const next = [...config.featuredQuestions];
+                            next[idx] = { ...q, question: e.target.value };
+                            updateConfig({ featuredQuestions: next });
+                        }} placeholder="Question" />
+                        <input className="border rounded-lg p-2" value={(q.tags || []).join(', ')} onChange={e => {
+                            const next = [...config.featuredQuestions];
+                            next[idx] = { ...q, tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) };
+                            updateConfig({ featuredQuestions: next });
+                        }} placeholder="Tags (comma separated)" />
+                        <button className="text-xs text-red-500 md:col-span-3 text-left" onClick={() => updateConfig({ featuredQuestions: config.featuredQuestions.filter((_, i) => i !== idx) })}>Remove</button>
+                    </div>
+                ))}
+            </div>
+
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-gray-900">FAQ</h3>
+                    <button
+                        onClick={() => updateConfig({ faq: [...config.faq, { id: `faq-${Date.now()}`, question: '', answer: '' }] })}
+                        className="text-sm text-blue-600"
+                    >
+                        + Add FAQ
+                    </button>
+                </div>
+                {config.faq.map((item, idx) => (
+                    <div key={item.id} className="grid grid-cols-1 gap-2">
+                        <input className="border rounded-lg p-2" value={item.question} onChange={e => {
+                            const next = [...config.faq];
+                            next[idx] = { ...item, question: e.target.value };
+                            updateConfig({ faq: next });
+                        }} placeholder="Question" />
+                        <textarea className="border rounded-lg p-2 h-20" value={item.answer} onChange={e => {
+                            const next = [...config.faq];
+                            next[idx] = { ...item, answer: e.target.value };
+                            updateConfig({ faq: next });
+                        }} placeholder="Answer" />
+                        <button className="text-xs text-red-500 text-left" onClick={() => updateConfig({ faq: config.faq.filter((_, i) => i !== idx) })}>Remove</button>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// --- Guides Page Manager ---
+
+const GuidesPageManager = ({ setView }: { setView: (v: any) => void }) => {
+    const { showNotification } = useNotification();
+    const { socket } = useSocket();
+    const [config, setConfig] = useState<GuidesPageConfig | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [heroPickerOpen, setHeroPickerOpen] = useState(false);
+    const [coverPickerOpen, setCoverPickerOpen] = useState(false);
+    const [coverIndex, setCoverIndex] = useState<number | null>(null);
+
+    const fallback: GuidesPageConfig = {
+        hero: {
+            title: 'Geezle Guides',
+            subtitle: 'In-depth, professional guides for founders, freelancers, and teams.',
+            primaryCtaLabel: 'Explore Guides',
+            primaryCtaUrl: '#guides',
+            backgroundImage: '',
+            badgeLabel: 'Deep Dives'
+        },
+        ai: { enabled: true, allowGuest: true, disclaimer: 'AI guides are drafts. Validate facts.' },
+        topics: [],
+        featuredGuides: [],
+        callToAction: { title: 'Need a tailored guide?', subtitle: 'Generate a custom playbook.', ctaLabel: 'Generate Guide', ctaUrl: '#ai-guide-builder' },
+        updated_at: new Date().toISOString()
+    };
+
+    const loadConfig = async () => {
+        setLoading(true);
+        try {
+            const data = await CMSService.getGuidesPageConfig();
+            setConfig(data || fallback);
+        } catch (e) {
+            setConfig(fallback);
+            showNotification('alert', 'Error', 'Failed to load Guides page config.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadConfig();
+    }, []);
+
+    useEffect(() => {
+        if (!socket) return;
+        const refresh = () => loadConfig();
+        socket.on('cms:guides_updated', refresh);
+        return () => {
+            socket.off('cms:guides_updated', refresh);
+        };
+    }, [socket]);
+
+    const updateConfig = (updates: Partial<GuidesPageConfig>) => {
+        setConfig((prev) => ({ ...(prev || fallback), ...updates }));
+    };
+
+    const handleSave = async () => {
+        if (!config) return;
+        setSaving(true);
+        try {
+            const saved = await CMSService.saveGuidesPageConfig({ ...config, updated_at: new Date().toISOString() });
+            setConfig(saved);
+            showNotification('success', 'Saved', 'Guides page updated.');
+        } catch (e) {
+            showNotification('alert', 'Error', 'Failed to save Guides page.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const onHeroSelect = (file: { url: string }) => {
+        if (!config) return;
+        updateConfig({ hero: { ...config.hero, backgroundImage: file.url } });
+    };
+
+    const onCoverSelect = (file: { url: string }) => {
+        if (!config || coverIndex === null) return;
+        const next = [...config.featuredGuides];
+        next[coverIndex] = { ...next[coverIndex], coverImage: file.url };
+        updateConfig({ featuredGuides: next });
+    };
+
+    if (loading || !config) {
+        return (
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <div className="text-gray-500">Loading Guides page settings...</div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 animate-fade-in space-y-6">
+            <FilePickerModal
+                isOpen={heroPickerOpen}
+                onClose={() => setHeroPickerOpen(false)}
+                onSelect={onHeroSelect}
+                allowUpload={true}
+                filterType="image"
+                acceptedTypes="image/*"
+                role="admin"
+                visibility="public"
+                title="Select Guides Hero Background"
+            />
+            <FilePickerModal
+                isOpen={coverPickerOpen}
+                onClose={() => setCoverPickerOpen(false)}
+                onSelect={onCoverSelect}
+                allowUpload={true}
+                filterType="image"
+                acceptedTypes="image/*"
+                role="admin"
+                visibility="public"
+                title="Select Guide Cover Image"
+            />
+
+            <div className="flex justify-between items-center border-b pb-4">
+                <button onClick={() => setView('list')} className="text-gray-500 hover:text-gray-900 flex items-center">
+                    <ArrowLeft className="w-4 h-4 mr-2" /> Back to Pages
+                </button>
+                <h2 className="text-xl font-bold">Guides Page</h2>
+                <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 shadow-sm disabled:opacity-60"
+                >
+                    <Save className="w-4 h-4 mr-2" /> {saving ? 'Saving...' : 'Save'}
+                </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                    <h3 className="font-semibold text-gray-900">Hero</h3>
+                    <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.title} onChange={e => updateConfig({ hero: { ...config.hero, title: e.target.value } })} placeholder="Hero Title" />
+                    <textarea className="w-full border-gray-300 rounded-lg p-2.5 h-24" value={config.hero.subtitle} onChange={e => updateConfig({ hero: { ...config.hero, subtitle: e.target.value } })} placeholder="Hero Subtitle" />
+                    <div className="grid grid-cols-2 gap-3">
+                        <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.primaryCtaLabel || ''} onChange={e => updateConfig({ hero: { ...config.hero, primaryCtaLabel: e.target.value } })} placeholder="CTA Label" />
+                        <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.primaryCtaUrl || ''} onChange={e => updateConfig({ hero: { ...config.hero, primaryCtaUrl: e.target.value } })} placeholder="CTA URL" />
+                    </div>
+                    <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.badgeLabel || ''} onChange={e => updateConfig({ hero: { ...config.hero, badgeLabel: e.target.value } })} placeholder="Badge Label" />
+                    <div className="flex items-center gap-3">
+                        <button type="button" onClick={() => setHeroPickerOpen(true)} className="px-4 py-2 border rounded-lg text-sm">
+                            Select Background Image
+                        </button>
+                        {config.hero.backgroundImage ? <span className="text-xs text-gray-500">Image selected</span> : null}
+                    </div>
+                </div>
+
+                <div className="space-y-4">
+                    <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                    <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={config.ai.enabled} onChange={e => updateConfig({ ai: { ...config.ai, enabled: e.target.checked } })} />
+                        Enable AI Guides
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={config.ai.allowGuest} onChange={e => updateConfig({ ai: { ...config.ai, allowGuest: e.target.checked } })} />
+                        Allow Guests to Use AI
+                    </label>
+                    <textarea className="w-full border-gray-300 rounded-lg p-2.5 h-24" value={config.ai.disclaimer || ''} onChange={e => updateConfig({ ai: { ...config.ai, disclaimer: e.target.value } })} placeholder="AI Disclaimer" />
+                </div>
+            </div>
+
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-gray-900">Topics</h3>
+                    <button
+                        onClick={() => updateConfig({ topics: [...config.topics, { id: `topic-${Date.now()}`, label: '', description: '' }] })}
+                        className="text-sm text-blue-600"
+                    >
+                        + Add Topic
+                    </button>
+                </div>
+                {config.topics.map((topic, idx) => (
+                    <div key={topic.id} className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        <input className="border rounded-lg p-2" value={topic.label} onChange={e => {
+                            const next = [...config.topics];
+                            next[idx] = { ...topic, label: e.target.value };
+                            updateConfig({ topics: next });
+                        }} placeholder="Label" />
+                        <input className="border rounded-lg p-2 md:col-span-2" value={topic.description || ''} onChange={e => {
+                            const next = [...config.topics];
+                            next[idx] = { ...topic, description: e.target.value };
+                            updateConfig({ topics: next });
+                        }} placeholder="Description" />
+                        <button className="text-xs text-red-500 md:col-span-3 text-left" onClick={() => updateConfig({ topics: config.topics.filter((_, i) => i !== idx) })}>Remove</button>
+                    </div>
+                ))}
+            </div>
+
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-gray-900">Featured Guides</h3>
+                    <button
+                        onClick={() => updateConfig({ featuredGuides: [...config.featuredGuides, { id: `guide-${Date.now()}`, title: '', excerpt: '', category: '', readTime: '', coverImage: '' }] })}
+                        className="text-sm text-blue-600"
+                    >
+                        + Add Guide
+                    </button>
+                </div>
+                {config.featuredGuides.map((guide, idx) => (
+                    <div key={guide.id} className="grid grid-cols-1 md:grid-cols-2 gap-2 border border-gray-200 rounded-lg p-3">
+                        <input className="border rounded-lg p-2" value={guide.title} onChange={e => {
+                            const next = [...config.featuredGuides];
+                            next[idx] = { ...guide, title: e.target.value };
+                            updateConfig({ featuredGuides: next });
+                        }} placeholder="Title" />
+                        <input className="border rounded-lg p-2" value={guide.category || ''} onChange={e => {
+                            const next = [...config.featuredGuides];
+                            next[idx] = { ...guide, category: e.target.value };
+                            updateConfig({ featuredGuides: next });
+                        }} placeholder="Category" />
+                        <textarea className="border rounded-lg p-2 md:col-span-2 h-20" value={guide.excerpt} onChange={e => {
+                            const next = [...config.featuredGuides];
+                            next[idx] = { ...guide, excerpt: e.target.value };
+                            updateConfig({ featuredGuides: next });
+                        }} placeholder="Excerpt" />
+                        <div className="flex items-center gap-2">
+                            <input className="border rounded-lg p-2 flex-1" value={guide.readTime || ''} onChange={e => {
+                                const next = [...config.featuredGuides];
+                                next[idx] = { ...guide, readTime: e.target.value };
+                                updateConfig({ featuredGuides: next });
+                            }} placeholder="Read Time" />
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setCoverIndex(idx);
+                                    setCoverPickerOpen(true);
+                                }}
+                                className="px-3 py-2 border rounded-lg text-sm"
+                            >
+                                Cover Image
+                            </button>
+                        </div>
+                        <button className="text-xs text-red-500 md:col-span-2 text-left" onClick={() => updateConfig({ featuredGuides: config.featuredGuides.filter((_, i) => i !== idx) })}>Remove</button>
+                    </div>
+                ))}
+            </div>
+
+            <div className="space-y-4">
+                <h3 className="font-semibold text-gray-900">Call to Action</h3>
+                <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.callToAction?.title || ''} onChange={e => updateConfig({ callToAction: { ...(config.callToAction || {}), title: e.target.value } })} placeholder="CTA Title" />
+                <textarea className="w-full border-gray-300 rounded-lg p-2.5 h-20" value={config.callToAction?.subtitle || ''} onChange={e => updateConfig({ callToAction: { ...(config.callToAction || {}), subtitle: e.target.value } })} placeholder="CTA Subtitle" />
+                <div className="grid grid-cols-2 gap-3">
+                    <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.callToAction?.ctaLabel || ''} onChange={e => updateConfig({ callToAction: { ...(config.callToAction || {}), ctaLabel: e.target.value } })} placeholder="CTA Label" />
+                    <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.callToAction?.ctaUrl || ''} onChange={e => updateConfig({ callToAction: { ...(config.callToAction || {}), ctaUrl: e.target.value } })} placeholder="CTA URL" />
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- Hire Page Manager ---
+
+const HirePageManager = ({ setView }: { setView: (v: any) => void }) => {
+    const { showNotification } = useNotification();
+    const { socket } = useSocket();
+    const [config, setConfig] = useState<HirePageConfig | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [heroPickerOpen, setHeroPickerOpen] = useState(false);
+
+    const fallback: HirePageConfig = {
+        hero: {
+            title: 'I am seeking to hire',
+            subtitle: 'We’re looking for proven freelance talent and a premium business solution to drive results.',
+            primaryCtaLabel: 'Post a Project',
+            primaryCtaUrl: '/create-job',
+            secondaryCtaLabel: 'Browse Talent',
+            secondaryCtaUrl: '/browse',
+            backgroundImage: '',
+            badgeLabel: 'Premium Hiring'
+        },
+        ai: { enabled: true, allowGuest: true, disclaimer: 'AI recommendations are advisory.' },
+        highlights: [],
+        steps: [],
+        testimonials: [],
+        updated_at: new Date().toISOString()
+    };
+
+    const loadConfig = async () => {
+        setLoading(true);
+        try {
+            const data = await CMSService.getHirePageConfig();
+            setConfig(data || fallback);
+        } catch (e) {
+            setConfig(fallback);
+            showNotification('alert', 'Error', 'Failed to load Hire page config.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadConfig();
+    }, []);
+
+    useEffect(() => {
+        if (!socket) return;
+        const refresh = () => loadConfig();
+        socket.on('cms:hire_updated', refresh);
+        return () => {
+            socket.off('cms:hire_updated', refresh);
+        };
+    }, [socket]);
+
+    const updateConfig = (updates: Partial<HirePageConfig>) => {
+        setConfig((prev) => ({ ...(prev || fallback), ...updates }));
+    };
+
+    const handleSave = async () => {
+        if (!config) return;
+        setSaving(true);
+        try {
+            const saved = await CMSService.saveHirePageConfig({ ...config, updated_at: new Date().toISOString() });
+            setConfig(saved);
+            showNotification('success', 'Saved', 'Hire page updated.');
+        } catch (e) {
+            showNotification('alert', 'Error', 'Failed to save Hire page.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const onHeroSelect = (file: { url: string }) => {
+        if (!config) return;
+        updateConfig({ hero: { ...config.hero, backgroundImage: file.url } });
+    };
+
+    if (loading || !config) {
+        return (
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <div className="text-gray-500">Loading Hire page settings...</div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 animate-fade-in space-y-6">
+            <FilePickerModal
+                isOpen={heroPickerOpen}
+                onClose={() => setHeroPickerOpen(false)}
+                onSelect={onHeroSelect}
+                allowUpload={true}
+                filterType="image"
+                acceptedTypes="image/*"
+                role="admin"
+                visibility="public"
+                title="Select Hire Hero Background"
+            />
+            <div className="flex justify-between items-center border-b pb-4">
+                <button onClick={() => setView('list')} className="text-gray-500 hover:text-gray-900 flex items-center">
+                    <ArrowLeft className="w-4 h-4 mr-2" /> Back to Pages
+                </button>
+                <h2 className="text-xl font-bold">Hire Page</h2>
+                <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 shadow-sm disabled:opacity-60"
+                >
+                    <Save className="w-4 h-4 mr-2" /> {saving ? 'Saving...' : 'Save'}
+                </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                    <h3 className="font-semibold text-gray-900">Hero</h3>
+                    <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.title} onChange={e => updateConfig({ hero: { ...config.hero, title: e.target.value } })} placeholder="Hero Title" />
+                    <textarea className="w-full border-gray-300 rounded-lg p-2.5 h-24" value={config.hero.subtitle} onChange={e => updateConfig({ hero: { ...config.hero, subtitle: e.target.value } })} placeholder="Hero Subtitle" />
+                    <div className="grid grid-cols-2 gap-3">
+                        <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.primaryCtaLabel || ''} onChange={e => updateConfig({ hero: { ...config.hero, primaryCtaLabel: e.target.value } })} placeholder="Primary CTA Label" />
+                        <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.primaryCtaUrl || ''} onChange={e => updateConfig({ hero: { ...config.hero, primaryCtaUrl: e.target.value } })} placeholder="Primary CTA URL" />
+                        <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.secondaryCtaLabel || ''} onChange={e => updateConfig({ hero: { ...config.hero, secondaryCtaLabel: e.target.value } })} placeholder="Secondary CTA Label" />
+                        <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.secondaryCtaUrl || ''} onChange={e => updateConfig({ hero: { ...config.hero, secondaryCtaUrl: e.target.value } })} placeholder="Secondary CTA URL" />
+                    </div>
+                    <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.badgeLabel || ''} onChange={e => updateConfig({ hero: { ...config.hero, badgeLabel: e.target.value } })} placeholder="Badge Label" />
+                    <div className="flex items-center gap-3">
+                        <button type="button" onClick={() => setHeroPickerOpen(true)} className="px-4 py-2 border rounded-lg text-sm">
+                            Select Background Image
+                        </button>
+                        {config.hero.backgroundImage ? <span className="text-xs text-gray-500">Image selected</span> : null}
+                    </div>
+                </div>
+
+                <div className="space-y-4">
+                    <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                    <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={config.ai.enabled} onChange={e => updateConfig({ ai: { ...config.ai, enabled: e.target.checked } })} />
+                        Enable AI Matching
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={config.ai.allowGuest} onChange={e => updateConfig({ ai: { ...config.ai, allowGuest: e.target.checked } })} />
+                        Allow Guests to Use AI
+                    </label>
+                    <textarea className="w-full border-gray-300 rounded-lg p-2.5 h-24" value={config.ai.disclaimer || ''} onChange={e => updateConfig({ ai: { ...config.ai, disclaimer: e.target.value } })} placeholder="AI Disclaimer" />
+                </div>
+            </div>
+
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-gray-900">Highlights</h3>
+                    <button onClick={() => updateConfig({ highlights: [...config.highlights, { id: `h-${Date.now()}`, title: '', description: '' }] })} className="text-sm text-blue-600">
+                        + Add Highlight
+                    </button>
+                </div>
+                {config.highlights.map((item, idx) => (
+                    <div key={item.id} className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        <input className="border rounded-lg p-2" value={item.title} onChange={e => {
+                            const next = [...config.highlights];
+                            next[idx] = { ...item, title: e.target.value };
+                            updateConfig({ highlights: next });
+                        }} placeholder="Title" />
+                        <input className="border rounded-lg p-2 md:col-span-2" value={item.description || ''} onChange={e => {
+                            const next = [...config.highlights];
+                            next[idx] = { ...item, description: e.target.value };
+                            updateConfig({ highlights: next });
+                        }} placeholder="Description" />
+                        <button className="text-xs text-red-500 md:col-span-3 text-left" onClick={() => updateConfig({ highlights: config.highlights.filter((_, i) => i !== idx) })}>Remove</button>
+                    </div>
+                ))}
+            </div>
+
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-gray-900">Steps</h3>
+                    <button onClick={() => updateConfig({ steps: [...config.steps, { id: `s-${Date.now()}`, title: '', description: '' }] })} className="text-sm text-blue-600">
+                        + Add Step
+                    </button>
+                </div>
+                {config.steps.map((item, idx) => (
+                    <div key={item.id} className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        <input className="border rounded-lg p-2" value={item.title} onChange={e => {
+                            const next = [...config.steps];
+                            next[idx] = { ...item, title: e.target.value };
+                            updateConfig({ steps: next });
+                        }} placeholder="Title" />
+                        <input className="border rounded-lg p-2 md:col-span-2" value={item.description || ''} onChange={e => {
+                            const next = [...config.steps];
+                            next[idx] = { ...item, description: e.target.value };
+                            updateConfig({ steps: next });
+                        }} placeholder="Description" />
+                        <button className="text-xs text-red-500 md:col-span-3 text-left" onClick={() => updateConfig({ steps: config.steps.filter((_, i) => i !== idx) })}>Remove</button>
+                    </div>
+                ))}
+            </div>
+
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-gray-900">Testimonials</h3>
+                    <button onClick={() => updateConfig({ testimonials: [...config.testimonials, { id: `t-${Date.now()}`, name: '', role: '', quote: '' }] })} className="text-sm text-blue-600">
+                        + Add Testimonial
+                    </button>
+                </div>
+                {config.testimonials.map((item, idx) => (
+                    <div key={item.id} className="grid grid-cols-1 gap-2 border border-gray-200 rounded-lg p-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <input className="border rounded-lg p-2" value={item.name} onChange={e => {
+                                const next = [...config.testimonials];
+                                next[idx] = { ...item, name: e.target.value };
+                                updateConfig({ testimonials: next });
+                            }} placeholder="Name" />
+                            <input className="border rounded-lg p-2" value={item.role || ''} onChange={e => {
+                                const next = [...config.testimonials];
+                                next[idx] = { ...item, role: e.target.value };
+                                updateConfig({ testimonials: next });
+                            }} placeholder="Role/Company" />
+                        </div>
+                        <textarea className="border rounded-lg p-2 h-20" value={item.quote} onChange={e => {
+                            const next = [...config.testimonials];
+                            next[idx] = { ...item, quote: e.target.value };
+                            updateConfig({ testimonials: next });
+                        }} placeholder="Quote" />
+                        <button className="text-xs text-red-500 text-left" onClick={() => updateConfig({ testimonials: config.testimonials.filter((_, i) => i !== idx) })}>Remove</button>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// --- Freelancer Page Manager ---
+
+const FreelancerPageManager = ({ setView }: { setView: (v: any) => void }) => {
+    const { showNotification } = useNotification();
+    const { socket } = useSocket();
+    const [config, setConfig] = useState<FreelancerPageConfig | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [heroPickerOpen, setHeroPickerOpen] = useState(false);
+
+    const fallback: FreelancerPageConfig = {
+        hero: {
+            title: 'Professional Freelancer for Strategic Business Projects',
+            subtitle: 'I deliver premium freelance and agency-level services for strategic business projects—combining expert execution with scalable solutions tailored to your goals.',
+            primaryCtaLabel: 'Join as Pro Freelancer',
+            primaryCtaUrl: '/auth/signup',
+            secondaryCtaLabel: 'View Opportunities',
+            secondaryCtaUrl: '/browse-jobs',
+            backgroundImage: '',
+            badgeLabel: 'Elite Talent'
+        },
+        ai: { enabled: true, allowGuest: true, disclaimer: 'AI assistance supports positioning and proposals.' },
+        services: [],
+        proof: [],
+        callToAction: { title: 'Ready to deliver premium outcomes?', subtitle: 'Set up your elite freelancer profile.', ctaLabel: 'Create Profile', ctaUrl: '/profile/edit' },
+        updated_at: new Date().toISOString()
+    };
+
+    const loadConfig = async () => {
+        setLoading(true);
+        try {
+            const data = await CMSService.getFreelancerPageConfig();
+            setConfig(data || fallback);
+        } catch (e) {
+            setConfig(fallback);
+            showNotification('alert', 'Error', 'Failed to load Freelancer page config.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadConfig();
+    }, []);
+
+    useEffect(() => {
+        if (!socket) return;
+        const refresh = () => loadConfig();
+        socket.on('cms:freelancer_updated', refresh);
+        return () => {
+            socket.off('cms:freelancer_updated', refresh);
+        };
+    }, [socket]);
+
+    const updateConfig = (updates: Partial<FreelancerPageConfig>) => {
+        setConfig((prev) => ({ ...(prev || fallback), ...updates }));
+    };
+
+    const handleSave = async () => {
+        if (!config) return;
+        setSaving(true);
+        try {
+            const saved = await CMSService.saveFreelancerPageConfig({ ...config, updated_at: new Date().toISOString() });
+            setConfig(saved);
+            showNotification('success', 'Saved', 'Freelancer page updated.');
+        } catch (e) {
+            showNotification('alert', 'Error', 'Failed to save Freelancer page.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const onHeroSelect = (file: { url: string }) => {
+        if (!config) return;
+        updateConfig({ hero: { ...config.hero, backgroundImage: file.url } });
+    };
+
+    if (loading || !config) {
+        return (
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <div className="text-gray-500">Loading Freelancer page settings...</div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 animate-fade-in space-y-6">
+            <FilePickerModal
+                isOpen={heroPickerOpen}
+                onClose={() => setHeroPickerOpen(false)}
+                onSelect={onHeroSelect}
+                allowUpload={true}
+                filterType="image"
+                acceptedTypes="image/*"
+                role="admin"
+                visibility="public"
+                title="Select Freelancer Hero Background"
+            />
+            <div className="flex justify-between items-center border-b pb-4">
+                <button onClick={() => setView('list')} className="text-gray-500 hover:text-gray-900 flex items-center">
+                    <ArrowLeft className="w-4 h-4 mr-2" /> Back to Pages
+                </button>
+                <h2 className="text-xl font-bold">Freelancer Page</h2>
+                <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 shadow-sm disabled:opacity-60"
+                >
+                    <Save className="w-4 h-4 mr-2" /> {saving ? 'Saving...' : 'Save'}
+                </button>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                    <h3 className="font-semibold text-gray-900">Hero</h3>
+                    <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.title} onChange={e => updateConfig({ hero: { ...config.hero, title: e.target.value } })} placeholder="Hero Title" />
+                    <textarea className="w-full border-gray-300 rounded-lg p-2.5 h-24" value={config.hero.subtitle} onChange={e => updateConfig({ hero: { ...config.hero, subtitle: e.target.value } })} placeholder="Hero Subtitle" />
+                    <div className="grid grid-cols-2 gap-3">
+                        <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.primaryCtaLabel || ''} onChange={e => updateConfig({ hero: { ...config.hero, primaryCtaLabel: e.target.value } })} placeholder="Primary CTA Label" />
+                        <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.primaryCtaUrl || ''} onChange={e => updateConfig({ hero: { ...config.hero, primaryCtaUrl: e.target.value } })} placeholder="Primary CTA URL" />
+                        <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.secondaryCtaLabel || ''} onChange={e => updateConfig({ hero: { ...config.hero, secondaryCtaLabel: e.target.value } })} placeholder="Secondary CTA Label" />
+                        <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.secondaryCtaUrl || ''} onChange={e => updateConfig({ hero: { ...config.hero, secondaryCtaUrl: e.target.value } })} placeholder="Secondary CTA URL" />
+                    </div>
+                    <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.badgeLabel || ''} onChange={e => updateConfig({ hero: { ...config.hero, badgeLabel: e.target.value } })} placeholder="Badge Label" />
+                    <div className="flex items-center gap-3">
+                        <button type="button" onClick={() => setHeroPickerOpen(true)} className="px-4 py-2 border rounded-lg text-sm">
+                            Select Background Image
+                        </button>
+                        {config.hero.backgroundImage ? <span className="text-xs text-gray-500">Image selected</span> : null}
+                    </div>
+                </div>
+
+                <div className="space-y-4">
+                    <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                    <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={config.ai.enabled} onChange={e => updateConfig({ ai: { ...config.ai, enabled: e.target.checked } })} />
+                        Enable AI Assistance
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={config.ai.allowGuest} onChange={e => updateConfig({ ai: { ...config.ai, allowGuest: e.target.checked } })} />
+                        Allow Guests to Use AI
+                    </label>
+                    <textarea className="w-full border-gray-300 rounded-lg p-2.5 h-24" value={config.ai.disclaimer || ''} onChange={e => updateConfig({ ai: { ...config.ai, disclaimer: e.target.value } })} placeholder="AI Disclaimer" />
+                </div>
+            </div>
+
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-gray-900">Services</h3>
+                    <button onClick={() => updateConfig({ services: [...config.services, { id: `svc-${Date.now()}`, title: '', description: '' }] })} className="text-sm text-blue-600">
+                        + Add Service
+                    </button>
+                </div>
+                {config.services.map((svc, idx) => (
+                    <div key={svc.id} className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        <input className="border rounded-lg p-2" value={svc.title} onChange={e => {
+                            const next = [...config.services];
+                            next[idx] = { ...svc, title: e.target.value };
+                            updateConfig({ services: next });
+                        }} placeholder="Title" />
+                        <input className="border rounded-lg p-2 md:col-span-2" value={svc.description || ''} onChange={e => {
+                            const next = [...config.services];
+                            next[idx] = { ...svc, description: e.target.value };
+                            updateConfig({ services: next });
+                        }} placeholder="Description" />
+                        <button className="text-xs text-red-500 md:col-span-3 text-left" onClick={() => updateConfig({ services: config.services.filter((_, i) => i !== idx) })}>Remove</button>
+                    </div>
+                ))}
+            </div>
+
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-gray-900">Proof</h3>
+                    <button onClick={() => updateConfig({ proof: [...config.proof, { id: `p-${Date.now()}`, metric: '', label: '' }] })} className="text-sm text-blue-600">
+                        + Add Proof
+                    </button>
+                </div>
+                {config.proof.map((item, idx) => (
+                    <div key={item.id} className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <input className="border rounded-lg p-2" value={item.metric} onChange={e => {
+                            const next = [...config.proof];
+                            next[idx] = { ...item, metric: e.target.value };
+                            updateConfig({ proof: next });
+                        }} placeholder="Metric" />
+                        <input className="border rounded-lg p-2" value={item.label} onChange={e => {
+                            const next = [...config.proof];
+                            next[idx] = { ...item, label: e.target.value };
+                            updateConfig({ proof: next });
+                        }} placeholder="Label" />
+                        <button className="text-xs text-red-500 md:col-span-2 text-left" onClick={() => updateConfig({ proof: config.proof.filter((_, i) => i !== idx) })}>Remove</button>
+                    </div>
+                ))}
+            </div>
+
+            <div className="space-y-4">
+                <h3 className="font-semibold text-gray-900">Call to Action</h3>
+                <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.callToAction?.title || ''} onChange={e => updateConfig({ callToAction: { ...(config.callToAction || {}), title: e.target.value } })} placeholder="CTA Title" />
+                <textarea className="w-full border-gray-300 rounded-lg p-2.5 h-20" value={config.callToAction?.subtitle || ''} onChange={e => updateConfig({ callToAction: { ...(config.callToAction || {}), subtitle: e.target.value } })} placeholder="CTA Subtitle" />
+                <div className="grid grid-cols-2 gap-3">
+                    <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.callToAction?.ctaLabel || ''} onChange={e => updateConfig({ callToAction: { ...(config.callToAction || {}), ctaLabel: e.target.value } })} placeholder="CTA Label" />
+                    <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.callToAction?.ctaUrl || ''} onChange={e => updateConfig({ callToAction: { ...(config.callToAction || {}), ctaUrl: e.target.value } })} placeholder="CTA URL" />
+                </div>
+            </div>
         </div>
     );
 };

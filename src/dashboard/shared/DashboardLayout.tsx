@@ -44,6 +44,22 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   const [activeTab, setActiveTab] = useState('overview');
   const { unreadCount } = useMessages();
   const [unreadSupportCount, setUnreadSupportCount] = useState(0);
+  // Determine effective role view (honor ?as= override for admins or explicit view)
+  const urlParams = new URLSearchParams(location.search);
+  const asParam = (urlParams.get('as') || urlParams.get('view') || '').toString().toLowerCase();
+
+  const effectiveRole = React.useMemo(() => {
+    if (asParam) {
+      if (asParam.startsWith('f')) return UserRole.FREELANCER;
+      if (asParam.startsWith('e') || asParam.startsWith('c')) return UserRole.EMPLOYER;
+    }
+
+    const path = location.pathname || '';
+    if (path.startsWith('/freelancer')) return UserRole.FREELANCER;
+    if (path.startsWith('/client')) return UserRole.EMPLOYER;
+
+    return (user?.role as UserRole) || UserRole.GUEST;
+  }, [asParam, user, location.pathname]);
 
   useEffect(() => {
     // Set initial tab from URL
@@ -88,16 +104,35 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const handleRoleSwitch = () => {
-    if (switchRole) {
-      switchRole();
+    if (!user) return;
+
+    // Admins should not mutate their stored role — toggle the view via query param instead
+    if (user.role === UserRole.ADMIN) {
+      const params = new URLSearchParams(location.search);
+      const currentAs = (params.get('as') || '').toString().toLowerCase();
+      const newAs = (effectiveRole === UserRole.FREELANCER) ? 'employer' : 'freelancer';
+      params.set('as', newAs);
+      // Preserve tab param if present
+      const newSearch = params.toString();
+      navigate(`${location.pathname}${newSearch ? `?${newSearch}` : ''}`, { replace: true });
+      // Dispatch navigation event to update sidebar/tab state
+      window.dispatchEvent(new CustomEvent('dashboard-navigation', { detail: { tab: 'overview' } }));
+      return;
     }
+
+    // Non-admins can use the switchRole toggle which updates stored role
+    if (switchRole) switchRole();
   };
 
   const getSidebarItems = () => {
-    if (user?.role === UserRole.FREELANCER) {
+    const roleToUse = effectiveRole;
+
+    if (roleToUse === UserRole.FREELANCER) {
       return [
         { tab: 'overview', label: 'Overview' },
+        { tab: 'community', label: 'Community' },
         { tab: 'my-gigs', label: 'My Gigs' },
+        { tab: 'my-ads', label: 'My Ads' },
         { tab: 'orders', label: 'Orders' },
         { tab: 'contracts', label: 'Contracts' },
         { tab: 'my-proposals', label: 'My Proposals' },
@@ -111,9 +146,11 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
         { tab: 'uploaded-files', label: 'Uploaded Files' },
         { tab: 'kyc', label: 'KYC Verification' },
       ];
-    } else if (user?.role === UserRole.EMPLOYER) {
+    } else if (roleToUse === UserRole.EMPLOYER) {
       return [
         { tab: 'overview', label: 'Overview' },
+        { tab: 'community', label: 'Community' },
+        { tab: 'my-ads', label: 'My Ads' },
         { tab: 'my-jobs', label: 'My Jobs' },
         { tab: 'proposals-offers', label: 'Proposals & Offers' },
         { tab: 'contracts', label: 'Contracts' },
@@ -138,9 +175,9 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           <button
             onClick={handleRoleSwitch}
             className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors"
-            title={`Switch to ${user?.role === UserRole.FREELANCER ? 'Client' : 'Freelancer'} mode`}
+            title={`Switch view`}
           >
-            Switch to {user?.role === UserRole.FREELANCER ? 'Client' : 'Freelancer'}
+            {user?.role === UserRole.ADMIN ? `View as ${effectiveRole === UserRole.FREELANCER ? 'Client' : 'Freelancer'}` : `Switch to ${effectiveRole === UserRole.FREELANCER ? 'Client' : 'Freelancer'}`}
           </button>
         </div>
         <ul className="space-y-1">

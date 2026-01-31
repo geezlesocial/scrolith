@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { Home, MessageSquare, Users, BookOpen, Calendar, Search, Bell, ShieldCheck, ChevronDown, Hash, HelpCircle, Trophy, User } from 'lucide-react';
+import { Home, MessageSquare, Users, BookOpen, Calendar, Search, Bell, ChevronDown, Hash, HelpCircle, Trophy } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 
 const CommunityLayout = () => {
@@ -35,7 +35,7 @@ const CommunityLayout = () => {
                             <Link to="/community" className="font-bold text-xl text-indigo-600 mr-8 tracking-tight hidden md:block hover:opacity-80">
                                 Geezle Community
                             </Link>
-                            <nav className="flex space-x-1 overflow-x-auto no-scrollbar">
+                            <nav className="flex space-x-1 overflow-x-auto md:overflow-visible no-scrollbar relative">
                                 {navItems.map((item) => (
                                     <Link
                                         key={item.path}
@@ -63,7 +63,7 @@ const CommunityLayout = () => {
                                     {isMoreOpen && (
                                         <>
                                             <div className="fixed inset-0 z-10" onClick={() => setIsMoreOpen(false)}></div>
-                                            <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 ring-1 ring-black ring-opacity-5 z-20">
+                                            <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 ring-1 ring-black ring-opacity-5 z-40">
                                                 {moreItems.map((item) => (
                                                     <Link
                                                         key={item.label}
@@ -101,16 +101,6 @@ const CommunityLayout = () => {
                             </button>
                         </div>
                     </div>
-                </div>
-            </div>
-
-            {/* Safety Banner */}
-            <div className="bg-yellow-50 border-b border-yellow-100">
-                <div className="max-w-7xl mx-auto px-4 py-3 flex items-start sm:items-center">
-                    <ShieldCheck className="w-5 h-5 text-yellow-600 mr-3 flex-shrink-0 mt-0.5 sm:mt-0" />
-                    <p className="text-sm text-yellow-800">
-                        <strong>⚠️ Security Notice:</strong> Do not share sensitive personal information (Passwords, bank details, government IDs). AI Moderation is active in all chats.
-                    </p>
                 </div>
             </div>
 

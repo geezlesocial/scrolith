@@ -2,12 +2,14 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { PlatformSettings } from '../types';
 import { CMSService } from '../services/cms';
 import { AdminService } from '../services/admin';
+import { AuthService } from '../services/authService';
 import { SocketContext } from './SocketContext';
 
 interface ContentContextType {
   settings: PlatformSettings | null;
   loading: boolean;
   updateSettings?: (settings: PlatformSettings) => Promise<void>;
+  mergeHeaderConfig?: (header?: any) => Promise<void>;
 }
 
 const ContentContext = createContext<ContentContextType | undefined>(undefined);
@@ -23,10 +25,13 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       await new Promise(resolve => setTimeout(resolve, 100));
       // Load platform (site) settings and system settings, then merge so
       // components (like SystemSettings) always see both.
-      const [platformData, systemData] = await Promise.all([
-        AdminService.getPlatformSettings(),
-        AdminService.getSystemSettings().catch(() => null)
-      ]);
+      const hasToken = Boolean(AuthService.getToken());
+      const [platformData, systemData] = hasToken
+        ? await Promise.all([
+            AdminService.getPlatformSettings(),
+            AdminService.getSystemSettings().catch(() => null)
+          ])
+        : [await CMSService.getSettings(), null];
 
       let merged: any = platformData || {};
 
@@ -145,6 +150,36 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, []);
 
+  const mergeHeaderConfig = useCallback(async (header?: any) => {
+    try {
+      let headerConfig = header;
+      if (!headerConfig) {
+        headerConfig = await CMSService.getHeaderConfig();
+      }
+      if (!headerConfig) return;
+
+      const headerFavicon = (headerConfig as any)?.favicon_url || (headerConfig as any)?.faviconUrl;
+      const headerLogo = (headerConfig as any)?.logo_url || (headerConfig as any)?.logoUrl;
+      const headerTagline = (headerConfig as any)?.tagline || (headerConfig as any)?.siteTagline || (headerConfig as any)?.taglineText;
+
+      setSettings(prev => {
+        const merged: any = { ...(prev as any) } || {};
+        if (headerFavicon) {
+          merged.favicon_url = headerFavicon;
+          merged.faviconUrl = headerFavicon;
+        }
+        if (headerLogo) {
+          merged.logo_url = headerLogo;
+          merged.logoUrl = headerLogo;
+        }
+        if (headerTagline && !merged.tagline) merged.tagline = headerTagline;
+        return merged as PlatformSettings;
+      });
+    } catch (e) {
+      console.warn('Failed to merge header config into settings', e);
+    }
+  }, []);
+
   useEffect(() => {
     fetchSettings();
   }, [fetchSettings]);
@@ -165,7 +200,7 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [socket, fetchSettings]);
 
   return (
-    <ContentContext.Provider value={{ settings, loading, updateSettings }}>
+    <ContentContext.Provider value={{ settings, loading, updateSettings, mergeHeaderConfig }}>
       {children}
     </ContentContext.Provider>
   );

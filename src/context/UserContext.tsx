@@ -30,43 +30,31 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(true);
       
       try {
-        // For development: check localStorage directly
-        const storedUserStr = localStorage.getItem('user');
-        if (storedUserStr) {
-          const userData = JSON.parse(storedUserStr);
-          if (userData && mounted) {
-            // Ensure admin role is properly recognized
-            const roleStr = (userData.role || '').toString().toLowerCase();
-            const userWithRole: User = {
-              ...userData,
-              role: roleStr.includes('admin') ? UserRole.ADMIN : roleStr.includes('freelancer') || roleStr.includes('seller') ? UserRole.FREELANCER : roleStr.includes('employer') || roleStr.includes('client') ? UserRole.EMPLOYER : (userData.email?.toLowerCase().includes('admin') ? UserRole.ADMIN : UserRole.GUEST)
-            };
-            setUser(userWithRole);
-            setIsAuthenticated(true);
-            
-            // If we arrived here from an auth flow, redirect to the appropriate dashboard
-            const fromAuth = window.location.search.includes('from=auth');
-            if (fromAuth && window.location.pathname === '/') {
-              if (userWithRole.role === UserRole.ADMIN) {
-                window.location.href = '/admin/dashboard';
-              } else if (userWithRole.role === UserRole.FREELANCER) {
-                window.location.href = '/freelancer/dashboard';
-              } else if (userWithRole.role === UserRole.EMPLOYER) {
-                window.location.href = '/client/dashboard';
-              }
+        const me = await AuthService.getCurrentUser();
+        if (me && mounted) {
+          setUser(me);
+          setIsAuthenticated(true);
+
+          const fromAuth = window.location.search.includes('from=auth');
+          if (fromAuth && window.location.pathname === '/') {
+            if (me.role === UserRole.ADMIN) {
+              window.location.href = '/admin/dashboard';
+            } else if (me.role === UserRole.FREELANCER) {
+              window.location.href = '/freelancer/dashboard';
+            } else if (me.role === UserRole.EMPLOYER) {
+              window.location.href = '/client/dashboard';
             }
-          } else {
-            setUser(null);
-            setIsAuthenticated(false);
           }
         } else {
           setUser(null);
           setIsAuthenticated(false);
+          AuthService.clearToken();
         }
       } catch (error) {
         console.error('Auth initialization error:', error);
         setUser(null);
         setIsAuthenticated(false);
+        AuthService.clearToken();
       } finally {
         if (mounted) setIsLoading(false);
       }
@@ -219,16 +207,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }));
         }
         
-        // Redirect based on role - with query parameter
-        if (userWithRole.role === UserRole.ADMIN) {
-          window.location.href = '/admin/dashboard?from=auth';
-        } else if (userWithRole.role === UserRole.FREELANCER) {
-          window.location.href = '/freelancer/dashboard?from=auth';
-        } else if (userWithRole.role === UserRole.EMPLOYER) {
-          window.location.href = '/client/dashboard?from=auth';
-        } else {
-          window.location.href = '/?from=auth';
-        }
+        // Do not auto-redirect here; let the caller (e.g., Signup page) handle navigation
         return true;
       }
       return false;
@@ -262,6 +241,12 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const switchRole = () => {
     if (!user) return;
+    // Prevent admins from using this toggle which is intended for freelancers/employers.
+    // Admins should use explicit view-as navigation (admin header buttons) that do not mutate their true role.
+    if (user.role === UserRole.ADMIN) {
+      console.warn('switchRole() called for admin user — operation ignored. Use view-as links instead.');
+      return;
+    }
 
     const newRole = user.role === UserRole.FREELANCER ? UserRole.EMPLOYER : UserRole.FREELANCER;
 

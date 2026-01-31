@@ -4,6 +4,7 @@ import { useNotification } from '../../context/NotificationContext';
 import { Save, User, Lock, Mail, Camera, LogOut } from 'lucide-react';
 import FilePickerModal from '../shared/FilePickerModal';
 import { UploadedFile } from '../../types';
+import { AdminService } from '../../services/admin';
 
 const Profile = () => {
     const { user, updateAdminProfile, getAdminProfile, logout, updateUser } = useUser();
@@ -14,12 +15,14 @@ const Profile = () => {
         username: user?.username || user?.name || '', 
         email: user?.email || '', 
         password: '',
-        avatar: user?.avatar || null
+        avatar: user?.avatar || null,
+        profilePhotoFileId: user?.profilePhotoFileId || null
     };
     
     // State for image handling
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
     const [avatarPreview, setAvatarPreview] = useState(user?.avatar || currentProfile?.avatar || "https://ui-avatars.com/api/?name=Admin&background=000&color=fff");
+    const [avatarFileId, setAvatarFileId] = useState<string | null>(user?.profilePhotoFileId || currentProfile?.profilePhotoFileId || null);
 
     // Form state
     const [formData, setFormData] = useState({
@@ -31,41 +34,53 @@ const Profile = () => {
     
     // Sync state when user context updates (e.g. initial load)
     useEffect(() => {
-        if(user?.avatar) {
+        if (user?.avatar) {
             setAvatarPreview(user.avatar);
+        }
+        if (user?.profilePhotoFileId) {
+            setAvatarFileId(user.profilePhotoFileId);
         }
     }, [user]);
 
-    const handleSave = () => {
+    const handleSave = async () => {
         if (formData.password !== formData.confirmPassword) {
             showNotification('alert', 'Error', 'Passwords do not match.');
             return;
         }
         
-        // 1. Update Admin Credentials in LocalStorage
-        if (updateAdminProfile && typeof updateAdminProfile === 'function') {
-            updateAdminProfile({
-                username: formData.username,
-                email: formData.email,
-                password: formData.password,
-                avatar: avatarPreview
-            });
-        }
-        
-        // 2. Force update User Context to reflect changes in UI immediately
-        if (updateUser && typeof updateUser === 'function') {
-            updateUser({
-                name: formData.username,
-                email: formData.email,
-                avatar: avatarPreview
-            });
-        }
+            // Persist to backend, then update local context/storage and notify
+            try {
+                const payload = {
+                    username: formData.username,
+                    email: formData.email,
+                    password: formData.password,
+                    avatar: avatarPreview,
+                    profilePhotoFileId: avatarFileId || undefined
+                };
 
-        showNotification('success', 'Profile Updated', 'Admin credentials have been updated.');
+                const result = await AdminService.updateProfile(payload);
+
+                // Prefer authoritative server response when updating local state
+                const savedProfile = (result && (result.data || result)) || payload;
+
+                if (updateAdminProfile && typeof updateAdminProfile === 'function') {
+                    updateAdminProfile(savedProfile);
+                }
+                if (updateUser && typeof updateUser === 'function') {
+                    updateUser({ name: formData.username, email: formData.email, avatar: avatarPreview, profilePhotoFileId: avatarFileId || undefined });
+                }
+
+                showNotification('success', 'Profile Updated', 'Admin credentials have been saved.');
+            } catch (err: any) {
+                console.error('Failed to save admin profile:', err);
+                const serverMsg = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Unable to save admin profile.';
+                showNotification('alert', 'Save Failed', String(serverMsg));
+            }
     };
     
     const handleAvatarSelect = (file: UploadedFile) => {
         setAvatarPreview(file.url);
+        setAvatarFileId(file.id || null);
         setIsFilePickerOpen(false);
     };
 

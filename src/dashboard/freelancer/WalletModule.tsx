@@ -48,6 +48,21 @@ const WalletModule = () => {
     }, [user]);
 
     useEffect(() => {
+        const onSettings = async () => {
+            if (!user) return;
+            try {
+                const gSettings = await GcoinService.getSettings();
+                setConversionRate(gSettings.conversionRate);
+                setGcoinSettings(gSettings);
+            } catch (e) {
+                console.error('Failed to refresh gcoin settings', e);
+            }
+        };
+        window.addEventListener('community:gcoin_settings_updated', onSettings as EventListener);
+        return () => window.removeEventListener('community:gcoin_settings_updated', onSettings as EventListener);
+    }, [user]);
+
+    useEffect(() => {
         if (!isAddFundsModalOpen || !user || !wallet) return;
         const loadProviders = async () => {
             try {

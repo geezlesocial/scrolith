@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { AuthPagesConfig, UserRole } from '../types';
-import { Briefcase, User, Shield, Mail, Lock, UserPlus, AlertCircle } from 'lucide-react';
+import { Briefcase, User, Shield, Mail, Lock, UserPlus, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { CMSService } from '../services/cms';
+import AuthSocialButtons from './AuthSocialButtons';
 
 const Signup = () => {
   const { register } = useUser(); // Use 'register' from context, not 'signup'
@@ -21,6 +22,8 @@ const Signup = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [authConfig, setAuthConfig] = useState<AuthPagesConfig | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const defaultSignupContent = {
     headline: 'Join Our Community',
@@ -59,6 +62,7 @@ const Signup = () => {
 
   const signupContent = authConfig?.signup ?? defaultSignupContent;
   const branding = authConfig?.branding ?? defaultBranding;
+  const socialConfig = authConfig?.social_auth;
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -189,6 +193,8 @@ const Signup = () => {
               </div>
             </div>
 
+            <AuthSocialButtons mode="signup" role={role} config={socialConfig || undefined} />
+
             {/* Name Fields */}
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -272,9 +278,9 @@ const Signup = () => {
                     <Lock className="h-5 w-5 text-gray-400" />
                   </div>
                   <input
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     required
-                    className={`block w-full pl-10 px-4 py-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${
+                    className={`block w-full pl-10 pr-10 px-4 py-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${
                       errors.password ? 'border-red-300' : 'border-gray-300'
                     }`}
                     value={formData.password}
@@ -284,6 +290,14 @@ const Signup = () => {
                     }}
                     placeholder="At least 8 characters"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(prev => !prev)}
+                    className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 hover:text-gray-700"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
                 {errors.password ? (
                   <p className="mt-1 text-sm text-red-600 flex items-center">
@@ -303,9 +317,9 @@ const Signup = () => {
                     <Lock className="h-5 w-5 text-gray-400" />
                   </div>
                   <input
-                    type="password"
+                    type={showConfirmPassword ? 'text' : 'password'}
                     required
-                    className={`block w-full pl-10 px-4 py-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${
+                    className={`block w-full pl-10 pr-10 px-4 py-3 border rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm ${
                       errors.confirmPassword ? 'border-red-300' : 'border-gray-300'
                     }`}
                     value={formData.confirmPassword}
@@ -315,6 +329,14 @@ const Signup = () => {
                     }}
                     placeholder="Confirm your password"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(prev => !prev)}
+                    className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 hover:text-gray-700"
+                    aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
                 {errors.confirmPassword && (
                   <p className="mt-1 text-sm text-red-600 flex items-center">

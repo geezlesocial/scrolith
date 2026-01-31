@@ -1,6 +1,6 @@
 // src/components/Navbar.tsx
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import * as LucideIcons from "lucide-react";
 import { ChevronDown } from "lucide-react";
 import { useUser } from "../context/UserContext";
@@ -50,6 +50,7 @@ const ensureArray = <T,>(value: any): T[] => (Array.isArray(value) ? value : [])
 
 const Navbar = () => {
   const location = useLocation();
+  const navigate = useNavigate();
 
   const { user, isAuthenticated, logout } = useUser();
   const { settings } = useContent();
@@ -98,6 +99,15 @@ const Navbar = () => {
   const acIconStyle = (String(_acDesign?.iconStyle ?? _acDesign?.icon_style ?? 'outline') === 'filled' ? 'filled' : 'outline') as 'outline' | 'filled';
   const acBadgeColor = String(_acDesign?.badgeColor ?? _acDesign?.badge_color ?? '#EF4444');
   const acShowBadges = Boolean(_acDesign?.showBadges ?? _acDesign?.show_badges ?? true);
+  const normalizeActivityType = (value: any) => {
+    const raw = String(value || '').toLowerCase().trim();
+    if (['bell', 'notification', 'notifications'].includes(raw)) return 'notifications';
+    if (['message', 'messages', 'chat'].includes(raw)) return 'messages';
+    if (['user', 'profile', 'account'].includes(raw)) return 'profile';
+    if (['favorite', 'favorites', 'heart'].includes(raw)) return 'favorites';
+    if (['help', 'support', 'question'].includes(raw)) return 'help';
+    return raw;
+  };
   const refreshConfigs = useCallback(async () => {
     try {
       const [header, activity, heroCfg] = await Promise.all([
@@ -117,13 +127,20 @@ const Navbar = () => {
 
       const act = _asRecord(activity);
       const normalizedIcons = Array.isArray(act?.icons)
-        ? (act?.icons as any[]).map((icon: any) => ({
-            ...icon,
-            isEnabled: icon.isEnabled ?? icon.is_enabled ?? true,
-            showLabel: icon.showLabel ?? icon.show_label ?? false,
-            sortOrder: icon.sortOrder ?? icon.sort_order ?? 0,
-            roles: normalizeRoleList(icon.roles),
-          }))
+        ? (act?.icons as any[]).map((icon: any) => {
+            const rawType = icon.type ?? icon.icon ?? icon.kind ?? '';
+            const actionType = normalizeActivityType(rawType);
+            return {
+              ...icon,
+              type: rawType,
+              actionType,
+              displayType: icon.displayType ?? rawType ?? actionType,
+              isEnabled: icon.isEnabled ?? icon.is_enabled ?? true,
+              showLabel: icon.showLabel ?? icon.show_label ?? false,
+              sortOrder: icon.sortOrder ?? icon.sort_order ?? 0,
+              roles: normalizeRoleList(icon.roles),
+            };
+          })
         : [];
 
       const normalizedHelpMenu = Array.isArray(act?.helpMenu || act?.help_menu)
@@ -229,8 +246,11 @@ const Navbar = () => {
   }, []);
 
   const handleLogout = () => {
-    logout();
-    window.location.href = "/";
+    try {
+      logout();
+    } finally {
+      navigate('/');
+    }
   };
 
   const handleNotificationClick = (id: string, actionUrl?: string) => {
@@ -325,22 +345,52 @@ const Navbar = () => {
           {dropdown.label}
           <ChevronDown className="w-3 h-3" />
         </button>
-        {isOpen && (
+      {isOpen && (
           <div className="absolute left-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 animate-fade-in-up">
             <div className="py-2">
-              {items.map((item: any) =>
-                renderLink(
-                  item,
-                  "block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-blue-600",
-                  () => setOpen(false)
-                )
-              )}
+              {items.map((item: any) => {
+                const url = resolveUrl(item);
+                const description = item.description || item.subtitle || item.tagline;
+                const content = (
+                  <div className="flex flex-col">
+                    <span className="text-sm font-semibold text-gray-900">{item.label}</span>
+                    {description ? (
+                      <span className="text-xs text-gray-500">{description}</span>
+                    ) : null}
+                  </div>
+                );
+                if (!url) return null;
+                if (item.type === "external" || item.external) {
+                  return (
+                    <a
+                      key={item.id || url}
+                      href={url}
+                      onClick={() => setOpen(false)}
+                      className="block px-4 py-2 hover:bg-gray-50 hover:text-blue-600"
+                      target={item.target || "_blank"}
+                      rel="noopener noreferrer"
+                    >
+                      {content}
+                    </a>
+                  );
+                }
+                return (
+                  <Link
+                    key={item.id || url}
+                    to={url}
+                    onClick={() => setOpen(false)}
+                    className="block px-4 py-2 hover:bg-gray-50 hover:text-blue-600"
+                  >
+                    {content}
+                  </Link>
+                );
+              })}
             </div>
           </div>
         )}
-      </div>
-    );
-  };
+    </div>
+  );
+};
 
   const getCtaClass = (cta: any) => {
     const variant = String(cta?.variant || cta?.style || "").toLowerCase();
@@ -358,6 +408,8 @@ const Navbar = () => {
 
   const renderProfileItem = (item: any) => {
     const type = String(item?.type || "link").toLowerCase();
+    const iconName = item?.icon || item?.iconName;
+    const IconEl = iconName ? getDynamicIcon(String(iconName), Math.max(14, acIconSize - 4), acIconStyle) : null;
 
     if (type === "currency_switcher") {
       return (
@@ -366,7 +418,7 @@ const Navbar = () => {
             onClick={() => setShowCurrencyDropdown(!showCurrencyDropdown)}
             className="w-full flex items-center justify-between text-sm text-gray-700 hover:text-gray-900"
           >
-            <span>{item.label}</span>
+            <span className="flex items-center gap-2">{IconEl && <span className="text-gray-500">{IconEl}</span>}{item.label}</span>
             <span className="flex items-center gap-1 text-gray-500">
               {currency.code}
               <ChevronDown className="w-3 h-3" />
@@ -402,17 +454,38 @@ const Navbar = () => {
         <button
           key={item.id || item.label}
           onClick={handleLogout}
-          className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+          className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center"
         >
+          {IconEl && <span className="mr-3 text-red-600">{IconEl}</span>}
           {item.label}
         </button>
       );
     }
 
-    return renderLink(
-      item,
-      "block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-blue-600",
-      () => setShowProfileDropdown(false)
+    // Default: render a link with optional icon
+    const url = resolveUrl(item);
+    if (!url) return null;
+    const isExternal = url.startsWith("http");
+    const baseClass = "block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-blue-600";
+    const content = (
+      <div className="flex items-center">
+        {IconEl && <span className="mr-3 text-gray-500">{IconEl}</span>}
+        <span>{item.label}</span>
+      </div>
+    );
+
+    if (isExternal) {
+      return (
+        <a key={item.id || url} href={url} target="_blank" rel="noreferrer" className={baseClass} onClick={() => setShowProfileDropdown(false)}>
+          {content}
+        </a>
+      );
+    }
+
+    return (
+      <Link key={item.id || url} to={url} className={baseClass} onClick={() => setShowProfileDropdown(false)}>
+        {content}
+      </Link>
     );
   };
 
@@ -498,6 +571,12 @@ const Navbar = () => {
   const guestExploreDropdown = pick(hc, 'guestExploreDropdown') ?? pick(hc, 'guest_explore_dropdown');
   const guestCtas = ensureArray<any>(pick(hc, 'guestCtas') ?? pick(hc, 'guest_ctas') ?? pick(hc, 'guestActions'))
     .filter((cta: any) => cta?.label && resolveUrl(cta) && isVisibleToRole(cta));
+  const resolvedGuestCtas = guestCtas.length
+    ? guestCtas
+    : [
+        { id: "guest-sign-in", label: "Sign In", url: "/auth/login", variant: "ghost", visibility: ["guest", "all"] },
+        { id: "guest-join", label: "Join", url: "/auth/signup", variant: "primary", visibility: ["guest", "all"] },
+      ];
 
   const normalizeProfileGroup = (group: any) => {
     const raw = String(group || "").toLowerCase().replace(/\s+/g, "_");
@@ -559,6 +638,51 @@ const Navbar = () => {
         group: "primary",
       });
     }
+  }
+
+  // If we're on the freelancer dashboard page, provide a compact, predictable
+  // avatar dropdown menu depending on whether the view is employer or freelancer.
+  // This ensures the toggle shows the exact items requested by product.
+  try {
+    const urlParamsLocal = new URLSearchParams(location.search);
+    const asParamLocal = (urlParamsLocal.get('as') || '').toString().toLowerCase();
+    // Apply the avatar dropdown override for any signed-in user so the toggle
+    // appears on every page while authenticated.
+    const applyOverride = Boolean(isAuthenticated);
+
+    if (applyOverride) {
+      if (asParamLocal === 'employer') {
+        // Employer view menu
+        groupedProfileItems.primary = [
+          { id: 'nav-profile', label: 'Profile', url: '/profile/edit', type: 'link', icon: 'User' },
+          { id: 'nav-dashboard', label: 'Dashboard', url: '/client/dashboard', type: 'link', icon: 'LayoutDashboard' },
+          { id: 'nav-refer', label: 'Refer a friend', url: '/affiliate-program', type: 'link', icon: 'UserPlus' },
+          { id: 'nav-billing', label: 'Billing and payments', url: '/client/dashboard?tab=wallet', type: 'link', icon: 'CreditCard' },
+          { id: 'nav-currency', label: 'Currency Switcher', type: 'currency_switcher', icon: 'Globe' },
+          { id: 'nav-settings', label: 'Settings', url: '/client/dashboard?tab=settings', type: 'link', icon: 'Settings' },
+          { id: 'nav-signout', label: 'Sign out', type: 'sign_out', icon: 'LogOut' },
+        ];
+        groupedProfileItems.business_tools = [];
+        groupedProfileItems.utilities = [];
+      } else {
+        // Freelancer view menu
+        groupedProfileItems.primary = [
+          { id: 'nav-my-profile', label: 'My Profile', url: '/freelancer/dashboard?tab=profile', type: 'link', icon: 'User' },
+          { id: 'nav-dashboard', label: 'Dashboard', url: '/freelancer/dashboard', type: 'link', icon: 'LayoutDashboard' },
+          // Point freelancers to the client dashboard's project-briefs page so they can create briefs
+          { id: 'nav-post-brief', label: 'Post a project brief', url: '/client/dashboard/project-briefs', type: 'link', icon: 'FileText' },
+          { id: 'nav-your-briefs', label: 'Your briefs', url: '/client/dashboard?tab=jobs', type: 'link', icon: 'Folder' },
+          { id: 'nav-refer', label: 'Refer a friend', url: '/affiliate-program', type: 'link', icon: 'UserPlus' },
+          { id: 'nav-billing', label: 'Billing and payments', url: '/freelancer/dashboard?tab=wallet', type: 'link', icon: 'CreditCard' },
+          { id: 'nav-settings', label: 'Settings', url: '/freelancer/dashboard?tab=settings', type: 'link', icon: 'Settings' },
+          { id: 'nav-signout', label: 'Sign Out', type: 'sign_out', icon: 'LogOut' },
+        ];
+        groupedProfileItems.business_tools = [];
+        groupedProfileItems.utilities = [];
+      }
+    }
+  } catch (e) {
+    // ignore URL parsing errors
   }
 
   if (isAuthenticated) {
@@ -654,6 +778,7 @@ const Navbar = () => {
                     navCopy.unshift({ id: 'dashboard-nav', label: 'Dashboard', url: dashboardLinkUrl });
                   }
                 }
+                // Do not inject "My Ads" into the global header — it's available in dashboards only
                 return navCopy.map(renderNavItem);
               })()}
             </div>
@@ -672,19 +797,27 @@ const Navbar = () => {
                           if (roles.includes("all") || roles.includes("*")) return true;
                           return roles.includes(normalizedUserRole);
                         })
-                        .filter((icon: any) => isActionEnabled(icon.type))
+                        .filter((icon: any) => isActionEnabled(icon.actionType || icon.type))
                         .sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0))
                         .map((icon: any) => (
                         <div
                           key={icon.id}
-                          ref={icon.type === "notifications" ? notifRef : icon.type === "messages" ? msgRef : helpRef}
+                          ref={(icon.actionType || icon.type) === "notifications" ? notifRef : (icon.actionType || icon.type) === "messages" ? msgRef : helpRef}
                         >
                           <button
                             onClick={() => {
-                              if (icon.type === "notifications") setShowNotifications(!showNotifications);
-                              if (icon.type === "messages") setShowMessagesDropdown(!showMessagesDropdown);
-                              if (icon.type === "help") setShowHelpDropdown(!showHelpDropdown);
-                              if (icon.type === "favorites") {
+                              const actionType = icon.actionType || icon.type;
+                              if (actionType === "notifications") setShowNotifications(!showNotifications);
+                              if (actionType === "messages") setShowMessagesDropdown(!showMessagesDropdown);
+                              if (actionType === "profile") {
+                                if (profileEnabled) {
+                                  setShowProfileDropdown(!showProfileDropdown);
+                                } else {
+                                  window.location.href = "/profile/edit";
+                                }
+                              }
+                              if (actionType === "help") setShowHelpDropdown(!showHelpDropdown);
+                              if (actionType === "favorites") {
                                 const favUrl = icon.url ?? icon.link ?? icon.href ?? "";
                                 if (favUrl) {
                                   window.location.href = favUrl;
@@ -696,9 +829,9 @@ const Navbar = () => {
                             }`}
                             title={icon.label}
                           >
-                            {getDynamicIcon(icon.type, acIconSize, acIconStyle)}
+                            {getDynamicIcon(icon.displayType || icon.type || icon.actionType, acIconSize, acIconStyle)}
                             {acShowBadges &&
-                              icon.type === "notifications" &&
+                              (icon.actionType || icon.type) === "notifications" &&
                               notifications.filter((n) => !n.isRead).length > 0 && (
                                 <span
                                   className="absolute top-1 right-1 h-4 min-w-[16px] px-1 rounded-full text-white text-[10px] flex items-center justify-center font-bold"
@@ -711,7 +844,7 @@ const Navbar = () => {
                           </button>
 
                           {/* Notifications Dropdown */}
-                          {icon.type === "notifications" && showNotifications && (
+                          {(icon.actionType || icon.type) === "notifications" && showNotifications && (
                             <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 animate-fade-in-up">
                               <div className="px-4 py-3 border-b border-gray-50 bg-gray-50 flex justify-between items-center">
                                 <h3 className="font-bold text-sm text-gray-700">Notifications</h3>
@@ -742,6 +875,25 @@ const Navbar = () => {
                                     </div>
                                   ))
                                 )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Messages Dropdown */}
+                          {(icon.actionType || icon.type) === "messages" && showMessagesDropdown && (
+                            <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 animate-fade-in-up">
+                              <div className="px-4 py-3 border-b border-gray-50 bg-gray-50 flex justify-between items-center">
+                                <h3 className="font-bold text-sm text-gray-700">Messages</h3>
+                              </div>
+                              <div className="p-4 text-sm text-gray-600">
+                                <p className="mb-3">Open your inbox to view conversations.</p>
+                                <Link
+                                  to="/messages"
+                                  className="inline-flex items-center px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold"
+                                  onClick={() => setShowMessagesDropdown(false)}
+                                >
+                                  Go to Messages
+                                </Link>
                               </div>
                             </div>
                           )}
@@ -830,7 +982,7 @@ const Navbar = () => {
                 ) : null
               ) : (
                 <div className="flex items-center space-x-2">
-                  {guestCtas.map((cta: any) =>
+                  {resolvedGuestCtas.map((cta: any) =>
                     renderLink(
                       cta,
                       getCtaClass(cta),

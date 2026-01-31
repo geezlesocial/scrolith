@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-    Home, ShoppingBag, DollarSign, CreditCard, LayoutTemplate, BookOpen, Megaphone, Users, HardDrive, Shield, FileText, LifeBuoy, Settings, Menu, X, Bell, LogOut, User, MessageSquare, Brain, PieChart, Clock, MessageCircle, Navigation, BarChart2
+    Home, ShoppingBag, DollarSign, CreditCard, LayoutTemplate, BookOpen, Megaphone, Users, HardDrive, Shield, FileText, LifeBuoy, Settings, Menu, X, Bell, LogOut, User, MessageSquare, Brain, PieChart, Clock, MessageCircle, Navigation, BarChart2, Globe
 } from 'lucide-react';
 import { useNotification } from "../context/NotificationContext";
 import { useUser } from "../context/UserContext";
@@ -24,6 +24,7 @@ import KYCTab from './admin/KYCVerification';
 import SupportDisputes from './admin/SupportDisputes';
 import SystemSettings from './admin/SystemSettings';
 import Profile from './admin/Profile';
+import Languages from './admin/Languages';
 import AdminMessages from './admin/Messages';
 import AIIntelligence from './admin/AIIntelligence';
 import MarketplaceAnalytics from './admin/MarketplaceAnalytics';
@@ -34,7 +35,7 @@ import MarketIntelligence from './admin/MarketIntelligence';
 import AdminReviews from './admin/Reviews';
 
 // Define valid tab types
-type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'listings' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'blog' | 'marketing' | 'users' | 'files' | 'staff' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'navigation' | 'reviews';
+type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'listings' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'blog' | 'marketing' | 'users' | 'files' | 'staff' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'navigation' | 'reviews' | 'languages';
 
 // Define navigation item interface
 interface NavItem {
@@ -68,7 +69,7 @@ const AdminDashboard: React.FC = () => {
         const validTabs: Tab[] = [
             'overview', 'analytics', 'listings', 'finance', 'gateways', 'cms', 
             'homepage', 'blog', 'marketing', 'users', 'files', 'staff', 'kyc', 
-            'support', 'system', 'profile', 'messages', 'ai', 'atm', 'community', 'navigation', 'reviews'
+            'support', 'system', 'profile', 'messages', 'ai', 'atm', 'community', 'navigation', 'reviews', 'languages'
         ];
         return validTabs.includes(tab as Tab);
     };
@@ -170,6 +171,12 @@ const AdminDashboard: React.FC = () => {
                 { id: 'system', label: 'System Settings', icon: Settings }
             ] 
         },
+        {
+            title: 'Setup & Configurations',
+            items: [
+                { id: 'languages', label: 'Languages', icon: Globe }
+            ]
+        },
         { 
             title: 'Profile', 
             items: [{ id: 'profile', label: 'Admin Profile', icon: User }] 
@@ -200,6 +207,7 @@ const AdminDashboard: React.FC = () => {
             case 'support': return <SupportDisputes />;
             case 'navigation': return <NavigationManager />;
             case 'system': return <SystemSettings />;
+            case 'languages': return <Languages />;
             case 'profile': return <Profile />;
             default: return <Overview />;
         }
@@ -253,6 +261,7 @@ const AdminDashboard: React.FC = () => {
                                                 setSidebarOpen(false); 
                                             }}
                                             className={`w-full flex items-center justify-between px-3 py-2 text-sm font-medium rounded-lg transition-colors ${activeTab === item.id ? 'bg-blue-600 text-white shadow-md' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}
+                                            data-testid={`admin-nav-${item.id}`}
                                         >
                                             <div className="flex items-center">
                                                 <Icon className="w-5 h-5 mr-3" />

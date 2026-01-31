@@ -1,4 +1,5 @@
 import api from './api';
+import { tokenStore } from './tokenStore';
 import { User, UserRole } from '../types';
 
 type AuthResponse = { token?: string; user?: User; success?: boolean; error?: string };
@@ -34,8 +35,12 @@ class AuthService {
       if (payload?.token && payload?.user) {
         const user = normalizeUser(payload.user);
         if (user) {
-          localStorage.setItem('token', payload.token);
-          localStorage.setItem('user', JSON.stringify(user));
+          tokenStore.set(payload.token);
+          // Ensure axios picks up the token even if storage is blocked/cleared.
+          api.defaults.headers.common.Authorization = `Bearer ${payload.token}`;
+          try {
+            localStorage.setItem('user', JSON.stringify(user));
+          } catch {}
           return { success: true, user, token: payload.token };
         }
       }
@@ -52,8 +57,11 @@ class AuthService {
       if (payload?.token && payload?.user) {
         const user = normalizeUser(payload.user);
         if (user) {
-          localStorage.setItem('token', payload.token);
-          localStorage.setItem('user', JSON.stringify(user));
+          tokenStore.set(payload.token);
+          api.defaults.headers.common.Authorization = `Bearer ${payload.token}`;
+          try {
+            localStorage.setItem('user', JSON.stringify(user));
+          } catch {}
           return { success: true, user, token: payload.token };
         }
       }
@@ -65,15 +73,24 @@ class AuthService {
 
   static async getCurrentUser(): Promise<User | null> {
     try {
-      const response = await api.get('/auth/me');
+      const token = tokenStore.get();
+      const response = token
+        ? await api.get('/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+        : await api.get('/auth/me');
       const payload = extractData<AuthResponse>(response);
       const user = normalizeUser(payload?.user);
       if (user) {
         localStorage.setItem('user', JSON.stringify(user));
       }
       return user;
-    } catch {
-      return null;
+    } catch (error: any) {
+      // If the token is invalid, let callers handle logout. Otherwise, fall back
+      // to any cached user so we don't bounce users due to transient failures.
+      if (error?.response?.status === 401) {
+        return null;
+      }
+      const cached = AuthService.getStoredUser();
+      return cached;
     }
   }
 
@@ -87,13 +104,22 @@ class AuthService {
     }
   }
 
+  static setToken(token: string) {
+    if (!token) return;
+    tokenStore.set(token);
+    api.defaults.headers.common.Authorization = `Bearer ${token}`;
+  }
+
   static clearToken() {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    tokenStore.clear();
+    delete api.defaults.headers.common.Authorization;
+    try {
+      localStorage.removeItem('user');
+    } catch {}
   }
 
   static getToken() {
-    return localStorage.getItem('token');
+    return tokenStore.get();
   }
 
   static getStoredUser(): User | null {

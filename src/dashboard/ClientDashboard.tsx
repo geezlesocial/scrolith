@@ -29,6 +29,7 @@ import SupportCenter from './shared/SupportCenter';
 import MessagesPanel from './shared/MessagesPanel';
 import KYCVerification from './shared/KYCVerification';
 import ProjectBriefs from './employer/ProjectBriefs';
+import MyAds from '../pages/MyAds';
 
 const SidebarItem = ({ id, label, icon: Icon, active, onClick }: any) => (
     <button
@@ -85,6 +86,7 @@ const ClientDashboard = () => {
         { id: 'support', label: 'Support', icon: LifeBuoy },
         { id: 'kyc', label: 'KYC', icon: Shield },
         { id: 'uploaded-files', label: 'Uploaded Files', icon: Camera },
+        { id: 'my-ads', label: 'My Ads', icon: Briefcase },
         { id: 'settings', label: 'Settings', icon: Settings },
     ];
 
@@ -163,6 +165,7 @@ const ClientDashboard = () => {
                     {activeTab === 'reviews' && <EmployerReviews />}
                     {activeTab === 'project-briefs' && <ProjectBriefs />}
                     {activeTab === 'uploaded-files' && <EmployerUploadedFiles />}
+                    {activeTab === 'my-ads' && <MyAds />}
                     {activeTab === 'messages' && <MessagesPanel />}
                     {activeTab === 'support' && <SupportCenter />}
                     {activeTab === 'kyc' && <KYCVerification role="employer" />}

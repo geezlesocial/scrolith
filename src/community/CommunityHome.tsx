@@ -1,17 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TrendingUp, Calendar, Award, MessageCircle, Zap, Users, Briefcase, Star, Filter, Search } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { CMSService } from '../services/cms';
+import DonateButton from '../components/DonateButton';
+import { CommunityService } from '../services/community';
+import { AdService } from '../services/ads';
+import InteractionBar from '../components/InteractionBar';
+import { useNotification } from '../context/NotificationContext';
 
 const CommunityHome = () => {
   const [trendingTopics, setTrendingTopics] = useState<any[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
   const [topContributors, setTopContributors] = useState<any[]>([]);
   const [discussions, setDiscussions] = useState<any[]>([]);
+  const [posts, setPosts] = useState<any[]>([]);
   const [ads, setAds] = useState<any[]>([]);
+  const [homepage, setHomepage] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const { user } = useUser();
+  const { showNotification } = useNotification();
+  const impressionTracked = useRef<Set<string>>(new Set());
+  const viewTracked = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const fetchData = async () => {
@@ -28,15 +38,23 @@ const CommunityHome = () => {
         
         await new Promise(resolve => setTimeout(resolve, 200));
         const discussions = await CMSService.getDiscussions();
+
+        await new Promise(resolve => setTimeout(resolve, 200));
+        const feedPosts = await CommunityService.getPosts({ limit: 20 });
         
         await new Promise(resolve => setTimeout(resolve, 200));
-        const ads = await CMSService.getAds();
+        const ads = await AdService.getAds(user?.role);
+
+        await new Promise(resolve => setTimeout(resolve, 200));
+        const homepageConfig = await CommunityService.getCommunityHomepage();
 
         setTrendingTopics(topics);
         setUpcomingEvents(events);
         setTopContributors(contributors);
         setDiscussions(discussions);
+        setPosts(feedPosts);
         setAds(ads);
+        setHomepage(homepageConfig);
       } catch (error) {
         console.error('Error loading community data:', error);
         // Set fallback data
@@ -58,16 +76,85 @@ const CommunityHome = () => {
           { id: '1', title: 'How to optimize your profile?', author: 'Alice', replies: 24, lastReply: '2 hours ago' },
           { id: '2', title: 'Best project management tools?', author: 'Mike', replies: 18, lastReply: '4 hours ago' }
         ]);
-        setAds([
-          { id: '1', title: 'Premium Membership', description: 'Get exclusive benefits and priority support', imageUrl: '/ad-placeholder.jpg', ctaText: 'Learn More', ctaUrl: '/premium' }
-        ]);
+        setAds([]);
+        setPosts([]);
+        setHomepage(null);
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
-  }, []);
+    const onAdEvent = async () => {
+      try {
+        const newAds = await AdService.getAds(user?.role);
+        setAds(newAds);
+      } catch (e) { console.error('Failed to refresh ads on event', e); }
+    };
+    const onHomepageUpdate = async () => {
+      try {
+        const updated = await CommunityService.getCommunityHomepage();
+        setHomepage(updated);
+      } catch (e) { console.error('Failed to refresh homepage config', e); }
+    };
+    window.addEventListener('community:ad_status_updated', onAdEvent as EventListener);
+    window.addEventListener('community:ad_created', onAdEvent as EventListener);
+    window.addEventListener('community:homepage_updated', onHomepageUpdate as EventListener);
+    return () => {
+      window.removeEventListener('community:ad_status_updated', onAdEvent as EventListener);
+      window.removeEventListener('community:ad_created', onAdEvent as EventListener);
+      window.removeEventListener('community:homepage_updated', onHomepageUpdate as EventListener);
+    };
+  }, [user?.role]);
+
+  useEffect(() => {
+    if (!ads || ads.length === 0) return;
+    ads.forEach((ad: any) => {
+      if (!ad?.id || impressionTracked.current.has(ad.id)) return;
+      impressionTracked.current.add(ad.id);
+      AdService.recordImpression(ad.id).catch(() => {});
+    });
+  }, [ads]);
+
+  useEffect(() => {
+    if (!user || !posts || posts.length === 0) return;
+    posts.forEach((post: any) => {
+      if (!post?.id || viewTracked.current.has(post.id)) return;
+      viewTracked.current.add(post.id);
+      CommunityService.postView(post.id).catch(() => {});
+    });
+  }, [posts, user]);
+
+  const promotePost = async (post: any) => {
+    if (!user) {
+      if (confirm('Log in to promote this post?')) window.location.href = '/auth/login';
+      return;
+    }
+    const budgetStr = prompt('Enter ad budget (USD)', '10');
+    if (!budgetStr) return;
+    const budget = Number(budgetStr);
+    if (!budget || budget <= 0) {
+      showNotification('error', 'Invalid Budget', 'Enter a valid budget amount.');
+      return;
+    }
+    const placement = prompt('Placement (feed, forum_listing, thread_detail, chat)', 'feed') || 'feed';
+    try {
+      await AdService.saveCampaign({
+        id: '',
+        title: post.title || 'Promoted Post',
+        body: post.content || '',
+        placement,
+        targeting: {},
+        mediaFileIds: post.attachments || [],
+        budget,
+        currency: 'USD',
+        status: 'DRAFT'
+      } as any);
+      showNotification('success', 'Ad Draft Created', 'Proceed to My Ads to pay and submit for review.');
+    } catch (e: any) {
+      showNotification('error', 'Failed to Create Ad', e?.message || 'Unable to create ad draft.');
+    }
+  };
 
   if (loading) {
     return (
@@ -80,19 +167,42 @@ const CommunityHome = () => {
     );
   }
 
+  const heroTitle = homepage?.hero?.title || 'Geezle Community';
+  const heroSubtitle = homepage?.hero?.subtitle || 'Connect with fellow freelancers, share knowledge, and grow together';
+  const heroBackgroundImage = homepage?.hero?.backgroundImage;
+  const heroBackgroundColor = homepage?.hero?.backgroundColor || '#4f46e5';
+  const bannerEnabled = homepage?.banner?.enabled !== false;
+  const bannerText = homepage?.banner?.text || 'Security Notice: Do not share sensitive personal information (Passwords, bank details, government IDs). AI Moderation is active in all chats.';
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero Section */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-16">
+      <div
+        className="text-white py-16"
+        style={{
+          backgroundImage: heroBackgroundImage ? `url(${heroBackgroundImage})` : undefined,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundColor: heroBackgroundColor
+        }}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
-            <h1 className="text-4xl font-bold mb-4">Geezle Community</h1>
+            <h1 className="text-4xl font-bold mb-4">{heroTitle}</h1>
             <p className="text-xl text-blue-100 max-w-2xl mx-auto">
-              Connect with fellow freelancers, share knowledge, and grow together
+              {heroSubtitle}
             </p>
           </div>
         </div>
       </div>
+
+      {bannerEnabled && (
+        <div className="bg-yellow-50 border-b border-yellow-100">
+          <div className="max-w-7xl mx-auto px-4 py-3 flex items-start sm:items-center">
+            <div className="text-sm text-yellow-800">{bannerText}</div>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
@@ -154,6 +264,46 @@ const CommunityHome = () => {
 
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
+            {Array.isArray(homepage?.sliders) && homepage.sliders.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm p-4">
+                <div className="flex gap-4 overflow-x-auto pb-2">
+                  {homepage.sliders.map((slide: any) => (
+                    <div key={slide.id} className="min-w-[260px] border rounded-lg overflow-hidden">
+                      {slide.imageUrl && (
+                        <img src={slide.imageUrl} alt={slide.title || 'Slide'} className="w-full h-32 object-cover" />
+                      )}
+                      {slide.videoUrl && (
+                        <video src={slide.videoUrl} controls className="w-full h-32 object-cover" />
+                      )}
+                      <div className="p-3">
+                        <div className="font-semibold text-sm">{slide.title}</div>
+                        <div className="text-xs text-gray-500">{slide.subtitle}</div>
+                        {slide.ctaUrl && (
+                          <a href={slide.ctaUrl} className="text-xs text-blue-600 hover:text-blue-800">{slide.ctaLabel || 'Learn more'}</a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {Array.isArray(homepage?.sections) && homepage.sections.length > 0 && (
+              <div className="space-y-4">
+                {homepage.sections.map((section: any) => (
+                  <div key={section.id} className="bg-white rounded-xl shadow-sm p-4">
+                    {section.title && <h3 className="text-lg font-semibold">{section.title}</h3>}
+                    {section.body && <p className="text-sm text-gray-600 mt-2">{section.body}</p>}
+                    {section.type === 'image' && section.imageUrl && (
+                      <img src={section.imageUrl} alt={section.title || 'Section'} className="mt-3 rounded-lg w-full object-cover" />
+                    )}
+                    {section.type === 'video' && section.videoUrl && (
+                      <video src={section.videoUrl} controls className="mt-3 rounded-lg w-full" />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
             {/* Search Bar */}
             <div className="bg-white rounded-xl shadow-sm p-4">
               <div className="flex items-center">
@@ -166,6 +316,48 @@ const CommunityHome = () => {
                 <button className="ml-2 p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                   <Filter className="w-4 h-4" />
                 </button>
+              </div>
+            </div>
+
+            {/* Community Feed */}
+            <div className="bg-white rounded-xl shadow-sm">
+              <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+                <h2 className="text-lg font-bold">Community Feed</h2>
+                <Link to="/community/new-post" className="text-sm text-blue-600 hover:text-blue-800">Create Post</Link>
+              </div>
+              <div className="divide-y divide-gray-200">
+                {posts.length === 0 && (
+                  <div className="p-4 text-sm text-gray-500">No posts yet.</div>
+                )}
+                {posts.map((post) => (
+                  <div key={post.id} className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <img className="w-8 h-8 rounded-full" src={post.authorAvatar} alt={post.authorName} />
+                        <div>
+                          <div className="text-sm font-medium text-gray-900">{post.authorName}</div>
+                          <div className="text-xs text-gray-500">{new Date(post.createdAt).toLocaleString()}</div>
+                        </div>
+                      </div>
+                      <button onClick={() => promotePost(post)} className="text-xs px-2 py-1 border rounded text-indigo-600 border-indigo-200 hover:bg-indigo-50">
+                        Promote this post
+                      </button>
+                    </div>
+                    {post.title && <h3 className="mt-3 font-semibold text-gray-900">{post.title}</h3>}
+                    <p className="mt-2 text-sm text-gray-700">{post.content}</p>
+                    <InteractionBar
+                      type="post"
+                      id={post.id}
+                      initialCounts={{
+                        likes: post.likesCount ?? post.interactions?.likes ?? 0,
+                        comments: 0,
+                        reposts: post.repostsCount ?? post.interactions?.reposts ?? 0,
+                        shares: post.sharesCount ?? post.interactions?.shares ?? 0
+                      }}
+                      initialState={post.userState || { liked: false, reposted: false }}
+                    />
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -206,6 +398,9 @@ const CommunityHome = () => {
                 <Link to="/community/new-topic" className="block w-full text-center bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700">
                   Start Discussion
                 </Link>
+                <Link to="/community/gcoin" className="block w-full text-center bg-yellow-500 text-white py-2 px-4 rounded-lg hover:bg-yellow-600">
+                  Gcoin Dashboard
+                </Link>
                 <Link to="/community/events" className="block w-full text-center bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700">
                   Join Event
                 </Link>
@@ -222,10 +417,21 @@ const CommunityHome = () => {
                 {ads.map((ad) => (
                   <div key={ad.id} className="border border-gray-200 rounded-lg p-4">
                     <h3 className="font-medium text-gray-900">{ad.title}</h3>
-                    <p className="text-sm text-gray-600 mt-2">{ad.description}</p>
-                    <button className="mt-3 text-sm text-blue-600 hover:text-blue-800">
-                      {ad.ctaText}
-                    </button>
+                    <p className="text-sm text-gray-600 mt-2">{ad.description || ad.body}</p>
+                    <div className="mt-3 flex items-center gap-3">
+                      <a
+                        href={ad.ctaUrl || '#'}
+                        className="text-sm text-blue-600 hover:text-blue-800"
+                        onClick={() => AdService.recordClick(ad.id).catch(() => {})}
+                      >
+                        {ad.ctaText || 'Learn more'}
+                      </a>
+                      {/* If ad has creator/recipient info, show Donate button */}
+                      { (ad.creatorId || ad.recipientId) && (
+                        // @ts-ignore - loosely typed CMS ad object may include creatorId/recipientId
+                        <DonateButton recipientIdentifier={ad.creatorId || ad.recipientId} />
+                      ) }
+                    </div>
                   </div>
                 ))}
               </div>

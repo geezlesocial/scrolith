@@ -83,6 +83,10 @@ export const NotificationService = {
     const res = await api.get('/notifications', { params: { unreadOnly: true } });
     return res.data?.data || [];
   },
+  getForUser: async (userId: string) => {
+    const res = await api.get(`/notifications/user/${userId}`);
+    return res.data?.data || [];
+  },
   markAsRead: async (id: string) => {
     await api.post(`/notifications/${id}/read`);
   }
