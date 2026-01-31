@@ -394,6 +394,101 @@ import { chromium } from 'playwright';
           console.warn('Guest Header E2E error:', e?.message || e);
         }
 
+        // --- Trending Strip E2E ---
+        try {
+          // Reveal the Trending Manager by clicking the top-level Trending tab
+          await page.click('button[data-testid="tab-trending"]').catch(() => null);
+          const trendingSave = await page.waitForSelector('button[data-testid="trending-save-config"]', { timeout: 5000 }).catch(() => null);
+          if (!trendingSave) {
+            // Try to reveal the Trending section by searching for its heading
+            const trendingHeading = await page.$('text=Trending Categories Strip');
+            if (trendingHeading) {
+              // scroll into view then try to find the save button again
+              await trendingHeading.scrollIntoViewIfNeeded().catch(() => null);
+            }
+          }
+
+          const hasRoleBtn = await page.$('button[data-testid="trending-role-guest"]');
+          if (hasRoleBtn) {
+            await page.click('button[data-testid="trending-role-guest"]').catch(() => null);
+            // Capture outgoing POST to any trending-related endpoint
+            const trendReqPromise = page.waitForRequest((req) => req.url().includes('/api/cms/trend') && req.method() === 'POST', { timeout: 10000 }).catch(() => null);
+            const trendResPromise = page.waitForResponse((res) => res.url().includes('/api/cms/trend') && res.request().method() === 'POST', { timeout: 10000 }).catch(() => null);
+
+            // Ensure outgoing CMS API requests include Authorization (for admin-only endpoints)
+            if (adminToken) {
+              await page.route('**/api/cms/**', (routeReq) => {
+                const req = routeReq.request();
+                const headers = { ...(req.headers() || {}), Authorization: `Bearer ${adminToken}` };
+                routeReq.continue({ headers }).catch(() => {});
+              }).catch(() => {});
+            }
+
+            // click save if we have the button
+            if (trendingSave) await Promise.all([trendingSave.click(), trendReqPromise, trendResPromise]);
+            else await Promise.all([page.click('button[data-testid="trending-save-config"]'), trendReqPromise, trendResPromise]).catch(() => null);
+
+            if (trendReqPromise) {
+              const r = await trendReqPromise.catch(() => null);
+              if (r) {
+                const pd = r.postData ? r.postData() : null;
+                console.log('Captured trending save payload:', pd);
+              }
+            }
+            if (trendResPromise) {
+              const rr = await trendResPromise.catch(() => null);
+              if (rr) {
+                const txt = await rr.text().catch(() => null);
+                console.log('Captured trending save response:', txt);
+              }
+            }
+
+            // Poll for trending config persistence
+            const checkTrending = async () => {
+              try {
+                const resp = await fetch('http://localhost:3000/api/cms/trending-config');
+                if (resp && resp.ok) {
+                  const j = await resp.json().catch(() => null);
+                  const cfg = j || j?.data || j?.config || j?.trending || {};
+                  const vis = cfg?.visibility || cfg?.visible_to || cfg?.roles || [];
+                  if (Array.isArray(vis) && vis.map) {
+                    const lower = vis.map((v) => String(v).toLowerCase());
+                    if (lower.includes('guest')) return { visibility: lower };
+                  }
+                }
+              } catch (e) {}
+              try {
+                const headers = {};
+                if (adminToken) headers['Authorization'] = `Bearer ${adminToken}`;
+                const resp2 = await fetch('http://localhost:5000/api/cms/trending-config', { headers });
+                if (resp2 && resp2.ok) {
+                  const j2 = await resp2.json().catch(() => null);
+                  const cfg2 = j2 || j2?.data || j2?.config || j2?.trending || {};
+                  const vis2 = cfg2?.visibility || cfg2?.visible_to || cfg2?.roles || [];
+                  if (Array.isArray(vis2) && vis2.map) {
+                    const lower2 = vis2.map((v) => String(v).toLowerCase());
+                    if (lower2.includes('guest')) return { visibility: lower2 };
+                  }
+                }
+              } catch (e) {}
+              return null;
+            };
+
+            let trendFound = null;
+            for (let i = 0; i < 8; i++) {
+              await new Promise((r) => setTimeout(r, 1000));
+              const f = await checkTrending();
+              if (f) { trendFound = f; break; }
+            }
+            if (trendFound) console.log('Trending config persisted with visibility:', trendFound.visibility);
+            else console.warn('Trending config did not persist within timeout.');
+          } else {
+            console.warn('Trending role button not present; skipping trending E2E.');
+          }
+        } catch (e) {
+          console.warn('Trending E2E error:', e?.message || e);
+        }
+
         // Open public site and check for new nav label (best-effort UI check)
         const publicPage = await context.newPage();
         await publicPage.goto('http://localhost:3000/', { timeout: 20000 });

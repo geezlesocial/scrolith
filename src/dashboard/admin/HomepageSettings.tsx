@@ -207,10 +207,68 @@ function normalizeTrendingConfig(raw: any): TrendingConfig {
     category_ids: raw?.category_ids || raw?.categoryIds || [],
     scroll_behavior: raw?.scroll_behavior || raw?.scrollBehavior || "manual",
     auto_slide_interval: raw?.auto_slide_interval ?? raw?.autoSlideInterval ?? 5000,
-    visibility: raw?.visibility || [],
+    visibility: normalizeRoleList(raw?.visibility ?? raw?.visible_to ?? raw?.visibleTo ?? []),
     // additional optional field used by strip (safe)
     ...(raw?.show_icons !== undefined ? { show_icons: raw.show_icons } : {}),
   };
+}
+
+function normalizeHeaderConfig(raw: any) {
+  if (!raw) return raw;
+  const cloned = { ...(raw || {}) } as any;
+
+  // Navigation
+  cloned.navigation = ensureArray<any>(cloned.navigation).map((n: any) => ({
+    ...(n || {}),
+    id: n?.id || `nav-${uid()}`,
+    visibility: normalizeRoleList(n?.visibility ?? n?.roles ?? n?.target_roles ?? n?.visible_to ?? n?.visibleTo ?? []),
+  }));
+
+  // Profile menus / userMenu
+  const profile = ensureArray<any>(cloned.profileMenu ?? cloned.profile_menu ?? cloned.userMenu ?? cloned.user_menu);
+  cloned.profileMenu = profile.map((p: any) => ({
+    ...(p || {}),
+    id: p?.id || `profile-${uid()}`,
+    visibility: normalizeRoleList(p?.visibility ?? p?.roles ?? p?.visible_to ?? []),
+  }));
+  cloned.profile_menu = cloned.profileMenu;
+  cloned.userMenu = cloned.profileMenu;
+
+  // Guest dropdowns
+  const mapDropdown = (d: any) => {
+    const dd = d || {};
+    const items = ensureArray<any>(dd.items).map((it: any) => ({
+      ...(it || {}),
+      id: it?.id || `gd-${uid()}`,
+      visibility: normalizeRoleList(it?.visibility ?? it?.roles ?? it?.visible_to ?? []),
+    }));
+    return {
+      ...(dd || {}),
+      id: dd?.id || `dd-${uid()}`,
+      visibility: normalizeRoleList(dd?.visibility ?? dd?.visible_to ?? []),
+      items,
+    };
+  };
+
+  cloned.guestPrimaryDropdown = mapDropdown(cloned.guestPrimaryDropdown ?? cloned.guest_primary_dropdown);
+  cloned.guest_primary_dropdown = cloned.guestPrimaryDropdown;
+  cloned.guestExploreDropdown = mapDropdown(cloned.guestExploreDropdown ?? cloned.guest_explore_dropdown);
+  cloned.guest_explore_dropdown = cloned.guestExploreDropdown;
+
+  // Guest CTAs
+  cloned.guestCtas = ensureArray<any>(cloned.guestCtas ?? cloned.guest_ctas ?? cloned.guestActions).map((c: any) => ({
+    ...(c || {}),
+    id: c?.id || `cta-${uid()}`,
+    visibility: normalizeRoleList(c?.visibility ?? c?.roles ?? c?.visible_to ?? []),
+  }));
+  cloned.guest_ctas = cloned.guestCtas;
+
+  // Role switch
+  const rs = cloned.roleSwitch ?? cloned.role_switch ?? {};
+  cloned.roleSwitch = { ...(rs || {}), visibility: normalizeRoleList(rs?.visibility ?? rs?.visible_to ?? []) };
+  cloned.role_switch = cloned.roleSwitch;
+
+  return cloned;
 }
 
 // -------------------------
@@ -300,7 +358,7 @@ const HeaderBuilder = () => {
       try {
         const header = await CMSService.getHeaderConfig();
         const hero = await CMSService.getHeroSearchConfig();
-        setConfig(header as unknown as HeaderConfig);
+        setConfig(normalizeHeaderConfig(header) as unknown as HeaderConfig);
         setHeroConfig(normalizeHeroConfig(hero));
         lastSaved.current = JSON.stringify(header || {});
         hasLoaded.current = true;
@@ -1892,6 +1950,7 @@ const TrendingManager = () => {
             Enable Strip
           </label>
           <button
+            data-testid="trending-save-config"
             onClick={handleSave}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700"
           >
@@ -1951,6 +2010,7 @@ const TrendingManager = () => {
             <div className="flex gap-2">
               {[UserRole.GUEST, UserRole.FREELANCER, UserRole.EMPLOYER].map((r: any) => (
                 <button
+                  data-testid={`trending-role-${String(r).toLowerCase()}`}
                   key={`${(config as any).id}-${r}`}
                   onClick={() => toggleVisibility(r)}
                   className={`px-3 py-1 rounded text-xs border capitalize ${
