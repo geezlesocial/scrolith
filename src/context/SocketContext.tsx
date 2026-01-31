@@ -66,11 +66,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsConnected(false)
     }
 
-    if (!isAuthenticated || !user) {
-      cleanupSocket()
-      return
-    }
-
+    // Allow socket connections for unauthenticated (guest) users so public pages
+    // can receive CMS realtime events (e.g. header updates). Pass token/userId
+    // only when available; avoid joining private rooms when not authenticated.
     const existingSocket = socketService.getSocket()
     if (existingSocket?.connected) {
       setSocket(existingSocket)
@@ -78,6 +76,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return
     }
 
+    // If an existing socket isn't connected, start fresh
     cleanupSocket()
 
     const backendEnv = import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL
@@ -102,14 +101,15 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     socketService.connect({
       url: socketUrl,
       namespace: '/community',
-      userId: user.id,
-      role: user.role,
+      userId: user?.id || 'guest',
+      role: user?.role || 'guest',
       token,
       onConnect: (connectedSocket) => {
         setIsConnected(true)
         setSocket(connectedSocket)
+        // Join user-specific rooms only when authenticated
         try {
-          connectedSocket.emit('join:wallet', { userId: user.id })
+          if (user && user.id) connectedSocket.emit('join:wallet', { userId: user.id })
         } catch (e) {
           console.warn('Failed to join wallet room', e)
         }
