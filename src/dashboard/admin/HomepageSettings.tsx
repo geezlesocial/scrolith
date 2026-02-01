@@ -1810,13 +1810,34 @@ const TrendingManager = () => {
   useEffect(() => {
     (async () => {
       try {
-        const [c, gigs, jobs] = await Promise.all([
-          CMSService.getTrendingConfig(),
-          AdminService.getGigCategories(),
-          AdminService.getJobCategories(),
-        ]);
+        // Fetch trending config and admin categories separately so we can log
+        // which admin category call (if any) fails.
+        const c = await CMSService.getTrendingConfig().catch((err) => {
+          console.error('[TrendingManager] CMSService.getTrendingConfig failed', err);
+          return null;
+        });
+
+        let gigs = [];
+        let jobs = [];
+        try {
+          gigs = await AdminService.getGigCategories();
+        } catch (err) {
+          console.error('[TrendingManager] AdminService.getGigCategories failed', err);
+        }
+
+        try {
+          jobs = await AdminService.getJobCategories();
+        } catch (err) {
+          console.error('[TrendingManager] AdminService.getJobCategories failed', err);
+        }
+
+        const merged = [...(ensureArray(gigs) as any), ...(ensureArray(jobs) as any)];
         setConfig(normalizeTrendingConfig(c));
-        setAllCategories([...(ensureArray(gigs) as any), ...(ensureArray(jobs) as any)]);
+        setAllCategories(merged);
+
+        if (!merged || merged.length === 0) {
+          // no-op: admin categories not loaded (could fallback to public categories)
+        }
       } catch (e) {
         console.error(e);
         showNotification("error", "Error", "Failed to load trending data");
@@ -1835,6 +1856,8 @@ const TrendingManager = () => {
       }
     })();
   }, []);
+
+  // E2E accessor removed - no persistent debug hooks in production code
 
   const filteredCategories = useMemo(() => {
     const q = catSearch.toLowerCase().trim();
@@ -1891,23 +1914,46 @@ const TrendingManager = () => {
 
   const handleSave = async () => {
     if (!config) return;
-    try {
-      // Convert admin-only category IDs to stable slugs when saving so
-      // the public site (which uses public category API) can map them.
-      const payload = { ...(config as any) } as any;
       try {
-        const currentIds = ensureArray<string>((config as any).category_ids);
-        payload.category_ids = currentIds.map((id) => {
-          const match = allCategories.find((c) => String(c.id) === String(id) || String((c as any)._id) === String(id));
-          // Prefer slug when available, otherwise fall back to id so backend keeps something stable
-          return (match && (match.slug || match.id)) ?? String(id);
-        });
-      } catch (e) {
-        // If anything goes wrong transforming IDs, fall back to sending raw config
-        payload.category_ids = (config as any).category_ids || [];
-      }
+        // Convert admin-only category IDs to stable slugs when saving so
+        // the public site (which uses public category API) can map them.
+        const payload = { ...(config as any) } as any;
+        try {
+          const currentIds = ensureArray<string>((config as any).category_ids);
+          payload.category_ids = currentIds.map((id) => {
+            const match = allCategories.find((c) => String(c.id) === String(id) || String((c as any)._id) === String(id));
+            // Prefer slug when available, otherwise fall back to id so backend keeps something stable
+            return (match && (match.slug || match.id)) ?? String(id);
+          });
+        } catch (e) {
+          // If anything goes wrong transforming IDs, fall back to sending raw config
+          payload.category_ids = (config as any).category_ids || [];
+        }
 
-      await CMSService.saveTrendingConfig(payload);
+        // Diagnostic log: capture payload and relevant state before sending
+        try {
+          // eslint-disable-next-line no-console
+          console.log("[Trending Save Debug] payload_pre_save:", {
+            id: payload.id,
+            enabled: payload.enabled,
+            title: payload.title,
+            category_ids: payload.category_ids,
+            visibility: payload.visibility,
+            allCategoriesCount: allCategories.length,
+          });
+        } catch (e) {
+          /* ignore logging failures */
+        }
+
+        // If admin selected categories, treat that as intent to show the strip.
+        try {
+          const ids = Array.isArray(payload.category_ids) ? payload.category_ids.filter(Boolean) : [];
+          if (ids.length > 0) payload.enabled = true;
+        } catch (e) {
+          /* ignore */
+        }
+
+        await CMSService.saveTrendingConfig(payload);
 
       const updated = await CMSService.getTrendingConfig();
       setConfig(normalizeTrendingConfig(updated));
@@ -2063,6 +2109,7 @@ const TrendingManager = () => {
             {filteredCategories.map((cat: any) => (
               <div
                 key={`category-${cat.id}`}
+                data-testid={`trending-category-${cat.id}`}
                 onClick={() => toggleCategory(cat.id)}
                 className={`flex items-center justify-between p-2 rounded cursor-pointer border hover:bg-blue-50/50 ${
                   ensureArray<string>((config as any).category_ids).includes(cat.id)
