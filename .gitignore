@@ -34,3 +34,9 @@ playwright-report/
 **/*.trace
 tests/**/resources/
 tests/**/admin-config-trace/
+# Playwright artifacts
+tests/admin-config-trace/
+**/*.trace
+**/*.zip
+playwright-report/
+test-results/
