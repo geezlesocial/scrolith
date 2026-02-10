@@ -28,15 +28,13 @@ dist-ssr
 .env.local
 .env.*.local 
 
-# Playwright artifacts / traces
+# Playwright artifacts
 test-results/
 playwright-report/
-**/*.trace
-tests/**/resources/
-tests/**/admin-config-trace/
-# Playwright artifacts
-tests/admin-config-trace/
+blob-report/
+playwright/.cache/
 **/*.trace
 **/*.zip
-playwright-report/
-test-results/
+tests/**/resources/
+tests/**/admin-config-trace/
+
