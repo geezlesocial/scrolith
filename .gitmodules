@@ -1,0 +1,3 @@
+[submodule "geezle"]
+	path = geezle
+	url = https://github.com/geezlesocial/geezle.git
