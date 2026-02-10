@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { FavoritesService, FavoriteEntityType, FavoriteItem } from '../services/favorites';
 import { useUser } from './UserContext';
 import { useNotification } from './NotificationContext';
+import { useSocket } from './SocketContext';
 
 interface FavoritesContextType {
   favorites: FavoriteItem[];
@@ -16,6 +17,7 @@ const FavoritesContext = createContext<FavoritesContextType | undefined>(undefin
 export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated } = useUser();
   const { showNotification } = useNotification();
+  const { socket } = useSocket();
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -47,6 +49,27 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setFavorites([]);
     }
   }, [isAuthenticated, loaded]);
+
+  useEffect(() => {
+    if (!socket || !isAuthenticated || !user?.id) return;
+    const onFavoritesUpdated = () => {
+      refreshFavorites().catch(() => null);
+    };
+    socket.on('favorites:updated', onFavoritesUpdated);
+    return () => {
+      socket.off('favorites:updated', onFavoritesUpdated);
+    };
+  }, [socket, isAuthenticated, user?.id]);
+
+  useEffect(() => {
+    const onFavoritesUpdated = () => {
+      refreshFavorites().catch(() => null);
+    };
+    window.addEventListener('favorites:updated', onFavoritesUpdated as EventListener);
+    return () => {
+      window.removeEventListener('favorites:updated', onFavoritesUpdated as EventListener);
+    };
+  }, []);
 
   const isFavorite = (entityType: FavoriteEntityType, entityId: string) =>
     favorites.some((f) => f.entityType === entityType && f.entityId === entityId);

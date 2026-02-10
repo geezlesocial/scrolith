@@ -1,7 +1,8 @@
-// Playwright expects a CommonJS config when the project uses "type": "module" in package.json.
-// Rename to .cjs if necessary. Keeping CommonJS export style here.
-module.exports = {
+// Playwright config - ESM export for projects using "type": "module"
+export default {
   testDir: './tests',
+  // Run only TypeScript spec files to avoid accidentally loading compiled .js files
+  testMatch: /.*\.spec\.ts$/,
   timeout: 120000,
   use: {
     baseURL: 'http://localhost:3000',

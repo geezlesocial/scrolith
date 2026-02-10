@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Geezle Dashboard API (subset)
+  title: Scrolith Dashboard API (subset)
   version: 1.0.0
 servers:
   - url: /api

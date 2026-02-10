@@ -1,31 +1,357 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { TrendingUp, Calendar, Award, MessageCircle, Zap, Users, Briefcase, Star, Filter, Search } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { TrendingUp, Calendar, Award, MessageCircle, Zap, Users, Briefcase, Star, Filter, Search, Plus, Camera as CameraIcon, X, MoreHorizontal, Pin, Edit3, Trash2, Heart } from 'lucide-react';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { CMSService } from '../services/cms';
 import DonateButton from '../components/DonateButton';
 import { CommunityService } from '../services/community';
 import { AdService } from '../services/ads';
 import InteractionBar from '../components/InteractionBar';
+import PostComments from '../components/PostComments';
+import PostHeader from './components/PostHeader';
+import ReactionBar from './components/ReactionBar';
+import MentionText from './components/MentionText';
+import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from './followState';
 import { useNotification } from '../context/NotificationContext';
+import FilePickerModal from '../dashboard/shared/FilePickerModal';
+import { FileService } from '../services/files';
+import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from './storyStyles';
+import { resolveAssetUrl } from '../utils/assetUrl';
+import { Capacitor } from '@capacitor/core';
+import { captureAndUpload } from '../mobile/uploads';
+
+const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
+  const explicit = String(media.type || '').toLowerCase();
+  if (explicit === 'image' || explicit === 'video' || explicit === 'document') return explicit;
+  const mime = String(media.mimeType || '').toLowerCase();
+  if (mime.startsWith('image/')) return 'image';
+  if (mime.startsWith('video/')) return 'video';
+  const url = String(media.url || '').toLowerCase();
+  if (/\.(mp4|webm|mov|m4v|ogg)$/.test(url)) return 'video';
+  if (/\.(png|jpe?g|gif|webp|svg)$/.test(url)) return 'image';
+  return 'document';
+};
+
+const commentPolicyOptions = [
+  { value: 'everyone', label: 'Everyone can comment' },
+  { value: 'followers', label: 'Followers can comment' },
+  { value: 'following', label: 'People you follow can comment' },
+  { value: 'mutuals', label: 'Mutual followers can comment' },
+  { value: 'none', label: 'Disable comments' }
+];
+
+const parseList = (value: string) =>
+  value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const sumReactionCounts = (value: unknown): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, Math.trunc(value));
+  if (!value || typeof value !== 'object') return 0;
+  return Object.values(value as Record<string, unknown>).reduce<number>((total, count) => {
+    const numeric = Number(count);
+    if (!Number.isFinite(numeric)) return total;
+    return total + Math.max(0, Math.trunc(numeric));
+  }, 0);
+};
+
+const isPrivilegedRole = (role?: string) => {
+  const normalized = String(role || '').toLowerCase();
+  return normalized.includes('admin') || normalized === 'moderator';
+};
+
+type StoryVisibility = 'public' | 'followers' | 'following' | 'mutuals' | 'network' | 'private' | 'custom';
+
+const storyVisibilityOptions: Array<{ value: StoryVisibility; label: string }> = [
+  { value: 'public', label: 'Public' },
+  { value: 'followers', label: 'Followers' },
+  { value: 'following', label: 'Following' },
+  { value: 'mutuals', label: 'Mutuals' },
+  { value: 'network', label: 'Network' },
+  { value: 'private', label: 'Private' }
+];
+
+const normalizeStoryVisibility = (value?: string): StoryVisibility => {
+  const normalized = (value || '').toLowerCase();
+  if (storyVisibilityOptions.some((option) => option.value === normalized)) {
+    return normalized as StoryVisibility;
+  }
+  if (normalized === 'friends') return 'mutuals';
+  return 'public';
+};
+
+const isPrivateStoryVisibility = (value?: StoryVisibility) => value === 'private' || value === 'custom';
+
+const resolveStoryMediaUrl = (story: any) => {
+  const raw =
+    story?.media?.url ||
+    story?.mediaUrl ||
+    story?.media_url ||
+    story?.mediaFileUrl ||
+    story?.media_file_url ||
+    story?.media?.[0]?.url;
+  if (raw) return resolveAssetUrl(raw);
+
+  const fileId = story?.mediaFileId || story?.media_file_id;
+  if (typeof fileId === 'string') {
+    if (fileId.startsWith('disk:')) {
+      const relative = fileId.slice('disk:'.length).replace(/^\/+/, '');
+      return resolveAssetUrl(`/uploads/${relative}`);
+    }
+    if (fileId.startsWith('http://') || fileId.startsWith('https://')) {
+      return resolveAssetUrl(fileId);
+    }
+  }
+  return '';
+};
+
+const resolveStoryContent = (story: any) =>
+  story?.content ||
+  story?.text ||
+  story?.caption ||
+  story?.storyText ||
+  story?.story_text ||
+  '';
+
+const isStoryActive = (story: any) => {
+  if (!story?.expiresAt) return true;
+  const expiresAt = new Date(story.expiresAt).getTime();
+  return Number.isNaN(expiresAt) ? true : expiresAt > Date.now();
+};
+
+type PostDraft = {
+  title: string;
+  content: string;
+  tags: string;
+  mentions: string;
+  topic: string;
+  location: string;
+  visibility: 'public' | 'friends' | 'network' | 'private' | 'custom';
+  commentPolicy: 'everyone' | 'followers' | 'following' | 'mutuals' | 'none';
+  media: Array<{
+    localId: string;
+    id?: string;
+    url: string;
+    name?: string;
+    type?: 'image' | 'video' | 'document';
+  }>;
+};
 
 const CommunityHome = () => {
+  const location = useLocation();
+  const params = useParams<{ id?: string }>();
+  const focusPostId = String(params.id || '').trim();
+  const focusQuery = new URLSearchParams(location.search);
+  const focusCommentId = String(focusQuery.get('comment') || '').trim();
+  const focusMentionToken = String(focusQuery.get('mention') || '').trim();
   const [trendingTopics, setTrendingTopics] = useState<any[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
   const [topContributors, setTopContributors] = useState<any[]>([]);
   const [discussions, setDiscussions] = useState<any[]>([]);
   const [posts, setPosts] = useState<any[]>([]);
+  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  const [openPostActions, setOpenPostActions] = useState<string | null>(null);
+  const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [editingDraft, setEditingDraft] = useState<PostDraft | null>(null);
+  const [postActionBusy, setPostActionBusy] = useState<Record<string, boolean>>({});
   const [ads, setAds] = useState<any[]>([]);
+  const [stories, setStories] = useState<any[]>([]);
+  const [storiesLoading, setStoriesLoading] = useState(false);
+  const [storyPickerOpen, setStoryPickerOpen] = useState(false);
+  const [storyTextOpen, setStoryTextOpen] = useState(false);
+  const [storyPosting, setStoryPosting] = useState(false);
+  const [activeStory, setActiveStory] = useState<any | null>(null);
+  const [storyEditOpen, setStoryEditOpen] = useState(false);
+  const [editingStory, setEditingStory] = useState<any | null>(null);
+  const [storyEditSaving, setStoryEditSaving] = useState(false);
+  const [storyActionBusy, setStoryActionBusy] = useState<Record<string, boolean>>({});
+  const [storyCameraOpen, setStoryCameraOpen] = useState(false);
+  const [storyCameraStream, setStoryCameraStream] = useState<MediaStream | null>(null);
+  const storyVideoRef = useRef<HTMLVideoElement | null>(null);
+  const storyCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const storyRecorderRef = useRef<MediaRecorder | null>(null);
+  const storyChunksRef = useRef<Blob[]>([]);
+  const [storyRecording, setStoryRecording] = useState(false);
+  const [storyDraft, setStoryDraft] = useState({
+    content: '',
+    visibility: 'public' as StoryVisibility,
+    ...getDefaultStoryTextDraft()
+  });
+  const [storyEditDraft, setStoryEditDraft] = useState({
+    content: '',
+    visibility: 'public' as StoryVisibility,
+    ...getDefaultStoryTextDraft()
+  });
   const [homepage, setHomepage] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const { user } = useUser();
   const { showNotification } = useNotification();
+  const followStateMap = useFollowStateMap();
   const impressionTracked = useRef<Set<string>>(new Set());
   const viewTracked = useRef<Set<string>>(new Set());
+  const storyPreviewStyle = getStoryTextStyle(storyDraft);
+  const storyEditPreviewStyle = getStoryTextStyle(storyEditDraft);
+
+  useEffect(() => {
+    if (!focusPostId || !posts.length) return;
+    const timer = window.setTimeout(() => {
+      const target = document.getElementById(`community-post-${focusPostId}`);
+      if (!target) return;
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.classList.add('ring-2', 'ring-blue-300');
+      window.setTimeout(() => {
+        target.classList.remove('ring-2', 'ring-blue-300');
+      }, 3500);
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [focusPostId, posts]);
+
+  const normalizePost = useCallback((post: any) => {
+    const interactions = { ...(post.interactions || {}) };
+    if (interactions.likes === undefined) interactions.likes = post.likesCount ?? post.likes_count ?? 0;
+    if (interactions.comments === undefined) interactions.comments = post.commentsCount ?? post.comments_count ?? 0;
+    if (interactions.reposts === undefined) interactions.reposts = post.repostsCount ?? post.reposts_count ?? 0;
+    if (interactions.shares === undefined) interactions.shares = post.sharesCount ?? post.shares_count ?? 0;
+    if (interactions.views === undefined) interactions.views = post.viewsCount ?? post.views_count ?? 0;
+    if (interactions.reactions === undefined) interactions.reactions = post.reactions || {};
+    const authorId = post.authorId || post.userId || post.user_id || post.author?.id || post.author?.userId || post.author?.user_id;
+    const authorName = post.authorName || post.userName || post.user_name || post.author?.displayName || post.author?.name || 'Community member';
+    const authorUsername =
+      post.authorUsername ||
+      post.userUsername ||
+      post.user_username ||
+      post.author?.username ||
+      post.author?.userName ||
+      post.author?.user_name ||
+      null;
+    const authorAvatar = post.authorAvatar || post.userAvatar || post.user_avatar || post.author?.avatarUrl || post.author?.avatar || '';
+    const authorType = post.author?.type || (post.businessPage ? 'business' : 'user');
+    const authorUserId =
+      post.authorUserId ||
+      post.author_user_id ||
+      post.author?.userId ||
+      post.author?.user_id ||
+      (authorType === 'user' ? authorId : null);
+
+    return {
+      id: post.id || `${authorId}-${Date.now()}`,
+      title: post.title,
+      content: post.content,
+      attachments: (post.attachments || []).map((item: any) => ({
+        id: item.id || item.fileId,
+        url: item.url || item,
+        name: item.name || item.originalName || item.filename,
+        mimeType: item.mimeType || item.mime_type,
+        type: item.type || inferMediaType(item)
+      })),
+      author: {
+        id: post.author?.id || (authorType === 'business' ? post.businessPage?.id : authorId),
+        username: post.author?.username ?? authorUsername,
+        displayName: post.author?.displayName || authorName,
+        avatarUrl: post.author?.avatarUrl || authorAvatar,
+        type: authorType,
+        businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
+        isVerified: Boolean(post.author?.isVerified),
+        isPro: Boolean(post.author?.isPro)
+      },
+      viewer: {
+        isFollowingAuthor: post.viewer?.isFollowingAuthor
+      },
+      authorId,
+      authorUserId,
+      authorName,
+      authorUsername,
+      authorAvatar,
+      createdAt: post.createdAt || post.created_at,
+      updatedAt: post.updatedAt || post.updated_at,
+      tags: post.tags || [],
+      mentions: post.mentions || [],
+      topic: post.topic || null,
+      location: post.location || null,
+      visibility: post.visibility,
+      commentPolicy: post.commentPolicy || post.comment_policy || 'everyone',
+      isPinned: post.isPinned ?? post.is_pinned ?? false,
+      isHighlighted: post.isHighlighted ?? post.is_highlighted ?? false,
+      likesCount: post.likesCount ?? post.likes_count ?? interactions.likes,
+      sharesCount: post.sharesCount ?? post.shares_count ?? interactions.shares,
+      repostsCount: post.repostsCount ?? post.reposts_count ?? interactions.reposts,
+      interactions,
+      userState: post.userState || post.user_state || {}
+    };
+  }, []);
+
+  const sortPosts = useCallback((items: any[]) => {
+    return [...items].sort((a, b) => {
+      if (Boolean(a.isPinned) !== Boolean(b.isPinned)) {
+        return a.isPinned ? -1 : 1;
+      }
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
+  }, []);
+
+  const filterActiveStories = useCallback((items: any[]) => items.filter(isStoryActive), []);
+
+  const canManageStory = useCallback((story: any) => {
+    if (!user) return false;
+    const authorId = story?.authorId || story?.userId || story?.user_id;
+    if (authorId && String(authorId) === String(user.id)) return true;
+    return isPrivilegedRole(user?.role);
+  }, [user]);
+
+  const applyStoryUpdate = useCallback((updated: any) => {
+    if (!updated?.id) return;
+    setStories((prev) => {
+      const exists = prev.some((story) => story.id === updated.id);
+      const next = exists
+        ? prev.map((story) => (story.id === updated.id ? { ...story, ...updated } : story))
+        : [updated, ...prev];
+      return filterActiveStories(next);
+    });
+    setActiveStory((current) => (current?.id === updated.id ? { ...current, ...updated } : current));
+  }, [filterActiveStories]);
+
+  const syncCommentCount = useCallback((postId: string, nextCount: unknown) => {
+    const parsed = Number(nextCount);
+    const normalizedCount = Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
+    setCommentCounts((prev) => {
+      if ((prev[postId] ?? 0) === normalizedCount) return prev;
+      return { ...prev, [postId]: normalizedCount };
+    });
+  }, []);
+
+  const applyPostUpdate = useCallback((updated: any) => {
+    setPosts((prev) => {
+      const exists = prev.some((item) => item.id === updated.id);
+      const merged = exists
+        ? prev.map((item) =>
+            item.id === updated.id
+              ? {
+                  ...item,
+                  ...updated,
+                  interactions: updated.interactions
+                    ? { ...(item.interactions || {}), ...updated.interactions }
+                    : item.interactions,
+                  userState: updated.userState
+                    ? { ...(item.userState || {}), ...updated.userState }
+                    : item.userState
+                }
+              : item
+          )
+        : [updated, ...prev];
+      return sortPosts(merged);
+    });
+    if (updated.interactions?.comments !== undefined) {
+      syncCommentCount(updated.id, updated.interactions?.comments);
+    }
+  }, [sortPosts, syncCommentCount]);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
+        setStoriesLoading(true);
         // Add small delays to prevent rate limiting
         await new Promise(resolve => setTimeout(resolve, 200));
         const topics = await CMSService.getTrendingTopics();
@@ -48,38 +374,59 @@ const CommunityHome = () => {
         await new Promise(resolve => setTimeout(resolve, 200));
         const homepageConfig = await CommunityService.getCommunityHomepage();
 
+        await new Promise(resolve => setTimeout(resolve, 200));
+        const storiesFeed = await CommunityService.getStoriesFeed();
+
         setTrendingTopics(topics);
         setUpcomingEvents(events);
         setTopContributors(contributors);
         setDiscussions(discussions);
-        setPosts(feedPosts);
+        const normalizedPosts = sortPosts((Array.isArray(feedPosts) ? feedPosts : []).map(normalizePost));
+        setPosts(normalizedPosts);
+        const followSeed: Record<string, boolean> = {};
+        const authorIds = new Set<string>();
+        normalizedPosts.forEach((post: any) => {
+          const authorType = String(post.author?.type || 'user').toLowerCase();
+          const authorId = String(post.author?.id || post.authorId || '').trim();
+          if (authorType !== 'user' || !authorId || String(user?.id || '') === authorId) return;
+          authorIds.add(authorId);
+          if (post.viewer?.isFollowingAuthor !== undefined) {
+            followSeed[authorId] = Boolean(post.viewer.isFollowingAuthor);
+          }
+        });
+        if (Object.keys(followSeed).length) {
+          setFollowStatuses(followSeed);
+        }
+        if (authorIds.size && user?.id) {
+          try {
+            const statusMap = await CommunityService.getFollowStatus(Array.from(authorIds));
+            setFollowStatuses(statusMap);
+          } catch (error) {
+            console.warn('Failed to hydrate follow status map for community posts:', error);
+          }
+        }
+        setCommentCounts(
+          normalizedPosts.reduce((acc: Record<string, number>, post: any) => {
+            acc[post.id] = post.interactions?.comments ?? 0;
+            return acc;
+          }, {})
+        );
         setAds(ads);
         setHomepage(homepageConfig);
+        setStories(filterActiveStories(Array.isArray(storiesFeed) ? storiesFeed : []));
       } catch (error) {
         console.error('Error loading community data:', error);
-        // Set fallback data
-        setTrendingTopics([
-          { id: '1', title: 'Getting Started', count: 120 },
-          { id: '2', title: 'Best Practices', count: 85 },
-          { id: '3', title: 'Troubleshooting', count: 60 }
-        ]);
-        setUpcomingEvents([
-          { id: '1', title: 'Weekly Q&A Session', date: 'Tomorrow 3PM EST' },
-          { id: '2', title: 'Monthly Meetup', date: 'Jan 15, 2024' }
-        ]);
-        setTopContributors([
-          { id: '1', name: 'John Doe', reputation: 2450 },
-          { id: '2', name: 'Jane Smith', reputation: 1890 },
-          { id: '3', name: 'Bob Johnson', reputation: 1560 }
-        ]);
-        setDiscussions([
-          { id: '1', title: 'How to optimize your profile?', author: 'Alice', replies: 24, lastReply: '2 hours ago' },
-          { id: '2', title: 'Best project management tools?', author: 'Mike', replies: 18, lastReply: '4 hours ago' }
-        ]);
+        setTrendingTopics([]);
+        setUpcomingEvents([]);
+        setTopContributors([]);
+        setDiscussions([]);
         setAds([]);
         setPosts([]);
+        setCommentCounts({});
         setHomepage(null);
+        setStories([]);
       } finally {
+        setStoriesLoading(false);
         setLoading(false);
       }
     };
@@ -97,15 +444,179 @@ const CommunityHome = () => {
         setHomepage(updated);
       } catch (e) { console.error('Failed to refresh homepage config', e); }
     };
+    const onStoryUpdate = async () => {
+      try {
+        const updated = await CommunityService.getStoriesFeed();
+        setStories(filterActiveStories(Array.isArray(updated) ? updated : []));
+      } catch (e) { console.error('Failed to refresh stories', e); }
+    };
+    const onStoryUpdated = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      const payload = detail?.story || detail;
+      if (payload?.id) {
+        applyStoryUpdate(payload);
+      } else {
+        onStoryUpdate();
+      }
+    };
+    const onStoryLiked = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      const storyId = detail?.storyId;
+      if (!storyId) return;
+      const likesCount = detail?.likesCount;
+      const likedByViewer = user?.id ? String(detail?.userId) === String(user.id) && detail?.liked : undefined;
+      setStories((prev) =>
+        prev.map((story) =>
+          story.id === storyId
+            ? {
+                ...story,
+                likesCount: likesCount ?? story.likesCount ?? story.likes_count,
+                viewerLiked: likedByViewer ?? story.viewerLiked,
+                _count: { ...(story._count || {}), likes: likesCount ?? story._count?.likes }
+              }
+            : story
+        )
+      );
+      setActiveStory((current) =>
+        current?.id === storyId
+          ? {
+              ...current,
+              likesCount: likesCount ?? current.likesCount ?? current.likes_count,
+              viewerLiked: likedByViewer ?? current.viewerLiked,
+              _count: { ...(current._count || {}), likes: likesCount ?? current._count?.likes }
+            }
+          : current
+      );
+    };
     window.addEventListener('community:ad_status_updated', onAdEvent as EventListener);
     window.addEventListener('community:ad_created', onAdEvent as EventListener);
     window.addEventListener('community:homepage_updated', onHomepageUpdate as EventListener);
+    window.addEventListener('community:story_created', onStoryUpdate as EventListener);
+    window.addEventListener('community:story_deleted', onStoryUpdate as EventListener);
+    window.addEventListener('community:story_updated', onStoryUpdated as EventListener);
+    window.addEventListener('community:story_liked', onStoryLiked as EventListener);
     return () => {
       window.removeEventListener('community:ad_status_updated', onAdEvent as EventListener);
       window.removeEventListener('community:ad_created', onAdEvent as EventListener);
       window.removeEventListener('community:homepage_updated', onHomepageUpdate as EventListener);
+      window.removeEventListener('community:story_created', onStoryUpdate as EventListener);
+      window.removeEventListener('community:story_deleted', onStoryUpdate as EventListener);
+      window.removeEventListener('community:story_updated', onStoryUpdated as EventListener);
+      window.removeEventListener('community:story_liked', onStoryLiked as EventListener);
     };
-  }, [user?.role]);
+  }, [applyStoryUpdate, filterActiveStories, normalizePost, sortPosts, user?.id, user?.role]);
+
+  useEffect(() => {
+    const onPostCreated = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (!detail) return;
+      const payload = detail.post || detail;
+      applyPostUpdate(normalizePost(payload));
+    };
+    const onPostUpdated = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (!detail) return;
+      const payload = detail.post || detail;
+      applyPostUpdate(normalizePost(payload));
+    };
+    const onPostDeleted = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      const postId = detail?.postId || detail?.id;
+      if (!postId) return;
+      setPosts((prev) => prev.filter((item) => item.id !== postId));
+      setCommentCounts((prev) => {
+        const next = { ...prev };
+        delete next[postId];
+        return next;
+      });
+      if (editingPostId === postId) {
+        setEditingPostId(null);
+        setEditingDraft(null);
+      }
+      if (openPostActions === postId) {
+        setOpenPostActions(null);
+      }
+    };
+    const onPostMetricsUpdated = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (!detail) return;
+      const postId = detail?.postId || detail?.id;
+      if (!postId) return;
+      const interactions = detail.interactions || detail.counts || {
+        likes: detail.likesCount ?? detail.likes,
+        comments: detail.commentsCount ?? detail.comments,
+        shares: detail.sharesCount ?? detail.shares,
+        reposts: detail.repostsCount ?? detail.reposts
+      };
+      applyPostUpdate({
+        id: postId,
+        interactions,
+        likesCount: interactions.likes,
+        sharesCount: interactions.shares,
+        repostsCount: interactions.reposts
+      });
+    };
+    const onPostReactionUpdated = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const postId = String(detail?.postId || detail?.id || '').trim();
+      const reactions = detail?.reactions;
+      if (!postId || !reactions || typeof reactions !== 'object') return;
+      setPosts((prev) =>
+        prev.map((item) =>
+          item.id === postId
+            ? {
+                ...item,
+                interactions: {
+                  ...(item.interactions || {}),
+                  reactions
+                }
+              }
+            : item
+        )
+      );
+    };
+
+    window.addEventListener('community:post_created', onPostCreated as EventListener);
+    window.addEventListener('community:post_updated', onPostUpdated as EventListener);
+    window.addEventListener('community:post_deleted', onPostDeleted as EventListener);
+    window.addEventListener('community:post_metrics_updated', onPostMetricsUpdated as EventListener);
+    window.addEventListener('community:post_reaction_updated', onPostReactionUpdated as EventListener);
+    return () => {
+      window.removeEventListener('community:post_created', onPostCreated as EventListener);
+      window.removeEventListener('community:post_updated', onPostUpdated as EventListener);
+      window.removeEventListener('community:post_deleted', onPostDeleted as EventListener);
+      window.removeEventListener('community:post_metrics_updated', onPostMetricsUpdated as EventListener);
+      window.removeEventListener('community:post_reaction_updated', onPostReactionUpdated as EventListener);
+    };
+  }, [applyPostUpdate, editingPostId, normalizePost, openPostActions]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const onFollowUpdated = (event: Event) => {
+      const payload = (event as CustomEvent).detail;
+      applyFollowUpdatePayload(payload, user.id);
+    };
+    window.addEventListener('community:follow_updated', onFollowUpdated as EventListener);
+    return () => window.removeEventListener('community:follow_updated', onFollowUpdated as EventListener);
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      resetFollowState();
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!openPostActions) return;
+    const handler = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest(`[data-post-actions="${openPostActions}"]`)) {
+        setOpenPostActions(null);
+      }
+    };
+    window.addEventListener('click', handler);
+    return () => window.removeEventListener('click', handler);
+  }, [openPostActions]);
 
   useEffect(() => {
     if (!ads || ads.length === 0) return;
@@ -117,6 +628,10 @@ const CommunityHome = () => {
   }, [ads]);
 
   useEffect(() => {
+    viewTracked.current.clear();
+  }, [user?.id]);
+
+  useEffect(() => {
     if (!user || !posts || posts.length === 0) return;
     posts.forEach((post: any) => {
       if (!post?.id || viewTracked.current.has(post.id)) return;
@@ -124,6 +639,339 @@ const CommunityHome = () => {
       CommunityService.postView(post.id).catch(() => {});
     });
   }, [posts, user]);
+
+  useEffect(() => {
+    if (storyCameraOpen && storyVideoRef.current && storyCameraStream) {
+      storyVideoRef.current.srcObject = storyCameraStream;
+    }
+  }, [storyCameraOpen, storyCameraStream]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setStories((prev) => filterActiveStories(prev));
+    }, 60000);
+    return () => window.clearInterval(id);
+  }, [filterActiveStories]);
+
+  useEffect(() => {
+    return () => {
+      if (storyRecorderRef.current && storyRecording) {
+        try {
+          storyRecorderRef.current.stop();
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      if (storyCameraStream) {
+        storyCameraStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [storyCameraStream, storyRecording]);
+
+  const stopStoryCamera = () => {
+    if (storyRecorderRef.current && storyRecording) {
+      try {
+        storyRecorderRef.current.stop();
+      } catch (e) {
+        console.error(e);
+      }
+      return;
+    }
+    if (storyCameraStream) {
+      storyCameraStream.getTracks().forEach(track => track.stop());
+    }
+    setStoryCameraStream(null);
+    setStoryCameraOpen(false);
+    setStoryRecording(false);
+  };
+
+  const publishStoryText = async () => {
+    if (!user || !storyDraft.content.trim()) return;
+    setStoryPosting(true);
+    try {
+      const created = await CommunityService.createStory({
+        type: 'text',
+        content: storyDraft.content.trim(),
+        visibility: storyDraft.visibility,
+        textBackground: storyDraft.textBackground,
+        textColor: storyDraft.textColor,
+        textFont: storyDraft.textFont,
+        textAlign: storyDraft.textAlign
+      });
+      setStories((prev) => filterActiveStories([created, ...prev]));
+      setStoryDraft({
+        content: '',
+        visibility: 'public',
+        ...getDefaultStoryTextDraft()
+      });
+      setStoryTextOpen(false);
+      showNotification('success', 'Stories', 'Your story is live.');
+    } catch (error: any) {
+      console.error(error);
+      showNotification('error', 'Stories', error?.message || 'Unable to post story.');
+    } finally {
+      setStoryPosting(false);
+    }
+  };
+
+  const publishStoryFile = async (file: File, type: 'image' | 'video') => {
+    if (!user) return;
+    setStoryPosting(true);
+    try {
+      const uploaded = await FileService.uploadFile(file, 'community', {
+        role: user.role,
+        visibility: isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public',
+        userId: user.id
+      });
+      const created = await CommunityService.createStory({
+        type,
+        mediaFileId: uploaded.id,
+        visibility: storyDraft.visibility
+      });
+      setStories((prev) => filterActiveStories([created, ...prev]));
+      showNotification('success', 'Stories', 'Your story is live.');
+    } catch (error: any) {
+      console.error(error);
+      showNotification('error', 'Stories', error?.message || 'Unable to post story.');
+    } finally {
+      setStoryPosting(false);
+    }
+  };
+
+  const startStoryCamera = async () => {
+    if (!user) return;
+    try {
+      if (Capacitor.isNativePlatform()) {
+        setStoryPosting(true);
+        const uploaded = await captureAndUpload({
+          category: 'community',
+          role: user.role,
+          visibility: isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public',
+          userId: user.id
+        });
+        const created = await CommunityService.createStory({
+          type: 'image',
+          mediaFileId: uploaded.id,
+          visibility: storyDraft.visibility
+        });
+        setStories((prev) => filterActiveStories([created, ...prev]));
+        showNotification('success', 'Stories', 'Your story is live.');
+        return;
+      }
+    } catch (error) {
+      console.error(error);
+      showNotification('error', 'Camera', 'Unable to access camera.');
+      return;
+    } finally {
+      setStoryPosting(false);
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      showNotification('warning', 'Camera', 'Camera access is not available in this browser.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      setStoryCameraStream(stream);
+      setStoryCameraOpen(true);
+    } catch (error) {
+      console.error(error);
+      showNotification('error', 'Camera', 'Unable to access camera.');
+    }
+  };
+
+  const captureStoryPhoto = async () => {
+    const video = storyVideoRef.current;
+    const canvas = storyCanvasRef.current;
+    if (!video || !canvas) return;
+    const width = video.videoWidth || 640;
+    const height = video.videoHeight || 480;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, width, height);
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      try {
+        const file = new File([blob], `story-${Date.now()}.png`, { type: blob.type || 'image/png' });
+        await publishStoryFile(file, 'image');
+      } catch (error) {
+        console.error(error);
+      } finally {
+        stopStoryCamera();
+      }
+    }, 'image/png');
+  };
+
+  const startStoryRecording = () => {
+    if (!storyCameraStream || storyRecording) return;
+    if (typeof MediaRecorder === 'undefined') {
+      showNotification('warning', 'Camera', 'Video recording is not supported in this browser.');
+      return;
+    }
+    storyChunksRef.current = [];
+    let recorder: MediaRecorder;
+    try {
+      recorder = new MediaRecorder(storyCameraStream, { mimeType: 'video/webm' });
+    } catch (e) {
+      recorder = new MediaRecorder(storyCameraStream);
+    }
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) {
+        storyChunksRef.current.push(event.data);
+      }
+    };
+    recorder.onstop = async () => {
+      const blob = new Blob(storyChunksRef.current, { type: recorder.mimeType || 'video/webm' });
+      if (!blob.size) return;
+      try {
+        const file = new File([blob], `story-${Date.now()}.webm`, { type: blob.type });
+        await publishStoryFile(file, 'video');
+      } catch (error) {
+        console.error(error);
+        showNotification('error', 'Stories', 'Video upload failed.');
+      } finally {
+        setStoryRecording(false);
+        stopStoryCamera();
+      }
+    };
+    storyRecorderRef.current = recorder;
+    recorder.start();
+    setStoryRecording(true);
+  };
+
+  const stopStoryRecording = () => {
+    if (!storyRecorderRef.current) return;
+    try {
+      storyRecorderRef.current.stop();
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleStoryMediaSelected = async (file: any) => {
+    if (!file?.id) return;
+    setStoryPosting(true);
+    try {
+      const type = file.type === 'video' ? 'video' : 'image';
+      const created = await CommunityService.createStory({
+        type,
+        mediaFileId: file.id,
+        visibility: storyDraft.visibility
+      });
+      setStories((prev) => filterActiveStories([created, ...prev]));
+      showNotification('success', 'Stories', 'Your story is live.');
+    } catch (error: any) {
+      console.error(error);
+      showNotification('error', 'Stories', error?.message || 'Unable to post story.');
+    } finally {
+      setStoryPosting(false);
+      setStoryPickerOpen(false);
+    }
+  };
+
+  const openStoryEditor = (story: any) => {
+    if (!story) return;
+    const style = getStoryTextStyle(story);
+    setEditingStory(story);
+    setStoryEditDraft({
+      content: resolveStoryContent(story) || '',
+      visibility: normalizeStoryVisibility(story.visibility),
+      textBackground: style.background,
+      textColor: style.color,
+      textFont: style.fontFamily,
+      textAlign: (style.textAlign as any) || 'center'
+    });
+    setStoryEditOpen(true);
+  };
+
+  const saveStoryEdit = async () => {
+    if (!editingStory?.id) return;
+    if (!canManageStory(editingStory)) return;
+    setStoryEditSaving(true);
+    try {
+      const payload: any = {
+        content: storyEditDraft.content?.trim() || undefined,
+        visibility: storyEditDraft.visibility
+      };
+      if (editingStory.type === 'text') {
+        payload.textBackground = storyEditDraft.textBackground;
+        payload.textColor = storyEditDraft.textColor;
+        payload.textFont = storyEditDraft.textFont;
+        payload.textAlign = storyEditDraft.textAlign;
+      }
+      const updated = await CommunityService.updateStory(editingStory.id, payload);
+      applyStoryUpdate(updated);
+      setStoryEditOpen(false);
+      setEditingStory(null);
+      showNotification('success', 'Stories', 'Story updated.');
+    } catch (error: any) {
+      console.error('Failed to update story', error);
+      showNotification('error', 'Stories', error?.message || 'Unable to update story.');
+    } finally {
+      setStoryEditSaving(false);
+    }
+  };
+
+  const handleStoryDelete = async (story: any) => {
+    if (!story?.id) return;
+    if (!canManageStory(story)) return;
+    if (!confirm('Delete this story?')) return;
+    setStoryActionBusy((prev) => ({ ...prev, [story.id]: true }));
+    try {
+      await CommunityService.deleteStory(story.id);
+      setStories((prev) => prev.filter((item) => item.id !== story.id));
+      setActiveStory((current) => (current?.id === story.id ? null : current));
+      showNotification('success', 'Stories', 'Story deleted.');
+    } catch (error: any) {
+      console.error('Failed to delete story', error);
+      showNotification('error', 'Stories', error?.message || 'Unable to delete story.');
+    } finally {
+      setStoryActionBusy((prev) => ({ ...prev, [story.id]: false }));
+    }
+  };
+
+  const handleStoryLike = async (story: any) => {
+    if (!story?.id) return;
+    if (!user) {
+      if (confirm('Log in to like stories?')) window.location.href = '/auth/login';
+      return;
+    }
+    if (storyActionBusy[story.id]) return;
+    setStoryActionBusy((prev) => ({ ...prev, [story.id]: true }));
+    try {
+      const response = await CommunityService.toggleStoryLike(story.id);
+      const payload = response?.data ?? response ?? {};
+      const liked = payload?.liked ?? payload?.viewerLiked ?? !Boolean(story.viewerLiked);
+      const likesCount =
+        payload?.likesCount ??
+        payload?.likes ??
+        Math.max(0, (story.likesCount ?? story.likes_count ?? story._count?.likes ?? 0) + (liked ? 1 : -1));
+      applyStoryUpdate({
+        ...story,
+        likesCount,
+        viewerLiked: liked,
+        _count: { ...(story._count || {}), likes: likesCount }
+      });
+    } catch (error: any) {
+      console.error('Failed to like story', error);
+      showNotification('error', 'Stories', error?.message || 'Unable to like story.');
+    } finally {
+      setStoryActionBusy((prev) => ({ ...prev, [story.id]: false }));
+    }
+  };
+
+  const openStory = async (story: any) => {
+    setActiveStory(story);
+    if (story?.id) {
+      try {
+        await CommunityService.viewStory(story.id);
+      } catch (e) {
+        console.error('Failed to record story view', e);
+      }
+    }
+  };
 
   const promotePost = async (post: any) => {
     if (!user) {
@@ -145,7 +993,9 @@ const CommunityHome = () => {
         body: post.content || '',
         placement,
         targeting: {},
-        mediaFileIds: post.attachments || [],
+        mediaFileIds: Array.isArray(post.attachments)
+          ? post.attachments.map((att: any) => att?.id || att?.fileId || att).filter(Boolean)
+          : [],
         budget,
         currency: 'USD',
         status: 'DRAFT'
@@ -155,6 +1005,198 @@ const CommunityHome = () => {
       showNotification('error', 'Failed to Create Ad', e?.message || 'Unable to create ad draft.');
     }
   };
+
+  const resolveAuthorId = (post: any) => String(
+    post?.authorId ||
+    post?.userId ||
+    post?.user_id ||
+    post?.author?.id ||
+    post?.author?.userId ||
+    post?.author?.user_id ||
+    ''
+  );
+
+  const resolveAuthorOwnerUserId = (post: any) => {
+    const explicit = String(post?.authorUserId || post?.author_user_id || '').trim();
+    if (explicit) return explicit;
+    const authorType = String(post?.author?.type || '').toLowerCase();
+    if (authorType === 'user') return resolveAuthorId(post);
+    return '';
+  };
+
+  const beginEditPost = useCallback((post: any) => {
+    const policyValue = String(post.commentPolicy || 'everyone').toLowerCase();
+    const commentPolicy = (['everyone', 'followers', 'following', 'mutuals', 'none'].includes(policyValue)
+      ? policyValue
+      : 'everyone') as PostDraft['commentPolicy'];
+    setEditingPostId(post.id);
+    setEditingDraft({
+      title: post.title || '',
+      content: post.content || '',
+      tags: (post.tags || []).join(', '),
+      mentions: (post.mentions || []).join(', '),
+      topic: post.topic || '',
+      location: post.location || '',
+      visibility: (post.visibility as PostDraft['visibility']) || 'public',
+      commentPolicy,
+      media: (post.attachments || []).map((media: any, index: number) => ({
+        localId: `${post.id}-media-${media.id || index}`,
+        id: media.id,
+        url: media.url,
+        name: media.name,
+        type: inferMediaType(media)
+      }))
+    });
+    setOpenPostActions(null);
+  }, []);
+
+  const cancelEditPost = useCallback(() => {
+    setEditingPostId(null);
+    setEditingDraft(null);
+  }, []);
+
+  const removeEditMedia = useCallback((localId: string) => {
+    setEditingDraft((prev) => {
+      if (!prev) return prev;
+      return { ...prev, media: prev.media.filter((media) => media.localId !== localId) };
+    });
+  }, []);
+
+  const submitPostEdit = useCallback(async () => {
+    if (!user || !editingPostId || !editingDraft) return;
+    if (!editingDraft.content.trim()) {
+      showNotification('warning', 'Posts', 'Please add content before saving.');
+      return;
+    }
+    if (postActionBusy[editingPostId]) return;
+    setPostActionBusy((prev) => ({ ...prev, [editingPostId]: true }));
+    try {
+      const updated = await CommunityService.updatePost(editingPostId, {
+        title: editingDraft.title.trim(),
+        content: editingDraft.content,
+        attachments: editingDraft.media.map((media) => media.id).filter(Boolean) as string[],
+        tags: parseList(editingDraft.tags),
+        mentions: parseList(editingDraft.mentions),
+        topic: editingDraft.topic || undefined,
+        location: editingDraft.location || undefined,
+        visibility: editingDraft.visibility,
+        commentPolicy: editingDraft.commentPolicy
+      });
+      if (updated) {
+        applyPostUpdate(normalizePost(updated));
+      }
+      cancelEditPost();
+      showNotification('success', 'Posts', 'Post updated.');
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Unable to update post.';
+      showNotification('error', 'Posts', message);
+    } finally {
+      setPostActionBusy((prev) => ({ ...prev, [editingPostId]: false }));
+    }
+  }, [applyPostUpdate, cancelEditPost, editingDraft, editingPostId, normalizePost, postActionBusy, showNotification, user]);
+
+  const handleDeletePost = useCallback(async (post: any) => {
+    if (!user) return;
+    if (!confirm('Delete this post?')) return;
+    setPostActionBusy((prev) => ({ ...prev, [post.id]: true }));
+    try {
+      await CommunityService.deletePost(post.id);
+      setPosts((prev) => prev.filter((item) => item.id !== post.id));
+      setCommentCounts((prev) => {
+        const next = { ...prev };
+        delete next[post.id];
+        return next;
+      });
+      if (editingPostId === post.id) cancelEditPost();
+      showNotification('success', 'Posts', 'Post deleted.');
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Unable to delete post.';
+      showNotification('error', 'Posts', message);
+    } finally {
+      setPostActionBusy((prev) => ({ ...prev, [post.id]: false }));
+      setOpenPostActions(null);
+    }
+  }, [cancelEditPost, editingPostId, showNotification, user]);
+
+  const handleTogglePin = useCallback(async (post: any) => {
+    if (!user) return;
+    const authorId = resolveAuthorOwnerUserId(post);
+    if (!authorId || authorId !== String(user.id)) {
+      showNotification('warning', 'Pin', 'Only the post author can pin this update.');
+      return;
+    }
+    if (!post.isPinned) {
+      const pinnedCount = posts.filter(
+        (item) => item.isPinned && resolveAuthorOwnerUserId(item) === String(user.id)
+      ).length;
+      if (pinnedCount >= 3) {
+        showNotification('warning', 'Pin limit', 'You can only pin up to 3 posts.');
+        return;
+      }
+    }
+    setPostActionBusy((prev) => ({ ...prev, [post.id]: true }));
+    try {
+      const updated = await CommunityService.updatePost(post.id, { isPinned: !post.isPinned });
+      if (updated) {
+        applyPostUpdate(normalizePost(updated));
+      }
+      showNotification('success', 'Pin', post.isPinned ? 'Post unpinned.' : 'Post pinned to your profile.');
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Unable to update pin status.';
+      showNotification('error', 'Pin', message);
+    } finally {
+      setPostActionBusy((prev) => ({ ...prev, [post.id]: false }));
+      setOpenPostActions(null);
+    }
+  }, [applyPostUpdate, normalizePost, posts, showNotification, user]);
+
+  const handleToggleHighlight = useCallback(async (post: any) => {
+    if (!user) return;
+    const authorId = resolveAuthorOwnerUserId(post);
+    if (!authorId || authorId !== String(user.id)) {
+      showNotification('warning', 'Highlight', 'Only the post author can highlight this update.');
+      return;
+    }
+    if (!post.isHighlighted) {
+      const highlightedCount = posts.filter(
+        (item) => item.isHighlighted && resolveAuthorOwnerUserId(item) === String(user.id)
+      ).length;
+      if (highlightedCount >= 3) {
+        showNotification('warning', 'Highlight limit', 'You can only highlight up to 3 posts.');
+        return;
+      }
+    }
+    setPostActionBusy((prev) => ({ ...prev, [post.id]: true }));
+    try {
+      const updated = await CommunityService.updatePost(post.id, { isHighlighted: !post.isHighlighted });
+      if (updated) {
+        applyPostUpdate(normalizePost(updated));
+      }
+      showNotification('success', 'Highlight', post.isHighlighted ? 'Post unhighlighted.' : 'Post highlighted on your profile.');
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Unable to update highlight status.';
+      showNotification('error', 'Highlight', message);
+    } finally {
+      setPostActionBusy((prev) => ({ ...prev, [post.id]: false }));
+      setOpenPostActions(null);
+    }
+  }, [applyPostUpdate, normalizePost, posts, showNotification, user]);
 
   if (loading) {
     return (
@@ -167,7 +1209,7 @@ const CommunityHome = () => {
     );
   }
 
-  const heroTitle = homepage?.hero?.title || 'Geezle Community';
+  const heroTitle = homepage?.hero?.title || 'Scrolith Community';
   const heroSubtitle = homepage?.hero?.subtitle || 'Connect with fellow freelancers, share knowledge, and grow together';
   const heroBackgroundImage = homepage?.hero?.backgroundImage;
   const heroBackgroundColor = homepage?.hero?.backgroundColor || '#4f46e5';
@@ -288,6 +1330,107 @@ const CommunityHome = () => {
               </div>
             )}
 
+            {/* Stories Strip */}
+            <div className="bg-white rounded-xl shadow-sm p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-bold">Stories</h2>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={storyDraft.visibility}
+                    onChange={(event) =>
+                      setStoryDraft((prev) => ({ ...prev, visibility: normalizeStoryVisibility(event.target.value) }))
+                    }
+                    className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600"
+                  >
+                    {storyVisibilityOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => setStoryTextOpen(true)}
+                    className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600"
+                    disabled={storyPosting}
+                  >
+                    Text story
+                  </button>
+                  <button
+                    onClick={() => setStoryPickerOpen(true)}
+                    className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600"
+                    disabled={storyPosting}
+                  >
+                    <Plus className="h-3 w-3" />
+                    Upload
+                  </button>
+                  <button
+                    onClick={startStoryCamera}
+                    className="inline-flex items-center gap-1 rounded-full bg-gray-900 px-3 py-1 text-xs font-semibold text-white"
+                    disabled={storyPosting}
+                  >
+                    <CameraIcon className="h-3 w-3" />
+                    Camera
+                  </button>
+                </div>
+              </div>
+              <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                <button
+                  onClick={() => setStoryPickerOpen(true)}
+                  className="min-w-[120px] h-44 rounded-2xl border border-dashed border-gray-300 flex flex-col items-center justify-center text-xs text-gray-500"
+                >
+                  <Plus className="h-5 w-5 mb-2" />
+                  Your story
+                </button>
+                {storiesLoading ? (
+                  <div className="text-xs text-gray-400">Loading stories...</div>
+                ) : stories.length === 0 ? (
+                  <div className="text-xs text-gray-400">No stories yet.</div>
+                ) : (
+                  stories.map((story) => (
+                    <button
+                      key={story.id}
+                      onClick={() => openStory(story)}
+                      className="min-w-[120px] h-44 rounded-2xl overflow-hidden border border-gray-200 bg-gray-100 relative"
+                    >
+                    {(() => {
+                      const mediaUrl = resolveStoryMediaUrl(story);
+                      if (mediaUrl) {
+                        return story.type === 'video' ? (
+                          <video src={mediaUrl} className="h-full w-full object-cover" />
+                        ) : (
+                          <img src={mediaUrl} alt="Story" className="h-full w-full object-cover" />
+                        );
+                      }
+                      const text = resolveStoryContent(story);
+                      if (text) {
+                        const style = getStoryTextStyle(story);
+                        return (
+                          <div
+                            className="flex h-full w-full items-center justify-center px-3 text-center text-xs font-semibold"
+                            style={{
+                              background: style.background,
+                              color: style.color,
+                              fontFamily: style.fontFamily,
+                              textAlign: style.textAlign as any
+                            }}
+                          >
+                            <span className="line-clamp-4 whitespace-pre-wrap">{text}</span>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">Story</div>
+                      );
+                    })()}
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 text-left">
+                        <p className="text-[10px] text-white font-semibold line-clamp-1">{story.authorName || 'Community'}</p>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+
             {Array.isArray(homepage?.sections) && homepage.sections.length > 0 && (
               <div className="space-y-4">
                 {homepage.sections.map((section: any) => (
@@ -329,35 +1472,352 @@ const CommunityHome = () => {
                 {posts.length === 0 && (
                   <div className="p-4 text-sm text-gray-500">No posts yet.</div>
                 )}
-                {posts.map((post) => (
-                  <div key={post.id} className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <img className="w-8 h-8 rounded-full" src={post.authorAvatar} alt={post.authorName} />
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">{post.authorName}</div>
-                          <div className="text-xs text-gray-500">{new Date(post.createdAt).toLocaleString()}</div>
+                {posts.map((post) => {
+                  const ownerUserId = resolveAuthorOwnerUserId(post);
+                  const isOwner = Boolean(ownerUserId) && String(user?.id || '') === ownerUserId;
+                  const canManage = isOwner || isPrivilegedRole(user?.role);
+                  const isEditing = editingPostId === post.id;
+                  const actionsOpen = openPostActions === post.id;
+                  const actionBusy = Boolean(postActionBusy[post.id]);
+                  const commentCount = commentCounts[post.id] ?? post.interactions?.comments ?? 0;
+                  const resolvedAuthor = {
+                    id: post.author?.id || post.authorId,
+                    username: post.author?.username ?? post.authorUsername,
+                    displayName: post.author?.displayName || post.authorName,
+                    avatarUrl: post.author?.avatarUrl || post.authorAvatar,
+                    type: post.author?.type || (post.businessPage ? 'business' : 'user'),
+                    businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
+                    isVerified: post.author?.isVerified,
+                    isPro: post.author?.isPro
+                  };
+                  const followTargetId =
+                    String(resolvedAuthor.type || '').toLowerCase() === 'user'
+                      ? String(resolvedAuthor.id || '')
+                      : '';
+                  const initialIsFollowing =
+                    followTargetId ? (followStateMap[followTargetId] ?? post.viewer?.isFollowingAuthor) : undefined;
+                  return (
+                    <div
+                      key={post.id}
+                      id={`community-post-${post.id}`}
+                      className={`p-4 transition-shadow ${focusPostId === post.id ? 'bg-blue-50/30' : ''}`}
+                    >
+                      <PostHeader
+                        author={resolvedAuthor}
+                        createdAt={post.createdAt}
+                        currentUserId={user?.id}
+                        initialIsFollowing={initialIsFollowing}
+                        onRequireLogin={() => {
+                          if (confirm('Log in to follow users?')) window.location.href = '/auth/login';
+                        }}
+                        onFollowSuccess={(isFollowingNow) => {
+                          if (!resolvedAuthor.displayName) return;
+                          showNotification(
+                            'success',
+                            isFollowingNow ? 'Following' : 'Unfollowed',
+                            isFollowingNow
+                              ? `You are now following ${resolvedAuthor.displayName}.`
+                              : `You are no longer following ${resolvedAuthor.displayName}.`
+                          );
+                        }}
+                        onFollowError={(message) => showNotification('error', 'Follow failed', message)}
+                        metaBadges={
+                          <>
+                            {post.isPinned && (
+                              <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">Pinned</span>
+                            )}
+                            {post.isHighlighted && (
+                              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Highlighted</span>
+                            )}
+                          </>
+                        }
+                        rightSlot={
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => promotePost(post)} className="text-xs px-2 py-1 border rounded text-indigo-600 border-indigo-200 hover:bg-indigo-50">
+                            Promote this post
+                            </button>
+                            {canManage && (
+                              <div className="relative" data-post-actions={post.id}>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setOpenPostActions((prev) => (prev === post.id ? null : post.id));
+                                }}
+                                className="rounded-full border border-gray-200 p-2 text-gray-500 hover:bg-gray-50"
+                              >
+                                <MoreHorizontal className="h-4 w-4" />
+                              </button>
+                              {actionsOpen && (
+                                <div className="absolute right-0 z-10 mt-2 w-52 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+                                  <button
+                                    type="button"
+                                    onClick={() => beginEditPost(post)}
+                                    disabled={actionBusy}
+                                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                                  >
+                                    <Edit3 className="h-4 w-4" />
+                                    Edit post
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeletePost(post)}
+                                    disabled={actionBusy}
+                                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-rose-600 hover:bg-rose-50 disabled:opacity-60"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                    Delete post
+                                  </button>
+                                  {isOwner && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleTogglePin(post)}
+                                        disabled={actionBusy}
+                                        className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                                      >
+                                        <Pin className="h-4 w-4" />
+                                        {post.isPinned ? 'Unpin from profile' : 'Pin to profile'}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleToggleHighlight(post)}
+                                        disabled={actionBusy}
+                                        className="flex w-full items-center gap-2 px-4 py-2 text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-60"
+                                      >
+                                        <Star className="h-4 w-4" />
+                                        {post.isHighlighted ? 'Remove highlight' : 'Highlight on profile'}
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                              </div>
+                            )}
+                          </div>
+                        }
+                      />
+
+                      {isEditing ? (
+                        <div className="mt-4 space-y-3">
+                          <input
+                            value={editingDraft?.title || ''}
+                            onChange={(event) =>
+                              setEditingDraft((prev) => (prev ? { ...prev, title: event.target.value } : prev))
+                            }
+                            placeholder="Post title (optional)"
+                            className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
+                          />
+                          <textarea
+                            value={editingDraft?.content || ''}
+                            onChange={(event) =>
+                              setEditingDraft((prev) => (prev ? { ...prev, content: event.target.value } : prev))
+                            }
+                            className="min-h-[120px] w-full rounded-xl border border-gray-200 p-3 text-sm text-gray-700"
+                          />
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <select
+                              value={editingDraft?.visibility || 'public'}
+                              onChange={(event) =>
+                                setEditingDraft((prev) =>
+                                  prev ? { ...prev, visibility: event.target.value as PostDraft['visibility'] } : prev
+                                )
+                              }
+                              className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
+                            >
+                              <option value="public">Public</option>
+                              <option value="network">Network</option>
+                              <option value="friends">Friends</option>
+                              <option value="private">Private</option>
+                            </select>
+                            <select
+                              value={editingDraft?.commentPolicy || 'everyone'}
+                              onChange={(event) =>
+                                setEditingDraft((prev) =>
+                                  prev ? { ...prev, commentPolicy: event.target.value as PostDraft['commentPolicy'] } : prev
+                                )
+                              }
+                              className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
+                            >
+                              {commentPolicyOptions.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <input
+                              value={editingDraft?.topic || ''}
+                              onChange={(event) =>
+                                setEditingDraft((prev) => (prev ? { ...prev, topic: event.target.value } : prev))
+                              }
+                              placeholder="Topic (optional)"
+                              className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
+                            />
+                            <input
+                              value={editingDraft?.location || ''}
+                              onChange={(event) =>
+                                setEditingDraft((prev) => (prev ? { ...prev, location: event.target.value } : prev))
+                              }
+                              placeholder="Location (optional)"
+                              className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
+                            />
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <input
+                              value={editingDraft?.tags || ''}
+                              onChange={(event) =>
+                                setEditingDraft((prev) => (prev ? { ...prev, tags: event.target.value } : prev))
+                              }
+                              placeholder="Tags (comma separated)"
+                              className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
+                            />
+                            <input
+                              value={editingDraft?.mentions || ''}
+                              onChange={(event) =>
+                                setEditingDraft((prev) => (prev ? { ...prev, mentions: event.target.value } : prev))
+                              }
+                              placeholder="Mentions (comma separated)"
+                              className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
+                            />
+                          </div>
+                          {editingDraft?.media?.length ? (
+                            <div className="grid gap-3 md:grid-cols-2">
+                              {editingDraft.media.map((media) => {
+                                const type = media.type || inferMediaType(media);
+                                return (
+                                  <div key={media.localId} className="relative overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+                                    <button
+                                      type="button"
+                                      onClick={() => removeEditMedia(media.localId)}
+                                      className="absolute right-2 top-2 z-10 rounded-full bg-white/90 p-1 text-gray-500 hover:text-gray-700"
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </button>
+                                    {type === 'video' ? (
+                                      <video src={media.url} className="h-40 w-full object-cover" controls />
+                                    ) : type === 'image' ? (
+                                      <img src={media.url} alt={media.name || 'Post media'} className="h-40 w-full object-cover" />
+                                    ) : (
+                                      <div className="flex h-40 w-full items-center justify-center p-4 text-xs text-gray-500">
+                                        {media.name || 'Attachment'}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={cancelEditPost}
+                              className="rounded-full border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={submitPostEdit}
+                              disabled={actionBusy}
+                              className="rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold uppercase text-white disabled:opacity-60"
+                            >
+                              {actionBusy ? 'Saving...' : 'Save changes'}
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                      <button onClick={() => promotePost(post)} className="text-xs px-2 py-1 border rounded text-indigo-600 border-indigo-200 hover:bg-indigo-50">
-                        Promote this post
-                      </button>
+                      ) : (
+                        <>
+                          {post.title && <h3 className="mt-3 font-semibold text-gray-900">{post.title}</h3>}
+                          {focusPostId === post.id && focusMentionToken ? (
+                            <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
+                              You were mentioned in this post.
+                            </div>
+                          ) : null}
+                          <p className="mt-2 text-sm text-gray-700">
+                            <MentionText
+                              text={post.content}
+                              mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
+                              viewerId={user?.id}
+                              viewerUsername={user?.username}
+                            />
+                          </p>
+                          {post.tags?.length ? (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {post.tags.map((tag: string) => (
+                                <span key={tag} className="rounded-full bg-gray-100 px-3 py-1 text-[11px] font-semibold text-gray-600">
+                                  #{tag}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                          {Array.isArray(post.attachments) && post.attachments.length > 0 && (
+                            <div className="mt-3 grid gap-3 md:grid-cols-2">
+                              {post.attachments.map((media: any) => {
+                                const type = inferMediaType(media || {});
+                                if (type === 'video') {
+                                  return (
+                                    <div key={media.id || media.url} className="overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+                                      <video src={media.url} controls className="h-40 w-full object-cover" />
+                                    </div>
+                                  );
+                                }
+                                if (type === 'image') {
+                                  return (
+                                    <div key={media.id || media.url} className="overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+                                      <img src={media.url} alt={media.name || 'Post media'} className="h-40 w-full object-cover" />
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <div key={media.id || media.url} className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
+                                    <a href={media.url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+                                      {media.name || media.url?.split('/').pop() || 'View attachment'}
+                                    </a>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {(post.topic || post.location) && (
+                            <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-gray-500">
+                              {post.topic && (
+                                <span className="rounded-full bg-gray-50 px-3 py-1 font-semibold text-gray-600">Topic: {post.topic}</span>
+                              )}
+                              {post.location && (
+                                <span className="rounded-full bg-gray-50 px-3 py-1 font-semibold text-gray-600">Location: {post.location}</span>
+                              )}
+                            </div>
+                          )}
+                          <InteractionBar
+                            type="post"
+                            id={post.id}
+                            initialCounts={{
+                              likes: post.likesCount ?? post.interactions?.likes ?? 0,
+                              comments: commentCount,
+                              reposts: post.repostsCount ?? post.interactions?.reposts ?? 0,
+                              shares: post.sharesCount ?? post.interactions?.shares ?? 0,
+                              views: post.interactions?.views ?? post.viewsCount ?? 0,
+                              reactions: sumReactionCounts(post.interactions?.reactions)
+                            }}
+                            initialState={post.userState || { liked: false, reposted: false }}
+                          />
+                          <ReactionBar targetType="POST" targetId={post.id} className="mb-2" />
+                          <PostComments
+                            postId={post.id}
+                            authorId={post.authorUserId || post.authorId}
+                            commentPolicy={post.commentPolicy}
+                            initialCount={commentCount}
+                            focusCommentId={focusPostId === post.id ? focusCommentId : undefined}
+                            focusMentionToken={focusPostId === post.id ? focusMentionToken : undefined}
+                            onCountChange={syncCommentCount}
+                          />
+                        </>
+                      )}
                     </div>
-                    {post.title && <h3 className="mt-3 font-semibold text-gray-900">{post.title}</h3>}
-                    <p className="mt-2 text-sm text-gray-700">{post.content}</p>
-                    <InteractionBar
-                      type="post"
-                      id={post.id}
-                      initialCounts={{
-                        likes: post.likesCount ?? post.interactions?.likes ?? 0,
-                        comments: 0,
-                        reposts: post.repostsCount ?? post.interactions?.reposts ?? 0,
-                        shares: post.sharesCount ?? post.interactions?.shares ?? 0
-                      }}
-                      initialState={post.userState || { liked: false, reposted: false }}
-                    />
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -414,26 +1874,42 @@ const CommunityHome = () => {
             <div className="bg-white rounded-xl shadow-sm p-6">
               <h2 className="text-lg font-bold mb-4">Sponsored</h2>
               <div className="space-y-4">
-                {ads.map((ad) => (
-                  <div key={ad.id} className="border border-gray-200 rounded-lg p-4">
-                    <h3 className="font-medium text-gray-900">{ad.title}</h3>
-                    <p className="text-sm text-gray-600 mt-2">{ad.description || ad.body}</p>
-                    <div className="mt-3 flex items-center gap-3">
-                      <a
-                        href={ad.ctaUrl || '#'}
-                        className="text-sm text-blue-600 hover:text-blue-800"
-                        onClick={() => AdService.recordClick(ad.id).catch(() => {})}
-                      >
-                        {ad.ctaText || 'Learn more'}
-                      </a>
-                      {/* If ad has creator/recipient info, show Donate button */}
-                      { (ad.creatorId || ad.recipientId) && (
-                        // @ts-ignore - loosely typed CMS ad object may include creatorId/recipientId
-                        <DonateButton recipientIdentifier={ad.creatorId || ad.recipientId} />
-                      ) }
+                {ads.map((ad) => {
+                  const media =
+                    (Array.isArray(ad.media) && ad.media.length > 0 ? ad.media[0] : null) ||
+                    (ad.creativeUrl ? { url: ad.creativeUrl, type: 'image' } : null);
+                  const mediaType = media ? inferMediaType(media) : null;
+
+                  return (
+                    <div key={ad.id} className="border border-gray-200 rounded-lg p-4">
+                      <h3 className="font-medium text-gray-900">{ad.title}</h3>
+                      <p className="text-sm text-gray-600 mt-2">{ad.description || ad.body}</p>
+                      {media?.url && (
+                        <div className="mt-3 overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
+                          {mediaType === 'video' ? (
+                            <video src={media.url} controls className="h-36 w-full object-cover" />
+                          ) : (
+                            <img src={media.url} alt={ad.title || 'Ad media'} className="h-36 w-full object-cover" />
+                          )}
+                        </div>
+                      )}
+                      <div className="mt-3 flex items-center gap-3">
+                        <a
+                          href={ad.ctaUrl || '#'}
+                          className="text-sm text-blue-600 hover:text-blue-800"
+                          onClick={() => AdService.recordClick(ad.id).catch(() => {})}
+                        >
+                          {ad.ctaText || 'Learn more'}
+                        </a>
+                        {/* If ad has creator/recipient info, show Donate button */}
+                        {(ad.creatorId || ad.recipientId) && (
+                          // @ts-ignore - loosely typed CMS ad object may include creatorId/recipientId
+                          <DonateButton recipientIdentifier={ad.creatorId || ad.recipientId} />
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -462,8 +1938,395 @@ const CommunityHome = () => {
           </div>
         </div>
       </div>
+
+      <FilePickerModal
+        open={storyPickerOpen}
+        onClose={() => setStoryPickerOpen(false)}
+        onSelect={handleStoryMediaSelected}
+        allowUpload
+        multiple={false}
+        filterType="all"
+        acceptedTypes={['image', 'video']}
+        title="Add to your story"
+        role={user?.role}
+        visibility={isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public'}
+      />
+
+      {storyTextOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Text story</h3>
+              <button onClick={() => setStoryTextOpen(false)} className="text-gray-500 hover:text-gray-700" type="button">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-4 space-y-4">
+              <div className="overflow-hidden rounded-2xl border border-gray-200">
+                <div
+                  className="flex h-48 w-full items-center justify-center px-5 text-center"
+                  style={{
+                    background: storyPreviewStyle.background,
+                    color: storyPreviewStyle.color,
+                    fontFamily: storyPreviewStyle.fontFamily,
+                    textAlign: storyPreviewStyle.textAlign as any
+                  }}
+                >
+                  <p className="text-lg font-semibold leading-snug whitespace-pre-wrap">
+                    {storyDraft.content.trim() ? storyDraft.content : 'Type a status'}
+                  </p>
+                </div>
+              </div>
+
+              <textarea
+                value={storyDraft.content}
+                onChange={(event) => setStoryDraft((prev) => ({ ...prev, content: event.target.value }))}
+                placeholder="Share a short story..."
+                className="min-h-[140px] w-full rounded-2xl border border-gray-200 p-3 text-sm text-gray-700"
+              />
+
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Background</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {storyTextThemes.map((theme) => (
+                    <button
+                      key={theme.id}
+                      type="button"
+                      onClick={() =>
+                        setStoryDraft((prev) => ({
+                          ...prev,
+                          textBackground: theme.background,
+                          textColor: theme.textColor
+                        }))
+                      }
+                      className={`h-8 w-8 rounded-full border ${storyDraft.textBackground === theme.background ? 'border-gray-900 ring-2 ring-gray-300' : 'border-white/70'} shadow-sm`}
+                      style={{ background: theme.background }}
+                      title={theme.label}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Font</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {storyTextFonts.map((font) => (
+                    <button
+                      key={font.id}
+                      type="button"
+                      onClick={() => setStoryDraft((prev) => ({ ...prev, textFont: font.fontFamily }))}
+                      className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                        storyDraft.textFont === font.fontFamily ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 text-gray-600'
+                      }`}
+                      style={{ fontFamily: font.fontFamily }}
+                    >
+                      {font.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <select
+                value={storyDraft.visibility}
+                onChange={(event) =>
+                  setStoryDraft((prev) => ({ ...prev, visibility: normalizeStoryVisibility(event.target.value) }))
+                }
+                className="w-full rounded-2xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
+              >
+                {storyVisibilityOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setStoryTextOpen(false)}
+                className="rounded-full border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={publishStoryText}
+                disabled={storyPosting || !storyDraft.content.trim()}
+                className="rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-60"
+              >
+                {storyPosting ? 'Sharing...' : 'Share story'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {storyEditOpen && editingStory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Edit story</h3>
+              <button
+                onClick={() => {
+                  setStoryEditOpen(false);
+                  setEditingStory(null);
+                }}
+                className="text-gray-500 hover:text-gray-700"
+                type="button"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-4 space-y-4">
+              <div className="overflow-hidden rounded-2xl border border-gray-200">
+                {editingStory.type === 'text' ? (
+                  <div
+                    className="flex h-48 w-full items-center justify-center px-5 text-center"
+                    style={{
+                      background: storyEditPreviewStyle.background,
+                      color: storyEditPreviewStyle.color,
+                      fontFamily: storyEditPreviewStyle.fontFamily,
+                      textAlign: storyEditPreviewStyle.textAlign as any
+                    }}
+                  >
+                    <p className="text-lg font-semibold leading-snug whitespace-pre-wrap">
+                      {storyEditDraft.content.trim() ? storyEditDraft.content : 'Type a status'}
+                    </p>
+                  </div>
+                ) : (
+                  (() => {
+                    const mediaUrl = resolveStoryMediaUrl(editingStory);
+                    if (mediaUrl) {
+                      return editingStory.type === 'video' ? (
+                        <video src={mediaUrl} controls className="h-48 w-full object-cover" />
+                      ) : (
+                        <img src={mediaUrl} alt="Story media" className="h-48 w-full object-cover" />
+                      );
+                    }
+                    return (
+                      <div className="flex h-48 w-full items-center justify-center text-sm text-gray-500">No media</div>
+                    );
+                  })()
+                )}
+              </div>
+
+              <textarea
+                value={storyEditDraft.content}
+                onChange={(event) => setStoryEditDraft((prev) => ({ ...prev, content: event.target.value }))}
+                placeholder={editingStory.type === 'text' ? 'Update your story...' : 'Add a caption (optional)'}
+                className="min-h-[140px] w-full rounded-2xl border border-gray-200 p-3 text-sm text-gray-700"
+              />
+
+              {editingStory.type === 'text' && (
+                <>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Background</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {storyTextThemes.map((theme) => (
+                        <button
+                          key={theme.id}
+                          type="button"
+                          onClick={() =>
+                            setStoryEditDraft((prev) => ({
+                              ...prev,
+                              textBackground: theme.background,
+                              textColor: theme.textColor
+                            }))
+                          }
+                          className={`h-8 w-8 rounded-full border ${
+                            storyEditDraft.textBackground === theme.background ? 'border-gray-900 ring-2 ring-gray-300' : 'border-white/70'
+                          } shadow-sm`}
+                          style={{ background: theme.background }}
+                          title={theme.label}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Font</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {storyTextFonts.map((font) => (
+                        <button
+                          key={font.id}
+                          type="button"
+                          onClick={() => setStoryEditDraft((prev) => ({ ...prev, textFont: font.fontFamily }))}
+                          className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                            storyEditDraft.textFont === font.fontFamily ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 text-gray-600'
+                          }`}
+                          style={{ fontFamily: font.fontFamily }}
+                        >
+                          {font.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <select
+                value={storyEditDraft.visibility}
+                onChange={(event) =>
+                  setStoryEditDraft((prev) => ({ ...prev, visibility: normalizeStoryVisibility(event.target.value) }))
+                }
+                className="w-full rounded-2xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
+              >
+                {storyVisibilityOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setStoryEditOpen(false);
+                  setEditingStory(null);
+                }}
+                className="rounded-full border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveStoryEdit}
+                disabled={storyEditSaving || (!storyEditDraft.content.trim() && editingStory.type === 'text')}
+                className="rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-60"
+              >
+                {storyEditSaving ? 'Saving...' : 'Save changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {storyCameraOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Story camera</h3>
+              <button onClick={stopStoryCamera} className="text-sm text-gray-500 hover:text-gray-700">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-4 overflow-hidden rounded-xl bg-gray-900">
+              <video ref={storyVideoRef} autoPlay playsInline className="h-72 w-full object-cover" />
+            </div>
+            <canvas ref={storyCanvasRef} className="hidden" />
+            <div className="mt-4 flex items-center justify-between">
+              <button onClick={stopStoryCamera} className="rounded-xl border border-gray-300 px-4 py-2 text-xs font-semibold text-gray-600">
+                Cancel
+              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={captureStoryPhoto} className="rounded-xl bg-gray-900 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-white">
+                  Capture Photo
+                </button>
+                {storyRecording ? (
+                  <button onClick={stopStoryRecording} className="rounded-xl bg-red-600 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-white">
+                    Stop Recording
+                  </button>
+                ) : (
+                  <button onClick={startStoryRecording} className="rounded-xl border border-gray-300 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-gray-700">
+                    Record Video
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeStory && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">{activeStory.authorName || 'Community member'}</p>
+                <p className="text-xs text-gray-500">{activeStory.createdAt ? new Date(activeStory.createdAt).toLocaleString() : ''}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {canManageStory(activeStory) && (
+                  <>
+                    <button
+                      onClick={() => openStoryEditor(activeStory)}
+                      className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600 hover:text-gray-800"
+                      type="button"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleStoryDelete(activeStory)}
+                      className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-500 hover:text-red-600"
+                      type="button"
+                      disabled={storyActionBusy[activeStory.id]}
+                    >
+                      Delete
+                    </button>
+                  </>
+                )}
+                <button onClick={() => setActiveStory(null)} className="text-sm text-gray-500 hover:text-gray-700">
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="mt-4 overflow-hidden rounded-xl bg-gray-100">
+              {(() => {
+                const mediaUrl = resolveStoryMediaUrl(activeStory);
+                if (mediaUrl) {
+                  return activeStory.type === 'video' ? (
+                    <video src={mediaUrl} controls className="h-80 w-full object-cover" />
+                  ) : (
+                    <img src={mediaUrl} alt="Story" className="h-80 w-full object-cover" />
+                  );
+                }
+                const text = resolveStoryContent(activeStory);
+                if (text) {
+                  const style = getStoryTextStyle(activeStory);
+                  return (
+                    <div
+                      className="flex h-80 w-full items-center justify-center px-6 text-center"
+                      style={{
+                        background: style.background,
+                        color: style.color,
+                        fontFamily: style.fontFamily,
+                        textAlign: style.textAlign as any
+                      }}
+                    >
+                      <p className="text-lg font-semibold leading-snug whitespace-pre-wrap">{text}</p>
+                    </div>
+                  );
+                }
+                return <div className="h-80 w-full flex items-center justify-center text-sm text-gray-500">No media</div>;
+              })()}
+            </div>
+            {(() => {
+              const text = resolveStoryContent(activeStory);
+              const mediaUrl = resolveStoryMediaUrl(activeStory);
+              if (text && mediaUrl) {
+                return <p className="mt-3 text-sm text-gray-700">{text}</p>;
+              }
+              return null;
+            })()}
+            <div className="mt-4 flex items-center justify-between">
+              <button
+                onClick={() => handleStoryLike(activeStory)}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${activeStory.viewerLiked ? 'border-rose-200 text-rose-600' : 'border-gray-200 text-gray-500'}`}
+                disabled={storyActionBusy[activeStory.id]}
+                type="button"
+              >
+                <Heart className={`h-4 w-4 ${activeStory.viewerLiked ? 'fill-rose-500 text-rose-500' : ''}`} />
+                {activeStory.likesCount ?? activeStory._count?.likes ?? 0}
+              </button>
+              <span className="text-xs text-gray-400">{normalizeStoryVisibility(activeStory.visibility)}</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default CommunityHome;
+

@@ -35,14 +35,19 @@ const BlogManagement = () => {
     }, []);
 
     const loadData = async () => {
-        const [p, c, s] = await Promise.all([
-            CMSService.getBlogPosts(),
-            CMSService.getBlogCategories(),
-            CMSService.getBlogSettings()
-        ]);
-        setPosts(p);
-        setCategories(c);
-        setSettings(s);
+        try {
+            const [p, c, s] = await Promise.all([
+                CMSService.getAdminBlogPosts(),
+                CMSService.getBlogCategories(),
+                CMSService.getBlogSettings()
+            ]);
+            setPosts(p || []);
+            setCategories(c || []);
+            setSettings(s || null);
+        } catch (error) {
+            console.error('Failed to load blog data:', error);
+            showNotification('error', 'Load Error', 'Unable to load blog data.');
+        }
     };
 
     // --- Post Actions ---

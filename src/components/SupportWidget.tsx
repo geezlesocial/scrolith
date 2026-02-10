@@ -264,7 +264,10 @@ const SupportWidget: React.FC = () => {
   if (!isFlowLoaded) return null;
 
   return (
-    <div className="fixed bottom-6 right-6 z-[100] flex flex-col items-end font-sans">
+    <div
+      className="fixed right-6 z-[100] flex flex-col items-end font-sans"
+      style={{ bottom: 'calc(1.5rem + var(--support-widget-offset, 0px))' }}
+    >
       
       {/* Chat Window */}
       {isOpen && (

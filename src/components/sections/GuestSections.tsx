@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import {
   FooterCtaStripContent,
   GuidesGridContent,
-  MadeOnGeezleContent,
+  MadeOnScrolithContent,
   MarketplaceTilesContent,
   PopularServicesContent,
   PromoBannersContent,
@@ -381,7 +381,7 @@ export const GuidesGridSection: React.FC<{ content: GuidesGridContent; style?: a
   );
 };
 
-export const MadeOnGeezleSection: React.FC<{ content: MadeOnGeezleContent; style?: any }> = ({
+export const MadeOnScrolithSection: React.FC<{ content: MadeOnScrolithContent; style?: any }> = ({
   content,
   style,
 }) => {
@@ -452,3 +452,4 @@ export const FooterCtaStripSection: React.FC<{ content: FooterCtaStripContent; s
     </section>
   );
 };
+

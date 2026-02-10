@@ -27,10 +27,10 @@ const Recommendations: React.FC<Props> = ({ userId }) => {
         console.error('Failed to fetch recommendations', error);
         // Set fallback recommendations instead of failing
         setRecommendations([
-          { id: 'rec-1', title: 'Python Development', type: 'gig', relevance: 0.95, url: '/gigs/python-dev', price: 500 },
-          { id: 'rec-2', title: 'Logo Design', type: 'gig', relevance: 0.89, url: '/gigs/logo-design', price: 150 },
-          { id: 'rec-3', title: 'SEO Optimization', type: 'job', relevance: 0.87, url: '/jobs/seo-optimization', budget: '1000-2000' },
-          { id: 'rec-4', title: 'React Native App', type: 'job', relevance: 0.85, url: '/jobs/react-native-app', budget: '3000-5000' }
+          { id: 'rec-1', title: 'Python Development', type: 'gig', relevance: 0.95, url: '/browse', price: 500 },
+          { id: 'rec-2', title: 'Logo Design', type: 'gig', relevance: 0.89, url: '/browse', price: 150 },
+          { id: 'rec-3', title: 'SEO Optimization', type: 'job', relevance: 0.87, url: '/browse-jobs', budget: '1000-2000' },
+          { id: 'rec-4', title: 'React Native App', type: 'job', relevance: 0.85, url: '/browse-jobs', budget: '3000-5000' }
         ]);
       } finally {
         setLoading(false);
@@ -88,7 +88,7 @@ const Recommendations: React.FC<Props> = ({ userId }) => {
           // Safe access to properties with fallbacks
           const type = rec.type || 'gig';
           const title = rec.title || 'Untitled';
-          const url = rec.url || '#';
+          const url = rec.url || (type === 'job' ? '/browse-jobs' : '/browse');
           const relevance = rec.relevance || 0;
           
           return (

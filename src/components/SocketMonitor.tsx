@@ -1,4 +1,4 @@
-// C:\Projects\geezle\src\components\SocketMonitor.tsx
+// C:\Projects\Scrolith\src\components\SocketMonitor.tsx
 import React, { useEffect, useState } from 'react';
 import { useSocket } from '../context/SocketContext';
 

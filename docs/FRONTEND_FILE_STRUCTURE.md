@@ -1,4 +1,4 @@
-# Frontend File Structure & Routing Blueprint (Geezle Dashboards)
+# Frontend File Structure & Routing Blueprint (Scrolith Dashboards)
 
 Overview
 - All dashboard pages live under `src/dashboard/` with `freelancer/`, `employer/`, and `shared/`.
@@ -134,4 +134,5 @@ UI patterns
 Accessibility & Responsiveness
 - All modals focus-trap.
 - Buttons have aria-labels and keyboard support.
+
 

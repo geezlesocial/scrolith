@@ -1,20 +1,22 @@
-import { PlatformSettings, HomepageSection, HomeSlide, HeaderConfig, FooterConfig, TrendingConfig, ActivityConfig, UserRole, HeroSearchConfig, StaticPage, PageCategory, MediaItem, AuthPagesConfig, AnswersPageConfig, GuidesPageConfig, HirePageConfig, FreelancerPageConfig } from '../types';
+import { PlatformSettings, HomepageSection, HomeSlide, HeaderConfig, FooterConfig, TrendingConfig, ActivityConfig, UserRole, HeroSearchConfig, StaticPage, PageCategory, MediaItem, AuthPagesConfig, AnswersPageConfig, GuidesPageConfig, HirePageConfig, FreelancerPageConfig, SystemMessagesConfig, SystemMessagesVariables } from '../types';
 import { AdminService } from './admin';
+import { AuthService } from './authService';
 import { tokenStore } from './tokenStore';
+import { getApiBaseUrl, getBackendOrigin } from '../utils/apiBase';
 
 // FIXED: Use relative URL for proxy instead of hardcoded localhost:5000
 // Resolve API base: prefer explicit backend URL in builds, otherwise use proxy '/api' in dev.
 const _hasBackendEnv = Boolean(
-    import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL
+    import.meta.env.VITE_BACKEND_URL ||
+    import.meta.env.VITE_API_URL ||
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_MOBILE_API_URL ||
+    import.meta.env.VITE_MOBILE_API_BASE_URL
 );
 if (import.meta.env.PROD && !_hasBackendEnv) {
     throw new Error('VITE_BACKEND_URL (or VITE_API_URL) must be set when building for production');
 }
-const API_URL =
-    import.meta.env.VITE_API_URL ||
-    import.meta.env.VITE_API_BASE_URL ||
-    (import.meta.env.VITE_BACKEND_URL ? `${String(import.meta.env.VITE_BACKEND_URL).replace(/\/$/, '')}/api` : '') ||
-    '/api'; // dev proxy
+const API_URL = getApiBaseUrl();
 
 const devLog = (...args: any[]) => {
     if (!import.meta.env.PROD) console.log(...args);
@@ -31,7 +33,7 @@ const fallbackData = {
             id: 'page-about',
             title: 'About Us',
             slug: 'about',
-            content: '<h1>About Geezle Marketplace</h1><p>Geezle is a platform connecting talented freelancers with clients worldwide. We provide a secure and efficient marketplace for digital services.</p>',
+            content: '<h1>About Scrolith Marketplace</h1><p>Scrolith is a platform connecting talented freelancers with clients worldwide. We provide a secure and efficient marketplace for digital services.</p>',
             status: 'PUBLISHED',
             categoryId: 'cat-general',
             category_id: 'cat-general',
@@ -39,8 +41,8 @@ const fallbackData = {
             updated_at: new Date().toISOString(),
             visibility: 'public',
             seo: {
-                metaTitle: 'About Geezle Marketplace',
-                metaDescription: 'Learn about Geezle - the freelance marketplace connecting talent with opportunity worldwide.',
+                metaTitle: 'About Scrolith Marketplace',
+                metaDescription: 'Learn about Scrolith - the freelance marketplace connecting talent with opportunity worldwide.',
                 metaKeywords: ['freelance', 'marketplace', 'digital services', 'talent']
             },
             images: [],
@@ -59,7 +61,7 @@ const fallbackData = {
             updated_at: new Date().toISOString(),
             visibility: 'public',
             seo: {
-                metaTitle: 'Privacy Policy - Geezle',
+                metaTitle: 'Privacy Policy - Scrolith',
                 metaDescription: 'Read our privacy policy to understand how we protect your data.',
                 metaKeywords: ['privacy', 'data protection', 'policy']
             },
@@ -71,7 +73,7 @@ const fallbackData = {
             id: 'page-terms',
             title: 'Terms of Service',
             slug: 'terms-of-service',
-            content: '<h1>Terms of Service</h1><p>By using Geezle, you agree to these terms and conditions.</p>',
+            content: '<h1>Terms of Service</h1><p>By using Scrolith, you agree to these terms and conditions.</p>',
             status: 'PUBLISHED',
             categoryId: 'cat-legal',
             category_id: 'cat-legal',
@@ -79,8 +81,8 @@ const fallbackData = {
             updated_at: new Date().toISOString(),
             visibility: 'public',
             seo: {
-                metaTitle: 'Terms of Service - Geezle',
-                metaDescription: 'Terms and conditions for using Geezle Marketplace.',
+                metaTitle: 'Terms of Service - Scrolith',
+                metaDescription: 'Terms and conditions for using Scrolith Marketplace.',
                 metaKeywords: ['terms', 'service', 'agreement']
             },
             images: [],
@@ -134,25 +136,25 @@ const fallbackData = {
 
     // Platform Settings
     settings: {
-        siteName: 'Geezle Marketplace',
+        siteName: 'Scrolith Marketplace',
         siteDescription: 'Connect with top freelancers and find your next project',
         siteTagline: 'Find, hire, and work with the best talent',
         logoUrl: '/logo.svg',
         faviconUrl: '/favicon.ico',
-        adminEmail: 'admin@geezle.com',
-        supportEmail: 'support@geezle.com',
-        footerAboutTitle: 'About Geezle',
+        adminEmail: 'admin@Scrolith.com',
+        supportEmail: 'support@Scrolith.com',
+        footerAboutTitle: 'About Scrolith',
         footerAboutText: 'Connecting talent with opportunity worldwide.',
-        footerCopyright: '© 2024 Geezle Inc. All rights reserved.',
+        footerCopyright: '© 2024 Scrolith Inc. All rights reserved.',
         footerLinks: [
             { label: 'About Us', url: '/about', type: 'internal' },
             { label: 'Privacy Policy', url: '/privacy-policy', type: 'internal' },
             { label: 'Terms of Service', url: '/terms-of-service', type: 'internal' }
         ],
         socialLinks: [
-            { platform: 'twitter', url: 'https://twitter.com/geezle' },
-            { platform: 'facebook', url: 'https://facebook.com/geezle' },
-            { platform: 'linkedin', url: 'https://linkedin.com/company/geezle' }
+            { platform: 'twitter', url: 'https://twitter.com/Scrolith' },
+            { platform: 'facebook', url: 'https://facebook.com/Scrolith' },
+            { platform: 'linkedin', url: 'https://linkedin.com/company/Scrolith' }
         ],
         system: {
             maintenanceMode: false,
@@ -199,6 +201,64 @@ const normalizeRoleList = (value: any): string[] => {
             .map(normalizeRole);
     }
     return [];
+};
+
+const backendOrigin = getBackendOrigin();
+const localAssetHosts = new Set(['localhost', '127.0.0.1', '0.0.0.0', '10.0.2.2']);
+
+const isAssetPath = (value: string) => {
+    const v = value.toLowerCase();
+    return v.startsWith('/uploads') || v.startsWith('uploads/') || v.includes('/uploads/');
+};
+
+const normalizeAssetUrl = (value: string) => {
+    if (!backendOrigin) return value;
+    const trimmed = value.trim();
+    if (!trimmed) return value;
+    const lower = trimmed.toLowerCase();
+    if (lower.startsWith('data:') || lower.startsWith('blob:') || lower.startsWith('mailto:') || lower.startsWith('tel:')) {
+        return value;
+    }
+
+    if (lower.startsWith('http://') || lower.startsWith('https://')) {
+        if (!isAssetPath(lower)) return value;
+        try {
+            const url = new URL(trimmed);
+            if (!localAssetHosts.has(url.hostname.toLowerCase())) return value;
+            return `${backendOrigin}${url.pathname}${url.search}${url.hash}`;
+        } catch {
+            return value;
+        }
+    }
+
+    if (isAssetPath(lower)) {
+        if (lower.startsWith('uploads/')) return `${backendOrigin}/${trimmed}`;
+        return `${backendOrigin}${trimmed}`;
+    }
+
+    return value;
+};
+
+const normalizeAssetUrls = <T,>(value: T): T => {
+    if (!value) return value;
+    const seen = new WeakSet<object>();
+    const walk = (node: any): any => {
+        if (!node) return node;
+        if (typeof node === 'string') return normalizeAssetUrl(node);
+        if (Array.isArray(node)) return node.map(walk);
+        if (typeof node === 'object') {
+            if (node instanceof Date) return node;
+            if (seen.has(node)) return node;
+            seen.add(node);
+            const out: Record<string, any> = {};
+            Object.entries(node).forEach(([key, val]) => {
+                out[key] = walk(val);
+            });
+            return out;
+        }
+        return node;
+    };
+    return walk(value);
 };
 
 const normalizeSectionType = (value: any): string => {
@@ -259,11 +319,11 @@ const normalizeSectionType = (value: any): string => {
         case 'blog_grid':
         case 'blog-grid':
             return 'guides_grid';
-        case 'madeongeezle':
-        case 'made_on_geezle':
-        case 'made-on-geezle':
+        case 'madeonScrolith':
+        case 'made_on_Scrolith':
+        case 'made-on-Scrolith':
         case 'made_on':
-            return 'made_on_geezle';
+            return 'made_on_Scrolith';
         case 'footer_cta_strip':
         case 'footer-cta-strip':
         case 'footerctastrip':
@@ -314,9 +374,15 @@ const normalizeDropdown = (value: any, fallbackId: string) => {
     };
 };
 
-const getAuthHeaders = () => {
-    const token = tokenStore.get();
-    return token ? { Authorization: `Bearer ${token}` } : {};
+const getAuthHeaders = async () => {
+    const token = await tokenStore.get();
+    const user = AuthService.getStoredUser();
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    if (user?.id) headers['x-user-id'] = String(user.id);
+    if (user?.role) headers['x-user-role'] = String(user.role).toLowerCase();
+    if (!headers['x-user-role'] && token) headers['x-user-role'] = 'admin';
+    return headers;
 };
 
 // --- API HELPER ---
@@ -331,7 +397,7 @@ const api = {
                 headers: {
                     'Accept': 'application/json',
                     'Content-Type': 'application/json',
-                    ...getAuthHeaders()
+                    ...(await getAuthHeaders())
                 }
             });
 
@@ -362,7 +428,7 @@ const api = {
         try {
             const res = await fetch(`${API_URL}${endpoint}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
                 body: JSON.stringify(data)
             });
             if (!res.ok) {
@@ -380,7 +446,7 @@ const api = {
         try {
             const res = await fetch(`${API_URL}${endpoint}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
                 body: JSON.stringify(data)
             });
             if (!res.ok) {
@@ -398,7 +464,7 @@ const api = {
         try {
             const res = await fetch(`${API_URL}${endpoint}`, {
                 method: 'DELETE',
-                headers: { ...getAuthHeaders() }
+                headers: { ...(await getAuthHeaders()) }
             });
             if (!res.ok) {
                 const errorText = await res.text();
@@ -415,7 +481,7 @@ const api = {
 export const CMSService = {
     getPublicPlatformSettings: async (): Promise<PlatformSettings> => {
         const raw = unwrap(await api.get('/cms/platform-settings'));
-        return raw?.data ?? raw ?? {};
+        return normalizeAssetUrls(raw?.data ?? raw ?? {}) as PlatformSettings;
     },
 
     // --- System Settings (Synced Real-Time) ---
@@ -425,8 +491,11 @@ export const CMSService = {
     getSettings: async (): Promise<PlatformSettings> => {
         // Use admin platform settings only when a token is present
         let platformSource: any = null;
-        const hasToken = Boolean(tokenStore.get());
-        if (hasToken) {
+        const hasToken = Boolean(await tokenStore.get());
+        const storedUser = AuthService.getStoredUser();
+        const role = String(storedUser?.role || '').toLowerCase();
+        const isAdmin = role.includes('admin');
+        if (hasToken && isAdmin) {
             try {
                 platformSource = await AdminService.getPlatformSettings();
             } catch (e) {
@@ -438,19 +507,19 @@ export const CMSService = {
         const raw = platformSource ?? unwrap(await api.get('/cms/platform-settings'));
         const source = raw?.settings ?? raw?.data?.settings ?? raw ?? {};
 
-        const siteName = source.siteName ?? source.site_name ?? 'Geezle';
+        const siteName = source.siteName ?? source.site_name ?? 'Scrolith';
         const tagline = source.tagline ?? source.siteTagline ?? source.site_tagline ?? 'Marketplace';
         const logoUrl = source.logoUrl ?? source.logo_url ?? '';
         const faviconUrl = source.faviconUrl ?? source.favicon_url ?? '';
-        const adminEmail = source.adminEmail ?? source.admin_email ?? 'admin@geezle.com';
-        const supportEmail = source.supportEmail ?? source.support_email ?? 'support@geezle.com';
+        const adminEmail = source.adminEmail ?? source.admin_email ?? 'admin@Scrolith.com';
+        const supportEmail = source.supportEmail ?? source.support_email ?? 'support@Scrolith.com';
         const footerAboutTitle = source.footerAboutTitle ?? source.footer_about_title ?? 'About';
         const footerAboutText = source.footerAboutText ?? source.footer_about_text ?? 'About text';
         const footerCopyright = source.footerCopyright ?? source.footer_copyright ?? '© 2024';
         const footerLinks = source.footerLinks ?? source.footer_links ?? [];
         const socialLinks = source.socialLinks ?? source.social_links ?? [];
 
-        return {
+        const settings = {
             ...source,
             siteName,
             site_name: siteName,
@@ -475,6 +544,8 @@ export const CMSService = {
             social_links: socialLinks,
             system: source.system || { maintenanceMode: false, registrationsEnabled: true, kycEnforced: false, admin2FA: false }
         } as unknown as PlatformSettings;
+
+        return normalizeAssetUrls(settings) as PlatformSettings;
     },
 
     updateSettings: async (settings: Partial<PlatformSettings>): Promise<PlatformSettings> => {
@@ -715,7 +786,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                         published: fallback.published
                 });
 
-                return fallback;
+                return normalizeAssetUrls(fallback);
         } catch (error) {
                 console.error('❌ Failed to fetch homepage:', error);
                 return { sections: [], slides: [], pageType: 'homepage', published: false };
@@ -836,7 +907,8 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             });
         }
 
-        return sections.sort((a, b) => a.position - b.position);
+        const sorted = sections.sort((a, b) => a.position - b.position);
+        return normalizeAssetUrls(sorted) as HomepageSection[];
     },
 
     saveHomepageSection: async (section: HomepageSection) => api.post('/cms/homepage/sections/update', section),
@@ -875,7 +947,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             slides = homepageSlides as HomeSlide[];
         }
 
-        return slides.map((slide: any, index: number) => {
+        const normalized = slides.map((slide: any, index: number) => {
             const isActive = normalizeBoolean(
                 slide.isActive ?? slide.is_active ?? slide.active ?? slide.enabled ?? slide.is_enabled,
                 true
@@ -922,6 +994,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 backgroundColor: slide.backgroundColor || slide.background_color || slide.bgColor || slide.bg_color
             };
         });
+        return normalizeAssetUrls(normalized) as HomeSlide[];
     },
     saveHomeSlide: async (s: any) => api.post('/cms/slides/save', s),
     deleteHomeSlide: async (id: string) => api.post('/cms/slides/delete', { id }),
@@ -1014,7 +1087,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 )
             };
 
-            return {
+            const header = {
                 ...source,
                 id: source.id || 'default',
                 homeUrl,
@@ -1044,6 +1117,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 roleSwitch: roleSwitch,
                 role_switch: roleSwitch
             } as unknown as HeaderConfig;
+            return normalizeAssetUrls(header) as HeaderConfig;
         } catch (error) {
             console.error('Failed to fetch header config:', error);
             // Try public homepage endpoint as a fallback (some deployments restrict admin endpoints)
@@ -1132,7 +1206,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                     )
                 };
 
-                return {
+                const header = {
                     ...source,
                     id: source.id || 'default',
                     homeUrl,
@@ -1162,6 +1236,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                     roleSwitch: roleSwitch,
                     role_switch: roleSwitch
                 } as unknown as HeaderConfig;
+                return normalizeAssetUrls(header) as HeaderConfig;
             } catch (e2) {
                 console.error('Failed to fetch public homepage as fallback for header config:', e2);
                 // As a last resort, attempt to read platform settings which include faviconUrl
@@ -1170,7 +1245,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                     const platformData = (platformRaw?.data ?? platformRaw) || {};
                     const faviconUrl = platformData.faviconUrl ?? platformData.favicon_url ?? '';
 
-                    return {
+                    const header = {
                         id: 'default',
                         homeUrl: '/',
                         home_url: '/',
@@ -1207,6 +1282,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                         roleSwitch: null,
                         role_switch: null
                     } as unknown as HeaderConfig;
+                    return normalizeAssetUrls(header) as HeaderConfig;
                 } catch (e3) {
                     console.error('Failed to fetch platform settings as fallback for header config:', e3);
                 }
@@ -1355,10 +1431,16 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             }));
 
             const logoUrl = source.logo_url ?? source.logoUrl ?? '';
+            const socialLabelTitle =
+                source.social_label_title ??
+                source.socialLabelTitle ??
+                source.social_title ??
+                source.socialTitle ??
+                '';
             const description = source.description ?? source.footer_description ?? '';
             const copyright = source.copyright ?? source.footer_copyright ?? '';
 
-            return {
+            const footer = {
                 ...source,
                 id: source.id || `footer-${now}`,
                 description,
@@ -1371,8 +1453,11 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 },
                 socials,
                 logo_url: logoUrl,
-                logoUrl
+                logoUrl,
+                social_label_title: socialLabelTitle,
+                socialLabelTitle
             } as unknown as FooterConfig;
+            return normalizeAssetUrls(footer) as FooterConfig;
         } catch (error) {
             console.error('Failed to fetch footer config:', error);
             return {
@@ -1397,10 +1482,18 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             const contactSource = source.contact ?? {};
             const columnsSource = ensureArray<any>(source.columns);
             const socialsSource = ensureArray<any>(source.socials);
+            const socialLabelTitle =
+                source.social_label_title ??
+                source.socialLabelTitle ??
+                source.social_title ??
+                source.socialTitle ??
+                '';
             const payload = {
                 ...source,
                 logo_url: source.logo_url ?? source.logoUrl ?? '',
                 logoUrl: source.logo_url ?? source.logoUrl ?? '',
+                social_label_title: socialLabelTitle,
+                socialLabelTitle,
                 description: source.description ?? '',
                 copyright: source.copyright ?? '',
                 contact: {
@@ -1512,6 +1605,12 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
 
     saveTrendingConfig: async (config: TrendingConfig): Promise<TrendingConfig> => {
         try {
+            // Log payload for debugging E2E saves (dev only)
+            try {
+                devLog('[CMSService] saveTrendingConfig payload:', config);
+            } catch (e) {
+                /* ignore logging errors */
+            }
             // Some deployments expose the legacy admin-only endpoint but not the newer
             // canonical `/cms/trending-config` POST. Try the legacy admin POST first
             // to maximize compatibility, then attempt the canonical endpoint as a
@@ -1937,7 +2036,9 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
     getAuthPagesConfig: async (): Promise<AuthPagesConfig | null> => {
         try {
             const data = unwrap(await api.get('/cms/auth-pages'));
-            return (data || null) as unknown as AuthPagesConfig | null;
+            const config = (data || null) as unknown as AuthPagesConfig | null;
+            if (!config) return null;
+            return normalizeAssetUrls(config) as AuthPagesConfig;
         } catch (error) {
             console.error('Failed to fetch auth pages config:', error);
             return null;
@@ -1950,6 +2051,35 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             return (data || config) as unknown as AuthPagesConfig;
         } catch (error) {
             console.error('Failed to save auth pages config:', error);
+            throw error;
+        }
+    },
+
+    // --- System Messages & Email Templates ---
+    getSystemMessagesConfig: async (): Promise<{ config: SystemMessagesConfig; variables: SystemMessagesVariables }> => {
+        try {
+            const raw = await api.get('/cms/system-messages');
+            const config = (raw?.data ?? raw?.data?.data ?? raw) as SystemMessagesConfig;
+            const variables = (raw?.variables ?? raw?.data?.variables ?? {}) as SystemMessagesVariables;
+            return {
+                config: config || ({ id: 'system_messages', templates: {}, updated_at: new Date().toISOString() } as SystemMessagesConfig),
+                variables
+            };
+        } catch (error) {
+            console.error('Failed to fetch system messages config:', error);
+            throw error;
+        }
+    },
+
+    saveSystemMessagesConfig: async (config: SystemMessagesConfig): Promise<{ config: SystemMessagesConfig; variables: SystemMessagesVariables }> => {
+        try {
+            const payload = { ...config, updated_at: new Date().toISOString() };
+            const raw = await api.post('/cms/system-messages', payload);
+            const saved = (raw?.data ?? raw?.data?.data ?? raw) as SystemMessagesConfig;
+            const variables = (raw?.variables ?? raw?.data?.variables ?? {}) as SystemMessagesVariables;
+            return { config: saved || payload, variables };
+        } catch (error) {
+            console.error('Failed to save system messages config:', error);
             throw error;
         }
     },
@@ -2078,7 +2208,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             video_feature: { eyebrow: '', title: '', subtitle: '', videoUrl: '', poster: '', ctaLabel: '', ctaUrl: '' },
             marketplace_tiles: { title: '', subtitle: '', items: [] },
             guides_grid: { title: '', subtitle: '', items: [] },
-            made_on_geezle: { title: '', subtitle: '', items: [] },
+            made_on_Scrolith: { title: '', subtitle: '', items: [] },
             footer_cta_strip: {
                 title: '',
                 subtitle: '',
@@ -2097,7 +2227,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             'video_feature',
             'marketplace_tiles',
             'guides_grid',
-            'made_on_geezle',
+            'made_on_Scrolith',
             'footer_cta_strip'
         ]);
         const targetingRoles = guestOnlyTypes.has(type) ? [UserRole.GUEST] : [];
@@ -2222,17 +2352,94 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
     // --- Blog Methods ---
     getBlogPosts: async () => {
         try {
-            const data = await api.get('/cms/blog/posts');
-            return data || [];
+            const raw = unwrap(await api.get('/cms/blog/posts'));
+            const items = ensureArray<any>(raw);
+            return items.map((post: any) => ({
+                ...post,
+                id: post.id,
+                title: post.title ?? '',
+                slug: post.slug ?? '',
+                content: post.content ?? '',
+                blocks: Array.isArray(post.blocks) ? post.blocks : [],
+                excerpt: post.excerpt ?? post.short_description ?? post.shortDescription ?? '',
+                shortDescription: post.shortDescription ?? post.short_description ?? '',
+                short_description: post.short_description ?? post.shortDescription ?? '',
+                featuredImage: post.featuredImage ?? post.featured_image ?? '',
+                featured_image: post.featured_image ?? post.featuredImage ?? '',
+                status: post.status ?? 'draft',
+                visibility: post.visibility ?? 'public',
+                authorName: post.authorName ?? post.author_name ?? 'Admin',
+                author_name: post.author_name ?? post.authorName ?? 'Admin',
+                categoryId: post.categoryId ?? post.category_id ?? '',
+                category_id: post.category_id ?? post.categoryId ?? '',
+                categoryName: post.categoryName ?? post.category_name ?? '',
+                category_name: post.category_name ?? post.categoryName ?? '',
+                tags: Array.isArray(post.tags) ? post.tags : [],
+                views: Number(post.views ?? 0),
+                seo: post.seo ?? { metaTitle: '', metaDescription: '', metaKeywords: [], noIndex: false },
+                allowComments: post.allowComments ?? post.allow_comments ?? true,
+                allow_comments: post.allow_comments ?? post.allowComments ?? true,
+                isFeatured: post.isFeatured ?? post.is_featured ?? false,
+                is_featured: post.is_featured ?? post.isFeatured ?? false,
+                createdAt: post.createdAt ?? post.created_at ?? new Date().toISOString(),
+                created_at: post.created_at ?? post.createdAt ?? new Date().toISOString(),
+                updatedAt: post.updatedAt ?? post.updated_at ?? new Date().toISOString(),
+                updated_at: post.updated_at ?? post.updatedAt ?? new Date().toISOString(),
+                scheduledAt: post.scheduledAt ?? post.scheduled_at ?? null,
+                scheduled_at: post.scheduled_at ?? post.scheduledAt ?? null
+            }));
         } catch (error) {
             console.error('Failed to fetch blog posts:', error);
+            return [];
+        }
+    },
+    getAdminBlogPosts: async () => {
+        try {
+            const raw = unwrap(await api.get('/cms/admin/blog/posts'));
+            const items = ensureArray<any>(raw);
+            return items.map((post: any) => ({
+                ...post,
+                id: post.id,
+                title: post.title ?? '',
+                slug: post.slug ?? '',
+                content: post.content ?? '',
+                blocks: Array.isArray(post.blocks) ? post.blocks : [],
+                excerpt: post.excerpt ?? post.short_description ?? post.shortDescription ?? '',
+                shortDescription: post.shortDescription ?? post.short_description ?? '',
+                short_description: post.short_description ?? post.shortDescription ?? '',
+                featuredImage: post.featuredImage ?? post.featured_image ?? '',
+                featured_image: post.featured_image ?? post.featuredImage ?? '',
+                status: post.status ?? 'draft',
+                visibility: post.visibility ?? 'public',
+                authorName: post.authorName ?? post.author_name ?? 'Admin',
+                author_name: post.author_name ?? post.authorName ?? 'Admin',
+                categoryId: post.categoryId ?? post.category_id ?? '',
+                category_id: post.category_id ?? post.categoryId ?? '',
+                categoryName: post.categoryName ?? post.category_name ?? '',
+                category_name: post.category_name ?? post.categoryName ?? '',
+                tags: Array.isArray(post.tags) ? post.tags : [],
+                views: Number(post.views ?? 0),
+                seo: post.seo ?? { metaTitle: '', metaDescription: '', metaKeywords: [], noIndex: false },
+                allowComments: post.allowComments ?? post.allow_comments ?? true,
+                allow_comments: post.allow_comments ?? post.allowComments ?? true,
+                isFeatured: post.isFeatured ?? post.is_featured ?? false,
+                is_featured: post.is_featured ?? post.isFeatured ?? false,
+                createdAt: post.createdAt ?? post.created_at ?? new Date().toISOString(),
+                created_at: post.created_at ?? post.createdAt ?? new Date().toISOString(),
+                updatedAt: post.updatedAt ?? post.updated_at ?? new Date().toISOString(),
+                updated_at: post.updated_at ?? post.updatedAt ?? new Date().toISOString(),
+                scheduledAt: post.scheduledAt ?? post.scheduled_at ?? null,
+                scheduled_at: post.scheduled_at ?? post.scheduledAt ?? null
+            }));
+        } catch (error) {
+            console.error('Failed to fetch admin blog posts:', error);
             return [];
         }
     },
 
     getBlogPostBySlug: async (slug: string) => {
         try {
-            const data = await api.get(`/cms/blog/posts/${slug}`);
+            const data = unwrap(await api.get(`/cms/blog/posts/${slug}`));
             return data || undefined;
         } catch (error) {
             console.error(`Failed to fetch blog post ${slug}:`, error);
@@ -2244,10 +2451,12 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
         try {
             if (post.id) {
                 const res = await api.put(`/cms/blog/posts/${post.id}`, post);
-                return res?.data || post;
+                const data = unwrap(res);
+                return data || post;
             } else {
                 const res = await api.post('/cms/blog/posts', post);
-                return res?.data || post;
+                const data = unwrap(res);
+                return data || post;
             }
         } catch (error) {
             console.error('Failed to save blog post:', error);
@@ -2266,8 +2475,17 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
 
     getBlogCategories: async () => {
         try {
-            const data = await api.get('/cms/blog/categories');
-            return data || [];
+            const raw = unwrap(await api.get('/cms/blog/categories'));
+            const items = ensureArray<any>(raw);
+            return items.map((cat: any) => ({
+                ...cat,
+                id: cat.id,
+                name: cat.name ?? '',
+                slug: cat.slug ?? '',
+                description: cat.description ?? '',
+                status: cat.status ?? 'active',
+                count: Number(cat.count ?? 0)
+            }));
         } catch (error) {
             console.error('Failed to fetch blog categories:', error);
             return [];
@@ -2278,10 +2496,12 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
         try {
             if (category.id) {
                 const res = await api.put(`/cms/blog/categories/${category.id}`, category);
-                return res?.data || category;
+                const data = unwrap(res);
+                return data || category;
             } else {
                 const res = await api.post('/cms/blog/categories', category);
-                return res?.data || category;
+                const data = unwrap(res);
+                return data || category;
             }
         } catch (error) {
             console.error('Failed to save blog category:', error);
@@ -2298,21 +2518,57 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
         }
     },
 
-    getBlogSettings: async () => ({
-        pageTitle: 'Blog',
-        metaTitle: 'Geezle Blog',
-        metaDescription: 'Latest news and insights from Geezle',
-        bannerImage: '',
-        postsPerPage: 10,
-        defaultCategory: '',
-        showAuthor: true,
-        showDate: true
-    }),
+    getBlogSettings: async () => {
+        try {
+            const raw = unwrap(await api.get('/cms/blog/settings'));
+            const data = raw || {};
+            return {
+                ...data,
+                pageTitle: data.pageTitle ?? data.page_title ?? 'Blog',
+                page_title: data.page_title ?? data.pageTitle ?? 'Blog',
+                metaTitle: data.metaTitle ?? data.meta_title ?? 'Scrolith Blog',
+                meta_title: data.meta_title ?? data.metaTitle ?? 'Scrolith Blog',
+                metaDescription: data.metaDescription ?? data.meta_description ?? 'Latest news and insights from Scrolith',
+                meta_description: data.meta_description ?? data.metaDescription ?? 'Latest news and insights from Scrolith',
+                bannerImage: data.bannerImage ?? data.banner_image ?? '',
+                banner_image: data.banner_image ?? data.bannerImage ?? '',
+                postsPerPage: Number(data.postsPerPage ?? data.posts_per_page ?? 10),
+                posts_per_page: Number(data.posts_per_page ?? data.postsPerPage ?? 10),
+                defaultCategory: data.defaultCategory ?? data.default_category ?? '',
+                default_category: data.default_category ?? data.defaultCategory ?? '',
+                showAuthor: data.showAuthor ?? data.show_author ?? true,
+                show_author: data.show_author ?? data.showAuthor ?? true,
+                showDate: data.showDate ?? data.show_date ?? true,
+                show_date: data.show_date ?? data.showDate ?? true
+            };
+        } catch (error) {
+            console.error('Failed to fetch blog settings:', error);
+            return {
+                pageTitle: 'Blog',
+                metaTitle: 'Scrolith Blog',
+                metaDescription: 'Latest news and insights from Scrolith',
+                bannerImage: '',
+                postsPerPage: 10,
+                defaultCategory: '',
+                showAuthor: true,
+                showDate: true,
+                page_title: 'Blog',
+                meta_title: 'Scrolith Blog',
+                meta_description: 'Latest news and insights from Scrolith',
+                banner_image: '',
+                posts_per_page: 10,
+                default_category: '',
+                show_author: true,
+                show_date: true
+            };
+        }
+    },
 
     updateBlogSettings: async (settings: any) => {
         try {
             const res = await api.post('/cms/blog/settings', settings);
-            return res?.data || settings;
+            const data = unwrap(res);
+            return data || settings;
         } catch (error) {
             console.error('Failed to update blog settings:', error);
             return settings;
@@ -2342,8 +2598,9 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
     // --- KYC Methods ---
     getKYCRequests: async () => {
         try {
-            const data = await api.get('/admin/kyc/requests');
-            return data || [];
+            const res = await api.get('/admin/kyc/requests');
+            const payload = unwrap(res);
+            return ensureArray(payload);
         } catch (error) {
             console.error('Failed to fetch KYC requests:', error);
             return [];
@@ -2352,8 +2609,8 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
 
     submitKYC: async (data: any) => {
         try {
-            const res = await api.post('/admin/kyc/submit', data);
-            return res?.data || { success: true };
+            const res = await api.post('/kyc/submit', data);
+            return unwrap(res) || { success: true };
         } catch (error) {
             console.error('Failed to submit KYC:', error);
             return { success: false, error: 'Failed to submit KYC' };
@@ -2363,7 +2620,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
     updateKYCStatus: async (id: string, status: string, notes?: string) => {
         try {
             const res = await api.post(`/admin/kyc/${id}/status`, { status, notes });
-            return res?.data || { success: true };
+            return unwrap(res) || { success: true };
         } catch (error) {
             console.error(`Failed to update KYC status for ${id}:`, error);
             return { success: false, error: 'Failed to update KYC status' };
@@ -2373,12 +2630,12 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
     // --- Affiliate Methods ---
     getAffiliateContent: async () => {
         const devAffiliateFallback = {
-            heroTitle: 'Become a Geezle Affiliate',
+            heroTitle: 'Become a Scrolith Affiliate',
             heroSubtitle: 'Earn commissions by referring users to our platform',
             heroButtonText: 'Join Now',
             benefits: [
                 { title: 'High Commission', description: 'Earn up to 30% commission on referrals' },
-                { title: 'Recurring Earnings', description: 'Get paid for as long as your referrals use Geezle' },
+                { title: 'Recurring Earnings', description: 'Get paid for as long as your referrals use Scrolith' },
                 { title: 'Marketing Tools', description: 'Access banners, links, and tracking tools' }
             ]
         };
@@ -2469,3 +2726,4 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
         }
     }
 };
+

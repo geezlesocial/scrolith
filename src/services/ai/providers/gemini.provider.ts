@@ -23,7 +23,7 @@ export class GeminiProvider implements AIProvider {
         const lastMsg = input.messages[input.messages.length - 1];
         
         const prompt = `
-        System: You are an AI assistant for Geezle freelance marketplace.
+        System: You are an AI assistant for Scrolith freelance marketplace.
         Context: Role=${input.context?.role || 'Guest'}, Page=${input.context?.page || 'Unknown'}
         History:
         ${history}
@@ -115,7 +115,7 @@ export class GeminiProvider implements AIProvider {
         const context = input.history.map(h => `${h.sender}: ${h.text}`).join('\n');
         
         const prompt = `
-        You are Jima, an AI assistant for GEEZLE.
+        You are Jima, an AI assistant for Scrolith.
         Rules:
         - No financial advice
         - No legal advice
@@ -226,3 +226,4 @@ export class GeminiProvider implements AIProvider {
         }
     }
 }
+

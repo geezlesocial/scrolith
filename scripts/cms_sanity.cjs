@@ -13,8 +13,8 @@ async function main() {
     }
 
     const repoRoot = path.resolve(__dirname, '..', '..');
-    const entry = path.resolve(repoRoot, 'geezle/src/services/cms.ts');
-    const outDir = path.resolve(repoRoot, 'geezle/tmp');
+    const entry = path.resolve(repoRoot, 'scrolith/src/services/cms.ts');
+    const outDir = path.resolve(repoRoot, 'scrolith/tmp');
     const out = path.resolve(outDir, 'cms_bundle.cjs');
 
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });

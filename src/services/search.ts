@@ -1,7 +1,9 @@
-// C:\Projects\geezle\src\services\search.ts
+// C:\Projects\Scrolith\src\services\search.ts
 import { Recommendation } from "../types";
 
-const API_URL = "/api";
+import { getApiBaseUrl } from '../utils/apiBase';
+
+const API_URL = getApiBaseUrl();
 
 // GLOBAL Rate Limiting Variables (SHARED across ALL services)
 let lastSearchCallTime = 0;
@@ -80,12 +82,7 @@ class SearchService {
    */
   private static getFallbackData(endpoint: string): any {
     if (endpoint.includes("/search/recommendations")) {
-      return [
-        { id: "rec-1", title: "Python Development", type: "gig", relevance: 0.95, url: "/gigs/python-dev", price: 500 },
-        { id: "rec-2", title: "Logo Design", type: "gig", relevance: 0.89, url: "/gigs/logo-design", price: 150 },
-        { id: "rec-3", title: "SEO Optimization", type: "job", relevance: 0.87, url: "/jobs/seo-optimization", budget: "1000-2000" },
-        { id: "rec-4", title: "React Native App", type: "job", relevance: 0.85, url: "/jobs/react-native-app", budget: "3000-5000" },
-      ];
+      return [];
     }
 
     if (endpoint.includes("/search/trending")) {
@@ -218,3 +215,4 @@ class SearchService {
 }
 
 export { SearchService };
+

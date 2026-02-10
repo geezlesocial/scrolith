@@ -1,0 +1,19 @@
+{
+  "name": "Scrolith",
+  "short_name": "Scrolith",
+  "description": "Scrolith - Premium Freelance Marketplace",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f4ee",
+  "theme_color": "#0f6b4f",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+

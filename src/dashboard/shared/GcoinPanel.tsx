@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Coins, RefreshCw, ArrowRightLeft } from 'lucide-react';
+import { Coins, RefreshCw, ArrowRightLeft, Send } from 'lucide-react';
 import { useUser } from '../../context/UserContext';
 import { useNotification } from '../../context/NotificationContext';
 import { GcoinService } from '../../services/gcoin';
 import { useCurrency } from '../../context/CurrencyContext';
 import { GcoinSettings, GcoinTransaction, GcoinWallet } from '../../types';
+import SendGcoinModal from '../../components/SendGcoinModal';
 
 const GcoinPanel = () => {
   const { user } = useUser();
@@ -17,6 +18,7 @@ const GcoinPanel = () => {
   const [error, setError] = useState<string | null>(null);
   const [converting, setConverting] = useState(false);
   const [amount, setAmount] = useState(0);
+  const [sendOpen, setSendOpen] = useState(false);
 
   const load = async () => {
     if (!user) return;
@@ -60,7 +62,8 @@ const GcoinPanel = () => {
   }, [user?.id]);
 
   const conversionRate = settings?.conversionRate ?? 0;
-  const canConvert = Boolean(settings?.conversionEnabled && wallet && wallet.balance > 0);
+  const canConvert = Boolean(settings?.conversionEnabled && conversionRate > 0 && wallet && wallet.balance > 0);
+  const canTransfer = settings?.userTransfersEnabled !== false;
 
   const maxConversion = wallet?.balance || 0;
   const fiatValue = useMemo(() => amount * conversionRate, [amount, conversionRate]);
@@ -155,8 +158,26 @@ const GcoinPanel = () => {
             <ArrowRightLeft className="w-4 h-4 mr-2" />
             {converting ? 'Submitting...' : 'Request Conversion'}
           </button>
+          <button
+            onClick={() => setSendOpen(true)}
+            disabled={!canTransfer}
+            className="px-4 py-2 rounded-xl border border-gray-300 text-sm font-bold disabled:opacity-50 inline-flex items-center"
+          >
+            <Send className="w-4 h-4 mr-2" />
+            Send Gcoin
+          </button>
         </div>
         <div className="text-xs text-gray-500">Estimated value: {formatPrice(fiatValue)}</div>
+        {conversionRate <= 0 && (
+          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+            Conversion rate is not configured.
+          </div>
+        )}
+        {!canTransfer && (
+          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+            Transfers are disabled by admin.
+          </div>
+        )}
       </div>
 
       <div className="bg-white border rounded-xl overflow-hidden">
@@ -186,6 +207,8 @@ const GcoinPanel = () => {
           </table>
         )}
       </div>
+
+      <SendGcoinModal isOpen={sendOpen} onClose={() => setSendOpen(false)} />
     </div>
   );
 };

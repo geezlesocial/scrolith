@@ -19,7 +19,7 @@ const OAuthCallback = () => {
     }
 
     if (token) {
-      AuthService.setToken(token);
+      void AuthService.setToken(token);
     }
 
     const next = redirect && redirect.startsWith('/') ? redirect : '/';

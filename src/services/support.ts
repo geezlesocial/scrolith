@@ -87,12 +87,22 @@ export const SupportService = {
   },
 
   createTicket: async (data: Partial<SupportTicket>): Promise<SupportTicket> => {
-    const response = await api.post('/support/tickets', data);
+    const payload: any = {
+      ...data,
+      full_name: (data as any).full_name ?? (data as any).fullName ?? (data as any).full_name,
+      recaptchaToken: (data as any).recaptchaToken ?? (data as any).recaptcha_token
+    };
+    const response = await api.post('/support/tickets', payload);
     return mapTicket(extractData<SupportTicket>(response));
   },
 
   createTicketAuth: async (data: Partial<SupportTicket>): Promise<SupportTicket> => {
-    const response = await api.post('/support/tickets/auth', data);
+    const payload: any = {
+      ...data,
+      full_name: (data as any).full_name ?? (data as any).fullName ?? (data as any).full_name,
+      recaptchaToken: (data as any).recaptchaToken ?? (data as any).recaptcha_token
+    };
+    const response = await api.post('/support/tickets/auth', payload);
     return mapTicket(extractData<SupportTicket>(response));
   },
 

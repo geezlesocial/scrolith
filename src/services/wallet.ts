@@ -32,6 +32,9 @@ const mapWallet = (wallet: any) => {
   const available = Number(wallet?.available_balance ?? wallet?.availableBalance ?? 0);
   const pending = Number(wallet?.pending_clearance ?? wallet?.pendingClearance ?? 0);
   const escrow = Number(wallet?.escrow_balance ?? wallet?.escrowBalance ?? 0);
+  const displayAvailable = Number(wallet?.display_available_balance ?? available);
+  const displayPending = Number(wallet?.display_pending_clearance ?? pending);
+  const displayEscrow = Number(wallet?.display_escrow_balance ?? escrow);
   return {
     ...wallet,
     id: wallet?.id,
@@ -43,8 +46,12 @@ const mapWallet = (wallet: any) => {
     pendingClearance: pending,
     escrow_balance: escrow,
     escrowBalance: escrow,
+    display_available_balance: displayAvailable,
+    display_pending_clearance: displayPending,
+    display_escrow_balance: displayEscrow,
     frozen: Boolean(wallet?.frozen),
     currency: wallet?.currency ?? 'USD',
+    display_currency: wallet?.display_currency ?? wallet?.currency ?? 'USD',
     updated_at: wallet?.updated_at ?? wallet?.updatedAt
   };
 };
@@ -92,6 +99,8 @@ export interface WalletInfo {
   escrowHeld: number;
   totalEarnings: number;
   transactions: WalletTransaction[];
+  currency?: string;
+  displayCurrency?: string;
   paymentMethods?: Array<{
     id: string;
     type: string;
@@ -130,7 +139,9 @@ export const walletApi = {
       pendingAmount: pending,
       escrowHeld: escrow,
       totalEarnings: total,
-      transactions: []
+      transactions: [],
+      currency: data.currency ?? 'USD',
+      displayCurrency: data.display_currency ?? data.currency ?? 'USD'
     };
   },
 
@@ -211,13 +222,14 @@ export const WalletService = {
   },
 
   saveCommissionSettings: async (settings: any): Promise<any> => {
+    // Prefer camelCase values (UI updates camelCase state only)
     const payload = {
-      freelancer_fee_type: settings?.freelancer_fee_type ?? settings?.freelancerFeeType ?? 'percentage',
-      freelancer_fee_value: Number(settings?.freelancer_fee_value ?? settings?.freelancerFeeValue ?? 0),
-      employer_fee_type: settings?.employer_fee_type ?? settings?.employerFeeType ?? 'percentage',
-      employer_fee_value: Number(settings?.employer_fee_value ?? settings?.employerFeeValue ?? 0),
-      minimum_fee: Number(settings?.minimum_fee ?? settings?.minimumFee ?? 0),
-      max_adjustment: Number(settings?.max_adjustment ?? settings?.maxAdjustment ?? 100000)
+      freelancer_fee_type: settings?.freelancerFeeType ?? settings?.freelancer_fee_type ?? 'percentage',
+      freelancer_fee_value: Number(settings?.freelancerFeeValue ?? settings?.freelancer_fee_value ?? 0),
+      employer_fee_type: settings?.employerFeeType ?? settings?.employer_fee_type ?? 'percentage',
+      employer_fee_value: Number(settings?.employerFeeValue ?? settings?.employer_fee_value ?? 0),
+      minimum_fee: Number(settings?.minimumFee ?? settings?.minimum_fee ?? 0),
+      max_adjustment: Number(settings?.maxAdjustment ?? settings?.max_adjustment ?? 100000)
     };
     const response = await api.post('/wallet/settings/commission', payload, { params: { role: 'admin' } });
     return handleApiResponse(response);
@@ -244,12 +256,10 @@ export const WalletService = {
 
   // Backwards-compatible adapters (aliases) expected by UI
   getWallet: async (userId?: string): Promise<any> => {
-    if (userId && userId !== 'me') {
-      const response = await api.get(`/wallet/${userId}`);
-      return handleApiResponse(response);
-    }
-    // default to current user's wallet info
-    return walletApi.getWalletInfo();
+    const target = userId && userId !== 'me' ? `/wallet/${userId}` : '/wallet/me';
+    const response = await api.get(target);
+    const data = handleApiResponse<any>(response);
+    return mapWallet(data);
   },
 
   getUserTransactions: async (userId: string): Promise<any[]> => {
@@ -270,13 +280,29 @@ export const WalletService = {
     }
   },
 
-  requestWithdrawal: async (userId: string, amount: number, method: any): Promise<any> => {
-    const response = await api.post('/withdrawal/request', { userId, amount, method });
+  requestWithdrawal: async (userId: string, amount: number, method: any, details?: Record<string, any>): Promise<any> => {
+    const response = await api.post('/withdrawal/request', { userId, amount, method, details });
     return handleApiResponse(response);
   },
   addFunds: async (amount: number): Promise<any> => {
     const response = await api.post('/wallet/topup/initiate', { amount, provider: 'auto' });
     return handleApiResponse(response);
+  },
+
+  getFundingGateways: async (): Promise<any[]> => {
+    try {
+      const response = await api.get('/wallet/gateways');
+      const data = handleApiResponse<any>(response);
+      return Array.isArray(data) ? data : [];
+    } catch (e) {
+      try {
+        const response = await api.get('/payments/methods/active');
+        const data = handleApiResponse<any>(response);
+        return Array.isArray(data) ? data : [];
+      } catch {
+        return [];
+      }
+    }
   },
 
   initiateTopup: async (payload: { amount: number; currency?: string; country?: string; provider?: string }): Promise<any> => {
@@ -315,5 +341,58 @@ export const WalletService = {
 
   adminReverseTransaction: async (transactionId: string, adminId?: string): Promise<void> => {
     await api.post(`/wallet/transactions/${transactionId}/reverse`, { adminId }, { params: { role: 'admin' } });
+  },
+
+  getWithdrawalRequests: async (params: { status?: string } = {}): Promise<any[]> => {
+    const response = await api.get('/admin/withdrawals', { params });
+    const data = handleApiResponse<any>(response);
+    const list = Array.isArray(data) ? data : Array.isArray(data?.withdrawals) ? data.withdrawals : [];
+    return list.map((w: any) => ({
+      ...w,
+      id: w?.id,
+      user_id: w?.user_id ?? w?.userId,
+      userId: w?.userId ?? w?.user_id,
+      user_name: w?.user_name ?? w?.userName,
+      userName: w?.userName ?? w?.user_name,
+      method: w?.method ?? w?.paymentMethodId ?? w?.payment_method_id ?? 'bank_transfer',
+      details: w?.details ?? {},
+      amount: Number(w?.amount ?? 0),
+      status: (w?.status || '').toString().toLowerCase(),
+      requested_at: w?.requested_at ?? w?.created_at ?? w?.createdAt ?? w?.requestedAt ?? w?.createdAt,
+      created_at: w?.created_at ?? w?.createdAt ?? w?.requested_at ?? w?.requestedAt
+    }));
+  },
+
+  approveWithdrawal: async (id: string): Promise<any> => {
+    const response = await api.post(`/admin/withdrawals/${id}/approve`, {});
+    return handleApiResponse(response);
+  },
+
+  rejectWithdrawal: async (id: string): Promise<any> => {
+    const response = await api.post(`/admin/withdrawals/${id}/reject`, {});
+    return handleApiResponse(response);
+  },
+
+  markWithdrawalPaid: async (id: string): Promise<any> => {
+    const response = await api.post(`/admin/withdrawals/${id}/mark-paid`, {});
+    return handleApiResponse(response);
+  }
+  ,
+  getPayoutAccountsAdmin: async (): Promise<any[]> => {
+    const response = await api.get('/admin/withdrawals/payout-accounts');
+    const data = handleApiResponse<any>(response);
+    return Array.isArray(data) ? data : [];
+  },
+  getPayoutAccountAdmin: async (userId: string): Promise<any> => {
+    const response = await api.get(`/admin/withdrawals/payout-accounts/${userId}`);
+    return handleApiResponse<any>(response);
+  },
+  getPayoutMethodsAdmin: async (): Promise<any> => {
+    const response = await api.get('/admin/withdrawals/methods');
+    return handleApiResponse<any>(response);
+  },
+  savePayoutMethodsAdmin: async (methods: any[]): Promise<any> => {
+    const response = await api.post('/admin/withdrawals/methods', { methods });
+    return handleApiResponse<any>(response);
   }
 };

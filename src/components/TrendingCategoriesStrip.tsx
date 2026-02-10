@@ -7,6 +7,7 @@ import { commerceService } from "../services/commerce";
 import { ListingCategory, TrendingConfig, UserRole } from "../types";
 import { useUser } from "../context/UserContext";
 import { useSocket } from "../context/SocketContext";
+import { resolveAssetUrl } from "../utils/assetUrl";
 
 type TrendingCategoryView = ListingCategory & {
   iconUrl?: string | null;
@@ -24,6 +25,8 @@ const normalizeCategory = (cat: any): TrendingCategoryView | null => {
 
   const slug = cat.slug ?? String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const count = Number(cat.count ?? cat.total ?? cat.listings ?? 0);
+  const rawIconUrl = cat.iconUrl ?? cat.icon_url ?? cat.icon ?? cat.logo ?? cat.image ?? null;
+  const iconUrl = rawIconUrl ? resolveAssetUrl(String(rawIconUrl)) : null;
 
   return {
     ...cat,
@@ -35,7 +38,7 @@ const normalizeCategory = (cat: any): TrendingCategoryView | null => {
     count: Number.isFinite(count) ? count : 0,
     sortOrder: cat.sortOrder ?? cat.sort_order ?? 0,
     subcategories: Array.isArray(cat.subcategories) ? cat.subcategories : [],
-    iconUrl: cat.iconUrl ?? cat.icon_url ?? cat.icon ?? cat.logo ?? cat.image ?? null,
+    iconUrl,
   };
 };
 
@@ -80,9 +83,12 @@ const TrendingCategoriesStrip: React.FC<Props> = ({ config: configOverride }) =>
 
   const effectiveConfig = useMemo(() => configOverride ?? config, [configOverride, config]);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
+  const loadData = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      setLoading(true);
+      setLoadError(null);
+    }
 
     try {
       // Trending config (CMS)
@@ -147,22 +153,16 @@ const TrendingCategoriesStrip: React.FC<Props> = ({ config: configOverride }) =>
 
       if (!mountedRef.current) return;
 
-      // Debug: log effective config and resolved categories for non-admin users
-      try {
-        if (normalizedUserRole !== (UserRole as any).ADMIN && typeof console !== 'undefined') {
-          // eslint-disable-next-line no-console
-          console.info('[Trending Debug] effectiveConfig=', conf, 'normalizedUserRole=', normalizedUserRole, 'categoryIds=', categoryIds, 'allCatsCount=', allCats.length, 'matchedCount=', displayCats.length, 'allCatsSample=', (allCats || []).slice(0, 6).map(c => ({ id: c.id, slug: c.slug, name: c.name })), 'displayCatsSample=', (displayCats || []).slice(0, 12).map(c => ({ id: c.id, slug: c.slug, name: c.name })));
-        }
-      } catch (e) {
-        // ignore debug failures
-      }
+      // no debug logging
 
       setCategories(displayCats);
     } catch (error: any) {
       console.error("Error loading trending categories:", error);
       if (!mountedRef.current) return;
-      setLoadError("Failed to load trending categories");
-      setCategories([]);
+      if (!silent) {
+        setLoadError("Failed to load trending categories");
+        setCategories([]);
+      }
     } finally {
       if (mountedRef.current) setLoading(false);
     }
@@ -178,7 +178,7 @@ const TrendingCategoriesStrip: React.FC<Props> = ({ config: configOverride }) =>
 
   useEffect(() => {
     if (!socket) return;
-    const handleRefresh = () => loadData();
+    const handleRefresh = () => loadData({ silent: true });
     socket.on("cms:trending_updated", handleRefresh);
     socket.on("cms:trending_config_updated", handleRefresh);
     socket.on("cms:trending_categories_updated", handleRefresh);
@@ -192,8 +192,8 @@ const TrendingCategoriesStrip: React.FC<Props> = ({ config: configOverride }) =>
   useEffect(() => {
     if (socket) return;
     const id = window.setInterval(() => {
-      loadData();
-    }, 5000);
+      loadData({ silent: true });
+    }, 60000);
     return () => window.clearInterval(id);
   }, [socket, loadData]);
 
@@ -272,7 +272,7 @@ const TrendingCategoriesStrip: React.FC<Props> = ({ config: configOverride }) =>
         ? visibilityList.includes("all") || visibilityList.includes(normalizedUserRole)
         : true;
 
-    if (!(effectiveConfig as any).enabled || !isVisible || categories.length === 0) {
+    if (!(effectiveConfig as any).enabled || !isVisible) {
       return null;
     }
   } else {
@@ -285,7 +285,7 @@ const TrendingCategoriesStrip: React.FC<Props> = ({ config: configOverride }) =>
   const showTitle = Boolean(stripTitle);
 
   return (
-    <div className="bg-[#f7f4ee] border-b border-[#e8e1d6] relative z-20">
+    <div data-testid="trending-strip" className="bg-[#f7f4ee] border-b border-[#e8e1d6] relative z-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex items-center">
         {/* Label */}
         {showTitle ? (

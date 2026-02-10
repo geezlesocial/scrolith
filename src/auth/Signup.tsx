@@ -1,13 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
+import { useContent } from '../context/ContentContext';
 import { AuthPagesConfig, UserRole } from '../types';
 import { Briefcase, User, Shield, Mail, Lock, UserPlus, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { CMSService } from '../services/cms';
 import AuthSocialButtons from './AuthSocialButtons';
+import { executeRecaptcha } from '../services/recaptcha';
 
 const Signup = () => {
   const { register } = useUser(); // Use 'register' from context, not 'signup'
+  const { settings } = useContent();
   const navigate = useNavigate();
 
   const [formData, setFormData] = useState({
@@ -102,10 +105,31 @@ const Signup = () => {
 
     setIsLoading(true);
     try {
+      const recaptchaConfig = (settings as any)?.integrations?.recaptcha || {};
+      const legacySiteKey = (settings as any)?.recaptcha_site_key || (settings as any)?.recaptchaSiteKey || '';
+      const recaptchaEnabled = Boolean(recaptchaConfig?.enabled) || Boolean(legacySiteKey);
+      const siteKey = String(recaptchaConfig?.siteKey || legacySiteKey || '').trim();
+      const version = (recaptchaConfig?.version || 'v3') as 'v2' | 'v3';
+      let recaptchaToken: string | undefined;
+
+      if (recaptchaEnabled) {
+        if (version !== 'v3') {
+          setErrors({ submit: 'reCAPTCHA v3 is required for signup.' });
+          setIsLoading(false);
+          return;
+        }
+        if (!siteKey) {
+          setErrors({ submit: 'reCAPTCHA site key is missing. Contact support.' });
+          setIsLoading(false);
+          return;
+        }
+        recaptchaToken = await executeRecaptcha(siteKey, 'signup');
+      }
+
       const fullName = `${formData.firstName.trim()} ${formData.lastName.trim()}`;
       
       // Call register from context - pass email, name, password, and role
-      const success = await register(formData.email, fullName, formData.password, role);
+      const success = await register(formData.email, fullName, formData.password, role, recaptchaToken);
 
       if (success) {
         // Redirect based on role after successful registration
@@ -115,8 +139,8 @@ const Signup = () => {
       } else {
         setErrors({ submit: 'Signup failed. Please try again.' });
       }
-    } catch (error) {
-      setErrors({ submit: 'Signup failed. Please try again.' });
+    } catch (error: any) {
+      setErrors({ submit: error?.message || 'Signup failed. Please try again.' });
     } finally {
       setIsLoading(false);
     }

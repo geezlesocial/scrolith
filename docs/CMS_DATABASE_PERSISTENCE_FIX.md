@@ -12,7 +12,7 @@ Updated all CMS controllers to use Prisma ORM for database persistence using the
 
 ### 1. **Created CMSConfig Prisma Model** ✅
 
-**File:** `geezle-backend/prisma/schema.prisma`
+**File:** `Scrolith-backend/prisma/schema.prisma`
 
 Added new model:
 ```prisma
@@ -41,7 +41,7 @@ enum CmsTarget {
 
 ### 2. **Updated CMS Controllers** ✅
 
-**File:** `geezle-backend/src/controllers/cmsController.ts`
+**File:** `Scrolith-backend/src/controllers/cmsController.ts`
 
 #### Added Helper Functions:
 - `getOrCreateCMSConfig()` - Retrieves or creates CMS config from database
@@ -161,7 +161,7 @@ The `CMSConfig.data` JSON field stores different structures based on `target`:
 Run this command to apply the database schema changes:
 
 ```bash
-cd geezle-backend
+cd Scrolith-backend
 npx prisma migrate dev --name add_cms_config
 ```
 
@@ -180,3 +180,4 @@ npx prisma generate
 ## Status: ✅ COMPLETE
 
 All homepage settings now persist to the database and changes reflect correctly on the platform.
+

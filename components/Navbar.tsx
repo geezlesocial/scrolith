@@ -1,4 +1,4 @@
-// C:\Projects\geezle\src\components\Navbar.tsx
+// C:\Projects\Scrolith\src\components\Navbar.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Bell, MessageSquare, Heart, User, LogOut, Briefcase, PlusCircle, Globe, ChevronDown, Sparkles, Users, Settings, HelpCircle, LayoutDashboard, Menu, X, Star, Bookmark } from 'lucide-react';
@@ -187,7 +187,7 @@ const Navbar = () => {
                   <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-lg text-white">G</div>
               )}
               <span className="ml-2 text-xl font-bold text-gray-900 hidden sm:block">
-                {settings?.siteName || 'Geezle'}
+                {settings?.siteName || 'Scrolith'}
               </span>
             </Link>
           </div>

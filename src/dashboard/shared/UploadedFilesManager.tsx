@@ -286,6 +286,7 @@ export default function UploadedFilesManager({ role }: Props) {
         multiple={false}
         role={role}
         visibility="public"
+        allowUpload
       />
 
       {preview && (

@@ -110,7 +110,7 @@ All save handlers now:
    - Fixed response handling for backend API responses
    - Improved error handling (throw errors instead of silent failures)
 
-3. **`geezle-backend/src/controllers/cmsController.ts`**
+3. **`Scrolith-backend/src/controllers/cmsController.ts`**
    - Already updated to save to database (previous fix)
 
 ---
@@ -156,3 +156,4 @@ All homepage settings now:
 - ✅ Show success/error notifications
 - ✅ Keep admin on the component
 - ✅ Reflect changes in real-time
+

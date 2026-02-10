@@ -2,12 +2,14 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import * as LucideIcons from "lucide-react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Heart, ShoppingCart } from "lucide-react";
 import { useUser } from "../context/UserContext";
 import { useContent } from "../context/ContentContext";
 import { useNotification } from "../context/NotificationContext";
 import { useCurrency } from "../context/CurrencyContext";
 import { useSocket } from "../context/SocketContext";
+import { useFavorites } from "../context/FavoritesContext";
+import { useCart } from "../context/CartContext";
 import { CMSService } from "../services/cms";
 import { HeaderConfig, ActivityConfig, UserRole, HeroSearchConfig } from "../types";
 import SearchInput from "./SearchInput";
@@ -57,6 +59,8 @@ const Navbar = () => {
   const { notifications, markAsRead } = useNotification();
   const { currency, setCurrency, availableCurrencies } = useCurrency();
   const { socket } = useSocket();
+  const { favorites } = useFavorites();
+  const { cart } = useCart();
 
   const [headerConfig, setHeaderConfig] = useState<HeaderConfig | null>(null);
   const [activityConfig, setActivityConfig] = useState<ActivityConfig | null>(null);
@@ -253,15 +257,52 @@ const Navbar = () => {
     }
   };
 
+  const resolveNotificationActionUrl = (notification: any): string | undefined => {
+    const action =
+      (pick(notification as any, 'actionUrl', 'action_url') as string | undefined) ||
+      (pick(notification as any, 'metadata') as any)?.actionUrl ||
+      (pick(notification as any, 'metadata') as any)?.action_url;
+    return action || undefined;
+  };
+
+  const resolveNotificationActorProfileUrl = (notification: any): string | undefined => {
+    const metadata = (pick(notification as any, 'metadata') as any) || {};
+    const actorUsername =
+      (pick(notification as any, 'actorUsername', 'actor_username') as string | undefined) ||
+      (metadata.actorUsername as string | undefined);
+    const actorId =
+      (pick(notification as any, 'actorId', 'actor_id') as string | undefined) ||
+      (metadata.actorId as string | undefined);
+    if (actorUsername) return `/u/${encodeURIComponent(actorUsername)}`;
+    if (actorId) return `/profile/${encodeURIComponent(actorId)}`;
+    return undefined;
+  };
+
   const handleNotificationClick = (id: string, actionUrl?: string) => {
     markAsRead(id);
     setShowNotifications(false);
-    if (actionUrl) window.location.href = actionUrl;
+    if (actionUrl) {
+      navigate(actionUrl);
+    }
+  };
+
+  const handleNotificationActorClick = (
+    event: React.MouseEvent,
+    notificationId: string,
+    profileUrl?: string
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    markAsRead(notificationId);
+    setShowNotifications(false);
+    if (profileUrl) navigate(profileUrl);
   };
 
   const userRole = user?.role || UserRole.GUEST;
   const normalizedUserRole = normalizeRole(userRole || UserRole.GUEST);
   const isHome = location.pathname === "/";
+  const favoritesCount = favorites?.length || 0;
+  const cartCount = cart?.totalItems || 0;
   const isPathActive = (path: string) => {
     if (!path) return false;
     if (location.pathname === path) return true;
@@ -490,7 +531,34 @@ const Navbar = () => {
   };
 
   const getDynamicIcon = (type: string, size: number, style: "outline" | "filled") => {
-    const pascalCaseType = type
+    const raw = String(type || "").trim().toLowerCase();
+    const aliasMap: Record<string, string> = {
+      message: "MessageSquare",
+      messages: "MessageSquare",
+      "message-square": "MessageSquare",
+      "messageSquare": "MessageSquare",
+      chat: "MessageSquare",
+      notification: "Bell",
+      notifications: "Bell",
+      bell: "Bell",
+      help: "HelpCircle",
+      support: "HelpCircle",
+      favorites: "Heart",
+      favorite: "Heart",
+      heart: "Heart",
+      profile: "User",
+      user: "User",
+    };
+
+    const alias = aliasMap[raw];
+    if (alias) {
+      const AliasIcon = (LucideIcons as Record<string, LucideIconComponent>)[alias];
+      if (AliasIcon) {
+        return <AliasIcon size={size} className={`${style === "filled" ? "fill-current" : ""}`} />;
+      }
+    }
+
+    const pascalCaseType = raw
       .split(/[-_\s]/)
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
       .join("");
@@ -656,9 +724,9 @@ const Navbar = () => {
         groupedProfileItems.primary = [
           { id: 'nav-profile', label: 'Profile', url: '/profile/edit', type: 'link', icon: 'User' },
           { id: 'nav-dashboard', label: 'Dashboard', url: '/client/dashboard', type: 'link', icon: 'LayoutDashboard' },
+          { id: 'nav-currency', label: 'Switch Currency', type: 'currency_switcher', icon: 'Globe' },
           { id: 'nav-refer', label: 'Refer a friend', url: '/affiliate-program', type: 'link', icon: 'UserPlus' },
           { id: 'nav-billing', label: 'Billing and payments', url: '/client/dashboard?tab=wallet', type: 'link', icon: 'CreditCard' },
-          { id: 'nav-currency', label: 'Currency Switcher', type: 'currency_switcher', icon: 'Globe' },
           { id: 'nav-settings', label: 'Settings', url: '/client/dashboard?tab=settings', type: 'link', icon: 'Settings' },
           { id: 'nav-signout', label: 'Sign out', type: 'sign_out', icon: 'LogOut' },
         ];
@@ -669,6 +737,7 @@ const Navbar = () => {
         groupedProfileItems.primary = [
           { id: 'nav-my-profile', label: 'My Profile', url: '/freelancer/dashboard?tab=profile', type: 'link', icon: 'User' },
           { id: 'nav-dashboard', label: 'Dashboard', url: '/freelancer/dashboard', type: 'link', icon: 'LayoutDashboard' },
+          { id: 'nav-currency', label: 'Switch Currency', type: 'currency_switcher', icon: 'Globe' },
           // Point freelancers to the client dashboard's project-briefs page so they can create briefs
           { id: 'nav-post-brief', label: 'Post a project brief', url: '/client/dashboard/project-briefs', type: 'link', icon: 'FileText' },
           { id: 'nav-your-briefs', label: 'Your briefs', url: '/client/dashboard?tab=jobs', type: 'link', icon: 'Folder' },
@@ -771,15 +840,17 @@ const Navbar = () => {
               {(() => {
                 const rawNav = Array.isArray((headerConfig as any)?.navigation) ? (headerConfig as any).navigation : [];
                 const navCopy = Array.from(rawNav);
-                // Inject dashboard link if missing for authenticated users
-                if (isAuthenticated && dashboardLinkUrl) {
-                  const exists = navCopy.some((n: any) => resolveUrl(n) === dashboardLinkUrl);
-                  if (!exists) {
-                    navCopy.unshift({ id: 'dashboard-nav', label: 'Dashboard', url: dashboardLinkUrl });
+                const filteredNav = navCopy.filter((item: any) => {
+                  const label = String(item?.label || '').toLowerCase();
+                  const url = resolveUrl(item);
+                  if (label === 'dashboard') return false;
+                  if (url && (url.startsWith('/freelancer/dashboard') || url.startsWith('/client/dashboard') || url === '/dashboard')) {
+                    return false;
                   }
-                }
+                  return true;
+                });
                 // Do not inject "My Ads" into the global header — it's available in dashboards only
-                return navCopy.map(renderNavItem);
+                return filteredNav.map(renderNavItem);
               })()}
             </div>
 
@@ -854,14 +925,36 @@ const Navbar = () => {
                                 {notifications.length === 0 ? (
                                   <div className="p-6 text-center text-gray-400 text-sm">No new notifications</div>
                                 ) : (
-                                  notifications.map((notif) => (
+                                  notifications.map((notif) => {
+                                    const actorName =
+                                      (pick(notif as any, 'actorName', 'actor_name') as string | undefined) ||
+                                      ((pick(notif as any, 'metadata') as any)?.actorName as string | undefined);
+                                    const actorAvatar =
+                                      (pick(notif as any, 'actorAvatar', 'actor_avatar') as string | undefined) ||
+                                      ((pick(notif as any, 'metadata') as any)?.actorAvatar as string | undefined);
+                                    const actorProfileUrl = resolveNotificationActorProfileUrl(notif);
+                                    return (
                                     <div
                                       key={notif.id}
-                                      onClick={() => handleNotificationClick(notif.id, (pick(notif as any, 'actionUrl', 'action_url') as string) ?? undefined)}
+                                      onClick={() => handleNotificationClick(notif.id, resolveNotificationActionUrl(notif))}
                                       className={`p-4 border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors relative ${
                                         !notif.isRead ? "bg-blue-50/30" : ""
                                       }`}
                                     >
+                                      {actorName && (
+                                        <button
+                                          type="button"
+                                          onClick={(event) => handleNotificationActorClick(event, notif.id, actorProfileUrl)}
+                                          className="mb-2 flex items-center gap-2 hover:opacity-90"
+                                        >
+                                          <div className="h-6 w-6 overflow-hidden rounded-full bg-gray-100">
+                                            {actorAvatar ? (
+                                              <img src={actorAvatar} alt={actorName} className="h-full w-full object-cover" />
+                                            ) : null}
+                                          </div>
+                                          <span className="text-xs font-semibold text-gray-600">{actorName}</span>
+                                        </button>
+                                      )}
                                       <div className="flex justify-between items-start mb-1">
                                         <h4 className={`text-sm ${!notif.isRead ? "font-bold text-gray-900" : "font-medium text-gray-700"}`}>
                                           {notif.title}
@@ -873,7 +966,8 @@ const Navbar = () => {
                                       <p className="text-xs text-gray-500 line-clamp-2">{(pick(notif as any, 'message') as string) ?? ''}</p>
                                       {!notif.isRead && <span className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500"></span>}
                                     </div>
-                                  ))
+                                  );
+                                  })
                                 )}
                               </div>
                             </div>
@@ -902,6 +996,35 @@ const Navbar = () => {
                 </div>
               ) : null}
 
+              {isAuthenticated && (
+                <div className="flex items-center gap-2">
+                  <Link
+                    to="/favorites"
+                    className="relative inline-flex items-center gap-2 px-3 py-2 rounded-full border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    <Heart className={`w-4 h-4 ${favoritesCount ? 'text-red-500 fill-current' : 'text-gray-500'}`} />
+                    <span className="hidden sm:inline">Favorites</span>
+                    {favoritesCount > 0 && (
+                      <span className="absolute -top-1 -right-1 h-5 min-w-[20px] px-1 rounded-full text-white text-[10px] flex items-center justify-center font-bold bg-red-500">
+                        {favoritesCount}
+                      </span>
+                    )}
+                  </Link>
+                  <Link
+                    to="/cart"
+                    className="relative inline-flex items-center gap-2 px-3 py-2 rounded-full border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    <ShoppingCart className={`w-4 h-4 ${cartCount ? 'text-blue-600' : 'text-gray-500'}`} />
+                    <span className="hidden sm:inline">Cart</span>
+                    {cartCount > 0 && (
+                      <span className="absolute -top-1 -right-1 h-5 min-w-[20px] px-1 rounded-full text-white text-[10px] flex items-center justify-center font-bold bg-blue-600">
+                        {cartCount}
+                      </span>
+                    )}
+                  </Link>
+                </div>
+              )}
+
               {isAuthenticated && showRoleSwitch
                 ? renderLink(
                     { id: "role-switch-nav", label: roleSwitchLabel, url: roleSwitchUrl },
@@ -909,27 +1032,7 @@ const Navbar = () => {
                   )
                 : null}
 
-              {/* Direct Dashboard links for desktop */}
-              {isAuthenticated && normalizedUserRole === 'freelancer' && (
-                <Link
-                  to="/freelancer/dashboard"
-                  className={`hidden lg:inline-flex items-center px-3 py-2 text-sm font-semibold rounded hover:bg-gray-50 transition ${
-                    isPathActive('/freelancer/dashboard') ? 'text-blue-600 bg-blue-50' : 'text-gray-700'
-                  }`}
-                >
-                  Dashboard
-                </Link>
-              )}
-              {isAuthenticated && normalizedUserRole === 'employer' && (
-                <Link
-                  to="/client/dashboard"
-                  className={`hidden lg:inline-flex items-center px-3 py-2 text-sm font-semibold rounded hover:bg-gray-50 transition ${
-                    isPathActive('/client/dashboard') ? 'text-blue-600 bg-blue-50' : 'text-gray-700'
-                  }`}
-                >
-                  Dashboard
-                </Link>
-              )}
+              {/* Direct Dashboard links removed to avoid duplicate header entries */}
 
               {/* Profile Dropdown */}
               {isAuthenticated && user ? (

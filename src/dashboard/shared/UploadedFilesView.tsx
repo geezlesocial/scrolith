@@ -118,7 +118,7 @@ export const UploadedFilesView: React.FC<UploadedFilesViewProps> = ({ role = 'fr
         )}
       </div>
 
-      <FilePickerModal isOpen={showPicker} onClose={() => setShowPicker(false)} onSelect={handleUploadSelected} allowUpload={true} />
+      <FilePickerModal isOpen={showPicker} onClose={() => setShowPicker(false)} onSelect={handleUploadSelected} allowUpload />
 
       <ConfirmModal
         isOpen={showConfirm}
@@ -133,3 +133,4 @@ export const UploadedFilesView: React.FC<UploadedFilesViewProps> = ({ role = 'fr
     </div>
   );
 };
+

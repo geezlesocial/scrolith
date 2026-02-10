@@ -20,6 +20,7 @@ import {
   MarketingROI,
   SystemConfig,
   PlatformSettings,
+  EmailProviderConfig,
   AdminDashboardStats,
   ApiResponse
 } from '../types';
@@ -32,28 +33,33 @@ const extractData = <T>(response: any): T => {
   return response as T;
 };
 
-const getAuthHeaders = () => {
-  const token = AuthService.getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+const getAuthHeaders = async () => {
+  const token = await AuthService.getToken();
+  const user = AuthService.getStoredUser();
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (user?.id) headers['x-user-id'] = String(user.id);
+  headers['x-user-role'] = user?.role ? String(user.role).toLowerCase() : 'admin';
+  return headers;
 };
 
 const adminGet = async <T>(endpoint: string, params?: Record<string, any>): Promise<T> => {
-  const response = await api.get(`${ADMIN_BASE}${endpoint}`, { params, headers: getAuthHeaders() });
+  const response = await api.get(`${ADMIN_BASE}${endpoint}`, { params, headers: await getAuthHeaders() });
   return extractData<T>(response);
 };
 
 const adminPost = async <T>(endpoint: string, data?: any): Promise<T> => {
-  const response = await api.post(`${ADMIN_BASE}${endpoint}`, data, { headers: getAuthHeaders() });
+  const response = await api.post(`${ADMIN_BASE}${endpoint}`, data, { headers: await getAuthHeaders() });
   return extractData<T>(response);
 };
 
 const adminPut = async <T>(endpoint: string, data?: any): Promise<T> => {
-  const response = await api.put(`${ADMIN_BASE}${endpoint}`, data, { headers: getAuthHeaders() });
+  const response = await api.put(`${ADMIN_BASE}${endpoint}`, data, { headers: await getAuthHeaders() });
   return extractData<T>(response);
 };
 
 const adminDelete = async <T>(endpoint: string): Promise<T> => {
-  const response = await api.delete(`${ADMIN_BASE}${endpoint}`, { headers: getAuthHeaders() });
+  const response = await api.delete(`${ADMIN_BASE}${endpoint}`, { headers: await getAuthHeaders() });
   return extractData<T>(response);
 };
 
@@ -68,9 +74,19 @@ const adminRequest = async <T>(
     url: `${ADMIN_BASE}${endpoint}`,
     data,
     params,
-    headers: getAuthHeaders()
+    headers: await getAuthHeaders()
   });
   return response.data as ApiResponse<T>;
+};
+
+const getAdminFormConfig = async <T>(): Promise<T> => {
+  const response = await api.get(`${ADMIN_BASE}/forms/config`, { headers: await getAuthHeaders() });
+  return extractData<T>(response);
+};
+
+const saveAdminFormConfig = async <T>(payload: any): Promise<T> => {
+  const response = await api.post(`${ADMIN_BASE}/forms/config`, payload, { headers: await getAuthHeaders() });
+  return extractData<T>(response);
 };
 
 const normalizeGigPackage = (pkg: any) => ({
@@ -98,6 +114,10 @@ const normalizeGig = (gig: any): Gig => {
   const isVisible = gig?.is_visible ?? gig?.isVisible;
   const isActive = gig?.is_active ?? gig?.isActive;
   const ordersCount = gig?.orders_count ?? gig?.ordersCount;
+  const adminReason = gig?.admin_reason ?? gig?.adminReason;
+  const isFeatured = gig?.is_featured ?? gig?.isFeatured;
+  const isTopSelected = gig?.is_top_selected ?? gig?.isTopSelected;
+  const isRecommended = gig?.is_recommended ?? gig?.isRecommended;
   const image = gig?.image ?? (Array.isArray(gig?.images) ? gig.images[0] : '') ?? '';
 
   return {
@@ -121,8 +141,15 @@ const normalizeGig = (gig: any): Gig => {
     isVisible,
     is_active: isActive,
     isActive,
+    is_featured: isFeatured,
+    isFeatured,
+    is_top_selected: isTopSelected,
+    isTopSelected,
+    is_recommended: isRecommended,
+    isRecommended,
     orders_count: ordersCount,
     ordersCount,
+    adminReason,
     packages: Array.isArray(gig?.packages) ? gig.packages.map(normalizeGigPackage) : [],
     extras: Array.isArray(gig?.extras) ? gig.extras.map(normalizeGigExtra) : []
   } as Gig;
@@ -135,6 +162,10 @@ const normalizeJob = (job: any): Job => {
   const experienceLevel = job?.experience_level ?? job?.experienceLevel;
   const isActive = job?.is_active ?? job?.isActive;
   const isVisible = job?.is_visible ?? job?.isVisible;
+  const adminReason = job?.admin_reason ?? job?.adminReason;
+  const isFeatured = job?.is_featured ?? job?.isFeatured;
+  const isTopSelected = job?.is_top_selected ?? job?.isTopSelected;
+  const isRecommended = job?.is_recommended ?? job?.isRecommended;
 
   return {
     ...job,
@@ -149,7 +180,14 @@ const normalizeJob = (job: any): Job => {
     is_active: isActive,
     isActive,
     is_visible: isVisible,
-    isVisible
+    isVisible,
+    is_featured: isFeatured,
+    isFeatured,
+    is_top_selected: isTopSelected,
+    isTopSelected,
+    is_recommended: isRecommended,
+    isRecommended,
+    adminReason
   } as Job;
 };
 
@@ -298,11 +336,54 @@ export const AdminService = {
   },
 
   saveStaff: async (staff: Partial<StaffMember>): Promise<StaffMember> => {
+    if (staff.id) {
+      return adminPut<StaffMember>(`/staff/${encodeURIComponent(String(staff.id))}`, staff);
+    }
     return adminPost<StaffMember>('/staff', staff);
   },
 
   deleteStaff: async (id: string): Promise<void> => {
     await adminDelete(`/staff/${id}`);
+  },
+
+  getRbacRoles: async (params?: { activeOnly?: boolean }): Promise<any[]> => {
+    const query: Record<string, any> = {};
+    if (params?.activeOnly !== undefined) query.activeOnly = params.activeOnly;
+    const data = await adminGet<any[]>('/rbac/roles', query);
+    return Array.isArray(data) ? data : [];
+  },
+
+  getRbacPermissions: async (): Promise<{ permissions: any[]; groups: any[] }> => {
+    const data = await adminGet<{ permissions: any[]; groups: any[] }>('/rbac/permissions');
+    return data || { permissions: [], groups: [] };
+  },
+
+  createRbacRole: async (payload: {
+    name: string;
+    description?: string;
+    permissionKeys: string[];
+    isActive?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/rbac/roles', payload);
+  },
+
+  updateRbacRole: async (
+    id: string,
+    payload: { name: string; description?: string; permissionKeys: string[]; isActive?: boolean }
+  ): Promise<any> => {
+    return adminPut<any>(`/rbac/roles/${encodeURIComponent(id)}`, payload);
+  },
+
+  cloneRbacRole: async (id: string, payload?: { name?: string }): Promise<any> => {
+    return adminPost<any>(`/rbac/roles/${encodeURIComponent(id)}/clone`, payload || {});
+  },
+
+  deactivateRbacRole: async (id: string): Promise<void> => {
+    await adminDelete(`/rbac/roles/${encodeURIComponent(id)}`);
+  },
+
+  resetStaffPassword: async (id: string, password: string): Promise<void> => {
+    await adminPost(`/staff/${encodeURIComponent(id)}/reset-password`, { password });
   },
 
   async getAdminGigs(filters?: {
@@ -351,14 +432,14 @@ export const AdminService = {
     return data || null;
   },
 
-  async approveListing(type: 'gig' | 'job', id: string, status: string): Promise<boolean> {
+  async approveListing(type: 'gig' | 'job', id: string, status: string, notes?: string): Promise<boolean> {
     const action = status === 'active' || status === 'approved' ? 'approve' : 'reject';
     const response = await adminRequest<{ id: string }>(
       'post',
       `/gigs-jobs/${type === 'gig' ? 'gigs' : 'jobs'}/${id}/approve`,
       {
         action,
-        notes: `Status changed to ${status}`
+        notes: notes || `Status changed to ${status}`
       }
     );
     return Boolean(response?.success);
@@ -433,7 +514,7 @@ export const AdminService = {
         }
 
         // Try fetching known metadata files from the public root as a fallback and import into the language
-          const candidates = ['/metadata.json', '/metadata-1.json', '/geezle/metadata.json', '/geezle/metadata-1.json'];
+          const candidates = ['/metadata.json', '/metadata-1.json', '/Scrolith/metadata.json', '/Scrolith/metadata-1.json'];
           let imported = false;
           for (const p of candidates) {
             try {
@@ -595,6 +676,10 @@ export const AdminService = {
     return data ?? settings;
   },
 
+  testEmailSettings: async (payload: { to: string; config?: EmailProviderConfig }): Promise<any> => {
+    return adminPost<any>('/system/email/test', payload);
+  },
+
   getPlatformSettings: async (): Promise<PlatformSettings> => {
     return adminGet<PlatformSettings>('/platform/settings');
   },
@@ -610,6 +695,54 @@ export const AdminService = {
 
   saveSettings: async (settings: PlatformSettings): Promise<boolean> => {
     return AdminService.savePlatformSettings(settings);
+  },
+
+  getMonetizationSettings: async (): Promise<any> => {
+    return adminGet<any>('/monetization/settings');
+  },
+
+  saveMonetizationSettings: async (settings: any): Promise<any> => {
+    return adminPut<any>('/monetization/settings', settings);
+  },
+
+  getMonetizationApplications: async (params?: {
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ items: any[]; total: number; page: number; limit: number }> => {
+    const data = await adminGet<any>('/monetization/applications', params);
+    if (Array.isArray(data)) {
+      return { items: data, total: data.length, page: 1, limit: data.length || 20 };
+    }
+    return {
+      items: Array.isArray(data?.items) ? data.items : [],
+      total: Number(data?.total ?? 0),
+      page: Number(data?.page ?? 1),
+      limit: Number(data?.limit ?? 20)
+    };
+  },
+
+  getMonetizationApplication: async (id: string): Promise<any> => {
+    return adminGet<any>(`/monetization/applications/${encodeURIComponent(id)}`);
+  },
+
+  approveMonetizationApplication: async (id: string, payload?: { note?: string; enableMonetization?: boolean }): Promise<any> => {
+    return adminPost<any>(`/monetization/applications/${encodeURIComponent(id)}/approve`, payload || {});
+  },
+
+  rejectMonetizationApplication: async (
+    id: string,
+    payload: { note: string; reapplyAfterDays?: number; reapplyAllowedAt?: string; reapplyAt?: string }
+  ): Promise<any> => {
+    return adminPost<any>(`/monetization/applications/${encodeURIComponent(id)}/reject`, payload);
+  },
+
+  disableUserMonetization: async (
+    userId: string,
+    payload?: { reason?: string; disableUntil?: string }
+  ): Promise<any> => {
+    return adminPost<any>(`/monetization/users/${encodeURIComponent(userId)}/disable`, payload || {});
   },
 
   getAIAnalytics: async (): Promise<any> => {
@@ -691,7 +824,140 @@ export const AdminService = {
   updateProfile: async (data: any): Promise<any> => {
     const res = await adminPut<any>('/profile', data);
     return res;
+  },
+
+  // ---- Favorites & Carts ----
+  async getFavorites(params?: { entityType?: string; userId?: string }): Promise<any[]> {
+    const data = await adminGet<any[]>('/favorites', params);
+    return Array.isArray(data) ? data : [];
+  },
+
+  async deleteFavorite(id: string): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('delete', `/favorites/${id}`);
+    return Boolean(response?.success);
+  },
+
+  async getCarts(params?: { userId?: string }): Promise<any[]> {
+    const data = await adminGet<any[]>('/carts', params);
+    return Array.isArray(data) ? data : [];
+  },
+
+  async getCartById(id: string): Promise<any> {
+    const data = await adminGet<any>(`/carts/${id}`);
+    return data || null;
+  },
+
+  async deleteCart(id: string): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('delete', `/carts/${id}`);
+    return Boolean(response?.success);
+  },
+
+  async deleteCartItem(itemId: string): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('delete', `/carts/items/${itemId}`);
+    return Boolean(response?.success);
+  },
+
+  // ---- Moderator Console ----
+  async getModerationConversations(params?: { page?: number; limit?: number; search?: string }): Promise<any> {
+    const response = await api.get('/moderation/chat/conversations', {
+      params,
+      headers: await getAuthHeaders()
+    });
+    return extractData<any>(response) || { items: [], page: 1, limit: 20, total: 0, hasMore: false };
+  },
+
+  async getModerationConversationMessages(
+    conversationId: string,
+    params?: { page?: number; limit?: number }
+  ): Promise<any> {
+    const response = await api.get(`/moderation/chat/conversations/${encodeURIComponent(conversationId)}/messages`, {
+      params,
+      headers: await getAuthHeaders()
+    });
+    return extractData<any>(response) || { items: [], page: 1, limit: 50, total: 0, hasMore: false };
+  },
+
+  async sendModerationConversationMessage(
+    conversationId: string,
+    payload: { message: string; type?: 'MODERATOR_WARNING' | 'MODERATOR_MESSAGE' }
+  ): Promise<any> {
+    const response = await api.post(
+      `/moderation/chat/conversations/${encodeURIComponent(conversationId)}/message`,
+      payload,
+      { headers: await getAuthHeaders() }
+    );
+    return extractData<any>(response);
+  },
+
+  async getModerationAudit(params?: { page?: number; limit?: number; conversationId?: string; staffId?: string }): Promise<any> {
+    const response = await api.get('/moderation/chat/audit', {
+      params,
+      headers: await getAuthHeaders()
+    });
+    return extractData<any>(response) || { items: [], page: 1, limit: 20, total: 0, hasMore: false };
+  },
+
+  async getMessageRecords(params?: {
+    page?: number;
+    limit?: number;
+    conversationId?: string;
+    action?: string;
+    actorId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    search?: string;
+  }): Promise<any> {
+    const response = await api.get('/moderation/chat/records', {
+      params,
+      headers: await getAuthHeaders()
+    });
+    return extractData<any>(response) || { items: [], page: 1, limit: 50, total: 0, hasMore: false };
+  },
+
+  async exportMessageRecords(
+    params?: {
+      conversationId?: string;
+      action?: string;
+      actorId?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      search?: string;
+      format?: 'csv' | 'json';
+    }
+  ): Promise<Blob> {
+    const response = await api.get('/moderation/chat/records/export', {
+      params,
+      headers: await getAuthHeaders(),
+      responseType: 'blob'
+    });
+    return response.data as Blob;
+  },
+
+  async getMessageRetentionPolicy(): Promise<{ retentionMonths: number; retentionYears: number; updatedAt: string | null }> {
+    const response = await api.get('/moderation/chat/records/retention', {
+      headers: await getAuthHeaders()
+    });
+    return extractData<any>(response) || { retentionMonths: 72, retentionYears: 6, updatedAt: null };
+  },
+
+  async updateMessageRetentionPolicy(retentionMonths: number): Promise<{ retentionMonths: number; retentionYears: number }> {
+    const response = await api.put(
+      '/moderation/chat/records/retention',
+      { retentionMonths },
+      { headers: await getAuthHeaders() }
+    );
+    return extractData<any>(response);
+  },
+
+  // ---- Form Builder ----
+  async getFormConfig(): Promise<any> {
+    return getAdminFormConfig<any>();
+  },
+
+  async saveFormConfig(payload: any): Promise<any> {
+    return saveAdminFormConfig<any>(payload);
   }
 };
 
 export const GigsJobsService = AdminService;
+

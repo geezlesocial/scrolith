@@ -3,8 +3,9 @@ import React, { useState, useEffect } from 'react';
 import { CMSService } from '../../services/cms';
 import { ActivityConfig, NavIconConfig, HelpLink, UserRole } from '../../types';
 import { useNotification } from '../../context/NotificationContext';
+import { useSocket } from '../../context/SocketContext';
 import { 
-    Layout, Bell, MessageSquare, Heart, HelpCircle, Save, Plus, Trash2, 
+    Layout, Bell, MessageSquare, Heart, HelpCircle, Save, Plus, Trash2, User,
     Move, ToggleLeft, ToggleRight, Palette, Link as LinkIcon, Check, Eye
 } from 'lucide-react';
 
@@ -21,13 +22,153 @@ const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab }: any) => (
 
 const getIconComponent = (type: string, size: number = 20, className: string = '') => {
     const props = { size, className };
-    switch(type) {
-        case 'notifications': return <Bell {...props} />;
-        case 'messages': return <MessageSquare {...props} />;
-        case 'favorites': return <Heart {...props} />;
-        case 'help': return <HelpCircle {...props} />;
-        default: return <Layout {...props} />;
+    const normalized = String(type || '').toLowerCase().trim();
+    switch(normalized) {
+        case 'notifications':
+        case 'notification':
+        case 'bell':
+            return <Bell {...props} />;
+        case 'messages':
+        case 'message':
+        case 'chat':
+            return <MessageSquare {...props} />;
+        case 'favorites':
+        case 'favorite':
+        case 'heart':
+            return <Heart {...props} />;
+        case 'help':
+        case 'support':
+        case 'question':
+            return <HelpCircle {...props} />;
+        case 'profile':
+        case 'user':
+        case 'account':
+            return <User {...props} />;
+        default:
+            return <Layout {...props} />;
     }
+};
+
+const normalizeBoolean = (value: any, fallback: boolean) => {
+    if (value === undefined || value === null) return fallback;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+        if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+        return Boolean(normalized);
+    }
+    return Boolean(value);
+};
+
+const normalizeRole = (role: any): string => {
+    if (!role) return UserRole.GUEST;
+    const r = String(role).toLowerCase().trim();
+    if (r === 'public') return UserRole.GUEST;
+    if (r === 'client') return UserRole.EMPLOYER;
+    if (r === 'all' || r === '*') return 'all';
+    return r;
+};
+
+const normalizeRoleList = (value: any): string[] => {
+    const allRoles = [UserRole.GUEST, UserRole.FREELANCER, UserRole.EMPLOYER, UserRole.ADMIN, UserRole.MODERATOR];
+    const list = Array.isArray(value)
+        ? value.map(normalizeRole).filter(Boolean)
+        : typeof value === 'string'
+            ? value
+                .split(',')
+                .map((entry) => entry.trim())
+                .filter(Boolean)
+                .map(normalizeRole)
+            : [];
+
+    if (list.includes('all') || list.includes('*')) {
+        return allRoles;
+    }
+
+    return list;
+};
+
+const normalizeActivityType = (value: any) => {
+    const raw = String(value || '').toLowerCase().trim();
+    if (['bell', 'notification', 'notifications'].includes(raw)) return 'notifications';
+    if (['message', 'messages', 'chat'].includes(raw)) return 'messages';
+    if (['user', 'profile', 'account'].includes(raw)) return 'profile';
+    if (['favorite', 'favorites', 'heart'].includes(raw)) return 'favorites';
+    if (['help', 'support', 'question'].includes(raw)) return 'help';
+    return raw;
+};
+
+const normalizeNumber = (value: any, fallback: number) => {
+    const parsed = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeActivityConfig = (raw: ActivityConfig | null | undefined): ActivityConfig => {
+    const source: any = raw || {};
+    const designSource: any = source.design || {};
+    const iconStyle = (designSource.iconStyle ?? designSource.icon_style ?? 'outline') as 'outline' | 'filled';
+    const iconSize = normalizeNumber(designSource.iconSize ?? designSource.icon_size, 20);
+    const badgeColor = String(designSource.badgeColor ?? designSource.badge_color ?? '#3b82f6');
+    const showBadges = normalizeBoolean(designSource.showBadges ?? designSource.show_badges, true);
+
+    const normalizedDesign = {
+        iconStyle,
+        iconSize,
+        badgeColor,
+        showBadges,
+        icon_style: iconStyle,
+        icon_size: iconSize,
+        badge_color: badgeColor,
+        show_badges: showBadges
+    };
+
+    const iconsSource = Array.isArray(source.icons) ? source.icons : [];
+    const normalizedIcons = iconsSource.map((icon: any, index: number) => {
+        const rawType = icon.type ?? icon.icon ?? icon.kind ?? icon.actionType ?? icon.displayType ?? 'notifications';
+        const actionType = normalizeActivityType(rawType);
+        const sortOrder = normalizeNumber(icon.sortOrder ?? icon.sort_order, index + 1);
+        const isEnabled = normalizeBoolean(icon.isEnabled ?? icon.is_enabled, true);
+        const showLabel = normalizeBoolean(icon.showLabel ?? icon.show_label, true);
+        const roles = normalizeRoleList(icon.roles ?? icon.visibility ?? icon.visible_to);
+
+        return {
+            ...icon,
+            id: icon.id ?? `icon-${index}`,
+            type: rawType,
+            actionType,
+            displayType: icon.displayType ?? rawType,
+            sortOrder,
+            sort_order: sortOrder,
+            isEnabled,
+            is_enabled: isEnabled,
+            showLabel,
+            show_label: showLabel,
+            roles
+        };
+    });
+
+    const helpSource = Array.isArray(source.helpMenu) ? source.helpMenu : Array.isArray(source.help_menu) ? source.help_menu : [];
+    const normalizedHelpMenu = helpSource.map((link: any, index: number) => {
+        const isEnabled = normalizeBoolean(link.isEnabled ?? link.is_enabled, true);
+        const target = (link.target ?? '_self') as '_self' | '_blank';
+        return {
+            ...link,
+            id: link.id ?? `hl-${index}`,
+            label: link.label ?? 'Help Link',
+            url: link.url ?? '/',
+            target,
+            isEnabled,
+            is_enabled: isEnabled
+        };
+    });
+
+    return {
+        ...source,
+        icons: normalizedIcons,
+        helpMenu: normalizedHelpMenu,
+        help_menu: normalizedHelpMenu,
+        design: normalizedDesign
+    } as ActivityConfig;
 };
 
 const NavigationManager = () => {
@@ -35,6 +176,7 @@ const NavigationManager = () => {
     const [activeTab, setActiveTab] = useState<'icons' | 'help' | 'design'>('icons');
     const { showNotification } = useNotification();
     const [loading, setLoading] = useState(true);
+    const { socket } = useSocket();
 
     useEffect(() => {
         loadConfig();
@@ -42,38 +184,62 @@ const NavigationManager = () => {
 
     const loadConfig = async () => {
         setLoading(true);
-        const data = await CMSService.getActivityConfig();
-        setConfig(data);
+        try {
+            const data = await CMSService.getActivityConfig();
+            setConfig(normalizeActivityConfig(data));
+        } catch (error) {
+            showNotification('alert', 'Error', 'Failed to load navigation settings.');
+        }
         setLoading(false);
     };
 
-    const normalizeIconUpdate = (u: Partial<Record<string, unknown>>) => {
-        const src = u as Record<string, unknown>;
-        const out: Partial<NavIconConfig> = {};
-        if ('sortOrder' in src && typeof src.sortOrder === 'number') out.sort_order = src.sortOrder as number;
-        if ('isEnabled' in src) out.is_enabled = Boolean(src.isEnabled);
-        if ('showLabel' in src) out.show_label = Boolean(src.showLabel);
-        return out;
-    };
-
-    const normalizeHelpLinkUpdate = (u: Partial<Record<string, unknown>>) => {
-        const src = u as Record<string, unknown>;
-        const out: Partial<HelpLink> = {};
-        if ('isEnabled' in src) out.is_enabled = Boolean(src.isEnabled);
-        return out;
-    };
+    useEffect(() => {
+        if (!socket) return;
+        const refresh = async () => {
+            try {
+                const data = await CMSService.getActivityConfig();
+                setConfig(normalizeActivityConfig(data));
+            } catch (error) {
+                // silent refresh failure
+            }
+        };
+        socket.on('cms:activity_updated', refresh);
+        return () => {
+            socket.off('cms:activity_updated', refresh);
+        };
+    }, [socket]);
 
     const handleSave = async () => {
         if (!config) return;
-        await CMSService.saveActivityConfig(config);
-        showNotification('success', 'Saved', 'Navigation settings updated.');
+        try {
+            const payload = normalizeActivityConfig(config);
+            await CMSService.saveActivityConfig(payload);
+            showNotification('success', 'Saved', 'Navigation settings updated.');
+        } catch (error) {
+            showNotification('alert', 'Error', 'Failed to save navigation settings.');
+        }
     };
 
     // --- Icon Helpers ---
     const updateIcon = (id: string, updates: Partial<NavIconConfig>) => {
         if (!config) return;
-        const newIcons = config.icons.map(icon => icon.id === id ? { ...icon, ...updates } : icon);
-        setConfig({ ...config, icons: newIcons.sort((a,b) => a.sortOrder - b.sortOrder) });
+        const newIcons = config.icons.map(icon => {
+            if (icon.id !== id) return icon;
+            const merged = { ...icon, ...updates };
+            const sortOrder = normalizeNumber((merged as any).sortOrder ?? (merged as any).sort_order, (merged as any).sortOrder ?? 0);
+            const isEnabled = normalizeBoolean((merged as any).isEnabled ?? (merged as any).is_enabled, true);
+            const showLabel = normalizeBoolean((merged as any).showLabel ?? (merged as any).show_label, true);
+            return {
+                ...merged,
+                sortOrder,
+                sort_order: sortOrder,
+                isEnabled,
+                is_enabled: isEnabled,
+                showLabel,
+                show_label: showLabel
+            };
+        });
+        setConfig({ ...config, icons: newIcons.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)) });
     };
 
     const toggleRole = (iconId: string, role: UserRole) => {
@@ -81,34 +247,45 @@ const NavigationManager = () => {
         const icon = config.icons.find(i => i.id === iconId);
         if (!icon) return;
         
-        const hasRole = icon.roles.includes(role);
-        const newRoles = hasRole ? icon.roles.filter(r => r !== role) : [...icon.roles, role];
+        const roles = normalizeRoleList((icon as any).roles);
+        const hasRole = roles.includes(role);
+        const newRoles = hasRole ? roles.filter(r => r !== role) : [...roles, role];
         updateIcon(iconId, { roles: newRoles });
     };
 
     // --- Help Menu Helpers ---
     const addHelpLink = () => {
         if (!config) return;
+        const existingLinks = Array.isArray(config.helpMenu) ? config.helpMenu : Array.isArray((config as any).help_menu) ? (config as any).help_menu : [];
         const newLink: HelpLink = {
             id: `hl-${Date.now()}`,
             label: 'New Link',
             url: '/',
             target: '_self',
-            is_enabled: true
+            is_enabled: true,
+            isEnabled: true
         };
-        setConfig({ ...config, helpMenu: [...config.helpMenu, newLink] });
+        setConfig({ ...config, helpMenu: [...existingLinks, newLink], help_menu: [...existingLinks, newLink] });
     };
 
     const updateHelpLink = (id: string, updates: Partial<HelpLink>) => {
         if (!config) return;
-        const newLinks = config.helpMenu.map(l => l.id === id ? { ...l, ...updates } : l);
-        setConfig({ ...config, helpMenu: newLinks });
+        const baseLinks = Array.isArray(config.helpMenu) ? config.helpMenu : Array.isArray((config as any).help_menu) ? (config as any).help_menu : [];
+        const newLinks = baseLinks.map(l => {
+            if (l.id !== id) return l;
+            const merged = { ...l, ...updates };
+            const isEnabled = normalizeBoolean((merged as any).isEnabled ?? (merged as any).is_enabled, true);
+            return { ...merged, isEnabled, is_enabled: isEnabled };
+        });
+        setConfig({ ...config, helpMenu: newLinks, help_menu: newLinks });
     };
 
     const deleteHelpLink = (id: string) => {
         if (!config) return;
         if(confirm('Delete this link?')) {
-            setConfig({ ...config, helpMenu: config.helpMenu.filter(l => l.id !== id) });
+            const baseLinks = Array.isArray(config.helpMenu) ? config.helpMenu : Array.isArray((config as any).help_menu) ? (config as any).help_menu : [];
+            const nextLinks = baseLinks.filter(l => l.id !== id);
+            setConfig({ ...config, helpMenu: nextLinks, help_menu: nextLinks });
         }
     };
 
@@ -144,11 +321,11 @@ const NavigationManager = () => {
                                             <div className="flex items-center justify-between mb-4">
                                                 <div className="flex items-center gap-3">
                                                     <div className={`p-2 rounded-lg ${icon.isEnabled ? 'bg-blue-50 text-blue-600' : 'bg-gray-200 text-gray-500'}`}>
-                                                        {getIconComponent(icon.type, 20)}
+                                                        {getIconComponent((icon as any).displayType ?? icon.type, 20)}
                                                     </div>
                                                     <div>
                                                         <h4 className="font-bold text-gray-900">{icon.label}</h4>
-                                                        <span className="text-xs text-gray-500 uppercase">{icon.type}</span>
+                                                        <span className="text-xs text-gray-500 uppercase">{(icon as any).displayType ?? icon.type}</span>
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center gap-4">
@@ -157,12 +334,12 @@ const NavigationManager = () => {
                                                         <input 
                                                             type="number" 
                                                             className="w-12 border rounded p-1 text-center text-sm"
-                                                            value={icon.sortOrder}
-                                                            onChange={(e) => updateIcon(icon.id, normalizeIconUpdate({ sortOrder: parseInt(e.target.value) }))}
+                                                            value={icon.sortOrder ?? icon.sort_order ?? 0}
+                                                            onChange={(e) => updateIcon(icon.id, { sortOrder: normalizeNumber(e.target.value, icon.sortOrder ?? 0) })}
                                                         />
                                                     </div>
                                                     <button 
-                                                        onClick={() => updateIcon(icon.id, normalizeIconUpdate({ isEnabled: !icon.isEnabled }))}
+                                                        onClick={() => updateIcon(icon.id, { isEnabled: !icon.isEnabled })}
                                                         className={`text-2xl transition-colors ${icon.isEnabled ? 'text-green-500' : 'text-gray-300'}`}
                                                     >
                                                         {icon.isEnabled ? <ToggleRight /> : <ToggleLeft />}
@@ -185,7 +362,7 @@ const NavigationManager = () => {
                                                                 <input 
                                                                     type="checkbox" 
                                                                             checked={icon.showLabel} 
-                                                                            onChange={(e) => updateIcon(icon.id, normalizeIconUpdate({ showLabel: e.target.checked }))} 
+                                                                            onChange={(e) => updateIcon(icon.id, { showLabel: e.target.checked })} 
                                                                     className="mr-2 rounded"
                                                                 />
                                                                 Show Label
@@ -254,10 +431,10 @@ const NavigationManager = () => {
                                                 </select>
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                                                                        <button 
-                                                                                                                    onClick={() => updateHelpLink(link.id, normalizeHelpLinkUpdate({ isEnabled: !link.isEnabled }))}                                                                                   
-                                                                                                                className={`text-xl ${link.isEnabled ? 'text-green-500' : 'text-gray-300'}`}
-                                                                                                        >
+                                                <button 
+                                                    onClick={() => updateHelpLink(link.id, { isEnabled: !link.isEnabled })}
+                                                    className={`text-xl ${link.isEnabled ? 'text-green-500' : 'text-gray-300'}`}
+                                                >
                                                             {link.isEnabled ? <ToggleRight /> : <ToggleLeft />}
                                                         </button>
                                                 <button onClick={() => deleteHelpLink(link.id)} className="text-gray-400 hover:text-red-500 p-1">

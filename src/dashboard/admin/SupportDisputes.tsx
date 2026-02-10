@@ -334,9 +334,11 @@ const SupportDisputes = () => {
                 )}
             </div>
 
-            <FilePickerModal isOpen={isFilePickerOpen} onClose={() => setIsFilePickerOpen(false)} onSelect={handleFileSelect} allowUpload={true} filterType="all" role="admin" />
+            <FilePickerModal isOpen={isFilePickerOpen} onClose={() => setIsFilePickerOpen(false)} onSelect={handleFileSelect} allowUpload filterType="all" role="admin" />
         </div>
     );
 };
 
 export default SupportDisputes;
+
+

@@ -8,7 +8,7 @@ import { Loader2, Sparkles, CheckCircle, AlertCircle } from 'lucide-react';
 
 const fallback: GuidesPageConfig = {
   hero: {
-    title: 'Geezle Guides',
+    title: 'Scrolith Guides',
     subtitle: 'In-depth, professional guides for founders, freelancers, and teams.',
     primaryCtaLabel: 'Explore Guides',
     primaryCtaUrl: '#guides',
@@ -262,3 +262,4 @@ const GuidesPage = () => {
 };
 
 export default GuidesPage;
+

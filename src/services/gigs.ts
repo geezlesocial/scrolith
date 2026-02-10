@@ -2,7 +2,10 @@ import api from './api';
 
 export const fetchMyGigs = async () => {
   const res = await api.get('/gigs?ownerId=me&role=freelancer');
-  return res.data?.data || [];
+  const data = res.data?.data;
+  if (Array.isArray(data)) return data;
+  if (data?.gigs && Array.isArray(data.gigs)) return data.gigs;
+  return [];
 };
 
 export const createGig = async (payload: any) => {
@@ -57,6 +60,7 @@ export interface Gig {
   id: string;
   title: string;
   description: string;
+  slug?: string;
   category: string;
   subcategory: string;
   price: {
@@ -74,6 +78,11 @@ export interface Gig {
     rating: number;
     reviews: number;
   };
+  freelancerId?: string;
+  freelancerName?: string;
+  freelancerAvatar?: string | null;
+  freelancerProfilePhotoFileId?: string | null;
+  freelancerIsPro?: boolean;
   media: string[];
   tags: string[];
   createdAt: string;

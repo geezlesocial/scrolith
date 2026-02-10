@@ -259,12 +259,14 @@ const MyGigs = () => {
                 </div>
             </div>
 
-            <Table
-                data={gigs}
-                columns={columns}
-                loading={loading}
-                emptyMessage="No gigs found. Create your first gig to get started."
-            />
+            <div data-cy="mygigs-list">
+                <Table
+                    data={gigs}
+                    columns={columns}
+                    loading={loading}
+                    emptyMessage="No gigs found. Create your first gig to get started."
+                />
+            </div>
 
             <ConfirmModal
                 isOpen={!!deleteGigId}

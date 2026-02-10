@@ -1,4 +1,4 @@
-# Geezle Dashboards — API Contract (Dashboard Scope)
+# Scrolith Dashboards — API Contract (Dashboard Scope)
 
 Notes
 - All endpoints return JSON using the standard envelope:
@@ -233,3 +233,4 @@ Appendix: Uploaded file metadata (example)
   "usedIn":[ {"type":"gig","id":"gig_1","label":"Logo Design Gig"} ]
 }
 ```
+

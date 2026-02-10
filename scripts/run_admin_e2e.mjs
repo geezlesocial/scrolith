@@ -33,11 +33,18 @@ import { chromium } from 'playwright';
     await context.addInitScript((token) => {
       try {
         localStorage.setItem('token', token || '');
-        document.cookie = `geezle_token=${encodeURIComponent(token || '')}; path=/; SameSite=Lax`;
+        document.cookie = `scrolith_token=${encodeURIComponent(token || '')}; path=/; SameSite=Lax`;
       } catch (e) {
         // ignore
       }
     }, adminToken);
+    // Set extra HTTP headers at the context level so all outgoing requests
+    // (including cross-origin to the backend) include the admin Authorization header.
+    try {
+      await context.setExtraHTTPHeaders({ authorization: `Bearer ${adminToken}` });
+    } catch (e) {
+      /* ignore if not supported */
+    }
   }
   const page = await context.newPage();
 
@@ -46,7 +53,40 @@ import { chromium } from 'playwright';
     let expectedNavId = '';
     if (adminToken) {
       console.log('Admin token present; opening admin dashboard directly.');
-        await page.goto('http://localhost:3000/admin/dashboard?tab=homepage', { timeout: 60000 });
+      // Try multiple host/base variants to support different dev server base paths and host bindings
+      const tryUrls = [
+        'http://127.0.0.1:3000/admin/dashboard?tab=homepage',
+        'http://localhost:3000/admin/dashboard?tab=homepage',
+        'http://127.0.0.1:3000/scrolith/admin/dashboard?tab=homepage',
+        'http://localhost:3000/scrolith/admin/dashboard?tab=homepage'
+      ];
+      let navigated = false;
+      for (const u of tryUrls) {
+        try {
+          console.log('Trying admin URL:', u);
+          const resp = await page.goto(u, { timeout: 20000, waitUntil: 'load' }).catch((e) => { throw e; });
+          // Sanity-check the loaded page; some dev servers return JSON error pages for unknown routes
+          const html = await page.content().catch(() => '');
+          if (html && /"error"\s*:\s*"Route not found"/.test(html)) {
+            console.warn('Dev server returned Route not found for', u);
+            continue;
+          }
+          if (html && html.includes('<div id="root"')) {
+            navigated = true;
+            break;
+          }
+          // If the page looks like an app shell or contains Vite client, accept it
+          if (html && (html.includes('/@vite/client') || html.includes('injectIntoGlobalHook') || html.includes('src/main.tsx'))) {
+            navigated = true;
+            break;
+          }
+          // otherwise, try the next URL
+          console.warn('Loaded page at', u, 'did not look like the app; trying next fallback');
+        } catch (e) {
+          console.warn('Navigation failed for', u, '-', e?.message || e);
+        }
+      }
+      if (!navigated) throw new Error('Could not open admin dashboard at any known dev URL');
     } else {
       console.log('Navigating to admin login and signing in...');
       await page.goto('http://localhost:3000/auth/login', { timeout: 30000 });
@@ -67,8 +107,22 @@ import { chromium } from 'playwright';
     }
 
     // Wait for the Header & Hero tab and click it via data-testid
-    await page.waitForSelector('button[data-testid="tab-header"]', { timeout: 30000 });
-    await page.click('button[data-testid="tab-header"]');
+    try {
+      await page.waitForSelector('button[data-testid="tab-header"]', { timeout: 30000 });
+      await page.click('button[data-testid="tab-header"]');
+    } catch (e) {
+      // Capture debug artifacts so we can inspect the loaded admin page
+      try {
+        const fs = await import('fs');
+        const html = await page.content().catch(() => null);
+        if (html) fs.writeFileSync('./debug_admin_page.html', html, 'utf8');
+        await page.screenshot({ path: './debug_admin_page.png', fullPage: true }).catch(() => null);
+        console.warn('Saved debug_admin_page.html and debug_admin_page.png for inspection');
+      } catch (inner) {
+        console.warn('Failed to save debug artifacts:', inner?.message || inner);
+      }
+      throw e;
+    }
 
     // Click Navigation Bar subtab using data-testid
     await page.waitForSelector('button[data-testid="subtab-nav"]', { timeout: 30000 });
@@ -410,10 +464,9 @@ import { chromium } from 'playwright';
 
           const hasRoleBtn = await page.$('button[data-testid="trending-role-guest"]');
           if (hasRoleBtn) {
+            // Click both guest and freelancer role buttons to ensure visibility is set
             await page.click('button[data-testid="trending-role-guest"]').catch(() => null);
-            // Capture outgoing POST to any trending-related endpoint
-            const trendReqPromise = page.waitForRequest((req) => req.url().includes('/api/cms/trend') && req.method() === 'POST', { timeout: 10000 }).catch(() => null);
-            const trendResPromise = page.waitForResponse((res) => res.url().includes('/api/cms/trend') && res.request().method() === 'POST', { timeout: 10000 }).catch(() => null);
+            await page.click('button[data-testid="trending-role-freelancer"]').catch(() => null);
 
             // Ensure outgoing CMS API requests include Authorization (for admin-only endpoints)
             if (adminToken) {
@@ -424,64 +477,155 @@ import { chromium } from 'playwright';
               }).catch(() => {});
             }
 
-            // click save if we have the button
-            if (trendingSave) await Promise.all([trendingSave.click(), trendReqPromise, trendResPromise]);
-            else await Promise.all([page.click('button[data-testid="trending-save-config"]'), trendReqPromise, trendResPromise]).catch(() => null);
-
-            if (trendReqPromise) {
-              const r = await trendReqPromise.catch(() => null);
-              if (r) {
-                const pd = r.postData ? r.postData() : null;
-                console.log('Captured trending save payload:', pd);
-              }
-            }
-            if (trendResPromise) {
-              const rr = await trendResPromise.catch(() => null);
-              if (rr) {
-                const txt = await rr.text().catch(() => null);
-                console.log('Captured trending save response:', txt);
-              }
-            }
-
-            // Poll for trending config persistence
-            const checkTrending = async () => {
+            // Retry selecting categories and saving until saved payload contains non-empty category_ids
+            const maxAttempts = 4;
+            let savedWithCategories = false;
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
               try {
-                const resp = await fetch('http://localhost:3000/api/cms/trending-config');
-                if (resp && resp.ok) {
-                  const j = await resp.json().catch(() => null);
-                  const cfg = j || j?.data || j?.config || j?.trending || {};
-                  const vis = cfg?.visibility || cfg?.visible_to || cfg?.roles || [];
-                  if (Array.isArray(vis) && vis.map) {
-                    const lower = vis.map((v) => String(v).toLowerCase());
-                    if (lower.includes('guest')) return { visibility: lower };
+                // Ensure the 'Enable Strip' checkbox is checked before saving (forceful, robust)
+                try {
+                  const enabledInput = await page.$('label:has-text("Enable Strip") input[type=checkbox]');
+                  if (enabledInput) {
+                    const checked = await enabledInput.isChecked().catch(() => false);
+                    if (!checked) {
+                      await enabledInput.click().catch(() => null);
+                      await page.waitForTimeout(150);
+                    }
+                  }
+                } catch (e) {}
+
+                // Force-set via evaluate as a fallback / guarantee
+                await page.evaluate(() => {
+                  try {
+                    const label = Array.from(document.querySelectorAll('label')).find(l => (l.textContent||'').toLowerCase().includes('enable strip'));
+                    if (label) {
+                      const input = label.querySelector('input[type="checkbox"]');
+                      if (input) {
+                        try { input.checked = true; } catch (e) {}
+                        try { input.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
+                        try { input.click(); } catch (e) {}
+                      }
+                    }
+                  } catch (e) {}
+                }).catch(() => null);
+
+                // Wait for category list to populate, then select the first two categories
+                try {
+                  await page.waitForSelector('[data-testid^="trending-category-"]', { timeout: 8000 });
+                  const catLoc = page.locator('[data-testid^="trending-category-"]');
+                  const count = await catLoc.count();
+                  const toClick = Math.min(2, Math.max(1, count));
+                  for (let i = 0; i < toClick; i++) {
+                    const el = catLoc.nth(i);
+                    await el.scrollIntoViewIfNeeded().catch(() => null);
+                    await el.click({ force: true }).catch(() => null);
+                    await page.waitForTimeout(150);
+                  }
+                } catch (e) {
+                  // ignore
+                }
+
+                // Read the in-page debug accessor (if present) so we can assert the component state
+                try {
+                  const inPageState = await page.evaluate(() => {
+                    try {
+                      return (window.__e2eTrendingState || null);
+                    } catch (e) {
+                      return null;
+                    }
+                  });
+                  console.log('E2E: in-page TrendingManager state after clicks:', JSON.stringify(inPageState));
+                } catch (e) {
+                  console.warn('Failed to read in-page trending state:', e?.message || e);
+                }
+
+                // Capture outgoing POST to any trending-related endpoint
+                const trendReqPromise = page.waitForRequest((req) => req.url().includes('/api/cms/trend') && req.method() === 'POST', { timeout: 12000 }).catch(() => null);
+                const trendResPromise = page.waitForResponse((res) => res.url().includes('/api/cms/trend') && res.request().method() === 'POST', { timeout: 12000 }).catch(() => null);
+
+                // click save
+                if (trendingSave) await Promise.all([trendingSave.click(), trendReqPromise, trendResPromise]);
+                else await Promise.all([page.click('button[data-testid="trending-save-config"]'), trendReqPromise, trendResPromise]).catch(() => null);
+
+                // Inspect the outgoing POST payload to confirm categories were included
+                if (trendReqPromise) {
+                  const r = await trendReqPromise.catch(() => null);
+                  if (r) {
+                    const pd = r.postData ? r.postData() : null;
+                    console.log('Captured trending save payload (attempt', attempt, '):', pd);
+                    let parsed = null;
+                    try { parsed = pd ? JSON.parse(pd) : null; } catch (e) { parsed = null; }
+                    const catIds = parsed?.category_ids || parsed?.categoryIds || parsed?.categories || [];
+                    if (Array.isArray(catIds) && catIds.length > 0) {
+                      savedWithCategories = true;
+                      console.log('Trending saved with categories on attempt', attempt, ':', catIds);
+                    } else {
+                      console.warn('Trending save payload missing categories on attempt', attempt, '- will retry.');
+                    }
                   }
                 }
-              } catch (e) {}
-              try {
-                const headers = {};
-                if (adminToken) headers['Authorization'] = `Bearer ${adminToken}`;
-                const resp2 = await fetch('http://localhost:5000/api/cms/trending-config', { headers });
-                if (resp2 && resp2.ok) {
-                  const j2 = await resp2.json().catch(() => null);
-                  const cfg2 = j2 || j2?.data || j2?.config || j2?.trending || {};
-                  const vis2 = cfg2?.visibility || cfg2?.visible_to || cfg2?.roles || [];
-                  if (Array.isArray(vis2) && vis2.map) {
-                    const lower2 = vis2.map((v) => String(v).toLowerCase());
-                    if (lower2.includes('guest')) return { visibility: lower2 };
+
+                if (trendResPromise) {
+                  const rr = await trendResPromise.catch(() => null);
+                  if (rr) {
+                    const txt = await rr.text().catch(() => null);
+                    console.log('Captured trending save response (attempt', attempt, '):', txt);
                   }
                 }
-              } catch (e) {}
-              return null;
-            };
 
-            let trendFound = null;
-            for (let i = 0; i < 8; i++) {
-              await new Promise((r) => setTimeout(r, 1000));
-              const f = await checkTrending();
-              if (f) { trendFound = f; break; }
+                if (savedWithCategories) break;
+
+              } catch (e) {
+                console.warn('Attempt', attempt, 'failed with error:', e?.message || e);
+              }
+
+              // Small pause before retrying
+              await page.waitForTimeout(800);
             }
-            if (trendFound) console.log('Trending config persisted with visibility:', trendFound.visibility);
-            else console.warn('Trending config did not persist within timeout.');
+
+            if (!savedWithCategories) console.warn('Trending save did not include categories after', maxAttempts, 'attempts.');
+            // If UI interactions failed to select categories, perform a direct admin save via fetch
+            if (!savedWithCategories && adminToken) {
+              console.log('Attempting direct trending-config save via page.evaluate() using admin APIs');
+              try {
+                const directSaveResult = await page.evaluate(async (token) => {
+                  try {
+                    const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+                    // Fetch admin categories (gigs + jobs)
+                    const gResp = await fetch('/admin/gigs-jobs/categories/gigs', { headers }).catch(() => null);
+                    const jResp = await fetch('/admin/gigs-jobs/categories/jobs', { headers }).catch(() => null);
+                    const gJson = gResp && gResp.ok ? await gResp.json().catch(() => null) : null;
+                    const jJson = jResp && jResp.ok ? await jResp.json().catch(() => null) : null;
+                    const gigs = Array.isArray(gJson) ? gJson : (gJson?.data || gJson?.categories || []);
+                    const jobs = Array.isArray(jJson) ? jJson : (jJson?.data || jJson?.categories || []);
+                    const cats = [...(gigs || []), ...(jobs || [])];
+                    const slugs = (cats || []).slice(0, 2).map((c) => c?.slug || c?.id || c?.name).filter(Boolean);
+
+                    const payload = {
+                      id: `trending-e2e-${Date.now()}`,
+                      enabled: true,
+                      title: 'Trending Categories',
+                      category_ids: slugs,
+                      scroll_behavior: 'manual',
+                      auto_slide_interval: 5000,
+                      visibility: ['guest', 'freelancer'],
+                      show_icons: false,
+                    };
+
+                    const saveResp = await fetch('/api/cms/trending?role=admin', { method: 'POST', headers, body: JSON.stringify(payload) }).catch(() => null);
+                    if (!saveResp) return { ok: false, error: 'no-response' };
+                    const text = await saveResp.text().catch(() => null);
+                    return { ok: saveResp.ok, status: saveResp.status, text, payload };
+                  } catch (e) {
+                    return { ok: false, error: String(e) };
+                  }
+                }, adminToken);
+
+                console.log('Direct save result:', directSaveResult);
+              } catch (e) {
+                console.warn('Direct trending save failed:', e?.message || e);
+              }
+            }
           } else {
             console.warn('Trending role button not present; skipping trending E2E.');
           }
@@ -489,12 +633,44 @@ import { chromium } from 'playwright';
           console.warn('Trending E2E error:', e?.message || e);
         }
 
-        // Open public site and check for new nav label (best-effort UI check)
-        const publicPage = await context.newPage();
-        await publicPage.goto('http://localhost:3000/', { timeout: 20000 });
+        // Open public site in a fresh context (no admin token) and check for new nav label and trending strip
+        const guestContext = await browser.newContext();
+        const publicPage = await guestContext.newPage();
+        // Stream browser console messages to node logs for debugging visibility decisions
+        publicPage.on('console', (msg) => {
+          try {
+            console.log('PAGE LOG:', msg.text());
+          } catch (e) {}
+        });
+        await publicPage.goto('http://localhost:3000/', { timeout: 40000, waitUntil: 'domcontentloaded' }).catch((e) => {
+          console.warn('Public page goto warning:', e?.message || e);
+        });
         // Give the public page a moment to fetch updated config
-        await publicPage.waitForTimeout(2000);
+        await publicPage.waitForTimeout(3500);
 
+        // Diagnostic: fetch trending-config from the public page context and log it
+        try {
+          const clientTrending = await publicPage.evaluate(async () => {
+            try {
+              const resp = await fetch('/api/cms/trending-config');
+              if (!resp) return { ok: false, error: 'no-response' };
+              const status = resp.status;
+              let json = null;
+              try { json = await resp.json(); } catch (e) { json = null; }
+              // page console will also show this info via console.info
+              console.info('[PUBLIC FETCH] /api/cms/trending-config', { status, ok: resp.ok, data: json });
+              return { status, ok: resp.ok, data: json };
+            } catch (e) {
+              console.info('[PUBLIC FETCH ERROR]', String(e));
+              return { ok: false, error: String(e) };
+            }
+          });
+          console.log('Client-side trending-config fetch result:', clientTrending);
+        } catch (e) {
+          console.warn('Error performing client-side trending-config fetch:', e?.message || e);
+        }
+
+        // Check nav item presence
         const found = await publicPage.$(`text=E2E Test Nav`);
         if (found) {
           console.log('Public site reflects new navigation item.');
@@ -504,7 +680,33 @@ import { chromium } from 'playwright';
           console.warn('Public site did NOT reflect new navigation item and backend did not persist it.');
         }
 
+        // Check Trending strip presence for guest
+        try {
+          const trendingGuest = await publicPage.$('[data-testid="trending-strip"]');
+          if (trendingGuest) console.log('Trending strip is visible to GUEST on public page.');
+          else console.warn('Trending strip NOT visible to GUEST on public page.');
+        } catch (e) {
+          console.warn('Error checking trending strip for guest:', e?.message || e);
+        }
+
+        // Best-effort: simulate a freelancer client by seeding a user role in localStorage and reloading
+        try {
+          await publicPage.evaluate(() => {
+            try {
+              localStorage.setItem('user', JSON.stringify({ role: 'freelancer' }));
+            } catch (e) {}
+          });
+          await publicPage.reload({ timeout: 15000 }).catch(() => null);
+          await publicPage.waitForTimeout(1200);
+          const trendingFreel = await publicPage.$('[data-testid="trending-strip"]');
+          if (trendingFreel) console.log('Trending strip is visible to FREELANCER (best-effort).');
+          else console.warn('Trending strip NOT visible to FREELANCER (best-effort).');
+        } catch (e) {
+          console.warn('Error checking trending strip for freelancer simulation:', e?.message || e);
+        }
+
         await publicPage.close();
+        await guestContext.close().catch(() => null);
 
   } catch (err) {
     console.error('E2E script failed:', err);

@@ -1,24 +1,43 @@
-import React, { useEffect, Suspense } from 'react';
+import React, { useEffect, Suspense, useRef, useState, useCallback } from 'react';
 import { 
   BrowserRouter, 
   Routes, 
   Route, 
-  Navigate, 
-  useLocation
+  Navigate,
+  useLocation,
+  useNavigate
 } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import DynamicFooter from './components/DynamicFooter';
 import SupportWidget from './components/SupportWidget';
 import ToastContainer from './components/ToastContainer';
+import MarketingPopups from './components/MarketingPopups';
+import OfflineBanner from './components/OfflineBanner';
+import PwaInstallPrompt from './components/PwaInstallPrompt';
 import { UserRole } from './types';
 import { CurrencyProvider } from './context/CurrencyContext';
 import { ContentProvider, useContent } from './context/ContentContext';
-import { NotificationProvider } from './context/NotificationContext';
+import { NotificationProvider, useNotification } from './context/NotificationContext';
 import { FavoritesProvider } from './context/FavoritesContext';
+import { CartProvider } from './context/CartContext';
 import { MessageProvider } from './context/MessageContext';
 import { UserProvider, useUser } from './context/UserContext';
 import { SocketProvider } from './context/SocketContext';
+import { PreloaderProvider } from './context/PreloaderContext';
+import GlobalPreloader from './components/GlobalPreloader';
 import { Loader, AlertTriangle } from 'lucide-react';
+import IntegrationsManager from './components/IntegrationsManager';
+import { registerDeepLinks } from './mobile/deeplinks';
+import { initPushNotifications } from './mobile/push';
+import { App as CapacitorApp } from '@capacitor/app';
+import {
+  authenticateBiometrics,
+  checkBiometrics,
+  getBiometricPreference,
+  getBiometryLabel,
+  isNativePlatform,
+  setBiometricPreference
+} from './mobile/biometrics';
 
 // Eagerly loaded dashboard component (frequently used)
 import { DashboardRouter } from './dashboard/DashboardRouter';
@@ -27,6 +46,8 @@ import { DashboardRouter } from './dashboard/DashboardRouter';
 const Landing = React.lazy(() => import('./main/Landing'));
 const Login = React.lazy(() => import('./auth/Login'));
 const Signup = React.lazy(() => import('./auth/Signup'));
+const ForgotPassword = React.lazy(() => import('./auth/ForgotPassword'));
+const ResetPassword = React.lazy(() => import('./auth/ResetPassword'));
 const OAuthCallback = React.lazy(() => import('./auth/OAuthCallback'));
 const BrowseTalent = React.lazy(() => import('./main/BrowseTalent'));
 const BrowseJobs = React.lazy(() => import('./main/BrowseJobs'));
@@ -38,6 +59,7 @@ const CreateGig = React.lazy(() => import('./create-gig/CreateGig'));
 const KYCVerification = React.lazy(() => import('./kyc/KYCVerification'));
 const Messages = React.lazy(() => import('./messages/Messages'));
 const FreelancerProfile = React.lazy(() => import('./profile/FreelancerProfile'));
+const CompanyPage = React.lazy(() => import('./pages/CompanyPage'));
 const EditProfile = React.lazy(() => import('./profile/EditProfile'));
 const DeveloperDocs = React.lazy(() => import('./dashboard/DeveloperDocs'));
 const LanguagesAdmin = React.lazy(() => import('./dashboard/admin/Languages'));
@@ -53,6 +75,7 @@ const FreelancerPage = React.lazy(() => import('./pages/FreelancerPage'));
 const Support = React.lazy(() => import('./pages/Support'));
 const AffiliateProgram = React.lazy(() => import('./pages/AffiliateProgram'));
 const Favorites = React.lazy(() => import('./pages/Favorites'));
+const Cart = React.lazy(() => import('./pages/Cart'));
 const SettingsModule = React.lazy(() => import('./dashboard/shared/SettingsModule'));
 
 // Community Components
@@ -65,6 +88,7 @@ const Events = React.lazy(() => import('./community/Events'));
 const Chat = React.lazy(() => import('./community/Chat'));
 const Leaderboard = React.lazy(() => import('./community/Leaderboard'));
 const GcoinDash = React.lazy(() => import('./community/GcoinDash'));
+const CommunityDashboard = React.lazy(() => import('./dashboard/shared/CommunityDashboard'));
 const MyAds = React.lazy(() => import('./pages/MyAds'));
 
 // Error Boundary Component
@@ -96,10 +120,22 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBo
 
 // Inner App component to use hooks
 const AppContent = () => {
-  const { user } = useUser();
+  const { user, isAuthenticated, logout } = useUser();
   const { settings } = useContent();
+  const { showNotification } = useNotification();
   const location = useLocation();
-  const themeKey = 'geezle.pref.theme';
+  const navigate = useNavigate();
+  const pushInitRef = useRef(false);
+  const themeKey = 'Scrolith.pref.theme';
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricVerified, setBiometricVerified] = useState(false);
+  const [biometricChecking, setBiometricChecking] = useState(false);
+  const [biometricError, setBiometricError] = useState<string | null>(null);
+  const [biometryLabel, setBiometryLabel] = useState('Biometric');
+  const [biometricPrefVersion, setBiometricPrefVersion] = useState(0);
+  const biometricCheckingRef = useRef(false);
+  const biometricVerifiedRef = useRef(false);
+  const isNative = isNativePlatform();
 
   // Dynamic Favicon Update
   useEffect(() => {
@@ -205,7 +241,7 @@ const AppContent = () => {
   // Dynamic title and meta description from platform settings
   useEffect(() => {
     try {
-      const siteName = settings?.siteName || settings?.site_name || 'Geezle';
+      const siteName = settings?.siteName || settings?.site_name || 'Scrolith';
       const tagline = settings?.tagline || settings?.siteTagline || settings?.site_tagline || '';
       const title = tagline ? `${siteName} | ${tagline}` : siteName;
       if (document.title !== title) document.title = title;
@@ -230,11 +266,110 @@ const AppContent = () => {
     }
   }, []);
 
+  const updateBiometricChecking = (value: boolean) => {
+    biometricCheckingRef.current = value;
+    setBiometricChecking(value);
+  };
+
+  const updateBiometricVerified = (value: boolean) => {
+    biometricVerifiedRef.current = value;
+    setBiometricVerified(value);
+  };
+
+  useEffect(() => {
+    const handler = () => setBiometricPrefVersion((value) => value + 1);
+    window.addEventListener('Scrolith:biometric_pref_changed', handler);
+    return () => window.removeEventListener('Scrolith:biometric_pref_changed', handler);
+  }, []);
+
+  useEffect(() => {
+    setBiometricEnabled(Boolean(isNative && getBiometricPreference()));
+    if (!isNative) {
+      updateBiometricVerified(true);
+    }
+  }, [isNative, biometricPrefVersion]);
+
+  const promptBiometrics = useCallback(
+    async (reason?: string) => {
+      if (!isNative || !biometricEnabled || biometricCheckingRef.current) return;
+      if (!isAuthenticated || !user) return;
+      if (biometricVerifiedRef.current) return;
+
+      updateBiometricChecking(true);
+      setBiometricError(null);
+
+      const info = await checkBiometrics();
+      if (!info.available) {
+        setBiometricEnabled(false);
+        setBiometricPreference(false);
+        updateBiometricVerified(true);
+        updateBiometricChecking(false);
+        showNotification('alert', 'Biometrics Unavailable', 'No biometric hardware detected on this device.');
+        return;
+      }
+
+      const label = getBiometryLabel(info.biometryType);
+      setBiometryLabel(label);
+
+      const auth = await authenticateBiometrics(reason || `Unlock Scrolith with ${label}`);
+      if (auth.ok) {
+        updateBiometricVerified(true);
+        setBiometricError(null);
+      } else {
+        updateBiometricVerified(false);
+        setBiometricError(auth.error || 'Authentication failed.');
+      }
+      updateBiometricChecking(false);
+    },
+    [
+      isNative,
+      biometricEnabled,
+      isAuthenticated,
+      user,
+      showNotification
+    ]
+  );
+
+  useEffect(() => {
+    registerDeepLinks((path) => navigate(path, { replace: true }));
+  }, [navigate]);
+
+  useEffect(() => {
+    if (!isAuthenticated || pushInitRef.current) return;
+    pushInitRef.current = true;
+    void initPushNotifications((path) => navigate(path, { replace: true }));
+  }, [isAuthenticated, navigate]);
+
+  useEffect(() => {
+    if (!biometricEnabled || !isAuthenticated || !user) {
+      updateBiometricVerified(true);
+      setBiometricError(null);
+      return;
+    }
+    updateBiometricVerified(false);
+    void promptBiometrics();
+  }, [biometricEnabled, isAuthenticated, user, promptBiometrics]);
+
+  useEffect(() => {
+    if (!isNative || !biometricEnabled) return;
+    const listener = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) return;
+      updateBiometricVerified(false);
+      void promptBiometrics(`Unlock Scrolith with ${biometryLabel}`);
+    });
+    return () => {
+      listener.remove();
+    };
+  }, [isNative, biometricEnabled, promptBiometrics, biometryLabel]);
+
   // Hide Navbar/Footer on Admin Dashboard for full screen feel
   const isAdminRoute = location.pathname.startsWith('/admin') || location.pathname.startsWith('/dev-docs');
   
   return (
     <div className="flex flex-col min-h-screen relative">
+      <IntegrationsManager />
+      <OfflineBanner />
+      <PwaInstallPrompt />
       {!isAdminRoute && <Navbar />}
       <main className="flex-grow">
         <ErrorBoundary>
@@ -242,7 +377,7 @@ const AppContent = () => {
             <div className="h-screen flex items-center justify-center bg-white">
               <div className="text-center">
                 <Loader className="w-10 h-10 animate-spin text-blue-600 mx-auto mb-4" />
-                <p className="text-gray-500 font-medium">Loading Geezle...</p>
+                <p className="text-gray-500 font-medium">Loading Scrolith...</p>
               </div>
             </div>
           }>
@@ -253,6 +388,22 @@ const AppContent = () => {
                 element={
                   <PublicOnlyRoute>
                     <Login />
+                  </PublicOnlyRoute>
+                }
+              />
+              <Route
+                path="/auth/forgot-password"
+                element={
+                  <PublicOnlyRoute>
+                    <ForgotPassword />
+                  </PublicOnlyRoute>
+                }
+              />
+              <Route
+                path="/auth/reset-password"
+                element={
+                  <PublicOnlyRoute>
+                    <ResetPassword />
                   </PublicOnlyRoute>
                 }
               />
@@ -300,8 +451,10 @@ const AppContent = () => {
                 }
               >
                 <Route index element={<CommunityHome />} />
+                <Route path="posts/:id" element={<CommunityHome />} />
                 <Route path="forum" element={<Forum />} />
                 <Route path="thread/:id" element={<ThreadDetail />} />
+                <Route path="dashboard" element={<CommunityDashboard />} />
                 <Route path="gcoin" element={<GcoinDash />} />
                 <Route path="chat" element={<Chat />} />
                 <Route path="clubs" element={<Clubs />} />
@@ -319,6 +472,9 @@ const AppContent = () => {
               
               {/* Profiles */}
               <Route path="/profile/:id" element={<FreelancerProfile />} />
+              <Route path="/u/:username" element={<FreelancerProfile />} />
+              <Route path="/community/u/:username" element={<FreelancerProfile />} />
+              <Route path="/company/:slug" element={<CompanyPage />} />
               <Route path="/profile/edit" element={
                 <ProtectedRoute>
                   <EditProfile />
@@ -353,6 +509,11 @@ const AppContent = () => {
               <Route path="/favorites" element={
                   <ProtectedRoute>
                     <Favorites />
+                  </ProtectedRoute>
+              } />
+              <Route path="/cart" element={
+                  <ProtectedRoute>
+                    <Cart />
                   </ProtectedRoute>
               } />
 
@@ -436,6 +597,42 @@ const AppContent = () => {
       </main>
       {!isAdminRoute && <DynamicFooter />}
       <SupportWidget />
+      {!isAdminRoute && <MarketingPopups />}
+      {biometricEnabled && !biometricVerified && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/80 p-6">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="rounded-2xl bg-slate-900 p-3 text-white">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-900">{biometryLabel} required</p>
+                <p className="text-xs text-slate-500">Unlock Scrolith to continue.</p>
+              </div>
+            </div>
+            {biometricError && (
+              <div className="mt-3 rounded-2xl bg-red-50 px-3 py-2 text-xs text-red-600">
+                {biometricError}
+              </div>
+            )}
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                onClick={() => promptBiometrics(`Unlock Scrolith with ${biometryLabel}`)}
+                disabled={biometricChecking}
+                className="flex-1 rounded-2xl bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-60"
+              >
+                {biometricChecking ? 'Checking...' : `Use ${biometryLabel}`}
+              </button>
+              <button
+                onClick={logout}
+                className="rounded-2xl border border-slate-200 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600"
+              >
+                Sign out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -479,9 +676,9 @@ const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) 
 };
 
 // Update the ProtectedRoute component to NOT redirect for homepage
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
-  const { user, isAuthenticated, isLoading } = useUser();
-  const location = useLocation();
+  const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
+    const { user, isAuthenticated, isLoading } = useUser();
+    const location = useLocation();
 
   if (isLoading) {
     return (
@@ -496,14 +693,19 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles 
   }
 
   // If allowedRoles is provided, check if user has the required role
-  if (allowedRoles) {
-    const normalizedRole = (user.role || '').toString().toLowerCase() as UserRole;
-    if (!allowedRoles.includes(normalizedRole)) {
-      // Only redirect if the current path is NOT the homepage
-      if (location.pathname !== '/') {
-        return <Navigate to={resolveDashboardPath(normalizedRole)} replace />;
+    if (allowedRoles) {
+      const normalizedRole = (user.role || '').toString().toLowerCase() as UserRole;
+      if (!allowedRoles.includes(normalizedRole)) {
+        const params = new URLSearchParams(location.search);
+        const override = (params.get('as') || params.get('view') || sessionStorage.getItem('activeRole') || '').toString().toLowerCase();
+        if (override && allowedRoles.includes(override as UserRole)) {
+          return <>{children}</>;
+        }
+        // Only redirect if the current path is NOT the homepage
+        if (location.pathname !== '/') {
+          return <Navigate to={resolveDashboardPath(normalizedRole)} replace />;
+        }
       }
-    }
   }
 
   // TODO: Re-add RealtimeProvider after fixing socket initialization issues
@@ -518,18 +720,23 @@ function App() {
     <BrowserRouter>
       <UserProvider>
         <SocketProvider>
-          <ContentProvider>
-            <NotificationProvider>
-              <ToastContainer />
-              <CurrencyProvider>
-                <FavoritesProvider>
-                  <MessageProvider>
-                    <AppContent />
-                  </MessageProvider>
-                </FavoritesProvider>
-              </CurrencyProvider>
-            </NotificationProvider>
-          </ContentProvider>
+          <PreloaderProvider>
+            <ContentProvider>
+              <NotificationProvider>
+                <ToastContainer />
+                <CurrencyProvider>
+                  <FavoritesProvider>
+                    <CartProvider>
+                      <MessageProvider>
+                        <GlobalPreloader />
+                        <AppContent />
+                      </MessageProvider>
+                    </CartProvider>
+                  </FavoritesProvider>
+                </CurrencyProvider>
+              </NotificationProvider>
+            </ContentProvider>
+          </PreloaderProvider>
         </SocketProvider>
       </UserProvider>
     </BrowserRouter>
@@ -537,3 +744,4 @@ function App() {
 }
 
 export default App;
+

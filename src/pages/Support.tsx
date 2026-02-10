@@ -1,12 +1,15 @@
 
 import React, { useState, useEffect } from 'react';
 import { SupportService } from '../services/support';
+import { useContent } from '../context/ContentContext';
 import { useNotification } from '../context/NotificationContext';
 import { Ticket, Search, CheckCircle, Upload, ArrowRight, User, Mail, Phone, FileText, Clock, RefreshCw, MessageSquare } from 'lucide-react';
 import { TicketCategory, SupportTicket, TicketStatus } from '../types';
+import { executeRecaptcha } from '../services/recaptcha';
 
 const Support = () => {
     const { showNotification } = useNotification();
+    const { settings } = useContent();
     const [activeTab, setActiveTab] = useState<'create' | 'track'>('create');
     const [trackingCodeInput, setTrackingCodeInput] = useState('');
     const [trackedTicket, setTrackedTicket] = useState<SupportTicket | null>(null);
@@ -40,6 +43,21 @@ const Support = () => {
         e.preventDefault();
         setIsSubmitting(true);
         try {
+            const recaptchaConfig = (settings as any)?.integrations?.recaptcha || {};
+            const legacySiteKey = (settings as any)?.recaptcha_site_key || (settings as any)?.recaptchaSiteKey || '';
+            const recaptchaEnabled = Boolean(recaptchaConfig?.enabled) || Boolean(legacySiteKey);
+            const siteKey = String(recaptchaConfig?.siteKey || legacySiteKey || '').trim();
+            const version = (recaptchaConfig?.version || 'v3') as 'v2' | 'v3';
+            let recaptchaToken: string | undefined;
+            if (recaptchaEnabled) {
+                if (version !== 'v3') {
+                    showNotification('error', 'reCAPTCHA Error', 'reCAPTCHA v3 is required for support requests.');
+                    setIsSubmitting(false);
+                    return;
+                }
+                recaptchaToken = await executeRecaptcha(siteKey, 'support_ticket');
+            }
+
             // Convert file to mock URL for demo persistence
             let attachments: string[] = [];
             if (formData.file) {
@@ -51,13 +69,15 @@ const Support = () => {
 
             const ticket = await SupportService.createTicket({
                 ...formData,
-                attachments
+                attachments,
+                recaptchaToken
             });
             setCreatedTicket(ticket);
             showNotification('success', 'Ticket Created', `Your tracking code is ${ticket.tracking_code}`);
             setFormData({ fullName: '', email: '', mobile: '', subject: '', message: '', category: categories[0]?.name || '', file: null });
-        } catch (error) {
-            showNotification('error', 'Error', 'Failed to create ticket. Please try again.');
+        } catch (error: any) {
+            const message = error?.response?.data?.error || error?.message || 'Failed to create ticket. Please try again.';
+            showNotification('error', 'Error', message);
         } finally {
             setIsSubmitting(false);
         }

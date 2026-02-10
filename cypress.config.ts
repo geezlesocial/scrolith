@@ -11,7 +11,7 @@ export default defineConfig({
       apiUrl: process.env.CYPRESS_apiUrl || (process.env.BACKEND_URL ? `${process.env.BACKEND_URL.replace(/\/$/, '')}/api` : '/api'),
 
       // UPDATE IF NEEDED
-      adminEmail: "admin@geezle.com",
+      adminEmail: "admin@Scrolith.com",
       adminPassword: "admin12345",
 
       freelancerEmail: "shagocart@gmail.com",

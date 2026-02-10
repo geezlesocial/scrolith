@@ -26,7 +26,7 @@ The community forum has **critical errors** preventing proper functionality:
 ---
 
 ### 1.2 Missing Backend API Endpoints
-**Location:** `geezle-backend/src/routes/`
+**Location:** `Scrolith-backend/src/routes/`
 
 **Missing Endpoints:**
 - ❌ `GET /api/community/threads` - No route exists
@@ -43,7 +43,7 @@ The community forum has **critical errors** preventing proper functionality:
 ---
 
 ### 1.3 Missing Prisma Models
-**Location:** `geezle-backend/prisma/schema.prisma`
+**Location:** `Scrolith-backend/prisma/schema.prisma`
 
 **Missing Models:**
 - ❌ `ForumThread` model
@@ -164,3 +164,4 @@ The community forum has **critical errors** preventing proper functionality:
 ---
 
 ## End of Analysis
+

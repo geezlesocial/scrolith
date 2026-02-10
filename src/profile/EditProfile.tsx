@@ -1,6 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useUser } from '../context/UserContext';
+import { useContent } from '../context/ContentContext';
 import { UserService } from '../services/user';
 import { UserProfile, PortfolioItem, Experience, Education, Certification, UploadedFile } from '../types';
 import { useNotification } from '../context/NotificationContext';
@@ -10,6 +11,9 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import FilePickerModal from '../dashboard/shared/FilePickerModal';
+import { FileService } from '../services/files';
+import { Capacitor } from '@capacitor/core';
+import { captureAndUpload } from '../mobile/uploads';
 
 interface EditProfileProps {
     isEmbedded?: boolean;
@@ -17,6 +21,7 @@ interface EditProfileProps {
 
 const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
     const { user, updateUser } = useUser();
+    const { settings } = useContent();
     const navigate = useNavigate();
     const { showNotification } = useNotification();
     const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -27,9 +32,53 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
     
     // File Picker State
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
-    const [pickerTarget, setPickerTarget] = useState<'avatar' | 'video' | 'portfolio' | null>(null);
+    const [pickerTarget, setPickerTarget] = useState<'avatar' | 'video' | 'cover' | 'portfolio' | null>(null);
     const [portfolioPickerOpen, setPortfolioPickerOpen] = useState(false);
     const [activePortfolioId, setActivePortfolioId] = useState<string | null>(null);
+    const [cameraOpen, setCameraOpen] = useState(false);
+    const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+    const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
+    const cameraCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    const [cameraTarget, setCameraTarget] = useState<'avatar' | 'cover'>('avatar');
+    const [username, setUsername] = useState('');
+    const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'taken' | 'invalid' | 'saving' | 'error'>('idle');
+    const [usernameMessage, setUsernameMessage] = useState('');
+    const usernameCheckRef = useRef<number | null>(null);
+    const lastSavedUsernameRef = useRef<string>('');
+    const [introRecorderOpen, setIntroRecorderOpen] = useState(false);
+    const [introRecorderStream, setIntroRecorderStream] = useState<MediaStream | null>(null);
+    const introVideoRef = useRef<HTMLVideoElement | null>(null);
+    const introRecorderRef = useRef<MediaRecorder | null>(null);
+    const introChunksRef = useRef<Blob[]>([]);
+    const [introRecording, setIntroRecording] = useState(false);
+    const [introUploading, setIntroUploading] = useState(false);
+    const usernameRegex = /^[a-z0-9][a-z0-9._-]{2,29}$/;
+    const publicBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://www.scrolith.com';
+    const cleanBaseUrl = publicBaseUrl.replace(/\/$/, '');
+    const profileDemographics = (settings as any)?.profileDemographics || {};
+    const demographicsEnabled = profileDemographics?.enabled !== false;
+    const genderEnabled = demographicsEnabled && profileDemographics?.genderFieldEnabled !== false;
+    const dateOfBirthEnabled = demographicsEnabled && profileDemographics?.dateOfBirthEnabled !== false;
+    const genderOptions = useMemo(() => {
+        const fromSettings = Array.isArray(profileDemographics?.genderOptions)
+            ? profileDemographics.genderOptions.filter((option: any) => option && option.active !== false)
+            : [];
+        if (fromSettings.length) {
+            return fromSettings.map((option: any) => ({
+                key: String(option.key || option.value || option.label || '').trim().toLowerCase(),
+                label: String(option.label || option.key || option.value || '').trim()
+            })).filter((option: any) => option.key && option.label);
+        }
+        return [
+            { key: 'male', label: 'Male' },
+            { key: 'female', label: 'Female' }
+        ];
+    }, [profileDemographics]);
+
+    const notifyProfileUpdate = (updatedProfile?: UserProfile | null, updatedUser?: { name?: string; avatar?: string; username?: string }) => {
+        if (typeof window === 'undefined') return;
+        window.dispatchEvent(new CustomEvent('profile:updated', { detail: { profile: updatedProfile, user: updatedUser } }));
+    };
 
     useEffect(() => {
         let mounted = true;
@@ -44,12 +93,19 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
 
             setLoading(true);
             setDisplayName(user.name || '');
+            setUsername(user.username || '');
+            lastSavedUsernameRef.current = user.username || '';
             setProfile({
                 user_id: user.id,
                 userId: user.id,
                 title: '',
                 bio: '',
                 location: '',
+                gender: '',
+                date_of_birth: null,
+                dateOfBirth: null,
+                show_birth_month_day_public: true,
+                showBirthMonthDayPublic: true,
                 languages: [],
                 skills: [],
                 hourly_rate: 0,
@@ -78,16 +134,85 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
         };
     }, [user?.id, showNotification]);
 
+    useEffect(() => {
+        if (!user) return;
+        const currentUsername = (user.username || '').trim().toLowerCase();
+        const candidate = username.trim().toLowerCase();
+
+        if (usernameCheckRef.current) {
+            window.clearTimeout(usernameCheckRef.current);
+            usernameCheckRef.current = null;
+        }
+
+        if (!candidate) {
+            setUsernameStatus('idle');
+            setUsernameMessage('');
+            return;
+        }
+
+        if (!usernameRegex.test(candidate)) {
+            setUsernameStatus('invalid');
+            setUsernameMessage('Username must be 3-30 characters and use letters, numbers, dot, dash, or underscore.');
+            return;
+        }
+
+        if (candidate === currentUsername) {
+            setUsernameStatus('idle');
+            setUsernameMessage('');
+            return;
+        }
+
+        setUsernameStatus('checking');
+        setUsernameMessage('Checking availability...');
+        usernameCheckRef.current = window.setTimeout(async () => {
+            try {
+                const result = await UserService.checkUsernameAvailability(candidate);
+                if (!result.available) {
+                    setUsernameStatus('taken');
+                    setUsernameMessage('Username not available');
+                    return;
+                }
+                setUsernameStatus('available');
+                setUsernameMessage('Username is available');
+                await saveUsername(candidate);
+            } catch {
+                setUsernameStatus('error');
+                setUsernameMessage('Unable to verify username');
+            }
+        }, 500);
+
+        return () => {
+            if (usernameCheckRef.current) {
+                window.clearTimeout(usernameCheckRef.current);
+                usernameCheckRef.current = null;
+            }
+        };
+    }, [username, user]);
+
+    useEffect(() => {
+        if (cameraVideoRef.current && cameraStream) {
+            cameraVideoRef.current.srcObject = cameraStream;
+        }
+    }, [cameraStream]);
+
+    useEffect(() => {
+        if (introVideoRef.current && introRecorderStream) {
+            introVideoRef.current.srcObject = introRecorderStream;
+        }
+    }, [introRecorderStream]);
+
     const handleSave = async () => {
         if (!profile || !user) return;
         setIsSaving(true);
         try {
             const updated = await UserService.updateMyProfile(profile);
             setProfile(updated);
-            if (displayName.trim() && displayName.trim() !== (user.name || '')) {
-                await UserService.updateCredentials(user.id, { name: displayName.trim() });
-                updateUser({ name: displayName.trim() });
+            const nextName = displayName.trim();
+            if (nextName && nextName !== (user.name || '')) {
+                await UserService.updateCredentials(user.id, { name: nextName });
+                updateUser({ name: nextName });
             }
+            notifyProfileUpdate(updated, { name: nextName || user.name, username: lastSavedUsernameRef.current });
             showNotification('success', 'Profile Updated', 'Your changes have been saved successfully.');
         } catch (e: any) {
             showNotification('alert', 'Error', e?.message || 'Failed to save profile.');
@@ -96,38 +221,255 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
         }
     };
 
+    const saveUsername = async (value: string) => {
+        if (!user) return;
+        if (!value || value === lastSavedUsernameRef.current) return;
+        setUsernameStatus('saving');
+        setUsernameMessage('Saving username...');
+        try {
+            await UserService.updateCredentials(user.id, { username: value });
+            updateUser({ username: value });
+            lastSavedUsernameRef.current = value;
+            setUsernameStatus('available');
+            setUsernameMessage('Username is available');
+            notifyProfileUpdate(null, { username: value });
+            showNotification('success', 'Username Updated', 'Your public profile URL has been updated.');
+        } catch (error: any) {
+            setUsernameStatus('error');
+            setUsernameMessage(error?.response?.data?.error || 'Unable to save username');
+            showNotification('alert', 'Username Error', error?.message || 'Unable to update username.');
+        }
+    };
+
+    const applyProfilePhoto = async (file: UploadedFile) => {
+        if (!profile || !user) return;
+        updateUser({ avatar: file.url, profilePhotoFileId: file.id });
+        setProfile(prev => prev ? {
+            ...prev,
+            avatarUrl: file.url,
+            avatar_url: file.url,
+            profilePhotoFileId: file.id,
+            profile_photo_file_id: file.id
+        } : prev);
+        try {
+            await UserService.updateCredentials(user.id, { avatar: file.url, profilePhotoFileId: file.id });
+            notifyProfileUpdate(null, { avatar: file.url });
+        } catch (error) {
+            showNotification('alert', 'Error', 'Failed to update profile photo.');
+        }
+    };
+
+    const applyCoverPhoto = async (file: UploadedFile) => {
+        if (!profile || !user) return;
+        setProfile(prev => prev ? {
+            ...prev,
+            coverPhotoUrl: file.url,
+            cover_photo_url: file.url
+        } : prev);
+        try {
+            const updated = await UserService.updateMyProfile({ coverPhotoUrl: file.url, cover_photo_url: file.url });
+            setProfile(updated);
+            notifyProfileUpdate(updated);
+            showNotification('success', 'Profile', 'Cover photo updated.');
+        } catch (error) {
+            showNotification('alert', 'Error', 'Failed to update cover photo.');
+        }
+    };
+
     const handleFileSelect = async (file: UploadedFile) => {
         if (!profile || !user) return;
 
         if (pickerTarget === 'avatar') {
-            updateUser({ avatar: file.url, profilePhotoFileId: file.id });
-            setProfile(prev => prev ? {
-                ...prev,
-                avatarUrl: file.url,
-                avatar_url: file.url,
-                profilePhotoFileId: file.id,
-                profile_photo_file_id: file.id
-            } : prev);
-            try {
-                await UserService.updateCredentials(user.id, { avatar: file.url, profilePhotoFileId: file.id });
-            } catch (error) {
-                showNotification('alert', 'Error', 'Failed to update profile photo.');
-            }
+            await applyProfilePhoto(file);
+        } else if (pickerTarget === 'cover') {
+            await applyCoverPhoto(file);
         } else if (pickerTarget === 'video') {
-            setProfile(prev => prev ? {
-                ...prev,
-                introVideoUrl: file.url,
-                intro_video_url: file.url
-            } : null);
+            try {
+                const updated = await UserService.updateMyProfile({ introVideoUrl: file.url, intro_video_url: file.url });
+                setProfile(updated);
+                notifyProfileUpdate(updated);
+                showNotification('success', 'Profile', 'Intro video updated.');
+            } catch (error) {
+                setProfile(prev => prev ? {
+                    ...prev,
+                    introVideoUrl: file.url,
+                    intro_video_url: file.url
+                } : null);
+                notifyProfileUpdate({ ...(profile as UserProfile), introVideoUrl: file.url, intro_video_url: file.url });
+                showNotification('alert', 'Error', 'Failed to update intro video.');
+            }
         }
         
         setIsFilePickerOpen(false);
         setPickerTarget(null);
     };
 
-    const openPicker = (target: 'avatar' | 'video') => {
+    const openPicker = (target: 'avatar' | 'video' | 'cover') => {
         setPickerTarget(target);
         setIsFilePickerOpen(true);
+    };
+
+    const stopCamera = () => {
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(track => track.stop());
+        }
+        setCameraStream(null);
+        setCameraOpen(false);
+    };
+
+    const startCamera = async (target: 'avatar' | 'cover' = 'avatar') => {
+        if (!user) return;
+        setCameraTarget(target);
+        try {
+            const isNative = Capacitor.isNativePlatform();
+            if (isNative) {
+                const uploaded = await captureAndUpload({
+                    category: 'portfolio',
+                    role: user.role,
+                    visibility: 'public',
+                    userId: user.id
+                });
+                if (target === 'cover') {
+                    await applyCoverPhoto(uploaded);
+                } else {
+                    await applyProfilePhoto(uploaded);
+                }
+                showNotification('success', 'Profile', target === 'cover' ? 'Cover photo updated.' : 'Profile photo updated.');
+                return;
+            }
+        } catch (error) {
+            console.error(error);
+            showNotification('error', 'Camera', 'Unable to access camera.');
+            return;
+        }
+
+        if (!navigator.mediaDevices?.getUserMedia) {
+            showNotification('warning', 'Camera', 'Camera access is not available in this browser.');
+            return;
+        }
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+            setCameraStream(stream);
+            setCameraOpen(true);
+        } catch (error) {
+            console.error(error);
+            showNotification('error', 'Camera', 'Unable to access camera.');
+        }
+    };
+
+    const capturePhoto = async () => {
+        const video = cameraVideoRef.current;
+        const canvas = cameraCanvasRef.current;
+        if (!video || !canvas || !user) return;
+        const width = video.videoWidth || 640;
+        const height = video.videoHeight || 480;
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.drawImage(video, 0, 0, width, height);
+        canvas.toBlob(async (blob) => {
+            if (!blob) return;
+            try {
+                const file = new File([blob], `profile-${Date.now()}.png`, { type: blob.type || 'image/png' });
+                const uploaded = await FileService.uploadFile(file, 'portfolio', {
+                    role: user.role,
+                    visibility: 'public',
+                    userId: user.id
+                });
+                if (cameraTarget === 'cover') {
+                    await applyCoverPhoto(uploaded);
+                } else {
+                    await applyProfilePhoto(uploaded);
+                }
+                showNotification('success', 'Profile', cameraTarget === 'cover' ? 'Cover photo updated.' : 'Profile photo updated.');
+            } catch (error) {
+                console.error(error);
+                showNotification('error', 'Camera', 'Capture upload failed.');
+            } finally {
+                stopCamera();
+            }
+        }, 'image/png');
+    };
+
+    const stopIntroCamera = () => {
+        if (introRecorderStream) {
+            introRecorderStream.getTracks().forEach((track) => track.stop());
+        }
+        setIntroRecorderStream(null);
+        setIntroRecorderOpen(false);
+        setIntroRecording(false);
+        introChunksRef.current = [];
+        introRecorderRef.current = null;
+    };
+
+    const startIntroCamera = async () => {
+        if (!user) return;
+        if (!navigator.mediaDevices?.getUserMedia) {
+            showNotification('warning', 'Camera', 'Video recording is not available in this browser.');
+            return;
+        }
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: true });
+            setIntroRecorderStream(stream);
+            setIntroRecorderOpen(true);
+        } catch (error) {
+            console.error(error);
+            showNotification('error', 'Camera', 'Unable to access camera for video.');
+        }
+    };
+
+    const startIntroRecording = () => {
+        if (!introRecorderStream || introRecording) return;
+        try {
+            const recorder = new MediaRecorder(introRecorderStream, { mimeType: 'video/webm' });
+            introChunksRef.current = [];
+            recorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    introChunksRef.current.push(event.data);
+                }
+            };
+            recorder.onstop = async () => {
+                try {
+                    const blob = new Blob(introChunksRef.current, { type: recorder.mimeType || 'video/webm' });
+                    const file = new File([blob], `intro-${Date.now()}.webm`, { type: blob.type });
+                    setIntroUploading(true);
+                    const uploaded = await FileService.uploadFile(file, 'portfolio', {
+                        role: user?.role,
+                        visibility: 'public',
+                        userId: user?.id
+                    });
+                    const updated = await UserService.updateMyProfile({ introVideoUrl: uploaded.url, intro_video_url: uploaded.url });
+                    setProfile(updated);
+                    notifyProfileUpdate(updated);
+                    showNotification('success', 'Profile', 'Intro video updated.');
+                } catch (error) {
+                    console.error(error);
+                    showNotification('alert', 'Error', 'Failed to upload intro video.');
+                } finally {
+                    setIntroUploading(false);
+                    stopIntroCamera();
+                }
+            };
+            introRecorderRef.current = recorder;
+            recorder.start();
+            setIntroRecording(true);
+        } catch (error) {
+            console.error(error);
+            showNotification('error', 'Camera', 'Unable to start recording.');
+        }
+    };
+
+    const stopIntroRecording = () => {
+        if (!introRecorderRef.current) return;
+        try {
+            introRecorderRef.current.stop();
+        } catch (error) {
+            console.error(error);
+            stopIntroCamera();
+        } finally {
+            setIntroRecording(false);
+        }
     };
 
     const addExperience = () => {
@@ -216,7 +558,13 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                             <h1 className="text-3xl font-bold text-gray-900">Edit Profile</h1>
                         </div>
                         <div className="flex gap-3">
-                            <button onClick={() => navigate(`/profile/${user?.id}`)} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium">
+                            <button
+                                onClick={() => {
+                                    const handle = username || user?.username;
+                                    navigate(handle ? `/u/${handle}` : `/profile/${user?.id}`);
+                                }}
+                                className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium"
+                            >
                                 View Public Profile
                             </button>
                             <button onClick={handleSave} disabled={isSaving || loading} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold shadow-lg flex items-center disabled:opacity-70">
@@ -275,6 +623,47 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 space-y-6 animate-fade-in">
                                     <h3 className="text-lg font-bold text-gray-900 border-b pb-2">Basic Information</h3>
                                     
+                                    <div>
+                                        <div className="flex items-center justify-between gap-4">
+                                            <div>
+                                                <h4 className="font-bold text-gray-900">Cover Photo</h4>
+                                                <p className="text-xs text-gray-500">Recommended 1600x640. JPG or PNG.</p>
+                                            </div>
+                                            {profile.coverPhotoUrl && (
+                                                <button
+                                                    onClick={async () => {
+                                                        try {
+                                                            const updated = await UserService.updateMyProfile({ coverPhotoUrl: '', cover_photo_url: '' });
+                                                            setProfile(updated);
+                                                            notifyProfileUpdate(updated);
+                                                            showNotification('success', 'Profile', 'Cover photo removed.');
+                                                        } catch (error) {
+                                                            showNotification('alert', 'Error', 'Failed to remove cover photo.');
+                                                        }
+                                                    }}
+                                                    className="text-xs text-red-600 hover:underline"
+                                                >
+                                                    Remove cover
+                                                </button>
+                                            )}
+                                        </div>
+                                        <div className="mt-3 overflow-hidden rounded-2xl border border-gray-200 bg-slate-900">
+                                            <div className="relative aspect-[5/2] w-full">
+                                                {profile.coverPhotoUrl ? (
+                                                    <img src={profile.coverPhotoUrl} alt="Cover" className="h-full w-full object-cover" />
+                                                ) : (
+                                                    <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700">
+                                                        <span className="text-xs font-semibold uppercase tracking-widest text-slate-200">Add cover photo</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="mt-3 flex flex-wrap items-center gap-3">
+                                            <button onClick={() => openPicker('cover')} className="text-sm text-blue-600 font-medium hover:underline">Choose Existing</button>
+                                            <button onClick={() => startCamera('cover')} className="text-sm text-slate-700 font-medium hover:underline">Use Camera</button>
+                                        </div>
+                                    </div>
+
                                     <div className="flex items-center space-x-6">
                                         <div className="relative group w-24 h-24 rounded-full bg-gray-100 overflow-hidden border-2 border-gray-200 cursor-pointer" onClick={() => openPicker('avatar')}>
                                             <img src={user?.avatar || "https://via.placeholder.com/150"} alt="Profile" className="w-full h-full object-cover" />
@@ -285,7 +674,10 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                         <div>
                                             <h4 className="font-bold text-gray-900">Profile Photo</h4>
                                             <p className="text-xs text-gray-500 mb-2">Max file size 5MB. JPG, PNG.</p>
-                                            <button onClick={() => openPicker('avatar')} className="text-sm text-blue-600 font-medium hover:underline">Change Photo</button>
+                                            <div className="flex flex-wrap items-center gap-3">
+                                                <button onClick={() => openPicker('avatar')} className="text-sm text-blue-600 font-medium hover:underline">Choose Existing</button>
+                                                <button onClick={() => startCamera('avatar')} className="text-sm text-slate-700 font-medium hover:underline">Use Camera</button>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -298,6 +690,49 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                                 onChange={e => setDisplayName(e.target.value)}
                                                 placeholder="Your name"
                                             />
+                                        </div>
+                                        <div className="md:col-span-2">
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Public Profile & URL</label>
+                                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                                <div className="flex w-full overflow-hidden rounded-lg border border-gray-300 bg-white">
+                                                    <span className="flex items-center bg-gray-50 px-3 text-xs font-semibold text-gray-500">
+                                                        {cleanBaseUrl}/u/
+                                                    </span>
+                                                    <input
+                                                        className="flex-1 px-3 py-2 text-sm outline-none"
+                                                        value={username}
+                                                        onChange={(e) => setUsername(e.target.value.toLowerCase())}
+                                                        placeholder="your-username"
+                                                    />
+                                                </div>
+                                                <div className="text-xs text-gray-500">
+                                                    {username ? (
+                                                        <span className="break-all">Public URL: {cleanBaseUrl}/u/{username}</span>
+                                                    ) : (
+                                                        <span>Choose a unique username.</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <div className="mt-2 flex items-center gap-2 text-xs">
+                                                {(usernameStatus === 'checking' || usernameStatus === 'saving') && (
+                                                    <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600" />
+                                                )}
+                                                <span
+                                                    className={`${
+                                                        usernameStatus === 'available'
+                                                            ? 'text-green-600'
+                                                            : usernameStatus === 'checking' || usernameStatus === 'saving'
+                                                            ? 'text-blue-600'
+                                                            : usernameStatus === 'taken' || usernameStatus === 'invalid' || usernameStatus === 'error'
+                                                            ? 'text-red-600'
+                                                            : 'text-gray-500'
+                                                    }`}
+                                                >
+                                                    {usernameStatus === 'idle'
+                                                        ? 'Usernames are unique. Use 3-30 characters: letters, numbers, dot, dash, underscore.'
+                                                        : usernameMessage}
+                                                </span>
+                                            </div>
                                         </div>
                                         <div>
                                             <label className="block text-sm font-medium text-gray-700 mb-1">Professional Title</label>
@@ -325,7 +760,75 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                                 onChange={e => setProfile({...profile, location: e.target.value})}
                                             />
                                         </div>
+                                        {genderEnabled && (
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">Sex / Gender</label>
+                                                <select
+                                                    className="w-full border-gray-300 rounded-lg p-2"
+                                                    value={String(profile.gender || '').toLowerCase()}
+                                                    onChange={e =>
+                                                        setProfile({
+                                                            ...profile,
+                                                            gender: e.target.value,
+                                                        })
+                                                    }
+                                                >
+                                                    <option value="">Select</option>
+                                                    {genderOptions.map((option) => (
+                                                        <option key={option.key} value={option.key}>
+                                                            {option.label}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                                <p className="mt-1 text-xs text-gray-500">
+                                                    Section: <span className="font-semibold">Profile Settings {'>'} Basic Information</span>
+                                                </p>
+                                            </div>
+                                        )}
+                                        {dateOfBirthEnabled && (
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>
+                                                <input
+                                                    type="date"
+                                                    className="w-full border-gray-300 rounded-lg p-2"
+                                                    value={String(profile.dateOfBirth || profile.date_of_birth || '')}
+                                                    onChange={(e) =>
+                                                        setProfile({
+                                                            ...profile,
+                                                            dateOfBirth: e.target.value || null,
+                                                            date_of_birth: e.target.value || null
+                                                        })
+                                                    }
+                                                />
+                                                <p className="mt-1 text-xs text-gray-500">
+                                                    Only month and day are shown publicly.
+                                                </p>
+                                            </div>
+                                        )}
                                     </div>
+                                    {dateOfBirthEnabled && (
+                                        <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                                            <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+                                                <input
+                                                    type="checkbox"
+                                                    className="rounded border-gray-300"
+                                                    checked={Boolean(
+                                                        profile.showBirthMonthDayPublic ??
+                                                        profile.show_birth_month_day_public ??
+                                                        true
+                                                    )}
+                                                    onChange={(e) =>
+                                                        setProfile({
+                                                            ...profile,
+                                                            showBirthMonthDayPublic: e.target.checked,
+                                                            show_birth_month_day_public: e.target.checked
+                                                        })
+                                                    }
+                                                />
+                                                Show month/day on public profile
+                                            </label>
+                                        </div>
+                                    )}
 
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">About Me</label>
@@ -343,11 +846,16 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                             <div className="relative aspect-video bg-black rounded-lg overflow-hidden w-full max-w-md">
                                                 <video src={profile.introVideoUrl} controls className="w-full h-full" />
                                                 <button 
-                                                    onClick={() => setProfile({
-                                                        ...profile,
-                                                        introVideoUrl: undefined,
-                                                        intro_video_url: undefined
-                                                    })}
+                                                    onClick={async () => {
+                                                        try {
+                                                            const updated = await UserService.updateMyProfile({ introVideoUrl: '', intro_video_url: '' });
+                                                            setProfile(updated);
+                                                            notifyProfileUpdate(updated);
+                                                            showNotification('success', 'Profile', 'Intro video removed.');
+                                                        } catch (error) {
+                                                            showNotification('alert', 'Error', 'Failed to remove intro video.');
+                                                        }
+                                                    }}
                                                     className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded-full shadow hover:bg-red-700"
                                                 >
                                                     <Trash2 className="w-4 h-4" />
@@ -355,13 +863,43 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                             </div>
                                         ) : (
                                             <div 
-                                                onClick={() => openPicker('video')}
-                                                className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50 max-w-md transition-colors"
+                                                className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-gray-300 rounded-lg max-w-md bg-gray-50/40"
                                             >
                                                 <Video className="w-8 h-8 text-gray-400 mb-2" />
-                                                <span className="text-sm text-gray-500">Select Introduction Video</span>
+                                                <span className="text-sm text-gray-500">Upload or record a short intro video</span>
                                             </div>
                                         )}
+                                        <div className="mt-3 flex flex-wrap items-center gap-3">
+                                            <button
+                                                onClick={() => openPicker('video')}
+                                                className="text-sm text-blue-600 font-medium hover:underline"
+                                            >
+                                                Upload video
+                                            </button>
+                                            <button
+                                                onClick={startIntroCamera}
+                                                className="text-sm text-slate-700 font-medium hover:underline"
+                                            >
+                                                Record intro
+                                            </button>
+                                            {profile.introVideoUrl && (
+                                                <button
+                                                    onClick={async () => {
+                                                        try {
+                                                            const updated = await UserService.updateMyProfile({ introVideoUrl: '', intro_video_url: '' });
+                                                            setProfile(updated);
+                                                            notifyProfileUpdate(updated);
+                                                            showNotification('success', 'Profile', 'Intro video removed.');
+                                                        } catch (error) {
+                                                            showNotification('alert', 'Error', 'Failed to remove intro video.');
+                                                        }
+                                                    }}
+                                                    className="text-sm text-red-600 font-medium hover:underline"
+                                                >
+                                                    Remove
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             )}
@@ -521,6 +1059,8 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                 onSelect={handleFileSelect}
                 acceptedTypes={pickerTarget === 'video' ? 'video/*' : 'image/*'}
                 title={pickerTarget === 'video' ? 'Select Video' : 'Select Photo'}
+                allowCamera={pickerTarget === 'avatar'}
+                cameraCapture="user"
             />
             <FilePickerModal
                 isOpen={portfolioPickerOpen}
@@ -529,6 +1069,73 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                 acceptedTypes="image/*"
                 title="Select Portfolio Image"
             />
+            {cameraOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+                    <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-semibold text-gray-900">Camera</h3>
+                            <button onClick={stopCamera} className="text-sm text-gray-500 hover:text-gray-700">Close</button>
+                        </div>
+                        <div className="mt-4 overflow-hidden rounded-xl bg-gray-900">
+                            <video ref={cameraVideoRef} autoPlay playsInline className="h-72 w-full object-cover" />
+                        </div>
+                        <canvas ref={cameraCanvasRef} className="hidden" />
+                        <div className="mt-4 flex items-center justify-end gap-2">
+                            <button onClick={stopCamera} className="rounded-xl border border-gray-300 px-4 py-2 text-xs font-semibold text-gray-600">
+                                Cancel
+                            </button>
+                            <button onClick={capturePhoto} className="rounded-xl bg-gray-900 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-white">
+                                Capture Photo
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {introRecorderOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+                    <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-900">Record Intro Video</h3>
+                                <p className="text-xs text-gray-500">Keep it short and clear. Audio will be recorded.</p>
+                            </div>
+                            <button onClick={stopIntroCamera} className="text-sm text-gray-500 hover:text-gray-700">Close</button>
+                        </div>
+                        <div className="mt-4 overflow-hidden rounded-xl bg-gray-900">
+                            <video ref={introVideoRef} autoPlay playsInline muted className="h-72 w-full object-cover" />
+                        </div>
+                        <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                            <button
+                                onClick={stopIntroCamera}
+                                className="rounded-xl border border-gray-300 px-4 py-2 text-xs font-semibold text-gray-600"
+                                disabled={introUploading}
+                            >
+                                Cancel
+                            </button>
+                            {!introRecording ? (
+                                <button
+                                    onClick={startIntroRecording}
+                                    className="rounded-xl bg-gray-900 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-60"
+                                    disabled={introUploading}
+                                >
+                                    Start Recording
+                                </button>
+                            ) : (
+                                <button
+                                    onClick={stopIntroRecording}
+                                    className="rounded-xl bg-red-600 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-60"
+                                    disabled={introUploading}
+                                >
+                                    Stop & Upload
+                                </button>
+                            )}
+                        </div>
+                        {introUploading && (
+                            <div className="mt-3 text-xs text-gray-500">Uploading intro video...</div>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

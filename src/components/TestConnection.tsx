@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Wifi, WifiOff, CheckCircle, XCircle } from 'lucide-react';
+import { getApiBaseUrl } from '../utils/apiBase';
 
 export default function TestConnection() {
   const [backendStatus, setBackendStatus] = useState<'checking' | 'connected' | 'error'>('checking');
@@ -12,7 +13,7 @@ export default function TestConnection() {
 
   const testBackendConnection = async () => {
     try {
-      const response = await fetch('/api/test-connection');
+      const response = await fetch(`${getApiBaseUrl()}/test-connection`);
       if (response.ok) {
         const data = await response.json();
         setBackendData(data);

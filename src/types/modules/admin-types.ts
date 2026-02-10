@@ -89,6 +89,10 @@ export interface PlatformSettings {
   footer_copyright: string;
   footer_links: any[]; 
   social_links: any[];
+  pro_freelancer_label_url?: string;
+  pro_freelancer_label_file_id?: string;
+  pro_employer_label_url?: string;
+  pro_employer_label_file_id?: string;
   system?: SystemConfig;
   
   features?: {

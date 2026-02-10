@@ -13,14 +13,14 @@ Run steps
 1. Start backend (in a separate terminal):
 
 ```powershell
-cd geezle-backend
+cd Scrolith-backend
 npm run dev
 ```
 
 2. Start frontend (in a separate terminal):
 
 ```powershell
-cd C:\Projects\geezle
+cd C:\Projects\Scrolith
 npm run dev
 ```
 
@@ -62,3 +62,4 @@ npx playwright install
 
 Contact
 - For follow-up, see `scripts/run_admin_e2e.mjs` and `src/dashboard/admin/HomepageSettings.tsx` for the selectors used.
+

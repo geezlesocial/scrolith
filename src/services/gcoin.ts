@@ -49,6 +49,8 @@ const mapGcoinSettings = (s: any) => ({
   minWithdrawal: s.min_withdrawal ?? s.minWithdrawal ?? 0,
   conversion_enabled: s.conversion_enabled ?? s.conversionEnabled ?? false,
   conversionEnabled: s.conversion_enabled ?? s.conversionEnabled ?? false,
+  auto_approve_conversions: s.auto_approve_conversions ?? s.autoApproveConversions ?? false,
+  autoApproveConversions: s.auto_approve_conversions ?? s.autoApproveConversions ?? false,
   user_transfers_enabled: s.user_transfers_enabled ?? s.userTransfersEnabled ?? false,
   userTransfersEnabled: s.user_transfers_enabled ?? s.userTransfersEnabled ?? false
   ,
@@ -69,6 +71,7 @@ const unmapGcoinSettings = (s: any) => ({
   conversion_rate: s.conversionRate ?? s.conversion_rate ?? 0,
   min_withdrawal: s.minWithdrawal ?? s.min_withdrawal ?? 0,
   conversion_enabled: s.conversionEnabled ?? s.conversion_enabled ?? false,
+  auto_approve_conversions: s.autoApproveConversions ?? s.auto_approve_conversions ?? false,
   user_transfers_enabled: s.userTransfersEnabled ?? s.user_transfers_enabled ?? false
   ,
   views_unit: s.viewsUnit ?? s.views_unit,
@@ -119,7 +122,12 @@ export const GcoinService = {
 
   creditUser: async (userId: string, amount: number, note?: string): Promise<{ success: boolean; message: string }> => {
     const response = await api.post('/gcoin/admin/credit', { userId, amount, note });
-    return extractData<{ success: boolean; message: string }>(response);
+    if (response?.data?.success === false) {
+      return { success: false, message: response?.data?.error || 'Transfer failed' };
+    }
+    const data = extractData<any>(response);
+    const message = data?.message || response?.data?.message || 'Grant processed';
+    return { success: true, message };
   },
 
   transfer: async (

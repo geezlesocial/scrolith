@@ -4,9 +4,12 @@ import { SupportService } from '../../services/support';
 import { SupportTicket, TicketCategory } from '../../types';
 import { useUser } from '../../context/UserContext';
 import { useNotification } from '../../context/NotificationContext';
+import { useContent } from '../../context/ContentContext';
+import { executeRecaptcha } from '../../services/recaptcha';
 
 const SupportCenter = () => {
   const { user } = useUser();
+  const { settings } = useContent();
   const { showNotification } = useNotification();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [categories, setCategories] = useState<TicketCategory[]>([]);
@@ -66,7 +69,23 @@ const SupportCenter = () => {
     if (!canSubmit) return;
     setCreating(true);
     try {
-      const created = await SupportService.createTicketAuth(newTicket);
+      const recaptchaConfig = (settings as any)?.integrations?.recaptcha || {};
+      const legacySiteKey = (settings as any)?.recaptcha_site_key || (settings as any)?.recaptchaSiteKey || '';
+      const recaptchaEnabled = Boolean(recaptchaConfig?.enabled) || Boolean(legacySiteKey);
+      const siteKey = String(recaptchaConfig?.siteKey || legacySiteKey || '').trim();
+      const version = (recaptchaConfig?.version || 'v3') as 'v2' | 'v3';
+      let recaptchaToken: string | undefined;
+
+      if (recaptchaEnabled) {
+        if (version !== 'v3') {
+          showNotification('error', 'reCAPTCHA Error', 'reCAPTCHA v3 is required for support tickets.');
+          setCreating(false);
+          return;
+        }
+        recaptchaToken = await executeRecaptcha(siteKey, 'support_ticket');
+      }
+
+      const created = await SupportService.createTicketAuth({ ...newTicket, recaptchaToken });
       showNotification('success', 'Ticket Created', 'Your support ticket has been submitted.');
       setTickets((prev) => [created, ...prev]);
       setSelected(created);
@@ -79,7 +98,8 @@ const SupportCenter = () => {
         message: ''
       });
     } catch (err: any) {
-      showNotification('error', 'Ticket Failed', err?.message || 'Unable to create ticket.');
+      const message = err?.response?.data?.error || err?.message || 'Unable to create ticket.';
+      showNotification('error', 'Ticket Failed', message);
     } finally {
       setCreating(false);
     }

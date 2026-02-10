@@ -6,8 +6,8 @@ declare module "@/services/marketing" {
     deleteCampaign?: (id: string) => Promise<void>;
     simulateSendCampaign?: (id: string) => Promise<void>;
     // Backwards-compatible alias
-    sendCampaign?: (id: string) => Promise<void>;
+    sendCampaign?: (id: string) => Promise<MarketingCampaign>;
     [key: string]: any;
   };
-  export function sendCampaign(id: string): Promise<void>;
+  export function sendCampaign(id: string): Promise<MarketingCampaign>;
 }

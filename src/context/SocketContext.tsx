@@ -1,9 +1,12 @@
-// C:\Projects\geezle\src\context\SocketContext.tsx
-import React, { createContext, useContext, useEffect, useState } from 'react'
+// C:\Projects\Scrolith\src\context\SocketContext.tsx
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react'
 import { Socket } from 'socket.io-client'
 import { useUser } from './UserContext'
 import { socketService } from '../utils/socket'
 import { tokenStore } from '../services/tokenStore'
+import { getBackendOrigin } from '../utils/apiBase'
+import { App } from '@capacitor/app'
+import { Capacitor } from '@capacitor/core'
 
 export interface SocketContextType {
   socket: Socket | null
@@ -16,6 +19,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const { user, isAuthenticated } = useUser()
+  const lastOptionsRef = useRef<any>(null)
 
   useEffect(() => {
     // Attach community event listeners when socket is available
@@ -33,8 +37,22 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const handlers: Array<{ ev: string; fn: (...args: any[]) => void }> = [
       { ev: 'community:thread_created', fn: forward('community:thread_created') },
       { ev: 'community:post_created', fn: forward('community:post_created') },
+      { ev: 'community:post_updated', fn: forward('community:post_updated') },
+      { ev: 'community:post_deleted', fn: forward('community:post_deleted') },
+      { ev: 'community:post_comment_created', fn: forward('community:post_comment_created') },
+      { ev: 'community:post_comment_updated', fn: forward('community:post_comment_updated') },
+      { ev: 'community:post_comment_deleted', fn: forward('community:post_comment_deleted') },
+      { ev: 'community:post_comment_like_toggled', fn: forward('community:post_comment_like_toggled') },
       { ev: 'community:comment_created', fn: forward('community:comment_created') },
       { ev: 'community:like_toggled', fn: forward('community:like_toggled') },
+      { ev: 'community:post_reaction_updated', fn: forward('community:post_reaction_updated') },
+      { ev: 'community:follow_updated', fn: forward('community:follow_updated') },
+      { ev: 'community:story_created', fn: forward('community:story_created') },
+      { ev: 'community:story_deleted', fn: forward('community:story_deleted') },
+      { ev: 'community:story_updated', fn: forward('community:story_updated') },
+      { ev: 'community:story_liked', fn: forward('community:story_liked') },
+      { ev: 'community:business_page_created', fn: forward('community:business_page_created') },
+      { ev: 'community:business_page_updated', fn: forward('community:business_page_updated') },
       { ev: 'community:thread_pinned', fn: forward('community:thread_pinned') },
       { ev: 'community:thread_locked', fn: forward('community:thread_locked') },
       { ev: 'community:thread_deleted', fn: forward('community:thread_deleted') },
@@ -51,6 +69,16 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'community:post_metrics_updated', fn: forward('community:post_metrics_updated') }
       ,{ ev: 'community:homepage_updated', fn: forward('community:homepage_updated') }
       ,{ ev: 'community:fiat_balance_updated', fn: forward('community:fiat_balance_updated') }
+      ,{ ev: 'community:admin_config_updated', fn: forward('community:admin_config_updated') }
+      ,{ ev: 'community:reactions_updated', fn: forward('community:reactions_updated') }
+      ,{ ev: 'community:profile_view_logged', fn: forward('community:profile_view_logged') }
+      ,{ ev: 'reactions:updated', fn: forward('reactions:updated') }
+      ,{ ev: 'messages:updated', fn: forward('messages:updated') }
+      ,{ ev: 'cart:updated', fn: forward('cart:updated') }
+      ,{ ev: 'favorites:updated', fn: forward('favorites:updated') }
+      ,{ ev: 'notifications:new', fn: forward('notifications:new') }
+      ,{ ev: 'kyc.updated', fn: forward('kyc.updated') }
+      ,{ ev: 'kyc.submitted', fn: forward('kyc.submitted') }
     ];
 
     handlers.forEach(h => socket.on(h.ev, h.fn));
@@ -79,67 +107,101 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // If an existing socket isn't connected, start fresh
     cleanupSocket()
 
-    const backendEnv = import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL
+    const backendEnv =
+      import.meta.env.VITE_BACKEND_URL ||
+      import.meta.env.VITE_API_URL ||
+      import.meta.env.VITE_API_BASE_URL ||
+      import.meta.env.VITE_MOBILE_API_URL ||
+      import.meta.env.VITE_MOBILE_API_BASE_URL
     if (import.meta.env.PROD && !backendEnv) {
       console.error('VITE_BACKEND_URL (or VITE_API_URL) must be set in production to enable sockets')
     }
-    // Prefer explicit backend origin when provided, otherwise use same-origin proxy.
-    // Be tolerant: if backendEnv is a relative path like '/api' (dev proxy), do not call new URL() on it.
-    let socketUrl = '/'
-    try {
-      const be = String(backendEnv || '')
-      if (/^https?:\/\//i.test(be)) {
-        socketUrl = new URL(be).origin
-      } else {
-        socketUrl = '/'
-      }
-    } catch (e) {
-      socketUrl = '/'
-    }
-    const token = tokenStore.get() || ''
-
-    socketService.connect({
-      url: socketUrl,
-      namespace: '/community',
-      userId: user?.id || 'guest',
-      role: user?.role || 'guest',
-      token,
-      onConnect: (connectedSocket) => {
-        setIsConnected(true)
-        setSocket(connectedSocket)
-        // Join user-specific rooms only when authenticated
-        try {
-          if (user && user.id) connectedSocket.emit('join:wallet', { userId: user.id })
-        } catch (e) {
-          console.warn('Failed to join wallet room', e)
+    const connectSocket = async () => {
+      // Prefer explicit backend origin when provided, otherwise use same-origin proxy.
+      // Be tolerant: if backendEnv is a relative path like '/api' (dev proxy), do not call new URL() on it.
+      let socketUrl = getBackendOrigin() || '/'
+      try {
+        const be = String(backendEnv || '')
+        if (/^https?:\/\//i.test(be)) {
+          socketUrl = new URL(be).origin
         }
-      },
-      onDisconnect: () => {
-        setIsConnected(false)
-        setSocket(null)
-      },
-      onConnectError: (error) => {
-        console.error('Socket connect error:', error.message)
-        setIsConnected(false)
-      },
-      onError: (error) => {
-        console.error('Socket error:', error)
-      },
-      onConnectedEvent: (data) => {
-        console.log('Server connected event:', data)
-      },
-      onHeartbeat: (data) => {
-        console.log('Heartbeat received:', data)
-      },
-      onHandshakeAck: (data) => {
-        console.log('Handshake ack:', data)
+      } catch (e) {
+        socketUrl = getBackendOrigin() || '/'
       }
-    })
+
+      const token = (await tokenStore.get()) || ''
+
+      const options = {
+        url: socketUrl,
+        namespace: '/community',
+        userId: user?.id || 'guest',
+        role: user?.role || 'guest',
+        token,
+        onConnect: (connectedSocket) => {
+          setIsConnected(true)
+          setSocket(connectedSocket)
+          // Join user-specific rooms only when authenticated
+          try {
+            if (token && user && user.id) {
+              connectedSocket.emit('join:wallet', { userId: user.id })
+              connectedSocket.emit('community:join', { userId: user.id })
+              // Retry once to avoid join-event races during initial namespace setup.
+              window.setTimeout(() => {
+                if (!connectedSocket.connected) return
+                connectedSocket.emit('join:wallet', { userId: user.id })
+                connectedSocket.emit('community:join', { userId: user.id })
+              }, 400)
+            }
+          } catch (e) {
+            console.warn('Failed to join wallet room', e)
+          }
+        },
+        onDisconnect: () => {
+          setIsConnected(false)
+          setSocket(null)
+        },
+        onConnectError: (error) => {
+          console.error('Socket connect error:', error.message)
+          setIsConnected(false)
+        },
+        onError: (error) => {
+          console.error('Socket error:', error)
+        },
+        onConnectedEvent: (data) => {
+          console.log('Server connected event:', data)
+        },
+        onHeartbeat: (data) => {
+          console.log('Heartbeat received:', data)
+        },
+        onHandshakeAck: (data) => {
+          console.log('Handshake ack:', data)
+        }
+      }
+      lastOptionsRef.current = options
+      socketService.connect(options)
+    }
+
+    void connectSocket()
 
     return () => {
       cleanupSocket()
     }
-  }, [user, isAuthenticated])
+  }, [user?.id, user?.role, isAuthenticated])
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const handler = App.addListener('appStateChange', (state) => {
+      if (state.isActive) {
+        const last = lastOptionsRef.current;
+        if (last) socketService.connect(last);
+      } else {
+        socketService.disconnect();
+      }
+    });
+    return () => {
+      handler.remove();
+    };
+  }, []);
 
   return (
     <SocketContext.Provider value={{ socket, isConnected }}>
@@ -155,3 +217,4 @@ export const useSocket = (): SocketContextType => {
   }
   return context
 }
+

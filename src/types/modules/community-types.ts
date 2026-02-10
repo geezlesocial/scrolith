@@ -122,6 +122,8 @@ export interface InteractionCounts {
   comments: number;
   reposts: number;
   shares: number;
+  views?: number;
+  reactions?: number;
 }
 
 export interface InteractionState {

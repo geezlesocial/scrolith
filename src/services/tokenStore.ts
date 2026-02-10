@@ -1,6 +1,18 @@
+import { Capacitor } from '@capacitor/core';
+import { Preferences } from '@capacitor/preferences';
+
 let memoryToken: string | null = null;
 
-const cookieName = 'geezle_token';
+const cookieName = 'Scrolith_token';
+const tokenKey = 'token';
+
+const isNative = () => {
+  try {
+    return Capacitor.isNativePlatform();
+  } catch {
+    return false;
+  }
+};
 
 const readCookie = (): string | null => {
   try {
@@ -57,9 +69,18 @@ const safeRemove = (key: string) => {
 };
 
 export const tokenStore = {
-  get(): string | null {
+  async get(): Promise<string | null> {
     if (memoryToken) return memoryToken;
-    const stored = safeGet('token');
+    if (isNative()) {
+      try {
+        const { value } = await Preferences.get({ key: tokenKey });
+        if (value) memoryToken = value;
+        return value || null;
+      } catch {
+        return null;
+      }
+    }
+    const stored = safeGet(tokenKey);
     if (stored) {
       memoryToken = stored;
       return stored;
@@ -68,14 +89,31 @@ export const tokenStore = {
     if (cookieToken) memoryToken = cookieToken;
     return cookieToken;
   },
-  set(token: string) {
+  async set(token: string): Promise<void> {
     memoryToken = token;
-    safeSet('token', token);
+    if (isNative()) {
+      try {
+        await Preferences.set({ key: tokenKey, value: token });
+      } catch {
+        // If the native Preferences plugin isn't available, keep in memory.
+      }
+      return;
+    }
+    safeSet(tokenKey, token);
     writeCookie(token);
   },
-  clear() {
+  async clear(): Promise<void> {
     memoryToken = null;
-    safeRemove('token');
+    if (isNative()) {
+      try {
+        await Preferences.remove({ key: tokenKey });
+      } catch {
+        // Ignore if native Preferences plugin isn't available.
+      }
+      return;
+    }
+    safeRemove(tokenKey);
     clearCookie();
   }
 };
+

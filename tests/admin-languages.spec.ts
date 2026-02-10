@@ -12,7 +12,7 @@ test('Admin Languages smoke test', async ({ page }) => {
     }
   });
 
-  const base = 'http://localhost:3000/geezle';
+  const base = 'http://localhost:3000/Scrolith';
 
   await page.goto(`${base}/admin/dashboard`, { waitUntil: 'domcontentloaded' });
 
@@ -70,3 +70,4 @@ test('Admin Languages smoke test', async ({ page }) => {
     await page.waitForEvent('dialog', { timeout: 2000 }).then(dialog => dialog.accept()).catch(() => {});
   } catch {}
 });
+

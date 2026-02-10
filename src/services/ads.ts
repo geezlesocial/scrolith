@@ -15,6 +15,25 @@ export const AdService = {
     return Array.isArray(data) ? data : [];
   },
 
+  createAdDraft: async (payload: Partial<AdCampaign>): Promise<AdCampaign | null> => {
+    const response = await api.post('/community/ads/draft', {
+      title: payload.title,
+      body: payload.body,
+      objective: payload.objective,
+      destinationType: payload.destinationType,
+      destinationUrl: payload.destinationUrl,
+      ctaText: payload.ctaText,
+      placement: payload.placement,
+      targeting: (payload as any).targeting,
+      mediaFileIds: payload.mediaFileIds || [],
+      budget: payload.budget || 0,
+      currency: payload.currency || 'USD',
+      durationDays: payload.durationDays
+    });
+    const data = extractData<AdCampaign>(response);
+    return data || null;
+  },
+
   // Admin: get review queue / all campaigns for admin panel
   getAllCampaigns: async (): Promise<AdCampaign[]> => {
     const response = await api.get('/community/admin/ads');
@@ -62,12 +81,27 @@ export const AdService = {
     return Array.isArray(data) ? data : [];
   },
 
+  getAdPerformance: async (id: string): Promise<any> => {
+    const response = await api.get(`/community/ads/${id}/performance`);
+    return extractData<any>(response);
+  },
+
   payAd: async (id: string, paymentMethod?: any): Promise<{ success: boolean; message?: string; data?: any }> => {
     const response = await api.post(`/community/ads/${id}/pay`, paymentMethod || {});
     const success = response?.data?.success ?? true;
     const message = response?.data?.message || response?.data?.error;
     const data = extractData<any>(response);
     return { success, message, data };
+  },
+
+  pauseOwnAd: async (id: string): Promise<any> => {
+    const response = await api.post(`/community/ads/${id}/pause`, {});
+    return extractData<any>(response);
+  },
+
+  resumeOwnAd: async (id: string): Promise<any> => {
+    const response = await api.post(`/community/ads/${id}/resume`, {});
+    return extractData<any>(response);
   },
 
   submitAd: async (id: string): Promise<{ success: boolean; message?: string; data?: any }> => {
@@ -112,11 +146,16 @@ export const AdService = {
       const response = await api.post('/community/ads/draft', {
         title: campaign.title,
         body: campaign.body,
+        objective: (campaign as any).objective,
+        destinationType: (campaign as any).destinationType,
+        destinationUrl: (campaign as any).destinationUrl,
+        ctaText: (campaign as any).ctaText,
         placement: campaign.placement,
         targeting: campaign.targeting,
         mediaFileIds: campaign.mediaFileIds || [],
         budget: campaign.budget || 0,
-        currency: campaign.currency || 'USD'
+        currency: campaign.currency || 'USD',
+        durationDays: (campaign as any).durationDays
       });
       const data = extractData<AdCampaign>(response);
       return data;

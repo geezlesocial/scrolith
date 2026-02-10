@@ -9,18 +9,31 @@ function unwrap<T>(res: any): T {
   return res as T;
 }
 
+const unwrapResponse = <T>(response: any, fallback: T): T => {
+  const data = response?.data ?? response;
+  if (data?.success === false) {
+    const message = data?.error || 'Request failed';
+    throw new Error(message);
+  }
+  if (data?.success && data?.data !== undefined) return data.data as T;
+  if (Array.isArray(data?.gigs)) return data.gigs as T;
+  if (data?.data !== undefined) return data.data as T;
+  if (data !== undefined) return data as T;
+  return fallback;
+};
+
 export const commerceService = {
   // Get all gigs
   async getGigs(filters?: Record<string, any>) {
     const response = await api.get("/commerce/gigs", { params: filters || {} });
-    return unwrap<any>(response);
+    return unwrapResponse<any[]>(response, []);
   },
 
   // Get gig by ID
   async getGigById(id: string): Promise<Gig> {
     if (!id) throw new Error("Gig ID is required");
     const response = await api.get(`/commerce/gigs/${encodeURIComponent(id)}`);
-    return unwrap<Gig>(response);
+    return unwrapResponse<Gig>(response, {} as Gig);
   },
 
   // Get categories
@@ -28,7 +41,7 @@ export const commerceService = {
     // Try the canonical public endpoint first, fall back to admin-mounted endpoint
     try {
       const response = await api.get("/commerce/categories");
-      const data = unwrap<any>(response);
+      const data = unwrapResponse<any>(response, {});
 
       if (Array.isArray(data)) return data as Category[];
       if (data?.categories && Array.isArray(data.categories)) return data.categories as Category[];
@@ -41,7 +54,7 @@ export const commerceService = {
     // Fallback: some dev servers mount commerce routes under /api/admin
     try {
       const adminResp = await api.get("/admin/commerce/categories");
-      const adminData = unwrap<any>(adminResp);
+      const adminData = unwrapResponse<any>(adminResp, {});
       if (Array.isArray(adminData)) return adminData as Category[];
       if (adminData?.categories && Array.isArray(adminData.categories)) return adminData.categories as Category[];
       if (adminData?.data?.categories && Array.isArray(adminData.data.categories)) return adminData.data.categories as Category[];
@@ -70,4 +83,20 @@ export const commerceService = {
     if (!id) throw new Error("Gig ID is required");
     await api.delete(`/commerce/gigs/${encodeURIComponent(id)}`);
   },
+
+  // Purchase gig
+  async purchaseGig(id: string, payload: { provider?: string; packageIndex?: number; extras?: any[]; currency?: string; country?: string }) {
+    if (!id) throw new Error("Gig ID is required");
+    try {
+      const response = await api.post(`/commerce/gigs/${encodeURIComponent(id)}/purchase`, payload || {});
+      return unwrapResponse<any>(response, {});
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Unable to start payment.';
+      throw new Error(message);
+    }
+  }
 };

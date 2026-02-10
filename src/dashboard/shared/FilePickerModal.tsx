@@ -1,8 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Search, Upload, FileImage, FileVideo, FileText, Check, Loader2 } from 'lucide-react';
 import { FileService } from '../../services/files';
 import { UploadedFile } from '../../types';
 import { useUser } from '../../context/UserContext';
+import { Capacitor } from '@capacitor/core';
+import { CameraSource } from '@capacitor/camera';
+import { captureAndUpload } from '../../mobile/uploads';
 
 type FileType = 'image' | 'video' | 'document';
 
@@ -13,6 +16,8 @@ type FilePickerModalProps = {
   onSelect: (file: UploadedFile) => void;
   onSelectMultiple?: (files: UploadedFile[]) => void;
   allowUpload?: boolean;
+  allowCamera?: boolean;
+  cameraCapture?: 'user' | 'environment';
   multiple?: boolean;
   filterType?: 'image' | 'video' | 'document' | 'all';
   acceptedTypes?: string | FileType[];
@@ -28,6 +33,8 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
   onSelect,
   onSelectMultiple,
   allowUpload = true,
+  allowCamera = false,
+  cameraCapture = 'user',
   multiple = false,
   filterType = 'all',
   acceptedTypes,
@@ -40,6 +47,7 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'image' | 'video' | 'document'>(
     filterType === 'all' ? 'all' : filterType
@@ -87,6 +95,7 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
   }, [isVisible, filter, search]);
 
   const allowedTypes = Array.isArray(acceptedTypes) ? acceptedTypes : undefined;
+  const canUseCamera = allowCamera && (filter === 'image' || (typeof acceptedTypes === 'string' && acceptedTypes.includes('image')) || allowedTypes?.includes('image'));
 
   const visibleFiles = useMemo(() => {
     let list = files;
@@ -136,17 +145,50 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
       const category: UploadedFile['category'] =
         file.type.startsWith('image/') || file.type.startsWith('video/') ? 'portfolio' : 'document';
 
-      await FileService.uploadFile(file, category, {
+      const uploaded = await FileService.uploadFile(file, category, {
         role: role || user?.role,
         visibility,
         userId: user?.id
       });
 
+      if (!multiple) {
+        onSelect(uploaded);
+        onClose();
+        return;
+      }
+
+      setFiles((prev) => [uploaded, ...prev]);
+      setSelected((prev) => ({ ...prev, [uploaded.id]: true }));
       await loadFiles();
     } catch (err: any) {
       console.error('Failed to upload file:', err);
       const message = err?.response?.data?.error || err?.message || 'Failed to upload file.';
       alert(message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleCamera = async () => {
+    if (!canUseCamera || uploading) return;
+    try {
+      if (Capacitor.isNativePlatform()) {
+        setUploading(true);
+        const uploaded = await captureAndUpload({
+          source: CameraSource.Camera,
+          category: 'portfolio',
+          role: role || user?.role,
+          visibility,
+          userId: user?.id
+        });
+        onSelect(uploaded);
+        onClose();
+        return;
+      }
+      cameraInputRef.current?.click();
+    } catch (err) {
+      console.error('Failed to capture via camera:', err);
+      alert('Unable to access camera.');
     } finally {
       setUploading(false);
     }
@@ -218,6 +260,31 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
                   accept={accept}
                 />
               </label>
+            )}
+            {canUseCamera && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleCamera}
+                  className="inline-flex items-center px-4 py-2 border border-slate-300 text-slate-700 rounded-lg"
+                  disabled={uploading}
+                >
+                  <FileImage className="w-4 h-4 mr-2" />
+                  Use Camera
+                </button>
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture={cameraCapture}
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) uploadNew(file);
+                    e.currentTarget.value = '';
+                  }}
+                />
+              </>
             )}
           </div>
         </div>

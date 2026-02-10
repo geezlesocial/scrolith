@@ -8,6 +8,8 @@ export interface Job {
   id: string;
   title: string;
   client_name: string;
+  client_is_pro?: boolean;
+  clientIsPro?: boolean;
   budget: string;
   type: JobType;
   posted_time: string;
@@ -17,6 +19,12 @@ export interface Job {
   status: JobStatus;
   is_active?: boolean;
   is_visible?: boolean;
+  is_featured?: boolean;
+  is_top_selected?: boolean;
+  is_recommended?: boolean;
+  isFeatured?: boolean;
+  isTopSelected?: boolean;
+  isRecommended?: boolean;
   category: string;
   subcategory?: string;
   experience_level?: ExperienceLevel;
@@ -25,5 +33,6 @@ export interface Job {
   attachments?: string[];
   is_featured?: boolean;
   admin_status?: 'pending' | 'approved' | 'rejected';
+  adminReason?: string;
   meta?: any;
 }

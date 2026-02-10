@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   ArrowRight, Star, ShieldCheck, Lock, UserPlus, Search, Briefcase, CheckCircle, DollarSign,
@@ -8,8 +8,9 @@ import {
   Heart, GraduationCap, Wrench, Home, Car, Plane, UtensilsCrossed, Shirt, Mail, Sparkles
 } from 'lucide-react';
 import { TrustContent, CategoriesContent, HowItWorksContent, FeaturedContent, CTAContent } from '../../types';
-import { CATEGORIES, MOCK_GIGS, MOCK_JOBS } from '../../constants';
+import { CATEGORIES, MOCK_GIGS } from '../../constants';
 import { useCurrency } from '../../context/CurrencyContext';
+import { jobsApi } from '../../services/jobs';
 
 export const TrustSection = ({ content, style }: { content: TrustContent, style?: any }) => (
   <div className={`${style?.theme === 'blue' ? 'bg-blue-600 text-white' : 'bg-white text-gray-900'}`}>
@@ -195,6 +196,14 @@ export const CategoriesSection = ({ content }: { content: CategoriesContent }) =
 
 export const HowItWorksSection = ({ content }: { content: HowItWorksContent }) => {
   const [tab, setTab] = useState<'employer' | 'freelancer'>('employer');
+  const employerSteps =
+    content?.employerSteps ??
+    (content as any)?.employer_steps ??
+    [];
+  const freelancerSteps =
+    content?.freelancerSteps ??
+    (content as any)?.freelancer_steps ??
+    [];
   
   const getIcon = (name: string) => {
     const icons: any = { UserPlus, Search, Briefcase, CheckCircle, DollarSign };
@@ -214,7 +223,7 @@ export const HowItWorksSection = ({ content }: { content: HowItWorksContent }) =
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-            {(tab === 'employer' ? content.employerSteps : content.freelancerSteps).map((step, i) => (
+            {(tab === 'employer' ? employerSteps : freelancerSteps).map((step, i) => (
                 <div key={i} className="relative">
                     <div className="bg-blue-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
                         {getIcon(step.icon)}
@@ -233,7 +242,40 @@ export const HowItWorksSection = ({ content }: { content: HowItWorksContent }) =
 export const FeaturedSection = ({ content, style }: { content: FeaturedContent, style?: any }) => {
   const { formatPrice } = useCurrency();
   const isGray = style?.theme === 'gray';
-  const items = content.source === 'gigs' ? MOCK_GIGS : MOCK_JOBS;
+  const [liveJobs, setLiveJobs] = useState<any[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadJobs = async () => {
+      if (content.source !== 'jobs') return;
+      setJobsLoading(true);
+      try {
+        const response: any = await jobsApi.getJobs({
+          status: 'active',
+          limit: Math.max(Number(content.count) || 4, 4),
+        });
+        const jobs = Array.isArray(response?.jobs)
+          ? response.jobs
+          : Array.isArray(response)
+          ? response
+          : [];
+        if (mounted) setLiveJobs(jobs.filter((job: any) => Boolean(job?.id)));
+      } catch {
+        if (mounted) setLiveJobs([]);
+      } finally {
+        if (mounted) setJobsLoading(false);
+      }
+    };
+
+    loadJobs();
+    return () => {
+      mounted = false;
+    };
+  }, [content.count, content.source]);
+
+  const items = content.source === 'gigs' ? MOCK_GIGS : liveJobs;
 
   return (
     <div className={`py-20 ${isGray ? 'bg-gray-50' : 'bg-white'}`}>
@@ -243,11 +285,16 @@ export const FeaturedSection = ({ content, style }: { content: FeaturedContent, 
                   <h2 className="text-3xl font-bold text-gray-900">Featured {content.source === 'gigs' ? 'Services' : 'Jobs'}</h2>
                   <p className="text-gray-600 mt-2">Handpicked for you</p>
               </div>
-              <Link to="/browse" className="text-blue-600 hover:text-blue-700 font-semibold flex items-center">
+              <Link
+                to={content.source === 'gigs' ? '/browse' : '/browse-jobs'}
+                className="text-blue-600 hover:text-blue-700 font-semibold flex items-center"
+              >
                  View All <ArrowRight className="ml-2 w-4 h-4" />
               </Link>
            </div>
-           
+           {content.source === 'jobs' && jobsLoading && (
+             <div className="mb-6 text-sm text-gray-500">Loading featured jobs...</div>
+           )}
            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
               {items.slice(0, content.count).map((item: any) => (
                  content.source === 'gigs' ? (

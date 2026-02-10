@@ -30,7 +30,7 @@ interface KYCVerificationProps {
 }
 
 export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freelancer' }) => {
-  const { user } = useUser();
+  const { user, updateUser } = useUser();
   const { showNotification } = useNotification();
 
   const [kycStatus, setKycStatus] = useState<{ status: KYCStatus; submission?: KYCSubmission } | null>(null);
@@ -99,9 +99,35 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
     loadKYCStatus();
   }, [user]);
 
-  const handleFileSelect = (files: any[]) => {
-    if (selectedDocumentType && files.length > 0) {
-      const file = files[0];
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      if (detail.userId && user?.id && detail.userId !== user.id) return;
+      const nextStatus = detail.status;
+      if (nextStatus) {
+        updateUser?.({
+          kycStatus: nextStatus,
+          kyc_status: nextStatus
+        });
+        if (nextStatus === 'approved') {
+          showNotification('success', 'KYC Approved', 'Your verification was approved.');
+        } else if (nextStatus === 'rejected') {
+          showNotification('error', 'KYC Rejected', detail.rejectionReason || 'Your verification was rejected.');
+        } else if (nextStatus === 'under_review' || nextStatus === 'pending') {
+          showNotification('info', 'KYC Update', 'Your verification status was updated.');
+        }
+      }
+      loadKYCStatus();
+    };
+    window.addEventListener('kyc.updated', handler as EventListener);
+    return () => window.removeEventListener('kyc.updated', handler as EventListener);
+  }, [user?.id, updateUser, showNotification]);
+
+  const handleFileSelect = (picked: any[] | any) => {
+    const file = Array.isArray(picked) ? picked[0] : picked;
+    if (selectedDocumentType && file) {
+      const fileId = file.id || file.fileId;
+      const fileUrl = file.url || file.fileUrl;
       const existingDocIndex = documents.findIndex(doc => doc.type === selectedDocumentType);
 
       if (existingDocIndex >= 0) {
@@ -109,16 +135,16 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
         const updatedDocs = [...documents];
         updatedDocs[existingDocIndex] = {
           type: selectedDocumentType,
-          fileId: file.id,
-          fileUrl: file.url,
+          fileId,
+          fileUrl,
         };
         setDocuments(updatedDocs);
       } else {
         // Add new document
         setDocuments([...documents, {
           type: selectedDocumentType,
-          fileId: file.id,
-          fileUrl: file.url,
+          fileId,
+          fileUrl,
         }]);
       }
     }
@@ -133,8 +159,14 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
       return;
     }
 
-    if (documents.length < 2) {
-      showNotification('error', 'Validation Error', 'Please upload at least one identity document and one address proof');
+    const hasIdentity = documents.some((doc) =>
+      ['passport', 'drivers_license', 'national_id'].includes(doc.type)
+    );
+    const hasAddress = documents.some((doc) =>
+      ['utility_bill', 'bank_statement', 'address_proof'].includes(doc.type)
+    );
+    if (!hasIdentity || !hasAddress) {
+      showNotification('error', 'Validation Error', 'Please upload one identity document and one address proof');
       return;
     }
 
@@ -158,6 +190,7 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
         showNotification('success', 'KYC Submitted', 'Your KYC verification has been submitted successfully');
       }
 
+      updateUser?.({ kycStatus: 'pending', kyc_status: 'pending' });
       setShowForm(false);
       loadKYCStatus();
     } catch (error: any) {
@@ -557,8 +590,7 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
         }}
         onSelect={handleFileSelect}
         title={`Upload ${selectedDocumentType?.replace('_', ' ')}`}
-        allowedTypes={['image/*', 'application/pdf']}
-        maxFiles={1}
+        acceptedTypes="image/*,application/pdf"
       />
     </div>
   );

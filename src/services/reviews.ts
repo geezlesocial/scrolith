@@ -37,6 +37,15 @@ const extractData = <T>(response: any): T => {
   return response as T;
 };
 
+const toArray = <T = any>(value: any): T[] => {
+  if (Array.isArray(value)) return value as T[];
+  if (Array.isArray(value?.items)) return value.items as T[];
+  if (Array.isArray(value?.rows)) return value.rows as T[];
+  if (Array.isArray(value?.results)) return value.results as T[];
+  if (Array.isArray(value?.reviews)) return value.reviews as T[];
+  return [];
+};
+
 const normalizeReview = (review: any): Review => ({
   id: review.id,
   rating: review.rating,
@@ -81,20 +90,20 @@ export const ReviewsService = {
 
   listForUser: async (userId: string): Promise<Review[]> => {
     const res = await api.get(`/reviews/users/${userId}`);
-    const data = extractData<any[]>(res);
-    return Array.isArray(data) ? data.map(normalizeReview) : [];
+    const data = extractData<any>(res);
+    return toArray<any>(data).map(normalizeReview);
   },
 
   listMine: async (): Promise<Review[]> => {
     const res = await api.get('/reviews/me');
-    const data = extractData<any[]>(res);
-    return Array.isArray(data) ? data.map(normalizeReview) : [];
+    const data = extractData<any>(res);
+    return toArray<any>(data).map(normalizeReview);
   },
 
   listPending: async (): Promise<PendingReview[]> => {
     const res = await api.get('/reviews/me/pending');
-    const data = extractData<any[]>(res);
-    return Array.isArray(data) ? data.map(normalizePending) : [];
+    const data = extractData<any>(res);
+    return toArray<any>(data).map(normalizePending);
   },
 
   update: async (id: string, payload: { rating?: number; title?: string; comment?: string }) => {
@@ -104,8 +113,8 @@ export const ReviewsService = {
 
   adminList: async (params?: { status?: ReviewStatus }) => {
     const res = await api.get('/admin/reviews', { params });
-    const data = extractData<any[]>(res);
-    return Array.isArray(data) ? data.map(normalizeReview) : [];
+    const data = extractData<any>(res);
+    return toArray<any>(data).map(normalizeReview);
   },
 
   adminUpdateStatus: async (id: string, status: ReviewStatus) => {

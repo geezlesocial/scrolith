@@ -1,4 +1,4 @@
-# Geezle Dashboards — Realtime Event Map (Socket.IO)
+# Scrolith Dashboards — Realtime Event Map (Socket.IO)
 
 Connection & Rooms
 -- Client connects to the server via Socket.IO using the proxied endpoint (`/socket.io`) or an explicit backend URL set in `VITE_BACKEND_URL` (e.g., `https://api.example.com/socket.io`). Use the proxy in development to keep same-origin connections and avoid CORS.
@@ -68,3 +68,4 @@ Example flow: deliverable approved
 1. Freelancer submits deliverable -> POST /api/contracts/:id/deliverable
 2. Server persists submission and emits `contracts:updated` to `contract:{id}` and `user:{employerId}`
 3. Employer UI shows toast and updates contract view via socket; if socket offline, polling will fetch contract changes within 30–60s.
+

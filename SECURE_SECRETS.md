@@ -57,6 +57,7 @@ Notes:
 - The workflow restricts deploy to pushes to `main` and uses the `production` environment in Actions. Protect that branch in GitHub if you require approvals.
 - Provide only the private key for `DEPLOY_SSH_KEY`; the action uses an SSH agent to authenticate.
 
-I added a sample workflow at `.github/workflows/ci-secrets.yml` that demonstrates how to inject these repository secrets into the `geezle-backend` job and run install/build/test steps.
+I added a sample workflow at `.github/workflows/ci-secrets.yml` that demonstrates how to inject these repository secrets into the `Scrolith-backend` job and run install/build/test steps.
 
 If you want, I can modify the workflow to run specific deployment steps or restrict it to protected branches only.
+

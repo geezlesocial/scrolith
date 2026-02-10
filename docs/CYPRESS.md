@@ -10,7 +10,7 @@ Local (dev server + proxy)
 1. Start frontend dev server (Vite):
 
 ```powershell
-cd c:\Projects\geezle
+cd c:\Projects\Scrolith
 npm run dev
 ```
 
@@ -40,3 +40,4 @@ CYPRESS_apiUrl=http://backend-host:5000/api npx cypress run
 Notes
 - If `CYPRESS_apiUrl` is provided it takes precedence. If `BACKEND_URL` is provided it will be converted to `${BACKEND_URL}/api`.
 - When using the default `/api` proxy path, make sure your `Vite` dev server is running and proxying `/api` to your backend.
+

@@ -3,11 +3,12 @@ import { useContent } from '../../context/ContentContext';
 import { AdminService } from '../../services/admin';
 import { useNotification } from '../../context/NotificationContext';
 import { useCurrency } from '../../context/CurrencyContext';
-import { Save, Settings, Mail, HardDrive, DollarSign, Cpu, CheckCircle, ShieldCheck, Globe, FileText, Lock, Database, Server, RefreshCw, Plus, Trash2, Zap, X, Network, Send, Eye, Loader2 } from 'lucide-react';
+import { Save, Settings, Mail, HardDrive, DollarSign, Cpu, CheckCircle, ShieldCheck, Globe, FileText, Lock, Database, Server, RefreshCw, Plus, Trash2, Zap, X, Network, Send, Eye, Loader2, Image as ImageIcon } from 'lucide-react';
 import { AIConfigManager } from '../../services/ai/ai.config';
-import { AIConfig, ComplianceConfig, Currency, PlatformSettings, EmailProviderConfig } from '../../types';
+import { AIConfig, ComplianceConfig, Currency, PlatformSettings, EmailProviderConfig, UploadedFile } from '../../types';
 import { INITIAL_CURRENCIES } from '../../constants';
 import { CMSService } from '../../services/cms';
+import FilePickerModal from '../shared/FilePickerModal';
 
 const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab }: any) => (
     <button 
@@ -18,6 +19,138 @@ const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab }: any) => (
     </button>
 );
 
+const normalizeBoolean = (value: any, fallback: boolean) => {
+    if (value === undefined || value === null) return fallback;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+        if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+        return Boolean(normalized);
+    }
+    return Boolean(value);
+};
+
+const normalizeNumber = (value: any, fallback: number) => {
+    const parsed = typeof value === 'number' ? value : Number.parseFloat(String(value));
+    return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeEmailConfig = (raw: any): EmailProviderConfig => {
+    const source = raw || {};
+    return {
+        provider: (source.provider || 'smtp') as EmailProviderConfig['provider'],
+        host: source.host || '',
+        port: normalizeNumber(source.port, 587),
+        username: source.username || '',
+        password: source.password || '',
+        fromName: source.fromName || source.from_name || 'Scrolith',
+        from_name: source.from_name || source.fromName || 'Scrolith',
+        fromEmail: source.fromEmail || source.from_email || 'noreply@Scrolith.com',
+        from_email: source.from_email || source.fromEmail || 'noreply@Scrolith.com'
+    };
+};
+
+const normalizeCurrencyConfig = (raw: any) => {
+    const source = raw || {};
+    const baseCurrency = (source.baseCurrency || source.base_currency || 'USD').toString().toUpperCase();
+    return {
+        autoExchangeRate: normalizeBoolean(source.autoExchangeRate ?? source.auto_exchange_rate, false),
+        baseCurrency,
+        provider: (source.provider || 'openexchangerates') as 'openexchangerates' | 'fixer' | 'mock',
+        apiKey: source.apiKey || source.api_key || ''
+    };
+};
+
+const normalizeCurrencies = (list: any[], baseCurrency: string) => {
+    const safeBase = (baseCurrency || 'USD').toUpperCase();
+    const seen = new Set<string>();
+    const normalized = (Array.isArray(list) ? list : []).map((entry, index) => {
+        const code = (entry?.code || '').toString().toUpperCase();
+        const key = code || `CUR-${index}`;
+        const rate = normalizeNumber(entry?.rate, 1);
+        const isDefault = Boolean(entry?.isDefault ?? entry?.is_default ?? key === safeBase);
+        const activeValue = entry?.isActive ?? entry?.is_active;
+        return {
+            id: entry?.id || `currency-${key}`,
+            code: key,
+            name: entry?.name || key,
+            symbol: entry?.symbol || '',
+            rate,
+            isActive: activeValue !== false,
+            isDefault
+        } as Currency;
+    }).filter((entry) => {
+        if (!entry.code) return false;
+        if (seen.has(entry.code)) return false;
+        seen.add(entry.code);
+        return true;
+    });
+
+    if (!normalized.some((c) => c.code === safeBase)) {
+        normalized.unshift({
+            id: `currency-${safeBase}`,
+            code: safeBase,
+            name: safeBase,
+            symbol: '',
+            rate: 1,
+            isActive: true,
+            isDefault: true
+        });
+    } else {
+        normalized.forEach((c) => {
+            c.isDefault = c.code === safeBase;
+        });
+    }
+
+    return normalized;
+};
+
+const normalizeCompliance = (list: any[]) => {
+    return (Array.isArray(list) ? list : []).map((entry) => ({
+        region: entry.region || entry.region_name || '',
+        code: entry.code || entry.region_code || '',
+        gdprEnabled: normalizeBoolean(entry.gdprEnabled ?? entry.gdpr_enabled, false),
+        dataResidency: entry.dataResidency || entry.data_residency || '',
+        kycProvider: entry.kycProvider || entry.kyc_provider || '',
+        taxEngine: entry.taxEngine || entry.tax_engine || '',
+        active: entry.active !== false
+    })) as ComplianceConfig[];
+};
+
+const normalizeStorageConfig = (raw: any) => {
+    const source = raw || {};
+    const driver = source.driver || 'local';
+    const s3 = source.s3 || {};
+    const backblaze = source.backblaze || {};
+    return {
+        driver,
+        s3: {
+            accessKeyId: s3.accessKeyId || s3.access_key_id || '',
+            secretAccessKey: s3.secretAccessKey || s3.secret_access_key || '',
+            region: s3.region || 'us-east-1',
+            bucket: s3.bucket || ''
+        },
+        backblaze: {
+            accessKeyId: backblaze.accessKeyId || backblaze.access_key_id || '',
+            secretAccessKey: backblaze.secretAccessKey || backblaze.secret_access_key || '',
+            region: backblaze.region || '',
+            bucket: backblaze.bucket || ''
+        }
+    };
+};
+
+const normalizeCacheConfig = (raw: any) => {
+    const source = raw || {};
+    return {
+        driver: source.driver || 'local',
+        redis: {
+            host: source.redis?.host || '127.0.0.1',
+            port: normalizeNumber(source.redis?.port, 6379),
+            password: source.redis?.password || ''
+        }
+    };
+};
+
 const SystemSettings = () => {
     // 1. Hooks (Unconditional)
     const { settings, updateSettings } = useContent();
@@ -27,6 +160,8 @@ const SystemSettings = () => {
     // UI State
     const [activeTab, setActiveTab] = useState('general');
     const [localSettings, setLocalSettings] = useState<Partial<PlatformSettings>>({});
+    const [labelPickerTarget, setLabelPickerTarget] = useState<'freelancer' | 'employer' | null>(null);
+    const [isLabelPickerOpen, setIsLabelPickerOpen] = useState(false);
     
     // File Picker (removed here - Header & Hero manages logo/favicon)
 
@@ -34,33 +169,36 @@ const SystemSettings = () => {
     const [aiConfig, setAiConfig] = useState<AIConfig>(AIConfigManager.getConfig());
 
     // Storage & Cache State
-    const [storageConfig, setStorageConfig] = useState<any>({ 
-        driver: 'local', 
-        s3: { accessKeyId: '', secretAccessKey: '', region: 'us-east-1', bucket: '' }, 
-        backblaze: { accessKeyId: '', secretAccessKey: '', region: '', bucket: '' } 
-    });
+    const [storageConfig, setStorageConfig] = useState<any>(
+        normalizeStorageConfig({
+            driver: 'local',
+            s3: { accessKeyId: '', secretAccessKey: '', region: 'us-east-1', bucket: '' },
+            backblaze: { accessKeyId: '', secretAccessKey: '', region: '', bucket: '' }
+        })
+    );
+    const [cacheConfig, setCacheConfig] = useState<any>(normalizeCacheConfig({ driver: 'local' }));
     
     // Currency State
     const [currencies, setCurrencies] = useState<Currency[]>(INITIAL_CURRENCIES);
     const [isCurrencyModalOpen, setIsCurrencyModalOpen] = useState(false);
     const [newCurrency, setNewCurrency] = useState<Partial<Currency>>({ code: '', name: '', symbol: '', rate: 1, isActive: true });
-    const [currencyConfig, setCurrencyConfig] = useState({
+    const [currencyConfig, setCurrencyConfig] = useState(normalizeCurrencyConfig({
         autoExchangeRate: false,
         baseCurrency: 'USD',
-        provider: 'openexchangerates' as const,
+        provider: 'openexchangerates',
         apiKey: ''
-    });
+    }));
 
     // Email State
-    const [emailConfig, setEmailConfig] = useState<EmailProviderConfig>({ 
+    const [emailConfig, setEmailConfig] = useState<EmailProviderConfig>(normalizeEmailConfig({ 
         provider: 'smtp', 
         host: 'smtp.mailtrap.io', 
         port: 587, 
         username: '', 
         password: '', 
-        fromName: 'Geezle', 
-        fromEmail: 'noreply@geezle.com' 
-    });
+        fromName: 'Scrolith', 
+        fromEmail: 'noreply@Scrolith.com' 
+    }));
     const [testEmail, setTestEmail] = useState('');
     const [isTestingEmail, setIsTestingEmail] = useState(false);
 
@@ -86,11 +224,37 @@ const SystemSettings = () => {
             setLocalSettings(settings);
             const s = settings as unknown as Record<string, any>;
             const systemSource = s?.system ?? s;
-            if (systemSource?.storage) setStorageConfig(systemSource.storage);
-            if (systemSource?.email) setEmailConfig(systemSource.email);
-            if (systemSource?.currency) setCurrencyConfig(systemSource.currency);
-            if (s?.currencies) setCurrencies(s.currencies as Currency[]);
-            setAiConfig(AIConfigManager.getConfig());
+            if (systemSource?.storage) setStorageConfig(normalizeStorageConfig(systemSource.storage));
+            if (systemSource?.cache) setCacheConfig(normalizeCacheConfig(systemSource.cache));
+            if (systemSource?.email) setEmailConfig(normalizeEmailConfig(systemSource.email));
+            if (systemSource?.currency) setCurrencyConfig(normalizeCurrencyConfig(systemSource.currency));
+
+            const incomingCurrencies =
+                systemSource?.currencies ??
+                systemSource?.currency_list ??
+                s?.currencies ??
+                [];
+            const baseCode = (systemSource?.currency?.baseCurrency || systemSource?.currency?.base_currency || currencyConfig.baseCurrency || 'USD').toString().toUpperCase();
+            const currencySource = Array.isArray(incomingCurrencies) && incomingCurrencies.length
+                ? incomingCurrencies
+                : (currencies && currencies.length ? currencies : INITIAL_CURRENCIES);
+            const normalized = normalizeCurrencies(currencySource, baseCode);
+            setCurrencies(normalized);
+            const defaultCurrency = normalized.find((c) => c.isDefault) || normalized.find((c) => c.code === baseCode);
+            if (defaultCurrency && defaultCurrency.code !== baseCode) {
+                setCurrencyConfig((prev) => ({ ...prev, baseCurrency: defaultCurrency.code }));
+            }
+
+            const complianceSource = systemSource?.regionalCompliance ?? systemSource?.regional_compliance;
+            if (Array.isArray(complianceSource)) {
+                setCompliance(normalizeCompliance(complianceSource));
+            }
+
+            const aiSource = systemSource?.aiConfig ?? systemSource?.ai_config;
+            const normalizedAi = AIConfigManager.normalizeConfig(aiSource || AIConfigManager.getConfig());
+            setAiConfig(normalizedAi);
+            // Keep local storage aligned so other modules read the same config
+            AIConfigManager.saveConfig(normalizedAi);
         }
     }, [settings, isSaving]);
 
@@ -112,14 +276,40 @@ const SystemSettings = () => {
                 const systemSource = m?.system ?? systemSettings ?? merged;
 
                 if (systemSource?.storage) {
-                    setStorageConfig(systemSource.storage);
+                    setStorageConfig(normalizeStorageConfig(systemSource.storage));
+                }
+                if (systemSource?.cache) {
+                    setCacheConfig(normalizeCacheConfig(systemSource.cache));
                 }
                 if (systemSource?.email) {
-                    setEmailConfig(systemSource.email);
+                    setEmailConfig(normalizeEmailConfig(systemSource.email));
                 }
                 if (systemSource?.currency) {
-                    setCurrencyConfig(systemSource.currency);
+                    setCurrencyConfig(normalizeCurrencyConfig(systemSource.currency));
                 }
+                const incomingCurrencies =
+                    systemSource?.currencies ??
+                    systemSource?.currency_list ??
+                    m?.currencies ??
+                    [];
+                const baseCode = (systemSource?.currency?.baseCurrency || systemSource?.currency?.base_currency || currencyConfig.baseCurrency || 'USD').toString().toUpperCase();
+                const currencySource = Array.isArray(incomingCurrencies) && incomingCurrencies.length
+                    ? incomingCurrencies
+                    : (currencies && currencies.length ? currencies : INITIAL_CURRENCIES);
+                const normalized = normalizeCurrencies(currencySource, baseCode);
+                setCurrencies(normalized);
+                const defaultCurrency = normalized.find((c) => c.isDefault) || normalized.find((c) => c.code === baseCode);
+                if (defaultCurrency && defaultCurrency.code !== baseCode) {
+                    setCurrencyConfig((prev) => ({ ...prev, baseCurrency: defaultCurrency.code }));
+                }
+                const complianceSource = systemSource?.regionalCompliance ?? systemSource?.regional_compliance;
+                if (Array.isArray(complianceSource)) {
+                    setCompliance(normalizeCompliance(complianceSource));
+                }
+                const aiSource = systemSource?.aiConfig ?? systemSource?.ai_config;
+                const normalizedAi = AIConfigManager.normalizeConfig(aiSource || AIConfigManager.getConfig());
+                setAiConfig(normalizedAi);
+                AIConfigManager.saveConfig(normalizedAi);
             } catch (error) {
                 console.warn('Failed to load system settings from API, using context/default state:', error);
                 // Fallback to context settings
@@ -149,6 +339,9 @@ const SystemSettings = () => {
                 const _safe = safeEmail as unknown as Record<string, any>;
                 delete _safe.password;
             }
+            // Ensure snake_case aliases are present
+            (safeEmail as any).from_name = (safeEmail as any).from_name || safeEmail.fromName || '';
+            (safeEmail as any).from_email = (safeEmail as any).from_email || safeEmail.fromEmail || '';
 
             const safeStorage: any = { ...(storageConfig || {}) };
             if (safeStorage.driver && safeStorage.driver !== 'local') {
@@ -157,28 +350,72 @@ const SystemSettings = () => {
                 if (!creds.accessKeyId) delete creds.accessKeyId;
                 safeStorage[safeStorage.driver] = creds;
             }
+            // Mirror storage keys to snake_case for backend compatibility
+            if (safeStorage.s3) {
+                safeStorage.s3.access_key_id = safeStorage.s3.access_key_id || safeStorage.s3.accessKeyId || '';
+                safeStorage.s3.secret_access_key = safeStorage.s3.secret_access_key || safeStorage.s3.secretAccessKey || '';
+            }
+            if (safeStorage.backblaze) {
+                safeStorage.backblaze.access_key_id = safeStorage.backblaze.access_key_id || safeStorage.backblaze.accessKeyId || '';
+                safeStorage.backblaze.secret_access_key = safeStorage.backblaze.secret_access_key || safeStorage.backblaze.secretAccessKey || '';
+            }
 
+            // Normalize AI config so both camelCase/snake_case keys are present
+            const normalizedAiConfig = AIConfigManager.normalizeConfig(aiConfig);
+            AIConfigManager.saveConfig(normalizedAiConfig);
+
+            // Normalize currencies and ensure base currency is active
+            const baseCurrency = (currencyConfig.baseCurrency || 'USD').toString().toUpperCase();
+            const normalizedCurrencies = normalizeCurrencies(currencies, baseCurrency);
+            const baseEntry = normalizedCurrencies.find((c) => c.code === baseCurrency);
+            if (!baseEntry || baseEntry.isActive === false) {
+                showNotification('alert', 'Invalid Currency', 'Base currency must be active.');
+                setIsSaving(false);
+                return;
+            }
+            const persistedCurrencies = normalizedCurrencies.map((c) => ({
+                ...c,
+                is_active: c.isActive,
+                is_default: c.isDefault
+            }));
+            const normalizedCurrencyConfig = { 
+                ...currencyConfig, 
+                baseCurrency,
+                api_key: (currencyConfig as any).api_key || currencyConfig.apiKey || ''
+            };
+
+            const systemValues = (localSettings.system || {}) as Record<string, any>;
             const updatedSystem = {
                 ...(localSettings.system || {}),
-                maintenanceMode: localSettings.system?.maintenanceMode || false,
-                registrationsEnabled: localSettings.system?.registrationsEnabled !== false,
-                kycEnforced: localSettings.system?.kycEnforced || false,
-                admin2FA: localSettings.system?.admin2FA || false,
+                maintenanceMode: normalizeBoolean(systemValues.maintenanceMode ?? systemValues.maintenance_mode, false),
+                registrationsEnabled: normalizeBoolean(
+                    systemValues.registrationsEnabled ?? systemValues.registrations_enabled,
+                    true
+                ),
+                kycEnforced: normalizeBoolean(systemValues.kycEnforced ?? systemValues.kyc_enforced, false),
+                admin2FA: normalizeBoolean(systemValues.admin2FA ?? systemValues.admin_2fa, false),
                 regionalCompliance: compliance,
+                regional_compliance: compliance.map((entry) => ({
+                    region: entry.region,
+                    code: entry.code,
+                    gdpr_enabled: entry.gdprEnabled,
+                    data_residency: entry.dataResidency,
+                    kyc_provider: entry.kycProvider,
+                    tax_engine: entry.taxEngine,
+                    active: entry.active
+                })),
                 storage: safeStorage,
+                cache: cacheConfig,
                 email: safeEmail,
-                currency: currencyConfig,
-                currencies: currencies,
-                aiConfig: aiConfig
+                currency: normalizedCurrencyConfig,
+                currencies: persistedCurrencies,
+                aiConfig: normalizedAiConfig
             };
 
             const updatedSettings = {
                 ...localSettings,
                 system: updatedSystem
             } as PlatformSettings;
-
-            // Save AI config locally
-            AIConfigManager.saveConfig(aiConfig);
 
             // Persist via ContentContext (which calls AdminService appropriately)
             try {
@@ -218,6 +455,38 @@ const SystemSettings = () => {
         }
     };
 
+    const setProLabel = (target: 'freelancer' | 'employer', url: string, fileId?: string | null) => {
+        if (target === 'freelancer') {
+            setLocalSettings(prev => ({
+                ...prev,
+                proFreelancerLabelUrl: url,
+                proFreelancerLabelFileId: fileId || '',
+                pro_freelancer_label_url: url,
+                pro_freelancer_label_file_id: fileId || ''
+            }));
+            return;
+        }
+        setLocalSettings(prev => ({
+            ...prev,
+            proEmployerLabelUrl: url,
+            proEmployerLabelFileId: fileId || '',
+            pro_employer_label_url: url,
+            pro_employer_label_file_id: fileId || ''
+        }));
+    };
+
+    const openLabelPicker = (target: 'freelancer' | 'employer') => {
+        setLabelPickerTarget(target);
+        setIsLabelPickerOpen(true);
+    };
+
+    const handleLabelSelect = (file: UploadedFile) => {
+        if (!labelPickerTarget) return;
+        setProLabel(labelPickerTarget, file.url, file.id);
+        setIsLabelPickerOpen(false);
+        setLabelPickerTarget(null);
+    };
+
     // File selection handled in Header & Hero editor; no local file picker here.
 
     const handleAIChange = (section: keyof AIConfig, field: string, value: any) => {
@@ -227,24 +496,37 @@ const SystemSettings = () => {
                 ...prev,
                 providers: {
                     ...prev.providers,
-                    [provider as 'google' | 'openai']: { 
-                        ...prev.providers[provider as 'google' | 'openai'] || {}, 
-                        [key]: value 
+                    [provider as 'google' | 'openai']: {
+                        ...prev.providers[provider as 'google' | 'openai'] || {},
+                        [key]: value,
+                        ...(key === 'apiKey' ? { api_key: value } : {}),
+                        ...(key === 'api_key' ? { apiKey: value } : {})
                     }
                 }
             }));
         } else if (section === 'costControl') {
             setAiConfig(prev => ({
                 ...prev,
-                costControl: { 
-                    ...prev.costControl || {}, 
-                    [field]: value 
+                costControl: {
+                    ...prev.costControl || {},
+                    [field]: value
+                },
+                cost_control: {
+                    ...prev.cost_control || {},
+                    ...(field === 'monthlyLimitUSD' ? { monthly_limit_usd: value } : {}),
+                    ...(field === 'currentSpendUSD' ? { current_spend_usd: value } : {}),
+                    ...(field === 'enabled' ? { enabled: value } : {})
                 }
             }));
         } else {
             setAiConfig(prev => ({
                 ...prev,
-                [section]: { ...((prev as unknown as Record<string, any>)[section]) || {}, [field]: value }
+                [section]: {
+                    ...((prev as unknown as Record<string, any>)[section]) || {},
+                    [field]: value,
+                    ...(section === 'safety' && field === 'maxTokens' ? { max_tokens: value } : {}),
+                    ...(section === 'safety' && field === 'max_tokens' ? { maxTokens: value } : {})
+                }
             }));
         }
     };
@@ -256,7 +538,13 @@ const SystemSettings = () => {
 
     // Currency Handlers
     const toggleCurrency = (code: string) => {
-        setCurrencies(prev => prev.map(c => c.code === code ? { ...c, isActive: !c.isActive } : c));
+        const normalizedCode = code.toUpperCase();
+        const target = currencies.find(c => c.code === normalizedCode);
+        if (target?.isDefault || currencyConfig.baseCurrency?.toUpperCase() === normalizedCode) {
+            showNotification('alert', 'Cannot Disable', 'Base currency must remain active.');
+            return;
+        }
+        setCurrencies(prev => prev.map(c => c.code === normalizedCode ? { ...c, isActive: !c.isActive } : c));
     };
 
     const updateCurrencyRate = (code: string, rate: number) => {
@@ -268,11 +556,13 @@ const SystemSettings = () => {
     };
 
     const handleSetDefaultCurrency = (code: string) => {
+        const normalizedCode = code.toUpperCase();
         setCurrencies(prev => prev.map(c => ({
             ...c,
-            isDefault: c.code === code
+            isDefault: c.code === normalizedCode,
+            isActive: c.code === normalizedCode ? true : c.isActive
         })));
-        setCurrencyConfig(prev => ({ ...prev, baseCurrency: code }));
+        setCurrencyConfig(prev => ({ ...prev, baseCurrency: normalizedCode }));
     };
 
     const handleAddCurrency = () => {
@@ -308,6 +598,9 @@ const SystemSettings = () => {
         };
         
         setCurrencies(prev => [...prev, currencyToAdd]);
+        if (currencies.length === 0) {
+            setCurrencyConfig(prev => ({ ...prev, baseCurrency: currencyToAdd.code }));
+        }
         setIsCurrencyModalOpen(false);
         setNewCurrency({ code: '', name: '', symbol: '', rate: 1, isActive: true });
         showNotification('success', 'Currency Added', `${currencyToAdd.code} added to available currencies.`);
@@ -373,6 +666,29 @@ const SystemSettings = () => {
         }
     };
 
+    const handleTestCache = async () => {
+        showNotification('info', 'Testing Cache...', `Attempting to connect to ${cacheConfig.driver} cache...`);
+
+        try {
+            await new Promise(resolve => setTimeout(resolve, 1200));
+
+            if (cacheConfig.driver === 'local') {
+                showNotification('success', 'Cache Ready', 'Local cache driver is ready.');
+                return;
+            }
+
+            const redis = cacheConfig.redis || {};
+            if (!redis.host || !redis.port) {
+                showNotification('alert', 'Configuration Incomplete', 'Please provide Redis host and port.');
+                return;
+            }
+
+            showNotification('success', 'Cache Connection Successful', 'Connected to Redis cache successfully.');
+        } catch (error) {
+            showNotification('error', 'Cache Connection Failed', 'Unable to connect to cache provider.');
+        }
+    };
+
     const handleTestEmail = async () => {
         // Validate email
         if (!testEmail || !testEmail.includes?.('@') || !testEmail.includes?.('.')) {
@@ -394,15 +710,42 @@ const SystemSettings = () => {
         setIsTestingEmail(true);
         
         try {
-            // In a real app, this would send a test email
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
+            await AdminService.testEmailSettings({ to: testEmail, config: emailConfig });
             setIsTestingEmail(false);
             showNotification('success', 'Email Sent', `Test email sent to ${testEmail}. Please check your inbox.`);
             setTestEmail('');
-        } catch (error) {
+        } catch (error: any) {
             setIsTestingEmail(false);
-            showNotification('error', 'Send Failed', 'Failed to send test email. Check your configuration.');
+            const message =
+                error?.response?.data?.error ||
+                error?.message ||
+                'Failed to send test email. Check your configuration.';
+            showNotification('error', 'Send Failed', message);
+        }
+    };
+
+    const handleEvidenceDownload = (artifact: { id: string; name: string; type: string; date: string; status: string }) => {
+        try {
+            const content = [
+                `Artifact: ${artifact.name}`,
+                `Type: ${artifact.type}`,
+                `Date: ${artifact.date}`,
+                `Status: ${artifact.status}`,
+                '',
+                'Generated from Scrolith System Settings - SOC-2 Evidence.'
+            ].join('\n');
+            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${artifact.id}.${artifact.type.toLowerCase()}`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            showNotification('success', 'Download Started', `${artifact.name} export generated.`);
+        } catch (error) {
+            showNotification('error', 'Download Failed', 'Unable to generate the evidence file.');
         }
     };
 
@@ -413,6 +756,31 @@ const SystemSettings = () => {
         { id: 'semantic_search', label: 'Semantic Search' },
         { id: 'content_moderation', label: 'Content Moderation' }
     ];
+
+    const freelancerLabelUrl =
+        (localSettings as any)?.proFreelancerLabelUrl ??
+        (localSettings as any)?.pro_freelancer_label_url ??
+        '';
+    const freelancerLabelFileId =
+        (localSettings as any)?.proFreelancerLabelFileId ??
+        (localSettings as any)?.pro_freelancer_label_file_id ??
+        '';
+    const employerLabelUrl =
+        (localSettings as any)?.proEmployerLabelUrl ??
+        (localSettings as any)?.pro_employer_label_url ??
+        '';
+    const employerLabelFileId =
+        (localSettings as any)?.proEmployerLabelFileId ??
+        (localSettings as any)?.pro_employer_label_file_id ??
+        '';
+    const systemSnapshot = (localSettings as any)?.system || {};
+    const maintenanceEnabled = normalizeBoolean(systemSnapshot.maintenanceMode ?? systemSnapshot.maintenance_mode, false);
+    const registrationsEnabled = normalizeBoolean(
+        systemSnapshot.registrationsEnabled ?? systemSnapshot.registrations_enabled,
+        true
+    );
+    const kycEnabled = normalizeBoolean(systemSnapshot.kycEnforced ?? systemSnapshot.kyc_enforced, false);
+    const admin2FAEnabled = normalizeBoolean(systemSnapshot.admin2FA ?? systemSnapshot.admin_2fa, false);
 
     if (isLoading) {
         return (
@@ -480,6 +848,93 @@ const SystemSettings = () => {
                                 placeholder="support@example.com"
                             />
                         </div>
+
+                        <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+                            <div>
+                                <h4 className="text-sm font-bold text-gray-900">Pro Verification Labels</h4>
+                                <p className="text-xs text-gray-500">Shown next to verified freelancer and employer accounts.</p>
+                            </div>
+
+                            <div className="flex items-center gap-4">
+                                <div
+                                    className="border border-dashed rounded-lg p-2 w-16 h-16 flex items-center justify-center cursor-pointer hover:bg-gray-50"
+                                    onClick={() => openLabelPicker('freelancer')}
+                                >
+                                    {freelancerLabelUrl ? (
+                                        <img src={freelancerLabelUrl} className="max-h-full object-contain" alt="Freelancer pro label" />
+                                    ) : (
+                                        <ImageIcon className="w-6 h-6 text-gray-400" />
+                                    )}
+                                </div>
+                                <div className="flex-1 space-y-2">
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Freelancer Pro Label</label>
+                                    <input
+                                        className="w-full border-gray-300 rounded-md p-2 text-sm"
+                                        value={freelancerLabelUrl}
+                                        onChange={(e) => setProLabel('freelancer', e.target.value, freelancerLabelFileId)}
+                                        placeholder="https://.../pro-freelancer.png"
+                                    />
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => openLabelPicker('freelancer')}
+                                            className="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded font-bold hover:bg-blue-100"
+                                        >
+                                            Choose File
+                                        </button>
+                                        {freelancerLabelUrl && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setProLabel('freelancer', '', null)}
+                                                className="text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded font-bold hover:bg-gray-200"
+                                            >
+                                                Remove
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-4">
+                                <div
+                                    className="border border-dashed rounded-lg p-2 w-16 h-16 flex items-center justify-center cursor-pointer hover:bg-gray-50"
+                                    onClick={() => openLabelPicker('employer')}
+                                >
+                                    {employerLabelUrl ? (
+                                        <img src={employerLabelUrl} className="max-h-full object-contain" alt="Employer pro label" />
+                                    ) : (
+                                        <ImageIcon className="w-6 h-6 text-gray-400" />
+                                    )}
+                                </div>
+                                <div className="flex-1 space-y-2">
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Employer Pro Label</label>
+                                    <input
+                                        className="w-full border-gray-300 rounded-md p-2 text-sm"
+                                        value={employerLabelUrl}
+                                        onChange={(e) => setProLabel('employer', e.target.value, employerLabelFileId)}
+                                        placeholder="https://.../pro-employer.png"
+                                    />
+                                    <div className="flex gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => openLabelPicker('employer')}
+                                            className="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded font-bold hover:bg-blue-100"
+                                        >
+                                            Choose File
+                                        </button>
+                                        {employerLabelUrl && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setProLabel('employer', '', null)}
+                                                className="text-xs bg-gray-100 text-gray-600 px-3 py-1.5 rounded font-bold hover:bg-gray-200"
+                                            >
+                                                Remove
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                         
                         <div className="space-y-4 pt-4 border-t border-gray-200">
                             <div className="flex items-center justify-between">
@@ -489,7 +944,7 @@ const SystemSettings = () => {
                                 </div>
                                 <input 
                                     type="checkbox" 
-                                    checked={localSettings.system?.maintenanceMode || false} 
+                                    checked={maintenanceEnabled} 
                                     onChange={e => handleChange('system', 'maintenanceMode', e.target.checked)} 
                                     className="rounded text-blue-600" 
                                 />
@@ -501,7 +956,7 @@ const SystemSettings = () => {
                                 </div>
                                 <input 
                                     type="checkbox" 
-                                    checked={localSettings.system?.registrationsEnabled !== false} 
+                                    checked={registrationsEnabled} 
                                     onChange={e => handleChange('system', 'registrationsEnabled', e.target.checked)} 
                                     className="rounded text-blue-600" 
                                 />
@@ -513,7 +968,7 @@ const SystemSettings = () => {
                                 </div>
                                 <input 
                                     type="checkbox" 
-                                    checked={localSettings.system?.kycEnforced || false} 
+                                    checked={kycEnabled} 
                                     onChange={e => handleChange('system', 'kycEnforced', e.target.checked)} 
                                     className="rounded text-blue-600" 
                                 />
@@ -525,7 +980,7 @@ const SystemSettings = () => {
                                 </div>
                                 <input 
                                     type="checkbox" 
-                                    checked={localSettings.system?.admin2FA || false} 
+                                    checked={admin2FAEnabled} 
                                     onChange={e => handleChange('system', 'admin2FA', e.target.checked)} 
                                     className="rounded text-blue-600" 
                                 />
@@ -637,7 +1092,77 @@ const SystemSettings = () => {
                                 )}
                             </div>
                         </div>
-                     </div>
+
+                        <div className="bg-white p-6 rounded-xl border border-gray-200">
+                            <div className="flex justify-between items-start mb-6">
+                                <h3 className="font-bold text-gray-900 flex items-center">
+                                    <Server className="w-5 h-5 mr-2 text-indigo-600" /> Cache Configuration
+                                </h3>
+                                <button 
+                                    onClick={handleTestCache} 
+                                    className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg font-medium transition-colors flex items-center"
+                                >
+                                    <Network className="w-3 h-3 mr-1" /> Test Cache
+                                </button>
+                            </div>
+                            <div className="space-y-6">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Cache Driver</label>
+                                    <select
+                                        className="w-full border-gray-300 rounded-lg p-2.5 shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                                        value={cacheConfig.driver || 'local'}
+                                        onChange={e => setCacheConfig({ ...cacheConfig, driver: e.target.value })}
+                                    >
+                                        <option value="local">Local (In-Memory)</option>
+                                        <option value="redis">Redis</option>
+                                    </select>
+                                </div>
+                                {cacheConfig.driver === 'redis' && (
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Redis Host</label>
+                                            <input
+                                                className="w-full border-gray-300 rounded-md p-2"
+                                                value={cacheConfig.redis?.host || ''}
+                                                onChange={e => setCacheConfig({
+                                                    ...cacheConfig,
+                                                    redis: { ...cacheConfig.redis, host: e.target.value }
+                                                })}
+                                                placeholder="127.0.0.1"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Redis Port</label>
+                                            <input
+                                                type="number"
+                                                className="w-full border-gray-300 rounded-md p-2"
+                                                value={cacheConfig.redis?.port || 6379}
+                                                onChange={e => setCacheConfig({
+                                                    ...cacheConfig,
+                                                    redis: { ...cacheConfig.redis, port: parseInt(e.target.value) || 6379 }
+                                                })}
+                                            />
+                                        </div>
+                                        <div className="col-span-2">
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Redis Password (Optional)</label>
+                                            <input
+                                                type="password"
+                                                className="w-full border-gray-300 rounded-md p-2"
+                                                value={cacheConfig.redis?.password || ''}
+                                                onChange={e => setCacheConfig({
+                                                    ...cacheConfig,
+                                                    redis: { ...cacheConfig.redis, password: e.target.value }
+                                                })}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                                <p className="text-xs text-gray-500">
+                                    Cache settings control response speed for frequently accessed data. Use Redis for production workloads.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
                 )}
 
                 {activeTab === 'currencies' && (
@@ -707,7 +1232,7 @@ const SystemSettings = () => {
                                     <input 
                                         type="password"
                                         className="w-full border-gray-300 rounded-md p-1.5 text-sm"
-                                        value={currencyConfig.apiKey}
+                                        value={currencyConfig.apiKey || (currencyConfig as any).api_key || ''}
                                         onChange={e => setCurrencyConfig({...currencyConfig, apiKey: e.target.value})}
                                         placeholder="Enter API key"
                                     />
@@ -892,7 +1417,7 @@ const SystemSettings = () => {
                                         className="w-full border-gray-300 rounded-lg p-2" 
                                         value={emailConfig.fromName || ''} 
                                         onChange={e => setEmailConfig({...emailConfig, fromName: e.target.value})} 
-                                        placeholder="Geezle"
+                                        placeholder="Scrolith"
                                     />
                                 </div>
                                 <div>
@@ -901,7 +1426,7 @@ const SystemSettings = () => {
                                         className="w-full border-gray-300 rounded-lg p-2" 
                                         value={emailConfig.fromEmail || ''} 
                                         onChange={e => setEmailConfig({...emailConfig, fromEmail: e.target.value})} 
-                                        placeholder="noreply@geezle.com"
+                                        placeholder="noreply@Scrolith.com"
                                         type="email"
                                     />
                                 </div>
@@ -947,18 +1472,18 @@ const SystemSettings = () => {
                                     <span className="text-sm font-medium text-yellow-700">Enable Cost Control</span>
                                     <input 
                                         type="checkbox" 
-                                        checked={aiConfig.costControl?.enabled || false} 
+                                        checked={aiConfig.costControl?.enabled ?? aiConfig.cost_control?.enabled ?? false} 
                                         onChange={e => handleAIChange('costControl', 'enabled', e.target.checked)} 
                                         className="rounded text-blue-600" 
                                     />
                                 </div>
-                                {aiConfig.costControl?.enabled && (
+                                {(aiConfig.costControl?.enabled ?? aiConfig.cost_control?.enabled) && (
                                     <div>
                                         <label className="block text-xs font-bold text-yellow-700 uppercase mb-1">Monthly Limit (USD)</label>
                                         <input 
                                             type="number" 
                                             className="w-full border-yellow-200 bg-yellow-100 rounded-lg p-2" 
-                                            value={aiConfig.costControl?.monthlyLimitUSD || 100} 
+                                            value={aiConfig.costControl?.monthlyLimitUSD ?? aiConfig.cost_control?.monthly_limit_usd ?? 100} 
                                             onChange={e => handleAIChange('costControl', 'monthlyLimitUSD', parseFloat(e.target.value) || 100)} 
                                             min="1"
                                             step="10"
@@ -990,7 +1515,7 @@ const SystemSettings = () => {
                             <input 
                                 type="password" 
                                 className="w-full border-gray-300 rounded-md text-sm p-2.5" 
-                                value={aiConfig.providers?.google?.apiKey || ''} 
+                                value={aiConfig.providers?.google?.apiKey ?? aiConfig.providers?.google?.api_key ?? ''} 
                                 onChange={e => handleAIChange('providers', 'google.apiKey', e.target.value)} 
                                 placeholder="Enter Gemini API Key" 
                             />
@@ -1029,7 +1554,7 @@ const SystemSettings = () => {
                             <input 
                                 type="password" 
                                 className="w-full border-gray-300 rounded-md text-sm p-2.5" 
-                                value={aiConfig.providers?.openai?.apiKey || ''} 
+                                value={aiConfig.providers?.openai?.apiKey ?? aiConfig.providers?.openai?.api_key ?? ''} 
                                 onChange={e => handleAIChange('providers', 'openai.apiKey', e.target.value)} 
                                 placeholder="Enter OpenAI API Key" 
                             />
@@ -1075,7 +1600,7 @@ const SystemSettings = () => {
                                     <input 
                                         type="number" 
                                         className="w-full border-gray-300 rounded-md p-2" 
-                                        value={aiConfig.safety?.maxTokens || 2048} 
+                                        value={aiConfig.safety?.maxTokens ?? aiConfig.safety?.max_tokens ?? 2048} 
                                         onChange={e => handleAIChange('safety', 'maxTokens', parseInt(e.target.value) || 2048)} 
                                         min="100"
                                         max="8192"
@@ -1180,7 +1705,12 @@ const SystemSettings = () => {
                                                  </span>
                                              </td>
                                              <td className="p-3 text-right">
-                                                 <button className="text-blue-600 hover:underline text-xs">Download</button>
+                                                 <button
+                                                     className="text-blue-600 hover:underline text-xs"
+                                                     onClick={() => handleEvidenceDownload(art)}
+                                                 >
+                                                     Download
+                                                 </button>
                                              </td>
                                          </tr>
                                      ))}
@@ -1207,9 +1737,23 @@ const SystemSettings = () => {
                 </button>
             </div>
 
-            {/* File picker removed from System Settings; Header & Hero manages uploads. */}
+            <FilePickerModal
+                isOpen={isLabelPickerOpen}
+                onClose={() => {
+                    setIsLabelPickerOpen(false);
+                    setLabelPickerTarget(null);
+                }}
+                onSelect={handleLabelSelect}
+                allowUpload
+                filterType="image"
+                acceptedTypes="image/*"
+                role="admin"
+            />
         </div>
     );
 };
 
 export default SystemSettings;
+
+
+

@@ -26,6 +26,7 @@ const ListingsManagementTab = () => {
 
     // View State (List vs Editor)
     const [view, setView] = useState<'list' | 'editor'>('list');
+    const [editingItem, setEditingItem] = useState<any | null>(null);
     const [subView, setSubView] = useState<'gig-cats' | 'job-cats' | null>(null);
 
     // Data State
@@ -34,6 +35,11 @@ const ListingsManagementTab = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [stats, setStats] = useState<any>(null);
+    const [approvalSettings, setApprovalSettings] = useState({
+        autoApproveGigs: false,
+        autoApproveJobs: false,
+        loading: true
+    });
 
     // --- Load Data ---
     useEffect(() => {
@@ -43,6 +49,23 @@ const ListingsManagementTab = () => {
         }
         loadData();
     }, [activeTab, subView]);
+
+    useEffect(() => {
+        const loadApprovalSettings = async () => {
+            try {
+                const settings = await AdminService.getSystemSettings();
+                const listings = (settings as any)?.listings || {};
+                setApprovalSettings({
+                    autoApproveGigs: Boolean(listings.autoApproveGigs),
+                    autoApproveJobs: Boolean(listings.autoApproveJobs),
+                    loading: false
+                });
+            } catch {
+                setApprovalSettings((prev) => ({ ...prev, loading: false }));
+            }
+        };
+        loadApprovalSettings();
+    }, []);
 
     const loadData = async () => {
         setLoading(true);
@@ -91,6 +114,17 @@ const ListingsManagementTab = () => {
         showNotification('info', 'Refreshing', 'Loading latest data...');
     };
 
+    const updateApprovalSetting = async (key: 'autoApproveGigs' | 'autoApproveJobs', value: boolean) => {
+        setApprovalSettings((prev) => ({ ...prev, [key]: value }));
+        try {
+            await AdminService.saveSystemSettings({ listings: { [key]: value } } as any);
+            showNotification('success', 'Updated', `${key === 'autoApproveGigs' ? 'Gig' : 'Job'} approval updated.`);
+        } catch {
+            setApprovalSettings((prev) => ({ ...prev, [key]: !value }));
+            showNotification('error', 'Error', 'Failed to update approval settings.');
+        }
+    };
+
     if (error && view === 'list') {
         return (
             <div className="space-y-6">
@@ -122,10 +156,35 @@ const ListingsManagementTab = () => {
                     <p className="text-sm text-gray-500">Manage global marketplace inventory and monetization.</p>
                 </div>
                 <div className="flex items-center gap-4">
+                    {(activeTab === 'gigs' || activeTab === 'jobs') && (
+                        <div className="hidden lg:flex items-center gap-4 bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs font-medium text-gray-700">
+                            <label className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    className="rounded"
+                                    checked={approvalSettings.autoApproveGigs}
+                                    disabled={approvalSettings.loading}
+                                    onChange={(e) => updateApprovalSetting('autoApproveGigs', e.target.checked)}
+                                />
+                                Auto-approve Gigs
+                            </label>
+                            <span className="h-4 w-px bg-gray-200" />
+                            <label className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    className="rounded"
+                                    checked={approvalSettings.autoApproveJobs}
+                                    disabled={approvalSettings.loading}
+                                    onChange={(e) => updateApprovalSetting('autoApproveJobs', e.target.checked)}
+                                />
+                                Auto-approve Jobs
+                            </label>
+                        </div>
+                    )}
                     {stats && (
                         <div className="hidden md:flex items-center px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-full text-blue-700 text-sm font-medium">
                             <div className="w-2 h-2 bg-blue-500 rounded-full mr-2 animate-pulse"></div>
-                            {stats.total_gigs || 0} Gigs • {stats.total_jobs || 0} Jobs
+                            {stats.total_gigs || 0} Gigs | {stats.total_jobs || 0} Jobs
                         </div>
                     )}
                     <button
@@ -180,9 +239,9 @@ const ListingsManagementTab = () => {
                             type={activeTab}
                             loading={loading}
                             categories={categories}
-                            onEdit={(item: any) => setView('editor')}
+                            onEdit={(item: any) => { setEditingItem(item); setView('editor'); }}
                             reload={loadData}
-                            onCreate={() => setView('editor')}
+                            onCreate={() => { setEditingItem(null); setView('editor'); }}
                         />
                     )}
                 </div>
@@ -191,6 +250,7 @@ const ListingsManagementTab = () => {
                     type={activeTab}
                     onBack={() => { setView('list'); loadData(); }}
                     categories={categories}
+                    item={editingItem}
                 />
             )}
         </div>
@@ -236,8 +296,17 @@ const ListingsTable = ({ items, type, loading, onEdit, reload, onCreate }: any) 
 
     const handleStatusChange = async (item: any, newStatus: string) => {
         const isApprove = newStatus === 'approved';
+        let notes: string | undefined;
+        if (!isApprove) {
+            const reason = window.prompt('Enter rejection reason (required):');
+            if (!reason || !reason.trim()) {
+                showNotification('alert', 'Required', 'Rejection reason is required.');
+                return;
+            }
+            notes = reason.trim();
+        }
         try {
-            const result = await AdminService.approveListing(type === 'gigs' ? 'gig' : 'job', item.id, isApprove ? 'active' : 'rejected');
+            const result = await AdminService.approveListing(type === 'gigs' ? 'gig' : 'job', item.id, isApprove ? 'active' : 'rejected', notes);
 
             if (result) {
                 const link = type === 'gigs' ? `/gigs/${item.id}` : `/jobs/${item.id}`;
@@ -326,7 +395,12 @@ const ListingsTable = ({ items, type, loading, onEdit, reload, onCreate }: any) 
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {filteredItems.map((item: any) => (
+                            {filteredItems.map((item: any) => {
+                                const isFeatured = Boolean(item.isFeatured ?? item.is_featured);
+                                const isTopSelected = Boolean(item.isTopSelected ?? item.is_top_selected);
+                                const isRecommended = Boolean(item.isRecommended ?? item.is_recommended);
+
+                                return (
                                 <tr key={item.id} className="hover:bg-gray-50 group transition-colors">
                                     <td className="px-6 py-4">
                                         <div className="flex items-center">
@@ -339,6 +413,25 @@ const ListingsTable = ({ items, type, loading, onEdit, reload, onCreate }: any) 
                                             )}
                                             <div>
                                                 <div className="font-medium text-gray-900 max-w-xs truncate">{item.title}</div>
+                                                {(isFeatured || isTopSelected || isRecommended) && (
+                                                    <div className="mt-1 flex flex-wrap gap-1">
+                                                        {isFeatured && (
+                                                            <span className="px-2 py-0.5 rounded-full text-[10px] uppercase font-bold bg-yellow-100 text-yellow-700">
+                                                                Featured
+                                                            </span>
+                                                        )}
+                                                        {isTopSelected && (
+                                                            <span className="px-2 py-0.5 rounded-full text-[10px] uppercase font-bold bg-purple-100 text-purple-700">
+                                                                Top Selected
+                                                            </span>
+                                                        )}
+                                                        {isRecommended && (
+                                                            <span className="px-2 py-0.5 rounded-full text-[10px] uppercase font-bold bg-blue-100 text-blue-700">
+                                                                Recommended
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                )}
                                                 <div className="text-xs text-gray-500">ID: {item.id}</div>
                                             </div>
                                         </div>
@@ -398,7 +491,7 @@ const ListingsTable = ({ items, type, loading, onEdit, reload, onCreate }: any) 
                                         </div>
                                     </td>
                                 </tr>
-                            ))}
+                            )})}
                             {filteredItems.length === 0 && (
                                 <tr>
                                     <td colSpan={5} className="p-8 text-center text-gray-500">
@@ -777,6 +870,28 @@ const PlanManager = () => {
     const { showNotification } = useNotification();
     const { formatPrice } = useCurrency();
     const [loading, setLoading] = useState(true);
+    const makeFeatureId = () => `ft-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const getPromotionFeatures = (type: Plan['type']) => {
+        if (type === 'employer') {
+            return [
+                { id: makeFeatureId(), name: 'Featured jobs', included: true },
+                { id: makeFeatureId(), name: 'Top selected jobs', included: true },
+                { id: makeFeatureId(), name: 'Recommended jobs', included: true }
+            ];
+        }
+        return [
+            { id: makeFeatureId(), name: 'Featured gigs', included: true },
+            { id: makeFeatureId(), name: 'Top selected gigs', included: true },
+            { id: makeFeatureId(), name: 'Recommended gigs', included: true }
+        ];
+    };
+    const getProVerifiedFeature = (type: Plan['type']) => ({
+        id: makeFeatureId(),
+        name: type === 'employer' ? 'Pro verified client' : 'Pro verified account',
+        included: true,
+        code: type === 'employer' ? 'pro_verified_employer' : 'pro_verified_freelancer'
+    });
+    const featureCodeOptions = ['pro_verified_freelancer', 'pro_verified_employer'];
 
     useEffect(() => {
         loadPlans();
@@ -805,7 +920,7 @@ const PlanManager = () => {
             currency: 'USD',
             isActive: true,
             isPopular: false,
-            features: []
+            features: getPromotionFeatures('freelancer')
         });
     };
 
@@ -839,8 +954,29 @@ const PlanManager = () => {
 
     const addFeature = () => {
         if (!editingPlan) return;
-        const newFeature: PlanFeature = { id: `ft-${Date.now()}`, name: '', included: true };
+        const newFeature: PlanFeature = { id: `ft-${Date.now()}`, name: '', included: true, code: '' };
         setEditingPlan({ ...editingPlan, features: [...(editingPlan.features || []), newFeature] });
+    };
+
+    const addPromotionFeatures = () => {
+        if (!editingPlan) return;
+        const current = editingPlan.features || [];
+        const names = new Set(current.map((f) => (f.name || '').trim().toLowerCase()).filter(Boolean));
+        const extras = getPromotionFeatures((editingPlan.type || 'freelancer') as Plan['type']).filter(
+            (f) => !names.has(f.name.trim().toLowerCase())
+        );
+        if (!extras.length) return;
+        setEditingPlan({ ...editingPlan, features: [...current, ...extras] });
+    };
+
+    const addProVerifiedFeature = () => {
+        if (!editingPlan) return;
+        const current = editingPlan.features || [];
+        const type = (editingPlan.type || 'freelancer') as Plan['type'];
+        const targetCode = type === 'employer' ? 'pro_verified_employer' : 'pro_verified_freelancer';
+        const exists = current.some((f) => (f.code || '').toLowerCase() === targetCode);
+        if (exists) return;
+        setEditingPlan({ ...editingPlan, features: [...current, getProVerifiedFeature(type)] });
     };
 
     const updateFeature = (idx: number, field: keyof PlanFeature, val: any) => {
@@ -942,12 +1078,26 @@ const PlanManager = () => {
                 <div className="space-y-4">
                     <div className="flex justify-between items-center border-b pb-2">
                         <h4 className="font-bold text-gray-900">Features</h4>
-                        <button
-                            onClick={addFeature}
-                            className="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded font-medium hover:bg-blue-100 transition-colors border border-blue-200"
-                        >
-                            Add Feature
-                        </button>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={addPromotionFeatures}
+                                className="text-xs bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded font-medium hover:bg-emerald-100 transition-colors border border-emerald-200"
+                            >
+                                Add Listing Promo
+                            </button>
+                            <button
+                                onClick={addProVerifiedFeature}
+                                className="text-xs bg-amber-50 text-amber-700 px-3 py-1.5 rounded font-medium hover:bg-amber-100 transition-colors border border-amber-200"
+                            >
+                                Add Pro Verified
+                            </button>
+                            <button
+                                onClick={addFeature}
+                                className="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded font-medium hover:bg-blue-100 transition-colors border border-blue-200"
+                            >
+                                Add Feature
+                            </button>
+                        </div>
                     </div>
                     <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 max-h-96 overflow-y-auto space-y-2">
                         {editingPlan.features?.map((feat, idx) => (
@@ -965,6 +1115,13 @@ const PlanManager = () => {
                                     placeholder="Feature Name"
                                 />
                                 <input
+                                    className="w-36 text-xs border border-gray-200 rounded px-2 py-1 focus:ring-2 focus:ring-blue-100 focus:border-blue-300 outline-none"
+                                    value={feat.code || ''}
+                                    onChange={e => updateFeature(idx, 'code', e.target.value)}
+                                    placeholder="Code"
+                                    list="plan-feature-codes"
+                                />
+                                <input
                                     className="w-20 text-xs border border-gray-200 rounded px-2 py-1 focus:ring-2 focus:ring-blue-100 focus:border-blue-300 outline-none"
                                     value={feat.limit || ''}
                                     onChange={e => updateFeature(idx, 'limit', e.target.value)}
@@ -978,6 +1135,11 @@ const PlanManager = () => {
                                 </button>
                             </div>
                         ))}
+                        <datalist id="plan-feature-codes">
+                            {featureCodeOptions.map((code) => (
+                                <option key={code} value={code} />
+                            ))}
+                        </datalist>
                         {(!editingPlan.features || editingPlan.features.length === 0) && (
                             <p className="text-center text-gray-400 text-xs py-4">No features added.</p>
                         )}
@@ -1092,23 +1254,25 @@ const PlanManager = () => {
     );
 };
 
-const EditorWrapper = ({ type, onBack, categories }: any) => {
+const EditorWrapper = ({ type, onBack, categories, item }: any) => {
     return (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 animate-fade-in">
             <div className="flex justify-between items-center mb-6 border-b pb-4">
                 <button onClick={onBack} className="text-gray-500 hover:text-gray-900 flex items-center transition-colors">
                     <ArrowLeft className="w-4 h-4 mr-2" /> Back to List
                 </button>
-                <h2 className="text-xl font-bold">New {type === 'gigs' ? 'Gig' : 'Job'} Listing</h2>
+                <h2 className="text-xl font-bold">{item ? 'Edit' : 'New'} {type === 'gigs' ? 'Gig' : 'Job'} Listing</h2>
                 <div className="w-24"></div>
             </div>
 
-            {type === 'gigs' ? <GigWizard categories={categories} onComplete={onBack} /> : <JobEditor categories={categories} onComplete={onBack} />}
+            {type === 'gigs'
+                ? <GigWizard categories={categories} onComplete={onBack} initialGig={item} />
+                : <JobEditor categories={categories} onComplete={onBack} initialJob={item} />}
         </div>
     );
 };
 
-const GigWizard = ({ categories, onComplete }: { categories: ListingCategory[], onComplete: () => void }) => {
+const GigWizard = ({ categories, onComplete, initialGig }: { categories: ListingCategory[], onComplete: () => void, initialGig?: Partial<Gig> }) => {
     const [step, setStep] = useState(1);
     const [gig, setGig] = useState<Partial<Gig>>({
         title: '', description: '', category: '', subcategory: '', price: 0,
@@ -1120,7 +1284,11 @@ const GigWizard = ({ categories, onComplete }: { categories: ListingCategory[], 
         ],
         milestones: [],
         extras: [],
-        faqs: [], requirements: [], images: [], videos: [], documents: [], adminStatus: 'approved'
+        faqs: [], requirements: [], images: [], videos: [], documents: [], adminStatus: 'approved',
+        isFeatured: false,
+        isTopSelected: false,
+        isRecommended: false,
+        meta: { headings: {} }
     });
     const [availableSubs, setAvailableSubs] = useState<CategorySub[]>([]);
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
@@ -1132,9 +1300,66 @@ const GigWizard = ({ categories, onComplete }: { categories: ListingCategory[], 
         setAvailableSubs(cat ? cat.subcategories : []);
     }, [gig.category, categories]);
 
+    useEffect(() => {
+        if (!initialGig) return;
+        setGig(prev => {
+            const normalizedPackages = Array.isArray(initialGig.packages) && initialGig.packages.length
+                ? initialGig.packages.map((pkg: any, idx: number) => ({
+                    name: pkg?.name || prev.packages?.[idx]?.name || `Package ${idx + 1}`,
+                    description: pkg?.description ?? '',
+                    deliveryDays: pkg?.deliveryDays ?? pkg?.delivery_days ?? 0,
+                    revisions: pkg?.revisions ?? 0,
+                    price: Number(pkg?.price ?? 0),
+                    features: Array.isArray(pkg?.features) ? pkg.features : []
+                }))
+                : prev.packages;
+            const normalizedExtras = Array.isArray(initialGig.extras)
+                ? initialGig.extras.map((extra: any) => ({
+                    ...extra,
+                    additional_days: extra?.additional_days ?? extra?.additionalDays ?? 0,
+                    additionalDays: extra?.additionalDays ?? extra?.additional_days ?? 0,
+                    applies_to: extra?.applies_to ?? extra?.appliesTo ?? 'all',
+                    appliesTo: extra?.appliesTo ?? extra?.applies_to ?? 'all'
+                }))
+                : prev.extras;
+            const merged: any = {
+                ...prev,
+                ...initialGig,
+                adminStatus: (initialGig as any).adminStatus ?? (initialGig as any).admin_status ?? prev.adminStatus,
+                pricingMode: (initialGig as any).pricingMode ?? (initialGig as any).pricing_mode ?? prev.pricingMode,
+                isFeatured: (initialGig as any).isFeatured ?? (initialGig as any).is_featured ?? prev.isFeatured,
+                isTopSelected: (initialGig as any).isTopSelected ?? (initialGig as any).is_top_selected ?? prev.isTopSelected,
+                isRecommended: (initialGig as any).isRecommended ?? (initialGig as any).is_recommended ?? prev.isRecommended,
+                category: (initialGig as any).category ?? (initialGig as any).categoryName ?? prev.category,
+                subcategory: (initialGig as any).subcategory ?? (initialGig as any).subcategoryName ?? prev.subcategory,
+                packages: normalizedPackages,
+                extras: normalizedExtras,
+                faqs: initialGig.faqs ?? prev.faqs,
+                requirements: initialGig.requirements ?? prev.requirements,
+                images: initialGig.images ?? prev.images,
+                videos: initialGig.videos ?? prev.videos,
+                documents: initialGig.documents ?? prev.documents,
+                tags: initialGig.tags ?? prev.tags,
+                meta: initialGig.meta ?? prev.meta ?? { headings: {} }
+            };
+            if (!merged.image && Array.isArray(merged.images) && merged.images.length) {
+                merged.image = merged.images[0];
+            }
+            if (!merged.meta) merged.meta = { headings: {} };
+            if (!merged.meta.headings) merged.meta.headings = {};
+            return merged;
+        });
+    }, [initialGig]);
+
     const handleSave = async () => {
         try {
-            await AdminService.saveGig(gig as Gig);
+            const selectedCategory = categories.find(
+                (cat) => cat.name === gig.category || cat.id === gig.category
+            );
+            const payload = selectedCategory?.id
+                ? { ...gig, categoryId: selectedCategory.id }
+                : gig;
+            await AdminService.saveGig(payload as Gig);
             showNotification('success', 'Published', 'Gig is now live!', `/gigs/new`);
             onComplete();
         } catch (e) {
@@ -1142,10 +1367,46 @@ const GigWizard = ({ categories, onComplete }: { categories: ListingCategory[], 
         }
     };
 
+    const updateGigHeading = (key: string, value: string) => {
+        setGig(prev => ({
+            ...prev,
+            meta: {
+                ...(prev.meta || {}),
+                headings: {
+                    ...((prev.meta as any)?.headings || {}),
+                    [key]: value
+                }
+            }
+        }));
+    };
+
     const updatePackage = (idx: number, field: keyof GigPackage, val: any) => {
         const newPackages = [...(gig.packages || [])];
         newPackages[idx] = { ...newPackages[idx], [field]: val };
         setGig({ ...gig, packages: newPackages, price: idx === 0 && field === 'price' ? Number(val) : gig.price });
+    };
+
+    const addPackageFeature = (pkgIdx: number) => {
+        const newPackages = [...(gig.packages || [])];
+        const features = Array.isArray(newPackages[pkgIdx]?.features) ? [...(newPackages[pkgIdx]?.features || [])] : [];
+        features.push('');
+        newPackages[pkgIdx] = { ...newPackages[pkgIdx], features };
+        setGig({ ...gig, packages: newPackages });
+    };
+
+    const updatePackageFeature = (pkgIdx: number, featureIdx: number, value: string) => {
+        const newPackages = [...(gig.packages || [])];
+        const features = Array.isArray(newPackages[pkgIdx]?.features) ? [...(newPackages[pkgIdx]?.features || [])] : [];
+        features[featureIdx] = value;
+        newPackages[pkgIdx] = { ...newPackages[pkgIdx], features };
+        setGig({ ...gig, packages: newPackages });
+    };
+
+    const removePackageFeature = (pkgIdx: number, featureIdx: number) => {
+        const newPackages = [...(gig.packages || [])];
+        const features = Array.isArray(newPackages[pkgIdx]?.features) ? [...(newPackages[pkgIdx]?.features || [])] : [];
+        newPackages[pkgIdx] = { ...newPackages[pkgIdx], features: features.filter((_, idx) => idx !== featureIdx) };
+        setGig({ ...gig, packages: newPackages });
     };
 
     const addExtra = () => setGig({ ...gig, extras: [...(gig.extras || []), { id: Date.now().toString(), title: '', description: '', price: 0, additionalDays: 0, appliesTo: 'all' }] });
@@ -1168,7 +1429,45 @@ const GigWizard = ({ categories, onComplete }: { categories: ListingCategory[], 
     const removeReq = (idx: number) => setGig({ ...gig, requirements: gig.requirements?.filter((_, i) => i !== idx) });
     const updateReq = (idx: number, field: keyof GigRequirement, val: any) => {
         const newReqs = [...(gig.requirements || [])];
-        newReqs[idx] = { ...newReqs[idx], [field]: val };
+        if (field === 'type') {
+            if (val === 'file') {
+                newReqs[idx] = {
+                    ...newReqs[idx],
+                    type: 'file',
+                    fileTypes: Array.isArray(newReqs[idx].fileTypes) && newReqs[idx].fileTypes?.length ? newReqs[idx].fileTypes : ['images'],
+                    maxFiles: newReqs[idx].maxFiles ?? 1
+                };
+            } else {
+                const { fileTypes, maxFiles, ...rest } = newReqs[idx] as any;
+                newReqs[idx] = { ...rest, type: 'text' };
+            }
+        } else {
+            newReqs[idx] = { ...newReqs[idx], [field]: val };
+        }
+        setGig({ ...gig, requirements: newReqs });
+    };
+
+    const requirementFileTypes = [
+        { value: 'images', label: 'Images (JPG, PNG)' },
+        { value: 'pdf', label: 'PDF' },
+        { value: 'doc', label: 'DOC/DOCX' },
+        { value: 'zip', label: 'ZIP' },
+        { value: 'other', label: 'Other' }
+    ];
+
+    const toggleRequirementFileType = (idx: number, fileType: string) => {
+        const newReqs = [...(gig.requirements || [])];
+        const current = Array.isArray(newReqs[idx]?.fileTypes) ? [...(newReqs[idx]?.fileTypes || [])] : [];
+        const next = current.includes(fileType)
+            ? current.filter(t => t !== fileType)
+            : [...current, fileType];
+        newReqs[idx] = { ...newReqs[idx], fileTypes: next };
+        setGig({ ...gig, requirements: newReqs });
+    };
+
+    const updateRequirementMaxFiles = (idx: number, value: number | null) => {
+        const newReqs = [...(gig.requirements || [])];
+        newReqs[idx] = { ...newReqs[idx], maxFiles: value ?? undefined };
         setGig({ ...gig, requirements: newReqs });
     };
 
@@ -1246,6 +1545,103 @@ const GigWizard = ({ categories, onComplete }: { categories: ListingCategory[], 
                                 </select>
                             </div>
                         </div>
+                        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="font-bold text-gray-900">Card & Section Headings</h3>
+                                <span className="text-xs text-gray-500">Optional</span>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-600 mb-1">Listing Card Title</label>
+                                    <input
+                                        className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                                        placeholder="Gig Card Title"
+                                        value={(gig.meta as any)?.headings?.cardTitle || ''}
+                                        onChange={e => updateGigHeading('cardTitle', e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-600 mb-1">Listing Card Subtitle</label>
+                                    <input
+                                        className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                                        placeholder="Short subtitle"
+                                        value={(gig.meta as any)?.headings?.cardSubtitle || ''}
+                                        onChange={e => updateGigHeading('cardSubtitle', e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-600 mb-1">Overview Heading</label>
+                                    <input
+                                        className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                                        placeholder="Overview"
+                                        value={(gig.meta as any)?.headings?.overviewHeading || ''}
+                                        onChange={e => updateGigHeading('overviewHeading', e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-600 mb-1">Pricing Heading</label>
+                                    <input
+                                        className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                                        placeholder="Pricing"
+                                        value={(gig.meta as any)?.headings?.pricingHeading || ''}
+                                        onChange={e => updateGigHeading('pricingHeading', e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-600 mb-1">Requirements Heading</label>
+                                    <input
+                                        className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                                        placeholder="Requirements"
+                                        value={(gig.meta as any)?.headings?.requirementsHeading || ''}
+                                        onChange={e => updateGigHeading('requirementsHeading', e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-gray-600 mb-1">Gallery Heading</label>
+                                    <input
+                                        className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                                        placeholder="Gallery"
+                                        value={(gig.meta as any)?.headings?.galleryHeading || ''}
+                                        onChange={e => updateGigHeading('galleryHeading', e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="bg-white border border-gray-200 rounded-lg p-4">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="font-bold text-gray-900">Listing Promotion</h3>
+                                <span className="text-xs text-gray-500">Plan-gated perks</span>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <label className="flex items-center gap-2 text-sm text-gray-700">
+                                    <input
+                                        type="checkbox"
+                                        className="rounded"
+                                        checked={Boolean(gig.isFeatured)}
+                                        onChange={(e) => setGig({ ...gig, isFeatured: e.target.checked })}
+                                    />
+                                    Featured
+                                </label>
+                                <label className="flex items-center gap-2 text-sm text-gray-700">
+                                    <input
+                                        type="checkbox"
+                                        className="rounded"
+                                        checked={Boolean(gig.isTopSelected)}
+                                        onChange={(e) => setGig({ ...gig, isTopSelected: e.target.checked })}
+                                    />
+                                    Top Selected
+                                </label>
+                                <label className="flex items-center gap-2 text-sm text-gray-700">
+                                    <input
+                                        type="checkbox"
+                                        className="rounded"
+                                        checked={Boolean(gig.isRecommended)}
+                                        onChange={(e) => setGig({ ...gig, isRecommended: e.target.checked })}
+                                    />
+                                    Recommended
+                                </label>
+                            </div>
+                        </div>
                     </div>
                 )}
 
@@ -1258,8 +1654,14 @@ const GigWizard = ({ categories, onComplete }: { categories: ListingCategory[], 
                                 <thead>
                                     <tr className="bg-gray-50 text-left">
                                         <th className="p-4 w-1/4 border-r font-medium text-gray-500 uppercase text-xs tracking-wider"></th>
-                                        {['Basic', 'Standard', 'Premium'].map((pkg, i) => (
-                                            <th key={i} className="p-4 border-r last:border-r-0 text-center font-bold text-gray-900 bg-gray-50 text-lg">{pkg}</th>
+                                        {gig.packages?.map((pkg, i) => (
+                                            <th key={i} className="p-4 border-r last:border-r-0 text-center font-bold text-gray-900 bg-gray-50 text-lg">
+                                                <input
+                                                    className="w-full bg-transparent text-center font-bold text-gray-900"
+                                                    value={pkg.name}
+                                                    onChange={(e) => updatePackage(i, 'name', e.target.value)}
+                                                />
+                                            </th>
                                         ))}
                                     </tr>
                                 </thead>
@@ -1281,10 +1683,50 @@ const GigWizard = ({ categories, onComplete }: { categories: ListingCategory[], 
                                         ))}
                                     </tr>
                                     <tr>
+                                        <td className="p-4 border-r border-t font-medium text-gray-700 bg-gray-50">Revisions</td>
+                                        {gig.packages?.map((pkg, i) => (
+                                            <td key={i} className="p-2 border-r border-t last:border-r-0">
+                                                <input type="number" className="w-full border-gray-200 rounded-lg p-2" value={pkg.revisions} onChange={(e) => updatePackage(i, 'revisions', parseInt(e.target.value))} />
+                                            </td>
+                                        ))}
+                                    </tr>
+                                    <tr>
                                         <td className="p-4 border-r border-t font-medium text-gray-700 bg-gray-50">Price ($)</td>
                                         {gig.packages?.map((pkg, i) => (
                                             <td key={i} className="p-2 border-r border-t last:border-r-0">
                                                 <input type="number" className="w-full border-gray-200 rounded-lg p-2 font-bold" value={pkg.price} onChange={(e) => updatePackage(i, 'price', parseInt(e.target.value))} />
+                                            </td>
+                                        ))}
+                                    </tr>
+                                    <tr>
+                                        <td className="p-4 border-r border-t font-medium text-gray-700 bg-gray-50">Features</td>
+                                        {gig.packages?.map((pkg, i) => (
+                                            <td key={i} className="p-2 border-r border-t last:border-r-0 align-top">
+                                                <div className="space-y-2">
+                                                    {(pkg.features || []).map((feature, fIdx) => (
+                                                        <div key={fIdx} className="flex items-center gap-2">
+                                                            <input
+                                                                className="flex-1 border-gray-200 rounded-lg p-2 text-sm"
+                                                                placeholder="Feature"
+                                                                value={feature}
+                                                                onChange={(e) => updatePackageFeature(i, fIdx, e.target.value)}
+                                                            />
+                                                            <button
+                                                                onClick={() => removePackageFeature(i, fIdx)}
+                                                                className="text-gray-400 hover:text-red-500"
+                                                                title="Remove feature"
+                                                            >
+                                                                <X className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                    <button
+                                                        onClick={() => addPackageFeature(i)}
+                                                        className="text-blue-600 text-xs font-semibold hover:underline flex items-center"
+                                                    >
+                                                        <Plus className="w-3 h-3 mr-1" /> Add Feature
+                                                    </button>
+                                                </div>
                                             </td>
                                         ))}
                                     </tr>
@@ -1349,6 +1791,34 @@ const GigWizard = ({ categories, onComplete }: { categories: ListingCategory[], 
                                     </select>
                                     <label className="flex items-center"><input type="checkbox" checked={req.required} onChange={e => updateReq(i, 'required', e.target.checked)} className="mr-2" /> Required</label>
                                 </div>
+                                {req.type === 'file' && (
+                                    <div className="mt-4 border-t border-gray-100 pt-4">
+                                        <div className="text-xs font-semibold text-gray-600 uppercase mb-2">Allowed File Types</div>
+                                        <div className="flex flex-wrap gap-3">
+                                            {requirementFileTypes.map((option) => (
+                                                <label key={option.value} className="flex items-center text-sm text-gray-700">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="mr-2"
+                                                        checked={(req.fileTypes || []).includes(option.value)}
+                                                        onChange={() => toggleRequirementFileType(i, option.value)}
+                                                    />
+                                                    {option.label}
+                                                </label>
+                                            ))}
+                                        </div>
+                                        <div className="mt-3">
+                                            <label className="block text-xs font-semibold text-gray-600 mb-1">Max Files</label>
+                                            <input
+                                                type="number"
+                                                min={1}
+                                                className="w-32 border-gray-300 rounded p-2 text-sm"
+                                                value={req.maxFiles ?? ''}
+                                                onChange={(e) => updateRequirementMaxFiles(i, e.target.value ? parseInt(e.target.value) : null)}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ))}
                         <button onClick={addReq} className="w-full py-3 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:border-blue-500 hover:text-blue-600 font-medium transition flex items-center justify-center">
@@ -1459,7 +1929,7 @@ const GigWizard = ({ categories, onComplete }: { categories: ListingCategory[], 
     );
 };
 
-const JobEditor = ({ categories, onComplete }: { categories: ListingCategory[], onComplete: () => void }) => {
+const JobEditor = ({ categories, onComplete, initialJob }: { categories: ListingCategory[], onComplete: () => void, initialJob?: Partial<Job> }) => {
     const { showNotification } = useNotification();
     const [availableSubs, setAvailableSubs] = useState<CategorySub[]>([]);
     const [saving, setSaving] = useState(false);
@@ -1468,19 +1938,101 @@ const JobEditor = ({ categories, onComplete }: { categories: ListingCategory[], 
         description: '',
         budget: '',
         type: 'Fixed Price',
-        category: '',
-        subcategory: '',
-        experience_level: 'Intermediate',
-        status: 'draft',
-        admin_status: 'pending',
-        client_name: 'Admin',
-        tags: []
+          category: '',
+          subcategory: '',
+          experience_level: 'Intermediate',
+          status: 'draft',
+          admin_status: 'pending',
+          client_name: 'Admin',
+          tags: [],
+          isFeatured: false,
+          isTopSelected: false,
+          isRecommended: false,
+        meta: { headings: {}, features: [] }
     });
+
+    const normalizeJobTypeLabel = (value: any) => {
+        if (!value) return 'Fixed Price';
+        const raw = String(value).trim().toLowerCase().replace(/\s+/g, '_');
+        if (raw === 'fixed_price' || raw === 'fixed') return 'Fixed Price';
+        if (raw === 'hourly') return 'Hourly';
+        if (raw === 'contract') return 'Contract';
+        return 'Fixed Price';
+    };
 
     useEffect(() => {
         const cat = categories.find(c => c.name === job.category);
         setAvailableSubs(cat ? cat.subcategories : []);
     }, [job.category, categories]);
+
+    useEffect(() => {
+        if (!initialJob) return;
+        setJob(prev => ({
+            ...prev,
+            ...initialJob,
+            admin_status: (initialJob as any).admin_status ?? (initialJob as any).adminStatus ?? prev.admin_status,
+            adminStatus: (initialJob as any).adminStatus ?? (initialJob as any).admin_status,
+            experience_level: (initialJob as any).experience_level ?? (initialJob as any).experienceLevel ?? prev.experience_level,
+            category: (initialJob as any).category ?? (initialJob as any).categoryName ?? prev.category,
+            subcategory: (initialJob as any).subcategory ?? (initialJob as any).subcategoryName ?? prev.subcategory,
+            budget: typeof (initialJob as any).budget === 'number' ? String((initialJob as any).budget) : (initialJob as any).budget ?? prev.budget,
+            type: normalizeJobTypeLabel((initialJob as any).type ?? prev.type),
+            tags: (initialJob as any).tags ?? prev.tags ?? [],
+            isFeatured: (initialJob as any).isFeatured ?? (initialJob as any).is_featured ?? prev.isFeatured,
+            isTopSelected: (initialJob as any).isTopSelected ?? (initialJob as any).is_top_selected ?? prev.isTopSelected,
+            isRecommended: (initialJob as any).isRecommended ?? (initialJob as any).is_recommended ?? prev.isRecommended,
+            meta: (initialJob as any).meta ?? prev.meta ?? { headings: {}, features: [] }
+        }));
+    }, [initialJob]);
+
+    const updateJobHeading = (key: string, value: string) => {
+        setJob(prev => ({
+            ...prev,
+            meta: {
+                ...(prev.meta || {}),
+                headings: {
+                    ...((prev.meta as any)?.headings || {}),
+                    [key]: value
+                }
+            }
+        }));
+    };
+
+    const addJobFeature = () => {
+        const current = Array.isArray((job.meta as any)?.features) ? [...((job.meta as any)?.features || [])] : [];
+        current.push('');
+        setJob(prev => ({
+            ...prev,
+            meta: {
+                ...(prev.meta || {}),
+                features: current
+            }
+        }));
+    };
+
+    const updateJobFeature = (idx: number, value: string) => {
+        const current = Array.isArray((job.meta as any)?.features) ? [...((job.meta as any)?.features || [])] : [];
+        current[idx] = value;
+        setJob(prev => ({
+            ...prev,
+            meta: {
+                ...(prev.meta || {}),
+                features: current
+            }
+        }));
+    };
+
+    const removeJobFeature = (idx: number) => {
+        const current = Array.isArray((job.meta as any)?.features) ? [...((job.meta as any)?.features || [])] : [];
+        const next = current.filter((_, i) => i !== idx);
+        setJob(prev => ({
+            ...prev,
+            meta: {
+                ...(prev.meta || {}),
+                features: next
+            }
+        }));
+    };
 
     const handleSave = async () => {
         if (!job.title || !job.category) {
@@ -1571,6 +2123,15 @@ const JobEditor = ({ categories, onComplete }: { categories: ListingCategory[], 
                 />
             </div>
             <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Tags</label>
+                <input
+                    className="w-full border-gray-300 rounded-lg p-2.5 shadow-sm"
+                    placeholder="design, branding, landing page"
+                    value={(job.tags || []).join(', ')}
+                    onChange={e => setJob({ ...job, tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean) })}
+                />
+            </div>
+            <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">Description</label>
                 <textarea
                     className="w-full border-gray-300 rounded-lg p-3 min-h-[140px] shadow-sm"
@@ -1578,6 +2139,129 @@ const JobEditor = ({ categories, onComplete }: { categories: ListingCategory[], 
                     value={job.description}
                     onChange={e => setJob({ ...job, description: e.target.value })}
                 />
+            </div>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-bold text-gray-900">Card & Section Headings</h3>
+                    <span className="text-xs text-gray-500">Optional</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Listing Card Title</label>
+                        <input
+                            className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                            placeholder="Job Card Title"
+                            value={(job.meta as any)?.headings?.cardTitle || ''}
+                            onChange={e => updateJobHeading('cardTitle', e.target.value)}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Listing Card Subtitle</label>
+                        <input
+                            className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                            placeholder="Short subtitle"
+                            value={(job.meta as any)?.headings?.cardSubtitle || ''}
+                            onChange={e => updateJobHeading('cardSubtitle', e.target.value)}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Overview Heading</label>
+                        <input
+                            className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                            placeholder="Overview"
+                            value={(job.meta as any)?.headings?.overviewHeading || ''}
+                            onChange={e => updateJobHeading('overviewHeading', e.target.value)}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Requirements Heading</label>
+                        <input
+                            className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                            placeholder="Requirements"
+                            value={(job.meta as any)?.headings?.requirementsHeading || ''}
+                            onChange={e => updateJobHeading('requirementsHeading', e.target.value)}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Budget Heading</label>
+                        <input
+                            className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                            placeholder="Budget"
+                            value={(job.meta as any)?.headings?.budgetHeading || ''}
+                            onChange={e => updateJobHeading('budgetHeading', e.target.value)}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">Experience Heading</label>
+                        <input
+                            className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                            placeholder="Experience"
+                            value={(job.meta as any)?.headings?.experienceHeading || ''}
+                            onChange={e => updateJobHeading('experienceHeading', e.target.value)}
+                        />
+                    </div>
+                </div>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-bold text-gray-900">Listing Promotion</h3>
+                    <span className="text-xs text-gray-500">Plan-gated perks</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                        <input
+                            type="checkbox"
+                            className="rounded"
+                            checked={Boolean(job.isFeatured)}
+                            onChange={(e) => setJob({ ...job, isFeatured: e.target.checked })}
+                        />
+                        Featured
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                        <input
+                            type="checkbox"
+                            className="rounded"
+                            checked={Boolean(job.isTopSelected)}
+                            onChange={(e) => setJob({ ...job, isTopSelected: e.target.checked })}
+                        />
+                        Top Selected
+                    </label>
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                        <input
+                            type="checkbox"
+                            className="rounded"
+                            checked={Boolean(job.isRecommended)}
+                            onChange={(e) => setJob({ ...job, isRecommended: e.target.checked })}
+                        />
+                        Recommended
+                    </label>
+                </div>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-bold text-gray-900">Job Features</h3>
+                    <button onClick={addJobFeature} className="text-blue-600 text-sm font-semibold hover:underline flex items-center">
+                        <Plus className="w-4 h-4 mr-1" /> Add Feature
+                    </button>
+                </div>
+                <div className="space-y-2">
+                    {((job.meta as any)?.features || []).map((feature: string, idx: number) => (
+                        <div key={idx} className="flex items-center gap-2">
+                            <input
+                                className="flex-1 border-gray-300 rounded-lg p-2 text-sm"
+                                placeholder="Feature"
+                                value={feature}
+                                onChange={(e) => updateJobFeature(idx, e.target.value)}
+                            />
+                            <button onClick={() => removeJobFeature(idx)} className="text-gray-400 hover:text-red-500" title="Remove feature">
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                    ))}
+                    {((job.meta as any)?.features || []).length === 0 && (
+                        <div className="text-sm text-gray-500">No features added yet.</div>
+                    )}
+                </div>
             </div>
             <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
                 <button

@@ -1,8 +1,14 @@
 
-import { MarketingCampaign, Affiliate, Coupon, EmailProviderConfig } from '../types';
-import { MOCK_CAMPAIGNS, MOCK_AFFILIATES, MOCK_COUPONS } from '../constants';
+import api from './api';
+import { MarketingCampaign, Affiliate, Coupon, EmailProviderConfig, MarketingPopupSubscribeConfig } from '../types';
+import { MOCK_AFFILIATES, MOCK_COUPONS } from '../constants';
 
-let campaigns: MarketingCampaign[] = [...MOCK_CAMPAIGNS];
+const extractData = <T>(response: any): T => {
+    if (response?.data?.data !== undefined) return response.data.data as T;
+    if (response?.data !== undefined) return response.data as T;
+    return response as T;
+};
+
 let affiliates: Affiliate[] = [...MOCK_AFFILIATES];
 let coupons: Coupon[] = [...MOCK_COUPONS];
 let emailConfig: EmailProviderConfig = {
@@ -11,48 +17,34 @@ let emailConfig: EmailProviderConfig = {
     port: 2525,
     username: 'user',
     password: 'password',
-    fromName: 'Geezle',
-    fromEmail: 'no-reply@geezle.com'
+    fromName: 'Scrolith',
+    fromEmail: 'no-reply@Scrolith.com'
 };
 
 export const MarketingService = {
     // --- Email Marketing ---
     getCampaigns: async (): Promise<MarketingCampaign[]> => {
-        return new Promise(resolve => setTimeout(() => resolve([...campaigns]), 200));
+        const response = await api.get('/admin/marketing/campaigns');
+        const data = extractData<MarketingCampaign[]>(response);
+        return Array.isArray(data) ? data : [];
     },
 
     saveCampaign: async (campaign: MarketingCampaign): Promise<MarketingCampaign> => {
-        return new Promise(resolve => {
-            const idx = campaigns.findIndex(c => c.id === campaign.id);
-            if (idx >= 0) campaigns[idx] = campaign;
-            else campaigns.unshift(campaign);
-            resolve(campaign);
-        });
+        const response = await api.post('/admin/marketing/campaigns', campaign);
+        return extractData<MarketingCampaign>(response);
     },
 
     deleteCampaign: async (id: string): Promise<void> => {
-        return new Promise(resolve => {
-            campaigns = campaigns.filter(c => c.id !== id);
-            resolve();
-        });
+        await api.delete(`/admin/marketing/campaigns/${id}`);
+    },
+
+    sendCampaign: async (id: string): Promise<MarketingCampaign> => {
+        const response = await api.post(`/admin/marketing/campaigns/${id}/send`);
+        return extractData<MarketingCampaign>(response);
     },
 
     simulateSendCampaign: async (id: string): Promise<void> => {
-        return new Promise(resolve => {
-            setTimeout(() => {
-                const idx = campaigns.findIndex(c => c.id === id);
-                if (idx >= 0) {
-                    campaigns[idx].status = 'completed';
-                    // Simulate random stats
-                    campaigns[idx].stats = {
-                        sent: Math.floor(Math.random() * 5000) + 1000,
-                        opened: Math.floor(Math.random() * 2000),
-                        clicked: Math.floor(Math.random() * 500)
-                    };
-                }
-                resolve();
-            }, 2000); // 2 second delay to simulate sending
-        });
+        await MarketingService.sendCampaign(id);
     },
 
     getEmailConfig: async (): Promise<EmailProviderConfig> => {
@@ -106,5 +98,33 @@ export const MarketingService = {
             console.log("Affiliate Application Submitted:", data);
             resolve();
         }, 1000));
+    },
+
+    // --- Popup Subscribe Config (Admin) ---
+    getPopupSubscribeConfig: async (): Promise<MarketingPopupSubscribeConfig> => {
+        const response = await api.get('/admin/marketing/popup-subscribe');
+        return extractData<MarketingPopupSubscribeConfig>(response);
+    },
+
+    savePopupSubscribeConfig: async (config: MarketingPopupSubscribeConfig): Promise<MarketingPopupSubscribeConfig> => {
+        const response = await api.post('/admin/marketing/popup-subscribe', config);
+        return extractData<MarketingPopupSubscribeConfig>(response);
+    },
+
+    // --- Public Marketing ---
+    getPublicPopupSubscribeConfig: async (): Promise<MarketingPopupSubscribeConfig> => {
+        const response = await api.get('/marketing/popup-subscribe');
+        return extractData<MarketingPopupSubscribeConfig>(response);
+    },
+
+    getPopupBanners: async (role?: string): Promise<MarketingCampaign[]> => {
+        const response = await api.get('/marketing/popup-banners', { params: role ? { role } : undefined });
+        const data = extractData<MarketingCampaign[]>(response);
+        return Array.isArray(data) ? data : [];
+    },
+
+    subscribeToNewsletter: async (payload: { email: string; name?: string; source?: string }): Promise<void> => {
+        await api.post('/marketing/subscribe', payload);
     }
 };
+

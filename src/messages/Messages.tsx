@@ -2,29 +2,65 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MessagingService } from '../services/messaging';
-import { Conversation, Message, UserRole } from '../types';
-import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert } from 'lucide-react';
+import { Conversation, Message, UploadedFile, UserRole } from '../types';
+import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil } from 'lucide-react';
 import { AIService } from '../services/ai/ai.service';
+import { UserService } from '../services/user';
 import { useUser } from '../context/UserContext';
 import { useMessages } from '../context/MessageContext';
+import { useSocket } from '../context/SocketContext';
+import { useNotification } from '../context/NotificationContext';
+import { useContent } from '../context/ContentContext';
+import FilePickerModal from '../dashboard/shared/FilePickerModal';
+import ProBadge from '../components/ProBadge';
+import ReactionBar from '../community/components/ReactionBar';
 
 const Messages = () => {
   const { conversationId } = useParams<{ conversationId: string }>();
   const navigate = useNavigate();
   const { user } = useUser();
+  const { showNotification } = useNotification();
   const { refreshMessages } = useMessages();
+  const { socket } = useSocket();
+  const { settings } = useContent();
   
   const [activeConvoId, setActiveConvoId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messageInput, setMessageInput] = useState('');
+  const [pendingAttachments, setPendingAttachments] = useState<UploadedFile[]>([]);
+  const [showFilePicker, setShowFilePicker] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showConversationMenu, setShowConversationMenu] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [showMessageSettings, setShowMessageSettings] = useState(false);
+  const [messageSettings, setMessageSettings] = useState({
+      messageRequestsNotifications: true,
+      allowInMail: true
+  });
+  const [settingsBusy, setSettingsBusy] = useState(false);
   
   // Advanced Features State
-  const [isTyping, setIsTyping] = useState(false);
   const [typingUser, setTypingUser] = useState<string | null>(null);
   const [isGettingAiSuggestion, setIsGettingAiSuggestion] = useState(false);
-  const [showReactionPicker, setShowReactionPicker] = useState<string | null>(null);
+  const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState('');
+  const [messageActionBusyId, setMessageActionBusyId] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const activeConvoIdRef = useRef<string | null>(null);
+  const userIdRef = useRef<string | null>(null);
+  const refreshingRef = useRef(false);
+
+  useEffect(() => {
+      activeConvoIdRef.current = activeConvoId;
+  }, [activeConvoId]);
+
+  useEffect(() => {
+      userIdRef.current = user?.id || null;
+  }, [user?.id]);
 
   // Load Conversations
   useEffect(() => {
@@ -55,25 +91,367 @@ const Messages = () => {
 
   // Auto-scroll to bottom
   useEffect(() => {
+      if (!shouldAutoScrollRef.current) return;
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeConvoId, typingUser, conversations]); 
 
-  const activeConvo = conversations.find(c => c.id === activeConvoId);
-
-  // Simulate typing indicator from other user (Real-time Simulation)
   useEffect(() => {
-      if (activeConvoId) {
-          const timer = setInterval(() => {
-              // 20% chance to show typing if not me
-              if (Math.random() > 0.8) {
-                  const otherUser = activeConvo?.participants.find(p => p.id !== user?.id)?.name;
-                  setTypingUser(otherUser || 'Someone');
-                  setTimeout(() => setTypingUser(null), 3000);
-              }
-          }, 8000);
-          return () => clearInterval(timer);
+      setPendingAttachments([]);
+      setReplyToMessage(null);
+      setEditingMessageId(null);
+      setEditDraft('');
+      setMessageActionBusyId(null);
+      setShowConversationMenu(false);
+  }, [activeConvoId]);
+
+  const activeConvo = conversations.find(c => c.id === activeConvoId);
+  const otherParticipant = activeConvo?.participants.find(p => p.id !== user?.id) || activeConvo?.participants[0];
+  const otherOnline = Boolean(otherParticipant?.isOnline ?? otherParticipant?.is_online);
+  const otherLastSeen = otherParticipant?.lastSeenAt ?? otherParticipant?.last_seen_at;
+  const resolveParticipantRole = (participant: any): 'freelancer' | 'employer' | null => {
+      if (!participant) return null;
+      const role = String(participant.role || '').toLowerCase();
+      if (role.includes('freelancer')) return 'freelancer';
+      if (role.includes('employer') || role.includes('client')) return 'employer';
+      if (participant.isProEmployer || participant.is_pro_employer) return 'employer';
+      if (participant.isProFreelancer || participant.is_pro_freelancer) return 'freelancer';
+      return null;
+  };
+  const isParticipantPro = (participant: any) =>
+      Boolean(
+          participant?.isPro ??
+          participant?.is_pro ??
+          participant?.isProEmployer ??
+          participant?.is_pro_employer ??
+          participant?.isProFreelancer ??
+          participant?.is_pro_freelancer
+      );
+  const otherParticipantRole = resolveParticipantRole(otherParticipant);
+  const otherParticipantIsPro = isParticipantPro(otherParticipant);
+  const resolveParticipantProfileUrl = (participant: any) => {
+      if (!participant) return '/profile/edit';
+      const username = String(participant.username || '').trim();
+      if (username) return `/u/${username.replace(/^@+/, '')}`;
+      if (participant.profileUrl || participant.profile_url) {
+          return String(participant.profileUrl || participant.profile_url);
       }
-  }, [activeConvoId, activeConvo, user]);
+      const participantId = String(participant.id || '').trim();
+      return participantId ? `/profile/${participantId}` : '/profile/edit';
+  };
+  const activeConversationState = {
+      label: String(activeConvo?.label || 'other').toLowerCase() === 'jobs' ? 'jobs' : 'other',
+      isStarred: Boolean(activeConvo?.isStarred ?? activeConvo?.is_starred),
+      isMuted: Boolean(activeConvo?.isMuted ?? activeConvo?.is_muted),
+      isArchived: Boolean(activeConvo?.isArchived ?? activeConvo?.is_archived)
+  };
+  const messagingControls = (settings as any)?.messagingControls || {};
+
+  useEffect(() => {
+      if (!showMessageSettings || !user) return;
+      let mounted = true;
+      UserService.getMySettings()
+          .then((data) => {
+              if (!mounted) return;
+              setMessageSettings({
+                  messageRequestsNotifications: Boolean(
+                      data.messageRequestsNotifications ??
+                      data.message_requests_notifications ??
+                      true
+                  ),
+                  allowInMail: Boolean(data.allowInMail ?? data.allow_in_mail ?? true)
+              });
+          })
+          .catch(() => null);
+      return () => {
+          mounted = false;
+      };
+  }, [showMessageSettings, user]);
+
+  const toMediaType = (value: string) => {
+      const normalized = (value || '').toLowerCase();
+      if (normalized.startsWith('image/')) return 'image';
+      if (normalized.startsWith('video/')) return 'video';
+      if (normalized === 'image' || normalized === 'video') return normalized;
+      return 'document';
+  };
+
+  const normalizeAttachmentForDisplay = (attachment: any) => {
+      if (!attachment) return null;
+      if (typeof attachment === 'string') {
+          const parts = attachment.split('/');
+          const name = parts[parts.length - 1] || attachment;
+          return { id: attachment, url: attachment, name, type: toMediaType(name) };
+      }
+      const url = attachment.url || attachment.path || attachment.downloadUrl;
+      if (!url) return null;
+      const name = attachment.name || attachment.filename || attachment.originalName || url.split('/').pop() || 'Attachment';
+      const type = toMediaType(attachment.type || attachment.mimeType || attachment.mime_type || '');
+      return {
+          id: attachment.id || url,
+          url,
+          name,
+          type,
+          size: attachment.size
+      };
+  };
+
+  const mergeAttachments = (files: UploadedFile[]) => {
+      if (!files.length) return;
+      setPendingAttachments(prev => {
+          const map = new Map(prev.map(file => [file.id, file]));
+          files.forEach(file => {
+              if (file?.id) map.set(file.id, file);
+          });
+          return Array.from(map.values());
+      });
+  };
+
+  const removeAttachment = (fileId: string) => {
+      setPendingAttachments(prev => prev.filter(file => file.id !== fileId));
+  };
+
+  const refreshConversationData = async (options?: { silent?: boolean }) => {
+      if (!user || refreshingRef.current) return;
+      refreshingRef.current = true;
+      if (!options?.silent) setIsRefreshing(true);
+      try {
+          const list = await MessagingService.getAllConversations(user.id, user.role, { force: true });
+          setConversations(list);
+          const convoId = activeConvoIdRef.current;
+          if (convoId) {
+              const full = await MessagingService.getConversationById(convoId);
+              if (full) {
+                  setConversations(prev => prev.map(c => c.id === convoId ? { ...c, ...full } : c));
+              }
+          }
+          refreshMessages();
+      } catch (error) {
+          console.error('Failed to refresh messages', error);
+      } finally {
+          refreshingRef.current = false;
+          if (!options?.silent) setIsRefreshing(false);
+      }
+  };
+
+  useEffect(() => {
+      if (!user) return;
+      const interval = setInterval(() => {
+          refreshConversationData({ silent: true });
+      }, 15000);
+                            return () => clearInterval(interval);
+  }, [user]);
+
+  const handleMessagesScroll = () => {
+      const container = messagesContainerRef.current;
+      if (!container) return;
+      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      shouldAutoScrollRef.current = distanceFromBottom < 120;
+  };
+
+  const normalizeIncomingMessage = (raw: any): Message => {
+      const conversationId = raw?.conversation_id ?? raw?.conversationId ?? '';
+      const senderId = raw?.sender_id ?? raw?.senderId ?? '';
+      const receiverId = raw?.receiver_id ?? raw?.receiverId ?? '';
+      const timestamp = raw?.timestamp ?? raw?.createdAt ?? new Date().toISOString();
+      const isRead = Boolean(raw?.is_read ?? raw?.isRead ?? false);
+      const rawAttachments = Array.isArray(raw?.attachments)
+          ? raw.attachments
+          : Array.isArray(raw?.attachment_ids)
+              ? raw.attachment_ids
+              : Array.isArray(raw?.attachmentIds)
+                  ? raw.attachmentIds
+                  : [];
+      const attachments = rawAttachments
+          .map((attachment: any) => normalizeAttachmentForDisplay(attachment))
+          .filter(Boolean);
+      return {
+          id: raw?.id ?? `${conversationId}-msg-${Date.now()}`,
+          conversation_id: conversationId,
+          sender_id: senderId,
+          receiver_id: receiverId,
+          text: raw?.text ?? '',
+          timestamp,
+          is_read: isRead,
+          reactions: Array.isArray(raw?.reactions) ? raw.reactions : [],
+          attachments,
+          attachment_ids: rawAttachments,
+          reply_to_message_id: raw?.reply_to_message_id ?? raw?.replyToMessageId ?? null,
+          replyToMessageId: raw?.replyToMessageId ?? raw?.reply_to_message_id ?? null,
+          reply_to_snapshot: raw?.reply_to_snapshot ?? raw?.replyToSnapshot ?? null,
+          replyToSnapshot: raw?.replyToSnapshot ?? raw?.reply_to_snapshot ?? null,
+          reply_to: raw?.reply_to ?? raw?.replyTo ?? null,
+          replyTo: raw?.replyTo ?? raw?.reply_to ?? null,
+          conversationId,
+          senderId,
+          receiverId,
+          isRead
+      };
+  };
+
+  useEffect(() => {
+      if (!socket || !user) return;
+
+      const handleIncoming = (payload: any) => {
+          const message = normalizeIncomingMessage(payload);
+          const convoId = message.conversation_id || message.conversationId;
+          if (!convoId) return;
+
+          setConversations(prev => {
+              let found = false;
+              const updated = prev.map(c => {
+                  if (c.id !== convoId) return c;
+                  found = true;
+                  const exists = c.messages.some(m => m.id === message.id);
+                  const nextMessages = exists ? c.messages : [...c.messages, message];
+                  const isActive = activeConvoIdRef.current === convoId;
+                  const isFromOther = (message.senderId || message.sender_id) !== userIdRef.current;
+                  const unreadBase = c.unreadCount ?? c.unread_count ?? 0;
+                  const unreadCount = isActive || !isFromOther ? unreadBase : unreadBase + 1;
+                  const lastMessageText = message.text || (message.attachments?.length ? 'Sent an attachment' : '');
+                  return {
+                      ...c,
+                      messages: nextMessages,
+                      lastMessage: lastMessageText,
+                      lastMessageAt: message.timestamp,
+                      last_message: lastMessageText,
+                      last_message_at: message.timestamp,
+                      unreadCount,
+                      unread_count: unreadCount
+                  };
+              });
+
+              if (!found) {
+                  void MessagingService.getConversationById(convoId).then((full) => {
+                      if (!full) return;
+                      setConversations(current => [full, ...current.filter(c => c.id !== convoId)]);
+                  });
+                  return prev;
+              }
+              return updated;
+          });
+
+          const isActive = activeConvoIdRef.current === convoId;
+          const isFromOther = (message.senderId || message.sender_id) !== userIdRef.current;
+          if (isActive && isFromOther && userIdRef.current) {
+              void MessagingService.markAsRead(convoId, userIdRef.current);
+              setConversations(prev => prev.map(c => {
+                  if (c.id !== convoId) return c;
+                  return {
+                      ...c,
+                      unreadCount: 0,
+                      unread_count: 0,
+                      messages: c.messages.map(m => m.id === message.id ? { ...m, isRead: true, is_read: true } : m)
+                  };
+              }));
+          }
+          refreshMessages();
+      };
+
+      const handleRead = (payload: any) => {
+          const convoId = payload?.conversationId || payload?.conversation_id;
+          if (!convoId) return;
+          setConversations(prev => prev.map(c => {
+              if (c.id !== convoId) return c;
+              return {
+                  ...c,
+                  unreadCount: 0,
+                  unread_count: 0,
+                  messages: c.messages.map(m => ({ ...m, isRead: true, is_read: true }))
+              };
+          }));
+      };
+
+      const handlePresence = (payload: any) => {
+          const userId = payload?.userId;
+          if (!userId) return;
+          const isOnline = Boolean(payload?.isOnline ?? payload?.is_online);
+          const lastSeenAt = payload?.lastSeenAt ?? payload?.last_seen_at;
+          setConversations(prev => prev.map(c => ({
+              ...c,
+              participants: c.participants.map(p => p.id === userId ? { ...p, isOnline, is_online: isOnline, lastSeenAt, last_seen_at: lastSeenAt } : p)
+          })));
+      };
+
+      const handleMessageUpdated = (payload: any) => {
+          const convoId = payload?.conversationId || payload?.conversation_id;
+          const messageId = payload?.messageId || payload?.id;
+          if (!convoId || !messageId) return;
+          setConversations(prev => prev.map(c => {
+              if (c.id !== convoId) return c;
+              return {
+                  ...c,
+                  messages: c.messages.map(m => {
+                      if (m.id !== messageId) return m;
+                      return {
+                          ...m,
+                          text: payload?.text ?? m.text,
+                          timestamp: payload?.timestamp ?? m.timestamp,
+                          editedAt: payload?.editedAt ?? payload?.edited_at ?? m.editedAt ?? m.edited_at ?? null,
+                          edited_at: payload?.edited_at ?? payload?.editedAt ?? m.edited_at ?? m.editedAt ?? null,
+                          isDeleted: Boolean(payload?.isDeleted ?? payload?.is_deleted ?? m.isDeleted ?? m.is_deleted),
+                          is_deleted: Boolean(payload?.is_deleted ?? payload?.isDeleted ?? m.is_deleted ?? m.isDeleted),
+                          deletedAt: payload?.deletedAt ?? payload?.deleted_at ?? m.deletedAt ?? m.deleted_at ?? null,
+                          deleted_at: payload?.deleted_at ?? payload?.deletedAt ?? m.deleted_at ?? m.deletedAt ?? null,
+                          attachments: Array.isArray(payload?.attachments) ? payload.attachments : m.attachments,
+                          reactions: Array.isArray(payload?.reactions) ? payload.reactions : m.reactions,
+                          reactionSummary: payload?.reactionSummary || m.reactionSummary
+                      };
+                  })
+              };
+          }));
+      };
+
+      socket.on('messages:new', handleIncoming);
+      socket.on('messages:sent', handleIncoming);
+      socket.on('messages:read', handleRead);
+      socket.on('presence:update', handlePresence);
+      socket.on('messages:updated', handleMessageUpdated);
+      return () => {
+          socket.off('messages:new', handleIncoming);
+          socket.off('messages:sent', handleIncoming);
+          socket.off('messages:read', handleRead);
+          socket.off('presence:update', handlePresence);
+          socket.off('messages:updated', handleMessageUpdated);
+      };
+  }, [socket, user, refreshMessages]);
+  const renderReplyPreview = (message: Message) => {
+      const reply = (message.replyTo || message.reply_to || null) as any;
+      if (!reply && !message.replyToMessageId && !message.reply_to_message_id) return null;
+      const targetId = reply?.messageId || message.replyToMessageId || message.reply_to_message_id;
+      const senderName = reply?.senderName || 'Message';
+      const snippet = reply?.snippet || 'Message unavailable';
+      const unavailable = Boolean(reply?.unavailable);
+      return (
+          <button
+              type="button"
+              onClick={() => {
+                  if (!targetId) return;
+                  const existing = document.getElementById(`message-${targetId}`);
+                  if (existing) {
+                      existing.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      return;
+                  }
+                  if (!activeConvoId) return;
+                  void MessagingService.getConversationById(activeConvoId).then((full) => {
+                      if (!full) return;
+                      setConversations(prev => prev.map(c => c.id === activeConvoId ? { ...c, ...full } : c));
+                      window.setTimeout(() => {
+                          document.getElementById(`message-${targetId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }, 120);
+                  });
+              }}
+              className={`mb-2 w-full rounded-lg border px-2.5 py-1.5 text-left text-[11px] ${
+                  message.senderId === user?.id
+                      ? 'border-blue-300/60 bg-blue-500/20 text-blue-50'
+                      : 'border-gray-200 bg-gray-50 text-gray-600'
+              }`}
+          >
+              <div className="font-semibold">{senderName}</div>
+              <div className={`truncate ${unavailable ? 'italic' : ''}`}>{unavailable ? 'Message unavailable' : snippet}</div>
+          </button>
+      );
+  };
+  // Typing indicator can be wired to real-time events later.
 
   const handleConversationClick = (id: string) => {
       navigate(`/messages/${id}`);
@@ -81,22 +459,27 @@ const Messages = () => {
 
   const handleSendMessage = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!messageInput.trim() || !activeConvoId || !user) return;
+      const trimmed = messageInput.trim();
+      if ((!trimmed && pendingAttachments.length === 0) || !activeConvoId || !user) return;
 
       try {
+          const attachmentIds = pendingAttachments.map(file => file.id).filter(Boolean);
           const newMessage = await MessagingService.sendMessage(
               activeConvoId, 
               user.id, 
-              messageInput, 
-              user.role
+              trimmed, 
+              user.role,
+              attachmentIds,
+              replyToMessage?.id || null
           );
 
           setConversations(prev => prev.map(c => {
               if (c.id === activeConvoId) {
+                  const lastMessageText = trimmed || (attachmentIds.length ? 'Sent an attachment' : '');
                   return {
                       ...c,
                       messages: [...c.messages, newMessage],
-                      lastMessage: messageInput,
+                      lastMessage: lastMessageText,
                       lastMessageAt: new Date().toISOString()
                   };
               }
@@ -104,42 +487,13 @@ const Messages = () => {
           }));
           
           setMessageInput('');
-          setIsTyping(false);
+          setPendingAttachments([]);
+          setReplyToMessage(null);
           refreshMessages(); 
       } catch (error) {
           console.error("Failed to send message", error);
-          alert("Failed to send message");
+          showNotification('error', 'Message', 'Failed to send message');
       }
-  };
-
-  const handleReaction = async (messageId: string, emoji: string) => {
-      if (!activeConvoId || !user) return;
-      
-      // Optimistic UI Update
-      setConversations(prev => prev.map(c => {
-          if (c.id === activeConvoId) {
-              const updatedMessages = c.messages.map(m => {
-                  if (m.id === messageId) {
-                      const reactions = m.reactions || [];
-                      const existingIdx = reactions.findIndex(r => r.userId === user.id && r.emoji === emoji);
-                      let newReactions = [];
-                      if (existingIdx >= 0) {
-                          newReactions = reactions.filter((_, i) => i !== existingIdx);
-                      } else {
-                          newReactions = [...reactions, { userId: user.id, emoji, timestamp: new Date().toISOString() }];
-                      }
-                      return { ...m, reactions: newReactions };
-                  }
-                  return m;
-              });
-              return { ...c, messages: updatedMessages };
-          }
-          return c;
-      }));
-      setShowReactionPicker(null);
-
-      // Persist
-      await MessagingService.toggleReaction(activeConvoId, messageId, user.id, emoji);
   };
 
   const handleAiSuggest = async () => {
@@ -169,70 +523,284 @@ const Messages = () => {
 
   const handleDeleteMessage = async (messageId: string) => {
       if (!activeConvoId) return;
-      if (confirm("Are you sure you want to delete this message?")) {
+      if (!confirm("Are you sure you want to delete this message?")) return;
+      setMessageActionBusyId(messageId);
+      try {
           await MessagingService.deleteMessage(activeConvoId, messageId);
           setConversations(prev => prev.map(c => {
-              if (c.id === activeConvoId) {
-                  return { ...c, messages: c.messages.filter(m => m.id !== messageId) };
-              }
-              return c;
+              if (c.id !== activeConvoId) return c;
+              return {
+                  ...c,
+                  messages: c.messages.map(m => {
+                      if (m.id !== messageId) return m;
+                      return {
+                          ...m,
+                          text: '[Message deleted]',
+                          attachments: [],
+                          isDeleted: true,
+                          is_deleted: true,
+                          deletedAt: new Date().toISOString(),
+                          deleted_at: new Date().toISOString()
+                      };
+                  })
+              };
           }));
+      } catch (error) {
+          showNotification('error', 'Messages', 'Failed to delete message.');
+      } finally {
+          setMessageActionBusyId(null);
       }
   };
 
-  const REACTION_EMOJIS = ['👍', '❤️', '😂', '👎', '🎉'];
+  const handleStartEditMessage = (message: Message) => {
+      const isDeleted = Boolean(message.isDeleted ?? message.is_deleted);
+      if (isDeleted) return;
+      setReplyToMessage(null);
+      setEditingMessageId(message.id);
+      setEditDraft(String(message.text || ''));
+  };
 
-  return (
+  const handleCancelEditMessage = () => {
+      setEditingMessageId(null);
+      setEditDraft('');
+  };
+
+  const handleSaveEditMessage = async (messageId: string) => {
+      if (!activeConvoId) return;
+      const nextText = String(editDraft || '').trim();
+      if (!nextText) {
+          showNotification('error', 'Messages', 'Message text is required.');
+          return;
+      }
+      setMessageActionBusyId(messageId);
+      try {
+          const updated = await MessagingService.editMessage(activeConvoId, messageId, nextText);
+          setConversations(prev => prev.map(c => {
+              if (c.id !== activeConvoId) return c;
+              return {
+                  ...c,
+                  messages: c.messages.map(m => (m.id === messageId ? { ...m, ...updated } : m))
+              };
+          }));
+          setEditingMessageId(null);
+          setEditDraft('');
+      } catch (error: any) {
+          const message = error?.response?.data?.error || error?.message || 'Failed to edit message.';
+          showNotification('error', 'Messages', message);
+      } finally {
+          setMessageActionBusyId(null);
+      }
+  };
+
+  const copyToClipboard = async (value: string) => {
+      const text = String(value || '');
+      if (!text) return;
+      if (navigator?.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          return;
+      }
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.focus();
+      area.select();
+      document.execCommand('copy');
+      document.body.removeChild(area);
+  };
+
+  const handleCopyMessage = async (message: Message) => {
+      if (!activeConvoId) return;
+      const messageId = String(message.id || '');
+      if (!messageId) return;
+      setMessageActionBusyId(messageId);
+      try {
+          await copyToClipboard(String(message.text || ''));
+          await MessagingService.copyMessage(activeConvoId, messageId);
+          showNotification('success', 'Messages', 'Message copied.');
+      } catch {
+          showNotification('error', 'Messages', 'Failed to copy message.');
+      } finally {
+          setMessageActionBusyId(null);
+      }
+  };
+
+  const updateConversationStateLocally = (conversationId: string, updates: Partial<Conversation>) => {
+      setConversations((prev) =>
+          prev.map((conversation) => (conversation.id === conversationId ? { ...conversation, ...updates } : conversation))
+      );
+  };
+
+  const handleConversationAction = async (
+      action: 'move_other' | 'label_jobs' | 'mark_unread' | 'toggle_star' | 'toggle_mute' | 'archive' | 'report_block' | 'delete'
+  ) => {
+      if (!activeConvoId || !activeConvo || actionBusy) return;
+      setActionBusy(true);
+      try {
+          if (action === 'move_other') {
+              await MessagingService.updateConversationPreferences(activeConvoId, { label: 'other' });
+              updateConversationStateLocally(activeConvoId, { label: 'other' });
+          } else if (action === 'label_jobs') {
+              await MessagingService.updateConversationPreferences(activeConvoId, { label: 'jobs' });
+              updateConversationStateLocally(activeConvoId, { label: 'jobs' });
+          } else if (action === 'mark_unread') {
+              await MessagingService.markConversationUnread(activeConvoId);
+              updateConversationStateLocally(activeConvoId, { unreadCount: 1, unread_count: 1 });
+              showNotification('success', 'Messages', 'Conversation marked as unread.');
+          } else if (action === 'toggle_star') {
+              const next = !activeConversationState.isStarred;
+              await MessagingService.updateConversationPreferences(activeConvoId, { isStarred: next });
+              updateConversationStateLocally(activeConvoId, { isStarred: next, is_starred: next });
+          } else if (action === 'toggle_mute') {
+              const next = !activeConversationState.isMuted;
+              await MessagingService.updateConversationPreferences(activeConvoId, { isMuted: next });
+              updateConversationStateLocally(activeConvoId, { isMuted: next, is_muted: next });
+          } else if (action === 'archive') {
+              await MessagingService.updateConversationPreferences(activeConvoId, { isArchived: true });
+              updateConversationStateLocally(activeConvoId, { isArchived: true, is_archived: true });
+              showNotification('success', 'Messages', 'Conversation archived.');
+          } else if (action === 'report_block') {
+              await MessagingService.reportBlockConversation(activeConvoId, { block: true });
+              showNotification('success', 'Messages', 'Conversation reported and blocked.');
+          } else if (action === 'delete') {
+              const shouldDelete = window.confirm('Delete this conversation from your inbox?');
+              if (!shouldDelete) return;
+              await MessagingService.deleteConversation(activeConvoId);
+              setConversations((prev) => prev.filter((conversation) => conversation.id !== activeConvoId));
+              setActiveConvoId(null);
+              navigate('/messages');
+              showNotification('success', 'Messages', 'Conversation deleted.');
+          }
+      } catch (error: any) {
+          const message = error?.response?.data?.error || error?.message || 'Action failed.';
+          showNotification('error', 'Messages', message);
+      } finally {
+          setActionBusy(false);
+          setShowConversationMenu(false);
+      }
+  };
+
+  const handleMessageSettingToggle = async (key: 'messageRequestsNotifications' | 'allowInMail') => {
+      if (settingsBusy) return;
+      const nextValue = !Boolean(messageSettings[key]);
+      const nextSettings = { ...messageSettings, [key]: nextValue };
+      setMessageSettings(nextSettings);
+      setSettingsBusy(true);
+      try {
+          await UserService.updateMySettings(nextSettings as any);
+          showNotification('success', 'Message settings', 'Settings updated.');
+      } catch (error: any) {
+          setMessageSettings((prev) => ({ ...prev, [key]: !nextValue }));
+          showNotification('error', 'Message settings', error?.message || 'Unable to update settings.');
+      } finally {
+          setSettingsBusy(false);
+      }
+  };
+                            return (
+    <>
     <div className="max-w-6xl mx-auto px-4 py-8 h-[calc(100vh-64px)]">
         <div className="bg-white shadow rounded-lg h-full flex overflow-hidden border border-gray-200">
             {/* Sidebar */}
             <div className={`w-full md:w-1/3 border-r border-gray-200 flex flex-col ${activeConvo ? 'hidden md:flex' : 'flex'}`}>
                 <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-                    <h2 className="text-lg font-bold text-gray-800">Messages</h2>
+                    <div className="flex items-center gap-2">
+                        <h2 className="text-lg font-bold text-gray-800">Messages</h2>
+                        <button
+                            onClick={() => refreshConversationData()}
+                            className="text-gray-400 hover:text-gray-600 p-1.5 rounded"
+                            title="Refresh"
+                            type="button"
+                        >
+                            {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                        </button>
+                    </div>
                     {user?.role === UserRole.ADMIN && <span className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded font-mono">ADMIN VIEW</span>}
                 </div>
                 <ul className="flex-1 overflow-y-auto">
                     {conversations.length === 0 ? (
                         <li className="p-4 text-center text-gray-500 text-sm">No conversations yet.</li>
                     ) : (
-                        conversations.map((convo) => (
-                            <li 
-                                key={convo.id} 
-                                onClick={() => handleConversationClick(convo.id)}
-                                className={`p-4 border-b border-gray-100 cursor-pointer transition-colors ${
-                                    activeConvoId === convo.id ? 'bg-blue-50 border-l-4 border-l-blue-600' : 'hover:bg-gray-50'
-                                }`}
-                            >
-                                <div className="flex items-center">
-                                    <div className="relative">
-                                        <img src={convo.participants.find(p => p.id !== user?.id)?.avatar} className="w-10 h-10 rounded-full mr-3 border border-gray-200 object-cover" alt="" />
-                                        {convo.participants.find(p => p.id !== user?.id)?.isOnline && (
-                                            <span className="absolute bottom-0 right-3 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></span>
-                                        )}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex justify-between items-baseline mb-1">
-                                            <p className="text-sm font-bold text-gray-900 truncate">
-                                                {convo.participants.find(p => p.id !== user?.id)?.name}
-                                            </p>
-                                            {convo.lastMessageAt && (
-                                                <span className="text-[10px] text-gray-400">
-                                                    {new Date(convo.lastMessageAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                                </span>
+                        conversations.map((convo) => {
+                            const participant = convo.participants.find(p => p.id !== user?.id) || convo.participants[0];
+                            const participantRole = resolveParticipantRole(participant);
+                            const participantIsPro = isParticipantPro(participant);
+                            return (
+                                <li 
+                                    key={convo.id} 
+                                    onClick={() => handleConversationClick(convo.id)}
+                                    className={`p-4 border-b border-gray-100 cursor-pointer transition-colors ${
+                                        activeConvoId === convo.id ? 'bg-blue-50 border-l-4 border-l-blue-600' : 'hover:bg-gray-50'
+                                    }`}
+                                >
+                                    <div className="flex items-center">
+                                        <div className="relative">
+                                            <button
+                                                type="button"
+                                                onClick={(event) => {
+                                                    event.preventDefault();
+                                                    event.stopPropagation();
+                                                    navigate(resolveParticipantProfileUrl(participant));
+                                                }}
+                                                className="mr-3 rounded-full"
+                                            >
+                                                <img
+                                                    src={participant?.avatar || 'https://ui-avatars.com/api/?name=User'}
+                                                    className="w-10 h-10 rounded-full border border-gray-200 object-cover"
+                                                    alt={participant?.name || 'Profile'}
+                                                />
+                                            </button>
+                                            {participant?.isOnline && (
+                                                <span className="absolute bottom-0 right-3 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></span>
                                             )}
                                         </div>
-                                        <p className={`text-xs truncate ${convo.unreadCount > 0 ? 'font-bold text-gray-900' : 'text-gray-500'}`}>
-                                            {convo.lastMessage || <span className="italic text-gray-400">No messages</span>}
-                                        </p>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex justify-between items-baseline mb-1">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(event) => {
+                                                            event.preventDefault();
+                                                            event.stopPropagation();
+                                                            navigate(resolveParticipantProfileUrl(participant));
+                                                        }}
+                                                        className="truncate text-left text-sm font-bold text-gray-900 hover:text-blue-600"
+                                                    >
+                                                        {participant?.name}
+                                                    </button>
+                                                    {participantRole && (
+                                                        <ProBadge role={participantRole} isPro={participantIsPro} />
+                                                    )}
+                                                    {participant?.gender && (
+                                                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
+                                                            {participant.gender}
+                                                        </span>
+                                                    )}
+                                                    {String(convo.label || '').toLowerCase() === 'jobs' && (
+                                                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-600">
+                                                            Jobs
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {convo.lastMessageAt && (
+                                                    <span className="text-[10px] text-gray-400">
+                                                        {new Date(convo.lastMessageAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className={`text-xs truncate ${convo.unreadCount > 0 ? 'font-bold text-gray-900' : 'text-gray-500'}`}>
+                                                {convo.lastMessage || <span className="italic text-gray-400">No messages</span>}
+                                            </p>
+                                        </div>
+                                        {convo.unreadCount > 0 && (
+                                            <span className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-blue-600 text-white text-[10px] font-bold rounded-full">
+                                                {convo.unreadCount}
+                                            </span>
+                                        )}
                                     </div>
-                                    {convo.unreadCount > 0 && (
-                                        <span className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-blue-600 text-white text-[10px] font-bold rounded-full">
-                                            {convo.unreadCount}
-                                        </span>
-                                    )}
-                                </div>
-                            </li>
-                        ))
+                                </li>
+                            );
+                        })
                     )}
                 </ul>
             </div>
@@ -247,10 +815,44 @@ const Messages = () => {
                                 <button onClick={() => navigate('/messages')} className="md:hidden mr-3 text-gray-500">
                                     <ArrowLeft className="w-5 h-5" />
                                 </button>
-                                <img src={activeConvo.participants.find(p => p.id !== user?.id)?.avatar} className="w-8 h-8 rounded-full mr-3 object-cover" alt="" />
+                                <button
+                                    type="button"
+                                    onClick={() => navigate(resolveParticipantProfileUrl(otherParticipant))}
+                                    className="mr-3 rounded-full"
+                                >
+                                    <img
+                                        src={otherParticipant?.avatar || 'https://ui-avatars.com/api/?name=User'}
+                                        className="w-8 h-8 rounded-full object-cover"
+                                        alt={otherParticipant?.name || 'Profile'}
+                                    />
+                                </button>
                                 <div>
-                                    <h3 className="font-bold text-gray-900 text-sm">{activeConvo.participants.find(p => p.id !== user?.id)?.name}</h3>
-                                    <span className="text-xs text-green-500 flex items-center">● Online</span>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate(resolveParticipantProfileUrl(otherParticipant))}
+                                            className="text-left text-sm font-bold text-gray-900 hover:text-blue-600"
+                                        >
+                                            {otherParticipant?.name || 'Conversation'}
+                                        </button>
+                                        {otherParticipantRole && (
+                                            <ProBadge role={otherParticipantRole} isPro={otherParticipantIsPro} />
+                                        )}
+                                        {otherParticipant?.gender && (
+                                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
+                                                {otherParticipant.gender}
+                                            </span>
+                                        )}
+                                    </div>
+                                    {otherOnline ? (
+                                        <span className="text-xs text-green-500 flex items-center">Online</span>
+                                    ) : otherLastSeen ? (
+                                        <span className="text-xs text-gray-500 flex items-center">
+                                            Last seen {new Date(otherLastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                    ) : (
+                                        <span className="text-xs text-gray-400 flex items-center">Offline</span>
+                                    )}
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
@@ -259,78 +861,251 @@ const Messages = () => {
                                         <ShieldAlert className="w-5 h-5" />
                                     </button>
                                 )}
-                                <button className="text-gray-400 hover:text-gray-600"><MoreVertical className="w-5 h-5" /></button>
+                                <button
+                                    onClick={() => refreshConversationData()}
+                                    className="text-gray-400 hover:text-gray-600 p-2 rounded"
+                                    title="Refresh"
+                                    type="button"
+                                >
+                                    {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                                </button>
+                                <div className="relative">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowConversationMenu((prev) => !prev)}
+                                        className="text-gray-400 hover:text-gray-600"
+                                    >
+                                        <MoreVertical className="w-5 h-5" />
+                                    </button>
+                                    {showConversationMenu && (
+                                        <div className="absolute right-0 top-8 z-20 w-56 rounded-xl border border-gray-200 bg-white p-2 shadow-xl">
+                                            {messagingControls.enableMoveToOther !== false && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleConversationAction('move_other')}
+                                                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-gray-100"
+                                                >
+                                                    Move to Other
+                                                </button>
+                                            )}
+                                            {messagingControls.enableLabelAsJobs !== false && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleConversationAction('label_jobs')}
+                                                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-gray-100"
+                                                >
+                                                    Label as Jobs
+                                                </button>
+                                            )}
+                                            {messagingControls.enableMarkUnread !== false && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleConversationAction('mark_unread')}
+                                                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-gray-100"
+                                                >
+                                                    Mark as unread
+                                                </button>
+                                            )}
+                                            {messagingControls.enableStar !== false && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleConversationAction('toggle_star')}
+                                                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-gray-100"
+                                                >
+                                                    {activeConversationState.isStarred ? 'Remove Star' : 'Star'}
+                                                </button>
+                                            )}
+                                            {messagingControls.enableMute !== false && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleConversationAction('toggle_mute')}
+                                                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-gray-100"
+                                                >
+                                                    {activeConversationState.isMuted ? 'Unmute' : 'Mute'}
+                                                </button>
+                                            )}
+                                            {messagingControls.enableArchive !== false && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleConversationAction('archive')}
+                                                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-gray-100"
+                                                >
+                                                    Archive
+                                                </button>
+                                            )}
+                                            {messagingControls.enableReportBlock !== false && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleConversationAction('report_block')}
+                                                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-gray-100"
+                                                >
+                                                    Report / Block
+                                                </button>
+                                            )}
+                                            {messagingControls.enableDeleteConversation !== false && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleConversationAction('delete')}
+                                                    className="w-full rounded-md px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                                                >
+                                                    Delete conversation
+                                                </button>
+                                            )}
+                                            {messagingControls.enableManageMessageSettings !== false && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setShowConversationMenu(false);
+                                                        setShowMessageSettings(true);
+                                                    }}
+                                                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-gray-100"
+                                                >
+                                                    Manage settings
+                                                </button>
+                                            )}
+                                            {actionBusy && (
+                                                <div className="px-3 py-2 text-xs text-gray-500">Updating...</div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
 
                         {/* Messages List */}
-                        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                            {activeConvo.messages.map(msg => (
-                                <div key={msg.id} className={`flex ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'} group relative`}>
-                                    
-                                    {/* Admin Controls */}
-                                    {user?.role === UserRole.ADMIN && (
-                                        <button 
-                                            onClick={() => handleDeleteMessage(msg.id)}
-                                            className={`absolute top-1/2 -translate-y-1/2 p-1 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity ${msg.senderId === user?.id ? 'left-[-30px]' : 'right-[-30px]'}`}
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                        </button>
-                                    )}
-
+                        <div className="flex-1 overflow-y-auto p-6 space-y-4" ref={messagesContainerRef} onScroll={handleMessagesScroll}>
+                            {activeConvo.messages.map(msg => {
+                                const attachmentList = (Array.isArray(msg.attachments) ? msg.attachments : [])
+                                    .map((attachment) => normalizeAttachmentForDisplay(attachment))
+                                    .filter(Boolean) as Array<{ id: string; url: string; name: string; type: string }>;
+                                const isOwner = msg.senderId === user?.id;
+                                const isAdmin = user?.role === UserRole.ADMIN;
+                                const canEditDelete = isOwner || isAdmin;
+                                const isDeleted = Boolean(msg.isDeleted ?? msg.is_deleted);
+                                const isEditing = editingMessageId === msg.id;
+                                return (
+                                <div id={`message-${msg.id}`} key={msg.id} className={`flex ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
+                                    <div className="max-w-[70%]">
                                     {/* Message Bubble */}
-                                    <div className={`max-w-[70%] rounded-2xl px-4 py-2 shadow-sm text-sm relative ${
-                                        msg.senderId === user?.id 
-                                        ? 'bg-blue-600 text-white rounded-br-none' 
+                                    <div className={`rounded-2xl px-4 py-2 shadow-sm text-sm relative ${
+                                        msg.senderId === user?.id
+                                        ? 'bg-blue-600 text-white rounded-br-none'
                                         : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'
                                     }`}>
-                                        <p>{msg.text}</p>
+                                        {renderReplyPreview(msg)}
+                                        {isEditing ? (
+                                            <div className="space-y-2">
+                                                <textarea
+                                                    value={editDraft}
+                                                    onChange={(event) => setEditDraft(event.target.value)}
+                                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                                    rows={3}
+                                                />
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleCancelEditMessage}
+                                                        className="px-2.5 py-1.5 rounded-md text-xs border border-gray-300 text-gray-700 bg-white"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleSaveEditMessage(msg.id)}
+                                                        className="px-2.5 py-1.5 rounded-md text-xs bg-blue-700 text-white"
+                                                        disabled={messageActionBusyId === msg.id}
+                                                    >
+                                                        Save
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <p className={isDeleted ? 'italic opacity-80' : ''}>{msg.text || ''}</p>
+                                        )}
+                                        {attachmentList.length > 0 && (
+                                            <div className="mt-2 space-y-2">
+                                                {attachmentList.map((attachment) => (
+                                                    <div key={attachment.id} className="rounded-lg border border-gray-200 bg-white/80 p-2 text-xs text-gray-700">
+                                                        {attachment.type === 'image' ? (
+                                                            <img src={attachment.url} alt={attachment.name} className="w-full max-h-48 object-cover rounded-md" />
+                                                        ) : attachment.type === 'video' ? (
+                                                            <video controls src={attachment.url} className="w-full max-h-48 rounded-md" />
+                                                        ) : (
+                                                            <a href={attachment.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-blue-600 hover:underline">
+                                                                <span className="font-semibold">Download</span>
+                                                                <span className="truncate">{attachment.name}</span>
+                                                            </a>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                         <div className={`text-[10px] mt-1 text-right flex justify-end items-center gap-1 ${msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-400'}`}>
                                             {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                            {!isDeleted && (msg.editedAt || msg.edited_at) && (
+                                                <span className={`${msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-400'}`}>(edited)</span>
+                                            )}
+                                            {isDeleted && (
+                                                <span className={`${msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-400'}`}>(deleted)</span>
+                                            )}
                                             {msg.senderId === user?.id && (
                                                 msg.isRead ? <div className="flex"><Check className="w-3 h-3"/><Check className="w-3 h-3 -ml-1"/></div> : <Check className="w-3 h-3" />
                                             )}
                                         </div>
 
-                                        {/* Reactions Display */}
-                                        {msg.reactions && msg.reactions.length > 0 && (
-                                            <div className="absolute -bottom-3 right-0 flex -space-x-1">
-                                                {msg.reactions.slice(0, 3).map((r, i) => (
-                                                    <span key={i} className="bg-white rounded-full border border-gray-100 text-[10px] p-0.5 shadow-sm">{r.emoji}</span>
-                                                ))}
-                                                {msg.reactions.length > 3 && <span className="bg-white rounded-full border border-gray-100 text-[8px] p-0.5 px-1 shadow-sm">+{msg.reactions.length - 3}</span>}
-                                            </div>
-                                        )}
+                                        {!isDeleted && <ReactionBar targetType="MESSAGE" targetId={msg.id} className="mt-2" />}
                                     </div>
 
-                                    {/* Reaction Trigger */}
-                                    <div className={`absolute top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center ${msg.senderId === user?.id ? 'left-0 -ml-8' : 'right-0 -mr-8'}`}>
-                                        <div className="relative">
-                                            <button 
-                                                onClick={() => setShowReactionPicker(showReactionPicker === msg.id ? null : msg.id)}
-                                                className="p-1 rounded-full hover:bg-gray-200 text-gray-400"
+                                    {/* Message Actions */}
+                                    <div className={`mt-1 flex items-center gap-1 ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
+                                        <button
+                                            type="button"
+                                            onClick={() => setReplyToMessage(msg)}
+                                            className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
+                                            title="Reply"
+                                            disabled={isDeleted}
+                                        >
+                                            <CornerUpLeft className="w-4 h-4" />
+                                            <span>Reply</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleCopyMessage(msg)}
+                                            className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
+                                            title="Copy"
+                                            disabled={messageActionBusyId === msg.id}
+                                        >
+                                            <Copy className="w-4 h-4" />
+                                            <span>Copy</span>
+                                        </button>
+                                        {canEditDelete && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleStartEditMessage(msg)}
+                                                className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
+                                                title="Edit"
+                                                disabled={isDeleted || messageActionBusyId === msg.id}
                                             >
-                                                <Smile className="w-4 h-4" />
+                                                <Pencil className="w-4 h-4" />
+                                                <span>Edit</span>
                                             </button>
-                                            
-                                            {/* Reaction Picker Popup */}
-                                            {showReactionPicker === msg.id && (
-                                                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-white rounded-full shadow-lg border border-gray-100 p-1 flex gap-1 z-10 animate-fade-in-up">
-                                                    {REACTION_EMOJIS.map(emoji => (
-                                                        <button 
-                                                            key={emoji} 
-                                                            onClick={() => handleReaction(msg.id, emoji)}
-                                                            className="hover:scale-125 transition-transform p-1"
-                                                        >
-                                                            {emoji}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
+                                        )}
+                                        {canEditDelete && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDeleteMessage(msg.id)}
+                                                className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-white px-2 py-1 text-[11px] text-red-600 hover:bg-red-50"
+                                                title="Delete"
+                                                disabled={isDeleted || messageActionBusyId === msg.id}
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                                <span>Delete</span>
+                                            </button>
+                                        )}
+                                    </div>
                                     </div>
                                 </div>
-                            ))}
+                            )})}
                             
                             {/* Typing Indicator */}
                             {typingUser && (
@@ -348,6 +1123,19 @@ const Messages = () => {
 
                         {/* Input Area */}
                         <div className="p-4 bg-white border-t border-gray-200">
+                            {replyToMessage && (
+                                <div className="mb-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                                    <div className="flex items-center justify-between">
+                                        <div className="font-semibold">
+                                            Replying to {replyToMessage.senderId === user?.id ? 'yourself' : (otherParticipant?.name || 'message')}
+                                        </div>
+                                        <button type="button" onClick={() => setReplyToMessage(null)} className="text-gray-400 hover:text-gray-700">
+                                            <X className="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+                                    <div className="truncate">{replyToMessage.text || 'Attachment'}</div>
+                                </div>
+                            )}
                             {/* AI Suggestion Bar */}
                             <div className="mb-2 flex justify-end">
                                 <button 
@@ -360,8 +1148,28 @@ const Messages = () => {
                                 </button>
                             </div>
 
+                            {pendingAttachments.length > 0 && (
+                                <div className="mb-3 flex flex-wrap gap-2">
+                                    {pendingAttachments.map(file => (
+                                        <div key={file.id} className="flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-700">
+                                            <span className="truncate max-w-[160px]">{file.name || 'Attachment'}</span>
+                                            <button type="button" onClick={() => removeAttachment(file.id)} className="text-gray-400 hover:text-gray-600">
+                                                <X className="w-3 h-3" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
                             <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-                                <button type="button" className="text-gray-400 hover:text-blue-600 p-2"><ImageIcon className="w-5 h-5" /></button>
+                                <button
+                                    type="button"
+                                    className="text-gray-400 hover:text-blue-600 p-2"
+                                    onClick={() => setShowFilePicker(true)}
+                                    title="Attach files"
+                                >
+                                    <ImageIcon className="w-5 h-5" />
+                                </button>
                                 <input 
                                     type="text" 
                                     className="flex-1 border border-gray-300 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
@@ -369,8 +1177,6 @@ const Messages = () => {
                                     value={messageInput}
                                     onChange={e => {
                                         setMessageInput(e.target.value);
-                                        setIsTyping(true);
-                                        setTimeout(() => setIsTyping(false), 2000); 
                                     }}
                                 />
                                 <button type="submit" className="bg-blue-600 text-white p-2.5 rounded-full hover:bg-blue-700 transition-colors shadow-sm">
@@ -390,7 +1196,76 @@ const Messages = () => {
             </div>
         </div>
     </div>
+    {showMessageSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-xl rounded-xl bg-white p-6 shadow-2xl">
+                <div className="mb-4 flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-gray-900">Manage message settings</h3>
+                    <button type="button" onClick={() => setShowMessageSettings(false)} className="text-gray-500 hover:text-gray-700">
+                        <X className="h-4 w-4" />
+                    </button>
+                </div>
+                <p className="mb-4 text-xs text-gray-500">
+                    User section: <span className="font-semibold">Messages {'>'} Conversation menu {'>'} Manage settings</span>
+                </p>
+                <div className="space-y-5">
+                    <section className="rounded-lg border border-gray-200 p-4">
+                        <h4 className="text-sm font-semibold text-gray-900">Messages you receive</h4>
+                        <p className="mt-1 text-xs text-gray-500">
+                            Allows others to send you message requests notifications.
+                        </p>
+                        <label className="mt-3 flex items-center justify-between text-sm">
+                            Message requests
+                            <input
+                                type="checkbox"
+                                checked={Boolean(messageSettings.messageRequestsNotifications)}
+                                disabled={settingsBusy}
+                                onChange={() => handleMessageSettingToggle('messageRequestsNotifications')}
+                            />
+                        </label>
+                    </section>
+                    <section className="rounded-lg border border-gray-200 p-4">
+                        <h4 className="text-sm font-semibold text-gray-900">InMail messages</h4>
+                        <p className="mt-1 text-xs text-gray-500">
+                            Allow others to send you InMail.
+                        </p>
+                        <label className="mt-3 flex items-center justify-between text-sm">
+                            InMail messages
+                            <input
+                                type="checkbox"
+                                checked={Boolean(messageSettings.allowInMail)}
+                                disabled={settingsBusy}
+                                onChange={() => handleMessageSettingToggle('allowInMail')}
+                            />
+                        </label>
+                    </section>
+                    <div className="text-xs text-gray-500">
+                        You cannot disable messages from your 1st-degree connections. Use block for specific users.
+                    </div>
+                </div>
+            </div>
+        </div>
+    )}
+    <FilePickerModal
+        isOpen={showFilePicker}
+        onClose={() => setShowFilePicker(false)}
+        onSelect={(file) => mergeAttachments([file])}
+        onSelectMultiple={(files) => mergeAttachments(files)}
+        allowUpload
+        multiple={true}
+        filterType="all"
+        acceptedTypes={['image', 'video', 'document']}
+        title="Select files to send"
+        role={user?.role}
+        visibility="public"
+    />
+    </>
   );
 };
 
 export default Messages;
+
+
+
+
+

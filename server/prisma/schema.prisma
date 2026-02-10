@@ -7,6 +7,86 @@ datasource db {
   url      = "file:./dev.db"
 }
 
+enum GigStatus {
+  draft
+  submitted
+  active
+  paused
+  rejected
+  archived
+  under_review
+}
+
+enum JobStatus {
+  draft
+  submitted
+  active
+  paused
+  closed
+  rejected
+  archived
+  under_review
+}
+
+enum AdminStatus {
+  pending
+  approved
+  rejected
+  changes_requested
+}
+
+enum ProposalStatus {
+  pending
+  shortlisted
+  accepted
+  rejected
+  withdrawn
+  invited
+}
+
+enum ContractStatus {
+  active
+  paused
+  terminated
+  completed
+}
+
+enum TimeEntryStatus {
+  pending
+  approved
+  paid
+  rejected
+}
+
+enum TrackingStatus {
+  active
+  paused
+  completed
+  disputed
+}
+
+enum CategoryType {
+  GIG
+  JOB
+  BOTH
+}
+
+enum CategoryStatus {
+  active
+  hidden
+}
+
+enum PlanType {
+  freelancer
+  employer
+}
+
+enum PlanInterval {
+  monthly
+  yearly
+  lifetime
+}
+
 model Wallet {
   id        String   @id @default(cuid())
   userId    String   @unique
@@ -31,8 +111,11 @@ model WalletTransaction {
 
 model Order {
   id         String   @id @default(cuid())
+  gigId      String?
+  gig        Gig?     @relation("GigOrders", fields: [gigId], references: [id])
   assigneeId String?
   clientId   String?
+  freelancerId String?
   status     String?
   gigTitle   String?
   clientName String?
@@ -53,23 +136,324 @@ model KYCSubmission {
   updatedAt       DateTime @updatedAt
 }
 
-model Job {
-  id        String   @id @default(cuid())
-  ownerId   String
-  title     String?
+model Category {
+  id          String         @id @default(cuid())
+  name        String
+  slug        String
+  type        CategoryType
+  status      CategoryStatus @default(active)
+  count       Int            @default(0)
+  sortOrder   Int            @default(0)
+  icon        String?
   description String?
-  status    String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  image       String?
+  parentId    String?
+  parent      Category?      @relation("CategoryTree", fields: [parentId], references: [id])
+  subcategories Category[]   @relation("CategoryTree")
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  gigs           Gig[]       @relation("GigCategory")
+  gigSubcategories Gig[]     @relation("GigSubcategory")
+  jobs           Job[]       @relation("JobCategory")
+  jobSubcategories Job[]     @relation("JobSubcategory")
+
+  @@unique([slug, type])
+  @@unique([name, type])
+  @@index([type, parentId])
 }
 
-model Proposal {
-  id        String   @id @default(cuid())
-  jobId     String?
-  ownerId   String?
-  toUserId  String?
-  status    String?
-  data      String?
+model Gig {
+  id        String    @id @default(cuid())
+  title     String
+  description String?
+  slug      String?   @unique
+  freelancerId String
+  freelancerName String?
+  freelancerAvatar String?
+  freelancerProfilePhotoFileId String?
+  price     Float     @default(0)
+  priceType String?
+  priceMin  Float?
+  priceMax  Float?
+  priceMeta Json?
+  status    GigStatus @default(draft)
+  adminStatus AdminStatus @default(pending)
+  isActive  Boolean   @default(false)
+  isVisible Boolean   @default(false)
+  isFeatured Boolean  @default(false)
+  categoryId String?
+  category   Category? @relation("GigCategory", fields: [categoryId], references: [id])
+  subcategoryId String?
+  subcategory Category? @relation("GigSubcategory", fields: [subcategoryId], references: [id])
+  categoryName String?
+  subcategoryName String?
+  media     Json?
+  tags      Json?
+  packages  Json?
+  extras    Json?
+  faqs      Json?
+  requirements Json?
+  milestones Json?
+  pricingMode String?
+  deliveryTime Int?
+  revisions Int?
+  views     Int       @default(0)
+  clicks    Int       @default(0)
+  ordersCount Int     @default(0)
+  rating    Float     @default(0)
+  reviews   Int       @default(0)
+  adminReason String?
+  meta      Json?
+  submittedAt DateTime?
+  approvedAt DateTime?
+  rejectedAt DateTime?
+  pausedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  orders    Order[]   @relation("GigOrders")
+
+  @@index([freelancerId])
+  @@index([status, adminStatus])
+  @@index([isActive, isVisible])
+}
+
+model Job {
+  id          String   @id @default(cuid())
+  ownerId     String
+  title       String
+  description String?
+  status      JobStatus @default(draft)
+  adminStatus AdminStatus @default(pending)
+  isActive    Boolean  @default(false)
+  isVisible   Boolean  @default(false)
+  isFeatured  Boolean  @default(false)
+  categoryId  String?
+  category    Category? @relation("JobCategory", fields: [categoryId], references: [id])
+  subcategoryId String?
+  subcategory  Category? @relation("JobSubcategory", fields: [subcategoryId], references: [id])
+  categoryName String?
+  subcategoryName String?
+  budgetAmount Float?
+  budgetType   String?
+  budgetMin    Float?
+  budgetMax    Float?
+  budgetMeta   Json?
+  jobType      String?
+  experienceLevel String?
+  visibility   String?
+  tags         Json?
+  skills       Json?
+  attachments  Json?
+  proposalsCount Int @default(0)
+  planType     String?
+  planId       String?
+  planSnapshot Json?
+  paidTransactionRef String?
+  adminReason  String?
+  meta         Json?
+  postedAt     DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+
+  proposals  JobProposal[]
+
+  @@index([ownerId])
+  @@index([status, adminStatus])
+  @@index([isActive, isVisible])
+}
+
+model JobProposal {
+  id            String        @id @default(cuid())
+  jobId         String
+  job           Job           @relation(fields: [jobId], references: [id])
+  freelancerId  String
+  freelancerName String?
+  freelancerAvatar String?
+  clientId      String?
+  coverLetter   String?
+  proposedAmount Float?
+  proposedTimeline Int?
+  attachments   Json?
+  status        ProposalStatus @default(pending)
+  contractId    String?
+  contract      Contract?     @relation(fields: [contractId], references: [id])
+  messageThreadId String?
+  rejectionReason String?
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  withdrawnAt   DateTime?
+  shortlistedAt DateTime?
+
+  @@index([jobId])
+  @@index([freelancerId])
+  @@index([status])
+}
+
+model Contract {
+  id            String         @id @default(cuid())
+  jobId         String?
+  job           Job?           @relation(fields: [jobId], references: [id])
+  proposalId    String?
+  proposal      JobProposal?   @relation(fields: [proposalId], references: [id])
+  title         String?
+  clientId      String
+  clientName    String?
+  freelancerId  String
+  freelancerName String?
+  type          String
+  hourlyRate    Float?
+  fixedAmount   Float?
+  paymentCycle  String?
+  status        ContractStatus @default(active)
+  totalHoursLogged Float      @default(0)
+  totalPaid     Float         @default(0)
+  startDate     DateTime?
+  endDate       DateTime?
+  description   String?
+  activeSessionId String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  timeEntries   TimeEntry[]
+  sessions      TimeTrackerSession[]
+
+  @@index([clientId])
+  @@index([freelancerId])
+  @@index([status])
+}
+
+model TimeEntry {
+  id            String         @id @default(cuid())
+  contractId    String
+  contract      Contract       @relation(fields: [contractId], references: [id])
+  freelancerId  String
+  startTime     DateTime
+  endTime       DateTime?
+  durationMinutes Int          @default(0)
+  description   String?
+  status        TimeEntryStatus @default(pending)
+  earnings      Float?
+  screenshots   Json?
+  activityScore Float?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([contractId])
+  @@index([freelancerId])
+  @@index([status])
+}
+
+model TimeTrackerSession {
+  id            String         @id @default(cuid())
+  contractId    String
+  contract      Contract       @relation(fields: [contractId], references: [id])
+  freelancerId  String
+  freelancerName String?
+  startTime     DateTime       @default(now())
+  endTime       DateTime?
+  durationSeconds Int          @default(0)
+  status        TrackingStatus @default(active)
+  screenshots   Json?
+  activityLogs  Json?
+  hourlyRate    Float?
+  earnings      Float?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([contractId])
+  @@index([freelancerId])
+  @@index([status])
+}
+
+model Plan {
+  id        String      @id @default(cuid())
+  name      String
+  type      PlanType
+  price     Float       @default(0)
+  interval  PlanInterval @default(monthly)
+  currency  String      @default("USD")
+  isActive  Boolean     @default(true)
+  isPopular Boolean     @default(false)
+  features  Json?
+  jobPostsIncluded Int?
+  featuredBoost Boolean @default(false)
+  visibilityDays Int?
+  priorityReview Boolean @default(false)
+  bidLimit  Int?
+  proposalLimit Int?
+  portfolioSlots Int?
+  accessPremiumJobs Boolean @default(false)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  purchases PlanPurchase[]
+
+  @@index([type, isActive])
+}
+
+model PlanPurchase {
+  id        String   @id @default(cuid())
+  planId    String
+  plan      Plan     @relation(fields: [planId], references: [id])
+  userId    String
+  amount    Float?
+  currency  String?
+  transactionRef String?
+  status    String?
+  startedAt DateTime @default(now())
+  endsAt    DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([planId])
+}
+
+model StaffRole {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  level       Int      @default(0)
+  permissions Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  staff StaffMember[]
+}
+
+model StaffMember {
+  id                 String   @id @default(cuid())
+  name               String
+  username           String   @unique
+  email              String   @unique
+  roleId             String
+  role               StaffRole @relation(fields: [roleId], references: [id])
+  roleName           String?
+  avatar             String?
+  status             String   @default("active")
+  twoFactorEnabled   Boolean  @default(false)
+  forcePasswordReset Boolean  @default(false)
+  passwordHash       String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([roleId])
+}
+
+model AdminAuditLog {
+  id        String   @id @default(cuid())
+  adminId   String
+  action    String
+  entityType String
+  entityId  String
+  reason    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([adminId])
+  @@index([entityType, entityId])
 }

@@ -1,23 +1,56 @@
-// C:\Projects\geezle\vite.config.ts
+// C:\Projects\Scrolith\vite.config.ts
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import getBackendTarget from './scripts/getBackendTarget'
 
 export default defineConfig({
+  base: '/',
   plugins: [react()],
   server: (() => {
     const backendTarget = getBackendTarget();
 
     return {
-      port: 3000,
-      host: true,
+    port: 3000,
+    host: '127.0.0.1',
       proxy: {
         '/api': {
           target: backendTarget,
           changeOrigin: true,
           secure: false,
           rewrite: (path) => path,
+          configure: (proxy, _options) => {
+            proxy.on('proxyReq', (proxyReq, req, _res) => {
+              try {
+                if (req && req.headers && req.headers.authorization) {
+                  proxyReq.setHeader('authorization', req.headers.authorization)
+                }
+              } catch (e) {
+                // ignore
+              }
+            })
+          }
+        },
+        // Proxy only specific admin API paths (do NOT proxy '/admin' root otherwise
+        // SPA admin routes will be forwarded to the backend and return "Route not found".
+        '/admin/gigs-jobs': {
+          target: backendTarget,
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path,
+          configure: (proxy, _options) => {
+            proxy.on('error', (err, _req, _res) => {
+              console.log('Vite /admin/gigs-jobs proxy error:', err)
+            })
+            proxy.on('proxyReq', (proxyReq, req, _res) => {
+              if (req && req.headers && req.headers.authorization) {
+                proxyReq.setHeader('authorization', req.headers.authorization)
+              }
+            })
+            proxy.on('proxyRes', (proxyRes, req, _res) => {
+              console.log('/admin/gigs-jobs proxy response:', proxyRes.statusCode, req.url)
+            })
+          }
         },
         '/socket.io': {
           target: backendTarget,
@@ -65,3 +98,4 @@ export default defineConfig({
     postcss: './postcss.config.cjs',
   }
 })
+

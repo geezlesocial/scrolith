@@ -1,10 +1,27 @@
 
+import api from "../api";
 import { DisputePrediction, EscrowAdvice, ContractClauseSuggestion, EnterpriseHiringInsight } from "../../types";
+
+const extractData = <T>(response: any): T => {
+    if (response?.data?.data !== undefined) return response.data.data as T;
+    if (response?.data !== undefined) return response.data as T;
+    return response as T;
+};
+
+const tryPost = async <T>(path: string, payload: any): Promise<T> => {
+    const response = await api.post(path, payload);
+    return extractData<T>(response);
+};
 
 export const GovernanceService = {
     // 1. AI Dispute Outcome Prediction
     predictDisputeOutcome: async (ticketId: string): Promise<DisputePrediction> => {
-        // Simulating analysis of chat logs, contract terms, and deliverables
+        try {
+            return await tryPost<DisputePrediction>('/governance/predict-dispute', { disputeId: ticketId });
+        } catch (error) {
+            console.warn('Governance predict dispute fallback:', error);
+        }
+        // Fallback: simulated analysis of chat logs, contract terms, and deliverables
         return new Promise(resolve => setTimeout(() => resolve({
             ticket_id: ticketId,
             ticketId,
@@ -33,6 +50,11 @@ export const GovernanceService = {
 
     // 2. AI Escrow Release Advisor
     adviseEscrowRelease: async (escrowId: string): Promise<EscrowAdvice> => {
+        try {
+            return await tryPost<EscrowAdvice>('/governance/advise-escrow', { escrowId });
+        } catch (error) {
+            console.warn('Governance advise escrow fallback:', error);
+        }
         return new Promise(resolve => setTimeout(() => resolve({
             escrow_id: escrowId,
             escrowId,
@@ -53,6 +75,14 @@ export const GovernanceService = {
 
     // 3. AI Contract Clause Suggestions
     suggestContractClauses: async (jobType: string, jobDescription?: string): Promise<ContractClauseSuggestion[]> => {
+        try {
+            return await tryPost<ContractClauseSuggestion[]>('/governance/suggest-clauses', {
+                jobType,
+                jobDescription
+            });
+        } catch (error) {
+            console.warn('Governance clause suggestions fallback:', error);
+        }
         return new Promise(resolve => setTimeout(() => resolve([
             {
                 id: 'cl-1',
@@ -74,7 +104,16 @@ export const GovernanceService = {
     },
 
     // 4. AI Enterprise Hiring Assistant
-    getEnterpriseInsights: async (employerId: string): Promise<EnterpriseHiringInsight> => {
+    getEnterpriseInsights: async (employerId: string, payload?: { jobDescription?: string; candidates?: any[] }): Promise<EnterpriseHiringInsight> => {
+        try {
+            return await tryPost<EnterpriseHiringInsight>('/governance/enterprise-insights', {
+                employerId,
+                jobDescription: payload?.jobDescription,
+                candidates: payload?.candidates
+            });
+        } catch (error) {
+            console.warn('Governance enterprise insights fallback:', error);
+        }
         return new Promise(resolve => setTimeout(() => resolve(({
             employer_id: employerId,
             employerId,

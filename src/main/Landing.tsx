@@ -1,6 +1,7 @@
 import React, { useEffect, useState, Suspense, useMemo, useCallback } from 'react';
 import { Loader } from 'lucide-react';
 import { useUser } from '../context/UserContext';
+import { useContent } from '../context/ContentContext';
 import { useSocket } from '../context/SocketContext';
 import { CMSService } from '../services/cms';
 import {
@@ -20,7 +21,7 @@ import {
   VideoFeatureContent,
   MarketplaceTilesContent,
   GuidesGridContent,
-  MadeOnGeezleContent,
+  MadeOnScrolithContent,
   FooterCtaStripContent,
   HomeSlide,
   HeaderConfig,
@@ -36,7 +37,7 @@ import {
   VideoFeatureSection,
   MarketplaceTilesSection,
   GuidesGridSection,
-  MadeOnGeezleSection,
+  MadeOnScrolithSection,
   FooterCtaStripSection,
 } from '../components/sections/GuestSections';
 
@@ -50,6 +51,7 @@ const MarketplaceInsights = React.lazy(() => import('../components/sections/Mark
 const AIProjectBriefGenerator = React.lazy(() => import('../components/sections/AIProjectBriefGenerator'));
 const TopProServices = React.lazy(() => import('../components/sections/TopProServices'));
 const TrustSecurity = React.lazy(() => import('../components/sections/TrustSecurity'));
+const MemberHomeSection = React.lazy(() => import('../components/sections/MemberHomeSection'));
 
 // Legacy Sections
 import { TrustSection, CategoriesSection, HowItWorksSection, FeaturedSection, CTASection } from '../components/sections/LegacySections';
@@ -85,6 +87,14 @@ const normalizeSectionType = (value: any): string => {
       return 'market_insights';
     case 'skillmatching':
       return 'skill_matching';
+    case 'memberhome':
+    case 'member_home':
+    case 'linkedin_home':
+    case 'linkedinhome':
+    case 'home_feed':
+    case 'homefeed':
+    case 'community_home':
+      return 'member_home';
     case 'hero_ai':
     case 'heroai':
       return 'hero';
@@ -116,11 +126,11 @@ const normalizeSectionType = (value: any): string => {
     case 'blog_grid':
     case 'blog-grid':
       return 'guides_grid';
-    case 'madeongeezle':
-    case 'made_on_geezle':
-    case 'made-on-geezle':
+    case 'madeonScrolith':
+    case 'made_on_Scrolith':
+    case 'made-on-Scrolith':
     case 'made_on':
-      return 'made_on_geezle';
+      return 'made_on_Scrolith';
     case 'footer_cta_strip':
     case 'footer-cta-strip':
     case 'footerctastrip':
@@ -137,6 +147,7 @@ const Landing = () => {
   const [headerConfig, setHeaderConfig] = useState<HeaderConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const { user } = useUser();
+  const { settings } = useContent();
   const { socket } = useSocket();
 
   const userRole = user?.role;
@@ -293,8 +304,38 @@ const Landing = () => {
     return () => window.clearInterval(id);
   }, [socket, loadData]);
 
+  const activeSections = useMemo(() => sections.filter((section) => section.isActive), [sections]);
+
+  const hasMemberHome = useMemo(
+    () => activeSections.some((section) => section.type === 'member_home'),
+    [activeSections]
+  );
+
+  const effectiveSections = useMemo<RenderSection[]>(() => {
+    if (!user) return activeSections;
+    if (hasMemberHome) return activeSections;
+
+    const memberHomeSettings = (settings as any)?.memberHome || {};
+    const widgets = memberHomeSettings.widgets || {};
+    const syntheticMemberHome: HomepageSection = {
+      id: `member-home-default-${user.id}`,
+      type: 'member_home' as any,
+      name: 'Member Home',
+      isActive: true,
+      position: 0,
+      content: {
+        showStories: widgets.storiesEnabled,
+        showComposer: widgets.postComposerEnabled,
+        showProfiles: widgets.suggestionsEnabled,
+        showMessages: widgets.recentMessagesEnabled,
+        showProfileViewers: widgets.profileViewersEnabled
+      } as any
+    };
+    return [syntheticMemberHome];
+  }, [user, activeSections, hasMemberHome, settings]);
+
   const renderSections = useMemo<RenderSection[]>(() => {
-    const active = sections.filter(s => s.isActive);
+    const active = effectiveSections;
     if (!user) return active;
     const heroIndex = active.findIndex(section => section.type === 'hero');
     if (heroIndex === -1) return active;
@@ -307,7 +348,7 @@ const Landing = () => {
       name: 'Recommendations'
     });
     return injected;
-  }, [sections, user]);
+  }, [effectiveSections, user]);
 
   if (loading) {
     return (
@@ -327,21 +368,25 @@ const Landing = () => {
         <div className="absolute top-24 right-[-12%] h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle_at_center,#d8f1e5,transparent_65%)] opacity-80" />
       </div>
 
-      <div className="relative z-20">
-        <TrendingCategoriesStrip />
-      </div>
+      {!user ? (
+        <>
+          <div className="relative z-20">
+            <TrendingCategoriesStrip />
+          </div>
 
-      <div className="relative z-10">
-        <HomeSlider
-          slides={slides}
-          heroConfig={heroConfig}
-          searchMode={(() => {
-            if (!headerConfig) return 'keyword';
-            const h = headerConfig as Record<string, unknown>;
-            return (h['searchMode'] as string) || (h['search_mode'] as string) || 'keyword';
-          })()}
-        />
-      </div>
+          <div className="relative z-10">
+            <HomeSlider
+              slides={slides}
+              heroConfig={heroConfig}
+              searchMode={(() => {
+                if (!headerConfig) return 'keyword';
+                const h = headerConfig as Record<string, unknown>;
+                return (h['searchMode'] as string) || (h['search_mode'] as string) || 'keyword';
+              })()}
+            />
+          </div>
+        </>
+      ) : null}
 
       <Suspense fallback={<div className="py-24 text-center"><Loader className="animate-spin mx-auto w-8 h-8 text-gray-400" /></div>}>
         {renderSections.filter(s => s.isActive).map((section) => (
@@ -381,11 +426,13 @@ const SectionRenderer: React.FC<{ section: RenderSection; userId?: string }> = (
     case 'video_feature': return <VideoFeatureSection content={section.content as VideoFeatureContent} style={section.style} />;
     case 'marketplace_tiles': return <MarketplaceTilesSection content={section.content as MarketplaceTilesContent} style={section.style} />;
     case 'guides_grid': return <GuidesGridSection content={section.content as GuidesGridContent} style={section.style} />;
-    case 'made_on_geezle': return <MadeOnGeezleSection content={section.content as MadeOnGeezleContent} style={section.style} />;
+    case 'made_on_Scrolith': return <MadeOnScrolithSection content={section.content as MadeOnScrolithContent} style={section.style} />;
     case 'footer_cta_strip': return <FooterCtaStripSection content={section.content as FooterCtaStripContent} style={section.style} />;
+    case 'member_home': return <MemberHomeSection content={section.content as any} />;
     case 'recommendations': return userId ? <Recommendations userId={userId} /> : null;
     default: return null;
   }
 };
 
 export default Landing;
+

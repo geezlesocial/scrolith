@@ -4,6 +4,7 @@ import { CMSService } from '../services/cms';
 import { FooterConfig, UserRole } from '../types';
 import { useUser } from '../context/UserContext';
 import { useContent } from '../context/ContentContext';
+import { useSocket } from '../context/SocketContext';
 
 const ensureArray = <T,>(value: any): T[] => (Array.isArray(value) ? value : []);
 
@@ -49,8 +50,13 @@ const DynamicFooter = () => {
   const navigate = useNavigate();
   const { user } = useUser();
   const { settings } = useContent();
+  const { socket } = useSocket();
 
   const role = normalizeRole(user?.role || UserRole.GUEST);
+  const socialLabelTitle =
+    (config as any)?.social_label_title || (config as any)?.socialLabelTitle || '';
+  const socialOffsetEnabled =
+    Boolean(socialLabelTitle) && ensureArray<any>((config as any)?.socials).length > 0;
 
   useEffect(() => {
     let mounted = true;
@@ -89,6 +95,31 @@ const DynamicFooter = () => {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+    const handleFooterUpdated = async () => {
+      try {
+        const data = await CMSService.getFooterConfig();
+        setConfig(data);
+      } catch (error) {
+        console.error('Failed to refresh footer config:', error);
+      }
+    };
+    socket.on('cms:footer_updated', handleFooterUpdated);
+    return () => {
+      socket.off('cms:footer_updated', handleFooterUpdated);
+    };
+  }, [socket]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const offset = socialOffsetEnabled ? '44px' : '0px';
+    root.style.setProperty('--support-widget-offset', offset);
+    return () => {
+      root.style.setProperty('--support-widget-offset', '0px');
+    };
+  }, [socialOffsetEnabled]);
 
   if (loading) {
     return (
@@ -148,13 +179,14 @@ const DynamicFooter = () => {
   const socials = ensureArray<any>(config.socials).filter(
     (social: any) => social && social.url && social.enabled !== false
   );
+  const hasSocialArea = socials.length > 0;
 
   const hasContent =
     Boolean(footerDescription) ||
     Boolean(footerLogo) ||
     Boolean(brandName) ||
     columns.length > 0 ||
-    socials.length > 0 ||
+    hasSocialArea ||
     Boolean(config.copyright);
 
   if (!hasContent) {
@@ -259,7 +291,14 @@ const DynamicFooter = () => {
 
         <div className="mt-12 pt-8 border-t border-gray-700 flex flex-col md:flex-row justify-between items-center gap-4">
           {config.copyright ? <p className="text-gray-400 text-sm">{config.copyright}</p> : <span />}
-          {socials.length > 0 ? <div className="flex space-x-4">{socials.map(renderSocial)}</div> : null}
+          {hasSocialArea ? (
+            <div className="flex flex-col items-center md:items-end gap-2">
+              {socialLabelTitle ? (
+                <p className="text-xs font-semibold tracking-widest uppercase text-gray-400">{socialLabelTitle}</p>
+              ) : null}
+              <div className="flex space-x-4">{socials.map(renderSocial)}</div>
+            </div>
+          ) : null}
         </div>
       </div>
     </footer>

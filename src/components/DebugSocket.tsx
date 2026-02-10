@@ -1,4 +1,4 @@
-// C:\Projects\geezle\src\components\DebugSocket.tsx
+// C:\Projects\Scrolith\src\components\DebugSocket.tsx
 import React, { useEffect } from 'react';
 import { useSocket } from '../context/SocketContext';
 

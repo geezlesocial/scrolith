@@ -1,4 +1,4 @@
-# Geezle Dashboards — API Contract
+# Scrolith Dashboards — API Contract
 
 This document defines API endpoints, request/response payloads, auth requirements and error formats for the Freelancer and Employer dashboards. All responses MUST follow the global response standard:
 
@@ -296,3 +296,4 @@ Each error response must include `success: false` and `error` message. Optionall
 - Add `X-Request-Id` header to responses to aid debugging.
 
 End of contract.
+

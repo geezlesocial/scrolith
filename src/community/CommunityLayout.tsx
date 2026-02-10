@@ -33,7 +33,7 @@ const CommunityLayout = () => {
                     <div className="flex justify-between items-center h-16">
                         <div className="flex items-center">
                             <Link to="/community" className="font-bold text-xl text-indigo-600 mr-8 tracking-tight hidden md:block hover:opacity-80">
-                                Geezle Community
+                                Scrolith Community
                             </Link>
                             <nav className="flex space-x-1 overflow-x-auto md:overflow-visible no-scrollbar relative">
                                 {navItems.map((item) => (
@@ -113,3 +113,4 @@ const CommunityLayout = () => {
 };
 
 export default CommunityLayout;
+

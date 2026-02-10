@@ -8,7 +8,7 @@ import { Loader2, Sparkles, CheckCircle, AlertCircle } from 'lucide-react';
 
 const fallback: AnswersPageConfig = {
   hero: {
-    title: 'Geezle Answers',
+    title: 'Scrolith Answers',
     subtitle: 'Get expert answers and AI-powered insights for your business challenges.',
     primaryCtaLabel: 'Ask a Question',
     primaryCtaUrl: '#ask-ai',
@@ -141,7 +141,7 @@ const AnswersPage = () => {
       <section className="max-w-6xl mx-auto px-6 py-12" id="ask-ai">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-4">
-            <h2 className="text-2xl font-bold text-gray-900">Ask Geezle Answers</h2>
+            <h2 className="text-2xl font-bold text-gray-900">Ask Scrolith Answers</h2>
             <p className="text-gray-600">Get AI-powered business guidance in seconds. {config.ai.disclaimer}</p>
             <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 space-y-4">
               <textarea
@@ -242,3 +242,4 @@ const AnswersPage = () => {
 };
 
 export default AnswersPage;
+

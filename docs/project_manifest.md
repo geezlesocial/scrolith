@@ -2,7 +2,7 @@
 # AtMyWorks Project Manifest
 
 ## 1. Project Overview
-**Name:** AtMyWorks (Geezle)
+**Name:** AtMyWorks (Scrolith)
 **Type:** Freelance Marketplace (Upwork/Fiverr clone)
 **Stack:** React (Vite) + Node.js (Express) + PostgreSQL (Prisma)
 **Current State:** Frontend Complete (Mocked Services), Backend Skeleton Ready.
@@ -75,3 +75,4 @@
 3.  **Backend Logic:** Replace mock controllers with real DB queries.
 4.  **Authentication:** Switch from local storage mock auth to real JWT/Session auth.
 5.  **Storage:** Connect AWS S3/Backblaze for real file uploads.
+

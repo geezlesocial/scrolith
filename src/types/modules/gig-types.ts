@@ -23,6 +23,8 @@ export interface GigRequirement {
   question: string;
   type: RequirementType;
   required: boolean;
+  fileTypes?: string[];
+  maxFiles?: number;
 }
 
 export interface GigExtra {
@@ -46,6 +48,8 @@ export interface Gig {
   freelancer_id?: string;
   freelancer_name: string;
   freelancer_avatar: string;
+  freelancer_is_pro?: boolean;
+  freelancerIsPro?: boolean;
   price: number;
   rating: number;
   reviews: number;
@@ -57,8 +61,15 @@ export interface Gig {
   subcategory?: string;
   status: GigStatus;
   admin_status?: 'pending' | 'approved' | 'rejected';
+  adminReason?: string;
   is_active?: boolean;
   is_visible?: boolean;
+  is_featured?: boolean;
+  is_top_selected?: boolean;
+  is_recommended?: boolean;
+  isFeatured?: boolean;
+  isTopSelected?: boolean;
+  isRecommended?: boolean;
   description: string;
   packages: GigPackage[];
   pricing_mode?: PricingMode;
@@ -75,4 +86,5 @@ export interface Gig {
   views?: number;
   clicks?: number;
   orders_count?: number;
+  meta?: any;
 }

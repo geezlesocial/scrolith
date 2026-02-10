@@ -21,12 +21,14 @@ export interface Job {
   description: string;
   category: string;
   subcategory: string;
-  budget: {
-    type: 'fixed' | 'hourly';
-    amount: number;
-    minAmount?: number;
-    maxAmount?: number;
-  };
+  budget:
+    | string
+    | {
+        type: 'fixed' | 'hourly';
+        amount: number;
+        minAmount?: number;
+        maxAmount?: number;
+      };
   status: string;
   proposalsCount: number;
   attachments: string[];
@@ -34,6 +36,11 @@ export interface Job {
   skills: string[];
   createdAt: string;
   updatedAt: string;
+  clientId?: string;
+  clientName?: string;
+  clientAvatar?: string | null;
+  clientProfilePhotoFileId?: string | null;
+  clientIsPro?: boolean;
 }
 
 export interface CreateJobData {

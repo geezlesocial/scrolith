@@ -1,4 +1,4 @@
-# Cypress Test Plan — Dashboards (Geezle)
+# Cypress Test Plan — Dashboards (Scrolith)
 
 Purpose
 - End-to-end regression tests for key dashboard flows for Freelancer and Employer roles.
@@ -45,7 +45,7 @@ Runner
 - Run locally:
 ```bash
 # ensure backend seeded
-cd geezle-backend
+cd Scrolith-backend
 npm run seed:analytics
 npm run create:admin
 # start backend and frontend in separate shells
@@ -58,4 +58,5 @@ npx cypress run --spec "cypress/e2e/dashboard_overview.cy.ts"
 Reporting & CI
 - Add to CI pipeline; use `cypress run` with `--record` if using Cypress Dashboard.
 - Fail build on any critical test failure.
+
 

@@ -1,4 +1,4 @@
-describe('Geezle Dashboards — Starter Specs', () => {
+describe('Scrolith Dashboards — Starter Specs', () => {
   beforeEach(() => {
     // adjust baseUrl in cypress config or use full URL
     cy.visit('/');
@@ -74,3 +74,4 @@ describe('Geezle Dashboards — Starter Specs', () => {
     cy.contains('Uploaded Files').should('be.visible');
   });
 });
+

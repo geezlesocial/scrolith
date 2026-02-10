@@ -3,11 +3,12 @@ import { useFavorites } from '../context/FavoritesContext';
 import { FavoritesService } from '../services/favorites';
 import { useCurrency } from '../context/CurrencyContext';
 import GigCard from '../components/GigCard';
+import ProBadge from '../components/ProBadge';
 import { Link } from 'react-router-dom';
 import { Heart } from 'lucide-react';
 
 const Favorites = () => {
-  const { toggleFavorite } = useFavorites();
+  const { toggleFavorite, favorites } = useFavorites();
   const { formatPrice } = useCurrency();
   const [activeTab, setActiveTab] = useState<'gigs' | 'jobs'>('gigs');
   const [gigs, setGigs] = useState<any[]>([]);
@@ -34,6 +35,16 @@ const Favorites = () => {
   useEffect(() => {
     loadFavorites();
   }, []);
+
+  useEffect(() => {
+    if (!favorites.length) {
+      setGigs([]);
+      setJobs([]);
+      return;
+    }
+    setGigs((prev) => prev.filter((gig) => favorites.some((fav) => fav.entityType === 'gig' && fav.entityId === gig.id)));
+    setJobs((prev) => prev.filter((job) => favorites.some((fav) => fav.entityType === 'job' && fav.entityId === job.id)));
+  }, [favorites]);
 
   const removeFavorite = async (entityType: 'gig' | 'job', entityId: string) => {
     setError(null);
@@ -95,15 +106,8 @@ const Favorites = () => {
             gigs.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 {gigs.map((gig) => (
-                  <div key={gig.id} className="relative group">
+                  <div key={gig.id} className="relative">
                     <GigCard gig={gig} />
-                    <button
-                      onClick={() => removeFavorite('gig', gig.id)}
-                      className="absolute top-2 right-2 bg-white p-2 rounded-full shadow hover:bg-red-50 text-red-500 z-10 opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Remove from favorites"
-                    >
-                      <Heart className="w-4 h-4 fill-current" />
-                    </button>
                   </div>
                 ))}
               </div>
@@ -123,7 +127,10 @@ const Favorites = () => {
                     <Link to={`/jobs/${job.id}`} className="flex-1">
                       <h3 className="font-bold text-lg text-gray-900 mb-1">{job.title}</h3>
                       <div className="text-sm text-gray-500 mb-2 flex items-center gap-2">
-                        <span>{job.clientName || job.employerName || 'Client'}</span>
+                        <span className="inline-flex items-center gap-2">
+                          <span>{job.clientName || job.employerName || 'Client'}</span>
+                          <ProBadge role="employer" isPro={(job as any)?.clientIsPro} />
+                        </span>
                         <span>-</span>
                         <span className="font-medium text-green-600">
                           {typeof job.budget === 'number' ? formatPrice(job.budget) : (job.budget || job.price || '-')}

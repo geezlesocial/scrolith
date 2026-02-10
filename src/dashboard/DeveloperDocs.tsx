@@ -10,7 +10,7 @@ const DeveloperDocs = () => {
       {/* Sidebar */}
       <div className="w-64 bg-gray-900 text-white flex-shrink-0 hidden md:block">
         <div className="p-6">
-          <h1 className="text-xl font-bold">Geezle Dev</h1>
+          <h1 className="text-xl font-bold">Scrolith Dev</h1>
           <p className="text-xs text-gray-400 mt-1">Platform Documentation</p>
         </div>
         <nav className="mt-6">
@@ -102,3 +102,4 @@ CREATE TABLE transactions (
 };
 
 export default DeveloperDocs;
+

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Heart, MessageCircle, Repeat, Share2, Loader2, Zap } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Heart, MessageCircle, Repeat, Share2, Loader2, Zap, Eye, Smile } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { CommunityService } from '../services/community';
 import { useNotification } from '../context/NotificationContext';
@@ -18,16 +18,26 @@ const InteractionBar: React.FC<Props> = ({ type, id, initialCounts, initialState
     const { user } = useUser();
     const { showNotification } = useNotification();
     
-    const [counts, setCounts] = useState<InteractionCounts>(initialCounts || { likes: 0, comments: 0, reposts: 0, shares: 0 });
+    const [counts, setCounts] = useState<InteractionCounts>(
+        initialCounts || { likes: 0, comments: 0, reposts: 0, shares: 0, views: 0, reactions: 0 }
+    );
     const [state, setState] = useState<InteractionState>(initialState || { liked: false, reposted: false });
     const [isShareModalOpen, setIsShareModalOpen] = useState(false);
     const [isSendModalOpen, setIsSendModalOpen] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
 
+    useEffect(() => {
+        if (initialCounts) setCounts(initialCounts);
+    }, [initialCounts?.likes, initialCounts?.comments, initialCounts?.reposts, initialCounts?.shares, initialCounts?.views, initialCounts?.reactions]);
+
+    useEffect(() => {
+        if (initialState) setState(initialState);
+    }, [initialState?.liked, initialState?.reposted]);
+
     // Guard check for guest
     const checkAuth = () => {
         if (!user) {
-            if (confirm("Log in to interact with the Geezle Community. Go to login?")) {
+            if (confirm("Log in to interact with the Scrolith Community. Go to login?")) {
                 window.location.href = "/auth/login";
             }
             return false;
@@ -159,6 +169,16 @@ const InteractionBar: React.FC<Props> = ({ type, id, initialCounts, initialState
                 <span>{counts.shares}</span>
             </button>
 
+            <span className="flex items-center space-x-1 text-slate-500">
+                <Eye className="w-4 h-4" />
+                <span>{counts.views ?? 0}</span>
+            </span>
+
+            <span className="flex items-center space-x-1 text-slate-500">
+                <Smile className="w-4 h-4" />
+                <span>{counts.reactions ?? 0}</span>
+            </span>
+
             <button
                 onClick={() => {
                     if (!checkAuth()) return;
@@ -167,7 +187,7 @@ const InteractionBar: React.FC<Props> = ({ type, id, initialCounts, initialState
                 className="flex items-center space-x-1 hover:text-yellow-500 transition"
             >
                 <Zap className="w-4 h-4" />
-                <span className="text-xs">Donate</span>
+                <span className="text-xs">Dash</span>
             </button>
 
             <ShareModal 
@@ -184,3 +204,4 @@ const InteractionBar: React.FC<Props> = ({ type, id, initialCounts, initialState
 };
 
 export default InteractionBar;
+

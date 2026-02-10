@@ -4,7 +4,7 @@ import axios from 'axios';
 (async () => {
   const BASE = process.env.TEST_SERVER_BASE || 'http://localhost:5000';
   const FRONTEND = process.env.TEST_FRONTEND_BASE || 'http://localhost:3001';
-  const adminEmail = process.env.TEST_ADMIN_EMAIL || 'admin@geezle.com';
+  const adminEmail = process.env.TEST_ADMIN_EMAIL || 'admin@scrolith.com';
   const adminPassword = process.env.TEST_ADMIN_PASSWORD || 'admin12345';
 
   // Login via API to get token and set localStorage

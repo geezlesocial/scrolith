@@ -116,6 +116,8 @@ const AppContent = () => {
             
             {/* Profiles */}
             <Route path="/profile/:id" element={<FreelancerProfile />} />
+            <Route path="/u/:username" element={<FreelancerProfile />} />
+            <Route path="/community/u/:username" element={<FreelancerProfile />} />
             <Route path="/profile/edit" element={
               <ProtectedRoute>
                 <EditProfile />

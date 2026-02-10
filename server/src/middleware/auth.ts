@@ -4,7 +4,7 @@ import { Request, Response, NextFunction } from 'express';
 // It extracts a user id from `x-user-id` header or a Bearer token and attaches
 // `req.user = { id, role }`. This intentionally does NOT replace real auth.
 export const devAuth = (req: Request & { user?: { id: string | null; role: string } }, res: Response, next: NextFunction) => {
-  const hdr = (req.headers['x-user-id'] as string) || '';
+  const hdr = (req.headers['x-user-id'] as string) || (req.headers['x-admin-id'] as string) || '';
   let userId = hdr;
 
   const auth = (req.headers.authorization || '') as string;
@@ -15,11 +15,18 @@ export const devAuth = (req: Request & { user?: { id: string | null; role: strin
   // fallback to query for convenient testing
   if (!userId && (req.query.userId as string)) userId = req.query.userId as string;
 
+  const roleHeader =
+    (req.headers['x-user-role'] as string) ||
+    (req.headers['x-role'] as string) ||
+    (req.query.role as string) ||
+    '';
+  const role = roleHeader ? roleHeader.toString().toLowerCase() : userId ? 'user' : 'guest';
+
   if (!userId) {
     // Do not block; attach anonymous placeholder so controllers can decide.
-    req.user = { id: null, role: 'guest' };
+    req.user = { id: null, role };
     return next();
   }
-  req.user = { id: userId, role: 'user' };
+  req.user = { id: userId, role };
   return next();
 };

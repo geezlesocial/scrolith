@@ -1,10 +1,15 @@
-const API_BASE = '/api/admin/market-intelligence';
+import { getApiBaseUrl } from '../utils/apiBase';
+import { tokenStore } from './tokenStore';
+
+const API_BASE = `${getApiBaseUrl()}/admin/market-intelligence`;
 
 type ApiResponse<T> = { success: true; data: T } | { success: false; error?: string; message?: string };
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const token = await tokenStore.get();
+  const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
   const res = await fetch(`${API_BASE}${endpoint}`, {
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...authHeader },
     credentials: 'include',
     cache: 'no-store',
     ...options

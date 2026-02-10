@@ -87,8 +87,8 @@ export interface AIAnalytics {
 
 export interface AIConfig {
   providers: {
-    google: { provider: 'google'; api_key: string; enabled: boolean; model: string };
-    openai: { provider: 'openai'; api_key: string; enabled: boolean; model: string };
+    google: { provider: 'google'; api_key?: string; apiKey?: string; enabled: boolean; model: string };
+    openai: { provider: 'openai'; api_key?: string; apiKey?: string; enabled: boolean; model: string };
   };
   routing: {
     support_chat: 'google' | 'openai';
@@ -97,13 +97,19 @@ export interface AIConfig {
     content_moderation: 'google' | 'openai';
   };
   safety: {
-    max_tokens: number;
+    max_tokens?: number;
+    maxTokens?: number;
     temperature: number;
   };
   cost_control?: {
     enabled?: boolean;
     monthly_limit_usd: number;
     current_spend_usd?: number;
+  };
+  costControl?: {
+    enabled?: boolean;
+    monthlyLimitUSD?: number;
+    currentSpendUSD?: number;
   };
   fallback?: any;
 }

@@ -4,6 +4,7 @@ import { AdminService } from "../../services/admin";
 import api from "../../services/api";
 import { SearchService } from "../../services/search";
 import { AIService } from "../../services/ai/ai.service";
+import PreloaderManagement from "./PreloaderManagement";
 
 import type {
   HomepageSection,
@@ -183,6 +184,8 @@ function normalizeFooterConfig(raw: any): FooterConfig {
     enabled: social.enabled !== false,
     icon: social.icon || "",
   }));
+  const socialLabelTitle =
+    source.social_label_title ?? source.socialLabelTitle ?? source.socialTitle ?? source.social_title ?? "";
 
   return {
     id: source.id || `footer-${uid()}`,
@@ -196,6 +199,7 @@ function normalizeFooterConfig(raw: any): FooterConfig {
     },
     socials,
     logo_url: source.logo_url ?? source.logoUrl ?? "",
+    social_label_title: socialLabelTitle,
   };
 }
 
@@ -276,7 +280,7 @@ function normalizeHeaderConfig(raw: any) {
 // -------------------------
 const HomepageSettings = () => {
   const [activeTab, setActiveTab] = useState<
-    "header" | "trending" | "slider" | "sections" | "footer" | "ai" | "analytics"
+    "header" | "trending" | "slider" | "sections" | "footer" | "ai" | "engagement" | "preloader" | "analytics"
   >("header");
 
   return (
@@ -303,6 +307,8 @@ const HomepageSettings = () => {
         <TabButton id="sections" label="Sections Manager" icon={Layers} activeTab={activeTab} setActiveTab={setActiveTab} />
         <TabButton id="footer" label="Footer Builder" icon={Columns} activeTab={activeTab} setActiveTab={setActiveTab} />
         <TabButton id="ai" label="AI Optimization" icon={Cpu} activeTab={activeTab} setActiveTab={setActiveTab} />
+        <TabButton id="engagement" label="Reactions & Feed" icon={Settings} activeTab={activeTab} setActiveTab={setActiveTab} />
+        <TabButton id="preloader" label="Preloader" icon={Loader2} activeTab={activeTab} setActiveTab={setActiveTab} />
         <TabButton id="analytics" label="Analytics" icon={BarChart2} activeTab={activeTab} setActiveTab={setActiveTab} />
       </div>
 
@@ -313,6 +319,8 @@ const HomepageSettings = () => {
         {activeTab === "sections" && <LayoutManager />}
         {activeTab === "footer" && <FooterBuilder />}
         {activeTab === "ai" && <AIOptimization />}
+        {activeTab === "engagement" && <ReactionsEngagementManager />}
+        {activeTab === "preloader" && <PreloaderManagement />}
         {activeTab === "analytics" && <AnalyticsView />}
       </div>
     </div>
@@ -330,6 +338,1014 @@ const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab }: any) => (
     <Icon className="w-4 h-4 mr-2" /> {label}
   </button>
 ); // -------------------------
+// Reactions & Member Home Layout Controls
+// -------------------------
+const ReactionsEngagementManager = () => {
+  const { settings, updateSettings } = useContent();
+  const { showNotification } = useNotification();
+  const [saving, setSaving] = useState(false);
+  const [config, setConfig] = useState<any>({
+    reactions: {
+      enabled: true,
+      postsEnabled: true,
+      commentsEnabled: true,
+      messagesEnabled: true,
+      showReactors: true,
+      rateLimitPerMinute: 40,
+      allowed: [
+        { key: "like", label: "Like", emoji: "👍", enabled: true },
+        { key: "love", label: "Love", emoji: "❤️", enabled: true },
+        { key: "good", label: "Good", emoji: "✅", enabled: true },
+        { key: "happy", label: "Happy", emoji: "😄", enabled: true },
+      ],
+    },
+    memberHome: {
+      widgets: {
+        trendingEnabled: true,
+        storiesEnabled: true,
+        suggestionsEnabled: true,
+        pagesRecommendationsEnabled: true,
+        categoriesFilterEnabled: true,
+        postComposerEnabled: true,
+        recentMessagesEnabled: true,
+        profileViewersEnabled: true,
+        rightSidebarAdsEnabled: false,
+      },
+      feed: {
+        defaultTab: "latest",
+        defaultSort: "latest",
+        defaultScope: "discover",
+        enableTrendingTab: true,
+        postDensity: "comfortable",
+        showReactionCounts: true,
+        showCommentsPreviewCount: true,
+      },
+      ads: {
+        enabled: false,
+        rightSidebarTopEnabled: true,
+        rightSidebarMiddleEnabled: true,
+        inlineFrequency: 6,
+      }
+    },
+    gigExperience: {
+      enabled: true,
+      chatBarEnabled: true,
+      inlineChatEnabled: true,
+      shareModalEnabled: true,
+      allowGuestOpenChat: true,
+      showSellerMeta: true,
+      quickPrompts: [
+        'Hey, can you help me with this gig?',
+        'Can you provide your timeline and budget estimate?',
+        'Can you customize this package for my requirements?'
+      ]
+    },
+    notifications: {
+      enableMentionNotifications: true,
+      enableFollowedPostNotifications: true,
+      enableFollowNotifications: true,
+      enableCommentNotifications: true,
+      enableReactionNotifications: true,
+      enableRepostNotifications: true,
+      enableJobApplicationNotifications: true,
+      enableProposalOpenedNotifications: true,
+      enableProposalReplyNotifications: true,
+      enableTopApplicantNotifications: true,
+      enableInterviewScheduledNotifications: true,
+      enableJobLifecycleEmails: true,
+    },
+    profileDemographics: {
+      enabled: true,
+      genderFieldEnabled: true,
+      dateOfBirthEnabled: true,
+      showBirthMonthDayPublicDefault: true,
+      genderOptions: [
+        { key: 'male', label: 'Male', active: true },
+        { key: 'female', label: 'Female', active: true }
+      ]
+    },
+    messagingControls: {
+      enableMoveToOther: true,
+      enableLabelAsJobs: true,
+      enableMarkUnread: true,
+      enableStar: true,
+      enableMute: true,
+      enableArchive: true,
+      enableReportBlock: true,
+      enableDeleteConversation: true,
+      enableManageMessageSettings: true
+    }
+  });
+
+  useEffect(() => {
+    const source: any = settings || {};
+    const reactions = source.reactions || {};
+    const memberHome = source.memberHome || {};
+    const gigExperience = source.gigExperience || {};
+    const notifications = source.notifications || {};
+    const profileDemographics = source.profileDemographics || {};
+    const messagingControls = source.messagingControls || {};
+    const widgets = memberHome.widgets || {};
+    const feed = memberHome.feed || {};
+    const ads = memberHome.ads || {};
+    const allowed = Array.isArray(reactions.allowed) && reactions.allowed.length
+      ? reactions.allowed
+      : config.reactions.allowed;
+
+    setConfig((prev: any) => ({
+      ...prev,
+      reactions: {
+        ...prev.reactions,
+        ...reactions,
+        allowed
+      },
+      memberHome: {
+        widgets: {
+          ...prev.memberHome.widgets,
+          ...widgets
+        },
+        feed: {
+          ...prev.memberHome.feed,
+          ...feed
+        },
+        ads: {
+          ...prev.memberHome.ads,
+          ...ads
+        }
+      },
+      gigExperience: {
+        ...prev.gigExperience,
+        ...gigExperience,
+        quickPrompts:
+          Array.isArray(gigExperience.quickPrompts) && gigExperience.quickPrompts.length
+            ? gigExperience.quickPrompts
+            : prev.gigExperience.quickPrompts
+      },
+      notifications: {
+        ...prev.notifications,
+        ...notifications
+      },
+      profileDemographics: {
+        ...prev.profileDemographics,
+        ...profileDemographics,
+        genderOptions:
+          Array.isArray(profileDemographics.genderOptions) && profileDemographics.genderOptions.length
+            ? profileDemographics.genderOptions
+            : prev.profileDemographics.genderOptions
+      },
+      messagingControls: {
+        ...prev.messagingControls,
+        ...messagingControls
+      }
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const merged: any = {
+        ...(settings as any),
+        reactions: config.reactions,
+        memberHome: {
+          ...((settings as any)?.memberHome || {}),
+          ...config.memberHome,
+          widgets: { ...((settings as any)?.memberHome?.widgets || {}), ...config.memberHome.widgets },
+          feed: { ...((settings as any)?.memberHome?.feed || {}), ...config.memberHome.feed },
+          ads: { ...((settings as any)?.memberHome?.ads || {}), ...config.memberHome.ads },
+        },
+        gigExperience: {
+          ...((settings as any)?.gigExperience || {}),
+          ...config.gigExperience,
+          quickPrompts: Array.isArray(config.gigExperience?.quickPrompts)
+            ? config.gigExperience.quickPrompts.filter((item: any) => typeof item === 'string' && item.trim() !== '')
+            : []
+        },
+        notifications: {
+          ...((settings as any)?.notifications || {}),
+          ...config.notifications
+        },
+        profileDemographics: {
+          ...((settings as any)?.profileDemographics || {}),
+          ...config.profileDemographics,
+          genderOptions: config.profileDemographics.genderOptions
+        },
+        messagingControls: {
+          ...((settings as any)?.messagingControls || {}),
+          ...config.messagingControls
+        }
+      };
+
+      if (updateSettings) {
+        await updateSettings(merged as any);
+      } else {
+        await AdminService.savePlatformSettings(merged as any);
+      }
+      showNotification("success", "Saved", "Reactions, feed, and notification settings updated.");
+    } catch (error: any) {
+      showNotification("error", "Save failed", error?.message || "Unable to save settings.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateAllowed = (index: number, field: "key" | "label" | "emoji", value: string) => {
+    setConfig((prev: any) => {
+      const allowed = [...(prev.reactions.allowed || [])];
+      allowed[index] = { ...(allowed[index] || {}), [field]: value };
+      return { ...prev, reactions: { ...prev.reactions, allowed } };
+    });
+  };
+
+  const removeAllowed = (index: number) => {
+    setConfig((prev: any) => ({
+      ...prev,
+      reactions: {
+        ...prev.reactions,
+        allowed: (prev.reactions.allowed || []).filter((_: any, i: number) => i !== index),
+      },
+    }));
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-base font-bold text-gray-900">Reactions & Engagement</h3>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Enable reactions
+            <input
+              type="checkbox"
+              checked={Boolean(config.reactions.enabled)}
+              onChange={(e) => setConfig((p: any) => ({ ...p, reactions: { ...p.reactions, enabled: e.target.checked } }))}
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Show who reacted
+            <input
+              type="checkbox"
+              checked={Boolean(config.reactions.showReactors)}
+              onChange={(e) => setConfig((p: any) => ({ ...p, reactions: { ...p.reactions, showReactors: e.target.checked } }))}
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Posts reactions
+            <input
+              type="checkbox"
+              checked={Boolean(config.reactions.postsEnabled)}
+              onChange={(e) => setConfig((p: any) => ({ ...p, reactions: { ...p.reactions, postsEnabled: e.target.checked } }))}
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Comments reactions
+            <input
+              type="checkbox"
+              checked={Boolean(config.reactions.commentsEnabled)}
+              onChange={(e) => setConfig((p: any) => ({ ...p, reactions: { ...p.reactions, commentsEnabled: e.target.checked } }))}
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Messages reactions
+            <input
+              type="checkbox"
+              checked={Boolean(config.reactions.messagesEnabled)}
+              onChange={(e) => setConfig((p: any) => ({ ...p, reactions: { ...p.reactions, messagesEnabled: e.target.checked } }))}
+            />
+          </label>
+          <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            <div className="mb-1 text-xs font-semibold text-gray-500">Rate limit per minute</div>
+            <input
+              type="number"
+              min={1}
+              className="w-full rounded border border-gray-200 px-2 py-1"
+              value={config.reactions.rateLimitPerMinute}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  reactions: { ...p.reactions, rateLimitPerMinute: Number(e.target.value || 1) },
+                }))
+              }
+            />
+          </label>
+        </div>
+
+        <div className="mt-6">
+          <div className="mb-2 text-sm font-semibold text-gray-700">Allowed reactions</div>
+          <div className="space-y-2">
+            {(config.reactions.allowed || []).map((item: any, index: number) => (
+              <div key={`reaction-${index}`} className="grid gap-2 rounded-lg border border-gray-200 p-2 md:grid-cols-[90px_1fr_1fr_auto]">
+                <input
+                  value={item.emoji || ""}
+                  onChange={(e) => updateAllowed(index, "emoji", e.target.value)}
+                  className="rounded border border-gray-200 px-2 py-1 text-sm"
+                  placeholder="Emoji"
+                />
+                <input
+                  value={item.key || ""}
+                  onChange={(e) => updateAllowed(index, "key", e.target.value.toLowerCase())}
+                  className="rounded border border-gray-200 px-2 py-1 text-sm"
+                  placeholder="Key"
+                />
+                <input
+                  value={item.label || ""}
+                  onChange={(e) => updateAllowed(index, "label", e.target.value)}
+                  className="rounded border border-gray-200 px-2 py-1 text-sm"
+                  placeholder="Label"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeAllowed(index)}
+                  className="rounded border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              setConfig((p: any) => ({
+                ...p,
+                reactions: {
+                  ...p.reactions,
+                  allowed: [...(p.reactions.allowed || []), { key: "", label: "", emoji: "", enabled: true }],
+                },
+              }))
+            }
+            className="mt-3 rounded border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+          >
+            Add Reaction
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <h3 className="mb-4 text-base font-bold text-gray-900">Member Home Layout</h3>
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Trending widget
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.widgets.trendingEnabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, widgets: { ...p.memberHome.widgets, trendingEnabled: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Stories widget
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.widgets.storiesEnabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, widgets: { ...p.memberHome.widgets, storiesEnabled: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Suggestions widget
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.widgets.suggestionsEnabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, widgets: { ...p.memberHome.widgets, suggestionsEnabled: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Pages recommendations widget
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.widgets.pagesRecommendationsEnabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, widgets: { ...p.memberHome.widgets, pagesRecommendationsEnabled: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Categories filter
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.widgets.categoriesFilterEnabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, widgets: { ...p.memberHome.widgets, categoriesFilterEnabled: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Post composer
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.widgets.postComposerEnabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, widgets: { ...p.memberHome.widgets, postComposerEnabled: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Recent messages widget
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.widgets.recentMessagesEnabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, widgets: { ...p.memberHome.widgets, recentMessagesEnabled: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Profile viewers widget
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.widgets.profileViewersEnabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, widgets: { ...p.memberHome.widgets, profileViewersEnabled: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Right sidebar ads
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.widgets.rightSidebarAdsEnabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, widgets: { ...p.memberHome.widgets, rightSidebarAdsEnabled: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            <div className="mb-1 text-xs font-semibold text-gray-500">Default feed tab</div>
+            <select
+              className="w-full rounded border border-gray-200 px-2 py-1"
+              value={config.memberHome.feed.defaultTab}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, feed: { ...p.memberHome.feed, defaultTab: e.target.value } },
+                }))
+              }
+            >
+              <option value="latest">Latest</option>
+              <option value="following">Following</option>
+              <option value="trending">Trending</option>
+            </select>
+          </label>
+          <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            <div className="mb-1 text-xs font-semibold text-gray-500">Default sort</div>
+            <select
+              className="w-full rounded border border-gray-200 px-2 py-1"
+              value={config.memberHome.feed.defaultSort}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, feed: { ...p.memberHome.feed, defaultSort: e.target.value } },
+                }))
+              }
+            >
+              <option value="latest">Latest</option>
+              <option value="popular">Popular</option>
+              <option value="following">Following First</option>
+            </select>
+          </label>
+          <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            <div className="mb-1 text-xs font-semibold text-gray-500">Default scope</div>
+            <select
+              className="w-full rounded border border-gray-200 px-2 py-1"
+              value={config.memberHome.feed.defaultScope}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, feed: { ...p.memberHome.feed, defaultScope: e.target.value } },
+                }))
+              }
+            >
+              <option value="discover">Public + Following</option>
+              <option value="following">Following First</option>
+            </select>
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Enable Trending tab
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.feed.enableTrendingTab)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, feed: { ...p.memberHome.feed, enableTrendingTab: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            <div className="mb-1 text-xs font-semibold text-gray-500">Post density</div>
+            <select
+              className="w-full rounded border border-gray-200 px-2 py-1"
+              value={config.memberHome.feed.postDensity}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, feed: { ...p.memberHome.feed, postDensity: e.target.value } },
+                }))
+              }
+            >
+              <option value="comfortable">Comfortable</option>
+              <option value="compact">Compact</option>
+            </select>
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Show reaction counts
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.feed.showReactionCounts)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, feed: { ...p.memberHome.feed, showReactionCounts: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Show comments preview count
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.feed.showCommentsPreviewCount)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, feed: { ...p.memberHome.feed, showCommentsPreviewCount: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Enable ads on member home
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.ads.enabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, ads: { ...p.memberHome.ads, enabled: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Sidebar ad position: top
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.ads.rightSidebarTopEnabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, ads: { ...p.memberHome.ads, rightSidebarTopEnabled: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Sidebar ad position: middle
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.ads.rightSidebarMiddleEnabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, ads: { ...p.memberHome.ads, rightSidebarMiddleEnabled: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            <div className="mb-1 text-xs font-semibold text-gray-500">Inline feed ad frequency</div>
+            <input
+              type="number"
+              min={0}
+              className="w-full rounded border border-gray-200 px-2 py-1"
+              value={config.memberHome.ads.inlineFrequency}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: {
+                    ...p.memberHome,
+                    ads: { ...p.memberHome.ads, inlineFrequency: Number(e.target.value || 0) },
+                  },
+                }))
+              }
+            />
+          </label>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <h3 className="mb-4 text-base font-bold text-gray-900">Gig Experience Controls</h3>
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Enable gig experience enhancements
+            <input
+              type="checkbox"
+              checked={Boolean(config.gigExperience.enabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  gigExperience: { ...p.gigExperience, enabled: e.target.checked },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Floating chat bar
+            <input
+              type="checkbox"
+              checked={Boolean(config.gigExperience.chatBarEnabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  gigExperience: { ...p.gigExperience, chatBarEnabled: e.target.checked },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Inline chat drawer
+            <input
+              type="checkbox"
+              checked={Boolean(config.gigExperience.inlineChatEnabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  gigExperience: { ...p.gigExperience, inlineChatEnabled: e.target.checked },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Share modal
+            <input
+              type="checkbox"
+              checked={Boolean(config.gigExperience.shareModalEnabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  gigExperience: { ...p.gigExperience, shareModalEnabled: e.target.checked },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Allow guests to open chat
+            <input
+              type="checkbox"
+              checked={Boolean(config.gigExperience.allowGuestOpenChat)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  gigExperience: { ...p.gigExperience, allowGuestOpenChat: e.target.checked },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Show seller status/response time
+            <input
+              type="checkbox"
+              checked={Boolean(config.gigExperience.showSellerMeta)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  gigExperience: { ...p.gigExperience, showSellerMeta: e.target.checked },
+                }))
+              }
+            />
+          </label>
+        </div>
+
+        <div className="mt-4">
+          <div className="mb-2 text-sm font-semibold text-gray-700">Quick prompts for gig chat</div>
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <input
+                key={`gig-prompt-${index}`}
+                value={config.gigExperience.quickPrompts?.[index] || ''}
+                onChange={(e) =>
+                  setConfig((p: any) => {
+                    const nextPrompts = [...(p.gigExperience.quickPrompts || [])];
+                    nextPrompts[index] = e.target.value;
+                    return {
+                      ...p,
+                      gigExperience: {
+                        ...p.gigExperience,
+                        quickPrompts: nextPrompts
+                      }
+                    };
+                  })
+                }
+                className="w-full rounded border border-gray-200 px-2 py-1.5 text-sm"
+                placeholder={`Prompt ${index + 1}`}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <h3 className="mb-4 text-base font-bold text-gray-900">Job Application Notifications</h3>
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            New application alerts
+            <input
+              type="checkbox"
+              checked={Boolean(config.notifications.enableJobApplicationNotifications)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  notifications: { ...p.notifications, enableJobApplicationNotifications: e.target.checked },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Applicant viewed alerts
+            <input
+              type="checkbox"
+              checked={Boolean(config.notifications.enableProposalOpenedNotifications)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  notifications: { ...p.notifications, enableProposalOpenedNotifications: e.target.checked },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Application reply alerts
+            <input
+              type="checkbox"
+              checked={Boolean(config.notifications.enableProposalReplyNotifications)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  notifications: { ...p.notifications, enableProposalReplyNotifications: e.target.checked },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Top applicant alerts
+            <input
+              type="checkbox"
+              checked={Boolean(config.notifications.enableTopApplicantNotifications)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  notifications: { ...p.notifications, enableTopApplicantNotifications: e.target.checked },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Interview scheduled alerts
+            <input
+              type="checkbox"
+              checked={Boolean(config.notifications.enableInterviewScheduledNotifications)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  notifications: { ...p.notifications, enableInterviewScheduledNotifications: e.target.checked },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Send lifecycle emails
+            <input
+              type="checkbox"
+              checked={Boolean(config.notifications.enableJobLifecycleEmails)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  notifications: { ...p.notifications, enableJobLifecycleEmails: e.target.checked },
+                }))
+              }
+            />
+          </label>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <h3 className="mb-1 text-base font-bold text-gray-900">Profile Demographics Controls</h3>
+          <p className="mb-4 text-xs text-gray-500">
+            Admin section: <span className="font-semibold">Homepage Settings {"->"} Reactions & Feed {"->"} Profile Demographics Controls</span>
+          </p>
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Enable demographics fields
+            <input
+              type="checkbox"
+              checked={Boolean(config.profileDemographics.enabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  profileDemographics: { ...p.profileDemographics, enabled: e.target.checked }
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Enable Sex/Gender field
+            <input
+              type="checkbox"
+              checked={Boolean(config.profileDemographics.genderFieldEnabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  profileDemographics: { ...p.profileDemographics, genderFieldEnabled: e.target.checked }
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Enable Date of Birth field
+            <input
+              type="checkbox"
+              checked={Boolean(config.profileDemographics.dateOfBirthEnabled)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  profileDemographics: { ...p.profileDemographics, dateOfBirthEnabled: e.target.checked }
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Public month/day default
+            <input
+              type="checkbox"
+              checked={Boolean(config.profileDemographics.showBirthMonthDayPublicDefault)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  profileDemographics: { ...p.profileDemographics, showBirthMonthDayPublicDefault: e.target.checked }
+                }))
+              }
+            />
+          </label>
+        </div>
+        <div className="mt-4">
+          <div className="mb-2 text-sm font-semibold text-gray-700">Gender options</div>
+          <div className="space-y-2">
+            {(config.profileDemographics.genderOptions || []).map((option: any, index: number) => (
+              <div key={`gender-option-${index}`} className="grid gap-2 rounded-lg border border-gray-200 p-2 md:grid-cols-[1fr_1fr_auto_auto]">
+                <input
+                  value={option.key || ''}
+                  onChange={(e) =>
+                    setConfig((p: any) => {
+                      const next = [...(p.profileDemographics.genderOptions || [])];
+                      next[index] = { ...next[index], key: e.target.value.toLowerCase() };
+                      return { ...p, profileDemographics: { ...p.profileDemographics, genderOptions: next } };
+                    })
+                  }
+                  className="rounded border border-gray-200 px-2 py-1 text-sm"
+                  placeholder="key"
+                />
+                <input
+                  value={option.label || ''}
+                  onChange={(e) =>
+                    setConfig((p: any) => {
+                      const next = [...(p.profileDemographics.genderOptions || [])];
+                      next[index] = { ...next[index], label: e.target.value };
+                      return { ...p, profileDemographics: { ...p.profileDemographics, genderOptions: next } };
+                    })
+                  }
+                  className="rounded border border-gray-200 px-2 py-1 text-sm"
+                  placeholder="label"
+                />
+                <label className="flex items-center justify-center gap-2 rounded border border-gray-200 px-2 py-1 text-xs">
+                  Active
+                  <input
+                    type="checkbox"
+                    checked={option.active !== false}
+                    onChange={(e) =>
+                      setConfig((p: any) => {
+                        const next = [...(p.profileDemographics.genderOptions || [])];
+                        next[index] = { ...next[index], active: e.target.checked };
+                        return { ...p, profileDemographics: { ...p.profileDemographics, genderOptions: next } };
+                      })
+                    }
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setConfig((p: any) => ({
+                      ...p,
+                      profileDemographics: {
+                        ...p.profileDemographics,
+                        genderOptions: (p.profileDemographics.genderOptions || []).filter((_: any, i: number) => i !== index)
+                      }
+                    }))
+                  }
+                  className="rounded border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              setConfig((p: any) => ({
+                ...p,
+                profileDemographics: {
+                  ...p.profileDemographics,
+                  genderOptions: [...(p.profileDemographics.genderOptions || []), { key: '', label: '', active: true }]
+                }
+              }))
+            }
+            className="mt-3 rounded border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+          >
+            Add option
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <h3 className="mb-1 text-base font-bold text-gray-900">Messaging Conversation Controls</h3>
+          <p className="mb-4 text-xs text-gray-500">
+            Admin section: <span className="font-semibold">Homepage Settings {"->"} Reactions & Feed {"->"} Messaging Conversation Controls</span>
+          </p>
+        <div className="grid gap-4 md:grid-cols-2">
+          {[
+            ['enableMoveToOther', 'Move to Other'],
+            ['enableLabelAsJobs', 'Label as Jobs'],
+            ['enableMarkUnread', 'Mark as unread'],
+            ['enableStar', 'Star / Remove Star'],
+            ['enableMute', 'Mute'],
+            ['enableArchive', 'Archive'],
+            ['enableReportBlock', 'Report / Block'],
+            ['enableDeleteConversation', 'Delete conversation'],
+            ['enableManageMessageSettings', 'Manage message settings']
+          ].map(([key, label]) => (
+            <label key={key} className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+              {label}
+              <input
+                type="checkbox"
+                checked={Boolean(config.messagingControls[key as keyof typeof config.messagingControls])}
+                onChange={(e) =>
+                  setConfig((p: any) => ({
+                    ...p,
+                    messagingControls: { ...p.messagingControls, [key]: e.target.checked }
+                  }))
+                }
+              />
+            </label>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// -------------------------
 // 1) Header & Hero Builder
 // -------------------------
 const HeaderBuilder = () => {
@@ -2451,8 +3467,15 @@ const LayoutManager = () => {
     } as any);
   };
 
+  const updateEditingContent = (patch: Record<string, any>) => {
+    if (!editingSection) return;
+    const current = (editingSection as any).content || {};
+    setEditingSection({ ...(editingSection as any), content: { ...current, ...patch } } as any);
+  };
+
   const sectionTypes: HomepageSectionType[] = [
     "hero",
+    "member_home",
     "trust",
     "categories",
     "how_it_works",
@@ -2472,8 +3495,27 @@ const LayoutManager = () => {
     "video_feature",
     "marketplace_tiles",
     "guides_grid",
-    "made_on_geezle",
+    "made_on_Scrolith",
     "footer_cta_strip",
+  ];
+
+  const memberHomeContent = editingSection?.type === "member_home"
+    ? ((editingSection as any).content || {})
+    : {};
+
+  const memberHomeToggles: { key: string; label: string }[] = [
+    { key: "showSearch", label: "Search bar" },
+    { key: "showStories", label: "Stories strip" },
+    { key: "showComposer", label: "Post composer" },
+    { key: "showSlider", label: "Highlights slider" },
+    { key: "showMessages", label: "Messages preview" },
+    { key: "showProfiles", label: "Recommended profiles" },
+    { key: "showJobs", label: "Jobs panel" },
+    { key: "showGigs", label: "Gigs panel" },
+    { key: "showEmployers", label: "Employers panel" },
+    { key: "showFreelancers", label: "Freelancers panel" },
+    { key: "showDiscover", label: "Discover tab" },
+    { key: "showFollowing", label: "Following tab" },
   ];
 
   return (
@@ -2631,6 +3673,237 @@ const LayoutManager = () => {
                 </div>
                 <p className="text-[10px] text-gray-400 mt-1">Leave empty to show all roles.</p>
               </div>
+
+              {(editingSection as any).type === "member_home" && (
+                <div className="rounded-lg border border-gray-200 p-3 space-y-3">
+                  <div className="text-[10px] font-bold uppercase text-gray-500">Member Home Settings</div>
+                  <div className="grid gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Section Title</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.title || ""}
+                        onChange={(e) => updateEditingContent({ title: e.target.value })}
+                        placeholder="Grow your professional world"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Section Subtitle</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.subtitle || ""}
+                        onChange={(e) => updateEditingContent({ subtitle: e.target.value })}
+                        placeholder="Catch up on your network, opportunities, and community highlights."
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Search Placeholder</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.searchPlaceholder || ""}
+                        onChange={(e) => updateEditingContent({ searchPlaceholder: e.target.value })}
+                        placeholder="Search posts, jobs, gigs, people, or pages"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Search Hint</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.searchHint || ""}
+                        onChange={(e) => updateEditingContent({ searchHint: e.target.value })}
+                        placeholder="Search across posts, jobs, gigs, people, and pages."
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Topics (comma separated)</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={(memberHomeContent.topics || []).join(", ")}
+                        onChange={(e) =>
+                          updateEditingContent({
+                            topics: e.target.value
+                              .split(",")
+                              .map((t: string) => t.trim())
+                              .filter(Boolean),
+                          })
+                        }
+                        placeholder="Design, Marketing, Development"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Regions / Cities (comma separated)</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={(memberHomeContent.regions || []).join(", ")}
+                        onChange={(e) =>
+                          updateEditingContent({
+                            regions: e.target.value
+                              .split(",")
+                              .map((t: string) => t.trim())
+                              .filter(Boolean),
+                          })
+                        }
+                        placeholder="Lagos, Accra, Nairobi"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Composer Title</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.composerTitle || ""}
+                        onChange={(e) => updateEditingContent({ composerTitle: e.target.value })}
+                        placeholder="Share a quick update or idea with your network."
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Stories Title</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.storyTitle || ""}
+                        onChange={(e) => updateEditingContent({ storyTitle: e.target.value })}
+                        placeholder="Stories"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Feed Title</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.feedTitle || ""}
+                        onChange={(e) => updateEditingContent({ feedTitle: e.target.value })}
+                        placeholder="Home feed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Profiles Title</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.profilesTitle || ""}
+                        onChange={(e) => updateEditingContent({ profilesTitle: e.target.value })}
+                        placeholder="Recommended profiles"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Jobs Title</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.jobsTitle || ""}
+                        onChange={(e) => updateEditingContent({ jobsTitle: e.target.value })}
+                        placeholder="Job recommendations"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Gigs Title</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.gigsTitle || ""}
+                        onChange={(e) => updateEditingContent({ gigsTitle: e.target.value })}
+                        placeholder="Gigs you can hire"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Employers Title</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.employersTitle || ""}
+                        onChange={(e) => updateEditingContent({ employersTitle: e.target.value })}
+                        placeholder="Employers to follow"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Freelancers Title</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.freelancersTitle || ""}
+                        onChange={(e) => updateEditingContent({ freelancersTitle: e.target.value })}
+                        placeholder="Freelancers to connect"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Messages Title</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.messagesTitle || ""}
+                        onChange={(e) => updateEditingContent({ messagesTitle: e.target.value })}
+                        placeholder="Recent messages"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Slider Title</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.sliderTitle || ""}
+                        onChange={(e) => updateEditingContent({ sliderTitle: e.target.value })}
+                        placeholder="Highlights"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-600 mb-2">Visibility Toggles</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {memberHomeToggles.map((toggle) => {
+                        const current = memberHomeContent[toggle.key];
+                        return (
+                          <label key={toggle.key} className="flex items-center gap-2 text-[11px] text-gray-600">
+                            <input
+                              type="checkbox"
+                              checked={current !== false}
+                              onChange={(e) => updateEditingContent({ [toggle.key]: e.target.checked })}
+                            />
+                            {toggle.label}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { key: "maxFeedItems", label: "Max feed" },
+                      { key: "maxStories", label: "Max stories" },
+                      { key: "maxMessages", label: "Max messages" },
+                      { key: "maxSearchResults", label: "Max search" },
+                      { key: "maxProfiles", label: "Max profiles" },
+                      { key: "maxJobs", label: "Max jobs" },
+                      { key: "maxGigs", label: "Max gigs" },
+                    ].map((item) => (
+                      <div key={item.key}>
+                        <label className="block text-[11px] font-semibold text-gray-600 mb-1">{item.label}</label>
+                        <input
+                          type="number"
+                          min={1}
+                          className="w-full border rounded p-2 text-sm"
+                          value={memberHomeContent[item.key] ?? ""}
+                          onChange={(e) => updateEditingContent({ [item.key]: Number(e.target.value || 0) })}
+                          placeholder="8"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-600 mb-1">Slider Items (JSON array)</label>
+                    <textarea
+                      className="w-full border rounded p-2 font-mono text-xs h-28"
+                      value={JSON.stringify(memberHomeContent.sliderItems || [], null, 2)}
+                      onChange={(e) => {
+                        try {
+                          updateEditingContent({ sliderItems: JSON.parse(e.target.value) });
+                        } catch {
+                          // ignore invalid json while typing
+                        }
+                      }}
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">Use uploaded file URLs for imageUrl or videoUrl. Leave empty to use Community sliders.</p>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold mb-1">Content (JSON)</label>
@@ -3057,6 +4330,19 @@ const FooterBuilder = () => {
           </button>
         </div>
 
+        <div className="space-y-2">
+          <div>
+            <p className="text-sm font-medium text-gray-700">Social title heading</p>
+            <p className="text-xs text-gray-500">Displayed above the social icons in the footer.</p>
+          </div>
+          <input
+            className="w-full border rounded p-2 text-sm"
+            value={config.social_label_title || ""}
+            onChange={(e) => setConfig({ ...config, social_label_title: e.target.value } as any)}
+            placeholder="e.g. Follow us"
+          />
+        </div>
+
         <div className="space-y-3">
           {ensureArray<any>(config.socials).map((social: any) => (
             <div key={social.id} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
@@ -3227,3 +4513,4 @@ const AnalyticsView = () => {
 };
 
 export default HomepageSettings;
+

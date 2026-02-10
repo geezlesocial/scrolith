@@ -1,16 +1,18 @@
 // src/services/ai/ai.service.ts
+import { getApiBaseUrl } from '../../utils/apiBase';
+
 const _hasBackendEnv = Boolean(
-  import.meta.env.VITE_BACKEND_URL || import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL
+  import.meta.env.VITE_BACKEND_URL ||
+    import.meta.env.VITE_API_URL ||
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_MOBILE_API_URL ||
+    import.meta.env.VITE_MOBILE_API_BASE_URL
 );
 if (import.meta.env.PROD && !_hasBackendEnv) {
   throw new Error('VITE_BACKEND_URL (or VITE_API_URL) must be set when building for production');
 }
 
-const API_URL =
-  import.meta.env.VITE_API_URL ||
-  import.meta.env.VITE_API_BASE_URL ||
-  (import.meta.env.VITE_BACKEND_URL ? `${String(import.meta.env.VITE_BACKEND_URL).replace(/\/$/, '')}/api` : '') ||
-  '/api';
+const API_URL = getApiBaseUrl();
 
 const unwrap = (payload: any) => payload?.data?.data ?? payload?.data ?? payload;
 

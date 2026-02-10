@@ -1,6 +1,5 @@
 
 import { PaymentGateway, PaymentProviderId, WithdrawalRequest, Escrow, CommissionRule, EscrowStatus } from '../types';
-import { MOCK_TRANSACTIONS } from '../constants';
 import api from './api';
 
 // --- PAYMENT ADAPTER INTERFACES ---
@@ -49,6 +48,13 @@ export const PaymentService = {
     return gateways;
   },
 
+  getActivePaymentMethods: async (): Promise<PaymentGateway[]> => {
+    const response = await api.get('/payments/methods/active');
+    const data = response?.data?.data ?? response?.data ?? [];
+    gateways = Array.isArray(data) ? data : [];
+    return gateways;
+  },
+
   getAvailableProviders: (currency: string): PaymentGateway[] => {
       return gateways.filter(g => (g.is_enabled ?? g.isEnabled) && ((g.supported_currencies && g.supported_currencies.includes(currency)) || (g.supportedCurrencies && g.supportedCurrencies.includes(currency))));
   },
@@ -60,47 +66,38 @@ export const PaymentService = {
       currency: string,
       orderId: string
   ): Promise<PaymentIntent> => {
-      return new Promise((resolve, reject) => {
-          setTimeout(() => {
-              const provider = gateways.find(g => g.id === providerId);
-                if (!provider || !(provider.is_enabled ?? provider.isEnabled)) {
-                  reject(new Error('Payment provider unavailable'));
-                  return;
-              }
+      const provider = gateways.find(g => g.id === providerId);
+      if (!provider || !(provider.is_enabled ?? provider.isEnabled)) {
+        throw new Error('Payment provider unavailable');
+      }
+      if (providerId !== 'stripe') {
+        throw new Error('Direct payment intent is only available for Stripe. Use hosted checkout for other providers.');
+      }
 
-              // Mock Provider-Specific Logic
-              let intent: PaymentIntent = {
-                  id: `pi_${providerId}_${Math.random().toString(36).substr(2, 9)}`,
-                  provider: providerId,
-                  amount,
-                  currency,
-                  status: 'requires_action'
-              };
-
-              if (providerId === 'stripe') {
-                  intent.clientSecret = 'pi_123_secret_456';
-              } else if (providerId === 'paypal') {
-                  intent.redirectUrl = 'https://www.paypal.com/checkoutnow?token=...';
-              } else if (providerId === 'paystack' || providerId === 'flutterwave') {
-                  intent.redirectUrl = 'https://checkout.provider.com/pay/...';
-              }
-
-              resolve(intent);
-          }, 800);
+      const response = await api.post('/payments/create-intent', {
+        orderId,
+        amount,
+        currency: currency.toLowerCase()
       });
+      const data = response?.data ?? response;
+      const clientSecret = data?.clientSecret || data?.client_secret;
+      const paymentIntentId = data?.paymentIntentId || data?.payment_intent_id;
+      if (!clientSecret || !paymentIntentId) {
+        throw new Error('Failed to initialize payment');
+      }
+      return {
+        id: paymentIntentId,
+        clientSecret,
+        provider: providerId,
+        amount,
+        currency,
+        status: 'requires_action'
+      };
   },
 
   // 2. Verify Payment (Webhook/Callback Simulation)
   verifyPayment: async (paymentRef: string, providerId: PaymentProviderId): Promise<PaymentStatus> => {
-      return new Promise(resolve => {
-          setTimeout(() => {
-              resolve({
-                  id: paymentRef,
-                  status: 'succeeded',
-                  providerRef: `txn_${providerId}_${Date.now()}`
-              });
-          }, 1500);
-      });
+      throw new Error(`Verify payment is not implemented for provider ${providerId}. Use webhooks for confirmation.`);
   },
 
   // 3. Payout (Platform -> Freelancer)
@@ -126,7 +123,8 @@ export const PaymentService = {
   updateGateway: async (gateway: PaymentGateway): Promise<void> => {
         const payload = {
             id: gateway.id,
-            isEnabled: gateway.isEnabled ?? (gateway as any).is_enabled ?? false
+            isEnabled: gateway.isEnabled ?? (gateway as any).is_enabled ?? false,
+            config: gateway.config || {}
         };
         const response = await api.post('/wallet/admin/gateways', payload);
         const data = response?.data?.data ?? response?.data ?? [];

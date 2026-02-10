@@ -1,4 +1,4 @@
-# Cypress Dashboard Test Plan — Geezle
+# Cypress Dashboard Test Plan — Scrolith
 
 This plan covers regression test cases for Freelancer & Employer dashboards focusing on critical flows and the Uploaded Files global module.
 
@@ -40,3 +40,4 @@ Running tests
 Starter spec location: `cypress/e2e/dashboard_starter_spec.cy.ts` (includes sample tests for Uploaded Files and Create Gig)
 
 End of test plan.
+

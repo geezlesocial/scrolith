@@ -74,9 +74,9 @@ const path = require('path');
 
   const candidates = [
     'http://localhost:3000/admin/dashboard?tab=languages',
-    'http://localhost:3000/geezle/admin/dashboard?tab=languages',
+    'http://localhost:3000/scrolith/admin/dashboard?tab=languages',
     'http://localhost:3000/admin/dashboard',
-    'http://localhost:3000/geezle/admin/dashboard'
+    'http://localhost:3000/scrolith/admin/dashboard'
   ];
 
   let navigated = false;
@@ -112,11 +112,11 @@ const path = require('path');
 
   // Debug screenshot and page HTML for troubleshooting
   try {
-    await page.screenshot({ path: 'geezle_admin_dashboard.png', fullPage: true });
+    await page.screenshot({ path: 'scrolith_admin_dashboard.png', fullPage: true });
     await page.screenshot({ path: 'tests/trace_step_nav.png', fullPage: true });
     const html = await page.content();
     const fs = require('fs');
-    fs.writeFileSync('geezle_admin_dashboard.html', html);
+    fs.writeFileSync('scrolith_admin_dashboard.html', html);
     console.log('Saved debug screenshot and HTML');
   } catch (err) {
     console.warn('Unable to save debug artifacts', err);
@@ -178,11 +178,11 @@ const path = require('path');
     try {
       const bodyText = await page.evaluate(() => (document.body ? document.body.innerText : ''));
       console.log('PAGE BODY TEXT SNIPPET:', bodyText.slice(0, 2000));
-      await page.screenshot({ path: 'geezle_admin_dashboard_missing_languages.png', fullPage: true });
+      await page.screenshot({ path: 'scrolith_admin_dashboard_missing_languages.png', fullPage: true });
       await page.screenshot({ path: 'tests/trace_step_missing_languages.png', fullPage: true });
       const html = await page.content();
       const fs = require('fs');
-      fs.writeFileSync('geezle_admin_dashboard_missing_languages.html', html);
+      fs.writeFileSync('scrolith_admin_dashboard_missing_languages.html', html);
       console.log('Saved additional debug artifacts');
     } catch (err) { console.warn('Failed to save extra debug artifacts', err); }
     await browser.close();

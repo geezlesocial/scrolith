@@ -160,6 +160,15 @@ const MyGigs = () => {
             header: 'Actions',
             render: (value: any, gig: Gig) => (
                 <div className="flex items-center space-x-2">
+                    {gig.status === 'active' && (
+                        <button
+                            onClick={() => navigate(`/gigs/${gig.id}`)}
+                            className="text-emerald-600 hover:text-emerald-900 text-sm font-medium"
+                            disabled={processingAction === gig.id}
+                        >
+                            View Listing
+                        </button>
+                    )}
                     <button
                         onClick={() => navigate(`/create-gig?edit=${gig.id}`)}
                         className="text-indigo-600 hover:text-indigo-900 text-sm font-medium"
@@ -178,6 +187,16 @@ const MyGigs = () => {
                         </button>
                     )}
 
+                    {gig.status === 'rejected' && (
+                        <button
+                            onClick={() => handleSubmitGig(gig.id)}
+                            className="text-amber-600 hover:text-amber-900 text-sm font-medium"
+                            disabled={processingAction === gig.id}
+                        >
+                            {processingAction === gig.id ? 'Submitting...' : 'Resubmit'}
+                        </button>
+                    )}
+
                     {gig.status === 'active' && (
                         <button
                             onClick={() => handlePauseGig(gig.id)}
@@ -188,7 +207,7 @@ const MyGigs = () => {
                         </button>
                     )}
 
-                    {(gig.status === 'paused' || gig.status === 'rejected') && (
+                    {gig.status === 'paused' && (
                         <button
                             onClick={() => handleActivateGig(gig.id)}
                             className="text-blue-600 hover:text-blue-900 text-sm font-medium"
@@ -257,12 +276,14 @@ const MyGigs = () => {
                 </div>
             </div>
 
-            <Table
-                data={gigs}
-                columns={columns}
-                loading={loading}
-                emptyMessage="No gigs found. Create your first gig to get started."
-            />
+            <div data-cy="mygigs-list">
+                <Table
+                    data={gigs}
+                    columns={columns}
+                    loading={loading}
+                    emptyMessage="No gigs found. Create your first gig to get started."
+                />
+            </div>
 
             <ConfirmModal
                 isOpen={!!deleteGigId}

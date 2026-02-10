@@ -1,90 +1,660 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { MapPin, Star, PlayCircle, Clock, Briefcase, GraduationCap, Award, CheckCircle, ShieldCheck, TrendingUp } from 'lucide-react';
+import { MapPin, Star, PlayCircle, Briefcase, GraduationCap, Award, CheckCircle, ShieldCheck, TrendingUp, X, Users, Heart } from 'lucide-react';
 import { useUser } from '../context/UserContext';
-import { UserProfile, UserRole, TrustScore } from '../types';
+import { useNotification } from '../context/NotificationContext';
+import { UserProfile, TrustScore } from '../types';
+import ProBadge from '../components/ProBadge';
 import { ReputationService } from '../services/ai/reputation.service';
 import { UserService } from '../services/user';
+import { CommunityService } from '../services/community';
+import { MessagingService } from '../services/messaging';
+import { ReviewsService, Review } from '../services/reviews';
+import { resolveAssetUrl } from '../utils/assetUrl';
+import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../community/storyStyles';
+import EditProfile from './EditProfile';
+
+type StoryVisibility = 'public' | 'followers' | 'following' | 'mutuals' | 'network' | 'private' | 'custom';
+
+const storyVisibilityOptions: Array<{ value: StoryVisibility; label: string }> = [
+  { value: 'public', label: 'Public' },
+  { value: 'followers', label: 'Followers' },
+  { value: 'following', label: 'Following' },
+  { value: 'mutuals', label: 'Mutuals' },
+  { value: 'network', label: 'Network' },
+  { value: 'private', label: 'Only me' }
+];
+
+const normalizeStoryVisibility = (value?: string): StoryVisibility => {
+  if (!value) return 'public';
+  const normalized = String(value).toLowerCase();
+  if (storyVisibilityOptions.some((option) => option.value === normalized)) {
+    return normalized as StoryVisibility;
+  }
+  return 'public';
+};
+
+const resolveStoryMediaUrl = (story: any) => {
+  if (!story) return undefined;
+  const candidate =
+    story.media?.url ||
+    story.media?.fileUrl ||
+    story.mediaUrl ||
+    story.media_url ||
+    story.mediaFileUrl ||
+    story.media_file_url ||
+    story.media?.[0]?.url;
+  if (candidate) return resolveAssetUrl(String(candidate));
+  const fileId = story.mediaFileId || story.media_file_id;
+  if (typeof fileId === 'string') {
+    if (fileId.startsWith('disk:')) {
+      const relative = fileId.slice('disk:'.length).replace(/^\/+/, '');
+      return resolveAssetUrl(`/uploads/${relative}`);
+    }
+    if (fileId.startsWith('http://') || fileId.startsWith('https://')) {
+      return resolveAssetUrl(fileId);
+    }
+  }
+  return undefined;
+};
+
+const resolveStoryContent = (story: any) =>
+  story?.content || story?.text || story?.caption || story?.storyText || story?.story_text || story?.message || '';
+
+const toArray = <T = any>(value: any): T[] => {
+  if (Array.isArray(value)) return value as T[];
+  if (Array.isArray(value?.items)) return value.items as T[];
+  if (Array.isArray(value?.rows)) return value.rows as T[];
+  if (Array.isArray(value?.results)) return value.results as T[];
+  if (Array.isArray(value?.data)) return value.data as T[];
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      return Array.isArray(parsed) ? (parsed as T[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
+const isStoryActive = (story: any) => {
+  const expiry = story?.expiresAt || story?.expires_at;
+  if (!expiry) return true;
+  const ts = new Date(expiry).getTime();
+  return Number.isNaN(ts) ? true : ts > Date.now();
+};
 
 const FreelancerProfile = () => {
-  const { id } = useParams();
+  const { id, username } = useParams();
   const { user } = useUser();
+  const { showNotification } = useNotification();
   const [activeTab, setActiveTab] = useState('overview');
   const [trustScore, setTrustScore] = useState<TrustScore | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [publicUser, setPublicUser] = useState<{ name?: string; avatar?: string } | null>(null);
+  const [publicUser, setPublicUser] = useState<{ id?: string; name?: string; avatar?: string; isProFreelancer?: boolean; username?: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [stories, setStories] = useState<any[]>([]);
+  const [storiesLoading, setStoriesLoading] = useState(false);
+  const [activeStory, setActiveStory] = useState<any | null>(null);
+  const [storyEditOpen, setStoryEditOpen] = useState(false);
+  const [editingStory, setEditingStory] = useState<any | null>(null);
+  const [storyEditSaving, setStoryEditSaving] = useState(false);
+  const [storyActionBusy, setStoryActionBusy] = useState<Record<string, boolean>>({});
+  const [storyEditDraft, setStoryEditDraft] = useState({
+    content: '',
+    visibility: 'public' as StoryVisibility,
+    ...getDefaultStoryTextDraft()
+  });
+  const [followState, setFollowState] = useState<{ isFollowing: boolean; followId?: string }>({ isFollowing: false });
+  const [followLoading, setFollowLoading] = useState(false);
+  const [followersCount, setFollowersCount] = useState(0);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [followersList, setFollowersList] = useState<Array<{ id: string; name: string; avatar?: string; username?: string }>>([]);
+  const [followersLoading, setFollowersLoading] = useState(false);
+  const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
+  const [blockBusyId, setBlockBusyId] = useState<string | null>(null);
+  const [showInlineEditor, setShowInlineEditor] = useState(false);
+  const publicBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://www.scrolith.com';
+  const cleanBaseUrl = publicBaseUrl.replace(/\/$/, '');
+  const portfolioItems = useMemo(
+    () =>
+      toArray<any>(
+        (profile as any)?.portfolio ??
+          (profile as any)?.portfolioItems ??
+          (profile as any)?.portfolio_items
+      ),
+    [profile]
+  );
+  const storyEditPreviewStyle = getStoryTextStyle(storyEditDraft);
+  const coverUrl = useMemo(() => {
+    const raw = profile?.coverPhotoUrl || (profile as any)?.cover_photo_url;
+    return raw ? resolveAssetUrl(String(raw)) : undefined;
+  }, [profile]);
+  const isOwner = useMemo(
+    () => Boolean(user?.id && publicUser?.id && String(user.id) === String(publicUser.id)),
+    [publicUser?.id, user?.id]
+  );
+  const publicGender = String(profile?.gender || '').trim();
+  const publicBirthMonthDay = String((profile as any)?.birthMonthDay || (profile as any)?.birth_month_day || '').trim();
+
+  const filterActiveStories = useCallback((items: any[]) => items.filter(isStoryActive), []);
+  const canManageStory = useCallback(
+    (story: any) => {
+      if (!user) return false;
+      const authorId = story?.authorId || story?.userId || story?.user_id;
+      if (authorId && String(authorId) === String(user.id)) return true;
+      return (user.role || '').toLowerCase().includes('admin');
+    },
+    [user]
+  );
+
+  const applyStoryUpdate = useCallback(
+    (updated: any) => {
+      setStories((current) =>
+        filterActiveStories(current.map((story) => (story.id === updated.id ? { ...story, ...updated } : story)))
+      );
+      setActiveStory((current) => (current?.id === updated.id ? { ...current, ...updated } : current));
+    },
+    [filterActiveStories]
+  );
 
   useEffect(() => {
-      if (!id) return;
-      setLoading(true);
-      setError(null);
-      Promise.all([
-          UserService.getUserBasic(id),
-          UserService.getProfile(id),
-          ReputationService.getTrustScore(id)
-      ])
-        .then(([userData, profileData, trust]) => {
-          setPublicUser({ name: userData.name, avatar: userData.avatar });
+      let mounted = true;
+      const load = async () => {
+        if (!id && !username) return;
+        setLoading(true);
+        setError(null);
+        try {
+          const baseUser = id
+            ? await UserService.getUserBasic(id)
+            : await UserService.getUserByUsername(username || '');
+          if (!mounted) return;
+          const userId = baseUser.id;
+          const [profileData, trust] = await Promise.all([
+            UserService.getProfile(userId),
+            ReputationService.getTrustScore(userId)
+          ]);
+          if (!mounted) return;
+          setPublicUser({
+            id: baseUser.id,
+            name: baseUser.name,
+            avatar: baseUser.avatar,
+            username: (baseUser as any)?.username,
+            isProFreelancer: Boolean((baseUser as any)?.isProFreelancer ?? (baseUser as any)?.is_pro_freelancer)
+          });
           setProfile(profileData);
           setTrustScore(trust);
-        })
-        .catch(() => setError('Unable to load profile right now.'))
-        .finally(() => setLoading(false));
-  }, [id]);
+        } catch {
+          if (mounted) setError('Unable to load profile right now.');
+        } finally {
+          if (mounted) setLoading(false);
+        }
+      };
+      load();
+      return () => {
+        mounted = false;
+      };
+  }, [id, username]);
 
-  const isOwner = user?.role === UserRole.FREELANCER; 
+  useEffect(() => {
+      const targetId = publicUser?.id || id;
+      if (!targetId) return;
+      setStoriesLoading(true);
+      CommunityService.getStoriesFeed()
+        .then((feed) => {
+          const list = Array.isArray(feed) ? feed : [];
+          const filtered = list.filter((story: any) => {
+            const authorId = story.authorId || story.userId || story.user_id;
+            return String(authorId) === String(targetId);
+          });
+          setStories(filterActiveStories(filtered));
+        })
+        .catch(() => setStories([]))
+        .finally(() => setStoriesLoading(false));
+  }, [filterActiveStories, id, publicUser?.id]);
+
+  useEffect(() => {
+      const interval = window.setInterval(() => {
+        setStories((current) => filterActiveStories(current));
+      }, 60 * 1000);
+      return () => window.clearInterval(interval);
+  }, [filterActiveStories]);
+
+  useEffect(() => {
+      const targetId = publicUser?.id || id;
+      if (!targetId) return;
+      const handleStoryUpdated = (event: Event) => {
+        const detail = (event as CustomEvent).detail || {};
+        const updated = detail?.story ?? detail;
+        const authorId = updated?.authorId || updated?.userId || updated?.user_id;
+        if (!updated?.id) return;
+        if (authorId && String(authorId) !== String(targetId)) return;
+        applyStoryUpdate(updated);
+      };
+      const handleStoryLiked = (event: Event) => {
+        const detail = (event as CustomEvent).detail || {};
+        const payload = detail?.story ?? detail;
+        const storyId = payload?.storyId || payload?.id;
+        if (!storyId) return;
+        const authorId = payload?.authorId || payload?.userId || payload?.user_id;
+        if (authorId && String(authorId) !== String(targetId)) return;
+        applyStoryUpdate({
+          id: storyId,
+          likesCount: payload?.likesCount ?? payload?._count?.likes,
+          viewerLiked: payload?.viewerLiked ?? payload?.viewer_liked ?? payload?.liked
+        });
+      };
+      window.addEventListener('community:story_updated', handleStoryUpdated as EventListener);
+      window.addEventListener('community:story_liked', handleStoryLiked as EventListener);
+      return () => {
+        window.removeEventListener('community:story_updated', handleStoryUpdated as EventListener);
+        window.removeEventListener('community:story_liked', handleStoryLiked as EventListener);
+      };
+  }, [applyStoryUpdate, id, publicUser?.id]);
+
+  useEffect(() => {
+      const targetId = publicUser?.id || id;
+      if (!targetId) return;
+      setReviewsLoading(true);
+      ReviewsService.listForUser(String(targetId))
+        .then((items) => setReviews(toArray<Review>(items)))
+        .catch(() => setReviews([]))
+        .finally(() => setReviewsLoading(false));
+  }, [id, publicUser?.id]);
+
+  useEffect(() => {
+      const targetId = publicUser?.id || id;
+      if (!targetId) return;
+      setFollowersLoading(true);
+      CommunityService.listFollowers('user', String(targetId))
+        .then((followers) => {
+          const items = toArray<any>(followers);
+          setFollowersCount(items.length);
+          setFollowersList(
+            items.map((entry: any) => ({
+              id: String(entry?.id || entry?.userId || entry?.user_id || ''),
+              name: entry?.name || 'Member',
+              avatar: entry?.avatar || undefined,
+              username: entry?.username || entry?.userName || ''
+            }))
+          );
+        })
+        .catch(() => {
+          setFollowersCount(0);
+          setFollowersList([]);
+        })
+        .finally(() => setFollowersLoading(false));
+  }, [id, publicUser?.id]);
+
+  useEffect(() => {
+      if (!isOwner) return;
+      CommunityService.listBlockedUsers({ limit: 200 })
+        .then((result) => {
+          const ids = Array.isArray(result?.items)
+            ? result.items.map((entry: any) => String(entry?.user?.id || '')).filter(Boolean)
+            : [];
+          setBlockedUserIds(new Set(ids));
+        })
+        .catch(() => setBlockedUserIds(new Set()));
+  }, [isOwner, publicUser?.id]);
+
+  useEffect(() => {
+      if (!isOwner || !user) return;
+      setPublicUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              name: user.name || prev.name,
+              avatar: user.avatar || prev.avatar,
+              username: user.username || prev.username
+            }
+          : prev
+      );
+  }, [isOwner, user?.name, user?.avatar, user?.username]);
+
+  useEffect(() => {
+      const handler = (event: Event) => {
+        if (!isOwner) return;
+        const detail = (event as CustomEvent).detail || {};
+        if (detail.profile) setProfile(detail.profile);
+        if (detail.user) {
+          setPublicUser((prev) => (prev ? { ...prev, ...detail.user } : prev));
+        }
+      };
+      window.addEventListener('profile:updated', handler as EventListener);
+      return () => window.removeEventListener('profile:updated', handler as EventListener);
+  }, [isOwner]);
+
+  useEffect(() => {
+      if (!publicUser?.id || !user || isOwner) return;
+      UserService.logProfileView(publicUser.id)
+        .then(() => {
+          window.dispatchEvent(
+            new CustomEvent('community:profile_view_logged', {
+              detail: {
+                viewerId: user.id,
+                viewedUserId: publicUser.id,
+                createdAt: new Date().toISOString()
+              }
+            })
+          );
+        })
+        .catch(() => null);
+  }, [publicUser?.id, user?.id, isOwner]);
+
+  const refreshFollowing = useCallback(async () => {
+      if (!user || !publicUser?.id || isOwner) {
+          setFollowState({ isFollowing: false });
+          return;
+      }
+      try {
+          const data = await CommunityService.listFollowing('me');
+          const users = Array.isArray(data?.users) ? data.users : Array.isArray(data) ? data : [];
+          const match = users.find((entry: any) => String(entry.id || entry.userId || entry.user_id) === String(publicUser.id));
+          setFollowState({
+              isFollowing: Boolean(match),
+              followId: match?.followId || match?.follow_id
+          });
+      } catch {
+          setFollowState({ isFollowing: false });
+      }
+  }, [publicUser?.id, isOwner, user]);
+
+  useEffect(() => {
+      refreshFollowing();
+  }, [refreshFollowing]);
+
+  const handleFollow = async () => {
+      if (!user || !publicUser?.id || followLoading) return;
+      setFollowLoading(true);
+      try {
+          const response = await CommunityService.followTarget({ targetType: 'user', targetId: publicUser.id });
+          const followId = response?.id || response?.followId || response?.follow_id;
+          setFollowState({ isFollowing: true, followId });
+          setFollowersCount((count) => count + 1);
+          showNotification('success', 'Following', 'You are now following this profile.');
+      } catch (error: any) {
+          showNotification('error', 'Follow failed', error?.message || 'Unable to follow this profile.');
+      } finally {
+          setFollowLoading(false);
+      }
+  };
+
+  const handleUnfollow = async () => {
+      if (!user || !publicUser?.id || followLoading) return;
+      setFollowLoading(true);
+      try {
+          let followId = followState.followId;
+          if (!followId) {
+              const data = await CommunityService.listFollowing('me');
+              const users = Array.isArray(data?.users) ? data.users : Array.isArray(data) ? data : [];
+              const match = users.find((entry: any) => String(entry.id || entry.userId || entry.user_id) === String(publicUser.id));
+              followId = match?.followId || match?.follow_id;
+          }
+          if (!followId) {
+              showNotification('error', 'Unfollow failed', 'Unable to locate follow record.');
+              return;
+          }
+          await CommunityService.unfollowTarget(followId);
+          setFollowState({ isFollowing: false });
+          setFollowersCount((count) => Math.max(0, count - 1));
+          showNotification('success', 'Unfollowed', 'You are no longer following this profile.');
+      } catch (error: any) {
+          showNotification('error', 'Unfollow failed', error?.message || 'Unable to unfollow this profile.');
+      } finally {
+          setFollowLoading(false);
+      }
+  };
+
+  const handleToggleBlockFollower = async (targetUserId: string) => {
+      if (!isOwner || !targetUserId || blockBusyId) return;
+      setBlockBusyId(targetUserId);
+      try {
+          const isBlocked = blockedUserIds.has(targetUserId);
+          if (isBlocked) {
+              await CommunityService.unblockUser(targetUserId);
+              setBlockedUserIds((prev) => {
+                const next = new Set(prev);
+                next.delete(targetUserId);
+                return next;
+              });
+              showNotification('success', 'Unblocked', 'User can interact with your profile again.');
+          } else {
+              await CommunityService.blockUser(targetUserId);
+              setBlockedUserIds((prev) => new Set(prev).add(targetUserId));
+              showNotification('success', 'Blocked', 'User was blocked from interacting with your profile.');
+          }
+      } catch (error: any) {
+          showNotification('error', 'Action failed', error?.message || 'Unable to update block status.');
+      } finally {
+          setBlockBusyId(null);
+      }
+  };
+
+  const handleContact = async () => {
+      if (!user || !publicUser?.id) return;
+      try {
+          const conversationId = await MessagingService.createConversation([
+              { id: user.id, name: user.name || 'You', avatar: user.avatar, role: user.role },
+              { id: publicUser.id, name: publicUser?.name || 'User', avatar: publicUser?.avatar }
+          ]);
+          window.location.href = `/messages/${conversationId}`;
+      } catch (error: any) {
+          showNotification('error', 'Message failed', error?.message || 'Unable to start a conversation.');
+      }
+  };
+
+  const openStory = async (story: any) => {
+      setActiveStory(story);
+      try {
+          await CommunityService.viewStory(story.id);
+      } catch {
+          // ignore view tracking failures
+      }
+  };
+
+  const openStoryEditor = (story: any) => {
+      if (!story) return;
+      const style = getStoryTextStyle(story);
+      setEditingStory(story);
+      setStoryEditDraft({
+          content: resolveStoryContent(story) || '',
+          visibility: normalizeStoryVisibility(story.visibility),
+          textBackground: style.background,
+          textColor: style.color,
+          textFont: style.fontFamily,
+          textAlign: (style.textAlign as any) || 'center'
+      });
+      setStoryEditOpen(true);
+  };
+
+  const saveStoryEdit = async () => {
+      if (!editingStory?.id) return;
+      if (!canManageStory(editingStory)) return;
+      if (editingStory.type === 'text' && !storyEditDraft.content.trim()) {
+          showNotification('warning', 'Stories', 'Add text before saving the story.');
+          return;
+      }
+      setStoryEditSaving(true);
+      try {
+          const payload: any = {
+              content: storyEditDraft.content?.trim() || undefined,
+              visibility: storyEditDraft.visibility
+          };
+          if (editingStory.type === 'text') {
+              payload.textBackground = storyEditDraft.textBackground;
+              payload.textColor = storyEditDraft.textColor;
+              payload.textFont = storyEditDraft.textFont;
+              payload.textAlign = storyEditDraft.textAlign;
+          }
+          const updated = await CommunityService.updateStory(editingStory.id, payload);
+          applyStoryUpdate(updated);
+          setStoryEditOpen(false);
+          setEditingStory(null);
+          showNotification('success', 'Stories', 'Story updated.');
+      } catch (error: any) {
+          showNotification('error', 'Stories', error?.message || 'Unable to update story.');
+      } finally {
+          setStoryEditSaving(false);
+      }
+  };
+
+  const handleStoryDelete = async (story: any) => {
+      if (!story?.id || !canManageStory(story)) return;
+      setStoryActionBusy((prev) => ({ ...prev, [story.id]: true }));
+      try {
+          await CommunityService.deleteStory(story.id);
+          setStories((current) => current.filter((item) => item.id !== story.id));
+          setActiveStory((current) => (current?.id === story.id ? null : current));
+          showNotification('success', 'Stories', 'Story deleted.');
+      } catch (error: any) {
+          showNotification('error', 'Stories', error?.message || 'Unable to delete story.');
+      } finally {
+          setStoryActionBusy((prev) => ({ ...prev, [story.id]: false }));
+      }
+  };
+
+  const handleStoryLike = async (story: any) => {
+      if (!story?.id) return;
+      setStoryActionBusy((prev) => ({ ...prev, [story.id]: true }));
+      try {
+          const response = await CommunityService.toggleStoryLike(story.id);
+          const payload = response?.data ?? response;
+          const viewerLiked = Boolean(payload?.liked ?? payload?.viewerLiked ?? payload?.viewer_liked);
+          const likesCount =
+            payload?.likesCount ?? payload?._count?.likes ?? story.likesCount ?? story._count?.likes ?? 0;
+          applyStoryUpdate({
+            id: story.id,
+            viewerLiked,
+            likesCount
+          });
+      } catch (error: any) {
+          showNotification('error', 'Stories', error?.message || 'Unable to like story.');
+      } finally {
+          setStoryActionBusy((prev) => ({ ...prev, [story.id]: false }));
+      }
+  };
 
   return (
     <div className="bg-gray-50 min-h-screen pb-12">
         {error && (
-          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-24">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-24">
             <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 text-sm">
               {error}
             </div>
           </div>
         )}
         {/* Header Cover */}
-        <div className="h-60 w-full bg-gradient-to-br from-blue-900 via-indigo-800 to-slate-800 relative">
-            <div className="absolute inset-0 bg-black/20"></div>
+        <div
+          className="h-64 md:h-72 w-full relative overflow-hidden bg-gradient-to-br from-blue-900 via-indigo-800 to-slate-800"
+        >
+            {coverUrl && (
+              <img src={coverUrl} alt="Cover" className="absolute inset-0 h-full w-full object-cover" />
+            )}
+            <div className="absolute inset-0 bg-black/30"></div>
         </div>
 
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 -mt-20 relative z-10">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 -mt-20 relative z-10">
             <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
                 <div className="p-6 md:p-8">
                     <div className="flex flex-col md:flex-row items-start md:items-end justify-between gap-4">
                         <div className="flex items-end gap-6">
-                            <img className="w-32 h-32 rounded-xl border-4 border-white shadow-md bg-white" src={publicUser?.avatar || "https://via.placeholder.com/256"} alt="" />
+                            <button
+                                type="button"
+                                onClick={() => {
+                                  if (stories.length > 0) openStory(stories[0]);
+                                }}
+                                className="relative"
+                            >
+                                <img
+                                    className={`w-28 h-28 sm:w-32 sm:h-32 rounded-xl border-4 border-white shadow-md bg-white ${
+                                      stories.length > 0 ? 'ring-4 ring-emerald-400 ring-offset-2 ring-offset-white' : ''
+                                    }`}
+                                    src={publicUser?.avatar || "https://via.placeholder.com/256"}
+                                    alt=""
+                                />
+                                {storiesLoading && (
+                                  <span className="absolute inset-x-0 -bottom-6 text-xs text-gray-400">Loading story...</span>
+                                )}
+                                {!storiesLoading && stories.length > 0 && (
+                                  <span className="absolute inset-x-0 -bottom-6 text-xs font-semibold text-emerald-600">View story</span>
+                                )}
+                            </button>
                             <div className="mb-2">
-                                <h1 className="text-3xl font-bold text-gray-900">{publicUser?.name || "Profile"}</h1>
-                                <p className="text-lg text-gray-600 font-medium">{profile?.title || "—"}</p>
+                                <div className="flex items-center gap-2">
+                                    <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">{publicUser?.name || "Profile"}</h1>
+                                    <ProBadge role="freelancer" isPro={publicUser?.isProFreelancer} size="md" />
+                                </div>
+                                {publicUser?.username && (
+                                  <p className="text-sm font-semibold text-blue-600 break-all">{cleanBaseUrl}/u/{publicUser.username}</p>
+                                )}
+                                <p className="text-lg text-gray-600 font-medium">{profile?.title || "-"}</p>
+                                <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-500">
+                                    <span className="inline-flex items-center gap-1">
+                                      <Users className="w-4 h-4" />
+                                      {followersCount} followers
+                                    </span>
+                                    {publicGender && (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                                        {publicGender}
+                                      </span>
+                                    )}
+                                    {publicBirthMonthDay && (
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                                        Born {publicBirthMonthDay}
+                                      </span>
+                                    )}
+                                </div>
                                 <div className="flex items-center text-gray-500 mt-1 text-sm">
-                                    <MapPin className="w-4 h-4 mr-1" /> {profile?.location || "—"}
-                                    <span className="mx-2">•</span>
+                                    <MapPin className="w-4 h-4 mr-1" /> {profile?.location || "-"}
+                                    <span className="mx-2">&middot;</span>
                                     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
                                         {loading ? 'Loading' : 'Available'}
                                     </span>
                                 </div>
                             </div>
                         </div>
-                        <div className="flex gap-3">
+                        <div className="flex gap-3 flex-wrap">
                             {isOwner ? (
-                                <Link to="/profile/edit" className="px-6 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition shadow-sm">
-                                    Edit Profile
-                                </Link>
-                            ) : (
-                                <button className="px-6 py-2 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition shadow-lg shadow-blue-600/20">
-                                    Contact Me
+                                <button
+                                  onClick={() => setShowInlineEditor((prev) => !prev)}
+                                  className="px-6 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition shadow-sm"
+                                >
+                                    {showInlineEditor ? 'Close Editor' : 'Edit Profile'}
                                 </button>
+                            ) : (
+                                <>
+                                    <button
+                                        onClick={followState.isFollowing ? handleUnfollow : handleFollow}
+                                        disabled={followLoading}
+                                        className={`px-6 py-2 rounded-lg font-medium transition border ${
+                                          followState.isFollowing
+                                            ? 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                                            : 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
+                                        }`}
+                                    >
+                                        {followLoading ? 'Working...' : followState.isFollowing ? 'Following' : 'Follow'}
+                                    </button>
+                                    <button
+                                        onClick={handleContact}
+                                        className="px-6 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition"
+                                    >
+                                        Contact
+                                    </button>
+                                </>
                             )}
                         </div>
                     </div>
 
                     {/* Navigation Tabs */}
                     <div className="flex border-b border-gray-200 mt-10 space-x-8">
-                        {['Overview', 'Portfolio', 'Reviews'].map((tab) => (
+                        {['Overview', 'Portfolio', 'Reviews', 'Followers'].map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveTab(tab.toLowerCase())}
@@ -100,7 +670,14 @@ const FreelancerProfile = () => {
                     </div>
                 </div>
 
-                <div className="bg-gray-50 p-6 md:p-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {isOwner && showInlineEditor && (
+                  <div className="border-t border-gray-100 bg-gray-50 p-6">
+                    <EditProfile isEmbedded={true} />
+                  </div>
+                )}
+
+                {activeTab === 'overview' && (
+                  <div className="bg-gray-50 p-6 md:p-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
                     {/* Left Column */}
                     <div className="lg:col-span-2 space-y-8">
                         {/* Intro Video */}
@@ -135,7 +712,7 @@ const FreelancerProfile = () => {
                                         <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-blue-100 border-2 border-blue-600"></div>
                                         <h4 className="text-base font-bold text-gray-900">{exp.title || 'Untitled role'}</h4>
                                         <div className="text-sm text-gray-500 mb-2">
-                                          {exp.company || 'Company'} • {exp.start_date || exp.startDate || '—'} - {exp.end_date || exp.endDate || '—'}
+                                          {exp.company || 'Company'} &middot; {exp.start_date || exp.startDate || '-'} - {exp.end_date || exp.endDate || '-'}
                                         </div>
                                         <p className="text-sm text-gray-600">{exp.description || ''}</p>
                                     </div>
@@ -156,7 +733,7 @@ const FreelancerProfile = () => {
                                             <p className="text-sm text-gray-600">{edu.degree || 'Degree'}{edu.field_of_study ? `, ${edu.field_of_study}` : ''}</p>
                                         </div>
                                         <div className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-                                            {edu.start_year || edu.startYear || '—'} - {edu.end_year || edu.endYear || '—'}
+                                            {edu.start_year || edu.startYear || '-'} - {edu.end_year || edu.endYear || '-'}
                                         </div>
                                     </div>
                                 ))}
@@ -221,7 +798,7 @@ const FreelancerProfile = () => {
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-gray-600">Response Time</span>
-                                <span className="font-bold text-gray-900">{profile?.responseTime ? `~ ${profile.responseTime} hrs` : '—'}</span>
+                                <span className="font-bold text-gray-900">{profile?.responseTime ? `~ ${profile.responseTime} hrs` : '-'}</span>
                             </div>
                         </div>
 
@@ -248,7 +825,7 @@ const FreelancerProfile = () => {
                                         <div className="flex items-start justify-between">
                                             <div>
                                                 <div className="font-bold text-sm text-gray-900">{cert.name || 'Certification'}</div>
-                                                <div className="text-xs text-gray-500">{cert.issuer || 'Issuer'} • {cert.issue_date || cert.issueDate || '—'}</div>
+                                                <div className="text-xs text-gray-500">{cert.issuer || 'Issuer'} &middot; {cert.issue_date || cert.issueDate || '-'}</div>
                                             </div>
                                             {cert.isVerified && <CheckCircle className="w-4 h-4 text-green-500" />}
                                         </div>
@@ -258,8 +835,362 @@ const FreelancerProfile = () => {
                         </div>
                     </div>
                 </div>
+                )}
+
+                {activeTab === 'portfolio' && (
+                  <div className="bg-gray-50 p-6 md:p-8">
+                    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                      <h3 className="text-lg font-bold text-gray-900 mb-6">Portfolio</h3>
+                      {portfolioItems.length === 0 && (
+                        <p className="text-sm text-gray-500">No portfolio items added yet.</p>
+                      )}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {portfolioItems.map((item) => {
+                          const image = resolveAssetUrl((item as any).image_url || (item as any).imageUrl);
+                          return (
+                            <div key={item.id} className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                              {image && (
+                                <img src={image} alt={item.title} className="h-44 w-full object-cover" />
+                              )}
+                              <div className="p-4 space-y-2">
+                                <h4 className="font-semibold text-gray-900">{item.title || 'Untitled'}</h4>
+                                {item.description && <p className="text-sm text-gray-600">{item.description}</p>}
+                                {item.link && (
+                                  <a href={item.link} target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:underline">
+                                    View project
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'reviews' && (
+                  <div className="bg-gray-50 p-6 md:p-8">
+                    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                      <h3 className="text-lg font-bold text-gray-900 mb-6">Reviews</h3>
+                      {reviewsLoading && (
+                        <p className="text-sm text-gray-500">Loading reviews...</p>
+                      )}
+                      {!reviewsLoading && reviews.length === 0 && (
+                        <p className="text-sm text-gray-500">No reviews yet.</p>
+                      )}
+                      <div className="space-y-4">
+                        {reviews.map((review) => (
+                          <div key={review.id} className="border border-gray-200 rounded-lg p-4">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <img
+                                  src={resolveAssetUrl(review.author?.avatar) || 'https://ui-avatars.com/api/?name=User'}
+                                  alt={review.author?.name || 'Reviewer'}
+                                  className="h-10 w-10 rounded-full object-cover"
+                                />
+                                <div>
+                                  <div className="text-sm font-semibold text-gray-900">{review.author?.name || 'Reviewer'}</div>
+                                  <div className="text-xs text-gray-500">{review.createdAt ? new Date(review.createdAt).toLocaleDateString() : ''}</div>
+                                </div>
+                              </div>
+                              <div className="flex items-center text-sm font-semibold text-gray-900">
+                                <Star className="w-4 h-4 text-yellow-400 fill-current mr-1" />
+                                {review.rating || 0}
+                              </div>
+                            </div>
+                            {review.title && <div className="mt-3 text-sm font-semibold text-gray-800">{review.title}</div>}
+                            {review.comment && <p className="mt-2 text-sm text-gray-600">{review.comment}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'followers' && (
+                  <div className="bg-gray-50 p-6 md:p-8">
+                    <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                      <h3 className="text-lg font-bold text-gray-900 mb-6">Followers</h3>
+                      {followersLoading && (
+                        <p className="text-sm text-gray-500">Loading followers...</p>
+                      )}
+                      {!followersLoading && followersList.length === 0 && (
+                        <p className="text-sm text-gray-500">No followers yet.</p>
+                      )}
+                      <div className="space-y-3">
+                        {followersList.map((follower) => {
+                          const isBlocked = blockedUserIds.has(follower.id);
+                          return (
+                            <div key={follower.id} className="flex items-center justify-between rounded-lg border border-gray-200 p-3">
+                              <Link to={follower.username ? `/u/${follower.username}` : `/profile/${follower.id}`} className="flex items-center gap-3 min-w-0">
+                                <img
+                                  src={resolveAssetUrl(follower.avatar) || 'https://ui-avatars.com/api/?name=User'}
+                                  alt={follower.name}
+                                  className="h-10 w-10 rounded-full object-cover"
+                                />
+                                <div className="min-w-0">
+                                  <div className="truncate text-sm font-semibold text-gray-900">{follower.name}</div>
+                                  <div className="truncate text-xs text-gray-500">{follower.username ? `@${follower.username}` : 'Member'}</div>
+                                </div>
+                              </Link>
+                              <div className="flex items-center gap-2">
+                                <Link
+                                  to={follower.username ? `/u/${follower.username}` : `/profile/${follower.id}`}
+                                  className="rounded-full border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                >
+                                  View
+                                </Link>
+                                {isOwner && (
+                                  <button
+                                    onClick={() => handleToggleBlockFollower(follower.id)}
+                                    disabled={blockBusyId === follower.id}
+                                    className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                                      isBlocked
+                                        ? 'border-emerald-300 text-emerald-700 hover:bg-emerald-50'
+                                        : 'border-rose-300 text-rose-700 hover:bg-rose-50'
+                                    }`}
+                                  >
+                                    {blockBusyId === follower.id ? 'Working...' : isBlocked ? 'Unblock' : 'Block'}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
             </div>
         </div>
+
+        {activeStory && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6">
+            <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">{activeStory.authorName || publicUser?.name || 'Story'}</p>
+                  <p className="text-xs text-gray-500">{activeStory.createdAt ? new Date(activeStory.createdAt).toLocaleString() : ''}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {canManageStory(activeStory) && (
+                    <>
+                      <button
+                        onClick={() => openStoryEditor(activeStory)}
+                        className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600 hover:text-gray-800"
+                        type="button"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleStoryDelete(activeStory)}
+                        className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-500 hover:text-red-600"
+                        type="button"
+                        disabled={storyActionBusy[activeStory.id]}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                  <button onClick={() => setActiveStory(null)} className="text-gray-500 hover:text-gray-700" type="button">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="mt-4 overflow-hidden rounded-xl bg-gray-100">
+                {(() => {
+                  const mediaUrl = resolveStoryMediaUrl(activeStory);
+                  if (mediaUrl) {
+                    return activeStory.type === 'video' ? (
+                      <video src={mediaUrl} controls className="h-80 w-full object-cover" />
+                    ) : (
+                      <img src={mediaUrl} alt="Story" className="h-80 w-full object-cover" />
+                    );
+                  }
+                  const text = resolveStoryContent(activeStory);
+                  if (text) {
+                    const style = getStoryTextStyle(activeStory);
+                    return (
+                      <div
+                        className="flex h-80 w-full items-center justify-center px-6 text-center"
+                        style={{
+                          background: style.background,
+                          color: style.color,
+                          fontFamily: style.fontFamily,
+                          textAlign: style.textAlign as any
+                        }}
+                      >
+                        <p className="text-lg font-semibold leading-snug whitespace-pre-wrap">{text}</p>
+                      </div>
+                    );
+                  }
+                  return <div className="flex h-80 w-full items-center justify-center text-sm text-gray-500">No media</div>;
+                })()}
+              </div>
+              {(() => {
+                const text = resolveStoryContent(activeStory);
+                const mediaUrl = resolveStoryMediaUrl(activeStory);
+                if (text && mediaUrl) {
+                  return <p className="mt-3 text-sm text-gray-700">{text}</p>;
+                }
+                return null;
+              })()}
+              <div className="mt-4 flex items-center justify-between">
+                <button
+                  onClick={() => handleStoryLike(activeStory)}
+                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${activeStory.viewerLiked ? 'border-rose-200 text-rose-600' : 'border-gray-200 text-gray-500'}`}
+                  disabled={storyActionBusy[activeStory.id]}
+                  type="button"
+                >
+                  <Heart className={`h-4 w-4 ${activeStory.viewerLiked ? 'fill-rose-500 text-rose-500' : ''}`} />
+                  {activeStory.likesCount ?? activeStory._count?.likes ?? 0}
+                </button>
+                <span className="text-xs text-gray-400">{normalizeStoryVisibility(activeStory.visibility)}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {storyEditOpen && editingStory && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6">
+            <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Edit Story</h3>
+                  <p className="text-xs text-gray-500">Update your story content and settings.</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setStoryEditOpen(false);
+                    setEditingStory(null);
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                  type="button"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="mt-4 space-y-4">
+                {editingStory.type === 'text' ? (
+                  <div
+                    className="flex h-40 w-full items-center justify-center rounded-xl px-6 text-center"
+                    style={{
+                      background: storyEditPreviewStyle.background,
+                      color: storyEditPreviewStyle.color,
+                      fontFamily: storyEditPreviewStyle.fontFamily,
+                      textAlign: storyEditPreviewStyle.textAlign as any
+                    }}
+                  >
+                    <span className="text-base font-semibold whitespace-pre-wrap">
+                      {storyEditDraft.content.trim() ? storyEditDraft.content : 'Type a story...'}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="overflow-hidden rounded-xl bg-gray-100">
+                    {(() => {
+                      const mediaUrl = resolveStoryMediaUrl(editingStory);
+                      if (mediaUrl) {
+                        return editingStory.type === 'video' ? (
+                          <video src={mediaUrl} controls className="h-48 w-full object-cover" />
+                        ) : (
+                          <img src={mediaUrl} alt="Story media" className="h-48 w-full object-cover" />
+                        );
+                      }
+                      return <div className="flex h-48 w-full items-center justify-center text-sm text-gray-500">No media</div>;
+                    })()}
+                  </div>
+                )}
+
+                <textarea
+                  className="min-h-[120px] w-full rounded-xl border border-gray-200 p-3 text-sm text-gray-700 focus:border-blue-500 focus:outline-none"
+                  value={storyEditDraft.content}
+                  onChange={(event) => setStoryEditDraft((prev) => ({ ...prev, content: event.target.value }))}
+                  placeholder={editingStory.type === 'text' ? 'Update your story...' : 'Add a caption (optional)'}
+                />
+
+                {editingStory.type === 'text' && (
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500">Background</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {storyTextThemes.map((theme) => (
+                          <button
+                            key={theme.id}
+                            type="button"
+                            onClick={() =>
+                              setStoryEditDraft((prev) => ({
+                                ...prev,
+                                textBackground: theme.background,
+                                textColor: theme.textColor
+                              }))
+                            }
+                            className={`h-10 w-10 rounded-full border-2 ${storyEditDraft.textBackground === theme.background ? 'border-gray-900' : 'border-transparent'}`}
+                            style={{ background: theme.background }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500">Font</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {storyTextFonts.map((font) => (
+                          <button
+                            key={font.id}
+                            type="button"
+                            onClick={() => setStoryEditDraft((prev) => ({ ...prev, textFont: font.fontFamily }))}
+                            className={`rounded-full border px-3 py-1 text-xs font-semibold ${storyEditDraft.textFont === font.fontFamily ? 'border-gray-900 text-gray-900' : 'border-gray-200 text-gray-500'}`}
+                            style={{ fontFamily: font.fontFamily }}
+                          >
+                            {font.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="text-xs font-semibold text-gray-500">Visibility</label>
+                  <select
+                    value={storyEditDraft.visibility}
+                    onChange={(event) =>
+                      setStoryEditDraft((prev) => ({ ...prev, visibility: normalizeStoryVisibility(event.target.value) }))
+                    }
+                    className="rounded-full border border-gray-200 px-3 py-1 text-xs text-gray-600"
+                  >
+                    {storyVisibilityOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      setStoryEditOpen(false);
+                      setEditingStory(null);
+                    }}
+                    className="rounded-full border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600"
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={saveStoryEdit}
+                    disabled={storyEditSaving || (editingStory.type === 'text' && !storyEditDraft.content.trim())}
+                    className="rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-gray-400"
+                    type="button"
+                  >
+                    {storyEditSaving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
     </div>
   );
 };

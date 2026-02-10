@@ -106,6 +106,50 @@ const denormalizeCommunitySettings = (settings: any): any => ({
   enable_events: settings.enableEvents ?? settings.enable_events
 });
 
+// Admin config normalization helpers (backend uses snake_case keys)
+const normalizeAdminConfig = (raw: any): any => {
+  if (!raw) return {};
+  return {
+    // pass-through any other keys
+    ...raw,
+    communityEnabled: raw.community_enabled ?? raw.communityEnabled ?? false,
+    storiesEnabled: raw.stories_enabled ?? raw.storiesEnabled ?? false,
+    adsEnabled: raw.ads_enabled ?? raw.adsEnabled ?? false,
+    gcoinEnabled: raw.gcoin_enabled ?? raw.gcoinEnabled ?? false,
+    requireLoginToView: raw.require_login_to_view ?? raw.requireLoginToView ?? false,
+    autoModerateContent: raw.auto_moderate_content ?? raw.autoModerateContent ?? false,
+    businessPagesEnabled: raw.business_pages_enabled ?? raw.businessPagesEnabled ?? true,
+    businessPageUserCreationEnabled:
+      raw.business_page_user_creation_enabled ?? raw.businessPageUserCreationEnabled ?? true,
+    businessPagePostingEnabled:
+      raw.business_page_posting_enabled ?? raw.businessPagePostingEnabled ?? true,
+    businessPageFollowEnabled:
+      raw.business_page_follow_enabled ?? raw.businessPageFollowEnabled ?? true,
+    maxImagesPerPost: raw.max_images_per_post ?? raw.maxImagesPerPost ?? 4,
+    maxVideoSizeMb: raw.max_video_size_mb ?? raw.maxVideoSizeMb ?? 50,
+    storyExpiryHours: raw.story_expiry_hours ?? raw.storyExpiryHours ?? 24
+  };
+};
+
+const denormalizeAdminConfig = (cfg: any): any => ({
+  community_enabled: cfg.communityEnabled ?? cfg.community_enabled,
+  stories_enabled: cfg.storiesEnabled ?? cfg.stories_enabled,
+  ads_enabled: cfg.adsEnabled ?? cfg.ads_enabled,
+  gcoin_enabled: cfg.gcoinEnabled ?? cfg.gcoin_enabled,
+  require_login_to_view: cfg.requireLoginToView ?? cfg.require_login_to_view,
+  auto_moderate_content: cfg.autoModerateContent ?? cfg.auto_moderate_content,
+  business_pages_enabled: cfg.businessPagesEnabled ?? cfg.business_pages_enabled,
+  business_page_user_creation_enabled:
+    cfg.businessPageUserCreationEnabled ?? cfg.business_page_user_creation_enabled,
+  business_page_posting_enabled:
+    cfg.businessPagePostingEnabled ?? cfg.business_page_posting_enabled,
+  business_page_follow_enabled:
+    cfg.businessPageFollowEnabled ?? cfg.business_page_follow_enabled,
+  max_images_per_post: typeof cfg.maxImagesPerPost !== 'undefined' ? Number(cfg.maxImagesPerPost) : cfg.max_images_per_post,
+  max_video_size_mb: typeof cfg.maxVideoSizeMb !== 'undefined' ? Number(cfg.maxVideoSizeMb) : cfg.max_video_size_mb,
+  story_expiry_hours: typeof cfg.storyExpiryHours !== 'undefined' ? Number(cfg.storyExpiryHours) : cfg.story_expiry_hours
+});
+
 class CommunityService {
   static async get(endpoint: string) {
     const response = await api.get(endpoint);
@@ -324,25 +368,97 @@ class CommunityService {
   }
 
   // Community feed posts (CommunityPost)
-  static async getPosts(params?: { limit?: number; offset?: number; status?: string }): Promise<any[]> {
+  static async getPosts(params?: {
+    limit?: number;
+    offset?: number;
+    status?: string;
+    businessPageId?: string;
+    businessPageSlug?: string;
+  }): Promise<any[]> {
     const search = new URLSearchParams();
     if (params?.limit !== undefined) search.set('limit', String(params.limit));
     if (params?.offset !== undefined) search.set('offset', String(params.offset));
     if (params?.status) search.set('status', params.status);
+    if (params?.businessPageId) search.set('businessPageId', String(params.businessPageId));
+    if (params?.businessPageSlug) search.set('businessPageSlug', String(params.businessPageSlug));
     const endpoint = `/community/posts${search.toString() ? `?${search.toString()}` : ''}`;
     const data = await this.get(endpoint);
     return Array.isArray(data) ? data : [];
   }
 
-  static async createPost(data: { title?: string; content: string; attachments?: string[]; status?: string }): Promise<any> {
+  static async getFeed(params?: { limit?: number; cursor?: string; scope?: string; topic?: string; region?: string }): Promise<any> {
+    const search = new URLSearchParams();
+    if (params?.limit !== undefined) search.set('limit', String(params.limit));
+    if (params?.cursor) search.set('cursor', params.cursor);
+    if (params?.scope) search.set('scope', params.scope);
+    if (params?.topic) search.set('topic', params.topic);
+    if (params?.region) search.set('region', params.region);
+    const endpoint = `/community/feed${search.toString() ? `?${search.toString()}` : ''}`;
+    return this.get(endpoint);
+  }
+
+  static async createPost(data: { title?: string; content: string; attachments?: string[]; status?: string; tags?: string[]; mentions?: string[]; visibility?: string; businessPageId?: string; topic?: string; location?: string; commentPolicy?: string }): Promise<any> {
     const payload = {
       title: data.title,
       content: data.content,
       attachments: data.attachments || [],
-      status: data.status || 'active'
+      status: data.status || 'active',
+      tags: data.tags || [],
+      mentions: data.mentions || [],
+      topic: data.topic,
+      location: data.location,
+      visibility: data.visibility || 'public',
+      businessPageId: data.businessPageId,
+      commentPolicy: data.commentPolicy
     };
     const response = await this.post('/community/posts', payload);
     return response;
+  }
+
+  static async reactToPost(postId: string, type: string): Promise<any> {
+    return this.post(`/community/posts/${postId}/reactions`, { type });
+  }
+
+  static async removePostReaction(postId: string): Promise<any> {
+    const response = await api.delete(`/community/posts/${postId}/reactions`);
+    return extractData<any>(response);
+  }
+
+  static async commentOnPost(postId: string, payload: { content: string; attachments?: string[]; parentId?: string | null }): Promise<any> {
+    return this.post(`/community/posts/${postId}/comments`, payload);
+  }
+
+  static async getPostComments(postId: string, params?: { limit?: number; cursor?: string }): Promise<any> {
+    const search = new URLSearchParams();
+    if (params?.limit !== undefined) search.set('limit', String(params.limit));
+    if (params?.cursor) search.set('cursor', params.cursor);
+    const endpoint = `/community/posts/${postId}/comments${search.toString() ? `?${search.toString()}` : ''}`;
+    return this.get(endpoint);
+  }
+
+  static async updatePostComment(commentId: string, payload: { content?: string; attachments?: string[] }): Promise<any> {
+    const response = await api.put(`/community/comments/${commentId}`, payload);
+    return extractData<any>(response);
+  }
+
+  static async deletePostComment(commentId: string): Promise<any> {
+    const response = await api.delete(`/community/comments/${commentId}`);
+    return extractData<any>(response);
+  }
+
+  static async togglePostCommentLike(commentId: string): Promise<any> {
+    const response = await this.post(`/community/comments/${commentId}/like`, {});
+    return response;
+  }
+
+  static async updatePost(postId: string, payload: { title?: string; content?: string; attachments?: string[]; tags?: string[]; mentions?: string[]; visibility?: string; topic?: string; location?: string; status?: string; commentPolicy?: string; isPinned?: boolean; isHighlighted?: boolean }): Promise<any> {
+    const response = await api.put(`/community/posts/${postId}`, payload);
+    return extractData<any>(response);
+  }
+
+  static async deletePost(postId: string): Promise<any> {
+    const response = await api.delete(`/community/posts/${postId}`);
+    return extractData<any>(response);
   }
 
   static async postView(postId: string): Promise<boolean> {
@@ -368,6 +484,250 @@ class CommunityService {
   static async postUnlike(postId: string): Promise<boolean> {
     const response = await api.delete(`/community/posts/${postId}/like`);
     return Boolean(response?.data?.success ?? true);
+  }
+
+  static async getStoriesFeed(): Promise<any[]> {
+    const data = await this.get('/community/stories/feed');
+    return Array.isArray(data) ? data : [];
+  }
+
+  static async createStory(payload: {
+    type: string;
+    content?: string;
+    mediaFileId?: string;
+    visibility?: string;
+    textBackground?: string;
+    textColor?: string;
+    textFont?: string;
+    textAlign?: 'left' | 'center' | 'right';
+  }): Promise<any> {
+    return this.post('/community/stories', payload);
+  }
+
+  static async updateStory(id: string, payload: {
+    content?: string;
+    visibility?: string;
+    textBackground?: string;
+    textColor?: string;
+    textFont?: string;
+    textAlign?: 'left' | 'center' | 'right';
+    mediaFileId?: string;
+  }): Promise<any> {
+    const response = await api.put(`/community/stories/${id}`, payload);
+    return extractData<any>(response);
+  }
+
+  static async deleteStory(id: string): Promise<any> {
+    const response = await api.delete(`/community/stories/${id}`);
+    return extractData<any>(response);
+  }
+
+  static async viewStory(id: string): Promise<any> {
+    return this.post(`/community/stories/${id}/view`, {});
+  }
+
+  static async toggleStoryLike(id: string): Promise<any> {
+    const response = await this.post(`/community/stories/${id}/like`, {});
+    return response;
+  }
+
+  static async getMyBusinessPages(): Promise<any[]> {
+    const data = await this.get('/community/business-pages/me');
+    return Array.isArray(data) ? data : [];
+  }
+
+  static async createBusinessPage(payload: any): Promise<any> {
+    return this.post('/community/business-pages', payload);
+  }
+
+  static async updateBusinessPage(id: string, payload: any): Promise<any> {
+    const response = await api.put(`/community/business-pages/${id}`, payload);
+    return extractData<any>(response);
+  }
+
+  static async deleteBusinessPage(id: string): Promise<any> {
+    const response = await api.delete(`/community/business-pages/${id}`);
+    return extractData<any>(response);
+  }
+
+  static async getBusinessPageBySlug(slug: string): Promise<any> {
+    return this.get(`/community/business-pages/${slug}`);
+  }
+
+  static async getBusinessPageFeed(slug: string, params?: { cursor?: string; limit?: number }): Promise<any> {
+    const search = new URLSearchParams();
+    if (params?.cursor) search.set('cursor', params.cursor);
+    if (typeof params?.limit !== 'undefined') search.set('limit', String(params.limit));
+    return this.get(`/community/business-pages/${slug}/feed${search.toString() ? `?${search.toString()}` : ''}`);
+  }
+
+  static async getRecommendedBusinessPages(limit: number = 6): Promise<any[]> {
+    const safeLimit = Math.max(1, Math.min(30, Number(limit || 6)));
+    const data = await this.get(`/community/business-pages/recommendations?limit=${safeLimit}`);
+    return Array.isArray(data) ? data : [];
+  }
+
+  static async getBusinessPagesConfig(): Promise<{
+    businessPagesEnabled: boolean;
+    businessPageUserCreationEnabled: boolean;
+    businessPagePostingEnabled: boolean;
+    businessPageFollowEnabled: boolean;
+  }> {
+    const data = await this.get('/community/business-pages/config');
+    return {
+      businessPagesEnabled: data?.businessPagesEnabled !== false,
+      businessPageUserCreationEnabled: data?.businessPageUserCreationEnabled !== false,
+      businessPagePostingEnabled: data?.businessPagePostingEnabled !== false,
+      businessPageFollowEnabled: data?.businessPageFollowEnabled !== false
+    };
+  }
+
+  static async createBusinessPagePost(id: string, payload: any): Promise<any> {
+    return this.post(`/community/business-pages/${id}/posts`, payload);
+  }
+
+  static async listBusinessPageFollowing(id: string): Promise<any> {
+    return this.get(`/community/business-pages/${id}/following`);
+  }
+
+  static async followFromBusinessPage(
+    id: string,
+    payload: { targetType: 'user' | 'page'; targetId: string }
+  ): Promise<any> {
+    return this.post(`/community/business-pages/${id}/follow`, payload);
+  }
+
+  static async unfollowFromBusinessPage(
+    id: string,
+    payload: { targetType: 'user' | 'page'; targetId: string }
+  ): Promise<any> {
+    return this.post(`/community/business-pages/${id}/unfollow`, payload);
+  }
+
+  static async searchPageMentions(q: string): Promise<any[]> {
+    if (!q) return [];
+    const data = await this.get(`/community/mentions/pages?q=${encodeURIComponent(q)}`);
+    return Array.isArray(data) ? data : [];
+  }
+
+  static async followTarget(payload: { targetType: 'user' | 'page'; targetId: string }): Promise<any> {
+    return this.post('/community/follow', payload);
+  }
+
+  static async unfollowTarget(id: string): Promise<any> {
+    const response = await api.delete(`/community/follow/${id}`);
+    return extractData<any>(response);
+  }
+
+  static async unfollowUser(targetUserId: string): Promise<any> {
+    return this.post('/community/unfollow', { targetUserId });
+  }
+
+  static async getFollowStatus(targetUserIds: string[]): Promise<Record<string, boolean>> {
+    const ids = Array.from(new Set((targetUserIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+    if (!ids.length) return {};
+    const data = await this.post('/community/follow/status', { targetUserIds: ids });
+    return data && typeof data === 'object' ? (data as Record<string, boolean>) : {};
+  }
+
+  static async listFollowers(targetType: 'user' | 'page', targetId: string): Promise<any[]> {
+    const data = await this.get(`/community/followers?targetType=${targetType}&targetId=${targetId}`);
+    if (Array.isArray(data)) return data;
+    if (Array.isArray((data as any)?.items)) return (data as any).items;
+    if (Array.isArray((data as any)?.followers)) return (data as any).followers;
+    if (Array.isArray((data as any)?.users)) return (data as any).users;
+    return [];
+  }
+
+  static async listFollowing(userId: string = 'me'): Promise<any> {
+    return this.get(`/community/following?userId=${userId}`);
+  }
+
+  static async listMyFollowers(params?: { cursor?: string; limit?: number }): Promise<{ items: any[]; nextCursor: string | null }> {
+    const search = new URLSearchParams();
+    if (params?.cursor) search.set('cursor', params.cursor);
+    if (params?.limit !== undefined) search.set('limit', String(params.limit));
+    const data = await this.get(`/community/followers/me${search.toString() ? `?${search.toString()}` : ''}`);
+    return {
+      items: Array.isArray(data?.items) ? data.items : [],
+      nextCursor: data?.nextCursor || null
+    };
+  }
+
+  static async listMyFollowing(params?: { cursor?: string; limit?: number }): Promise<{ items: any[]; nextCursor: string | null }> {
+    const search = new URLSearchParams();
+    if (params?.cursor) search.set('cursor', params.cursor);
+    if (params?.limit !== undefined) search.set('limit', String(params.limit));
+    const data = await this.get(`/community/following/me${search.toString() ? `?${search.toString()}` : ''}`);
+    return {
+      items: Array.isArray(data?.items) ? data.items : [],
+      nextCursor: data?.nextCursor || null
+    };
+  }
+
+  static async blockUser(userId: string): Promise<any> {
+    return this.post('/community/blocks', { userId });
+  }
+
+  static async unblockUser(userId: string): Promise<any> {
+    const response = await api.delete(`/community/blocks/${encodeURIComponent(userId)}`);
+    return extractData<any>(response);
+  }
+
+  static async listBlockedUsers(params?: { cursor?: string; limit?: number }): Promise<{ items: any[]; nextCursor: string | null }> {
+    const search = new URLSearchParams();
+    if (params?.cursor) search.set('cursor', params.cursor);
+    if (params?.limit !== undefined) search.set('limit', String(params.limit));
+    const data = await this.get(`/community/blocks/me${search.toString() ? `?${search.toString()}` : ''}`);
+    return {
+      items: Array.isArray(data?.items) ? data.items : [],
+      nextCursor: data?.nextCursor || null
+    };
+  }
+
+  static async searchTags(query: string, limit: number = 25): Promise<any[]> {
+    const q = String(query || '').trim();
+    const data = await this.get(`/community/tags?q=${encodeURIComponent(q)}&limit=${Math.max(1, Math.min(100, limit))}`);
+    return Array.isArray(data) ? data : [];
+  }
+
+  static async getTrendingTags(limit: number = 12, days: number = 7): Promise<any[]> {
+    const data = await this.get(`/community/tags/trending?limit=${Math.max(1, Math.min(50, limit))}&days=${Math.max(1, Math.min(30, days))}`);
+    return Array.isArray(data) ? data : [];
+  }
+
+  static async getPostsByTag(slug: string, limit: number = 20): Promise<any> {
+    return this.get(`/community/tags/${encodeURIComponent(slug)}/posts?limit=${Math.max(1, Math.min(100, limit))}`);
+  }
+
+  static async getReactionsConfig(): Promise<any> {
+    const response = await api.get('/community/admin/reactions');
+    return extractData<any>(response);
+  }
+
+  static async getPublicAds(params?: { placement?: string; limit?: number }): Promise<any[]> {
+    const search = new URLSearchParams();
+    if (params?.placement) search.set('placement', String(params.placement));
+    if (typeof params?.limit !== 'undefined') {
+      const safeLimit = Math.max(1, Math.min(30, Number(params.limit || 8)));
+      search.set('limit', String(safeLimit));
+    }
+    const endpoint = `/community/ads${search.toString() ? `?${search.toString()}` : ''}`;
+    const data = await this.get(endpoint);
+    return Array.isArray(data) ? data : [];
+  }
+
+  static async recordAdImpression(adId: string): Promise<void> {
+    await this.post(`/community/ads/${adId}/impression`, {});
+  }
+
+  static async recordAdClick(adId: string): Promise<void> {
+    await this.post(`/community/ads/${adId}/click`, {});
+  }
+
+  static async updateReactionsConfig(payload: any): Promise<any> {
+    const response = await api.put('/community/admin/reactions', payload);
+    return extractData<any>(response);
   }
 
   static async getChannels(): Promise<CommunityChannel[]> {
@@ -496,6 +856,44 @@ class CommunityService {
 
   static async saveCommunityHomepage(config: any): Promise<any> {
     const response = await api.put('/community/admin/homepage', { data: config });
+    return extractData<any>(response);
+  }
+
+  // Admin: fetch full admin config for community (used by admin UI)
+  static async getAdminConfig(): Promise<any> {
+    const response = await api.get('/community/admin/config');
+    const raw = extractData<any>(response) || {};
+    return normalizeAdminConfig(raw);
+  }
+
+  // Admin: update full admin config
+  static async updateAdminConfig(config: any): Promise<any> {
+    const payload = denormalizeAdminConfig(config);
+    const response = await api.put('/community/admin/config', payload);
+    const raw = extractData<any>(response) || {};
+    return normalizeAdminConfig(raw);
+  }
+
+  static async getAdminBusinessPages(): Promise<any[]> {
+    const data = await this.get('/community/admin/business-pages');
+    return Array.isArray(data) ? data : [];
+  }
+
+  static async updateAdminBusinessPage(id: string, payload: any): Promise<any> {
+    const response = await api.put(`/community/admin/business-pages/${id}`, payload);
+    return extractData<any>(response);
+  }
+
+  static async moderateAdminBusinessPage(
+    id: string,
+    payload: { action: 'activate' | 'restrict' | 'ban' | 'deactivate' | 'delete'; reason?: string }
+  ): Promise<any> {
+    const response = await api.post(`/community/admin/business-pages/${id}/moderate`, payload);
+    return extractData<any>(response);
+  }
+
+  static async deleteAdminBusinessPage(id: string): Promise<any> {
+    const response = await api.delete(`/community/admin/business-pages/${id}`);
     return extractData<any>(response);
   }
 }

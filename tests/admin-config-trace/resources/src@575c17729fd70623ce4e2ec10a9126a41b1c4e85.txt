@@ -1,0 +1,58 @@
+import { test, expect } from '@playwright/test';
+import axios from 'axios';
+
+const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
+const BACKEND = process.env.BACKEND_URL || 'http://localhost:5000';
+const ADMIN = { email: 'admin@local.test', password: 'adminpass' };
+
+test('admin config form updates propagate to another client', async ({ browser }) => {
+  // login via API
+  const loginResp = await axios.post(`${BACKEND}/api/auth/login`, ADMIN).then(r => r.data);
+  const token = loginResp.token;
+  if (!token) throw new Error('Login failed in test');
+
+  // create a seeded storageState so both contexts share same-origin storage
+  // Create a context that injects auth storage before any page scripts run
+  const seedCtx = await browser.newContext();
+  await seedCtx.addInitScript(({ token, user }) => {
+    try {
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(user));
+      document.cookie = `Scrolith_token=${token}; path=/; SameSite=Lax`;
+    } catch (e) {
+      // ignore
+    }
+  }, { token, user: { id: 'admin-local', email: 'admin@local.test', name: 'Local Admin', role: 'admin' } });
+  const seedPage = await seedCtx.newPage();
+  // Navigate so the app initializes with seeded storage
+  await seedPage.goto(`${FRONTEND}/Scrolith/admin/dashboard?tab=settings`);
+  // allow app to initialize; try to wait for Edit Config but don't fail the seed step
+  await seedPage.waitForSelector('button:has-text("Edit Config")', { timeout: 10000 }).catch(() => {});
+  const storageState = await seedCtx.storageState();
+  await seedCtx.close();
+
+  // viewer context (will receive socket event) using seeded storage
+  const viewerContext = await browser.newContext({ storageState });
+  const viewerPage = await viewerContext.newPage();
+  await viewerPage.goto(`${FRONTEND}/Scrolith/admin/dashboard?tab=settings`);
+
+  // admin context with same seeded storage
+  const adminContext = await browser.newContext({ storageState });
+  const adminPage = await adminContext.newPage();
+  await adminPage.goto(`${FRONTEND}/Scrolith/admin/dashboard?tab=settings`);
+
+  // ensure both pages load the Edit Config button
+  await expect(adminPage.locator('button:has-text("Edit Config")')).toBeVisible({ timeout: 30000 });
+  await expect(viewerPage.locator('button:has-text("Edit Config")')).toBeVisible({ timeout: 30000 });
+
+  // admin opens editor, changes numeric value, saves
+  await adminPage.click('button:has-text("Edit Config")');
+  const maxImagesInput = adminPage.locator('[data-testid="cfg-max-images"]');
+  await maxImagesInput.fill('3');
+  await adminPage.click('button:has-text("Save")');
+
+  // viewer should observe update via socket -> UI will update; wait for changed numeric input value
+  const viewerMax = viewerPage.locator('[data-testid="cfg-max-images"]');
+  await expect(viewerMax).toHaveValue('3', { timeout: 8000 });
+});
+

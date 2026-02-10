@@ -1,5 +1,6 @@
 import React from 'react';
 import { AuthProviderKey, SocialAuthConfig, UserRole } from '../types';
+import { getApiBaseUrl } from '../utils/apiBase';
 
 type AuthSocialButtonsProps = {
   mode: 'login' | 'signup';
@@ -20,6 +21,7 @@ const defaultSocialConfig: SocialAuthConfig = {
       client_secret: '',
       scopes: 'openid profile email',
       button_label: 'Continue with Google',
+      label_logo_url: '',
       login_enabled: true,
       signup_enabled: true,
       allow_roles: [UserRole.FREELANCER, UserRole.EMPLOYER]
@@ -30,6 +32,7 @@ const defaultSocialConfig: SocialAuthConfig = {
       client_secret: '',
       scopes: 'public_profile email',
       button_label: 'Continue with Facebook',
+      label_logo_url: '',
       login_enabled: true,
       signup_enabled: true,
       allow_roles: [UserRole.FREELANCER, UserRole.EMPLOYER]
@@ -40,6 +43,7 @@ const defaultSocialConfig: SocialAuthConfig = {
       client_secret: '',
       scopes: 'tweet.read users.read offline.access',
       button_label: 'Continue with Twitter',
+      label_logo_url: '',
       login_enabled: true,
       signup_enabled: true,
       allow_roles: [UserRole.FREELANCER, UserRole.EMPLOYER]
@@ -50,6 +54,7 @@ const defaultSocialConfig: SocialAuthConfig = {
       client_secret: '',
       scopes: 'openid profile email',
       button_label: 'Continue with LinkedIn',
+      label_logo_url: '',
       login_enabled: true,
       signup_enabled: true,
       allow_roles: [UserRole.FREELANCER, UserRole.EMPLOYER]
@@ -106,7 +111,7 @@ const buildOAuthUrl = (provider: AuthProviderKey, mode: 'login' | 'signup', role
   if (role) params.set('role', role);
   if (redirectTo) params.set('redirect', redirectTo);
   const query = params.toString();
-  return `/api/auth/oauth/${provider}${query ? `?${query}` : ''}`;
+  return `${getApiBaseUrl()}/auth/oauth/${provider}${query ? `?${query}` : ''}`;
 };
 
 const AuthSocialButtons: React.FC<AuthSocialButtonsProps> = ({ mode, role, config, redirectTo }) => {
@@ -130,6 +135,7 @@ const AuthSocialButtons: React.FC<AuthSocialButtonsProps> = ({ mode, role, confi
         {providers.map((provider) => {
           const p = resolved.providers[provider];
           const label = p.button_label || `Continue with ${providerLabels[provider]}`;
+          const logoUrl = p.label_logo_url || '';
           return (
             <button
               key={provider}
@@ -140,7 +146,15 @@ const AuthSocialButtons: React.FC<AuthSocialButtonsProps> = ({ mode, role, confi
               className={`flex items-center justify-center gap-3 px-4 py-2.5 border rounded-lg text-sm font-semibold transition-all ${providerStyle[provider]}`}
             >
               <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${providerBadge[provider]}`}>
-                {providerLabels[provider].slice(0, 2).toUpperCase()}
+                {logoUrl ? (
+                  <img
+                    src={logoUrl}
+                    alt={`${providerLabels[provider]} logo`}
+                    className="w-5 h-5 object-contain"
+                  />
+                ) : (
+                  providerLabels[provider].slice(0, 2).toUpperCase()
+                )}
               </span>
               <span>{label}</span>
             </button>

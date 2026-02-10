@@ -20,6 +20,8 @@ import Favorites from '../pages/Favorites';
 import { KYCVerification } from './shared';
 import EditProfile from '../profile/EditProfile';
 import SettingsModule from './shared/SettingsModule';
+import Membership from './shared/Membership';
+import ManagePagesModule from './shared/ManagePagesModule';
 
 export const DashboardRouter: React.FC = () => {
   const { user } = useUser();
@@ -54,15 +56,16 @@ export const DashboardRouter: React.FC = () => {
     // Listen for navigation events from the sidebar
     window.addEventListener('dashboard-navigation', handleNavigation as EventListener);
 
-    // Set initial tab from URL
-    const searchParams = new URLSearchParams(window.location.search);
-    const tab = searchParams.get('tab') || 'overview';
-    setCurrentTab(tab);
-
     return () => {
       window.removeEventListener('dashboard-navigation', handleNavigation as EventListener);
     };
   }, []);
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const tab = searchParams.get('tab') || 'overview';
+    setCurrentTab(tab);
+  }, [location.search]);
 
   if (!user) return null;
 
@@ -73,6 +76,8 @@ export const DashboardRouter: React.FC = () => {
           return <FreelancerOverview />;
         case 'community':
           return <CommunityDashboard />;
+        case 'manage-pages':
+          return <ManagePagesModule />;
         case 'my-gigs':
           return <MyGigs />;
         case 'my-ads':
@@ -85,6 +90,8 @@ export const DashboardRouter: React.FC = () => {
           return <MyProposals />;
         case 'wallet':
           return <WalletModule />;
+        case 'membership':
+          return <Membership />;
         case 'profile':
           return <EditProfile isEmbedded={true} />;
         case 'settings':
@@ -114,6 +121,8 @@ export const DashboardRouter: React.FC = () => {
           return <EmployerOverview />;
         case 'community':
           return <CommunityDashboard />;
+        case 'manage-pages':
+          return <ManagePagesModule />;
         case 'my-ads':
           return <MyAds />;
         case 'my-jobs':
@@ -124,6 +133,8 @@ export const DashboardRouter: React.FC = () => {
           return <EmployerContracts />;
         case 'wallet':
           return <WalletModule />;
+        case 'membership':
+          return <Membership />;
         case 'profile':
           return <EditProfile isEmbedded={true} />;
         case 'settings':

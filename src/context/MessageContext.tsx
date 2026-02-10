@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { MessagingService } from '../services/messaging';
 import { useUser } from './UserContext';
+import { useSocket } from './SocketContext';
 
 interface MessageContextType {
   unreadCount: number;
@@ -12,6 +13,7 @@ const MessageContext = createContext<MessageContextType | undefined>(undefined);
 
 export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useUser();
+  const { socket, isConnected } = useSocket();
   const [unreadCount, setUnreadCount] = useState(0);
 
   const refreshMessages = async () => {
@@ -31,11 +33,28 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   useEffect(() => {
+      if (!user) return;
       refreshMessages();
-      // Poll for new messages every 10s (simulating real-time)
-      const interval = setInterval(refreshMessages, 10000);
-      return () => clearInterval(interval);
-  }, [user]);
+
+      if (!socket || !isConnected) {
+          const interval = setInterval(refreshMessages, 10000);
+          return () => clearInterval(interval);
+      }
+
+      const handleRefresh = () => {
+          refreshMessages();
+      };
+
+      socket.on('messages:new', handleRefresh);
+      socket.on('messages:sent', handleRefresh);
+      socket.on('messages:read', handleRefresh);
+
+      return () => {
+          socket.off('messages:new', handleRefresh);
+          socket.off('messages:sent', handleRefresh);
+          socket.off('messages:read', handleRefresh);
+      };
+  }, [user, socket, isConnected]);
 
   return (
     <MessageContext.Provider value={{ unreadCount, refreshMessages }}>

@@ -180,12 +180,21 @@ const ClientDashboard = () => {
 const EnterpriseHiring = ({ user }: { user: any }) => {
     const [insight, setInsight] = useState<EnterpriseHiringInsight | null>(null);
     const [loading, setLoading] = useState(true);
+    const [jobDescription, setJobDescription] = useState('');
+
+    const loadInsights = async () => {
+        setLoading(true);
+        try {
+            const data = await GovernanceService.getEnterpriseInsights(user.id, { jobDescription });
+            setInsight(data);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        GovernanceService.getEnterpriseInsights(user.id).then(data => {
-            setInsight(data);
-            setLoading(false);
-        });
+        loadInsights();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [user.id]);
 
     if (loading) return <div className="p-12 text-center text-gray-500">Generating Enterprise Insights...</div>;
@@ -202,6 +211,25 @@ const EnterpriseHiring = ({ user }: { user: any }) => {
                     </p>
                 </div>
                 <div className="absolute top-0 right-0 p-32 bg-blue-500 rounded-full mix-blend-overlay filter blur-3xl opacity-10"></div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-3">
+                <div className="flex items-center justify-between">
+                    <h3 className="font-bold text-gray-900">Role Summary</h3>
+                    <button
+                        onClick={loadInsights}
+                        className="px-4 py-2 text-xs font-bold uppercase rounded-lg bg-gray-900 text-white"
+                    >
+                        Run analysis
+                    </button>
+                </div>
+                <textarea
+                    value={jobDescription}
+                    onChange={(e) => setJobDescription(e.target.value)}
+                    placeholder="Describe the role, seniority, and outcomes you need. The AI will tailor insights to your brief."
+                    className="w-full rounded-lg border border-gray-200 p-3 text-sm"
+                    rows={3}
+                />
             </div>
 
             {insight && (

@@ -149,12 +149,12 @@ export const checkSpam = (userId: string, message: string): boolean => {
 // --- MULTI-LANGUAGE & PROMPT MANAGEMENT ---
 
 const DEFAULT_PROMPTS: Record<AIModule, string> = {
-    Support: "You are Jima, a helpful customer support agent for Geezle.",
+    Support: "You are Jima, a helpful customer support agent for Scrolith.",
     Payments: "You are a financial assistant. Explain escrow, withdrawals, and fees clearly.",
     Jobs: "You are a hiring assistant. Help employers write better job descriptions.",
     Gigs: "You are a gig optimizer. Help freelancers improve their service listings.",
     KYC: "You are a compliance officer. Guide users through ID verification steps.",
-    General: "You are a general assistant for the Geezle platform."
+    General: "You are a general assistant for the Scrolith platform."
 };
 
 // Mock in-memory storage for prompts
@@ -332,3 +332,4 @@ export const getSupportResponse = async (
 
   return responseText;
 };
+

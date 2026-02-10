@@ -2,6 +2,10 @@ interface ImportMetaEnv {
   readonly VITE_API_URL?: string;
   readonly VITE_API_BASE_URL?: string;
   readonly VITE_BACKEND_URL?: string;
+  readonly VITE_MOBILE_API_URL?: string;
+  readonly VITE_MOBILE_API_BASE_URL?: string;
+  readonly VITE_APP_DOMAIN?: string;
+  readonly VITE_PUBLIC_APP_DOMAIN?: string;
   readonly VITE_SOCKET_URL?: string;
   readonly VITE_SENTRY_DSN?: string;
   readonly VITE_OPENAI_API_KEY?: string;

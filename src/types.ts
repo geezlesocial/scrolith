@@ -1,4 +1,4 @@
-// C:\Projects\geezle\src\types.ts
+// C:\Projects\Scrolith\src\types.ts
 // Enhanced with consistent naming, union types, pagination, API responses, and dashboard types
 
 // ==================== ENUMS ====================
@@ -40,7 +40,7 @@ export enum SkillLevel {
 export type UserStatus = 'active' | 'suspended' | 'inactive';
 export type KYCDocumentType = 'ID Card' | 'Passport' | 'Driving License';
 export type KYCDocumentStatus = 'Pending' | 'Approved' | 'Rejected';
-export type KYCStatus = 'none' | 'pending' | 'approved' | 'rejected';
+export type KYCStatus = 'none' | 'pending' | 'approved' | 'rejected' | 'verified' | 'under_review';
 
 export type GigStatus = 'draft' | 'submitted' | 'active' | 'paused' | 'rejected' | 'archived' | 'under_review';
 export type JobStatus = 'active' | 'closed' | 'draft' | 'submitted' | 'under_review' | 'rejected' | 'archived';
@@ -67,11 +67,12 @@ export type SortOrder = 'asc' | 'desc';
 export type AnomalySeverity = 'info' | 'warning' | 'critical';
 
 export type AIModule = 'Support' | 'Payments' | 'Jobs' | 'Gigs' | 'KYC' | 'General';
-export type PaymentProviderId = 'stripe' | 'paypal' | 'paystack' | 'flutterwave' | 'payoneer' | 'paymongo' | 'monnify' | 'opay' | 'xendit' | 'dragonpay';
+export type PaymentProviderId = 'stripe' | 'paypal' | 'paystack' | 'flutterwave' | 'payoneer' | 'paymongo' | 'monnify' | 'opay' | 'xendit' | 'dragonpay' | 'wallet' | 'balance';
 export type ChannelType = 'public' | 'private' | 'club' | 'event';
 export type ChannelVisibility = 'public' | 'private';
 export type HomepageSectionType =
   | 'hero'
+  | 'member_home'
   | 'trust'
   | 'categories'
   | 'how_it_works'
@@ -91,14 +92,14 @@ export type HomepageSectionType =
   | 'video_feature'
   | 'marketplace_tiles'
   | 'guides_grid'
-  | 'made_on_geezle'
+  | 'made_on_Scrolith'
   | 'footer_cta_strip';
 export type ContentBlockType = 'text' | 'heading' | 'image' | 'video' | 'quote' | 'code';
 export type MediaType = 'image' | 'video' | 'document';
 export type FileCategory = 'portfolio' | 'document' | 'verification' | 'chat';
 export type NotificationType = 'info' | 'success' | 'warning' | 'alert' | 'error';
 export type GcoinTransactionType = 'reward' | 'transfer' | 'conversion' | 'admin_adjustment';
-export type AdPlacement = 'feed' | 'sidebar' | 'forum_top';
+export type AdPlacement = 'feed' | 'sidebar' | 'forum_top' | 'forum_listing' | 'thread_detail' | 'chat';
 
 // Uploaded file type for Uploaded Files SSOT
 export interface UploadedFileSummary {
@@ -122,6 +123,43 @@ export interface User {
   isActive?: boolean; // Replaces status
   status?: UserStatus; // Keep for compatibility if needed, but map from isActive
   kycStatus?: KYCStatus; // Renamed from kyc_status
+  kyc_status?: KYCStatus;
+  isProFreelancer?: boolean;
+  is_pro_freelancer?: boolean;
+  isProEmployer?: boolean;
+  is_pro_employer?: boolean;
+  freelancerPlanId?: string | null;
+  freelancer_plan_id?: string | null;
+  freelancerPlanName?: string | null;
+  freelancer_plan_name?: string | null;
+  freelancerPlanInterval?: string | null;
+  freelancer_plan_interval?: string | null;
+  freelancerPlanPrice?: number | null;
+  freelancer_plan_price?: number | null;
+  freelancerPlanCurrency?: string | null;
+  freelancer_plan_currency?: string | null;
+  freelancerPlanActive?: boolean;
+  freelancer_plan_active?: boolean;
+  freelancerPlanPurchasedAt?: string | null;
+  freelancer_plan_purchased_at?: string | null;
+  freelancerPlanExpiresAt?: string | null;
+  freelancer_plan_expires_at?: string | null;
+  employerPlanId?: string | null;
+  employer_plan_id?: string | null;
+  employerPlanName?: string | null;
+  employer_plan_name?: string | null;
+  employerPlanInterval?: string | null;
+  employer_plan_interval?: string | null;
+  employerPlanPrice?: number | null;
+  employer_plan_price?: number | null;
+  employerPlanCurrency?: string | null;
+  employer_plan_currency?: string | null;
+  employerPlanActive?: boolean;
+  employer_plan_active?: boolean;
+  employerPlanPurchasedAt?: string | null;
+  employer_plan_purchased_at?: string | null;
+  employerPlanExpiresAt?: string | null;
+  employer_plan_expires_at?: string | null;
   gcoinBalance?: number; // Renamed from gcoin_balance
   joinDate?: string; // Renamed from join_date
   country?: string;
@@ -164,6 +202,15 @@ export interface UserProfile {
   certifications: Certification[];
   intro_video_url?: string;
   introVideoUrl?: string;
+  cover_photo_url?: string;
+  coverPhotoUrl?: string;
+  gender?: string;
+  date_of_birth?: string | null;
+  dateOfBirth?: string | null;
+  birth_month_day?: string;
+  birthMonthDay?: string;
+  show_birth_month_day_public?: boolean;
+  showBirthMonthDayPublic?: boolean;
   rating?: number;
   completedJobs?: number;
   responseRate?: number;
@@ -177,12 +224,48 @@ export interface UserProfile {
 export interface UserSettings {
   email_notifications: boolean;
   in_app_notifications: boolean;
+  message_requests_notifications?: boolean;
+  allow_in_mail?: boolean;
+  mention_notifications?: boolean;
+  followed_post_notifications?: boolean;
+  follow_notifications?: boolean;
+  comment_notifications?: boolean;
+  reaction_notifications?: boolean;
+  repost_notifications?: boolean;
+  job_application_notifications?: boolean;
+  application_update_notifications?: boolean;
+  notify_mentions?: boolean;
+  notify_followed_posts?: boolean;
+  notify_followed_you?: boolean;
+  notify_comments_on_posts?: boolean;
+  notify_reactions_on_posts?: boolean;
+  notify_reposts?: boolean;
+  notify_job_applications?: boolean;
+  notify_application_updates?: boolean;
   marketing_emails: boolean;
   two_factor_enabled: boolean;
   login_alerts: boolean;
   // CamelCase aliases used in UI
   emailNotifications?: boolean;
   inAppNotifications?: boolean;
+  messageRequestsNotifications?: boolean;
+  allowInMail?: boolean;
+  mentionNotifications?: boolean;
+  followedPostNotifications?: boolean;
+  followNotifications?: boolean;
+  commentNotifications?: boolean;
+  reactionNotifications?: boolean;
+  repostNotifications?: boolean;
+  jobApplicationNotifications?: boolean;
+  applicationUpdateNotifications?: boolean;
+  notifyMentions?: boolean;
+  notifyFollowedPosts?: boolean;
+  notifyFollowedYou?: boolean;
+  notifyCommentsOnPosts?: boolean;
+  notifyReactionsOnPosts?: boolean;
+  notifyReposts?: boolean;
+  notifyJobApplications?: boolean;
+  notifyApplicationUpdates?: boolean;
   marketingEmails?: boolean;
   twoFactorEnabled?: boolean;
   loginAlerts?: boolean;
@@ -248,6 +331,8 @@ export interface GigRequirement {
   question: string;
   type: RequirementType;
   required: boolean;
+  fileTypes?: string[];
+  maxFiles?: number;
 }
 
 export interface GigExtra {
@@ -271,6 +356,8 @@ export interface Gig {
   freelancerId?: string; // camelCase
   freelancerName: string; // camelCase
   freelancerAvatar: string; // camelCase
+  freelancerProfilePhotoFileId?: string; // camelCase
+  freelancerIsPro?: boolean;
   price: number;
   rating: number;
   reviews: number;
@@ -282,8 +369,12 @@ export interface Gig {
   subcategory?: string;
   status: GigStatus;
   adminStatus?: 'pending' | 'approved' | 'rejected'; // camelCase
+  adminReason?: string;
   isActive?: boolean; // camelCase
   isVisible?: boolean; // camelCase
+  isFeatured?: boolean; // camelCase
+  isTopSelected?: boolean; // camelCase
+  isRecommended?: boolean; // camelCase
   description: string;
   packages: GigPackage[];
   pricingMode?: PricingMode; // camelCase
@@ -300,6 +391,36 @@ export interface Gig {
   views?: number;
   clicks?: number;
   ordersCount?: number; // camelCase
+  meta?: any;
+}
+
+// ==================== CART TYPES ====================
+export interface CartItem {
+  id: string;
+  itemType?: 'gig' | 'job';
+  gigId?: string;
+  jobId?: string;
+  title: string;
+  price: number;
+  budget?: string;
+  type?: string;
+  image?: string;
+  quantity: number;
+  freelancerId?: string;
+  freelancerName?: string;
+  clientId?: string;
+  clientName?: string;
+  rating?: number;
+  reviews?: number;
+  addedAt?: string;
+}
+
+export interface CartSummary {
+  id?: string;
+  items: CartItem[];
+  subtotal: number;
+  totalItems: number;
+  updatedAt?: string;
 }
 
 // ==================== JOB TYPES ====================
@@ -307,6 +428,10 @@ export interface Job {
   id: string;
   title: string;
   clientName: string; // camelCase
+  clientId?: string; // camelCase
+  clientAvatar?: string | null; // camelCase
+  clientProfilePhotoFileId?: string | null; // camelCase
+  clientIsPro?: boolean;
   budget: string;
   type: JobType;
   postedTime: string; // camelCase
@@ -324,7 +449,10 @@ export interface Job {
   duration?: string;
   attachments?: string[];
   isFeatured?: boolean; // camelCase
+  isTopSelected?: boolean; // camelCase
+  isRecommended?: boolean; // camelCase
   adminStatus?: 'pending' | 'approved' | 'rejected'; // camelCase
+  adminReason?: string;
   meta?: any;
 }
 
@@ -533,6 +661,7 @@ export interface GcoinSettings {
   conversion_rate: number;
   min_withdrawal?: number;
   conversion_enabled: boolean;
+  auto_approve_conversions?: boolean;
   user_transfers_enabled: boolean;
   // Earning rule units
   views_unit?: number;
@@ -553,6 +682,7 @@ export interface GcoinSettings {
   conversionRate?: number;
   minWithdrawal?: number;
   conversionEnabled?: boolean;
+  autoApproveConversions?: boolean;
   userTransfersEnabled?: boolean;
   viewsUnit?: number;
   likesUnit?: number;
@@ -660,6 +790,7 @@ export interface SocialAuthProviderConfig {
   redirect_uri?: string;
   scopes?: string;
   button_label?: string;
+  label_logo_url?: string;
   login_enabled?: boolean;
   signup_enabled?: boolean;
   allow_roles?: UserRole[];
@@ -681,6 +812,32 @@ export interface AuthPagesConfig {
   social_auth?: SocialAuthConfig;
   updated_at?: string;
 }
+
+export interface SystemMessageTemplateChannel {
+  enabled: boolean;
+  subject?: string;
+  html?: string;
+  text?: string;
+  title?: string;
+  message?: string;
+}
+
+export interface SystemMessageTemplate {
+  key: string;
+  label: string;
+  enabled: boolean;
+  email: SystemMessageTemplateChannel;
+  notification: SystemMessageTemplateChannel;
+  push: SystemMessageTemplateChannel;
+}
+
+export interface SystemMessagesConfig {
+  id: string;
+  templates: Record<string, SystemMessageTemplate>;
+  updated_at?: string;
+}
+
+export type SystemMessagesVariables = Record<string, string[]>;
 
 // ==================== CURRENCY ====================
 export interface Currency {
@@ -732,7 +889,7 @@ export interface Coupon {
 export interface MarketingCampaign {
   id: string;
   name: string;
-  type: 'email' | 'notification' | 'sms';
+  type: 'email' | 'notification' | 'sms' | 'popup_banner' | 'inbox';
   status: 'draft' | 'scheduled' | 'active' | 'completed';
   target_audience?: 'all' | 'freelancers' | 'employers' | 'inactive';
   targetAudience?: 'all' | 'freelancers' | 'employers' | 'inactive';
@@ -743,6 +900,25 @@ export interface MarketingCampaign {
   scheduledAt?: string;
   subject?: string;
   content?: string;
+  bannerTitle?: string;
+  bannerBody?: string;
+  imageUrl?: string;
+  ctaText?: string;
+  ctaUrl?: string;
+  delaySeconds?: number;
+  cooldownHours?: number;
+  meta?: Record<string, any>;
+}
+
+export interface MarketingPopupSubscribeConfig {
+  enabled: boolean;
+  title: string;
+  subtitle: string;
+  placeholder: string;
+  buttonText: string;
+  successMessage: string;
+  delaySeconds?: number;
+  cooldownHours?: number;
 }
 
 export interface ReferralIntelligence {
@@ -754,20 +930,41 @@ export interface ReferralIntelligence {
 export interface AdCampaign {
   id: string;
   title: string;
-  client_name: string;
+  client_name?: string;
   clientName?: string;
-  creative_url: string;
+  creative_url?: string;
   creativeUrl?: string;
-  target_url: string;
+  target_url?: string;
   targetUrl?: string;
   placement: AdPlacement;
-  target_roles: UserRole[];
-  impressions: number;
-  clicks: number;
-  ctr: number;
-  start_date: string;
-  end_date: string;
-  status: 'active' | 'paused' | 'draft' | 'completed';
+  target_roles?: UserRole[];
+  impressions?: number;
+  clicks?: number;
+  ctr?: number;
+  start_date?: string;
+  end_date?: string;
+  status?: 'active' | 'paused' | 'draft' | 'completed' | string;
+  objective?: 'traffic' | 'messages';
+  destinationType?: 'url' | 'messages';
+  destinationUrl?: string | null;
+  ctaText?: string | null;
+  mediaFileIds?: string[];
+  media?: { id?: string; url?: string; name?: string; mimeType?: string }[];
+  budget?: number;
+  pendingBudget?: number;
+  remainingBudget?: number;
+  currency?: string;
+  durationDays?: number;
+  cpm?: number;
+  cpc?: number;
+  body?: string;
+  creatorId?: string;
+  likes?: number;
+  messagesStarted?: number;
+  adminReviewNotes?: string | null;
+  createdAt?: string;
+  startAt?: string;
+  endAt?: string;
 }
 
 // Additional exported convenience types expected by frontend
@@ -779,13 +976,40 @@ export type TestimonialsContent = any;
 export interface Conversation {
   id: string;
   type: 'direct' | 'group';
-  participants: ({ id: string; name: string; avatar: string; is_online?: boolean; isOnline?: boolean; role?: string })[];
+  participants: ({
+    id: string;
+    name: string;
+    avatar: string;
+    username?: string;
+    gender?: string;
+    profile_url?: string;
+    profileUrl?: string;
+    label?: string;
+    is_starred?: boolean;
+    isStarred?: boolean;
+    is_muted?: boolean;
+    isMuted?: boolean;
+    is_archived?: boolean;
+    isArchived?: boolean;
+    is_online?: boolean;
+    isOnline?: boolean;
+    last_seen_at?: string;
+    lastSeenAt?: string;
+    role?: string;
+  })[];
   last_message?: string;
   lastMessage?: string;
   last_message_at?: string;
   lastMessageAt?: string;
   unread_count?: number;
   unreadCount?: number;
+  label?: string;
+  is_starred?: boolean;
+  isStarred?: boolean;
+  is_muted?: boolean;
+  isMuted?: boolean;
+  is_archived?: boolean;
+  isArchived?: boolean;
   messages: Message[];
   // allow other shapes from backend or camelCase/cross-formed payloads
   [key: string]: any;
@@ -793,8 +1017,18 @@ export interface Conversation {
 
 export interface MessageReaction {
   user_id: string;
+  userId?: string;
   emoji: string;
   timestamp: string;
+}
+
+export interface MessageReplyPreview {
+  messageId?: string | null;
+  senderId?: string | null;
+  senderName?: string | null;
+  snippet?: string;
+  attachmentPreview?: { type?: string; label?: string } | null;
+  unavailable?: boolean;
 }
 
 export interface Message {
@@ -817,6 +1051,14 @@ export interface Message {
   aiFlagged?: boolean;
   ai_reason?: string;
   aiReason?: string;
+  attachments?: Attachment[] | string[];
+  attachment_ids?: string[];
+  reply_to_message_id?: string | null;
+  replyToMessageId?: string | null;
+  reply_to_snapshot?: any;
+  replyToSnapshot?: any;
+  reply_to?: MessageReplyPreview | null;
+  replyTo?: MessageReplyPreview | null;
   // allow extra properties from backend variations
   [key: string]: any;
 }
@@ -847,6 +1089,59 @@ export interface KYCDocument {
 }
 
 // ==================== PLATFORM SETTINGS ====================
+export interface RecaptchaSettings {
+  enabled: boolean;
+  siteKey: string;
+  scoreThreshold?: number;
+  version?: 'v2' | 'v3';
+}
+
+export interface AnalyticsSettings {
+  googleEnabled: boolean;
+  googleAnalyticsId: string;
+  facebookEnabled: boolean;
+  facebookPixelId: string;
+}
+
+export interface GoogleMapSettings {
+  enabled: boolean;
+  apiKey: string;
+  defaultLat?: number;
+  defaultLng?: number;
+  defaultZoom?: number;
+}
+
+export interface FirebaseSettings {
+  enabled: boolean;
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  storageBucket: string;
+  messagingSenderId: string;
+  appId: string;
+  measurementId?: string;
+}
+
+export interface FacebookCommentsSettings {
+  enabled: boolean;
+  appId: string;
+}
+
+export interface PlatformIntegrationsSettings {
+  recaptcha?: RecaptchaSettings;
+  analytics?: AnalyticsSettings;
+  googleMap?: GoogleMapSettings;
+  firebase?: FirebaseSettings;
+  facebookComments?: FacebookCommentsSettings;
+  sitemap?: {
+    lastGeneratedAt?: string;
+  };
+}
+
+export interface SystemIntegrationsSettings {
+  recaptchaSecretKey?: string;
+}
+
 export interface PlatformSettings {
   site_name: string;
   tagline: string;
@@ -861,7 +1156,12 @@ export interface PlatformSettings {
   footer_copyright: string;
   footer_links: any[];
   social_links: any[];
+  pro_freelancer_label_url?: string;
+  pro_freelancer_label_file_id?: string;
+  pro_employer_label_url?: string;
+  pro_employer_label_file_id?: string;
   system?: SystemConfig;
+  integrations?: PlatformIntegrationsSettings;
 
   // CamelCase aliases (backend may return snake_case or camelCase)
   siteName?: string;
@@ -871,6 +1171,10 @@ export interface PlatformSettings {
   faviconUrl?: string;
   adminEmail?: string;
   supportEmail?: string;
+  proFreelancerLabelUrl?: string;
+  proFreelancerLabelFileId?: string;
+  proEmployerLabelUrl?: string;
+  proEmployerLabelFileId?: string;
   footerAboutTitle?: string;
   footerAboutText?: string;
   footerCopyright?: string;
@@ -918,6 +1222,7 @@ export interface SystemConfig {
   registrations_enabled: boolean;
   kyc_enforced: boolean;
   admin_2fa: boolean;
+  integrations?: SystemIntegrationsSettings;
   currency?: {
     auto_exchange_rate: boolean;
     base_currency: string;
@@ -1392,7 +1697,7 @@ export interface GuidesGridContent {
   }[];
 }
 
-export interface MadeOnGeezleContent {
+export interface MadeOnScrolithContent {
   title?: string;
   subtitle?: string;
   items?: { id?: string; title?: string; image?: string; url?: string }[];
@@ -1448,6 +1753,7 @@ export interface HomepageVersion {
   created_by: string;
   snapshot: HomepageSection[];
   description: string;
+  meta?: any;
 }
 
 export interface HomepageAnalytics {
@@ -1519,6 +1825,8 @@ export interface FooterConfig {
   contact: { admin_email: string; support_email: string; ticket_route: string };
   socials: { id: string; platform: string; url: string; enabled: boolean; icon?: string }[];
   logo_url?: string;
+  social_label_title?: string;
+  socialLabelTitle?: string;
 }
 
 export interface HomeSlide {
@@ -1780,8 +2088,8 @@ export interface AIAnalytics {
 
 export interface AIConfig {
   providers: {
-    google: { provider: 'google'; api_key: string; enabled: boolean; model: string };
-    openai: { provider: 'openai'; api_key: string; enabled: boolean; model: string };
+    google: { provider: 'google'; api_key?: string; apiKey?: string; enabled: boolean; model: string };
+    openai: { provider: 'openai'; api_key?: string; apiKey?: string; enabled: boolean; model: string };
   };
   routing: {
     support_chat: 'google' | 'openai';
@@ -1790,7 +2098,8 @@ export interface AIConfig {
     content_moderation: 'google' | 'openai';
   };
   safety: {
-    max_tokens: number;
+    max_tokens?: number;
+    maxTokens?: number;
     temperature: number;
   };
   cost_control?: {
@@ -1840,11 +2149,26 @@ export interface WithdrawalRequest {
   user_role: string;
   amount: number;
   method: string;
-  details: string;
-  status: 'pending' | 'approved' | 'rejected';
+  details: any;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
   requested_at: string;
+  processed_at?: string;
   risk_score?: number;
   risk_level?: string;
+}
+
+export interface PayoutAccountDetails {
+  accountName?: string;
+  accountNumber?: string;
+  bankName?: string;
+  routingNumber?: string;
+  iban?: string;
+  swiftBic?: string;
+  paypalEmail?: string;
+  stripeAccountId?: string;
+  preferredMethod?: string;
+  country: string;
+  currency: string;
 }
 
 export interface CommissionRule {
@@ -1914,6 +2238,7 @@ export interface PlanFeature {
   name: string;
   included: boolean;
   limit?: string;
+  code?: string;
 }
 
 // ==================== STAFF MANAGEMENT ====================
@@ -1940,8 +2265,14 @@ export interface StaffMember {
 export interface StaffRole {
   id: string;
   name: string;
-  level: number;
-  permissions: any;
+  level?: number;
+  description?: string;
+  isActive?: boolean;
+  isSystemRole?: boolean;
+  permissions?: any;
+  permissionKeys?: string[];
+  permissionsCount?: number;
+  assignedStaffCount?: number;
 }
 
 // ==================== SUPPORT & DISPUTES ====================
@@ -2383,6 +2714,8 @@ export interface InteractionCounts {
   comments: number;
   reposts: number;
   shares: number;
+  views?: number;
+  reactions?: number;
 }
 
 export interface InteractionState {
@@ -2775,3 +3108,4 @@ export * as AdminTypes from './types/modules/admin-types';
 export * as ApiTypes from './types/modules/api-types';
 export * as AiTypes from './types/modules/ai-types';
 export * as MiscTypes from './types/modules/misc-types';
+

@@ -107,6 +107,7 @@ type UploadFileOptions =
       visibility?: VisibilityOption;
       userId?: string;
       user_id?: string;
+      onProgress?: (percent: number, event: ProgressEvent) => void;
     };
 
 export const FileService = {
@@ -187,8 +188,20 @@ export const FileService = {
       if (options.user_id) formData.append('user_id', options.user_id);
     }
 
+    const onProgress =
+      typeof options === 'object' && options
+        ? options.onProgress
+        : undefined;
+
     const response = await api.post<ApiResponse<UploadedFile>>('/files/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: onProgress
+        ? (event) => {
+            const total = event.total ?? 0;
+            const percent = total ? Math.round((event.loaded / total) * 100) : 0;
+            onProgress(percent, event);
+          }
+        : undefined
     });
     const data = handleApiResponse(response);
     return normalizeUploadedFile(data);

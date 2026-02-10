@@ -4,6 +4,7 @@ import { CMSService } from '../../services/cms';
 import { AuthPagesConfig, AuthProviderKey, UserRole } from '../../types';
 import { useNotification } from '../../context/NotificationContext';
 import { useSocket } from '../../context/SocketContext';
+import FilePickerModal from '../shared/FilePickerModal';
 
 const defaultSocialConfig: AuthPagesConfig['social_auth'] = {
     enabled: true,
@@ -17,6 +18,7 @@ const defaultSocialConfig: AuthPagesConfig['social_auth'] = {
             client_secret: '',
             scopes: 'openid profile email',
             button_label: 'Continue with Google',
+            label_logo_url: '',
             login_enabled: true,
             signup_enabled: true,
             allow_roles: [UserRole.FREELANCER, UserRole.EMPLOYER]
@@ -27,6 +29,7 @@ const defaultSocialConfig: AuthPagesConfig['social_auth'] = {
             client_secret: '',
             scopes: 'public_profile email',
             button_label: 'Continue with Facebook',
+            label_logo_url: '',
             login_enabled: true,
             signup_enabled: true,
             allow_roles: [UserRole.FREELANCER, UserRole.EMPLOYER]
@@ -37,6 +40,7 @@ const defaultSocialConfig: AuthPagesConfig['social_auth'] = {
             client_secret: '',
             scopes: 'tweet.read users.read offline.access',
             button_label: 'Continue with Twitter',
+            label_logo_url: '',
             login_enabled: true,
             signup_enabled: true,
             allow_roles: [UserRole.FREELANCER, UserRole.EMPLOYER]
@@ -47,6 +51,7 @@ const defaultSocialConfig: AuthPagesConfig['social_auth'] = {
             client_secret: '',
             scopes: 'openid profile email',
             button_label: 'Continue with LinkedIn',
+            label_logo_url: '',
             login_enabled: true,
             signup_enabled: true,
             allow_roles: [UserRole.FREELANCER, UserRole.EMPLOYER]
@@ -116,6 +121,8 @@ const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'ca
     const [activeTab, setActiveTab] = useState<AuthTab>('branding');
     const [isSaving, setIsSaving] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+    const [logoPickerOpen, setLogoPickerOpen] = useState(false);
+    const [providerLogoPicker, setProviderLogoPicker] = useState<AuthProviderKey | null>(null);
     const { showNotification } = useNotification();
     const { socket } = useSocket();
 
@@ -236,15 +243,14 @@ const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'ca
         updateProvider(provider, { allow_roles: normalizeAllowRoles(next) });
     };
 
-    const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files?.[0]) return;
-        try {
-            const media = await CMSService.uploadMedia(e.target.files[0]);
-            updateBranding({ logo_url: media.url });
-            showNotification('success', 'Uploaded', 'Logo updated successfully.');
-        } catch (error) {
-            showNotification('alert', 'Error', 'Logo upload failed.');
-        }
+    const openBrandLogoPicker = () => {
+        setProviderLogoPicker(null);
+        setLogoPickerOpen(true);
+    };
+
+    const openProviderLogoPicker = (provider: AuthProviderKey) => {
+        setProviderLogoPicker(provider);
+        setLogoPickerOpen(true);
     };
 
     const handleSave = async () => {
@@ -334,11 +340,14 @@ const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'ca
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Upload Logo</label>
-                                <label className="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                                <button
+                                    type="button"
+                                    onClick={openBrandLogoPicker}
+                                    className="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+                                >
                                     <Upload className="w-4 h-4 mr-2 text-gray-500" />
-                                    <span className="text-sm">Select File</span>
-                                    <input type="file" className="hidden" accept="image/*" onChange={handleLogoUpload} />
-                                </label>
+                                    <span className="text-sm">Select from Uploaded Files</span>
+                                </button>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Logo Link URL</label>
@@ -611,6 +620,46 @@ const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'ca
                                                     placeholder={`Continue with ${providerMeta[provider].label}`}
                                                 />
                                             </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">Label Logo URL</label>
+                                                <input
+                                                    className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                                                    value={providerConfig.label_logo_url || ''}
+                                                    onChange={(e) => updateProvider(provider, { label_logo_url: e.target.value })}
+                                                    placeholder="https://..."
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-3">
+                                            {providerConfig.label_logo_url ? (
+                                                <img
+                                                    src={providerConfig.label_logo_url}
+                                                    alt={`${providerMeta[provider].label} logo`}
+                                                    className="w-8 h-8 rounded-full border object-contain bg-white"
+                                                />
+                                            ) : (
+                                                <div className="w-8 h-8 rounded-full border bg-gray-50 flex items-center justify-center text-[10px] font-bold text-gray-500">
+                                                    {providerMeta[provider].label.slice(0, 2).toUpperCase()}
+                                                </div>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => openProviderLogoPicker(provider)}
+                                                className="inline-flex items-center px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+                                            >
+                                                <Upload className="w-4 h-4 mr-2 text-gray-500" />
+                                                <span className="text-xs">Select from Uploaded Files</span>
+                                            </button>
+                                            {providerConfig.label_logo_url && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => updateProvider(provider, { label_logo_url: '' })}
+                                                    className="text-xs text-red-600 hover:underline"
+                                                >
+                                                    Remove
+                                                </button>
+                                            )}
                                         </div>
 
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -674,8 +723,31 @@ const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'ca
                     </div>
                 </div>
             </div>
+
+            <FilePickerModal
+                isOpen={logoPickerOpen}
+                onClose={() => setLogoPickerOpen(false)}
+                onSelect={(file) => {
+                    if (providerLogoPicker) {
+                        updateProvider(providerLogoPicker, { label_logo_url: file.url });
+                        showNotification('success', 'Updated', `${providerMeta[providerLogoPicker].label} logo selected.`);
+                    } else {
+                        updateBranding({ logo_url: file.url });
+                        showNotification('success', 'Updated', 'Logo selected.');
+                    }
+                    setLogoPickerOpen(false);
+                    setProviderLogoPicker(null);
+                }}
+                filterType="image"
+                acceptedTypes="image/*"
+                role="admin"
+                visibility="public"
+                allowUpload
+                title="Select Logo from Uploaded Files"
+            />
         </div>
     );
 };
 
 export default AuthPagesManager;
+

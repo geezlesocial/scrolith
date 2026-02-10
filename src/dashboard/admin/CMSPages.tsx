@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Edit2, Trash2, Save, ArrowLeft, Image as ImageIcon, Link as LinkIcon, Type, Eye, Upload, X, Code, Bold, Italic, List, Video, Folder, Globe, Settings } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, ArrowLeft, Image as ImageIcon, Link as LinkIcon, Type, Eye, Upload, X, Code, Bold, Italic, List, Video, Folder, Globe, Settings, Mail } from 'lucide-react';
 import { StaticPage, PageCategory, MediaItem, ContentBlock, BlogCategory, BlogSettings, AnswersPageConfig, GuidesPageConfig, HirePageConfig, FreelancerPageConfig } from '../../types';
 import { CMSService } from '../../services/cms';
 import { useNotification } from '../../context/NotificationContext';
 import { useSocket } from '../../context/SocketContext';
 import FilePickerModal from '../shared/FilePickerModal';
 import AuthPagesManager from './AuthPagesManager';
+import SystemMessagesManager from './SystemMessagesManager';
 
 const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab, setView }: any) => (
     <button 
@@ -20,7 +21,7 @@ const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab, setView }: 
 const CMSPages = () => {
     const [pages, setPages] = useState<StaticPage[]>([]);
     const [categories, setCategories] = useState<PageCategory[]>([]);
-    const [view, setView] = useState<'list' | 'editor' | 'categories' | 'auth-pages' | 'answers' | 'guides' | 'hire' | 'freelancer'>('list');
+    const [view, setView] = useState<'list' | 'editor' | 'categories' | 'auth-pages' | 'system-messages' | 'answers' | 'guides' | 'hire' | 'freelancer'>('list');
     const [editingPage, setEditingPage] = useState<StaticPage | null>(null);
     const [isPreviewing, setIsPreviewing] = useState(false);
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
@@ -222,7 +223,7 @@ const CMSPages = () => {
                     onClose={() => setIsFilePickerOpen(false)}
                     onSelect={handleFilePicked}
                     onSelectMultiple={handleFilesPicked}
-                    allowUpload={true}
+                    allowUpload
                     multiple={filePickerType === 'image'}
                     filterType={filePickerType}
                     acceptedTypes={filePickerType === 'image' ? 'image/*' : 'video/*'}
@@ -395,6 +396,8 @@ const CMSPages = () => {
             </div>
     ) : view === 'auth-pages' ? (
         <AuthPagesManager setView={setView} />
+    ) : view === 'system-messages' ? (
+        <SystemMessagesManager setView={setView} />
     ) : view === 'answers' ? (
         <AnswersPageManager setView={setView} />
     ) : view === 'guides' ? (
@@ -413,6 +416,9 @@ const CMSPages = () => {
                     </button>
                     <button onClick={() => setView('auth-pages')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
                         <Settings className="w-4 h-4 mr-2" /> Auth Pages
+                    </button>
+                    <button onClick={() => setView('system-messages')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
+                        <Mail className="w-4 h-4 mr-2" /> System Messages
                     </button>
                     <button onClick={() => setView('answers')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
                         <Code className="w-4 h-4 mr-2" /> Answers Page
@@ -515,7 +521,7 @@ const CategoryManager = ({ categories, reload, setView }: { categories: PageCate
                 isOpen={isFilePickerOpen}
                 onClose={() => setIsFilePickerOpen(false)}
                 onSelect={handleLogoSelect}
-                allowUpload={true}
+                allowUpload
                 filterType="image"
                 acceptedTypes="image/*"
                 role="admin"
@@ -605,7 +611,7 @@ const AnswersPageManager = ({ setView }: { setView: (v: any) => void }) => {
 
     const fallback: AnswersPageConfig = {
         hero: {
-            title: 'Geezle Answers',
+            title: 'Scrolith Answers',
             subtitle: 'Get expert answers and AI-powered insights for your business challenges.',
             primaryCtaLabel: 'Ask a Question',
             primaryCtaUrl: '#ask-ai',
@@ -682,7 +688,7 @@ const AnswersPageManager = ({ setView }: { setView: (v: any) => void }) => {
                 isOpen={heroPickerOpen}
                 onClose={() => setHeroPickerOpen(false)}
                 onSelect={onHeroSelect}
-                allowUpload={true}
+                allowUpload
                 filterType="image"
                 acceptedTypes="image/*"
                 role="admin"
@@ -834,7 +840,7 @@ const GuidesPageManager = ({ setView }: { setView: (v: any) => void }) => {
 
     const fallback: GuidesPageConfig = {
         hero: {
-            title: 'Geezle Guides',
+            title: 'Scrolith Guides',
             subtitle: 'In-depth, professional guides for founders, freelancers, and teams.',
             primaryCtaLabel: 'Explore Guides',
             primaryCtaUrl: '#guides',
@@ -918,7 +924,7 @@ const GuidesPageManager = ({ setView }: { setView: (v: any) => void }) => {
                 isOpen={heroPickerOpen}
                 onClose={() => setHeroPickerOpen(false)}
                 onSelect={onHeroSelect}
-                allowUpload={true}
+                allowUpload
                 filterType="image"
                 acceptedTypes="image/*"
                 role="admin"
@@ -929,7 +935,7 @@ const GuidesPageManager = ({ setView }: { setView: (v: any) => void }) => {
                 isOpen={coverPickerOpen}
                 onClose={() => setCoverPickerOpen(false)}
                 onSelect={onCoverSelect}
-                allowUpload={true}
+                allowUpload
                 filterType="image"
                 acceptedTypes="image/*"
                 role="admin"
@@ -1163,7 +1169,7 @@ const HirePageManager = ({ setView }: { setView: (v: any) => void }) => {
                 isOpen={heroPickerOpen}
                 onClose={() => setHeroPickerOpen(false)}
                 onSelect={onHeroSelect}
-                allowUpload={true}
+                allowUpload
                 filterType="image"
                 acceptedTypes="image/*"
                 role="admin"
@@ -1391,7 +1397,7 @@ const FreelancerPageManager = ({ setView }: { setView: (v: any) => void }) => {
                 isOpen={heroPickerOpen}
                 onClose={() => setHeroPickerOpen(false)}
                 onSelect={onHeroSelect}
-                allowUpload={true}
+                allowUpload
                 filterType="image"
                 acceptedTypes="image/*"
                 role="admin"
@@ -1508,3 +1514,6 @@ const FreelancerPageManager = ({ setView }: { setView: (v: any) => void }) => {
 };
 
 export default CMSPages;
+
+
+

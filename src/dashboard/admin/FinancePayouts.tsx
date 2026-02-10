@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, WalletTransaction, PlatformFinancials, FraudAlert, GlobalCommissionSettings } from '../../types';
+import { Wallet, WalletTransaction, PlatformFinancials, FraudAlert, GlobalCommissionSettings, WithdrawalRequest } from '../../types';
+import type { PayoutMethodField, PayoutMethodOption } from '../../services/withdrawals';
 import { WalletService } from '../../services/wallet';
 import { AdminService } from '../../services/admin';
 import { useCurrency } from '../../context/CurrencyContext';
@@ -7,7 +8,7 @@ import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
 import { 
     DollarSign, Lock, Clock, ArrowUpRight, ShieldAlert, 
-    RefreshCw, Search, Filter, Ban, CheckCircle, Eye, AlertTriangle, RotateCcw, Unlock, Settings, Percent
+    RefreshCw, Search, Filter, Ban, CheckCircle, Eye, AlertTriangle, RotateCcw, Unlock, Settings, Percent, Plus, Trash2
 } from 'lucide-react';
 
 // --- Interfaces for Type Safety ---
@@ -27,6 +28,15 @@ interface CommissionSettingsPanelProps {
     onChange: (settings: GlobalCommissionSettings) => void;
     onSave: () => Promise<void>;
     saving?: boolean;
+}
+
+interface PayoutMethodsPanelProps {
+    methods: PayoutMethodOption[];
+    onChange: (methods: PayoutMethodOption[]) => void;
+    onSave: () => Promise<void>;
+    onReload: () => Promise<void>;
+    saving?: boolean;
+    loading?: boolean;
 }
 
 // --- Sub-Components (Defined OUTSIDE and BEFORE main component) ---
@@ -62,7 +72,7 @@ const FraudAlertPanel: React.FC<FraudAlertPanelProps> = ({ alerts }) => (
                                 <span className="font-medium text-gray-900">{a.userName}</span>
                             </div>
                             <p className="text-sm text-gray-600">{a.reason}</p>
-                            <p className="text-xs text-gray-400 mt-1">Score: {a.score}/100 • Action: {a.action}</p>
+                            <p className="text-xs text-gray-400 mt-1">Score: {a.score}/100 - Action: {a.action}</p>
                         </div>
                         <button className="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded hover:bg-red-200 transition">
                             Review
@@ -193,14 +203,20 @@ const FinancialsTab: React.FC = () => {
     const { user } = useUser();
     const { formatPrice } = useCurrency();
     const { showNotification } = useNotification();
-    const [activeView, setActiveView] = useState<'overview' | 'ledger' | 'wallets' | 'fraud' | 'settings'>('overview');
+    const [activeView, setActiveView] = useState<'overview' | 'ledger' | 'wallets' | 'payouts' | 'payout_accounts' | 'fraud' | 'settings'>('overview');
     
     // Data
     const [financials, setFinancials] = useState<PlatformFinancials | null>(null);
     const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
     const [wallets, setWallets] = useState<Wallet[]>([]);
+    const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([]);
+    const [payoutAccounts, setPayoutAccounts] = useState<any[]>([]);
+    const [payoutAccountsLoading, setPayoutAccountsLoading] = useState(false);
+    const [selectedWithdrawal, setSelectedWithdrawal] = useState<WithdrawalRequest | null>(null);
+    const [selectedPayoutAccount, setSelectedPayoutAccount] = useState<any | null>(null);
     const [alerts, setAlerts] = useState<FraudAlert[]>([]);
     const [loading, setLoading] = useState(true);
+    const [withdrawalsLoading, setWithdrawalsLoading] = useState(false);
     const [commissionSettings, setCommissionSettings] = useState<GlobalCommissionSettings>({
         freelancerFeeType: 'percentage',
         freelancerFeeValue: 0,
@@ -209,6 +225,9 @@ const FinancialsTab: React.FC = () => {
         minimumFee: 0,
         maxAdjustment: 100000
     });
+    const [payoutMethodsConfig, setPayoutMethodsConfig] = useState<PayoutMethodOption[]>([]);
+    const [payoutMethodsLoading, setPayoutMethodsLoading] = useState(false);
+    const [savingPayoutMethods, setSavingPayoutMethods] = useState(false);
     const [savingCommission, setSavingCommission] = useState(false);
     const maxAdjustment = Number(commissionSettings.maxAdjustment ?? commissionSettings.max_adjustment ?? 100000);
     const [adjustTarget, setAdjustTarget] = useState<Wallet | null>(null);
@@ -230,24 +249,141 @@ const FinancialsTab: React.FC = () => {
     const loadAllData = async () => {
         setLoading(true);
         try {
-            const [finData, txData, wData, aData, cData] = await Promise.all([
+            const [finData, txData, wData, aData, cData, wdData, pmData] = await Promise.all([
                 WalletService.getPlatformFinancials(),
                 WalletService.getAllTransactions(),
                 WalletService.getAllWallets(),
                 AdminService.getFraudAlerts(),
-                WalletService.getCommissionSettings()
+                WalletService.getCommissionSettings(),
+                WalletService.getWithdrawalRequests(),
+                WalletService.getPayoutMethodsAdmin()
             ]);
             setFinancials(finData);
             setTransactions(txData);
             setWallets(wData);
             setAlerts(aData);
             setCommissionSettings(cData || commissionSettings);
+            setWithdrawals(wdData || []);
+            const list = Array.isArray(pmData?.methods) ? pmData.methods : Array.isArray(pmData) ? pmData : [];
+            setPayoutMethodsConfig(list);
         } catch (error) {
             console.error('Failed to load financial data:', error);
             showNotification('error', 'Load Error', 'Failed to load financial data');
         } finally {
             setLoading(false);
         }
+    };
+
+    const refreshWithdrawals = async () => {
+        setWithdrawalsLoading(true);
+        try {
+            const data = await WalletService.getWithdrawalRequests();
+            setWithdrawals(data || []);
+        } catch (error) {
+            showNotification('error', 'Load Error', 'Failed to load withdrawal requests');
+        } finally {
+            setWithdrawalsLoading(false);
+        }
+    };
+
+    const refreshPayoutAccounts = async () => {
+        setPayoutAccountsLoading(true);
+        try {
+            const data = await WalletService.getPayoutAccountsAdmin();
+            setPayoutAccounts(data || []);
+        } catch (error) {
+            showNotification('error', 'Load Error', 'Failed to load payout accounts');
+        } finally {
+            setPayoutAccountsLoading(false);
+        }
+    };
+
+    const refreshPayoutMethods = async () => {
+        setPayoutMethodsLoading(true);
+        try {
+            const data = await WalletService.getPayoutMethodsAdmin();
+            const list = Array.isArray(data?.methods) ? data.methods : Array.isArray(data) ? data : [];
+            setPayoutMethodsConfig(list);
+        } catch (error) {
+            showNotification('error', 'Load Error', 'Failed to load payout methods');
+        } finally {
+            setPayoutMethodsLoading(false);
+        }
+    };
+
+    const handleSavePayoutMethods = async () => {
+        setSavingPayoutMethods(true);
+        try {
+            await WalletService.savePayoutMethodsAdmin(payoutMethodsConfig || []);
+            showNotification('success', 'Saved', 'Payout methods updated.');
+            refreshPayoutMethods();
+        } catch (error: any) {
+            showNotification('error', 'Save Failed', error?.message || 'Failed to save payout methods');
+        } finally {
+            setSavingPayoutMethods(false);
+        }
+    };
+
+    const handleViewPayoutAccount = async (account: any) => {
+        try {
+            const detail = await WalletService.getPayoutAccountAdmin(account.user_id);
+            setSelectedPayoutAccount({
+                ...account,
+                ...detail,
+                history: detail?.history || []
+            });
+        } catch (error) {
+            showNotification('error', 'Load Error', 'Failed to load payout account details');
+        }
+    };
+
+    const handleApproveWithdrawal = async (req: WithdrawalRequest) => {
+        if (!confirm('Approve this withdrawal?')) return;
+        try {
+            await WalletService.approveWithdrawal(req.id);
+            showNotification('success', 'Approved', 'Withdrawal approved.');
+            refreshWithdrawals();
+            loadAllData();
+        } catch (error: any) {
+            showNotification('error', 'Approval Failed', error?.message || 'Unable to approve withdrawal');
+        }
+    };
+
+    const handleRejectWithdrawal = async (req: WithdrawalRequest) => {
+        if (!confirm('Reject this withdrawal? Funds will be returned.')) return;
+        try {
+            await WalletService.rejectWithdrawal(req.id);
+            showNotification('success', 'Rejected', 'Withdrawal rejected.');
+            refreshWithdrawals();
+            loadAllData();
+        } catch (error: any) {
+            showNotification('error', 'Rejection Failed', error?.message || 'Unable to reject withdrawal');
+        }
+    };
+
+    const handleMarkPaid = async (req: WithdrawalRequest) => {
+        if (!confirm('Mark this withdrawal as paid?')) return;
+        try {
+            await WalletService.markWithdrawalPaid(req.id);
+            showNotification('success', 'Completed', 'Withdrawal marked as paid.');
+            refreshWithdrawals();
+            loadAllData();
+        } catch (error: any) {
+            showNotification('error', 'Update Failed', error?.message || 'Unable to mark withdrawal as paid');
+        }
+    };
+
+    const renderWithdrawalDetails = (details: any) => {
+        if (!details || typeof details !== 'object') return '-';
+        const methodDetails = [
+            details.bankName ? `Bank: ${details.bankName}` : null,
+            details.accountNumber ? `Acct: ****${String(details.accountNumber).slice(-4)}` : null,
+            details.paypalEmail ? `PayPal: ${details.paypalEmail}` : null,
+            details.stripeAccountId ? `Stripe: ${details.stripeAccountId}` : null,
+            details.country ? `Country: ${details.country}` : null,
+            details.currency ? `Currency: ${details.currency}` : null
+        ].filter(Boolean);
+        return methodDetails.join(' - ');
     };
 
     // --- Admin Actions ---
@@ -408,6 +544,21 @@ const FinancialsTab: React.FC = () => {
                     >
                         User Wallets
                     </button>
+                            <button
+                                onClick={() => setActiveView('payouts')} 
+                                className={`px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap ${activeView === 'payouts' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}
+                            >
+                                Payouts
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setActiveView('payout_accounts');
+                                    refreshPayoutAccounts();
+                                }}
+                                className={`px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap ${activeView === 'payout_accounts' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}
+                            >
+                                Payout Accounts
+                            </button>
                     <button 
                         onClick={() => setActiveView('settings')} 
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap ${activeView === 'settings' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}
@@ -485,24 +636,34 @@ const FinancialsTab: React.FC = () => {
                     )}
 
                     {activeView === 'settings' && (
-                        <CommissionSettingsPanel
-                            settings={commissionSettings}
-                            saving={savingCommission}
-                            onChange={setCommissionSettings}
-                            onSave={async () => {
-                                try {
-                                    setSavingCommission(true);
-                                    await WalletService.saveCommissionSettings(commissionSettings);
-                                    const updated = await WalletService.getCommissionSettings();
-                                    setCommissionSettings(updated || commissionSettings);
-                                    showNotification('success', 'Settings Saved', 'Commission rates updated successfully.');
-                                } catch (error) {
-                                    showNotification('error', 'Save Failed', 'Unable to save commission settings.');
-                                } finally {
-                                    setSavingCommission(false);
-                                }
-                            }}
-                        />
+                        <div className="space-y-6">
+                            <CommissionSettingsPanel
+                                settings={commissionSettings}
+                                saving={savingCommission}
+                                onChange={setCommissionSettings}
+                                onSave={async () => {
+                                    try {
+                                        setSavingCommission(true);
+                                        await WalletService.saveCommissionSettings(commissionSettings);
+                                        const updated = await WalletService.getCommissionSettings();
+                                        setCommissionSettings(updated || commissionSettings);
+                                        showNotification('success', 'Settings Saved', 'Commission rates updated successfully.');
+                                    } catch (error) {
+                                        showNotification('error', 'Save Failed', 'Unable to save commission settings.');
+                                    } finally {
+                                        setSavingCommission(false);
+                                    }
+                                }}
+                            />
+                            <PayoutMethodsPanel
+                                methods={payoutMethodsConfig}
+                                onChange={setPayoutMethodsConfig}
+                                onSave={handleSavePayoutMethods}
+                                onReload={refreshPayoutMethods}
+                                saving={savingPayoutMethods}
+                                loading={payoutMethodsLoading}
+                            />
+                        </div>
                     )}
 
                     {/* Global Ledger */}
@@ -616,7 +777,7 @@ const FinancialsTab: React.FC = () => {
                                                         if (!last) return null;
                                                         return (
                                                             <p className="text-xs text-gray-500 mt-1">
-                                                                Last adjustment: {formatPrice(last.amount)} • {new Date(last.createdAt || last.created_at).toLocaleString()}
+                                    Last adjustment: {formatPrice(last.amount)} - {new Date(last.createdAt || last.created_at).toLocaleString()}
                                                             </p>
                                                         );
                                                     })()}
@@ -688,6 +849,194 @@ const FinancialsTab: React.FC = () => {
                             )}
                         </div>
                     )}
+
+                    {activeView === 'payouts' && (
+                        <div className="space-y-6 animate-fade-in">
+                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-white p-4 rounded-xl border border-gray-200">
+                                <div>
+                                    <h3 className="font-bold text-gray-900">Withdrawal Requests</h3>
+                                    <p className="text-xs text-gray-500">Approve and process user withdrawals.</p>
+                                </div>
+                                <button
+                                    onClick={refreshWithdrawals}
+                                    className="px-3 py-2 rounded-lg text-sm font-medium border border-gray-300 hover:bg-gray-50 flex items-center"
+                                >
+                                    <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+                                </button>
+                            </div>
+
+                            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-gray-50 text-gray-500">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left">User</th>
+                                            <th className="px-6 py-3 text-left">Method</th>
+                                            <th className="px-6 py-3 text-left">Details</th>
+                                            <th className="px-6 py-3 text-right">Amount</th>
+                                            <th className="px-6 py-3 text-left">Status</th>
+                                            <th className="px-6 py-3 text-left">Requested</th>
+                                            <th className="px-6 py-3 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {withdrawalsLoading ? (
+                                            <tr>
+                                                <td colSpan={7} className="px-6 py-6 text-center text-xs text-gray-500">
+                                                    Loading withdrawal requests...
+                                                </td>
+                                            </tr>
+                                        ) : withdrawals.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={7} className="px-6 py-6 text-center text-xs text-gray-500">
+                                                    No withdrawal requests yet.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            withdrawals.map((req) => (
+                                                <tr key={req.id} className="hover:bg-gray-50">
+                                                    <td className="px-6 py-4">
+                                                        <div className="font-medium text-gray-900">{req.user_name || req.user_id}</div>
+                                                        <div className="text-xs text-gray-500">{req.user_id}</div>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-xs font-semibold uppercase text-gray-700">
+                                                        {req.method}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-xs text-gray-500">
+                                                        {renderWithdrawalDetails(req.details)}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-right font-bold text-gray-900">
+                                                        {formatPrice(req.amount)}
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
+                                                            req.status === 'completed' ? 'bg-green-100 text-green-700' :
+                                                            req.status === 'processing' ? 'bg-blue-100 text-blue-700' :
+                                                            req.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                                                            req.status === 'cancelled' ? 'bg-gray-100 text-gray-600' :
+                                                            'bg-red-100 text-red-700'
+                                                        }`}>
+                                                            {req.status}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-xs text-gray-500">
+                                                        {new Date(req.requested_at || req.created_at || Date.now()).toLocaleString()}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-right space-x-2">
+                                                        {req.status === 'pending' && (
+                                                            <>
+                                                                <button
+                                                                    onClick={() => handleApproveWithdrawal(req)}
+                                                                    className="px-3 py-1.5 text-xs font-bold rounded border border-green-200 text-green-700 hover:bg-green-50"
+                                                                >
+                                                                    Approve
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleRejectWithdrawal(req)}
+                                                                    className="px-3 py-1.5 text-xs font-bold rounded border border-red-200 text-red-600 hover:bg-red-50"
+                                                                >
+                                                                    Reject
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                        {req.status === 'processing' && (
+                                                            <button
+                                                                onClick={() => handleMarkPaid(req)}
+                                                                className="px-3 py-1.5 text-xs font-bold rounded border border-blue-200 text-blue-700 hover:bg-blue-50"
+                                                            >
+                                                                Mark Paid
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            onClick={() => setSelectedWithdrawal(req)}
+                                                            className="px-3 py-1.5 text-xs font-bold rounded border border-gray-200 text-gray-700 hover:bg-gray-50"
+                                                        >
+                                                            View Details
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeView === 'payout_accounts' && (
+                        <div className="space-y-6 animate-fade-in">
+                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 bg-white p-4 rounded-xl border border-gray-200">
+                                <div>
+                                    <h3 className="font-bold text-gray-900">User Payout Accounts</h3>
+                                    <p className="text-xs text-gray-500">View saved payout details and change history.</p>
+                                </div>
+                                <button
+                                    onClick={refreshPayoutAccounts}
+                                    className="px-3 py-2 rounded-lg text-sm font-medium border border-gray-300 hover:bg-gray-50 flex items-center"
+                                >
+                                    <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+                                </button>
+                            </div>
+
+                            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-gray-50 text-gray-500">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left">User</th>
+                                            <th className="px-6 py-3 text-left">Country/Currency</th>
+                                            <th className="px-6 py-3 text-left">Methods</th>
+                                            <th className="px-6 py-3 text-left">Updated</th>
+                                            <th className="px-6 py-3 text-right">History</th>
+                                            <th className="px-6 py-3 text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {payoutAccountsLoading ? (
+                                            <tr>
+                                                <td colSpan={6} className="px-6 py-6 text-center text-xs text-gray-500">
+                                                    Loading payout accounts...
+                                                </td>
+                                            </tr>
+                                        ) : payoutAccounts.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={6} className="px-6 py-6 text-center text-xs text-gray-500">
+                                                    No payout accounts saved yet.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            payoutAccounts.map((acc) => (
+                                                <tr key={acc.user_id} className="hover:bg-gray-50">
+                                                    <td className="px-6 py-4">
+                                                        <div className="font-medium text-gray-900">{acc.user_name || acc.user_id}</div>
+                                                        <div className="text-xs text-gray-500">{acc.user_email || acc.user_id}</div>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-xs text-gray-600">
+                                                        {(acc.country || acc.user_country || '-') + ' / ' + (acc.currency || '-')}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-xs text-gray-600">
+                                                        {(acc.methods || []).length ? acc.methods.join(', ') : '-'}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-xs text-gray-500">
+                                                        {new Date(acc.updated_at || Date.now()).toLocaleString()}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-right text-xs font-bold text-gray-700">
+                                                        {acc.history_count ?? 0}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-right">
+                                                        <button
+                                                            onClick={() => handleViewPayoutAccount(acc)}
+                                                            className="px-3 py-1.5 text-xs font-bold rounded border border-gray-200 text-gray-700 hover:bg-gray-50"
+                                                        >
+                                                            View
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    )}
                 </>
             )}
 
@@ -704,7 +1053,7 @@ const FinancialsTab: React.FC = () => {
                             return (
                                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 text-xs text-gray-600">
                                     Last adjustment: {formatPrice(last.amount)} on {new Date(last.createdAt || last.created_at).toLocaleString()}
-                                    {last.admin_note ? ` • ${last.admin_note}` : ''}
+                                    {last.admin_note ? ` - ${last.admin_note}` : ''}
                                 </div>
                             );
                         })()}
@@ -832,6 +1181,385 @@ const FinancialsTab: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            {selectedWithdrawal && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl shadow-lg border border-gray-200 w-full max-w-2xl p-6">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold text-gray-900">Withdrawal Details</h3>
+                            <button onClick={() => setSelectedWithdrawal(null)} className="text-sm text-gray-500 hover:text-gray-700">Close</button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <div className="text-xs text-gray-500">User</div>
+                                <div className="font-medium text-gray-900">{selectedWithdrawal.user_name || selectedWithdrawal.user_id}</div>
+                                <div className="text-xs text-gray-500">{selectedWithdrawal.user_id}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-gray-500">Status</div>
+                                <div className="font-medium text-gray-900">{selectedWithdrawal.status}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-gray-500">Method</div>
+                                <div className="font-medium text-gray-900">{selectedWithdrawal.method}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-gray-500">Amount</div>
+                                <div className="font-medium text-gray-900">{formatPrice(selectedWithdrawal.amount)}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-gray-500">Requested At</div>
+                                <div className="font-medium text-gray-900">{new Date(selectedWithdrawal.requested_at || selectedWithdrawal.created_at || Date.now()).toLocaleString()}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-gray-500">Details</div>
+                                <div className="font-medium text-gray-900">{renderWithdrawalDetails(selectedWithdrawal.details)}</div>
+                            </div>
+                        </div>
+                        <div className="mt-4 border-t pt-4">
+                            <div className="text-xs text-gray-500 mb-2">Raw Details</div>
+                            <pre className="text-xs bg-gray-50 border border-gray-200 rounded p-3 overflow-auto max-h-56">{JSON.stringify(selectedWithdrawal.details || {}, null, 2)}</pre>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {selectedPayoutAccount && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl shadow-lg border border-gray-200 w-full max-w-3xl p-6">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold text-gray-900">Payout Account Details</h3>
+                            <button onClick={() => setSelectedPayoutAccount(null)} className="text-sm text-gray-500 hover:text-gray-700">Close</button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                            <div>
+                                <div className="text-xs text-gray-500">User</div>
+                                <div className="font-medium text-gray-900">{selectedPayoutAccount.user_name || selectedPayoutAccount.user_id}</div>
+                                <div className="text-xs text-gray-500">{selectedPayoutAccount.user_email || selectedPayoutAccount.user_id}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-gray-500">Country/Currency</div>
+                                <div className="font-medium text-gray-900">{(selectedPayoutAccount.country || selectedPayoutAccount.user_country || '-') + ' / ' + (selectedPayoutAccount.currency || '-')}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-gray-500">Methods</div>
+                                <div className="font-medium text-gray-900">{(selectedPayoutAccount.methods || []).join(', ') || '-'}</div>
+                            </div>
+                            <div>
+                                <div className="text-xs text-gray-500">Updated</div>
+                                <div className="font-medium text-gray-900">{new Date(selectedPayoutAccount.updated_at || Date.now()).toLocaleString()}</div>
+                            </div>
+                        </div>
+                        <div className="mt-4 border-t pt-4">
+                            <div className="text-xs text-gray-500 mb-2">Details</div>
+                            <pre className="text-xs bg-gray-50 border border-gray-200 rounded p-3 overflow-auto max-h-56">{JSON.stringify(selectedPayoutAccount.details || {}, null, 2)}</pre>
+                        </div>
+                        {(selectedPayoutAccount.history_count ?? 0) > 0 && (
+                            <div className="mt-4 border-t pt-4">
+                                <div className="text-xs text-gray-500 mb-2">Change History (latest first)</div>
+                                <div className="space-y-2 max-h-52 overflow-auto">
+                                    {(selectedPayoutAccount.history || []).slice(0).reverse().map((item: any, idx: number) => (
+                                        <div key={idx} className="border border-gray-200 rounded p-2 text-xs">
+                                            <div className="text-gray-500">Updated: {new Date(item.updatedAt || Date.now()).toLocaleString()} by {item.updatedBy || 'user'}</div>
+                                            <pre className="mt-1 bg-gray-50 rounded p-2 overflow-auto">{JSON.stringify(item.data || {}, null, 2)}</pre>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const payoutFieldTypes = [
+    { value: 'text', label: 'Text' },
+    { value: 'textarea', label: 'Textarea' },
+    { value: 'email', label: 'Email' },
+    { value: 'number', label: 'Number' },
+    { value: 'select', label: 'Select' },
+    { value: 'note', label: 'Note (display only)' }
+];
+
+const PayoutMethodsPanel: React.FC<PayoutMethodsPanelProps> = ({ methods, onChange, onSave, onReload, saving, loading }) => {
+    const safeMethods = Array.isArray(methods)
+        ? methods.filter((m) => m && typeof m === 'object')
+        : [];
+    const updateMethod = (index: number, patch: Partial<PayoutMethodOption>) => {
+        const next = safeMethods.map((method, idx) => (idx === index ? { ...method, ...patch } : method));
+        onChange(next);
+    };
+
+    const addMethod = () => {
+        const newId = `custom_${Date.now()}`;
+        onChange([
+            ...safeMethods,
+            {
+                id: newId,
+                name: 'New Method',
+                enabled: true,
+                note: '',
+                fields: []
+            }
+        ]);
+    };
+
+    const removeMethod = (index: number) => {
+        const next = safeMethods.filter((_, idx) => idx !== index);
+        onChange(next);
+    };
+
+    const addField = (methodIndex: number) => {
+        const method = safeMethods[methodIndex];
+        const fields = Array.isArray(method.fields) ? method.fields : [];
+        const nextField: PayoutMethodField = {
+            key: `field_${Date.now()}`,
+            label: 'New Field',
+            type: 'text',
+            required: false
+        };
+        updateMethod(methodIndex, { fields: [...fields, nextField] });
+    };
+
+    const updateField = (methodIndex: number, fieldIndex: number, patch: Partial<PayoutMethodField>) => {
+        const method = safeMethods[methodIndex];
+        const fields = Array.isArray(method.fields) ? method.fields : [];
+        const nextFields = fields.map((field, idx) => (idx === fieldIndex ? { ...field, ...patch } : field));
+        updateMethod(methodIndex, { fields: nextFields });
+    };
+
+    const removeField = (methodIndex: number, fieldIndex: number) => {
+        const method = safeMethods[methodIndex];
+        const fields = Array.isArray(method.fields) ? method.fields : [];
+        const nextFields = fields.filter((_, idx) => idx !== fieldIndex);
+        updateMethod(methodIndex, { fields: nextFields });
+    };
+
+    const duplicateIds = safeMethods.reduce((acc: Record<string, number>, method) => {
+        const key = String(method.id || '').trim().toLowerCase();
+        if (!key) return acc;
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+    }, {});
+
+    return (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-fade-in">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
+                <div>
+                    <h3 className="font-bold text-lg text-gray-900 flex items-center">
+                        <Settings className="w-5 h-5 mr-2 text-indigo-600" /> Payout Methods
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-1">
+                        Manage payout methods, add custom fields, and set maintenance notes for users.
+                    </p>
+                </div>
+                <div className="flex gap-2">
+                    <button
+                        onClick={onReload}
+                        className="px-3 py-2 rounded-lg text-xs font-bold border border-gray-200 text-gray-700 hover:bg-gray-50"
+                    >
+                        {loading ? 'Loading...' : 'Reload'}
+                    </button>
+                    <button
+                        onClick={addMethod}
+                        className="px-3 py-2 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700"
+                    >
+                        <Plus className="w-4 h-4 inline-block mr-1" />
+                        Add Method
+                    </button>
+                </div>
+            </div>
+
+            <div className="space-y-6">
+                {safeMethods.length === 0 && (
+                    <div className="text-sm text-gray-500">No payout methods configured yet.</div>
+                )}
+
+                {safeMethods.map((method, index) => (
+                    <div key={`${method.id}-${index}`} className="border border-gray-200 rounded-xl p-4">
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                            <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-600 mb-1">Method Name</label>
+                                    <input
+                                        type="text"
+                                        className="w-full px-3 py-2 border rounded-lg"
+                                        value={method.name || ''}
+                                        onChange={(e) => updateMethod(index, { name: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-medium text-gray-600 mb-1">Method ID</label>
+                                    <input
+                                        type="text"
+                                        className={`w-full px-3 py-2 border rounded-lg ${
+                                            duplicateIds[(method.id || '').trim().toLowerCase()] > 1 ? 'border-red-300' : ''
+                                        }`}
+                                        value={method.id || ''}
+                                        onChange={(e) => updateMethod(index, { id: e.target.value })}
+                                        placeholder="bank_transfer"
+                                    />
+                                    {duplicateIds[(method.id || '').trim().toLowerCase()] > 1 && (
+                                        <p className="text-xs text-red-500 mt-1">Method ID must be unique.</p>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-2 mt-6 md:mt-0">
+                                    <input
+                                        type="checkbox"
+                                        checked={method.enabled}
+                                        onChange={(e) => updateMethod(index, { enabled: e.target.checked })}
+                                        className="h-4 w-4"
+                                    />
+                                    <span className="text-sm text-gray-700">Enabled</span>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => removeMethod(index)}
+                                    className="px-3 py-2 text-xs font-bold border border-gray-200 rounded-lg text-red-600 hover:bg-red-50"
+                                >
+                                    <Trash2 className="w-4 h-4 inline-block mr-1" />
+                                    Remove
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="mt-4">
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Maintenance Note</label>
+                            <textarea
+                                rows={2}
+                                className="w-full px-3 py-2 border rounded-lg"
+                                value={method.note || ''}
+                                onChange={(e) => updateMethod(index, { note: e.target.value })}
+                                placeholder="Explain maintenance or availability notes shown to users."
+                            />
+                        </div>
+
+                        <div className="mt-4">
+                            <div className="flex items-center justify-between mb-2">
+                                <div className="text-sm font-bold text-gray-800">Custom Fields</div>
+                                <button
+                                    onClick={() => addField(index)}
+                                    className="px-3 py-1.5 rounded-lg text-xs font-bold border border-gray-200 hover:bg-gray-50"
+                                >
+                                    <Plus className="w-3 h-3 inline-block mr-1" />
+                                    Add Field
+                                </button>
+                            </div>
+                            <div className="space-y-3">
+                                {(method.fields || []).length === 0 && (
+                                    <div className="text-xs text-gray-500">No fields yet. Add fields to collect payout details.</div>
+                                )}
+                                {(method.fields || []).map((field, fieldIndex) => (
+                                    <div key={`${method.id}-field-${fieldIndex}`} className="border border-gray-200 rounded-lg p-3">
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">Label</label>
+                                                <input
+                                                    type="text"
+                                                    className="w-full px-3 py-2 border rounded-lg"
+                                                    value={field.label || ''}
+                                                    onChange={(e) => updateField(index, fieldIndex, { label: e.target.value })}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">Key</label>
+                                                <input
+                                                    type="text"
+                                                    className="w-full px-3 py-2 border rounded-lg"
+                                                    value={field.key || ''}
+                                                    onChange={(e) => updateField(index, fieldIndex, { key: e.target.value })}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+                                                <select
+                                                    className="w-full px-3 py-2 border rounded-lg"
+                                                    value={field.type || 'text'}
+                                                    onChange={(e) => updateField(index, fieldIndex, { type: e.target.value as any })}
+                                                >
+                                                    {payoutFieldTypes.map((t) => (
+                                                        <option key={t.value} value={t.value}>
+                                                            {t.label}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={Boolean(field.required)}
+                                                    onChange={(e) => updateField(index, fieldIndex, { required: e.target.checked })}
+                                                    className="h-4 w-4"
+                                                />
+                                                <span className="text-xs text-gray-600">Required</span>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">Placeholder</label>
+                                                <input
+                                                    type="text"
+                                                    className="w-full px-3 py-2 border rounded-lg"
+                                                    value={field.placeholder || ''}
+                                                    onChange={(e) => updateField(index, fieldIndex, { placeholder: e.target.value })}
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+                                                <input
+                                                    type="text"
+                                                    className="w-full px-3 py-2 border rounded-lg"
+                                                    value={field.description || ''}
+                                                    onChange={(e) => updateField(index, fieldIndex, { description: e.target.value })}
+                                                />
+                                            </div>
+                                        </div>
+                                        {field.type === 'select' && (
+                                            <div className="mt-3">
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">Options (comma separated)</label>
+                                                <input
+                                                    type="text"
+                                                    className="w-full px-3 py-2 border rounded-lg"
+                                                    value={(field.options || []).join(', ')}
+                                                    onChange={(e) =>
+                                                        updateField(index, fieldIndex, {
+                                                            options: e.target.value
+                                                                .split(',')
+                                                                .map((opt) => opt.trim())
+                                                                .filter(Boolean)
+                                                        })
+                                                    }
+                                                />
+                                            </div>
+                                        )}
+                                        <div className="mt-3 flex justify-end">
+                                            <button
+                                                onClick={() => removeField(index, fieldIndex)}
+                                                className="px-3 py-1.5 text-xs font-bold text-red-600 border border-gray-200 rounded-lg hover:bg-red-50"
+                                            >
+                                                Remove Field
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            <div className="flex justify-end pt-6 border-t border-gray-200 mt-6">
+                <button
+                    onClick={onSave}
+                    className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg font-bold hover:bg-indigo-700 transition shadow-sm disabled:opacity-60"
+                    disabled={saving}
+                >
+                    {saving ? 'Saving...' : 'Save Payout Methods'}
+                </button>
+            </div>
         </div>
     );
 };

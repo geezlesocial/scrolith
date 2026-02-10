@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { AuthPagesConfig } from '../types';
 import { Eye, EyeOff } from 'lucide-react';
@@ -13,6 +14,13 @@ const Login = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [authConfig, setAuthConfig] = useState<AuthPagesConfig | null>(null);
+  const location = useLocation();
+
+  const resetSuccess = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const value = params.get('reset');
+    return value === 'success' || value === '1' || value === 'true';
+  }, [location.search]);
 
   const defaultLoginContent = {
     headline: 'Sign in to your account',
@@ -98,6 +106,13 @@ const Login = () => {
         <div className="mt-8 space-y-6">
           <AuthSocialButtons mode="login" config={socialConfig || undefined} />
           <form className="space-y-6" onSubmit={handleSubmit}>
+          {resetSuccess && (
+            <div className="rounded-md bg-green-50 p-4">
+              <div className="text-sm text-green-700">
+                Password updated. Please sign in with your new password.
+              </div>
+            </div>
+          )}
           {error && (
             <div className="rounded-md bg-red-50 p-4">
               <div className="text-sm text-red-700">{error}</div>
@@ -146,6 +161,13 @@ const Login = () => {
             </div>
           </div>
 
+          <div className="flex items-center justify-between">
+            <div />
+            <Link to="/auth/forgot-password" className="text-xs font-medium text-blue-600 hover:text-blue-500">
+              Forgot password?
+            </Link>
+          </div>
+
           <div>
             <button
               type="submit"
@@ -159,9 +181,9 @@ const Login = () => {
           <div className="text-center">
             <p className="text-sm text-gray-600">
               {loginContent.footer_text}{' '}
-              <a href={loginContent.footer_link_url || '/auth/signup'} className="font-medium text-blue-600 hover:text-blue-500">
+              <Link to={loginContent.footer_link_url || '/auth/signup'} className="font-medium text-blue-600 hover:text-blue-500">
                 {loginContent.footer_link_label}
-              </a>
+              </Link>
             </p>
           </div>
           </form>

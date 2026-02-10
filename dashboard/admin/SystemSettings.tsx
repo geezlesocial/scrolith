@@ -62,8 +62,8 @@ const SystemSettings = () => {
         port: 587, 
         username: '', 
         password: '', 
-        fromName: 'Geezle', 
-        fromEmail: 'noreply@geezle.com' 
+        fromName: 'Scrolith', 
+        fromEmail: 'noreply@Scrolith.com' 
     });
     const [testEmail, setTestEmail] = useState('');
     const [isTestingEmail, setIsTestingEmail] = useState(false);
@@ -642,3 +642,4 @@ const SystemSettings = () => {
 };
 
 export default SystemSettings;
+

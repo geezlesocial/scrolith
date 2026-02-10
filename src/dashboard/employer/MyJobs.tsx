@@ -130,6 +130,14 @@ export default function MyJobs() {
                       <StatusBadge status={status} type="job" />
                     </td>
                     <td className="px-6 py-4 text-right space-x-2">
+                      {status === 'active' && (
+                        <Link
+                          to={`/jobs/${job.id}`}
+                          className="px-3 py-2 rounded-lg border text-xs font-bold text-emerald-600 hover:bg-emerald-50"
+                        >
+                          View Listing
+                        </Link>
+                      )}
                       <Link
                         to={`/client/dashboard/jobs/edit/${job.id}`}
                         className="px-3 py-2 rounded-lg border text-xs font-bold hover:bg-gray-50"

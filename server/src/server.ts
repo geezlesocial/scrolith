@@ -21,6 +21,10 @@ import financeRoutes from './routes/finance';
 import messagesRoutes from './routes/messages';
 import marketIntelligenceRoutes from './routes/marketIntelligence';
 import freelancerRoutes from './routes/freelancer';
+import commerceRoutes from './routes/commerce';
+import categoriesRoutes from './routes/categories';
+import gigsRoutes from './routes/gigs';
+import contractsRoutes from './routes/contracts';
 
 // Dashboard-scoped route modules
 import ordersRoutes from './routes/orders';
@@ -47,6 +51,10 @@ const io = new Server(httpServer, {
 app.use(cors());
 app.use(express.json());
 
+app.get('/api/health', (_req, res) => {
+  res.json({ success: true, status: 'ok' });
+});
+
 // Attach IO to request for controllers
 app.use((req: express.Request & { io?: Server }, res, next) => {
   req.io = io;
@@ -61,6 +69,9 @@ app.use('/api/finance', financeRoutes);
 app.use('/api/messages', messagesRoutes);
 app.use('/api/admin/market-intelligence', marketIntelligenceRoutes);
 app.use('/api/freelancer', freelancerRoutes);
+app.use('/api/commerce', commerceRoutes);
+app.use('/api/categories', categoriesRoutes);
+app.use('/api/gigs', gigsRoutes);
 
 // Mount dashboard-scoped endpoints (keep admin last to avoid collisions)
 app.use('/api/orders', ordersRoutes);
@@ -69,6 +80,7 @@ app.use('/api/withdrawal', withdrawalRoutes);
 app.use('/api/kyc', kycRoutes);
 app.use('/api/jobs', jobsRoutes);
 app.use('/api/proposals', proposalsRoutes);
+app.use('/api/contracts', contractsRoutes);
 
 // Socket Logic
 io.on('connection', (socket) => {

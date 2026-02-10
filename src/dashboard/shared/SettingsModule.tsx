@@ -5,16 +5,192 @@ import { UserService } from '../../services/user';
 import { useNotification } from '../../context/NotificationContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import { UserSettings } from '../../types';
-import { Bell, Lock, Globe, Shield, Save, Moon, Sun, Smartphone, Mail, AlertTriangle, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Bell, Lock, Globe, Shield, Save, Moon, Sun, Smartphone, Mail, AlertTriangle, Eye, EyeOff, Loader2, Fingerprint, Users, MessageCircle, Heart } from 'lucide-react';
+import {
+    authenticateBiometrics,
+    checkBiometrics,
+    getBiometricPreference,
+    getBiometryLabel,
+    isNativePlatform,
+    setBiometricPreference
+} from '../../mobile/biometrics';
 
 const normalizeSettings = (value: UserSettings): UserSettings => ({
     email_notifications: value.emailNotifications ?? value.email_notifications ?? true,
     in_app_notifications: value.inAppNotifications ?? value.in_app_notifications ?? true,
+    message_requests_notifications:
+        value.messageRequestsNotifications ?? value.message_requests_notifications ?? true,
+    allow_in_mail: value.allowInMail ?? value.allow_in_mail ?? true,
+    mention_notifications: value.mentionNotifications ?? value.notifyMentions ?? value.notify_mentions ?? value.mention_notifications ?? true,
+    followed_post_notifications:
+        value.followedPostNotifications ??
+        value.notifyFollowedPosts ??
+        value.notify_followed_posts ??
+        value.followed_post_notifications ??
+        true,
+    follow_notifications:
+        value.followNotifications ??
+        value.notifyFollowedYou ??
+        value.notify_followed_you ??
+        value.follow_notifications ??
+        true,
+    comment_notifications:
+        value.commentNotifications ??
+        value.notifyCommentsOnPosts ??
+        value.notify_comments_on_posts ??
+        value.comment_notifications ??
+        true,
+    reaction_notifications:
+        value.reactionNotifications ??
+        value.notifyReactionsOnPosts ??
+        value.notify_reactions_on_posts ??
+        value.reaction_notifications ??
+        true,
+    repost_notifications:
+        value.repostNotifications ??
+        value.notifyReposts ??
+        value.notify_reposts ??
+        value.repost_notifications ??
+        true,
+    job_application_notifications:
+        value.jobApplicationNotifications ??
+        value.notifyJobApplications ??
+        value.notify_job_applications ??
+        value.job_application_notifications ??
+        true,
+    application_update_notifications:
+        value.applicationUpdateNotifications ??
+        value.notifyApplicationUpdates ??
+        value.notify_application_updates ??
+        value.application_update_notifications ??
+        true,
+    notify_mentions: value.notifyMentions ?? value.notify_mentions ?? value.mentionNotifications ?? value.mention_notifications ?? true,
+    notify_followed_posts:
+        value.notifyFollowedPosts ??
+        value.notify_followed_posts ??
+        value.followedPostNotifications ??
+        value.followed_post_notifications ??
+        true,
+    notify_followed_you:
+        value.notifyFollowedYou ??
+        value.notify_followed_you ??
+        value.followNotifications ??
+        value.follow_notifications ??
+        true,
+    notify_comments_on_posts:
+        value.notifyCommentsOnPosts ??
+        value.notify_comments_on_posts ??
+        value.commentNotifications ??
+        value.comment_notifications ??
+        true,
+    notify_reactions_on_posts:
+        value.notifyReactionsOnPosts ??
+        value.notify_reactions_on_posts ??
+        value.reactionNotifications ??
+        value.reaction_notifications ??
+        true,
+    notify_reposts: value.notifyReposts ?? value.notify_reposts ?? value.repostNotifications ?? value.repost_notifications ?? true,
+    notify_job_applications:
+        value.notifyJobApplications ??
+        value.notify_job_applications ??
+        value.jobApplicationNotifications ??
+        value.job_application_notifications ??
+        true,
+    notify_application_updates:
+        value.notifyApplicationUpdates ??
+        value.notify_application_updates ??
+        value.applicationUpdateNotifications ??
+        value.application_update_notifications ??
+        true,
     marketing_emails: value.marketingEmails ?? value.marketing_emails ?? true,
     two_factor_enabled: value.twoFactorEnabled ?? value.two_factor_enabled ?? false,
     login_alerts: value.loginAlerts ?? value.login_alerts ?? true,
     emailNotifications: value.emailNotifications ?? value.email_notifications ?? true,
     inAppNotifications: value.inAppNotifications ?? value.in_app_notifications ?? true,
+    messageRequestsNotifications:
+        value.messageRequestsNotifications ?? value.message_requests_notifications ?? true,
+    allowInMail: value.allowInMail ?? value.allow_in_mail ?? true,
+    mentionNotifications: value.mentionNotifications ?? value.notifyMentions ?? value.notify_mentions ?? value.mention_notifications ?? true,
+    followedPostNotifications:
+        value.followedPostNotifications ??
+        value.notifyFollowedPosts ??
+        value.notify_followed_posts ??
+        value.followed_post_notifications ??
+        true,
+    followNotifications:
+        value.followNotifications ??
+        value.notifyFollowedYou ??
+        value.notify_followed_you ??
+        value.follow_notifications ??
+        true,
+    commentNotifications:
+        value.commentNotifications ??
+        value.notifyCommentsOnPosts ??
+        value.notify_comments_on_posts ??
+        value.comment_notifications ??
+        true,
+    reactionNotifications:
+        value.reactionNotifications ??
+        value.notifyReactionsOnPosts ??
+        value.notify_reactions_on_posts ??
+        value.reaction_notifications ??
+        true,
+    repostNotifications:
+        value.repostNotifications ??
+        value.notifyReposts ??
+        value.notify_reposts ??
+        value.repost_notifications ??
+        true,
+    jobApplicationNotifications:
+        value.jobApplicationNotifications ??
+        value.notifyJobApplications ??
+        value.notify_job_applications ??
+        value.job_application_notifications ??
+        true,
+    applicationUpdateNotifications:
+        value.applicationUpdateNotifications ??
+        value.notifyApplicationUpdates ??
+        value.notify_application_updates ??
+        value.application_update_notifications ??
+        true,
+    notifyMentions: value.notifyMentions ?? value.notify_mentions ?? value.mentionNotifications ?? value.mention_notifications ?? true,
+    notifyFollowedPosts:
+        value.notifyFollowedPosts ??
+        value.notify_followed_posts ??
+        value.followedPostNotifications ??
+        value.followed_post_notifications ??
+        true,
+    notifyFollowedYou:
+        value.notifyFollowedYou ??
+        value.notify_followed_you ??
+        value.followNotifications ??
+        value.follow_notifications ??
+        true,
+    notifyCommentsOnPosts:
+        value.notifyCommentsOnPosts ??
+        value.notify_comments_on_posts ??
+        value.commentNotifications ??
+        value.comment_notifications ??
+        true,
+    notifyReactionsOnPosts:
+        value.notifyReactionsOnPosts ??
+        value.notify_reactions_on_posts ??
+        value.reactionNotifications ??
+        value.reaction_notifications ??
+        true,
+    notifyReposts: value.notifyReposts ?? value.notify_reposts ?? value.repostNotifications ?? value.repost_notifications ?? true,
+    notifyJobApplications:
+        value.notifyJobApplications ??
+        value.notify_job_applications ??
+        value.jobApplicationNotifications ??
+        value.job_application_notifications ??
+        true,
+    notifyApplicationUpdates:
+        value.notifyApplicationUpdates ??
+        value.notify_application_updates ??
+        value.applicationUpdateNotifications ??
+        value.application_update_notifications ??
+        true,
     marketingEmails: value.marketingEmails ?? value.marketing_emails ?? true,
     twoFactorEnabled: value.twoFactorEnabled ?? value.two_factor_enabled ?? false,
     loginAlerts: value.loginAlerts ?? value.login_alerts ?? true
@@ -41,12 +217,16 @@ const SettingsModule = () => {
     const [language, setLanguage] = useState('English (US)');
     const [timezone, setTimezone] = useState('(GMT-08:00) Pacific Time (US & Canada)');
     const [theme, setTheme] = useState<'light' | 'dark'>('light');
+    const [biometricsEnabled, setBiometricsEnabled] = useState(false);
+    const [biometricsAvailable, setBiometricsAvailable] = useState(false);
+    const [biometryLabel, setBiometryLabel] = useState('Biometric');
+    const [biometricsBusy, setBiometricsBusy] = useState(false);
 
     const preferenceKey = useMemo(() => ({
-        language: 'geezle.pref.language',
-        timezone: 'geezle.pref.timezone',
-        theme: 'geezle.pref.theme',
-        profileVisibility: 'geezle.pref.profileVisibility'
+        language: 'Scrolith.pref.language',
+        timezone: 'Scrolith.pref.timezone',
+        theme: 'Scrolith.pref.theme',
+        profileVisibility: 'Scrolith.pref.profileVisibility'
     }), []);
 
     useEffect(() => {
@@ -64,6 +244,22 @@ const SettingsModule = () => {
                     setSettings(normalizeSettings({
                         email_notifications: true,
                         in_app_notifications: true,
+                        mention_notifications: true,
+                        followed_post_notifications: true,
+                        follow_notifications: true,
+                        comment_notifications: true,
+                        reaction_notifications: true,
+                        repost_notifications: true,
+                        job_application_notifications: true,
+                        application_update_notifications: true,
+                        notify_mentions: true,
+                        notify_followed_posts: true,
+                        notify_followed_you: true,
+                        notify_comments_on_posts: true,
+                        notify_reactions_on_posts: true,
+                        notify_reposts: true,
+                        notify_job_applications: true,
+                        notify_application_updates: true,
                         marketing_emails: true,
                         two_factor_enabled: false,
                         login_alerts: true
@@ -95,6 +291,29 @@ const SettingsModule = () => {
         if (storedTheme === 'light' || storedTheme === 'dark') setTheme(storedTheme);
         if (storedVisibility) setIsProfilePublic(storedVisibility === 'public');
     }, [preferenceKey]);
+
+    useEffect(() => {
+        setBiometricsEnabled(getBiometricPreference());
+        if (!isNativePlatform()) {
+            setBiometricsAvailable(false);
+            return;
+        }
+        let mounted = true;
+        const check = async () => {
+            const info = await checkBiometrics();
+            if (!mounted) return;
+            setBiometricsAvailable(info.available);
+            setBiometryLabel(getBiometryLabel(info.biometryType));
+            if (!info.available) {
+                setBiometricsEnabled(false);
+                setBiometricPreference(false);
+            }
+        };
+        void check();
+        return () => {
+            mounted = false;
+        };
+    }, []);
 
     useEffect(() => {
         localStorage.setItem(preferenceKey.language, language);
@@ -180,6 +399,48 @@ const SettingsModule = () => {
         showNotification('success', 'Preferences Saved', 'Your preferences were saved on this device.');
     };
 
+    const handleBiometricToggle = async () => {
+        if (biometricsBusy) return;
+        if (!isNativePlatform()) {
+            showNotification('alert', 'Biometrics Unavailable', 'Biometric unlock is available in the mobile app only.');
+            return;
+        }
+
+        const enabling = !biometricsEnabled;
+        setBiometricsBusy(true);
+
+        if (enabling) {
+            const info = await checkBiometrics();
+            if (!info.available) {
+                setBiometricsAvailable(false);
+                setBiometricsEnabled(false);
+                setBiometricPreference(false);
+                showNotification('alert', 'Biometrics Unavailable', 'Your device does not support biometric authentication.');
+                setBiometricsBusy(false);
+                return;
+            }
+
+            setBiometryLabel(getBiometryLabel(info.biometryType));
+            const auth = await authenticateBiometrics(`Enable ${getBiometryLabel(info.biometryType)} on this device`);
+            if (auth.ok) {
+                setBiometricsEnabled(true);
+                setBiometricPreference(true);
+                showNotification('success', 'Biometrics Enabled', `${getBiometryLabel(info.biometryType)} is now required to unlock the app.`);
+            } else {
+                setBiometricsEnabled(false);
+                setBiometricPreference(false);
+                showNotification('alert', 'Biometric Setup Failed', auth.error || 'Unable to enable biometrics.');
+            }
+        } else {
+            setBiometricsEnabled(false);
+            setBiometricPreference(false);
+            showNotification('success', 'Biometrics Disabled', 'Biometric unlock has been turned off on this device.');
+        }
+
+        window.dispatchEvent(new Event('Scrolith:biometric_pref_changed'));
+        setBiometricsBusy(false);
+    };
+
     useEffect(() => {
         document.documentElement.dataset.theme = theme;
         localStorage.setItem(preferenceKey.theme, theme);
@@ -250,6 +511,146 @@ const SettingsModule = () => {
                                         <label className="relative inline-flex items-center cursor-pointer">
                                             <input type="checkbox" checked={settings.inAppNotifications} onChange={() => handleToggle('inAppNotifications')} className="sr-only peer" disabled={savingSettings} />
                                             <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                        </label>
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-4 border border-gray-200 rounded-xl">
+                                        <div className="flex items-center">
+                                            <div className="p-2 bg-indigo-50 rounded-lg mr-4 text-indigo-600"><Bell className="w-5 h-5"/></div>
+                                            <div>
+                                                <p className="font-medium text-gray-900">@Mention Notifications</p>
+                                                <p className="text-xs text-gray-500">Notify me when someone mentions me in posts or comments.</p>
+                                            </div>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" checked={Boolean(settings.notifyMentions)} onChange={() => handleToggle('notifyMentions')} className="sr-only peer" disabled={savingSettings} />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                        </label>
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-4 border border-gray-200 rounded-xl">
+                                        <div className="flex items-center">
+                                            <div className="p-2 bg-sky-50 rounded-lg mr-4 text-sky-600"><Users className="w-5 h-5"/></div>
+                                            <div>
+                                                <p className="font-medium text-gray-900">Follow Notifications</p>
+                                                <p className="text-xs text-gray-500">Notify me when someone starts following me.</p>
+                                            </div>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" checked={Boolean(settings.notifyFollowedYou)} onChange={() => handleToggle('notifyFollowedYou')} className="sr-only peer" disabled={savingSettings} />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-sky-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-600"></div>
+                                        </label>
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-4 border border-gray-200 rounded-xl">
+                                        <div className="flex items-center">
+                                            <div className="p-2 bg-cyan-50 rounded-lg mr-4 text-cyan-600"><Bell className="w-5 h-5"/></div>
+                                            <div>
+                                                <p className="font-medium text-gray-900">Following Posted</p>
+                                                <p className="text-xs text-gray-500">Notify me when people I follow publish new posts.</p>
+                                            </div>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" checked={Boolean(settings.notifyFollowedPosts)} onChange={() => handleToggle('notifyFollowedPosts')} className="sr-only peer" disabled={savingSettings} />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-cyan-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-600"></div>
+                                        </label>
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-4 border border-gray-200 rounded-xl">
+                                        <div className="flex items-center">
+                                            <div className="p-2 bg-emerald-50 rounded-lg mr-4 text-emerald-600"><MessageCircle className="w-5 h-5"/></div>
+                                            <div>
+                                                <p className="font-medium text-gray-900">Comment Notifications</p>
+                                                <p className="text-xs text-gray-500">Notify me when someone comments on my posts.</p>
+                                            </div>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" checked={Boolean(settings.notifyCommentsOnPosts)} onChange={() => handleToggle('notifyCommentsOnPosts')} className="sr-only peer" disabled={savingSettings} />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                                        </label>
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-4 border border-gray-200 rounded-xl">
+                                        <div className="flex items-center">
+                                            <div className="p-2 bg-rose-50 rounded-lg mr-4 text-rose-600"><Heart className="w-5 h-5"/></div>
+                                            <div>
+                                                <p className="font-medium text-gray-900">Reaction Notifications</p>
+                                                <p className="text-xs text-gray-500">Notify me when someone reacts to my posts.</p>
+                                            </div>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" checked={Boolean(settings.notifyReactionsOnPosts)} onChange={() => handleToggle('notifyReactionsOnPosts')} className="sr-only peer" disabled={savingSettings} />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-rose-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-600"></div>
+                                        </label>
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-4 border border-gray-200 rounded-xl">
+                                        <div className="flex items-center">
+                                            <div className="p-2 bg-amber-50 rounded-lg mr-4 text-amber-600"><AlertTriangle className="w-5 h-5"/></div>
+                                            <div>
+                                                <p className="font-medium text-gray-900">Repost Notifications</p>
+                                                <p className="text-xs text-gray-500">Notify me when someone reposts my content.</p>
+                                            </div>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" checked={Boolean(settings.notifyReposts)} onChange={() => handleToggle('notifyReposts')} className="sr-only peer" disabled={savingSettings} />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                                        </label>
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-4 border border-gray-200 rounded-xl">
+                                        <div className="flex items-center">
+                                            <div className="p-2 bg-violet-50 rounded-lg mr-4 text-violet-600"><Users className="w-5 h-5"/></div>
+                                            <div>
+                                                <p className="font-medium text-gray-900">New Application Alerts</p>
+                                                <p className="text-xs text-gray-500">Notify me when freelancers apply to my jobs.</p>
+                                            </div>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" checked={Boolean(settings.notifyJobApplications)} onChange={() => handleToggle('notifyJobApplications')} className="sr-only peer" disabled={savingSettings} />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-violet-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-violet-600"></div>
+                                        </label>
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-4 border border-gray-200 rounded-xl">
+                                        <div className="flex items-center">
+                                            <div className="p-2 bg-purple-50 rounded-lg mr-4 text-purple-600"><MessageCircle className="w-5 h-5"/></div>
+                                            <div>
+                                                <p className="font-medium text-gray-900">Application Update Alerts</p>
+                                                <p className="text-xs text-gray-500">Notify me when my applications are opened, updated, shortlisted, or scheduled for interview.</p>
+                                            </div>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" checked={Boolean(settings.notifyApplicationUpdates)} onChange={() => handleToggle('notifyApplicationUpdates')} className="sr-only peer" disabled={savingSettings} />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                                        </label>
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-4 border border-gray-200 rounded-xl">
+                                        <div className="flex items-center">
+                                            <div className="p-2 bg-blue-50 rounded-lg mr-4 text-blue-600"><MessageCircle className="w-5 h-5"/></div>
+                                            <div>
+                                                <p className="font-medium text-gray-900">Message Requests</p>
+                                                <p className="text-xs text-gray-500">Allow others to send you message request notifications.</p>
+                                            </div>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" checked={Boolean(settings.messageRequestsNotifications)} onChange={() => handleToggle('messageRequestsNotifications')} className="sr-only peer" disabled={savingSettings} />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                        </label>
+                                    </div>
+
+                                    <div className="flex items-center justify-between p-4 border border-gray-200 rounded-xl">
+                                        <div className="flex items-center">
+                                            <div className="p-2 bg-slate-50 rounded-lg mr-4 text-slate-700"><Mail className="w-5 h-5"/></div>
+                                            <div>
+                                                <p className="font-medium text-gray-900">InMail Messages</p>
+                                                <p className="text-xs text-gray-500">Allow others to send you InMail messages.</p>
+                                            </div>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input type="checkbox" checked={Boolean(settings.allowInMail)} onChange={() => handleToggle('allowInMail')} className="sr-only peer" disabled={savingSettings} />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-slate-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-slate-700"></div>
                                         </label>
                                     </div>
 
@@ -337,6 +738,36 @@ const SettingsModule = () => {
                                         <label className="relative inline-flex items-center cursor-pointer">
                                             <input type="checkbox" checked={settings.twoFactorEnabled} onChange={() => handleToggle('twoFactorEnabled')} className="sr-only peer" disabled={savingSettings} />
                                             <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                                        </label>
+                                     </div>
+                                </div>
+
+                                <div className="pt-6 border-t border-gray-200">
+                                     <div className="flex items-center justify-between">
+                                        <div>
+                                            <h4 className="font-bold text-gray-900 flex items-center">
+                                                <Fingerprint className="w-4 h-4 mr-2 text-indigo-600" />
+                                                {biometryLabel} Unlock
+                                            </h4>
+                                            <p className="text-sm text-gray-500 mt-1">
+                                                Require biometric verification to unlock the Scrolith mobile app.
+                                            </p>
+                                            {!isNativePlatform() && (
+                                                <p className="text-xs text-gray-400 mt-1">Available on the mobile app only.</p>
+                                            )}
+                                            {isNativePlatform() && !biometricsAvailable && (
+                                                <p className="text-xs text-red-500 mt-1">No biometric hardware detected on this device.</p>
+                                            )}
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={biometricsEnabled}
+                                                onChange={handleBiometricToggle}
+                                                className="sr-only peer"
+                                                disabled={biometricsBusy || !isNativePlatform() || !biometricsAvailable}
+                                            />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                                         </label>
                                      </div>
                                 </div>
@@ -468,3 +899,4 @@ const SettingsModule = () => {
 };
 
 export default SettingsModule;
+

@@ -22,12 +22,23 @@ const mapProposal = (p: any): Proposal => ({
   freelancerId: p.freelancer_id ?? p.freelancerId ?? p.freelancer?.id ?? '',
   freelancerName: p.freelancer_name ?? p.freelancerName ?? p.freelancer?.name ?? '',
   freelancerAvatar: p.freelancer_avatar ?? p.freelancerAvatar ?? p.freelancer?.avatar ?? undefined,
+  freelancerIsPro: Boolean(p.freelancer_is_pro ?? p.freelancerIsPro),
+  clientId: p.client_id ?? p.clientId ?? p.job?.clientId ?? '',
+  clientName: p.client_name ?? p.clientName ?? p.job?.client?.name ?? '',
+  clientIsPro: Boolean(p.client_is_pro ?? p.clientIsPro),
   coverLetter: p.cover_letter ?? p.coverLetter ?? '',
   proposedAmount: Number(p.proposed_amount ?? p.proposedAmount ?? p.amount ?? 0),
   proposedTimeline: Number(p.proposed_timeline ?? p.proposedTimeline ?? p.delivery_days ?? 0),
   attachments: Array.isArray(p.attachments) ? p.attachments : [],
   status: p.status ?? 'pending',
   contractId: p.contract_id ?? p.contractId ?? undefined,
+  clientViewedAt: p.client_viewed_at ?? p.clientViewedAt ?? undefined,
+  clientViewCount: Number(p.client_view_count ?? p.clientViewCount ?? 0),
+  topApplicantAt: p.top_applicant_at ?? p.topApplicantAt ?? undefined,
+  interviewScheduledAt: p.interview_scheduled_at ?? p.interviewScheduledAt ?? undefined,
+  interviewMode: p.interview_mode ?? p.interviewMode ?? undefined,
+  interviewLocation: p.interview_location ?? p.interviewLocation ?? undefined,
+  interviewNotes: p.interview_notes ?? p.interviewNotes ?? undefined,
   createdAt: p.created_at ?? p.createdAt ?? '',
   updatedAt: p.updated_at ?? p.updatedAt ?? ''
 });
@@ -54,12 +65,23 @@ export interface Proposal {
   freelancerId: string;
   freelancerName: string;
   freelancerAvatar?: string;
+  freelancerIsPro?: boolean;
+  clientId?: string;
+  clientName?: string;
+  clientIsPro?: boolean;
   coverLetter: string;
   proposedAmount: number;
   proposedTimeline: number; // in days
   attachments: string[];
   status: 'pending' | 'shortlisted' | 'accepted' | 'rejected' | 'withdrawn';
   contractId?: string;
+  clientViewedAt?: string | null;
+  clientViewCount?: number;
+  topApplicantAt?: string | null;
+  interviewScheduledAt?: string | null;
+  interviewMode?: string | null;
+  interviewLocation?: string | null;
+  interviewNotes?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -79,7 +101,27 @@ export interface AcceptProposalData {
   startDate?: string;
 }
 
+export interface CreateProposalData {
+  jobId: string;
+  coverLetter: string;
+  proposedAmount: number;
+  proposedTimeline: number;
+  attachments?: string[];
+}
+
+export interface ScheduleInterviewData {
+  scheduledAt: string;
+  mode?: string;
+  location?: string;
+  notes?: string;
+}
+
 export const proposalsApi = {
+  createProposal: async (payload: CreateProposalData): Promise<Proposal> => {
+    const response = await api.post<ApiResponse<Proposal>>('/proposals', payload);
+    const data = handleApiResponse<any>(response);
+    return mapProposal(data);
+  },
   getProposals: async (params: {
     jobId?: string;
     status?: string;
@@ -122,6 +164,11 @@ export const proposalsApi = {
   messageFreelancer: async (id: string, message: string): Promise<void> => {
     const response = await api.post<ApiResponse<void>>(`/proposals/${id}/message`, { message });
     handleApiResponse(response);
+  },
+  scheduleInterview: async (id: string, payload: ScheduleInterviewData): Promise<Proposal> => {
+    const response = await api.post<ApiResponse<Proposal>>(`/proposals/${id}/interview`, payload);
+    const data = handleApiResponse<any>(response);
+    return mapProposal(data);
   },
   // Freelancer: list my proposals
   getMyProposals: async (params: {

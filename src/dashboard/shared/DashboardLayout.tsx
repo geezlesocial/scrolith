@@ -62,6 +62,13 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   }, [asParam, user, location.pathname]);
 
   useEffect(() => {
+    if (!user) return;
+    try {
+      sessionStorage.setItem('activeRole', String(effectiveRole));
+    } catch {}
+  }, [effectiveRole, user?.id]);
+
+  useEffect(() => {
     // Set initial tab from URL
     const searchParams = new URLSearchParams(location.search);
     const tab = searchParams.get('tab') || 'overview';
@@ -120,8 +127,14 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
 
-    // Non-admins can use the switchRole toggle which updates stored role
-    if (switchRole) switchRole();
+    // Non-admins: switch view explicitly to avoid role refresh conflicts
+    const targetRole = effectiveRole === UserRole.FREELANCER ? UserRole.EMPLOYER : UserRole.FREELANCER;
+    const targetPath = targetRole === UserRole.FREELANCER ? '/freelancer/dashboard' : '/client/dashboard';
+    try {
+      sessionStorage.setItem('activeRole', String(targetRole));
+    } catch {}
+    navigate(`${targetPath}?as=${targetRole}`, { replace: true });
+    window.dispatchEvent(new CustomEvent('dashboard-navigation', { detail: { tab: 'overview' } }));
   };
 
   const getSidebarItems = () => {
@@ -131,12 +144,14 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
       return [
         { tab: 'overview', label: 'Overview' },
         { tab: 'community', label: 'Community' },
+        { tab: 'manage-pages', label: 'Manage Pages' },
         { tab: 'my-gigs', label: 'My Gigs' },
         { tab: 'my-ads', label: 'My Ads' },
         { tab: 'orders', label: 'Orders' },
         { tab: 'contracts', label: 'Contracts' },
         { tab: 'my-proposals', label: 'My Proposals' },
         { tab: 'wallet', label: 'Wallet' },
+        { tab: 'membership', label: 'Membership' },
         { tab: 'gcoin', label: 'Gcoin' },
         { tab: 'favorites', label: 'Favorites' },
         { tab: 'reviews', label: 'Reviews' },
@@ -150,11 +165,13 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
       return [
         { tab: 'overview', label: 'Overview' },
         { tab: 'community', label: 'Community' },
+        { tab: 'manage-pages', label: 'Manage Pages' },
         { tab: 'my-ads', label: 'My Ads' },
         { tab: 'my-jobs', label: 'My Jobs' },
         { tab: 'proposals-offers', label: 'Proposals & Offers' },
         { tab: 'contracts', label: 'Contracts' },
         { tab: 'wallet', label: 'Wallet' },
+        { tab: 'membership', label: 'Membership' },
         { tab: 'gcoin', label: 'Gcoin' },
         { tab: 'favorites', label: 'Favorites' },
         { tab: 'reviews', label: 'Reviews' },

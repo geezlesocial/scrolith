@@ -83,7 +83,7 @@ const AffiliateProgram = () => {
                         </div>
                         <h2 className="text-2xl font-bold text-gray-900 mb-2">Application Received!</h2>
                         <p className="text-gray-600 mb-6">
-                            Thank you for applying to the Geezle Affiliate Program. Our team will review your details and get back to you within 2-3 business days via email.
+                            Thank you for applying to the Scrolith Affiliate Program. Our team will review your details and get back to you within 2-3 business days via email.
                         </p>
                         <button onClick={() => navigate('/')} className="text-blue-600 font-medium hover:underline">
                             Return Home
@@ -96,7 +96,7 @@ const AffiliateProgram = () => {
                     <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white pt-24 pb-20 px-4">
                         <div className="max-w-7xl mx-auto text-center">
                             <h1 className="text-4xl md:text-5xl font-extrabold mb-6 animate-fade-in-up">
-                                {content?.heroTitle || "Earn Money by Promoting Geezle"}
+                                {content?.heroTitle || "Earn Money by Promoting Scrolith"}
                             </h1>
                             <p className="text-xl text-blue-100 max-w-2xl mx-auto mb-8 animate-fade-in-up delay-100">
                                 {content?.heroSubtitle}
@@ -197,7 +197,7 @@ const AffiliateProgram = () => {
                                         required
                                         rows={4}
                                         className="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none"
-                                        placeholder="How do you plan to promote Geezle? (e.g. Blog reviews, YouTube tutorials, Email list...)"
+                                        placeholder="How do you plan to promote Scrolith? (e.g. Blog reviews, YouTube tutorials, Email list...)"
                                         value={formData.promotionStrategy}
                                         onChange={e => setFormData({...formData, promotionStrategy: e.target.value})}
                                     />
@@ -225,3 +225,4 @@ const AffiliateProgram = () => {
 };
 
 export default AffiliateProgram;
+

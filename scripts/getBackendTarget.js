@@ -1,5 +1,23 @@
 // Utility to derive backend target for dev/prod/CI
 // Returns a string (without trailing slash). In production an env var is required.
+import fs from 'fs';
+import path from 'path';
+import dotenv from 'dotenv';
+
+const loadEnvFile = (filename) => {
+  const filePath = path.resolve(process.cwd(), filename);
+  if (fs.existsSync(filePath)) {
+    // Keep precedence aligned with Vite: later files override earlier ones.
+    dotenv.config({ path: filePath, override: true });
+  }
+};
+
+// Mimic Vite env loading order for build-time config scripts.
+loadEnvFile('.env');
+loadEnvFile('.env.local');
+const mode = process.env.NODE_ENV || 'development';
+loadEnvFile(`.env.${mode}`);
+loadEnvFile(`.env.${mode}.local`);
 
 const getBackendTarget = () => {
   const env = process.env.VITE_BACKEND_URL || process.env.BACKEND_URL || process.env.BACKEND;

@@ -25,13 +25,23 @@ const StaffManagementTab = () => {
         loadData();
     }, []);
 
+    useEffect(() => {
+        const onRolesUpdated = () => {
+            loadData();
+        };
+        window.addEventListener('admin:roles-updated', onRolesUpdated);
+        return () => {
+            window.removeEventListener('admin:roles-updated', onRolesUpdated);
+        };
+    }, []);
+
     const loadData = async () => {
         setIsLoading(true);
         try {
             const [s, r] = await Promise.all([AdminService.getStaff(), AdminService.getRoles()]);
             setStaff(s);
             // Sort roles by level (Higher level = higher authority)
-            setRoles(r.sort((a, b) => b.level - a.level));
+            setRoles(r.sort((a, b) => (b.level || 0) - (a.level || 0)));
         } catch (error) {
             showNotification('alert', 'Error', 'Failed to load staff data.');
         } finally {

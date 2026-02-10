@@ -20,15 +20,28 @@ const AdCard = ({ ad, showDonate = false }: { ad: AdCampaign; showDonate?: boole
     const st = String(ad.status || '').toLowerCase();
     const badge = statusMap[st] || { label: String(ad.status || '').toUpperCase(), cls: 'bg-gray-100 text-gray-700' };
 
+    const media = Array.isArray(ad.media) && ad.media.length > 0
+        ? ad.media[0]
+        : ad.creativeUrl
+          ? { url: ad.creativeUrl, type: 'image' }
+          : null;
+    const mediaType = media?.type || (media?.mimeType?.startsWith('video/') ? 'video' : 'image');
+
+    const linkUrl = ad.targetUrl || ad.destinationUrl;
+
     return (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6 relative group">
             <div className="absolute top-2 right-2 z-10 flex gap-2 items-center">
                 <div className="bg-black/60 text-white text-[10px] px-2 py-0.5 rounded backdrop-blur-sm uppercase tracking-wide font-bold">Sponsored</div>
                 <div className={`text-[10px] px-2 py-0.5 rounded font-semibold ${badge.cls}`}>{badge.label}</div>
             </div>
-            {ad.creativeUrl && (
+            {media?.url && (
                 <div className="h-48 overflow-hidden bg-gray-100">
-                    <img src={ad.creativeUrl} alt={ad.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    {mediaType === 'video' ? (
+                        <video src={media.url} className="w-full h-full object-cover" controls />
+                    ) : (
+                        <img src={media.url} alt={ad.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    )}
                 </div>
             )}
             <div className="p-4">
@@ -41,14 +54,16 @@ const AdCard = ({ ad, showDonate = false }: { ad: AdCampaign; showDonate?: boole
                         {showDonate && ad.creatorId && (
                             <DonateButton recipientIdentifier={ad.creatorId} />
                         )}
-                        <a
-                            href={ad.targetUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="p-1.5 rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 transition"
-                        >
-                            <ExternalLink className="w-4 h-4" />
-                        </a>
+                        {linkUrl && (
+                            <a
+                                href={linkUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="p-1.5 rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 transition"
+                            >
+                                <ExternalLink className="w-4 h-4" />
+                            </a>
+                        )}
                     </div>
                 </div>
             </div>

@@ -137,7 +137,7 @@ const UploadedFilesTab = () => {
       <div className="flex flex-col gap-3 bg-white p-4 rounded-xl border border-gray-200 md:flex-row md:items-center md:justify-between">
         <div>
           <h3 className="font-bold text-gray-900">File Manager</h3>
-          <p className="text-sm text-gray-500">Browse, manage, and reuse uploaded media across Geezle.</p>
+          <p className="text-sm text-gray-500">Browse, manage, and reuse uploaded media across Scrolith.</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex rounded-lg border border-gray-200 overflow-hidden">
@@ -260,3 +260,4 @@ const FileTypeLabel = ({ type }: { type?: string }) => (
 );
 
 export default UploadedFilesTab;
+

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
     Users, MessageSquare, AlertTriangle, ShieldCheck, Settings, BarChart2, ToggleLeft, ToggleRight, 
     Lock, CheckCircle, XCircle, FileText, Gavel, Radio, Flag, Hash, Activity, DollarSign, Pin, Trash2, Plus, X, Coins, Megaphone, Share2, Search, Filter, Send, Upload, Edit2, Save, Unlock, Copy, AlertOctagon, Ban, Image as ImageIcon, Building2
@@ -47,6 +47,17 @@ const CommunityManagement = () => {
     const { user } = useUser();
 
     useEffect(() => {
+        // Initialize active tab from URL query param (supports ?tab=settings)
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const t = params.get('tab');
+            if (t && ['overview','homepage','threads','channels','moderation','gcoin','ads','business','social','settings'].includes(t)) {
+                setActiveTab(t as AdminTab);
+            }
+        } catch (e) {
+            // ignore when running in non-browser or tests
+        }
+
         loadData();
     }, []);
 
@@ -54,15 +65,15 @@ const CommunityManagement = () => {
 
     const loadData = async () => {
         try {
-            const [settingsResult, logsResult] = await Promise.allSettled([
-                CommunityService.getSettings(),
+            const [configResult, logsResult] = await Promise.allSettled([
+                CommunityService.getAdminConfig(),
                 CommunityService.getModerationLogs()
             ]);
-            if (settingsResult.status === 'fulfilled') {
-                setSettings(settingsResult.value);
+            if (configResult.status === 'fulfilled') {
+                setSettings(configResult.value);
             } else {
                 setSettings(defaultSettings);
-                showNotification('warning', 'Community', 'Settings failed to load. Using defaults.');
+                showNotification('warning', 'Community', 'Admin config failed to load. Using defaults.');
             }
             if (logsResult.status === 'fulfilled') {
                 setLogs(logsResult.value);
@@ -80,20 +91,19 @@ const CommunityManagement = () => {
     // FIXED: Toggle individual setting - properly updates state
     const toggleSetting = async (key: keyof CommunitySettings, value: boolean) => {
         if (!settings) return;
-        
         try {
-            // Update local state immediately for better UX
+            // Optimistic update
             const updatedSettings = {
                 ...settings,
                 [key]: value,
                 updatedAt: new Date().toISOString()
-            };
+            } as any;
             setSettings(updatedSettings);
-            
-            // Then save to service (async)
-            const result = await CommunityService.toggleSetting(key, value);
-            
+
+            // Persist via admin endpoint
+            const result = await CommunityService.updateAdminConfig(updatedSettings);
             if (result) {
+                setSettings(result);
                 showNotification('success', 'Updated', 'Setting changed successfully.');
             } else {
                 showNotification('warning', 'Partial Success', 'Setting updated locally but may not have saved to server.');
@@ -101,10 +111,24 @@ const CommunityManagement = () => {
         } catch (error) {
             console.error('Failed to update setting:', error);
             showNotification('error', 'Error', 'Failed to update setting.');
-            // Revert if there was an error
-            loadData(); // Reload original settings
+            loadData();
         }
     };
+
+    // Listen for admin config updates from socket and update UI live
+    useEffect(() => {
+        const onAdminConfig = (e: any) => {
+            try {
+                const detail = e?.detail ?? e;
+                setSettings(detail || defaultSettings);
+                showNotification('info', 'Community', 'Admin config updated.');
+            } catch (err) {
+                console.error('Failed to apply admin config from event', err);
+            }
+        };
+        window.addEventListener('community:admin_config_updated', onAdminConfig as EventListener);
+        return () => window.removeEventListener('community:admin_config_updated', onAdminConfig as EventListener);
+    }, []);
 
     return (
         <div className="space-y-6">
@@ -169,79 +193,125 @@ type BusinessPageRecord = {
     description?: string;
     logoUrl?: string;
     coverUrl?: string;
-    followers?: string[];
+    followersCount?: number;
+    postsCount?: number;
     ownerId?: string;
     ownerName?: string;
     updatedAt?: string;
+    status?: string;
+    statusReason?: string;
+    statusUpdatedAt?: string | null;
 };
 
 const BusinessPagesManager = () => {
     const { showNotification } = useNotification();
     const [pages, setPages] = useState<BusinessPageRecord[]>([]);
     const [editing, setEditing] = useState<BusinessPageRecord | null>(null);
-    const storageKey = 'community_business_pages';
+    const [loading, setLoading] = useState(false);
 
-    const loadPages = () => {
+    const loadPages = useCallback(async () => {
+        setLoading(true);
         try {
-            const raw = localStorage.getItem(storageKey);
-            const parsed = raw ? JSON.parse(raw) : [];
-            setPages(Array.isArray(parsed) ? parsed : []);
+            const data = await CommunityService.getAdminBusinessPages();
+            const normalized = Array.isArray(data) ? data.map((page: any) => ({
+                id: page.id,
+                name: page.name,
+                tagline: page.tagline,
+                industry: page.industry,
+                orgSize: page.orgSize,
+                orgType: page.orgType,
+                category: page.category,
+                slug: page.slug,
+                website: page.website,
+                email: page.email,
+                phone: page.phone,
+                location: page.location,
+                description: page.description,
+                logoUrl: page.logo?.url || page.logoUrl || page.logo_file_url || page.logoFileUrl,
+                coverUrl: page.cover?.url || page.coverUrl || page.cover_file_url || page.coverFileUrl,
+                followersCount: page.followersCount ?? 0,
+                postsCount: page.postsCount ?? 0,
+                ownerId: page.ownerId,
+                ownerName: page.ownerName,
+                updatedAt: page.updatedAt,
+                status: page.status,
+                statusReason: page.statusReason || '',
+                statusUpdatedAt: page.statusUpdatedAt || null
+            })) : [];
+            setPages(normalized);
         } catch (error) {
+            console.error('Failed to load business pages', error);
+            showNotification('error', 'Business Pages', 'Failed to load business pages.');
             setPages([]);
+        } finally {
+            setLoading(false);
         }
-    };
+    }, [showNotification]);
 
     useEffect(() => {
         loadPages();
         const handler = () => loadPages();
-        window.addEventListener('community:business_pages_updated', handler);
-        return () => window.removeEventListener('community:business_pages_updated', handler);
-    }, []);
-
-    const persistPages = (next: BusinessPageRecord[]) => {
-        localStorage.setItem(storageKey, JSON.stringify(next));
-        setPages(next);
-        window.dispatchEvent(new CustomEvent('community:business_pages_updated'));
-    };
+        window.addEventListener('community:business_page_updated', handler);
+        window.addEventListener('community:business_page_created', handler);
+        return () => {
+            window.removeEventListener('community:business_page_updated', handler);
+            window.removeEventListener('community:business_page_created', handler);
+        };
+    }, [loadPages]);
 
     const handleEdit = (page: BusinessPageRecord) => {
         setEditing({ ...page });
     };
 
-    const handleDelete = (id: string) => {
-        const updated = pages.filter((page) => page.id !== id);
-        persistPages(updated);
-        showNotification('success', 'Business Pages', 'Page removed.');
+    const handleDelete = async (id: string) => {
+        try {
+            await CommunityService.deleteAdminBusinessPage(id);
+            showNotification('success', 'Business Pages', 'Page removed.');
+            loadPages();
+        } catch (error) {
+            console.error('Failed to delete business page', error);
+            showNotification('error', 'Business Pages', 'Delete failed.');
+        }
     };
 
-    const handleCreate = () => {
-        setEditing({
-            id: `biz-${Date.now()}`,
-            name: '',
-            slug: '',
-            tagline: '',
-            industry: '',
-            orgSize: '',
-            orgType: '',
-            website: '',
-            description: '',
-            followers: []
-        });
-    };
-
-    const handleSave = () => {
+    const handleSave = async () => {
         if (!editing) return;
         if (!editing.name?.trim()) {
             showNotification('alert', 'Business Pages', 'Name is required.');
             return;
         }
-        const updated = [
-            ...pages.filter((page) => page.id !== editing.id),
-            { ...editing, updatedAt: new Date().toISOString() }
-        ];
-        persistPages(updated);
-        setEditing(null);
-        showNotification('success', 'Business Pages', 'Changes saved.');
+        try {
+            await CommunityService.updateAdminBusinessPage(editing.id, editing);
+            showNotification('success', 'Business Pages', 'Changes saved.');
+            setEditing(null);
+            loadPages();
+        } catch (error) {
+            console.error('Failed to update business page', error);
+            showNotification('error', 'Business Pages', 'Save failed.');
+        }
+    };
+
+    const handleModeration = async (
+        page: BusinessPageRecord,
+        action: 'activate' | 'restrict' | 'ban' | 'deactivate'
+    ) => {
+        const reason = action === 'activate'
+            ? ''
+            : window.prompt(`Optional reason for ${action}:`, page.statusReason || '') || '';
+        try {
+            await CommunityService.moderateAdminBusinessPage(page.id, { action, reason });
+            const labelMap: Record<string, string> = {
+                activate: 'activated',
+                restrict: 'restricted',
+                ban: 'banned',
+                deactivate: 'deactivated'
+            };
+            showNotification('success', 'Business Pages', `Page ${labelMap[action] || action} successfully.`);
+            loadPages();
+        } catch (error) {
+            console.error('Failed to moderate business page', error);
+            showNotification('error', 'Business Pages', 'Unable to apply moderation action.');
+        }
     };
 
     return (
@@ -251,13 +321,6 @@ const BusinessPagesManager = () => {
                     <h3 className="text-lg font-bold text-gray-900">Business Pages Directory</h3>
                     <p className="text-sm text-gray-500">Manage, edit, or remove company pages.</p>
                 </div>
-                <button
-                    onClick={handleCreate}
-                    className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700"
-                >
-                    <Plus className="mr-1 inline h-3 w-3" />
-                    Add new
-                </button>
             </div>
             <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
                 <table className="w-full text-sm">
@@ -266,15 +329,22 @@ const BusinessPagesManager = () => {
                             <th className="px-4 py-3 text-left">Business</th>
                             <th className="px-4 py-3 text-left">Industry</th>
                             <th className="px-4 py-3 text-left">Followers</th>
+                            <th className="px-4 py-3 text-left">Status</th>
                             <th className="px-4 py-3 text-left">Owner</th>
                             <th className="px-4 py-3 text-right">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {pages.length === 0 ? (
+                        {loading ? (
                             <tr>
-                                <td colSpan={5} className="px-4 py-6 text-center text-gray-500">
-                                    No business pages saved yet.
+                                <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
+                                    Loading business pages...
+                                </td>
+                            </tr>
+                        ) : pages.length === 0 ? (
+                            <tr>
+                                <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
+                                    No business pages found.
                                 </td>
                             </tr>
                         ) : (
@@ -295,12 +365,36 @@ const BusinessPagesManager = () => {
                                             </div>
                                         </div>
                                     </td>
-                                    <td className="px-4 py-3 text-gray-600">{page.industry || '—'}</td>
-                                    <td className="px-4 py-3 text-gray-600">{page.followers?.length || 0}</td>
-                                    <td className="px-4 py-3 text-gray-600">{page.ownerName || '—'}</td>
+                                    <td className="px-4 py-3 text-gray-600">{page.industry || '--'}</td>
+                                    <td className="px-4 py-3 text-gray-600">{page.followersCount ?? 0}</td>
+                                    <td className="px-4 py-3 text-gray-600">
+                                        <span
+                                            className={`rounded px-2 py-1 text-xs font-semibold uppercase ${
+                                                page.status === 'active'
+                                                    ? 'bg-emerald-100 text-emerald-700'
+                                                    : page.status === 'restricted'
+                                                    ? 'bg-amber-100 text-amber-700'
+                                                    : page.status === 'banned'
+                                                    ? 'bg-rose-100 text-rose-700'
+                                                    : 'bg-slate-100 text-slate-700'
+                                            }`}
+                                        >
+                                            {page.status || 'active'}
+                                        </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-gray-600">{page.ownerName || '--'}</td>
                                     <td className="px-4 py-3 text-right">
                                         <button onClick={() => handleEdit(page)} className="mr-3 text-blue-600 hover:underline">
                                             Edit
+                                        </button>
+                                        <button onClick={() => handleModeration(page, 'activate')} className="mr-3 text-emerald-600 hover:underline">
+                                            Activate
+                                        </button>
+                                        <button onClick={() => handleModeration(page, 'restrict')} className="mr-3 text-amber-600 hover:underline">
+                                            Restrict
+                                        </button>
+                                        <button onClick={() => handleModeration(page, 'ban')} className="mr-3 text-rose-600 hover:underline">
+                                            Ban
                                         </button>
                                         <button onClick={() => handleDelete(page.id)} className="text-red-600 hover:underline">
                                             Delete
@@ -331,13 +425,19 @@ const BusinessPagesManager = () => {
                             value={editing.slug || ''}
                             onChange={(e) => setEditing((prev) => (prev ? { ...prev, slug: e.target.value } : prev))}
                             className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
-                            placeholder="Geezle address"
+                            placeholder="Scrolith address"
                         />
                         <input
                             value={editing.industry || ''}
                             onChange={(e) => setEditing((prev) => (prev ? { ...prev, industry: e.target.value } : prev))}
                             className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
                             placeholder="Industry"
+                        />
+                        <input
+                            value={editing.category || ''}
+                            onChange={(e) => setEditing((prev) => (prev ? { ...prev, category: e.target.value } : prev))}
+                            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            placeholder="Category"
                         />
                         <input
                             value={editing.orgType || ''}
@@ -351,11 +451,45 @@ const BusinessPagesManager = () => {
                             className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
                             placeholder="Organization size"
                         />
+                        <select
+                            value={editing.status || 'active'}
+                            onChange={(e) => setEditing((prev) => (prev ? { ...prev, status: e.target.value } : prev))}
+                            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                        >
+                            <option value="active">Status: Active</option>
+                            <option value="paused">Status: Paused</option>
+                            <option value="banned">Status: Banned</option>
+                            <option value="disabled">Status: Disabled</option>
+                        </select>
                         <input
                             value={editing.website || ''}
                             onChange={(e) => setEditing((prev) => (prev ? { ...prev, website: e.target.value } : prev))}
                             className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
                             placeholder="Website"
+                        />
+                        <input
+                            value={editing.email || ''}
+                            onChange={(e) => setEditing((prev) => (prev ? { ...prev, email: e.target.value } : prev))}
+                            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            placeholder="Public email"
+                        />
+                        <input
+                            value={editing.phone || ''}
+                            onChange={(e) => setEditing((prev) => (prev ? { ...prev, phone: e.target.value } : prev))}
+                            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            placeholder="Public phone"
+                        />
+                        <input
+                            value={editing.location || ''}
+                            onChange={(e) => setEditing((prev) => (prev ? { ...prev, location: e.target.value } : prev))}
+                            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            placeholder="Location"
+                        />
+                        <input
+                            value={editing.statusReason || ''}
+                            onChange={(e) => setEditing((prev) => (prev ? { ...prev, statusReason: e.target.value } : prev))}
+                            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            placeholder="Moderation reason"
                         />
                     </div>
                     <textarea
@@ -386,7 +520,7 @@ const GcoinManager = () => {
     const [wallets, setWallets] = useState<GcoinWallet[]>([]);
     const [conversions, setConversions] = useState<GcoinConversionRequest[]>([]);
     const [transactions, setTransactions] = useState<any[]>([]);
-    const [config, setConfig] = useState<GcoinSettings>({ conversionRate: 0, minWithdrawal: 0, conversionEnabled: false, userTransfersEnabled: false });
+    const [config, setConfig] = useState<GcoinSettings>({ conversionRate: 0, minWithdrawal: 0, conversionEnabled: false, autoApproveConversions: false, userTransfersEnabled: false });
     const [fraudReports, setFraudReports] = useState<any[] | null>(null);
     const [fraudQuery, setFraudQuery] = useState('');
     const [summary, setSummary] = useState<any>(null);
@@ -397,7 +531,7 @@ const GcoinManager = () => {
     const [sendRecipient, setSendRecipient] = useState('');
     const [sendReason, setSendReason] = useState('');
     const { showNotification } = useNotification();
-    const { formatPrice } = useCurrency();
+    const { formatPrice, availableCurrencies } = useCurrency();
     const { user } = useUser();
 
     useEffect(() => {
@@ -468,8 +602,15 @@ const GcoinManager = () => {
     };
 
     const handleSaveSettings = async () => {
-        await GcoinService.saveSettings(config);
-        showNotification('success', 'Saved', 'Gcoin configuration updated.');
+        try {
+            await GcoinService.saveSettings(config);
+            const updated = await GcoinService.getSettings();
+            setConfig(updated);
+            showNotification('success', 'Saved', 'Gcoin configuration updated.');
+        } catch (error) {
+            console.error('Failed to save Gcoin settings:', error);
+            showNotification('error', 'Save Failed', 'Unable to save Gcoin configuration.');
+        }
     };
 
     const processConversion = async (req: GcoinConversionRequest, action: 'approve' | 'reject') => {
@@ -751,6 +892,13 @@ const GcoinManager = () => {
                                 <p className="text-xs text-gray-500">Allow users to convert Gcoins to Wallet Balance</p>
                             </div>
                             <input type="checkbox" checked={config.conversionEnabled} onChange={e => setConfig({...config, conversionEnabled: e.target.checked})} className="w-5 h-5 text-indigo-600" />
+                        </div>
+                        <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                            <div>
+                                <span className="font-bold text-gray-800">Auto-Approve Conversions</span>
+                                <p className="text-xs text-gray-500">Automatically credit wallet funds when users convert Gcoin.</p>
+                            </div>
+                            <input type="checkbox" checked={config.autoApproveConversions ?? false} onChange={e => setConfig({...config, autoApproveConversions: e.target.checked})} className="w-5 h-5 text-indigo-600" />
                         </div>
                         <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                             <div>
@@ -1060,7 +1208,7 @@ const CommunityHomepageManager = () => {
                 isOpen={isFilePickerOpen}
                 onClose={() => { setIsFilePickerOpen(false); setFileTarget(null); }}
                 onSelect={handleFileSelect}
-                allowUpload={true}
+                allowUpload
                 filterType="all"
                 role="admin"
             />
@@ -1135,8 +1283,7 @@ const AdManager = () => {
             status: isEditing.status || 'draft',
             impressions: isEditing.impressions || 0,
             clicks: isEditing.clicks || 0,
-            ctr: isEditing.ctr || 0,
-            creativeUrl: isEditing.creativeUrl || 'https://via.placeholder.com/400x200'
+            ctr: isEditing.ctr || 0
         } as Partial<AdCampaign>;
         // Client-side validation with inline errors
         const nextErrors: Record<string,string> = {};
@@ -1155,7 +1302,7 @@ const AdManager = () => {
                     // per-field success toasts
                     const prev = originalEditing || {};
                     const changed: string[] = [];
-                    ['title','budget','cpm','placement','targetUrl','creativeUrl','clientName'].forEach(k => {
+                    ['title','budget','cpm','placement','destinationUrl','ctaText','clientName'].forEach(k => {
                         if ((prev as any)[k] !== (updated as any)[k]) changed.push(k);
                     });
                     if (changed.length === 0) showNotification('success', 'Saved', 'No visible changes');
@@ -1192,7 +1339,7 @@ const AdManager = () => {
 
     const handleFileSelect = (file: UploadedFile) => {
         if (isEditing) {
-            setIsEditing({ ...isEditing, creativeUrl: file.url });
+            setIsEditing({ ...isEditing, mediaFileIds: [file.id], media: [file] });
             setIsFilePickerOpen(false);
         }
     };
@@ -1227,7 +1374,7 @@ const AdManager = () => {
                     <p className="text-xs text-gray-500">Manage community advertisements</p>
                 </div>
                 <button 
-                    onClick={() => { setOriginalEditing(null); setIsEditing({ title: '', clientName: '', targetUrl: '', targetRoles: [], placement: 'feed', budget: 0, cpm: 0, currency: 'USD', status: 'draft' }); }}
+                    onClick={() => { setOriginalEditing(null); setIsEditing({ title: '', clientName: '', destinationUrl: '', destinationType: 'url', objective: 'traffic', ctaText: '', placement: 'feed', budget: 0, cpm: 0, currency: 'USD', status: 'draft', mediaFileIds: [] }); }}
                     className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center hover:bg-blue-700"
                 >
                     <Plus className="w-4 h-4 mr-2" /> Create Ad
@@ -1353,7 +1500,11 @@ const AdManager = () => {
                 {visibleCampaigns.map(c => (
                     <div key={c.id} className="bg-white p-4 rounded-xl border border-gray-200 flex gap-4 group">
                         <div className="w-24 h-24 flex-shrink-0 bg-gray-100 rounded overflow-hidden">
-                            <img src={c.creativeUrl} className="w-full h-full object-cover" />
+                            {c.media?.[0]?.url ? (
+                                <img src={c.media[0].url} className="w-full h-full object-cover" />
+                            ) : (
+                                <div className="flex h-full w-full items-center justify-center text-xs text-gray-400">No media</div>
+                            )}
                         </div>
                         <div className="flex-1 min-w-0">
                             <div className="flex justify-between items-start">
@@ -1362,9 +1513,9 @@ const AdManager = () => {
                             </div>
                             <p className="text-xs text-gray-500 mb-2">{c.clientName} - {c.placement}</p>
                             <div className="grid grid-cols-3 gap-2 text-xs bg-gray-50 p-2 rounded">
-                                <div><strong>{c.impressions.toLocaleString()}</strong> imps</div>
-                                <div><strong>{c.clicks}</strong> clicks</div>
-                                <div><strong>{c.ctr}%</strong> CTR</div>
+                                <div><strong>{Number(c.impressions ?? 0).toLocaleString()}</strong> imps</div>
+                                <div><strong>{c.clicks ?? 0}</strong> clicks</div>
+                                <div><strong>{c.ctr ?? 0}%</strong> CTR</div>
                             </div>
                         </div>
                         <div className="flex flex-col gap-2 justify-center opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1395,7 +1546,11 @@ const AdManager = () => {
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 mb-1">Creative</label>
                                 <div onClick={() => setIsFilePickerOpen(true)} className="h-32 border-2 border-dashed rounded-lg flex items-center justify-center cursor-pointer hover:bg-gray-50">
-                                    {isEditing.creativeUrl ? <img src={isEditing.creativeUrl} className="h-full object-contain"/> : <div className="text-center text-gray-400"><Upload className="w-8 h-8 mx-auto mb-1"/>Upload Media</div>}
+                                    {isEditing.media?.[0]?.url ? (
+                                        <img src={isEditing.media[0].url} className="h-full object-contain" />
+                                    ) : (
+                                        <div className="text-center text-gray-400"><Upload className="w-8 h-8 mx-auto mb-1"/>Upload Media</div>
+                                    )}
                                 </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
@@ -1423,23 +1578,61 @@ const AdManager = () => {
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 mb-1">Currency</label>
                                     <select className="w-full border rounded p-2 text-sm" value={isEditing.currency ?? 'USD'} onChange={e => setIsEditing({...isEditing, currency: e.target.value})}>
-                                        <option value="USD">USD</option>
-                                        <option value="EUR">EUR</option>
-                                        <option value="GBP">GBP</option>
+                                        {availableCurrencies.filter((c) => c.isActive ?? true).map((currency) => (
+                                            <option key={currency.code} value={currency.code}>{currency.code}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Objective</label>
+                                    <select
+                                        className="w-full border rounded p-2 text-sm"
+                                        value={isEditing.objective || 'traffic'}
+                                        onChange={e => setIsEditing({ ...isEditing, objective: e.target.value as any })}
+                                    >
+                                        <option value="traffic">Traffic</option>
+                                        <option value="messages">Messages</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Destination</label>
+                                    <select
+                                        className="w-full border rounded p-2 text-sm"
+                                        value={isEditing.destinationType || 'url'}
+                                        onChange={e => setIsEditing({ ...isEditing, destinationType: e.target.value as any })}
+                                    >
+                                        <option value="url">URL</option>
+                                        <option value="messages">Messages</option>
                                     </select>
                                 </div>
                             </div>
                             <div>
-                                <label className="block text-xs font-bold text-gray-500 mb-1">Target URL</label>
-                                <input className="w-full border rounded p-2 text-sm" value={isEditing.targetUrl} onChange={e => setIsEditing({...isEditing, targetUrl: e.target.value})} />
+                                <label className="block text-xs font-bold text-gray-500 mb-1">Destination URL</label>
+                                <input
+                                    className="w-full border rounded p-2 text-sm"
+                                    value={isEditing.destinationUrl || ''}
+                                    onChange={e => setIsEditing({ ...isEditing, destinationUrl: e.target.value })}
+                                    disabled={(isEditing.destinationType || 'url') === 'messages'}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 mb-1">CTA Text</label>
+                                <input
+                                    className="w-full border rounded p-2 text-sm"
+                                    value={isEditing.ctaText || ''}
+                                    onChange={e => setIsEditing({ ...isEditing, ctaText: e.target.value })}
+                                />
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 mb-1">Placement</label>
                                     <select className="w-full border rounded p-2 text-sm" value={isEditing.placement} onChange={e => setIsEditing({...isEditing, placement: e.target.value as string})}>
                                         <option value="feed">Feed</option>
-                                        <option value="sidebar">Sidebar</option>
-                                        <option value="forum_top">Forum Top</option>
+                                        <option value="forum_listing">Forum listing</option>
+                                        <option value="thread_detail">Thread detail</option>
+                                        <option value="chat">Chat sidebar</option>
                                     </select>
                                 </div>
                                 <div>
@@ -1452,37 +1645,29 @@ const AdManager = () => {
                                     {!(user && (user.role || '').toString().toUpperCase() === 'ADMIN') && <div className="text-xs text-gray-400 mt-1">Status editing restricted to admins.</div>}
                                 </div>
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 mb-1">Target Audience</label>
-                                <div className="flex gap-2">
-                                    {[UserRole.FREELANCER, UserRole.EMPLOYER].map(role => (
-                                        <button 
-                                            key={role}
-                                            onClick={() => {
-                                                const roles = isEditing.targetRoles || [];
-                                                const newRoles = roles.includes(role) ? roles.filter(r => r !== role) : [...roles, role];
-                                                setIsEditing({...isEditing, targetRoles: newRoles});
-                                            }}
-                                            className={`px-3 py-1 text-xs border rounded capitalize ${isEditing.targetRoles?.includes(role) ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white'}`}
-                                        >
-                                            {role}
-                                        </button>
-                                    ))}
-                                </div>
+                            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-500">
+                                Ads submit for review after payment. Use the status controls to approve or pause.
                             </div>
                         </div>
 
                             <div className="flex justify-end gap-2 mt-6">
                             <button onClick={() => setIsEditing(null)} className="px-4 py-2 border rounded text-gray-600">Cancel</button>
                             <button onClick={handleSave} disabled={isSaving} className={`px-4 py-2 ${isSaving ? 'bg-gray-400' : 'bg-blue-600'} text-white rounded font-bold`}>
-                                {isSaving ? 'Saving…' : 'Save Ad'}
+                                {isSaving ? 'Saving...' : 'Save Ad'}
                             </button>
                         </div>
                     </div>
                 </div>
             )}
             
-            <FilePickerModal isOpen={isFilePickerOpen} onClose={() => setIsFilePickerOpen(false)} onSelect={handleFileSelect} acceptedTypes="image/*" filterType="image" role="admin" />
+            <FilePickerModal
+                isOpen={isFilePickerOpen}
+                onClose={() => setIsFilePickerOpen(false)}
+                onSelect={handleFileSelect}
+                acceptedTypes={['image', 'video']}
+                filterType="all"
+                role="admin"
+            />
         </div>
     );
 };
@@ -1718,9 +1903,12 @@ const SettingsPanel = ({ settings, toggleSetting }: {
 
     return (
         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm max-w-4xl mx-auto">
-            <h3 className="font-bold text-lg text-gray-900 mb-6 flex items-center">
-                <Settings className="w-5 h-5 mr-2" /> Global Community Settings
-            </h3>
+            <div className="flex items-start justify-between mb-4">
+                <h3 className="font-bold text-lg text-gray-900 mb-0 flex items-center">
+                    <Settings className="w-5 h-5 mr-2" /> Global Community Settings
+                </h3>
+                <ConfigEditorToggle settings={settings} />
+            </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div>
@@ -1780,6 +1968,26 @@ const SettingsPanel = ({ settings, toggleSetting }: {
                     <h4 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Modules</h4>
                     <div className="space-y-3">
                         <Toggle 
+                            label="Enable Business Pages" 
+                            checked={(settings as any).businessPagesEnabled ?? true} 
+                            onChange={() => handleToggle('businessPagesEnabled' as keyof CommunitySettings)} 
+                        />
+                        <Toggle 
+                            label="Allow Business Page Creation" 
+                            checked={(settings as any).businessPageUserCreationEnabled ?? true} 
+                            onChange={() => handleToggle('businessPageUserCreationEnabled' as keyof CommunitySettings)} 
+                        />
+                        <Toggle 
+                            label="Allow Business Page Posting" 
+                            checked={(settings as any).businessPagePostingEnabled ?? true} 
+                            onChange={() => handleToggle('businessPagePostingEnabled' as keyof CommunitySettings)} 
+                        />
+                        <Toggle 
+                            label="Allow Business Page Follow" 
+                            checked={(settings as any).businessPageFollowEnabled ?? true} 
+                            onChange={() => handleToggle('businessPageFollowEnabled' as keyof CommunitySettings)} 
+                        />
+                        <Toggle 
                             label="Enable Clubs" 
                             checked={settings.enableClubs ?? true} 
                             onChange={() => handleToggle('enableClubs')} 
@@ -1817,12 +2025,178 @@ const SettingsPanel = ({ settings, toggleSetting }: {
                             allow_external_links: sLocal['allow_external_links'] ?? sLocal['allowExternalLinks'],
                             auto_moderate_content: sLocal['auto_moderate_content'] ?? sLocal['autoModerateContent'],
                             sentiment_analysis: sLocal['sentiment_analysis'] ?? sLocal['sentimentAnalysis'],
+                            business_pages_enabled: sLocal['business_pages_enabled'] ?? sLocal['businessPagesEnabled'],
+                            business_page_user_creation_enabled: sLocal['business_page_user_creation_enabled'] ?? sLocal['businessPageUserCreationEnabled'],
+                            business_page_posting_enabled: sLocal['business_page_posting_enabled'] ?? sLocal['businessPagePostingEnabled'],
+                            business_page_follow_enabled: sLocal['business_page_follow_enabled'] ?? sLocal['businessPageFollowEnabled'],
                             enable_clubs: sLocal['enable_clubs'] ?? sLocal['enableClubs'],
                             enable_events: sLocal['enable_events'] ?? sLocal['enableEvents'],
                         }, null, 2);
                     })()}
                 </pre>
             </div>
+        </div>
+    );
+};
+
+// Compact form-based config editor for known admin settings
+const ConfigEditorToggle = ({ settings }: { settings: CommunitySettings }) => {
+    const { showNotification } = useNotification();
+    const [isOpen, setIsOpen] = useState(false);
+    const [local, setLocal] = useState<Partial<CommunitySettings>>({});
+
+    useEffect(() => {
+        setLocal({ ...settings });
+    }, [settings]);
+
+    const open = () => setIsOpen(true);
+    const cancel = () => {
+        setLocal({ ...settings });
+        setIsOpen(false);
+    };
+
+    const save = async () => {
+        // Validate numeric fields
+        const maxImages = Number(local.maxImagesPerPost ?? settings.maxImagesPerPost ?? 4);
+        const maxVideo = Number(local.maxVideoSizeMb ?? settings.maxVideoSizeMb ?? 50);
+        const expiry = Number(local.storyExpiryHours ?? settings.storyExpiryHours ?? 24);
+        if (!Number.isInteger(maxImages) || maxImages <= 0) { showNotification('error', 'Validation', 'Max images per post must be a positive integer'); return; }
+        if (isNaN(maxVideo) || maxVideo <= 0) { showNotification('error', 'Validation', 'Max video size must be a positive number'); return; }
+        if (!Number.isInteger(expiry) || expiry <= 0) { showNotification('error', 'Validation', 'Story expiry hours must be a positive integer'); return; }
+
+        const merged = { ...(settings as any), ...(local as any), maxImagesPerPost: maxImages, maxVideoSizeMb: maxVideo, storyExpiryHours: expiry };
+
+        // Optimistic update: dispatch new config immediately, keep previous for undo
+        const previous = { ...(settings as any) };
+        try {
+            window.dispatchEvent(new CustomEvent('community:admin_config_updated', { detail: merged }));
+        } catch (e) {}
+
+        try {
+            const result = await CommunityService.updateAdminConfig(merged);
+            showNotification('success', 'Saved', 'Admin config saved.');
+            setIsOpen(false);
+            // allow undo for a short time
+            setUndoAvailable(true);
+            (undoPrevRef as any).current = previous;
+            if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+            undoTimerRef.current = setTimeout(() => { setUndoAvailable(false); undoPrevRef.current = null; }, 8000) as any;
+        } catch (err: any) {
+            console.error('Failed to save admin config', err);
+            showNotification('error', 'Save failed', String(err?.message || err));
+            // revert optimistic update
+            try { window.dispatchEvent(new CustomEvent('community:admin_config_updated', { detail: previous })); } catch (e) {}
+        }
+    };
+
+    const toggleField = (key: keyof CommunitySettings) => {
+        setLocal((prev) => ({ ...(prev || {}), [key]: !(prev as any)?.[key] }));
+    };
+
+    // Undo helpers
+    const undoPrevRef = React.useRef<any | null>(null);
+    const undoTimerRef = React.useRef<any | null>(null);
+    const [undoAvailable, setUndoAvailable] = useState(false);
+    const handleUndo = async () => {
+        const prev = undoPrevRef.current;
+        if (!prev) return;
+        try {
+            await CommunityService.updateAdminConfig(prev);
+            try { window.dispatchEvent(new CustomEvent('community:admin_config_updated', { detail: prev })); } catch (e) {}
+            showNotification('success', 'Reverted', 'Admin config reverted.');
+        } catch (e) {
+            showNotification('error', 'Undo failed', 'Failed to revert admin config.');
+        } finally {
+            setUndoAvailable(false);
+            undoPrevRef.current = null;
+            if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+        }
+    };
+
+    return (
+        <div className="w-72">
+            {!isOpen ? (
+                <div className="flex gap-2">
+                    <button onClick={open} className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-700">Edit Config</button>
+                </div>
+            ) : (
+                <div className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+                    <div className="grid grid-cols-1 gap-2 text-sm">
+                        <label className="flex items-center justify-between">
+                            <span>Require Login to View</span>
+                            <input type="checkbox" checked={Boolean(local.requireLoginToView)} onChange={() => toggleField('requireLoginToView')} />
+                        </label>
+                        <label className="flex items-center justify-between">
+                            <span>Allow Guest Comments</span>
+                            <input type="checkbox" checked={Boolean(local.allowGuestComments)} onChange={() => toggleField('allowGuestComments')} />
+                        </label>
+                        <label className="flex items-center justify-between">
+                            <span>Allow Media Uploads <span title="Allow users to attach images and videos to posts" className="ml-1 text-xs text-gray-400">?</span></span>
+                            <input data-testid="cfg-allow-media" type="checkbox" checked={Boolean(local.allowMediaUploads)} onChange={() => toggleField('allowMediaUploads')} />
+                        </label>
+                        <label className="flex items-center justify-between">
+                            <span>Enable Reposts</span>
+                            <input type="checkbox" checked={Boolean(local.enableReposts)} onChange={() => toggleField('enableReposts')} />
+                        </label>
+                        <label className="flex items-center justify-between">
+                            <span>Allow External Links</span>
+                            <input type="checkbox" checked={Boolean(local.allowExternalLinks)} onChange={() => toggleField('allowExternalLinks')} />
+                        </label>
+                        <label className="flex items-center justify-between">
+                            <span>Auto-Moderate Content <span title="Automatically flag and hide content matching moderation rules" className="ml-1 text-xs text-gray-400">?</span></span>
+                            <input data-testid="cfg-auto-moderate" type="checkbox" checked={Boolean(local.autoModerateContent)} onChange={() => toggleField('autoModerateContent')} />
+                        </label>
+                        <label className="flex items-center justify-between">
+                            <span>Sentiment Analysis</span>
+                            <input type="checkbox" checked={Boolean(local.sentimentAnalysis)} onChange={() => toggleField('sentimentAnalysis')} />
+                        </label>
+                        <label className="flex items-center justify-between">
+                            <span>Enable Business Pages</span>
+                            <input type="checkbox" checked={Boolean((local as any).businessPagesEnabled)} onChange={() => toggleField('businessPagesEnabled' as keyof CommunitySettings)} />
+                        </label>
+                        <label className="flex items-center justify-between">
+                            <span>Allow Business Page Creation</span>
+                            <input type="checkbox" checked={Boolean((local as any).businessPageUserCreationEnabled)} onChange={() => toggleField('businessPageUserCreationEnabled' as keyof CommunitySettings)} />
+                        </label>
+                        <label className="flex items-center justify-between">
+                            <span>Allow Business Page Posting</span>
+                            <input type="checkbox" checked={Boolean((local as any).businessPagePostingEnabled)} onChange={() => toggleField('businessPagePostingEnabled' as keyof CommunitySettings)} />
+                        </label>
+                        <label className="flex items-center justify-between">
+                            <span>Allow Business Page Follow</span>
+                            <input type="checkbox" checked={Boolean((local as any).businessPageFollowEnabled)} onChange={() => toggleField('businessPageFollowEnabled' as keyof CommunitySettings)} />
+                        </label>
+                        <label className="flex items-center justify-between">
+                            <span>Enable Clubs</span>
+                            <input data-testid="cfg-enable-clubs" type="checkbox" checked={Boolean(local.enableClubs)} onChange={() => toggleField('enableClubs')} />
+                        </label>
+                        <label className="flex items-center justify-between">
+                            <span>Enable Events</span>
+                            <input data-testid="cfg-enable-events" type="checkbox" checked={Boolean(local.enableEvents)} onChange={() => toggleField('enableEvents')} />
+                        </label>
+                        <label className="flex items-center justify-between">
+                            <span className="mr-2">Community Title <span title="Displayed at the top of community pages" className="ml-1 text-xs text-gray-400">?</span></span>
+                            <input data-testid="cfg-title" className="ml-2 w-36 rounded border px-2 py-1 text-sm" value={(local as any).communityTitle || ''} onChange={(e) => setLocal(prev => ({ ...(prev||{}), communityTitle: e.target.value }))} />
+                        </label>
+                        <label className="flex items-center justify-between">
+                            <span>Max Images per Post <span title="Limit how many images a user can attach to a single post" className="ml-1 text-xs text-gray-400">?</span></span>
+                            <input data-testid="cfg-max-images" type="number" min={1} className="ml-2 w-20 rounded border px-2 py-1 text-sm" value={Number(local.maxImagesPerPost ?? settings.maxImagesPerPost ?? 4)} onChange={(e) => setLocal(prev => ({ ...(prev||{}), maxImagesPerPost: Number(e.target.value) }))} />
+                        </label>
+                        <label className="flex items-center justify-between">
+                            <span>Max Video Size (MB) <span title="Maximum allowed video upload size in megabytes" className="ml-1 text-xs text-gray-400">?</span></span>
+                            <input data-testid="cfg-max-video" type="number" min={1} className="ml-2 w-20 rounded border px-2 py-1 text-sm" value={Number(local.maxVideoSizeMb ?? settings.maxVideoSizeMb ?? 50)} onChange={(e) => setLocal(prev => ({ ...(prev||{}), maxVideoSizeMb: Number(e.target.value) }))} />
+                        </label>
+                        <label className="flex items-center justify-between">
+                            <span>Story Expiry Hours <span title="How long (hours) stories remain visible before expiring" className="ml-1 text-xs text-gray-400">?</span></span>
+                            <input data-testid="cfg-expiry" type="number" min={1} className="ml-2 w-20 rounded border px-2 py-1 text-sm" value={Number(local.storyExpiryHours ?? settings.storyExpiryHours ?? 24)} onChange={(e) => setLocal(prev => ({ ...(prev||{}), storyExpiryHours: Number(e.target.value) }))} />
+                        </label>
+                    </div>
+                    <div className="flex justify-end gap-2 mt-3">
+                        <button onClick={cancel} className="rounded-lg border px-3 py-1 text-xs">Cancel</button>
+                        <button onClick={save} className="rounded-lg bg-green-600 px-3 py-1 text-xs font-semibold text-white hover:bg-green-700">Save</button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -1867,3 +2241,6 @@ const TabButton = ({ id, label, icon: Icon, active, onClick }: any) => (
 );
 
 export default CommunityManagement;
+
+
+

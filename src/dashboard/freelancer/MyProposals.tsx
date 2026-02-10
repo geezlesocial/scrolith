@@ -7,6 +7,7 @@ import StatusBadge from '../shared/StatusBadge';
 import { Search, RefreshCw, FileText, DollarSign, Clock, Calendar, MessageSquare, XCircle } from 'lucide-react';
 import ConfirmModal from '../shared/ConfirmModal';
 import { Link } from 'react-router-dom';
+import ProBadge from '../../components/ProBadge';
 
 type Filter = 'all' | 'pending' | 'shortlisted' | 'accepted' | 'rejected' | 'withdrawn';
 
@@ -143,6 +144,7 @@ export default function MyProposals() {
                 <th className="px-6 py-4">Amount</th>
                 <th className="px-6 py-4">Timeline</th>
                 <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4">Progress</th>
                 <th className="px-6 py-4">Submitted</th>
                 <th className="px-6 py-4 text-right">Actions</th>
               </tr>
@@ -156,6 +158,12 @@ export default function MyProposals() {
                       <FileText className="w-4 h-4 text-gray-400" />
                       <span className="font-bold text-gray-900 truncate max-w-[420px]">{p.jobTitle}</span>
                     </div>
+                    {p.clientName && (
+                      <div className="text-xs text-gray-500 mt-1 flex items-center gap-2">
+                        <span>{p.clientName}</span>
+                        <ProBadge role="employer" isPro={(p as any)?.clientIsPro} />
+                      </div>
+                    )}
                     <div className="text-xs text-gray-500 mt-1">Job ID: {p.jobId}</div>
                   </td>
 
@@ -175,6 +183,22 @@ export default function MyProposals() {
 
                   <td className="px-6 py-4">
                     <StatusBadge status={p.status} type="proposal" />
+                  </td>
+
+                  <td className="px-6 py-4">
+                    <div className="space-y-1 text-xs">
+                      <div className={`${p.clientViewedAt ? 'text-emerald-700' : 'text-gray-500'}`}>
+                        {p.clientViewedAt
+                          ? `Opened by employer (${p.clientViewCount || 1})`
+                          : 'Awaiting first review'}
+                      </div>
+                      {p.topApplicantAt && <div className="text-indigo-700">Top applicant</div>}
+                      {p.interviewScheduledAt && (
+                        <div className="text-purple-700">
+                          Interview: {new Date(p.interviewScheduledAt).toLocaleString()}
+                        </div>
+                      )}
+                    </div>
                   </td>
 
                   <td className="px-6 py-4">

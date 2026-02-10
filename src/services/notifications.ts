@@ -1,13 +1,11 @@
 import api from './api';
 
-export const fetchNotifications = async (opts: { unreadOnly?: boolean } = {}) => {
-  const q = opts.unreadOnly ? '?unreadOnly=true' : '';
-  const res = await api.get(`/notifications${q}`);
+export const fetchNotifications = async () => {
+  const res = await api.get('/notifications');
   return res.data?.data || [];
 };
 
 export default { fetchNotifications };
- 
 
 interface ApiResponse<T> {
   success: boolean;
@@ -46,17 +44,14 @@ export interface NotificationsResponse {
 }
 
 export const notificationsApi = {
-  getNotifications: async (params: {
-    unreadOnly?: boolean;
-    page?: number;
-    limit?: number;
-  } = {}): Promise<NotificationsResponse> => {
-    const response = await api.get<ApiResponse<NotificationsResponse>>('/notifications', { params });
+  getNotifications: async (): Promise<Notification[]> => {
+    const response = await api.get<ApiResponse<Notification[]>>('/notifications');
     return handleApiResponse(response);
   },
 
-  markAsRead: async (id: string): Promise<void> => {
-    const response = await api.post<ApiResponse<void>>(`/notifications/${id}/read`);
+  markAsRead: async (ids: string[] | string): Promise<void> => {
+    const payload = { ids: Array.isArray(ids) ? ids : [ids] };
+    const response = await api.post<ApiResponse<void>>('/notifications/mark-read', payload);
     handleApiResponse(response);
   },
 
@@ -66,10 +61,10 @@ export const notificationsApi = {
   },
 
   getUnreadCount: async (): Promise<{ count: number }> => {
-    const response = await api.get<ApiResponse<{ count: number }>>('/notifications', { params: { unreadOnly: true } });
+    const response = await api.get<ApiResponse<any>>('/notifications');
     const data: any = handleApiResponse(response);
     return {
-      count: Array.isArray(data) ? data.filter((n: Notification) => !n.isRead).length : (data?.count || 0)
+      count: Array.isArray(data) ? data.filter((n: Notification) => !n.isRead).length : 0
     };
   }
 };
@@ -80,14 +75,19 @@ export const NotificationService = {
     return res.data?.data || [];
   },
   getUnread: async () => {
-    const res = await api.get('/notifications', { params: { unreadOnly: true } });
-    return res.data?.data || [];
+    const res = await api.get('/notifications');
+    const data = res.data?.data || [];
+    return Array.isArray(data) ? data.filter((n: any) => !(n.isRead ?? n.is_read)) : [];
   },
   getForUser: async (userId: string) => {
     const res = await api.get(`/notifications/user/${userId}`);
     return res.data?.data || [];
   },
-  markAsRead: async (id: string) => {
-    await api.post(`/notifications/${id}/read`);
+  markAsRead: async (ids: string[] | string) => {
+    const payload = { ids: Array.isArray(ids) ? ids : [ids] };
+    await api.post('/notifications/mark-read', payload);
+  },
+  markAllAsRead: async () => {
+    await api.post('/notifications/mark-all-read');
   }
 };

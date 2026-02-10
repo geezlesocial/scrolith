@@ -25,12 +25,17 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       await new Promise(resolve => setTimeout(resolve, 100));
       // Load platform (site) settings and system settings, then merge so
       // components (like SystemSettings) always see both.
-      const hasToken = Boolean(AuthService.getToken());
+      const hasToken = Boolean(await AuthService.getToken());
+      const storedUser = AuthService.getStoredUser();
+      const role = String(storedUser?.role || '').toLowerCase();
+      const isAdmin = role.includes('admin');
       const [platformData, systemData] = hasToken
-        ? await Promise.all([
-            AdminService.getPlatformSettings(),
-            AdminService.getSystemSettings().catch(() => null)
-          ])
+        ? isAdmin
+          ? await Promise.all([
+              AdminService.getPlatformSettings(),
+              AdminService.getSystemSettings().catch(() => null)
+            ])
+          : [await CMSService.getSettings(), null]
         : [await CMSService.getSettings(), null];
 
       let merged: any = platformData || {};
@@ -80,16 +85,16 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch (error) {
       console.error('Failed to load settings, using defaults', error);
       const defaultSettings: any = {
-        siteName: 'Geezle',
+        siteName: 'Scrolith',
         tagline: 'The Freelance Marketplace',
-        logoUrl: 'https://ui-avatars.com/api/?name=Geezle&background=0D8ABC&color=fff&size=128&bold=true',
+        logoUrl: 'https://ui-avatars.com/api/?name=Scrolith&background=0D8ABC&color=fff&size=128&bold=true',
         faviconUrl: 'https://ui-avatars.com/api/?name=G&background=0D8ABC&color=fff&size=64&bold=true',
         favicon_url: 'https://ui-avatars.com/api/?name=G&background=0D8ABC&color=fff&size=64&bold=true',
-        adminEmail: 'admin@geezle.com',
-        supportEmail: 'support@geezle.com',
-        footerAboutTitle: 'About Geezle',
+        adminEmail: 'admin@Scrolith.com',
+        supportEmail: 'support@Scrolith.com',
+        footerAboutTitle: 'About Scrolith',
         footerAboutText: 'Connecting talent with opportunity.',
-        footerCopyright: 'Ac 2024 Geezle Inc.',
+        footerCopyright: 'Ac 2024 Scrolith Inc.',
         footerLinks: [],
         socialLinks: [],
         system: {
@@ -213,3 +218,4 @@ export const useContent = (): ContentContextType => {
   }
   return context;
 };
+

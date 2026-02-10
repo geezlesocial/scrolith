@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
     Home, ShoppingBag, DollarSign, CreditCard, LayoutTemplate, BookOpen, Megaphone, Users, HardDrive, Shield, FileText, LifeBuoy, Settings, Menu, X, Bell, LogOut, User, MessageSquare, Brain, PieChart, Clock, MessageCircle, Navigation, BarChart2, Globe
 } from 'lucide-react';
@@ -20,6 +20,9 @@ import MarketingTab from './admin/Marketing';
 import UsersManagementTab from './admin/Users';
 import UploadedFilesTab from './admin/UploadedFiles';
 import StaffManagementTab from './admin/StaffManagement';
+import RoleManagementTab from './admin/RoleManagement';
+import ModeratorConsole from './admin/ModeratorConsole';
+import MessageRecords from './admin/MessageRecords';
 import KYCTab from './admin/KYCVerification';
 import SupportDisputes from './admin/SupportDisputes';
 import SystemSettings from './admin/SystemSettings';
@@ -33,9 +36,13 @@ import CommunityManagement from './admin/CommunityManagement';
 import NavigationManager from './admin/NavigationManager'; 
 import MarketIntelligence from './admin/MarketIntelligence';
 import AdminReviews from './admin/Reviews';
+import CommerceEngagement from './admin/CommerceEngagement';
+import FormBuilder from './admin/FormBuilder';
+import GoogleSettings from './admin/GoogleSettings';
+import MonetizationManagement from './admin/MonetizationManagement';
 
 // Define valid tab types
-type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'listings' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'blog' | 'marketing' | 'users' | 'files' | 'staff' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'navigation' | 'reviews' | 'languages';
+type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'blog' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings';
 
 // Define navigation item interface
 interface NavItem {
@@ -53,9 +60,12 @@ const AdminDashboard: React.FC = () => {
     const [activeTab, setActiveTab] = useState<Tab>('overview');
     const [isSidebarOpen, setSidebarOpen] = useState(false);
     const [unreadSupportCount, setUnreadSupportCount] = useState(0); 
-    const { showNotification } = useNotification();
+    const { showNotification, notifications, markAsRead } = useNotification();
     const { user, logout } = useUser();
     const [searchParams] = useSearchParams();
+    const [showAdminNotifications, setShowAdminNotifications] = useState(false);
+    const adminNotifRef = useRef<HTMLDivElement>(null);
+    const unreadNotificationCount = notifications.filter(n => !n.isRead).length;
 
     useEffect(() => {
         const tabParam = searchParams.get('tab');
@@ -67,9 +77,9 @@ const AdminDashboard: React.FC = () => {
     // Helper function to validate tab
     const isValidTab = (tab: string): tab is Tab => {
         const validTabs: Tab[] = [
-            'overview', 'analytics', 'listings', 'finance', 'gateways', 'cms', 
-            'homepage', 'blog', 'marketing', 'users', 'files', 'staff', 'kyc', 
-            'support', 'system', 'profile', 'messages', 'ai', 'atm', 'community', 'navigation', 'reviews', 'languages'
+            'overview', 'analytics', 'listings', 'engagement', 'finance', 'gateways', 'cms', 
+            'homepage', 'blog', 'marketing', 'users', 'monetization', 'files', 'staff', 'role-management', 'moderator-console', 'message-records', 'kyc', 
+            'support', 'system', 'profile', 'messages', 'ai', 'atm', 'community', 'navigation', 'reviews', 'languages', 'forms', 'google-settings'
         ];
         return validTabs.includes(tab as Tab);
     };
@@ -92,9 +102,25 @@ const AdminDashboard: React.FC = () => {
         return () => clearInterval(interval);
     }, []);
 
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (adminNotifRef.current && !adminNotifRef.current.contains(event.target as Node)) {
+                setShowAdminNotifications(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
     const handleLogout = () => {
         logout();
         showNotification('success', 'Logged Out', 'You have been successfully logged out');
+    };
+
+    const handleNotificationClick = (id: string, actionUrl?: string) => {
+        markAsRead(id);
+        setShowAdminNotifications(false);
+        if (actionUrl) window.location.href = actionUrl;
     };
 
     // Strict Navigation Structure
@@ -117,7 +143,11 @@ const AdminDashboard: React.FC = () => {
         },
         { 
             title: 'Commerce', 
-            items: [{ id: 'listings', label: 'Gigs & Jobs', icon: ShoppingBag }] 
+            items: [
+                { id: 'listings', label: 'Gigs & Jobs', icon: ShoppingBag },
+                { id: 'engagement', label: 'Favorites & Carts', icon: ShoppingBag },
+                { id: 'forms', label: 'Form Builder', icon: LayoutTemplate }
+            ] 
         },
         { 
             title: 'Finance', 
@@ -149,12 +179,18 @@ const AdminDashboard: React.FC = () => {
             title: 'Users', 
             items: [
                 { id: 'users', label: 'Users & Subscribers', icon: Users }, 
+                { id: 'monetization', label: 'Monetization', icon: DollarSign },
                 { id: 'files', label: 'Uploaded Files', icon: HardDrive }
             ] 
         },
         { 
             title: 'Staff Management', 
-            items: [{ id: 'staff', label: 'Staff & Permissions', icon: Shield }] 
+            items: [
+                { id: 'staff', label: 'Staff & Permissions', icon: Shield },
+                { id: 'role-management', label: 'Role Management', icon: Shield },
+                { id: 'moderator-console', label: 'Moderator Console', icon: MessageSquare },
+                { id: 'message-records', label: 'Message Records', icon: FileText }
+            ] 
         },
         { 
             title: 'KYC Verification', 
@@ -174,7 +210,8 @@ const AdminDashboard: React.FC = () => {
         {
             title: 'Setup & Configurations',
             items: [
-                { id: 'languages', label: 'Languages', icon: Globe }
+                { id: 'languages', label: 'Languages', icon: Globe },
+                { id: 'google-settings', label: 'Google Settings', icon: Settings }
             ]
         },
         { 
@@ -192,6 +229,7 @@ const AdminDashboard: React.FC = () => {
             case 'atm': return <ATMTrackerModule />;
             case 'market-intelligence': return <MarketIntelligence />;
             case 'listings': return <ListingsManagementTab />;
+            case 'engagement': return <CommerceEngagement />;
             case 'finance': return <FinancialsTab />;
             case 'gateways': return <GatewaysTab />;
             case 'cms': return <CMSPages />;
@@ -201,20 +239,27 @@ const AdminDashboard: React.FC = () => {
             case 'reviews': return <AdminReviews />;
             case 'marketing': return <MarketingTab />;
             case 'users': return <UsersManagementTab />;
+            case 'monetization': return <MonetizationManagement />;
             case 'files': return <UploadedFilesTab />;
             case 'staff': return <StaffManagementTab />;
+            case 'role-management': return <RoleManagementTab />;
+            case 'moderator-console': return <ModeratorConsole />;
+            case 'message-records': return <MessageRecords />;
             case 'kyc': return <KYCTab />;
             case 'support': return <SupportDisputes />;
             case 'navigation': return <NavigationManager />;
             case 'system': return <SystemSettings />;
             case 'languages': return <Languages />;
+            case 'google-settings': return <GoogleSettings />;
             case 'profile': return <Profile />;
+            case 'forms': return <FormBuilder />;
             default: return <Overview />;
         }
     };
 
     const formatTabTitle = (tab: Tab): string => {
         if (tab === 'atm') return 'ATM Time Tracker';
+        if (tab === 'google-settings') return 'Google Settings';
         return tab.replace(/([A-Z])/g, ' $1').trim().replace(/\b\w/g, l => l.toUpperCase());
     };
 
@@ -233,7 +278,7 @@ const AdminDashboard: React.FC = () => {
                                 <span className="font-bold">G</span>
                             )}
                         </div>
-                        <span className="font-bold text-lg tracking-tight">Geezle Admin</span>
+                        <span className="font-bold text-lg tracking-tight">Scrolith Admin</span>
                     </div>
                     <button 
                         onClick={() => setSidebarOpen(false)} 
@@ -312,15 +357,52 @@ const AdminDashboard: React.FC = () => {
                                 <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
                                 System Operational
                             </div>
-                            <button 
-                                className="relative p-2 text-gray-400 hover:text-gray-500 transition"
-                                aria-label="Notifications"
-                            >
-                                <Bell size={20} />
-                                {unreadSupportCount > 0 && (
-                                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full"></span>
+                            <div className="relative" ref={adminNotifRef}>
+                                <button 
+                                    className="relative p-2 text-gray-400 hover:text-gray-500 transition"
+                                    aria-label="Notifications"
+                                    onClick={() => setShowAdminNotifications(!showAdminNotifications)}
+                                >
+                                    <Bell size={20} />
+                                    {unreadNotificationCount > 0 && (
+                                        <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full"></span>
+                                    )}
+                                </button>
+                                {showAdminNotifications && (
+                                    <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 animate-fade-in-up">
+                                        <div className="px-4 py-3 border-b border-gray-50 bg-gray-50 flex justify-between items-center">
+                                            <h3 className="font-bold text-sm text-gray-700">Notifications</h3>
+                                            <span className="text-xs text-gray-500">{unreadNotificationCount} new</span>
+                                        </div>
+                                        <div className="max-h-96 overflow-y-auto">
+                                            {notifications.length === 0 ? (
+                                                <div className="p-6 text-center text-gray-400 text-sm">No new notifications</div>
+                                            ) : (
+                                                notifications.map((notif) => (
+                                                    <div
+                                                        key={notif.id}
+                                                        onClick={() => handleNotificationClick(notif.id, (notif.actionUrl || (notif as any).action_url) ?? undefined)}
+                                                        className={`p-4 border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors relative ${
+                                                            !notif.isRead ? "bg-blue-50/30" : ""
+                                                        }`}
+                                                    >
+                                                        <div className="flex justify-between items-start mb-1">
+                                                            <h4 className={`text-sm ${!notif.isRead ? "font-bold text-gray-900" : "font-medium text-gray-700"}`}>
+                                                                {notif.title}
+                                                            </h4>
+                                                            <span className="text-[10px] text-gray-400 whitespace-nowrap ml-2">
+                                                                {new Date((notif as any).timestamp ?? Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-xs text-gray-500 line-clamp-2">{(notif as any).message ?? ''}</p>
+                                                        {!notif.isRead && <span className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500"></span>}
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
                                 )}
-                            </button>
+                            </div>
                             {/* Header Avatar Display */}
                             <div 
                                 className="w-8 h-8 rounded-full overflow-hidden border border-indigo-200 cursor-pointer hover:border-indigo-300 transition"
@@ -355,3 +437,4 @@ const AdminDashboard: React.FC = () => {
 };
 
 export default AdminDashboard;
+
