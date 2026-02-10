@@ -12,3 +12,10 @@ dist
 
 # Secrets
 secrets/
+
+# Runtime / local artifacts
+data/
+uploads/
+
+npx
+
