@@ -3,7 +3,7 @@ const path = require('path');
 
 (async () => {
   try {
-    const entry = path.resolve(process.cwd(), 'geezle/src/services/cms.ts');
+    const entry = path.resolve(process.cwd(), 'scrolith/src/services/cms.ts');
     const out = path.resolve(process.cwd(), 'tmp/cms_bundle.mjs');
     console.log('Bundling', entry, '->', out);
 

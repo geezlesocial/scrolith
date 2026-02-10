@@ -5,32 +5,42 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Seeding database...');
 
-  // Clear existing data
-  await prisma.aiAutomationLog.deleteMany({});
-  await prisma.ltvPrediction.deleteMany({});
-  await prisma.demandForecast.deleteMany({});
-  await prisma.opportunityRadarSnapshot.deleteMany({});
-  await prisma.marketInsightSnapshot.deleteMany({});
+  // Clear existing data (best-effort, wrapped in try/catch to avoid FK ordering issues)
+  const safeDelete = async (name: string, fn: () => Promise<any>) => {
+    try {
+      await fn();
+      console.log(`Deleted ${name}`);
+    } catch (e: any) {
+      console.warn(`Could not delete ${name}:`, e?.message || e);
+    }
+  };
+
+  await safeDelete('aiAutomationLog', () => prisma.aiAutomationLog.deleteMany({}));
+  await safeDelete('ltvPrediction', () => prisma.ltvPrediction.deleteMany({}));
+  await safeDelete('demandForecast', () => prisma.demandForecast.deleteMany({}));
+  await safeDelete('opportunityRadarSnapshot', () => prisma.opportunityRadarSnapshot.deleteMany({}));
+  await safeDelete('marketInsightSnapshot', () => prisma.marketInsightSnapshot.deleteMany({}));
   // Delete escrow records first to avoid FK constraint violations
-  await prisma.escrow.deleteMany({});
-  await prisma.order.deleteMany({});
-  await prisma.category.deleteMany({});
-  await prisma.gig.deleteMany({});
+  await safeDelete('escrow', () => prisma.escrow.deleteMany({}));
+  await safeDelete('order', () => prisma.order.deleteMany({}));
+  await safeDelete('category', () => prisma.category.deleteMany({}));
+  await safeDelete('gig', () => prisma.gig.deleteMany({}));
   // Community & payments cleanup to avoid FK constraint errors
-  await prisma.adMetricsDaily.deleteMany({});
-  await prisma.adPayment.deleteMany({});
-  await prisma.communityAd.deleteMany({});
-  await prisma.adPayment.deleteMany({});
-  await prisma.adMetricsDaily.deleteMany({});
-  await prisma.gcoinEarningEvent.deleteMany({});
-  await prisma.gcoinTransaction.deleteMany({});
-  await prisma.gcoinConversionRequest.deleteMany({});
-  await prisma.gcoinWallet.deleteMany({});
-  await prisma.communityPost.deleteMany({});
-  await prisma.wallet.deleteMany({});
+  await safeDelete('adMetricsDaily', () => prisma.adMetricsDaily.deleteMany({}));
+  await safeDelete('adPayment', () => prisma.adPayment.deleteMany({}));
+  await safeDelete('communityAd', () => prisma.communityAd.deleteMany({}));
+  await safeDelete('gcoinEarningEvent', () => prisma.gcoinEarningEvent.deleteMany({}));
+  await safeDelete('gcoinTransaction', () => prisma.gcoinTransaction.deleteMany({}));
+  await safeDelete('gcoinConversionRequest', () => prisma.gcoinConversionRequest.deleteMany({}));
+  await safeDelete('gcoinWallet', () => prisma.gcoinWallet.deleteMany({}));
+  await safeDelete('communityPost', () => prisma.communityPost.deleteMany({}));
+  await safeDelete('wallet', () => prisma.wallet.deleteMany({}));
   // Remove generic transaction ledger entries to allow user cleanup
-  await prisma.transaction.deleteMany({});
-  await prisma.user.deleteMany({});
+  await safeDelete('transaction', () => prisma.transaction.deleteMany({}));
+  // delete profile first to avoid FK constraint on user
+  await safeDelete('profile', () => prisma.profile.deleteMany({}));
+  // finally delete users
+  await safeDelete('user', () => prisma.user.deleteMany({}));
 
   // Create a test user
   const user = await prisma.user.create({

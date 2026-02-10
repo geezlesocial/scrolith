@@ -98,7 +98,7 @@ async function main() {
     data: {
       creatorId: bob.id,
       title: 'Seeded Promo Ad',
-      body: 'Promote your services on Geezle - seeded ad',
+      body: 'Promote your services on Scrolith - seeded ad',
       placement: 'community_home',
       currency: 'USD',
       budget: 50,
@@ -147,3 +147,4 @@ main().catch((e) => {
   console.error(e);
   process.exit(1);
 });
+

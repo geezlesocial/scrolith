@@ -5,8 +5,14 @@ import {
   createConversation,
   postMessage,
   markRead,
+  markConversationUnread,
+  updateConversationPreferences,
+  deleteConversationForUser,
+  reportBlockConversation,
   toggleReaction,
-  deleteMessage
+  deleteMessage,
+  editMessage,
+  copyMessage
 } from '../controllers/messages.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 
@@ -17,7 +23,13 @@ router.get('/conversations/:id', authMiddleware, getConversation);
 router.post('/conversations', authMiddleware, createConversation);
 router.post('/conversations/:id/messages', authMiddleware, postMessage);
 router.post('/conversations/:id/read', authMiddleware, markRead);
+router.post('/conversations/:id/unread', authMiddleware, markConversationUnread);
+router.patch('/conversations/:id/preferences', authMiddleware, updateConversationPreferences);
+router.post('/conversations/:id/report-block', authMiddleware, reportBlockConversation);
+router.delete('/conversations/:id', authMiddleware, deleteConversationForUser);
 router.post('/conversations/:id/messages/:messageId/reactions', authMiddleware, toggleReaction);
+router.patch('/conversations/:id/messages/:messageId', authMiddleware, editMessage);
+router.post('/conversations/:id/messages/:messageId/copy', authMiddleware, copyMessage);
 router.delete('/conversations/:id/messages/:messageId', authMiddleware, deleteMessage);
 
 export default router;

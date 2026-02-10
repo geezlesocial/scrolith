@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
+import { sendSystemMessage } from '../services/systemMessaging';
 
 const normalizeRole = (role?: string) => (role || '').toString().toLowerCase();
 
@@ -165,6 +166,30 @@ export const deliverOrder = async (req: Request, res: Response) => {
       data: { status: 'UNDER_REVIEW' }
     });
 
+    try {
+      const orderLink = `/dashboard?tab=orders&order_id=${order.id}`;
+      void sendSystemMessage({
+        templateKey: 'order_update',
+        userId: order.clientId,
+        context: {
+          order: { id: order.id, status: 'UNDER_REVIEW', total: order.amount, link: orderLink }
+        },
+        actionUrl: orderLink,
+        typeOverride: 'order'
+      });
+      void sendSystemMessage({
+        templateKey: 'order_update',
+        userId: order.freelancerId,
+        context: {
+          order: { id: order.id, status: 'UNDER_REVIEW', total: order.amount, link: orderLink }
+        },
+        actionUrl: orderLink,
+        typeOverride: 'order'
+      });
+    } catch (notifyError) {
+      console.warn('Order deliver notification failed', notifyError);
+    }
+
     return res.json({ success: true, data: null, message: 'Delivered' });
   } catch (error: any) {
     console.error('Deliver order error:', error);
@@ -201,6 +226,30 @@ export const proposeRevision = async (req: Request, res: Response) => {
       where: { id: order.id },
       data: { status: 'DISPUTED' }
     });
+
+    try {
+      const orderLink = `/dashboard?tab=orders&order_id=${order.id}`;
+      void sendSystemMessage({
+        templateKey: 'order_update',
+        userId: order.clientId,
+        context: {
+          order: { id: order.id, status: 'DISPUTED', total: order.amount, link: orderLink }
+        },
+        actionUrl: orderLink,
+        typeOverride: 'order'
+      });
+      void sendSystemMessage({
+        templateKey: 'order_update',
+        userId: order.freelancerId,
+        context: {
+          order: { id: order.id, status: 'DISPUTED', total: order.amount, link: orderLink }
+        },
+        actionUrl: orderLink,
+        typeOverride: 'order'
+      });
+    } catch (notifyError) {
+      console.warn('Order dispute notification failed', notifyError);
+    }
 
     return res.json({ success: true, data: null, message: 'Revision proposed' });
   } catch (error: any) {

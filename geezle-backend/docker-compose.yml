@@ -6,13 +6,13 @@ services:
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: pass
-      POSTGRES_DB: geezle_test
+      POSTGRES_DB: scrolith_test
     ports:
       - "5432:5432"
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d geezle_test"]
+      test: ["CMD-SHELL", "pg_isready -U user -d scrolith_test"]
       interval: 5s
       timeout: 5s
       retries: 10

@@ -2,9 +2,9 @@ const { Pool } = require('pg');
 
 // Test with different connection strings
 const connectionStrings = [
-  'postgresql://geezle_user:223345Ib@localhost:5432/geezle_db',
-  'postgresql://geezle_user:223345Ib%40@localhost:5432/geezle_db',
-  'postgresql://postgres:YOUR_POSTGRES_PASSWORD@localhost:5432/geezle_db'
+  'postgresql://Scrolith_user:223345Ib@localhost:5432/Scrolith_db',
+  'postgresql://Scrolith_user:223345Ib%40@localhost:5432/Scrolith_db',
+  'postgresql://postgres:YOUR_POSTGRES_PASSWORD@localhost:5432/Scrolith_db'
 ];
 
 async function testConnection(connString, name) {

@@ -20,6 +20,7 @@ import {
   getWalletTopupStatus,
   listWalletTopupProviders,
   listFundingGatewaysAdmin,
+  listFundingGatewaysPublic,
   saveFundingGatewaysAdmin
 } from '../controllers/walletFunding.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
@@ -32,6 +33,7 @@ router.get('/me', authMiddleware, getWallet);
 router.get('/me/transactions', authMiddleware, getTransactions);
 router.get('/me/escrows', authMiddleware, getEscrows);
 router.get('/topup/providers', authMiddleware, listWalletTopupProviders);
+router.get('/gateways', authMiddleware, listFundingGatewaysPublic);
 import { idempotency } from '../middleware/idempotency';
 
 router.post('/topup/initiate', authMiddleware, idempotency(), initiateWalletTopup);

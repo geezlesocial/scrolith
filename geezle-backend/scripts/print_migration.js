@@ -1,1 +1,1 @@
-const fs=require('fs'); const p='c:\\Projects\\geezle-backend\\prisma\\migrations\\20260124_add_social_notifications\\migration.sql'; const txt=fs.readFileSync(p,'utf8'); console.log('---START---'); console.log(txt); console.log('---END---');
+const fs=require('fs'); const p='c:\\Projects\\Scrolith-backend\\prisma\\migrations\\20260124_add_social_notifications\\migration.sql'; const txt=fs.readFileSync(p,'utf8'); console.log('---START---'); console.log(txt); console.log('---END---');

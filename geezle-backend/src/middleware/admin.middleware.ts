@@ -1,4 +1,4 @@
-// C:\Projects\geezle-backend\src\middleware\admin.middleware.ts
+// C:\Projects\Scrolith-backend\src\middleware\admin.middleware.ts
 import { Request, Response, NextFunction } from 'express';
 
 export const adminMiddleware = (req: Request, res: Response, next: NextFunction) => {
@@ -7,9 +7,9 @@ export const adminMiddleware = (req: Request, res: Response, next: NextFunction)
   // Get user from request (added by authMiddleware)
   const user = req.user;
   
-  // Development: Allow all requests
-  if (process.env.NODE_ENV === 'development') {
-    console.log('Development mode: Bypassing admin check');
+  // Optional dev bypass (explicit opt-in only)
+  if (process.env.ALLOW_DEV_ADMIN_BYPASS === 'true') {
+    console.log('Admin bypass enabled via ALLOW_DEV_ADMIN_BYPASS');
     return next();
   }
   
@@ -25,3 +25,4 @@ export const adminMiddleware = (req: Request, res: Response, next: NextFunction)
   
   next();
 };
+

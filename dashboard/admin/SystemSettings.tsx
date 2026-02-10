@@ -62,8 +62,8 @@ const SystemSettings = () => {
         port: 587, 
         username: '', 
         password: '', 
-        fromName: 'Geezle', 
-        fromEmail: 'noreply@geezle.com' 
+        fromName: 'Scrolith', 
+        fromEmail: 'noreply@scrolith.com' 
     });
     const [testEmail, setTestEmail] = useState('');
     const [isTestingEmail, setIsTestingEmail] = useState(false);

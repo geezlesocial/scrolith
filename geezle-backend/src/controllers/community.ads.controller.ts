@@ -2,10 +2,60 @@ import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
+import { recordClick, recordImpression } from '../services/adService';
+import { syncFileUsages } from '../utils/fileUsage';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_mock_key', {
   apiVersion: '2023-10-16' as any
 });
+
+const ADS_CONFIG_SCOPE = 'community_ads_config';
+const defaultAdsConfig = {
+  cpmByPlacement: {
+    feed: 5,
+    forum_listing: 8,
+    thread_detail: 6,
+    chat: 2
+  },
+  cpcByPlacement: {
+    feed: 0.4,
+    forum_listing: 0.6,
+    thread_detail: 0.5,
+    chat: 0.2
+  },
+  regionalMultipliers: {},
+  minBudget: 5,
+  maxBudget: 10000,
+  allowedPlacements: ['feed', 'forum_listing', 'thread_detail', 'chat'],
+  allowedMediaTypes: ['text', 'image', 'video'],
+  requireLoginToInteract: false
+};
+
+const resolveAdMedia = async (fileIds?: string[] | null) => {
+  if (!fileIds || fileIds.length === 0) return [];
+  const files = (await prisma.file.findMany({ where: { id: { in: fileIds } } })) as Array<{
+    id: string;
+    url: string;
+    mimeType: string | null;
+    originalName: string | null;
+  }>;
+  const byId = new Map(files.map((file) => [file.id, file]));
+  return fileIds
+    .map((id) => {
+      const file = byId.get(id);
+      if (!file) return null;
+      return { id: file.id, url: file.url, mimeType: file.mimeType, name: file.originalName };
+    })
+    .filter((item): item is { id: string; url: string; mimeType: string | null; name: string | null } => Boolean(item));
+};
+
+const hydrateAdsWithMedia = async (ads: any[]) =>
+  Promise.all(
+    ads.map(async (ad) => ({
+      ...ad,
+      media: await resolveAdMedia(ad.mediaFileIds || [])
+    }))
+  );
 
 export const createAdDraft = async (req: Request, res: Response) => {
   try {
@@ -13,18 +63,40 @@ export const createAdDraft = async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
     const payload = req.body || {};
+    const adsConfigSetting = await prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } });
+    const adsConfig = (adsConfigSetting?.data as any) || defaultAdsConfig;
+    const placement = payload.placement || 'feed';
+    const cpm = Number(adsConfig?.cpmByPlacement?.[placement] ?? 0);
+    const cpc = Number(adsConfig?.cpcByPlacement?.[placement] ?? 0);
+    const durationDays = payload.durationDays ? Number(payload.durationDays) : null;
+    const startAt = payload.startAt ? new Date(payload.startAt) : null;
+    const endAt = durationDays && startAt ? new Date(startAt.getTime() + durationDays * 24 * 60 * 60 * 1000) : (payload.endAt ? new Date(payload.endAt) : null);
     const ad = await prisma.communityAd.create({
       data: {
         creatorId: userId,
         title: payload.title || 'Untitled Ad',
         body: payload.body || '',
-        placement: payload.placement || 'feed',
+        objective: payload.objective || 'traffic',
+        destinationType: payload.destinationType || 'url',
+        destinationUrl: payload.destinationUrl || payload.targetUrl || null,
+        ctaText: payload.ctaText || null,
+        placement,
         targeting: payload.targeting || null,
         mediaFileIds: payload.mediaFileIds || [],
         budget: Number(payload.budget || 0),
-        remainingBudget: Number(payload.budget || 0)
+        remainingBudget: Number(payload.budget || 0),
+        currency: payload.currency || 'USD',
+        startAt,
+        endAt,
+        durationDays,
+        cpm,
+        cpc
       }
     });
+
+    try {
+      await syncFileUsages('community_ad', ad.id, ad.mediaFileIds || [], 'Community Ad Media');
+    } catch (e) {}
 
     const io = (req.app as any).get('io');
     const communityIo = (req.app as any).get('communityIo');
@@ -48,6 +120,16 @@ export const payAd = async (req: Request, res: Response) => {
     const ad = await prisma.communityAd.findUnique({ where: { id: adId } });
     if (!ad) return res.status(404).json({ success: false, error: 'Ad not found' });
     if (ad.creatorId !== userId) return res.status(403).json({ success: false, error: 'Forbidden' });
+
+    const payload = req.body || {};
+    const paymentMethodId = (payload.paymentMethodId || payload.method || payload.gateway || 'stripe').toString();
+    if (paymentMethodId && paymentMethodId !== 'stripe') {
+      return res.status(400).json({ success: false, error: 'Selected payment method is not available for ads yet' });
+    }
+
+    if (payload.currency) {
+      await prisma.communityAd.update({ where: { id: adId }, data: { currency: String(payload.currency).toUpperCase() } });
+    }
 
     const amount = Math.max(0, Number(ad.budget || 0));
     if (amount <= 0) return res.status(400).json({ success: false, error: 'Invalid budget amount' });
@@ -94,8 +176,7 @@ export const submitAd = async (req: Request, res: Response) => {
     if (!ad) return res.status(404).json({ success: false, error: 'Ad not found' });
     if (ad.creatorId !== userId) return res.status(403).json({ success: false, error: 'Forbidden' });
 
-    if (ad.status !== 'PAID' && ad.status !== 'SUBMITTED_FOR_REVIEW' && ad.status !== 'AWAITING_PAYMENT') {
-      // If ad isn't paid yet, require payment
+    if (ad.status !== 'PAID') {
       return res.status(400).json({ success: false, error: 'Ad must be paid before submission' });
     }
 
@@ -116,7 +197,8 @@ export const getMyAds = async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
     const ads = await prisma.communityAd.findMany({ where: { creatorId: userId }, orderBy: { createdAt: 'desc' } });
-    return res.json({ success: true, data: ads });
+    const hydrated = await hydrateAdsWithMedia(ads);
+    return res.json({ success: true, data: hydrated });
   } catch (error: any) {
     console.error('Get my ads error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load ads' });
@@ -144,7 +226,8 @@ export const getAdPerformance = async (req: Request, res: Response) => {
 export const getReviewQueue = async (_req: Request, res: Response) => {
   try {
     const ads = await prisma.communityAd.findMany({ where: { status: 'SUBMITTED_FOR_REVIEW' }, orderBy: { createdAt: 'asc' } });
-    return res.json({ success: true, data: ads });
+    const hydrated = await hydrateAdsWithMedia(ads);
+    return res.json({ success: true, data: hydrated });
   } catch (error: any) {
     console.error('Get review queue error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load review queue' });
@@ -217,6 +300,20 @@ export const rejectAd = async (req: Request, res: Response) => {
 export const pauseAd = async (req: Request, res: Response) => {
   try {
     const adId = req.params.id;
+    const userId = req.user?.id;
+    const role = (req.user?.role || '').toString().toLowerCase();
+    const isAdmin = role.includes('admin');
+    if (!userId && !isAdmin) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const existing = await prisma.communityAd.findUnique({ where: { id: adId } });
+    if (!existing) return res.status(404).json({ success: false, error: 'Ad not found' });
+    if (!isAdmin && existing.creatorId !== userId) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+    if (existing.status !== 'ACTIVE') {
+      return res.status(400).json({ success: false, error: 'Only active ads can be paused' });
+    }
+
     const ad = await prisma.communityAd.update({ where: { id: adId }, data: { status: 'PAUSED' } });
     const io = (req.app as any).get('io');
     try { io?.emit('community:ad_status_updated', { adId, status: 'PAUSED' }); } catch(e){}
@@ -231,6 +328,20 @@ export const pauseAd = async (req: Request, res: Response) => {
 export const resumeAd = async (req: Request, res: Response) => {
   try {
     const adId = req.params.id;
+    const userId = req.user?.id;
+    const role = (req.user?.role || '').toString().toLowerCase();
+    const isAdmin = role.includes('admin');
+    if (!userId && !isAdmin) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const existing = await prisma.communityAd.findUnique({ where: { id: adId } });
+    if (!existing) return res.status(404).json({ success: false, error: 'Ad not found' });
+    if (!isAdmin && existing.creatorId !== userId) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+    if (existing.status !== 'PAUSED') {
+      return res.status(400).json({ success: false, error: 'Only paused ads can be resumed' });
+    }
+
     const ad = await prisma.communityAd.update({ where: { id: adId }, data: { status: 'ACTIVE' } });
     const io = (req.app as any).get('io');
     try { io?.emit('community:ad_status_updated', { adId, status: 'ACTIVE' }); } catch(e){}
@@ -255,20 +366,90 @@ export const getAdsAnalytics = async (_req: Request, res: Response) => {
   }
 };
 
+export const getAdsConfig = async (_req: Request, res: Response) => {
+  try {
+    const existing = await prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } });
+    if (!existing) {
+      return res.json({ success: true, data: defaultAdsConfig });
+    }
+    return res.json({ success: true, data: existing.data || defaultAdsConfig });
+  } catch (error: any) {
+    console.error('Get ads config error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load ads config' });
+  }
+};
+
+export const updateAdsConfig = async (req: Request, res: Response) => {
+  try {
+    const payload = req.body?.data ?? req.body ?? {};
+    const merged = { ...defaultAdsConfig, ...(payload || {}) };
+    const upserted = await prisma.appSetting.upsert({
+      where: { scope: ADS_CONFIG_SCOPE },
+      create: { scope: ADS_CONFIG_SCOPE, data: merged },
+      update: { data: merged }
+    });
+    const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
+    try { io?.emit('community:ads_config_updated', { config: upserted.data }); } catch (e) {}
+    return res.json({ success: true, data: upserted.data });
+  } catch (error: any) {
+    console.error('Update ads config error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to update ads config' });
+  }
+};
+
 // Public: list ads available for placement (only ACTIVE/PAID)
 export const getPublicAds = async (req: Request, res: Response) => {
   try {
-    const roleParam = (req.query.role as string | undefined) || undefined;
+    const placementParam =
+      ((req.query.placement as string | undefined) || (req.query.role as string | undefined) || '').trim();
+    const limitRaw = Number(req.query.limit);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(30, Math.floor(limitRaw))) : 8;
     const where: any = { status: { in: ['ACTIVE', 'PAID'] } };
-    if (roleParam) {
-      // allow filtering by placement or role-based targeting if needed
-      where.placement = roleParam;
+    if (placementParam) {
+      where.placement = placementParam;
     }
-    const ads = await prisma.communityAd.findMany({ where, orderBy: { createdAt: 'desc' } });
-    return res.json({ success: true, data: ads });
+    const ads = await prisma.communityAd.findMany({ where, orderBy: { createdAt: 'desc' }, take: limit });
+    const hydrated = await hydrateAdsWithMedia(ads);
+    return res.json({ success: true, data: hydrated });
   } catch (error: any) {
     console.error('Get public ads error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load ads' });
+  }
+};
+
+export const recordAdImpression = async (req: Request, res: Response) => {
+  try {
+    const adId = req.params.id;
+    if (!adId) return res.status(400).json({ success: false, error: 'Missing ad id' });
+    const result = await recordImpression(adId);
+    if (!result) return res.json({ success: true, data: { recorded: false } });
+    const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
+    try { io?.emit('community:ad_metrics_updated', { adId, metrics: result.metrics }); } catch (e) {}
+    try { realtime.emitToAd(adId, 'community:ad_metrics_updated', { adId, metrics: result.metrics }); } catch (e) {}
+    if (result.metrics?.status === 'ENDED') {
+      try { io?.emit('community:ad_status_updated', { adId, status: 'ENDED' }); } catch (e) {}
+      try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: 'ENDED' }); } catch (e) {}
+    }
+    return res.json({ success: true, data: { recorded: true } });
+  } catch (error: any) {
+    console.error('Record ad impression error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to record impression' });
+  }
+};
+
+export const recordAdClick = async (req: Request, res: Response) => {
+  try {
+    const adId = req.params.id;
+    if (!adId) return res.status(400).json({ success: false, error: 'Missing ad id' });
+    const result = await recordClick(adId);
+    if (!result) return res.json({ success: true, data: { recorded: false } });
+    const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
+    try { io?.emit('community:ad_metrics_updated', { adId, metrics: result.metrics }); } catch (e) {}
+    try { realtime.emitToAd(adId, 'community:ad_metrics_updated', { adId, metrics: result.metrics }); } catch (e) {}
+    return res.json({ success: true, data: { recorded: true } });
+  } catch (error: any) {
+    console.error('Record ad click error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to record click' });
   }
 };
 
@@ -316,6 +497,10 @@ export const updateAd = async (req: Request, res: Response) => {
     const allowed: any = {};
     if (payload.title !== undefined) allowed.title = String(payload.title);
     if (payload.body !== undefined) allowed.body = String(payload.body);
+    if (payload.objective !== undefined) allowed.objective = String(payload.objective);
+    if (payload.destinationType !== undefined) allowed.destinationType = String(payload.destinationType);
+    if (payload.destinationUrl !== undefined) allowed.destinationUrl = payload.destinationUrl ? String(payload.destinationUrl) : null;
+    if (payload.ctaText !== undefined) allowed.ctaText = payload.ctaText ? String(payload.ctaText) : null;
     if (payload.placement !== undefined) allowed.placement = String(payload.placement);
     if (payload.targeting !== undefined) allowed.targeting = payload.targeting;
     if (payload.mediaFileIds !== undefined) allowed.mediaFileIds = Array.isArray(payload.mediaFileIds) ? payload.mediaFileIds : [];
@@ -335,10 +520,14 @@ export const updateAd = async (req: Request, res: Response) => {
     if (payload.currency !== undefined) allowed.currency = String(payload.currency || 'USD');
     if (payload.startAt !== undefined) allowed.startAt = payload.startAt ? new Date(payload.startAt) : null;
     if (payload.endAt !== undefined) allowed.endAt = payload.endAt ? new Date(payload.endAt) : null;
+    if (payload.durationDays !== undefined) allowed.durationDays = payload.durationDays ? Number(payload.durationDays) : null;
 
     // Prevent creators from changing status via this endpoint
     if ('status' in allowed) delete allowed.status;
     const updated = await prisma.communityAd.update({ where: { id: adId }, data: allowed });
+    if (payload.mediaFileIds !== undefined) {
+      try { await syncFileUsages('community_ad', adId, updated.mediaFileIds || [], 'Community Ad Media'); } catch (e) {}
+    }
     const io = (req.app as any).get('io');
     try { io?.emit('community:ad_status_updated', { adId, status: updated.status }); } catch(e){}
     try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: updated.status }); } catch (e) {}
@@ -379,7 +568,8 @@ export const deleteAd = async (req: Request, res: Response) => {
 export const getAllCampaigns = async (_req: Request, res: Response) => {
   try {
     const ads = await prisma.communityAd.findMany({ orderBy: { createdAt: 'desc' } });
-    return res.json({ success: true, data: ads });
+    const hydrated = await hydrateAdsWithMedia(ads);
+    return res.json({ success: true, data: hydrated });
   } catch (error: any) {
     console.error('Get all campaigns error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load campaigns' });

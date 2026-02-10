@@ -13,7 +13,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [favorites, setFavorites] = useState<string[]>([]);
 
   useEffect(() => {
-    const stored = localStorage.getItem('geezle_favorites');
+    const stored = localStorage.getItem('scrolith_favorites');
     if (stored) {
       setFavorites(JSON.parse(stored));
     }
@@ -22,7 +22,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const toggleFavorite = (id: string) => {
     setFavorites(prev => {
         const newFavs = prev.includes(id) ? prev.filter(fid => fid !== id) : [...prev, id];
-        localStorage.setItem('geezle_favorites', JSON.stringify(newFavs));
+        localStorage.setItem('scrolith_favorites', JSON.stringify(newFavs));
         return newFavs;
     });
   };

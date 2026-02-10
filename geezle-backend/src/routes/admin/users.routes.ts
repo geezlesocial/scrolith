@@ -1,5 +1,6 @@
 import express from 'express';
 import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcrypt';
 
 const router = express.Router();
 
@@ -172,6 +173,40 @@ router.put('/:id', async (req, res) => {
     res.json({ success: true, data: toResponseUser(updated) });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Failed to update user' });
+  }
+});
+
+router.post('/:id/password', async (req, res) => {
+  const userId = req.params.id;
+  const { password } = req.body || {};
+  const prismaClient = getPrisma();
+
+  if (!password || typeof password !== 'string' || password.trim().length < 6) {
+    res.status(400).json({ success: false, error: 'Password must be at least 6 characters' });
+    return;
+  }
+
+  try {
+    const hashed = await bcrypt.hash(password.trim(), 10);
+
+    if (prismaClient) {
+      await prismaClient.user.update({
+        where: { id: userId },
+        data: { passwordHash: hashed }
+      });
+    } else {
+      ensureMemoryUser(req);
+      const idx = memoryUsers.findIndex(u => u.id === userId);
+      if (idx < 0) {
+        res.status(404).json({ success: false, error: 'User not found' });
+        return;
+      }
+      memoryUsers[idx] = { ...memoryUsers[idx], updatedAt: new Date().toISOString() };
+    }
+
+    res.json({ success: true, message: 'Password updated' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: 'Failed to update password' });
   }
 });
 

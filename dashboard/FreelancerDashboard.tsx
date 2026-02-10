@@ -69,7 +69,7 @@ const FreelancerDashboard = () => {
                 <div className="p-6 border-b border-gray-200">
                     <div className="flex items-center space-x-3 mb-6">
                         <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-200">G</div>
-                        <span className="font-bold text-lg text-gray-800 tracking-tight">Geezle</span>
+                        <span className="font-bold text-lg text-gray-800 tracking-tight">Scrolith</span>
                     </div>
                     
                     <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-xl border border-gray-100">

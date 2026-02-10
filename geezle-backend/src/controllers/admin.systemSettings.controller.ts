@@ -2,12 +2,18 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import fs from 'fs';
 import path from 'path';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const nodemailer = require('nodemailer');
 
 const DEFAULT_SYSTEM = {
   maintenanceMode: false,
   registrationsEnabled: true,
   kycEnforced: false,
   admin2FA: false,
+  listings: {
+    autoApproveGigs: false,
+    autoApproveJobs: false
+  },
   currency: {
     autoExchangeRate: true,
     baseCurrency: 'USD',
@@ -145,4 +151,58 @@ export const updateSystemSettings = async (req: Request, res: Response) => {
   }
 };
 
-export default { getSystemSettings, updateSystemSettings };
+export const testEmailSettings = async (req: Request, res: Response) => {
+  try {
+    const payload = req.body || {};
+    const to = payload.to || payload.email || payload.recipient;
+    if (!to) {
+      return res.status(400).json({ success: false, error: 'Recipient email is required' });
+    }
+
+    const providedConfig = payload.config || payload.emailConfig || payload.smtp || null;
+    let config = providedConfig;
+
+    if (!config) {
+      const record = await prisma.appSetting.findUnique({ where: { scope: 'system' } });
+      const data = record?.data as any;
+      config = data?.email || null;
+    }
+
+    if (!config) {
+      return res.status(400).json({ success: false, error: 'Email configuration not found' });
+    }
+
+    const host = config.host || '';
+    const port = Number(config.port) || 0;
+    const username = config.username || '';
+    const password = config.password || '';
+    const fromName = config.fromName || config.from_name || 'Scrolith';
+    const fromEmail = config.fromEmail || config.from_email || 'noreply@Scrolith.com';
+
+    if (!host || !port) {
+      return res.status(400).json({ success: false, error: 'SMTP host and port are required' });
+    }
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: port === 465,
+      auth: username ? { user: username, pass: password } : undefined
+    });
+
+    await transporter.sendMail({
+      from: `${fromName} <${fromEmail}>`,
+      to,
+      subject: 'Scrolith SMTP Test',
+      text: 'This is a test email from Scrolith System Settings. If you received this, your SMTP configuration is working.'
+    });
+
+    return res.json({ success: true, message: `Test email sent to ${to}` });
+  } catch (error: any) {
+    console.error('SMTP test failed', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to send test email' });
+  }
+};
+
+export default { getSystemSettings, updateSystemSettings, testEmailSettings };
+

@@ -1,6 +1,6 @@
 (async ()=>{
   const base = 'http://localhost:5000/api';
-  const email = 'admin@geezle.com';
+  const email = 'admin@scrolith.com';
   const password = 'admin12345';
   try {
     console.log('Logging in...');

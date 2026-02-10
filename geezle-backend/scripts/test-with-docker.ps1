@@ -6,7 +6,7 @@ Write-Host "Waiting for Postgres to initialize inside the container (pg_isready)
 $max = 60
 $wait = 0
 while ($wait -lt $max) {
-  docker-compose exec -T db pg_isready -U user -d geezle_test > $null 2>&1
+  docker-compose exec -T db pg_isready -U user -d scrolith_test > $null 2>&1
   if ($LASTEXITCODE -eq 0) { break }
   Start-Sleep -Seconds 1
   $wait++
@@ -18,7 +18,7 @@ if ($wait -ge $max) {
 }
 
 Write-Host "Setting DATABASE_URL for this session..."
-$env:DATABASE_URL = "postgresql://user:pass@localhost:5432/geezle_test"
+$env:DATABASE_URL = "postgresql://user:pass@localhost:5432/scrolith_test"
 
 Write-Host "Running migrations and generating Prisma client (with retries)..."
 $maxAttempts = 30

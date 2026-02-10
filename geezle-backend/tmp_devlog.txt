@@ -1,0 +1,28 @@
+
+> Scrolith-backend@1.0.0 dev
+> ts-node-dev --respawn --transpile-only src/server.ts
+
+[INFO] 02:16:42 ts-node-dev ver. 2.0.0 (using ts-node ver. 10.9.2, typescript ver. 5.9.3)
+ℹ️  Optional environment variables are not set (some features may be limited):
+  - EMAIL_HOST - SMTP host
+  - EMAIL_USER - SMTP username
+  - EMAIL_PASS - SMTP password
+  - GOOGLE_API_KEY - Google / Vertex AI key
+  - OPENAI_API_KEY - OpenAI API key
+  - STORAGE_DRIVER - Storage driver: local | s3 | backblaze
+  - FCM_SERVICE_ACCOUNT_JSON - Firebase service account JSON (inline)
+  - FCM_SERVICE_ACCOUNT_B64 - Firebase service account JSON (base64)
+  - GOOGLE_APPLICATION_CREDENTIALS - Google ADC credentials path
+[push] Firebase Admin initialized
+Error: listen EADDRINUSE: address already in use :::5000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at Object.<anonymous> (C:\Projects\geezle-backend\src\server.ts:1031:10)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1688:14)
+    at Module._compile (C:\Projects\geezle-backend\node_modules\source-map-support\source-map-support.js:568:25)
+    at Module.m._compile (C:\Users\HP\AppData\Local\Temp\ts-node-dev-hook-9060999595514041.js:69:33)
+    at node:internal/modules/cjs/loader:1820:10
+    at require.extensions..jsx.require.extensions..js (C:\Users\HP\AppData\Local\Temp\ts-node-dev-hook-9060999595514041.js:114:20)
+    at require.extensions.<computed> (C:\Users\HP\AppData\Local\Temp\ts-node-dev-hook-9060999595514041.js:71:20)
+[ERROR] 02:16:53 Error: listen EADDRINUSE: address already in use :::5000

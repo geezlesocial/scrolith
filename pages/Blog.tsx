@@ -36,7 +36,7 @@ const Blog = () => {
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-12">
           <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 mb-4">
-            Geezle Blog
+            Scrolith Blog
           </h1>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
             Insights, trends, and tips for freelancers and businesses. Stay ahead of the curve.

@@ -90,7 +90,7 @@ const Landing = () => {
               {sections.length === 0 ? (
                   // Fallback content if sections are empty (shouldn't happen with CMS defaults)
                    <div className="py-20 text-center text-gray-500">
-                       <p>Welcome to Geezle. Browse our categories to get started.</p>
+                       <p>Welcome to Scrolith. Browse our categories to get started.</p>
                    </div>
               ) : (
                   sections.map((section) => (

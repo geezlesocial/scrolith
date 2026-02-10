@@ -27,7 +27,7 @@ const mapReview = (review: any) => ({
 });
 
 const getSettings = async () => {
-  let settings = await prisma.settings.findFirst();
+  let settings = await prisma.settings.findFirst({ orderBy: { updatedAt: 'desc' } });
   if (!settings) {
     settings = await prisma.settings.create({ data: {} });
   }

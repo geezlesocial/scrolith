@@ -73,7 +73,7 @@ npm run dev
 
 Required GitHub Secrets (set these in the repository Settings → Secrets):
 - `POSTGRES_PASSWORD` — password used by the Postgres service in CI.
-- `ADMIN_EMAIL` — email for the seeded admin test account (e.g., `admin@geezle.com`).
+- `ADMIN_EMAIL` — email for the seeded admin test account (e.g., `admin@scrolith.com`).
 - `ADMIN_PASSWORD` — password for the seeded admin test account.
 - `OPENAI_API_KEY` — optional; CI can run with a dummy value if OpenAI features are unused in tests.
 
@@ -83,7 +83,7 @@ Running the integration test locally
 
 ```powershell
 $env:TEST_SERVER_PORT='5000'
-$env:TEST_ADMIN_EMAIL='admin@geezle.com'
+$env:TEST_ADMIN_EMAIL='admin@scrolith.com'
 $env:TEST_ADMIN_PASSWORD='admin12345'
 npx jest tmp/adminProfileBroadcast.test.cjs --runInBand --verbose
 ```
@@ -92,7 +92,7 @@ CI behavior
 - The workflow `.github/workflows/integration.yml` will:
   - start a Postgres service using the `POSTGRES_PASSWORD` secret
   - run Prisma generate, migrations, and seeds
-  - start the `geezle-backend` server
+  - start the `scrolith-backend` server
   - ensure an admin user exists via `create:admin` (using `ADMIN_EMAIL`/`ADMIN_PASSWORD`)
   - run `tmp/adminProfileBroadcast.test.cjs` with the seeded admin credentials
 

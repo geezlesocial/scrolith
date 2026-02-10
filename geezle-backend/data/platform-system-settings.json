@@ -1,10 +1,189 @@
 {
   "platform": {
-    "siteName": "Geezle",
+    "siteName": "Scrolith",
     "tagline": "Find, hire, and work with the best talent",
     "logoUrl": "/logo.svg",
     "faviconUrl": "/favicon.ico",
-    "adminEmail": "admin@geezle.com",
-    "supportEmail": "support@geezle.com"
+    "adminEmail": "admin@Scrolith.com",
+    "supportEmail": "support@Scrolith.com",
+    "gigExperience": {
+      "enabled": true,
+      "chatBarEnabled": true,
+      "inlineChatEnabled": true,
+      "shareModalEnabled": true,
+      "allowGuestOpenChat": true,
+      "showSellerMeta": true,
+      "quickPrompts": [
+        "Hey, can you help me with this gig?",
+        "Can you provide your timeline and budget estimate?",
+        "Can you customize this package for my requirements?"
+      ]
+    },
+    "site_name": "Scrolith",
+    "logo_url": "/logo.svg",
+    "favicon_url": "/favicon.ico",
+    "admin_email": "admin@Scrolith.com",
+    "support_email": "support@Scrolith.com",
+    "footerAboutTitle": "About",
+    "footer_about_title": "About",
+    "footerAboutText": "About text",
+    "footer_about_text": "About text",
+    "footerCopyright": "© 2024",
+    "footer_copyright": "© 2024",
+    "footerLinks": [],
+    "footer_links": [],
+    "socialLinks": [],
+    "social_links": [],
+    "proFreelancerLabelUrl": "http://localhost:5000/uploads/1770243596780-Pro_verified.png",
+    "proFreelancerLabelFileId": "d5a16821-0fc0-43cc-aea5-0fda5d126624",
+    "pro_freelancer_label_url": "http://localhost:5000/uploads/1770243596780-Pro_verified.png",
+    "pro_freelancer_label_file_id": "d5a16821-0fc0-43cc-aea5-0fda5d126624",
+    "proEmployerLabelUrl": "http://localhost:5000/uploads/1770244606118-Business_Pro.png",
+    "proEmployerLabelFileId": "f658d202-55cc-4b98-8e38-e2771160ac20",
+    "pro_employer_label_url": "http://localhost:5000/uploads/1770244606118-Business_Pro.png",
+    "pro_employer_label_file_id": "f658d202-55cc-4b98-8e38-e2771160ac20",
+    "integrations": {
+      "recaptcha": {
+        "enabled": false,
+        "siteKey": "",
+        "scoreThreshold": 0.9,
+        "version": "v3"
+      },
+      "analytics": {
+        "googleEnabled": false,
+        "googleAnalyticsId": "",
+        "facebookEnabled": false,
+        "facebookPixelId": ""
+      },
+      "googleMap": {
+        "enabled": false,
+        "apiKey": "",
+        "defaultLat": 37.7749,
+        "defaultLng": -122.4194,
+        "defaultZoom": 12
+      },
+      "firebase": {
+        "enabled": false,
+        "apiKey": "",
+        "authDomain": "",
+        "projectId": "",
+        "storageBucket": "",
+        "messagingSenderId": "",
+        "appId": "",
+        "measurementId": ""
+      },
+      "facebookComments": {
+        "enabled": false,
+        "appId": ""
+      },
+      "sitemap": {
+        "lastGeneratedAt": ""
+      }
+    },
+    "reactions": {
+      "enabled": true,
+      "postsEnabled": true,
+      "commentsEnabled": true,
+      "messagesEnabled": true,
+      "showReactors": true,
+      "rateLimitPerMinute": 40,
+      "allowed": [
+        {
+          "key": "like",
+          "label": "Like",
+          "emoji": "👍",
+          "enabled": true
+        },
+        {
+          "key": "love",
+          "label": "Love",
+          "emoji": "❤️",
+          "enabled": true
+        },
+        {
+          "key": "good",
+          "label": "Good",
+          "emoji": "✅",
+          "enabled": true
+        },
+        {
+          "key": "happy",
+          "label": "Happy",
+          "emoji": "😄",
+          "enabled": true
+        }
+      ]
+    },
+    "memberHome": {
+      "widgets": {
+        "trendingEnabled": true,
+        "storiesEnabled": true,
+        "suggestionsEnabled": true,
+        "pagesRecommendationsEnabled": true,
+        "categoriesFilterEnabled": true,
+        "postComposerEnabled": true,
+        "recentMessagesEnabled": true,
+        "profileViewersEnabled": true,
+        "rightSidebarAdsEnabled": true
+      },
+      "feed": {
+        "defaultTab": "latest",
+        "defaultSort": "latest",
+        "defaultScope": "discover",
+        "enableTrendingTab": true,
+        "postDensity": "comfortable",
+        "showReactionCounts": true,
+        "showCommentsPreviewCount": true
+      },
+      "ads": {
+        "enabled": true,
+        "rightSidebarTopEnabled": true,
+        "rightSidebarMiddleEnabled": true,
+        "inlineFrequency": 6
+      }
+    },
+    "notifications": {
+      "enableMentionNotifications": true,
+      "enableFollowedPostNotifications": true,
+      "enableFollowNotifications": true,
+      "enableCommentNotifications": true,
+      "enableReactionNotifications": true,
+      "enableRepostNotifications": true,
+      "enableJobApplicationNotifications": true,
+      "enableProposalOpenedNotifications": true,
+      "enableProposalReplyNotifications": true,
+      "enableTopApplicantNotifications": true,
+      "enableInterviewScheduledNotifications": true,
+      "enableJobLifecycleEmails": true
+    },
+    "profileDemographics": {
+      "enabled": true,
+      "genderFieldEnabled": true,
+      "dateOfBirthEnabled": true,
+      "showBirthMonthDayPublicDefault": true,
+      "genderOptions": [
+        {
+          "key": "male",
+          "label": "Male",
+          "active": true
+        },
+        {
+          "key": "female",
+          "label": "Female",
+          "active": true
+        }
+      ]
+    },
+    "messagingControls": {
+      "enableMoveToOther": true,
+      "enableLabelAsJobs": true,
+      "enableMarkUnread": true,
+      "enableStar": true,
+      "enableMute": true,
+      "enableArchive": true,
+      "enableReportBlock": true,
+      "enableDeleteConversation": true,
+      "enableManageMessageSettings": true
+    }
   }
 }

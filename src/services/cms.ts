@@ -4,7 +4,7 @@ import { PlatformSettings, HomepageSection, HomeSlide, HeaderConfig, FooterConfi
 const API_URL = '/api'; 
 
 // --- CIRCUIT BREAKER & CACHE ---
-const CIRCUIT_KEY = 'geezle_api_circuit';
+const CIRCUIT_KEY = 'scrolith_api_circuit';
 const requestCache = new Map<string, Promise<any>>();
 const CACHE_DURATION = 60000; // 60 seconds cache
 const REQUEST_TIMEOUT = 5000; // 5 seconds timeout
@@ -102,11 +102,11 @@ const DEFAULT_HEADER: HeaderConfig = {
 };
 
 const DEFAULT_FOOTER: FooterConfig = {
-    id: 'default', description: 'The next-generation freelance marketplace.', copyright: '© 2024 Geezle Inc.', logoUrl: '',
+    id: 'default', description: 'The next-generation freelance marketplace.', copyright: '© 2024 Scrolith Inc.', logoUrl: '',
     columns: [
         { id: 'c1', title: 'Support', links: [{ id: 'l1', label: 'Help Center', url: '/support', type: 'internal', visibility: [] }] }
     ],
-    contact: { adminEmail: 'admin@geezle.com', supportEmail: 'support@geezle.com', ticketRoute: '/support' },
+    contact: { adminEmail: 'admin@scrolith.com', supportEmail: 'support@scrolith.com', ticketRoute: '/support' },
     socials: []
 };
 
@@ -134,8 +134,8 @@ export const CMSService = {
     getSettings: async (): Promise<PlatformSettings> => {
         const data = await api.get('/admin/settings');
         return data || {
-            siteName: 'Geezle', tagline: 'Marketplace', logoUrl: '', faviconUrl: '',
-            adminEmail: 'admin@geezle.com', supportEmail: 'support@geezle.com',
+            siteName: 'Scrolith', tagline: 'Marketplace', logoUrl: '', faviconUrl: '',
+            adminEmail: 'admin@scrolith.com', supportEmail: 'support@scrolith.com',
             footerAboutTitle: 'About', footerAboutText: 'About text', footerCopyright: '© 2024',
             footerLinks: [], socialLinks: [],
             system: { maintenanceMode: false, registrationsEnabled: true, kycEnforced: false, admin2FA: false }

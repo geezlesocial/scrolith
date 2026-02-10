@@ -2,12 +2,19 @@ import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import { PrismaClient } from '@prisma/client';
 import { reconcileAdPayments } from '../scripts/reconcileAdPayments';
+import { computeCommissionBreakdown } from '../utils/commission';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_mock_key', {
   apiVersion: '2023-10-16' as any
 });
 
 const prisma = new PrismaClient();
+
+const getOrCreateSettings = async () => {
+  let settings = await prisma.settings.findFirst({ orderBy: { updatedAt: 'desc' } });
+  if (!settings) settings = await prisma.settings.create({ data: {} });
+  return settings;
+};
 
 export const createPaymentIntent = async (req: Request, res: Response) => {
   try {
@@ -102,11 +109,16 @@ export const handleWebhook = async (req: Request, res: Response) => {
         } else if (orderId) {
           // Update escrow status and order if an orderId was provided
           try {
+            const settings = await getOrCreateSettings();
+            const order = await prisma.order.findUnique({ where: { id: orderId } });
+            const baseAmount = Number(order?.amount ?? 0);
+            const commissionBreakdown = computeCommissionBreakdown(baseAmount, settings);
             await prisma.escrow.update({
               where: { orderId },
               data: {
                 status: 'FUNDED',
-                fundedAt: new Date()
+                fundedAt: new Date(),
+                commission: commissionBreakdown.freelancerFee
               }
             });
 

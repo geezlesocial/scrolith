@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
+import { verifyRecaptcha } from '../utils/recaptcha';
+import { notifyAdmins, notifyUser } from '../utils/notify';
 
 const isAdmin = (role?: string) => (role || '').toString().toLowerCase().includes('admin');
 
@@ -99,8 +101,16 @@ export const createTicket = async (req: Request, res: Response) => {
   try {
     const user = req.user;
     const payload = req.body || {};
+    const recaptchaToken = payload.recaptchaToken || payload.recaptcha_token;
 
-    if (!payload.full_name || !payload.email || !payload.subject || !payload.message || !payload.category) {
+    // Enforce reCAPTCHA if enabled in platform settings
+    const recaptchaCheck = await verifyRecaptcha(recaptchaToken, req.ip);
+    if (recaptchaCheck.enforced && !recaptchaCheck.success) {
+      return res.status(400).json({ success: false, error: recaptchaCheck.error || 'reCAPTCHA verification failed' });
+    }
+
+    const fullName = payload.full_name ?? payload.fullName;
+    if (!fullName || !payload.email || !payload.subject || !payload.message || !payload.category) {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
     }
 
@@ -109,7 +119,7 @@ export const createTicket = async (req: Request, res: Response) => {
       data: {
         trackingCode,
         userId: user?.id || null,
-        fullName: payload.full_name,
+        fullName,
         email: payload.email,
         mobile: payload.mobile || null,
         subject: payload.subject,
@@ -121,6 +131,23 @@ export const createTicket = async (req: Request, res: Response) => {
       },
       include: { replies: true }
     });
+
+    notifyAdmins({
+      type: 'support',
+      title: 'New support ticket',
+      body: `${trackingCode}: ${payload.subject}`,
+      link: '/admin/dashboard?tab=support',
+      meta: { ticketId: ticket.id, trackingCode }
+    });
+    if (ticket.userId) {
+      notifyUser(ticket.userId, {
+        type: 'support',
+        title: 'Support ticket received',
+        body: `We received your ticket ${trackingCode}.`,
+        link: '/support',
+        meta: { ticketId: ticket.id, trackingCode }
+      });
+    }
 
     return res.json({ success: true, data: mapTicket(ticket) });
   } catch (error: any) {
@@ -173,6 +200,26 @@ export const replyToTicket = async (req: Request, res: Response) => {
       where: { id: ticket.id },
       data: { updatedAt: new Date(), isReadByAdmin: isAdmin(user?.role) ? true : false, isReadByUser: !isAdmin(user?.role) }
     });
+
+    const fromAdmin = isAdmin(user?.role);
+    if (fromAdmin && ticket.userId) {
+      notifyUser(ticket.userId, {
+        type: 'support',
+        title: 'Support replied',
+        body: message,
+        link: '/support',
+        meta: { ticketId: ticket.id }
+      });
+    }
+    if (!fromAdmin) {
+      notifyAdmins({
+        type: 'support',
+        title: 'Support reply',
+        body: message,
+        link: '/admin/dashboard?tab=support',
+        meta: { ticketId: ticket.id }
+      });
+    }
 
     return res.json({ success: true, data: mapReply(reply) });
   } catch (error: any) {

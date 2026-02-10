@@ -12,12 +12,16 @@ import {
   handleDragonpayCallback,
   handlePayoneerNotify
 } from '../controllers/walletFunding.controller';
+import { listFundingGatewaysPublic } from '../controllers/walletFunding.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = express.Router();
 
 // Webhook needs raw body
 router.post('/webhook', express.raw({ type: 'application/json' }), handleWebhook);
+
+// Read-only active payment methods for community ads
+router.get('/methods/active', listFundingGatewaysPublic);
 
 // Wallet top-up webhooks (JSON payloads)
 router.post('/paypal/webhook', express.json(), handlePaypalWebhook);

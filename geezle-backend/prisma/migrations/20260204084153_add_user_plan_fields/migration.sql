@@ -1,0 +1,17 @@
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN     "employerPlanActive" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "employerPlanCurrency" TEXT,
+ADD COLUMN     "employerPlanExpiresAt" TIMESTAMP(3),
+ADD COLUMN     "employerPlanId" TEXT,
+ADD COLUMN     "employerPlanInterval" TEXT,
+ADD COLUMN     "employerPlanName" TEXT,
+ADD COLUMN     "employerPlanPrice" DOUBLE PRECISION,
+ADD COLUMN     "employerPlanPurchasedAt" TIMESTAMP(3),
+ADD COLUMN     "freelancerPlanActive" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "freelancerPlanCurrency" TEXT,
+ADD COLUMN     "freelancerPlanExpiresAt" TIMESTAMP(3),
+ADD COLUMN     "freelancerPlanId" TEXT,
+ADD COLUMN     "freelancerPlanInterval" TEXT,
+ADD COLUMN     "freelancerPlanName" TEXT,
+ADD COLUMN     "freelancerPlanPrice" DOUBLE PRECISION,
+ADD COLUMN     "freelancerPlanPurchasedAt" TIMESTAMP(3);

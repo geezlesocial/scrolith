@@ -1,10 +1,15 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
+import { getAIConfig, answerQuestion, generateGuide } from '../controllers/aiController';
 
 const router = express.Router();
 
-// AI routes (placeholder for now)
-router.get('/config', (req: Request, res: Response) => {
-  res.json({ message: 'AI config route placeholder' });
+// Health check (no auth)
+router.get('/health', (_req, res) => {
+  res.json({ success: true, service: 'ai' });
 });
+
+router.get('/config', getAIConfig);
+router.post('/answer', answerQuestion);
+router.post('/guide', generateGuide);
 
 export default router;

@@ -379,8 +379,8 @@ const Navbar = () => {
               </>
             ) : (
               <div className="flex items-center space-x-2">
-                <Link to="/auth/login" className="text-gray-700 hover:text-gray-900 px-3 py-2 text-sm font-medium">Log in</Link>
-                <Link to="/auth/signup" className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">Sign up</Link>
+                <Link to="/auth/login" className="text-gray-700 hover:text-gray-900 px-3 py-2 text-sm font-medium">Sign In</Link>
+                <Link to="/auth/signup" className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">Join</Link>
               </div>
             )}
           </div>

@@ -35,7 +35,7 @@ const toSnakeCase = (settings: any) => ({
 });
 
 const getOrCreateSettings = async () => {
-  let settings = await prisma.settings.findFirst();
+  let settings = await prisma.settings.findFirst({ orderBy: { updatedAt: 'desc' } });
   if (!settings) {
     settings = await prisma.settings.create({ data: {} });
   }
@@ -72,6 +72,10 @@ export const updateCommunitySettings = async (req: Request, res: Response) => {
       where: { id: settings.id },
       data: updates
     });
+    await prisma.settings.updateMany({
+      where: { id: { not: settings.id } },
+      data: updates
+    });
 
     return res.json({ success: true, data: toSnakeCase(updated) });
   } catch (error: any) {
@@ -91,6 +95,10 @@ export const toggleCommunitySetting = async (req: Request, res: Response) => {
     const settings = await getOrCreateSettings();
     const updated = await prisma.settings.update({
       where: { id: settings.id },
+      data: { [mapped]: Boolean(value) }
+    });
+    await prisma.settings.updateMany({
+      where: { id: { not: settings.id } },
       data: { [mapped]: Boolean(value) }
     });
 

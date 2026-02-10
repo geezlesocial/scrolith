@@ -125,6 +125,7 @@ export interface PlanFeature {
   name: string;
   included: boolean;
   limit?: string;
+  code?: string;
 }
 
 export interface UploadedFile {

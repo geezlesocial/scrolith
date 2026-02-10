@@ -133,6 +133,9 @@ const serializeGig = (gig: any) => ({
     rating: gig.rating || 0,
     reviews: gig.reviewCount || 0
   },
+  isFeatured: Boolean(gig.isFeatured),
+  isTopSelected: Boolean(gig.isTopSelected),
+  isRecommended: Boolean(gig.isRecommended),
   media: [],
   tags: [],
   createdAt: gig.createdAt?.toISOString(),

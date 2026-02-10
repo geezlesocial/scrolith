@@ -21,4 +21,18 @@ dist-ssr
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?
+*.sw? 
+
+# --- local runtime / generated ---
+geezle-backend/data/
+geezle-backend/uploads/
+
+# test artifacts
+test-results/
+tests/admin-languages-trace/
+tests/*.zip
+tests/*.png
+
+# temp build outputs
+tmp/
+

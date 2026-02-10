@@ -2,18 +2,234 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { PrismaClient, Role as PrismaRole, KYCStatus as PrismaKYCStatus } from '@prisma/client'; // Import Prisma Client, Role, and KYCStatus enums
+import { resolveUserProStatus } from '../utils/proStatus';
+import { verifyRecaptcha } from '../utils/recaptcha';
+import { sendSystemMessage } from '../services/systemMessaging';
 
 const prisma = new PrismaClient();
 
-// JWT Secret from environment variables
-const JWT_SECRET = process.env.JWT_SECRET!;
+const minimalLoginSelect = {
+  id: true,
+  email: true,
+  name: true,
+  username: true,
+  role: true,
+  passwordHash: true
+};
+
+const minimalMeSelect = {
+  id: true,
+  email: true,
+  name: true,
+  username: true,
+  role: true
+};
+
+const baseLoginSelect = {
+  id: true,
+  email: true,
+  name: true,
+  username: true,
+  role: true,
+  avatar: true,
+  profilePhotoFileId: true,
+  kycStatus: true,
+  passwordHash: true
+};
+
+const baseMeSelect = {
+  id: true,
+  email: true,
+  name: true,
+  username: true,
+  role: true,
+  avatar: true,
+  profilePhotoFileId: true,
+  kycStatus: true
+};
+
+const fullUserSelect = {
+  ...baseMeSelect,
+  freelancerPlanId: true,
+  freelancerPlanName: true,
+  freelancerPlanInterval: true,
+  freelancerPlanPrice: true,
+  freelancerPlanCurrency: true,
+  freelancerPlanActive: true,
+  freelancerPlanPurchasedAt: true,
+  freelancerPlanExpiresAt: true,
+  employerPlanId: true,
+  employerPlanName: true,
+  employerPlanInterval: true,
+  employerPlanPrice: true,
+  employerPlanCurrency: true,
+  employerPlanActive: true,
+  employerPlanPurchasedAt: true,
+  employerPlanExpiresAt: true
+};
+
+const safeFindUserByEmail = async (email: string) => {
+  try {
+    return await prisma.user.findUnique({
+      where: { email },
+      select: { ...fullUserSelect, passwordHash: true }
+    });
+  } catch (error) {
+    console.warn('[auth] Full user select failed (email). Falling back to base select.', (error as any)?.message || error);
+    try {
+      return await prisma.user.findUnique({
+        where: { email },
+        select: baseLoginSelect
+      });
+    } catch (fallbackError) {
+      console.warn('[auth] Base user select failed (email). Falling back to minimal select.', (fallbackError as any)?.message || fallbackError);
+      return await prisma.user.findUnique({
+        where: { email },
+        select: minimalLoginSelect
+      });
+    }
+  }
+};
+
+const safeFindUserById = async (id?: string | null) => {
+  if (!id) return null;
+  try {
+    return await prisma.user.findUnique({
+      where: { id },
+      select: fullUserSelect
+    });
+  } catch (error) {
+    console.warn('[auth] Full user select failed (id). Falling back to base select.', (error as any)?.message || error);
+    try {
+      return await prisma.user.findUnique({
+        where: { id },
+        select: baseMeSelect
+      });
+    } catch (fallbackError) {
+      console.warn('[auth] Base user select failed (id). Falling back to minimal select.', (fallbackError as any)?.message || fallbackError);
+      return await prisma.user.findUnique({
+        where: { id },
+        select: minimalMeSelect
+      });
+    }
+  }
+};
+
+const mapUserPayload = (user: any) => {
+  const pro = resolveUserProStatus(user);
+  const kycStatus = user?.kycStatus ? user.kycStatus.toString().toLowerCase() : undefined;
+  const toIso = (value?: Date | string | null) => {
+    if (!value) return undefined;
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+  };
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    username: user.username || '',
+    role: user.role,
+    avatar: user.avatar,
+    profilePhotoFileId: user.profilePhotoFileId ?? null,
+    profile_photo_file_id: user.profilePhotoFileId ?? null,
+    kycStatus,
+    kyc_status: kycStatus,
+    freelancerPlanId: user.freelancerPlanId ?? null,
+    freelancer_plan_id: user.freelancerPlanId ?? null,
+    freelancerPlanName: user.freelancerPlanName ?? null,
+    freelancer_plan_name: user.freelancerPlanName ?? null,
+    freelancerPlanInterval: user.freelancerPlanInterval ?? null,
+    freelancer_plan_interval: user.freelancerPlanInterval ?? null,
+    freelancerPlanPrice: user.freelancerPlanPrice ?? null,
+    freelancer_plan_price: user.freelancerPlanPrice ?? null,
+    freelancerPlanCurrency: user.freelancerPlanCurrency ?? null,
+    freelancer_plan_currency: user.freelancerPlanCurrency ?? null,
+    freelancerPlanActive: Boolean(user.freelancerPlanActive),
+    freelancer_plan_active: Boolean(user.freelancerPlanActive),
+    freelancerPlanPurchasedAt: toIso(user.freelancerPlanPurchasedAt),
+    freelancer_plan_purchased_at: toIso(user.freelancerPlanPurchasedAt),
+    freelancerPlanExpiresAt: toIso(user.freelancerPlanExpiresAt),
+    freelancer_plan_expires_at: toIso(user.freelancerPlanExpiresAt),
+    employerPlanId: user.employerPlanId ?? null,
+    employer_plan_id: user.employerPlanId ?? null,
+    employerPlanName: user.employerPlanName ?? null,
+    employer_plan_name: user.employerPlanName ?? null,
+    employerPlanInterval: user.employerPlanInterval ?? null,
+    employer_plan_interval: user.employerPlanInterval ?? null,
+    employerPlanPrice: user.employerPlanPrice ?? null,
+    employer_plan_price: user.employerPlanPrice ?? null,
+    employerPlanCurrency: user.employerPlanCurrency ?? null,
+    employer_plan_currency: user.employerPlanCurrency ?? null,
+    employerPlanActive: Boolean(user.employerPlanActive),
+    employer_plan_active: Boolean(user.employerPlanActive),
+    employerPlanPurchasedAt: toIso(user.employerPlanPurchasedAt),
+    employer_plan_purchased_at: toIso(user.employerPlanPurchasedAt),
+    employerPlanExpiresAt: toIso(user.employerPlanExpiresAt),
+    employer_plan_expires_at: toIso(user.employerPlanExpiresAt),
+    isProFreelancer: pro.freelancerIsPro,
+    is_pro_freelancer: pro.freelancerIsPro,
+    isProEmployer: pro.employerIsPro,
+    is_pro_employer: pro.employerIsPro
+  };
+};
+
+// JWT Secret from environment variables (fallback for development)
+const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+
+const PASSWORD_RESET_TTL_MINUTES = Number(process.env.PASSWORD_RESET_TTL_MINUTES || 30);
+const FRONTEND_URL = (process.env.FRONTEND_URL || process.env.APP_URL || 'https://Scrolith.com').replace(/\/$/, '');
+
+const normalizeEmail = (value: string) => value.trim().toLowerCase();
+
+const getClientMeta = (req: Request) => {
+  const forwarded = (req.headers['x-forwarded-for'] || '') as string;
+  const ip = (forwarded.split(',')[0] || req.ip || '').trim();
+  const userAgent = String(req.headers['user-agent'] || '');
+  return { ip: ip || undefined, userAgent: userAgent || undefined };
+};
+
+const logAuthEvent = async (payload: { userId?: string | null; email?: string | null; event: string; meta?: any }, req?: Request) => {
+  try {
+    const meta = payload.meta || {};
+    const client = req ? getClientMeta(req) : {};
+    await prisma.authAuditLog.create({
+      data: {
+        userId: payload.userId || null,
+        email: payload.email || null,
+        event: payload.event,
+        ip: client.ip,
+        userAgent: client.userAgent,
+        meta
+      }
+    });
+  } catch (error) {
+    console.warn('[auth] Failed to write audit log', error);
+  }
+};
+
+const isStrongPassword = (value: string) => {
+  if (!value || value.length < 8) return false;
+  const hasLetter = /[a-zA-Z]/.test(value);
+  const hasNumber = /\d/.test(value);
+  return hasLetter && hasNumber;
+};
 
 // Registration Controller
 export const register = async (req: Request, res: Response) => {
   try {
+    // Request-level logging: log body keys and a sanitized version (never log raw passwords)
+    const regBody = (req.body || {}) as Record<string, any>;
+    const regBodyKeys = Object.keys(regBody);
+    const regSanitized = { ...regBody };
+    if ('password' in regSanitized) regSanitized.password = '<<redacted>>';
+    if ('passwordHash' in regSanitized) regSanitized.passwordHash = '<<redacted>>';
+    console.log('[auth.register] bodyKeys:', regBodyKeys);
+    console.log('[auth.register] sanitizedBody:', regSanitized);
     let { email, name, password, role = 'EMPLOYER' } = req.body; // Default role to EMPLOYER if not provided
+    const recaptchaToken = req.body?.recaptchaToken || req.body?.recaptcha_token;
 
     // Normalize inputs
     email = (email || '').toString().trim().toLowerCase();
@@ -23,6 +239,12 @@ export const register = async (req: Request, res: Response) => {
     // Validate input
     if (!email || !name || !password) {
       return res.status(400).json({ error: 'Email, name, and password are required' });
+    }
+
+    // Enforce reCAPTCHA if enabled in platform settings
+    const recaptchaCheck = await verifyRecaptcha(recaptchaToken, req.ip);
+    if (recaptchaCheck.enforced && !recaptchaCheck.success) {
+      return res.status(400).json({ error: recaptchaCheck.error || 'reCAPTCHA verification failed' });
     }
 
     // Validate role - only allow known roles for self-registration
@@ -65,17 +287,11 @@ export const register = async (req: Request, res: Response) => {
     // Send success response with user data and token
     return res.status(201).json({
       success: true,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        // Include other necessary user fields (e.g., avatar, joinDate)
-        // Exclude sensitive fields like passwordHash from the response
-      },
+      user: mapUserPayload(user),
       token,
     });
   } catch (error) {
-    console.error('Registration error:', error);
+    console.error('Registration error:', error, (error as any)?.stack);
     // Check if it's a Prisma validation error (e.g., unknown argument, constraint violation)
     if (error instanceof Error && ('code' in error || error.message.includes('Unknown argument') || error.message.includes('Argument'))) {
       return res.status(500).json({ error: 'Database schema error during registration. Please contact support.' });
@@ -88,49 +304,101 @@ export const register = async (req: Request, res: Response) => {
 // Login Controller
 export const login = async (req: Request, res: Response) => {
   try {
+    // Request-level logging: log body keys and a sanitized version (never log raw passwords)
+    const body = (req.body || {}) as Record<string, any>;
+    const bodyKeys = Object.keys(body);
+    const sanitized = { ...body };
+    if ('password' in sanitized) sanitized.password = '<<redacted>>';
+    if ('passwordHash' in sanitized) sanitized.passwordHash = '<<redacted>>';
+    console.log('[auth.login] bodyKeys:', bodyKeys);
+    console.log('[auth.login] sanitizedBody:', sanitized);
+
     let { email, password } = req.body;
     email = (email || '').toString().trim().toLowerCase();
+
+    console.log('[auth.login] attempt', { email });
 
     // Validate input
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // Find user by normalized email
-    const user = await prisma.user.findUnique({ where: { email } });
+    // Find user by normalized email (safe select with fallback for older schemas)
+    const user = await safeFindUserByEmail(email);
+    console.log('[auth.login] user found?', !!user);
 
     // Check if user exists and password is correct
-    if (!user || !user.passwordHash || !(await bcrypt.compare(password, user.passwordHash))) {
+    if (!user) {
+      console.log('[auth.login] no user');
       return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    if (!user.passwordHash) {
+      console.log('[auth.login] no passwordHash for user', user.id);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    const pwMatch = await bcrypt.compare(password, user.passwordHash);
+    console.log('[auth.login] password match?', pwMatch);
+    if (!pwMatch) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    // Staff account guardrails at login time.
+    const staffProfile = await prisma.staffUser.findUnique({
+      where: { userId: user.id },
+      include: {
+        role: {
+          select: { id: true, name: true, isActive: true }
+        }
+      }
+    });
+    if (staffProfile) {
+      if (staffProfile.status !== 'ACTIVE') {
+        return res.status(403).json({ error: 'Staff account is not active' });
+      }
+      if (!staffProfile.role?.isActive) {
+        return res.status(403).json({ error: 'Assigned staff role is inactive' });
+      }
     }
 
     // Update last login timestamp
     try {
       await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+      if (staffProfile) {
+        await prisma.staffUser.update({
+          where: { id: staffProfile.id },
+          data: { lastLoginAt: new Date() }
+        });
+      }
     } catch (e) {
       console.warn('Failed to update lastLoginAt for user', user.id, e);
     }
 
     // Generate JWT token
+    console.log('[auth.login] signing token with JWT_SECRET present?', !!JWT_SECRET);
     const token = (jwt as any).sign(
       { id: user.id, email: user.email, role: user.role },
-      JWT_SECRET!,
+      JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN as string }
     );
+
+    // Persist token in an HttpOnly cookie so sessions survive reloads even if
+    // browser storage is blocked/cleared.
+    res.cookie('Scrolith_token', token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/'
+    });
 
     // Send success response with user data and token
     return res.status(200).json({
       success: true,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-      },
+      user: mapUserPayload(user),
       token,
+      forcePasswordReset: Boolean(staffProfile?.forcePasswordReset),
     });
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('Login error:', error, (error as any)?.stack);
     return res.status(500).json({ error: 'Internal server error during login' });
   }
 };
@@ -141,23 +409,13 @@ export const getCurrentUser = async (req: Request, res: Response) => {
     // This function assumes `req.user` is populated by the `authMiddleware`
     const userId = req.user?.id;
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        // Select other necessary user fields (e.g., avatar, joinDate)
-        // DO NOT select passwordHash or other sensitive fields here
-      },
-    });
+    const user = await safeFindUserById(userId);
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    return res.status(200).json({ user });
+    return res.status(200).json({ user: mapUserPayload(user) });
   } catch (error) {
     console.error('Get current user error:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -169,6 +427,119 @@ export const logout = async (req: Request, res: Response) => {
   // Logout is typically handled client-side by clearing the stored JWT token (e.g., from localStorage or sessionStorage).
   // Server-side logic might involve blacklisting the token if using refresh tokens or implementing a token revocation list.
   // For now, just send a confirmation response.
+  try {
+    res.clearCookie('Scrolith_token', { path: '/' });
+  } catch {}
   res.status(200).json({ message: 'Logged out successfully' });
 };
+
+export const forgotPassword = async (req: Request, res: Response) => {
+  try {
+    const email = normalizeEmail(String(req.body?.email || ''));
+    if (!email) {
+      return res.status(400).json({ success: false, error: 'Email is required' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true, name: true, email: true }
+    });
+
+    if (user) {
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000);
+
+      await prisma.passwordResetToken.deleteMany({
+        where: { userId: user.id, usedAt: null }
+      });
+
+      await prisma.passwordResetToken.create({
+        data: {
+          userId: user.id,
+          tokenHash,
+          expiresAt
+        }
+      });
+
+      const resetLink = `${FRONTEND_URL}/auth/reset-password?token=${rawToken}`;
+
+      await sendSystemMessage({
+        templateKey: 'password_reset',
+        userId: user.id,
+        user,
+        email: user.email,
+        context: {
+          reset: { link: resetLink, expiresMinutes: PASSWORD_RESET_TTL_MINUTES }
+        }
+      });
+
+      await logAuthEvent({ userId: user.id, email, event: 'password_reset_requested' }, req);
+    } else {
+      await logAuthEvent({ email, event: 'password_reset_requested_unknown' }, req);
+    }
+
+    return res.json({
+      success: true,
+      message: 'If an account exists for this email, a reset link has been sent.'
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to process request' });
+  }
+};
+
+export const resetPassword = async (req: Request, res: Response) => {
+  try {
+    const token = String(req.body?.token || '').trim();
+    const password = String(req.body?.password || '');
+    if (!token || !password) {
+      return res.status(400).json({ success: false, error: 'Token and new password are required' });
+    }
+
+    if (!isStrongPassword(password)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Password must be at least 8 characters and include a letter and a number.'
+      });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const record = await prisma.passwordResetToken.findFirst({
+      where: {
+        tokenHash,
+        usedAt: null,
+        expiresAt: { gt: new Date() }
+      },
+      include: { user: { select: { id: true, email: true, name: true } } }
+    });
+
+    if (!record || !record.user) {
+      await logAuthEvent({ email: undefined, event: 'password_reset_invalid_token' }, req);
+      return res.status(400).json({ success: false, error: 'Reset token is invalid or expired' });
+    }
+
+    const saltRounds = 12;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: record.userId },
+        data: { passwordHash: hashedPassword }
+      }),
+      prisma.passwordResetToken.update({
+        where: { id: record.id },
+        data: { usedAt: new Date() }
+      })
+    ]);
+
+    await logAuthEvent({ userId: record.userId, email: record.user.email, event: 'password_reset_completed' }, req);
+
+    return res.json({ success: true, message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to reset password' });
+  }
+};
+
 

@@ -78,4 +78,26 @@ describe('Ad payment and reconciliation flow', () => {
     const updatedAd = await prisma.communityAd.findUnique({ where: { id: adId } });
     expect(updatedAd?.status).toBe('PAID');
   }, 20000);
+
+  test('rejecting ad with refund=true marks payments refunded and creates refund records', async () => {
+    if (!adId) return;
+    // ensure there's at least one completed payment (re-run reconcile to be safe)
+    await reconcileAdPayments();
+    const paymentsBefore = await prisma.adPayment.findMany({ where: { adId } });
+    expect(paymentsBefore.some(p => p.status === 'completed')).toBeTruthy();
+
+    // Call reject endpoint with refund flag
+    const rejectRes = await request(app)
+      .post(`/api/community/admin/ads/${adId}/reject`)
+      .set('x-dev-role', 'admin')
+      .send({ refund: true });
+    expect(rejectRes.status).toBe(200);
+
+    // Verify original payments marked refunded and new refund records created
+    const paymentsAfter = await prisma.adPayment.findMany({ where: { adId } });
+    const hasRefunded = paymentsAfter.some(p => p.amount < 0 && p.status === 'refunded');
+    expect(hasRefunded).toBeTruthy();
+    const anyPending = paymentsAfter.some(p => p.status === 'pending');
+    expect(anyPending).toBeFalsy();
+  });
 });

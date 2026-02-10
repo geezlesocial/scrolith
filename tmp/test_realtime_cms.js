@@ -2,7 +2,7 @@ import { io } from 'socket.io-client';
 
 const BASE = process.env.BASE || 'http://localhost:5000/api';
 const SERVER = (process.env.SERVER || 'http://localhost:5000');
-const email = process.env.ADMIN_EMAIL || 'admin@geezle.com';
+const email = process.env.ADMIN_EMAIL || 'admin@scrolith.com';
 const password = process.env.ADMIN_PASSWORD || 'admin12345';
 
 (async function main(){

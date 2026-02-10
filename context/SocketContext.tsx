@@ -54,9 +54,25 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }
     });
 
+    // Forward community-scoped socket events to window as CustomEvents
+    const anyHandler = (eventName: string, ...args: any[]) => {
+      try {
+        if (typeof eventName === 'string' && eventName.startsWith('community:')) {
+          const detail = args.length === 1 ? args[0] : args;
+          // Dispatch a DOM CustomEvent so existing UI can listen on window
+          window.dispatchEvent(new CustomEvent(eventName, { detail }));
+          console.debug('[Socket] forwarded', eventName, detail);
+        }
+      } catch (e) {
+        console.error('Failed to forward socket event', e);
+      }
+    };
+    socketInstance.onAny(anyHandler);
+
     setSocket(socketInstance);
 
     return () => {
+      try { socketInstance.offAny && socketInstance.offAny(anyHandler); } catch (e) {}
       socketInstance.disconnect();
     };
   }, [user]);

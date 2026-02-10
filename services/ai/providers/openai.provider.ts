@@ -20,7 +20,7 @@ export class OpenAIProvider implements AIProvider {
         if (!this.client) throw new Error("OpenAI API Key missing");
 
         const messages: any[] = [
-            { role: "system", content: `You are an AI assistant for Geezle. User Role: ${input.context?.role}` },
+            { role: "system", content: `You are an AI assistant for Scrolith. User Role: ${input.context?.role}` },
             ...input.messages.map(m => ({ role: m.role === 'model' ? 'assistant' : m.role, content: m.text }))
         ];
 

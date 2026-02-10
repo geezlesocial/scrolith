@@ -2,11 +2,11 @@
   "email": {
     "host": "smtp.mailtrap.io",
     "port": 587,
-    "fromName": "Geezle",
+    "fromName": "Scrolith",
     "provider": "smtp",
     "username": "mailtrap_user_placeholder",
     "password": "mailtrap_pass_placeholder",
-    "fromEmail": "noreply@geezle.com"
+    "fromEmail": "noreply@Scrolith.com"
   },
   "aiConfig": {
     "providers": {
@@ -33,3 +33,4 @@
     "apiKey": ""
   }
 }
+

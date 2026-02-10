@@ -1,11 +1,25 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import Stripe from 'stripe';
+import { computeCommissionBreakdown } from '../utils/commission';
 
 const prisma = new PrismaClient();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_mock_key', {
   apiVersion: '2023-10-16' as any
 });
+
+const getOrCreateSettings = async () => {
+  let settings = await prisma.settings.findFirst({ orderBy: { updatedAt: 'desc' } });
+  if (!settings) {
+    settings = await prisma.settings.create({ data: {} });
+  }
+  return settings;
+};
+
+const getAdminRevenueUserId = async () => {
+  const admin = await prisma.user.findFirst({ where: { role: 'ADMIN' } });
+  return admin?.id || null;
+};
 
 export const releaseEscrow = async (req: Request, res: Response) => {
   try {
@@ -31,8 +45,10 @@ export const releaseEscrow = async (req: Request, res: Response) => {
     }
 
     const freelancerStripeId = escrow.order.freelancer.stripeAccountId;
-    const platformFee = 0.20; // 20% platform fee
-    const freelancerAmount = escrow.amount * (1 - platformFee);
+    const settings = await getOrCreateSettings();
+    const commissionBreakdown = computeCommissionBreakdown(escrow.amount, settings);
+    const commission = Number(escrow.commission ?? commissionBreakdown.freelancerFee ?? 0);
+    const freelancerAmount = Math.max(0, Number(escrow.amount) - commission);
 
     // If freelancer has Stripe account, transfer funds
     if (freelancerStripeId) {
@@ -54,7 +70,8 @@ export const releaseEscrow = async (req: Request, res: Response) => {
       where: { id },
       data: {
         status: 'RELEASED',
-        releasedAt: new Date()
+        releasedAt: new Date(),
+        commission
       }
     });
 
@@ -76,10 +93,32 @@ export const releaseEscrow = async (req: Request, res: Response) => {
         status: 'COMPLETED',
         metadata: {
           escrowId: escrow.id,
-          platformFee: escrow.amount * platformFee
+          platformFee: commission,
+          grossAmount: escrow.amount
         }
       }
     });
+
+    if (commission > 0) {
+      const adminUserId = await getAdminRevenueUserId();
+      if (adminUserId) {
+        await prisma.transaction.create({
+          data: {
+            userId: adminUserId,
+            orderId: escrow.orderId,
+            type: 'COMMISSION',
+            amount: commission,
+            status: 'COMPLETED',
+            description: `Platform commission for order ${escrow.orderId}`,
+            referenceId: escrow.id,
+            metadata: {
+              escrowId: escrow.id,
+              grossAmount: escrow.amount
+            }
+          }
+        });
+      }
+    }
 
     return res.json({
       success: true,

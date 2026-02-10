@@ -27,7 +27,7 @@ const InteractionBar: React.FC<Props> = ({ type, id, initialCounts, initialState
     const checkAuth = () => {
         if (!user) {
             // Trigger global login modal via event or alert
-            if(confirm("Log in to interact with the Geezle Community. Go to login?")) {
+            if(confirm("Log in to interact with the Scrolith Community. Go to login?")) {
                 window.location.href = "/auth/login";
             }
             return false;

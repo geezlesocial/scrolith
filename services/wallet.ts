@@ -3,11 +3,11 @@ import { Wallet, WalletTransaction, PlatformFinancials, WithdrawalRequest, Escro
 import { fraudService } from './ai';
 
 // Mock Storage
-const WALLETS_KEY = 'geezle_wallets';
-const TRANSACTIONS_KEY = 'geezle_transactions';
-const WITHDRAWALS_KEY = 'geezle_withdrawals';
-const ESCROWS_KEY = 'geezle_escrows'; // New key for Escrows
-const COMMISSIONS_KEY = 'geezle_commission_settings';
+const WALLETS_KEY = 'scrolith_wallets';
+const TRANSACTIONS_KEY = 'scrolith_transactions';
+const WITHDRAWALS_KEY = 'scrolith_withdrawals';
+const ESCROWS_KEY = 'scrolith_escrows'; // New key for Escrows
+const COMMISSIONS_KEY = 'scrolith_commission_settings';
 
 const INITIAL_WALLET: Wallet = {
     id: 'w-init',

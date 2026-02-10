@@ -1,7 +1,7 @@
 {
-  "name": "geezle-backend",
+  "name": "Scrolith-backend",
   "version": "1.0.0",
-  "description": "Geezle Marketplace Backend API",
+  "description": "Scrolith Marketplace Backend API",
   "main": "src/server.ts",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
@@ -18,9 +18,11 @@
     "seed": "ts-node prisma/seed.ts",
     "prisma:studio": "npx prisma studio",
     "seed:appsetting": "ts-node scripts/seed_appsetting.ts",
+    "seed:admin-settings": "ts-node scripts/seed_admin_and_settings.ts",
     "files:register": "ts-node ./src/scripts/registerExistingFiles.ts",
     "seed:analytics": "ts-node scripts/seed_analytics.ts",
     "create:admin": "ts-node scripts/create_admin.ts",
+    "dedupe:config": "ts-node scripts/dedupe_config_rows.ts",
     "check-env": "ts-node src/scripts/checkEnv.ts",
     "sync-env": "ts-node src/scripts/syncEnvToSettings.ts",
     "test:docker": "powershell -ExecutionPolicy Bypass -File ./scripts/test-with-docker.ps1"
@@ -35,6 +37,7 @@
     "express": "^4.21.2",
     "express-rate-limit": "^8.2.1",
     "express-validator": "^7.3.1",
+    "firebase-admin": "^13.6.1",
     "helmet": "^8.1.0",
     "hot-shots": "^13.1.0",
     "ioredis": "^5.9.2",
@@ -72,3 +75,4 @@
     "typescript": "^5.9.3"
   }
 }
+

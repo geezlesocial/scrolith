@@ -1,7 +1,7 @@
 
 import { AdCampaign, UserRole } from '../types';
 
-const ADS_KEY = 'geezle_ads';
+const ADS_KEY = 'scrolith_ads';
 
 const MOCK_ADS: AdCampaign[] = [
     {
@@ -36,12 +36,20 @@ const MOCK_ADS: AdCampaign[] = [
     }
 ];
 
+async function tryBackend(path: string, opts: any = {}) {
+    try {
+        const res = await fetch(path, opts);
+        if (!res.ok) throw new Error('bad_response');
+        return await res.json();
+    } catch (e) { return null; }
+}
+
 export const AdService = {
     getAds: async (role?: UserRole): Promise<AdCampaign[]> => {
         return new Promise(resolve => {
             const ads: AdCampaign[] = JSON.parse(localStorage.getItem(ADS_KEY) || JSON.stringify(MOCK_ADS));
             const active = ads.filter(a => a.status === 'active');
-            
+
             if (role) {
                 resolve(active.filter(a => a.targetRoles.includes(role)));
             } else {
@@ -51,13 +59,22 @@ export const AdService = {
     },
 
     getAllCampaigns: async (): Promise<AdCampaign[]> => {
-        return new Promise(resolve => {
-            const ads = JSON.parse(localStorage.getItem(ADS_KEY) || JSON.stringify(MOCK_ADS));
-            resolve(ads);
-        });
+        const backend = await tryBackend('/api/admin/community/ads/list', { method: 'GET' });
+        if (backend && backend.success) return backend.data;
+        return JSON.parse(localStorage.getItem(ADS_KEY) || JSON.stringify(MOCK_ADS));
     },
 
     saveCampaign: async (campaign: AdCampaign): Promise<void> => {
+        try {
+            if (campaign.id) {
+                const backend = await tryBackend(`/api/admin/community/ads/${campaign.id}`, { method: 'PUT', headers: {'content-type':'application/json'}, body: JSON.stringify(campaign) });
+                if (backend && backend.success) return;
+            } else {
+                const backend = await tryBackend('/api/admin/community/ads/create', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(campaign) });
+                if (backend && backend.success) return;
+            }
+        } catch (e) { /* swallow and fallback */ }
+
         const ads: AdCampaign[] = JSON.parse(localStorage.getItem(ADS_KEY) || JSON.stringify(MOCK_ADS));
         const idx = ads.findIndex(a => a.id === campaign.id);
         if(idx >= 0) ads[idx] = campaign;
@@ -66,6 +83,8 @@ export const AdService = {
     },
 
     deleteCampaign: async (id: string): Promise<void> => {
+        const backend = await tryBackend(`/api/admin/community/ads/${id}`, { method: 'DELETE' });
+        if (backend && backend.success) return;
         const ads: AdCampaign[] = JSON.parse(localStorage.getItem(ADS_KEY) || JSON.stringify(MOCK_ADS));
         const filtered = ads.filter(a => a.id !== id);
         localStorage.setItem(ADS_KEY, JSON.stringify(filtered));

@@ -16,15 +16,22 @@ import reviewsAdminRoutes from './reviews.routes';
 import cmsRoutes from '../cms';
 import fraudRoutes from './fraud.routes';
 import adminCommunityRoutes from './community/routes';
+import staffRoutes from './staff.routes';
+import rbacRoutes from './rbac.routes';
+import cartsAdminRoutes from './carts.routes';
+import formsAdminRoutes from './forms.routes';
+import withdrawalsAdminRoutes from './withdrawals.routes';
+import monetizationAdminRoutes from './monetization.routes';
+import payoutsStripeAdminRoutes from './payouts.stripe.routes';
 
 const router = express.Router();
 
-import { getSystemSettings, updateSystemSettings } from '../../controllers/admin.systemSettings.controller';
+import { getSystemSettings, updateSystemSettings, testEmailSettings } from '../../controllers/admin.systemSettings.controller';
 import prisma from '../../utils/prismaClient';
 import bcrypt from 'bcrypt';
 
 // Simple file-backed persistence for platform/system settings in development
-// Persist to repository-level `geezle-backend/data` so it's easy to find and permissions are typical.
+// Persist to repository-level `Scrolith-backend/data` so it's easy to find and permissions are typical.
 const SETTINGS_DIR = path.resolve(__dirname, '../../../data');
 const SETTINGS_FILE = path.join(SETTINGS_DIR, 'platform-system-settings.json');
 
@@ -78,26 +85,176 @@ router.use('/reviews', reviewsAdminRoutes);
 router.get('/wallets', getAllWalletsAdmin);
 router.use('/cms', cmsRoutes);
 router.use('/fraud', fraudRoutes);
+router.use('/staff', staffRoutes);
+router.use('/rbac', rbacRoutes);
+router.use('/carts', cartsAdminRoutes);
+router.use('/forms', formsAdminRoutes);
+router.use('/withdrawals', withdrawalsAdminRoutes);
+router.use('/monetization', monetizationAdminRoutes);
+router.use('/payouts/stripe', payoutsStripeAdminRoutes);
 // Mount admin community routes (Gcoin + Ads admin panels)
 router.use('/community', adminCommunityRoutes);
 
 // ============ PLATFORM SETTINGS ============
 router.get('/platform/settings', (req, res) => {
+  const defaults = {
+    siteName: 'Scrolith Marketplace',
+    tagline: 'Find, hire, and work with the best talent',
+    logoUrl: '/logo.svg',
+    faviconUrl: '/favicon.ico',
+    adminEmail: 'admin@Scrolith.com',
+    supportEmail: 'support@Scrolith.com',
+    reactions: {
+      enabled: true,
+      postsEnabled: true,
+      commentsEnabled: true,
+      messagesEnabled: true,
+      showReactors: true,
+      rateLimitPerMinute: 40,
+      allowed: [
+        { key: 'like', label: 'Like', emoji: '👍', enabled: true },
+        { key: 'love', label: 'Love', emoji: '❤️', enabled: true },
+        { key: 'good', label: 'Good', emoji: '✅', enabled: true },
+        { key: 'happy', label: 'Happy', emoji: '😄', enabled: true },
+        { key: 'handwave', label: 'Handwave', emoji: '👋', enabled: true },
+        { key: 'angry', label: 'Angry', emoji: '😡', enabled: true },
+        { key: 'cry', label: 'Cry', emoji: '😢', enabled: true },
+        { key: 'mad', label: 'Mad', emoji: '🤬', enabled: true },
+        { key: 'sorry', label: 'Sorry', emoji: '🙏', enabled: true }
+      ]
+    },
+    memberHome: {
+      widgets: {
+        trendingEnabled: true,
+        storiesEnabled: true,
+        suggestionsEnabled: true,
+        pagesRecommendationsEnabled: true,
+        categoriesFilterEnabled: true,
+        postComposerEnabled: true,
+        recentMessagesEnabled: true,
+        profileViewersEnabled: true,
+        rightSidebarAdsEnabled: false
+      },
+      feed: {
+        defaultTab: 'latest',
+        defaultSort: 'latest',
+        defaultScope: 'discover',
+        enableTrendingTab: true,
+        postDensity: 'comfortable',
+        showReactionCounts: true,
+        showCommentsPreviewCount: true
+      },
+      ads: {
+        enabled: false,
+        rightSidebarTopEnabled: true,
+        rightSidebarMiddleEnabled: true,
+        inlineFrequency: 6
+      }
+    },
+    gigExperience: {
+      enabled: true,
+      chatBarEnabled: true,
+      inlineChatEnabled: true,
+      shareModalEnabled: true,
+      allowGuestOpenChat: true,
+      showSellerMeta: true,
+      quickPrompts: [
+        'Hey, can you help me with this gig?',
+        'Can you provide your timeline and budget estimate?',
+        'Can you customize this package for my requirements?'
+      ]
+    },
+    notifications: {
+      enableMentionNotifications: true,
+      enableFollowedPostNotifications: true,
+      enableFollowNotifications: true,
+      enableCommentNotifications: true,
+      enableReactionNotifications: true,
+      enableRepostNotifications: true,
+      enableJobApplicationNotifications: true,
+      enableProposalOpenedNotifications: true,
+      enableProposalReplyNotifications: true,
+      enableTopApplicantNotifications: true,
+      enableInterviewScheduledNotifications: true,
+      enableJobLifecycleEmails: true
+    },
+    profileDemographics: {
+      enabled: true,
+      genderFieldEnabled: true,
+      dateOfBirthEnabled: true,
+      showBirthMonthDayPublicDefault: true,
+      genderOptions: [
+        { key: 'male', label: 'Male', active: true },
+        { key: 'female', label: 'Female', active: true }
+      ]
+    },
+    messagingControls: {
+      enableMoveToOther: true,
+      enableLabelAsJobs: true,
+      enableMarkUnread: true,
+      enableStar: true,
+      enableMute: true,
+      enableArchive: true,
+      enableReportBlock: true,
+      enableDeleteConversation: true,
+      enableManageMessageSettings: true
+    }
+  };
+
   const persisted = readPersistedSettings();
   if (persisted && persisted.platform) {
-    return res.json({ success: true, data: persisted.platform });
+    const platform = persisted.platform || {};
+    return res.json({
+      success: true,
+      data: {
+        ...defaults,
+        ...platform,
+        reactions: {
+          ...defaults.reactions,
+          ...(platform.reactions || {})
+        },
+        memberHome: {
+          ...defaults.memberHome,
+          ...(platform.memberHome || {}),
+          widgets: {
+            ...defaults.memberHome.widgets,
+            ...(platform.memberHome?.widgets || {})
+          },
+          feed: {
+            ...defaults.memberHome.feed,
+            ...(platform.memberHome?.feed || {})
+          },
+          ads: {
+            ...defaults.memberHome.ads,
+            ...(platform.memberHome?.ads || {})
+          }
+        },
+        gigExperience: {
+          ...defaults.gigExperience,
+          ...(platform.gigExperience || {}),
+          quickPrompts: Array.isArray(platform.gigExperience?.quickPrompts) && platform.gigExperience.quickPrompts.length
+            ? platform.gigExperience.quickPrompts
+            : defaults.gigExperience.quickPrompts
+        },
+        notifications: {
+          ...defaults.notifications,
+          ...(platform.notifications || {})
+        },
+        profileDemographics: {
+          ...defaults.profileDemographics,
+          ...(platform.profileDemographics || {}),
+          genderOptions: Array.isArray(platform.profileDemographics?.genderOptions) && platform.profileDemographics.genderOptions.length
+            ? platform.profileDemographics.genderOptions
+            : defaults.profileDemographics.genderOptions
+        },
+        messagingControls: {
+          ...defaults.messagingControls,
+          ...(platform.messagingControls || {})
+        }
+      }
+    });
   }
-  return res.json({
-    success: true,
-    data: {
-      siteName: 'Geezle Marketplace',
-      tagline: 'Find, hire, and work with the best talent',
-      logoUrl: '/logo.svg',
-      faviconUrl: '/favicon.ico',
-      adminEmail: 'admin@geezle.com',
-      supportEmail: 'support@geezle.com'
-    }
-  });
+  return res.json({ success: true, data: defaults });
 });
 
 // Ads pricing and refund policy persisted endpoints
@@ -168,12 +325,14 @@ router.get('/system/settings', getSystemSettings);
 
 router.post('/system/settings', updateSystemSettings);
 
+router.post('/system/email/test', testEmailSettings);
+
 // ============ GENERAL SETTINGS (for backward compatibility) ============
 router.get('/settings', (req, res) => {
   res.json({
     success: true,
     data: {
-      siteName: 'Geezle Marketplace',
+      siteName: 'Scrolith Marketplace',
       tagline: 'Find, hire, and work with the best talent',
       logoUrl: '/logo.svg'
     }
@@ -220,6 +379,7 @@ router.get('/test', (req, res) => {
       'POST   /api/admin/platform/settings',
       'GET    /api/admin/system/settings',
       'POST   /api/admin/system/settings',
+      'POST   /api/admin/system/email/test',
       'GET    /api/admin/settings',
       'POST   /api/admin/settings',
       'GET    /api/admin/gigs-jobs/gigs',
@@ -248,7 +408,15 @@ router.put('/profile', async (req, res) => {
 
   try {
     // If request contains user fields, update the user record
-    if (userId && (payload.email || payload.displayName || payload.username || payload.password)) {
+    if (
+      userId &&
+      (payload.email ||
+        payload.displayName ||
+        payload.username ||
+        payload.password ||
+        payload.avatar !== undefined ||
+        payload.profilePhotoFileId !== undefined)
+    ) {
       const updates: any = {};
       const displayName = payload.displayName || payload.username;
       if (displayName) updates.name = displayName;
@@ -262,6 +430,12 @@ router.put('/profile', async (req, res) => {
       if (payload.password) {
         const hashed = await bcrypt.hash(payload.password, 10);
         updates.passwordHash = hashed;
+      }
+      if (payload.avatar !== undefined) {
+        updates.avatar = payload.avatar || null;
+      }
+      if (payload.profilePhotoFileId !== undefined) {
+        updates.profilePhotoFileId = payload.profilePhotoFileId || null;
       }
       if (Object.keys(updates).length) {
         try {
@@ -316,3 +490,4 @@ router.put('/profile', async (req, res) => {
 });
 
 export default router;
+

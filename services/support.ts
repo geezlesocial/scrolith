@@ -1,8 +1,8 @@
 
 import { SupportTicket, TicketReply, TicketStatus, TicketPriority, TicketCategory } from '../types';
 
-const STORAGE_KEY = 'geezle_support_tickets';
-const CATEGORIES_KEY = 'geezle_support_categories';
+const STORAGE_KEY = 'scrolith_support_tickets';
+const CATEGORIES_KEY = 'scrolith_support_categories';
 
 // Initial Mock Data
 const INITIAL_TICKETS: SupportTicket[] = [

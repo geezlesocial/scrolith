@@ -1,12 +1,11 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
+import { serializeGig } from './gigs.controller';
 
 export const getGigs = async (req: Request, res: Response) => {
   try {
     const gigs = await prisma.gig.findMany({
-      where: { isActive: true, status: 'ACTIVE' },
+      where: { isActive: true, status: 'ACTIVE', adminStatus: 'APPROVED' },
       include: {
         user: {
           select: {
@@ -25,11 +24,43 @@ export const getGigs = async (req: Request, res: Response) => {
       },
       take: 20
     });
-
-    res.json({ gigs });
+    res.json({ success: true, data: gigs.map(serializeGig) });
   } catch (error: any) {
     console.error('Get gigs error:', error);
-    res.status(500).json({ error: 'Failed to fetch gigs' });
+    res.status(500).json({ success: false, error: 'Failed to fetch gigs' });
+  }
+};
+
+export const getGigById = async (req: Request, res: Response) => {
+  try {
+    const gig = await prisma.gig.findFirst({
+      where: { id: req.params.id, isActive: true, status: 'ACTIVE', adminStatus: 'APPROVED' },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            avatar: true,
+            profile: {
+              select: {
+                rating: true,
+                completedJobs: true
+              }
+            }
+          }
+        },
+        category: true
+      }
+    });
+
+    if (!gig) {
+      return res.status(404).json({ success: false, error: 'Gig not found' });
+    }
+
+    return res.json({ success: true, data: serializeGig(gig) });
+  } catch (error: any) {
+    console.error('Get gig by id error:', error);
+    res.status(500).json({ success: false, error: 'Failed to fetch gig' });
   }
 };
 

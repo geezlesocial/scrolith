@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
+import { loadCurrencyConfig, getDefaultCurrencyForCountry, convertAmount } from '../utils/currency';
 
 interface AuthRequest extends Request {
   user?: {
@@ -26,7 +27,7 @@ const emitAdminEvent = (req: AuthRequest, event: string, payload: any = {}) => {
 };
 
 const getOrCreateSettings = async () => {
-  let settings = await prisma.settings.findFirst();
+  let settings = await prisma.settings.findFirst({ orderBy: { updatedAt: 'desc' } });
   if (!settings) {
     settings = await prisma.settings.create({ data: {} });
   }
@@ -57,6 +58,16 @@ const getOrCreateWallet = async (userId: string) => {
 
   await ensureUserExists(userId);
 
+  let currency = 'USD';
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { country: true } });
+    const currencyConfig = await loadCurrencyConfig();
+    const defaultCurrency = getDefaultCurrencyForCountry(user?.country, currencyConfig);
+    currency = defaultCurrency || currencyConfig.baseCurrency || currency;
+  } catch (e) {
+    currency = 'USD';
+  }
+
   return prisma.wallet.create({
     data: {
       userId,
@@ -64,7 +75,7 @@ const getOrCreateWallet = async (userId: string) => {
       pendingClearance: 0,
       escrowBalance: 0,
       frozen: false,
-      currency: 'USD'
+      currency
     }
   });
 };
@@ -79,6 +90,41 @@ const mapWallet = (wallet: any) => ({
   currency: wallet.currency,
   updated_at: wallet.updatedAt ? wallet.updatedAt.toISOString() : nowIso()
 });
+
+const mapWalletWithDisplay = async (wallet: any, userCountry?: string | null) => {
+  const base = mapWallet(wallet);
+  try {
+    const config = await loadCurrencyConfig();
+    const displayCurrency = getDefaultCurrencyForCountry(userCountry, config) || wallet.currency || config.baseCurrency || 'USD';
+    const walletCurrency = (wallet.currency || config.baseCurrency || 'USD').toString().toUpperCase();
+    const display = displayCurrency.toString().toUpperCase();
+    if (!walletCurrency || walletCurrency === display) {
+      return {
+        ...base,
+        display_currency: display,
+        display_available_balance: base.available_balance,
+        display_pending_clearance: base.pending_clearance,
+        display_escrow_balance: base.escrow_balance,
+        fx_rate: 1,
+        fx_base: config.baseCurrency
+      };
+    }
+    const available = convertAmount(Number(base.available_balance ?? 0), walletCurrency, display, config);
+    const pending = convertAmount(Number(base.pending_clearance ?? 0), walletCurrency, display, config);
+    const escrow = convertAmount(Number(base.escrow_balance ?? 0), walletCurrency, display, config);
+    return {
+      ...base,
+      display_currency: display,
+      display_available_balance: available.amount,
+      display_pending_clearance: pending.amount,
+      display_escrow_balance: escrow.amount,
+      fx_rate: available.rate,
+      fx_base: config.baseCurrency
+    };
+  } catch (e) {
+    return base;
+  }
+};
 
 const mapTransaction = (tx: any) => ({
   id: tx.id,
@@ -99,7 +145,9 @@ export const getWallet = async (req: AuthRequest, res: Response) => {
     if (!user?.id) return fail(res, 401, 'Unauthorized', 'ERR_UNAUTHORIZED');
 
     const wallet = await getOrCreateWallet(user.id);
-    return ok(res, mapWallet(wallet));
+    const userRecord = await prisma.user.findUnique({ where: { id: user.id }, select: { country: true } });
+    const payload = await mapWalletWithDisplay(wallet, userRecord?.country);
+    return ok(res, payload);
   } catch (error: any) {
     console.error('Get wallet error:', error);
     return fail(res, 500, error?.message || 'Failed to load wallet', 'ERR_INTERNAL');
@@ -117,7 +165,9 @@ export const getWalletByUserId = async (req: AuthRequest, res: Response) => {
     }
 
     const wallet = await getOrCreateWallet(userId);
-    return ok(res, mapWallet(wallet));
+    const userRecord = await prisma.user.findUnique({ where: { id: userId }, select: { country: true } });
+    const payload = await mapWalletWithDisplay(wallet, userRecord?.country);
+    return ok(res, payload);
   } catch (error: any) {
     console.error('Get wallet by userId error:', error);
     return fail(res, 500, error?.message || 'Failed to load wallet', 'ERR_INTERNAL');
@@ -285,6 +335,16 @@ export const saveCommissionSettings = async (req: AuthRequest, res: Response) =>
 
     const updated = await prisma.settings.update({
       where: { id: settings.id },
+      data: {
+        walletFundingLimits: {
+          ...existingLimits,
+          commissionSettings: normalized
+        }
+      }
+    });
+    // Keep any duplicate Settings rows in sync so refresh reads consistent values
+    await prisma.settings.updateMany({
+      where: { id: { not: settings.id } },
       data: {
         walletFundingLimits: {
           ...existingLimits,

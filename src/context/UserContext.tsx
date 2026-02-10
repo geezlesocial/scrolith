@@ -11,7 +11,7 @@ interface AdminCreds {
 }
 
 const DEFAULT_ADMIN_CREDS: AdminCreds = {
-  email: 'admin@geezle.com',
+  email: 'admin@scrolith.com',
   password: 'admin12345',
   username: 'admin'
 };
@@ -36,13 +36,13 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   const getAdminCreds = useCallback((): AdminCreds => {
-      const stored = localStorage.getItem('geezle_admin_creds');
+      const stored = localStorage.getItem('scrolith_admin_creds');
       return stored ? JSON.parse(stored) : DEFAULT_ADMIN_CREDS;
   }, []);
 
   useEffect(() => {
-      if (!localStorage.getItem('geezle_admin_creds')) {
-          localStorage.setItem('geezle_admin_creds', JSON.stringify(DEFAULT_ADMIN_CREDS));
+      if (!localStorage.getItem('scrolith_admin_creds')) {
+          localStorage.setItem('scrolith_admin_creds', JSON.stringify(DEFAULT_ADMIN_CREDS));
       }
   }, []);
 
@@ -50,7 +50,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(prev => {
         if (!prev) return null;
         const updated = { ...prev, ...updates };
-        localStorage.setItem('geezle_user', JSON.stringify(updated));
+        localStorage.setItem('scrolith_user', JSON.stringify(updated));
         return updated;
     });
   }, []);
@@ -78,14 +78,14 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 gcoinBalance: 0
             };
             setUser(adminUser);
-            localStorage.setItem('geezle_user', JSON.stringify(adminUser));
+            localStorage.setItem('scrolith_user', JSON.stringify(adminUser));
             initWallet(adminUser.id);
             return true;
         }
         return false;
     }
 
-    const storedUser = localStorage.getItem('geezle_user');
+    const storedUser = localStorage.getItem('scrolith_user');
     let userToSet: User;
 
     if (storedUser) {
@@ -101,7 +101,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     userToSet.role = role; 
     setUser(userToSet);
-    localStorage.setItem('geezle_user', JSON.stringify(userToSet));
+    localStorage.setItem('scrolith_user', JSON.stringify(userToSet));
     initWallet(userToSet.id);
     return true;
   }, [initWallet, getAdminCreds]);
@@ -128,13 +128,13 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           gcoinBalance: 0
       };
       setUser(newUser);
-      localStorage.setItem('geezle_user', JSON.stringify(newUser));
+      localStorage.setItem('scrolith_user', JSON.stringify(newUser));
       initWallet(newUser.id);
   }, [initWallet]);
 
   const logout = useCallback(() => {
     setUser(null);
-    localStorage.removeItem('geezle_user');
+    localStorage.removeItem('scrolith_user');
   }, []);
 
   const switchRole = useCallback(() => {
@@ -142,7 +142,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (!prev || prev.role === UserRole.ADMIN) return prev;
           const newRole = prev.role === UserRole.FREELANCER ? UserRole.EMPLOYER : UserRole.FREELANCER;
           const updated = { ...prev, role: newRole };
-          localStorage.setItem('geezle_user', JSON.stringify(updated));
+          localStorage.setItem('scrolith_user', JSON.stringify(updated));
           return updated;
       });
   }, []);
@@ -150,7 +150,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateAdminProfile = useCallback((updates: Partial<AdminCreds>) => {
       const current = getAdminCreds();
       const newCreds = { ...current, ...updates };
-      localStorage.setItem('geezle_admin_creds', JSON.stringify(newCreds));
+      localStorage.setItem('scrolith_admin_creds', JSON.stringify(newCreds));
       
       setUser(prev => {
           if (prev?.role === UserRole.ADMIN) {
@@ -168,7 +168,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const initAuth = async () => {
-        const stored = localStorage.getItem('geezle_user');
+        const stored = localStorage.getItem('scrolith_user');
         if (stored) {
           try {
             const u = JSON.parse(stored);

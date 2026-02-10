@@ -1,10 +1,60 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
+import { resolveUserProStatus } from '../utils/proStatus';
 import { JobStatus } from '@prisma/client';
 
 const normalizeStatus = (status?: string) => (status || '').toString().toLowerCase();
+const normalizeJobType = (value: unknown, fallback: string = 'FIXED_PRICE') => {
+  if (!value) return fallback as string;
+  const raw = String(value).trim().toLowerCase();
+  if (raw === 'fixed price' || raw === 'fixed_price' || raw === 'fixed') return 'FIXED_PRICE';
+  if (raw === 'hourly') return 'HOURLY';
+  if (raw === 'contract') return 'CONTRACT';
+  return fallback as string;
+};
 
-const serializeJob = (job: any) => ({
+const normalizeBudget = (value: any): string | null | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value.toString() : '';
+  if (typeof value === 'object') {
+    const amount = value.amount ?? value.value ?? value.minAmount ?? value.maxAmount;
+    const min = value.minAmount ?? value.min ?? value.minimum;
+    const max = value.maxAmount ?? value.max ?? value.maximum;
+    if (min !== undefined && max !== undefined) return `${min}-${max}`;
+    if (amount !== undefined) return `${amount}`;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '';
+    }
+  }
+  return String(value);
+};
+
+const safeUserSelect = {
+  id: true,
+  name: true,
+  avatar: true,
+  profilePhotoFileId: true,
+  role: true,
+  kycStatus: true
+};
+
+const getAutoApproveJobs = async () => {
+  try {
+    const record = await prisma.appSetting.findUnique({ where: { scope: 'system' } });
+    const data: any = record?.data || {};
+    return Boolean(data?.listings?.autoApproveJobs);
+  } catch {
+    return false;
+  }
+};
+
+const serializeJob = (job: any) => {
+  const pro = job.client ? resolveUserProStatus(job.client) : { employerIsPro: false };
+  return ({
   id: job.id,
   title: job.title,
   description: job.description,
@@ -16,13 +66,25 @@ const serializeJob = (job: any) => ({
   status: job.status.toLowerCase(),
   isActive: job.isActive,
   isVisible: job.isVisible,
+  isFeatured: Boolean(job.isFeatured),
+  isTopSelected: Boolean(job.isTopSelected),
+  isRecommended: Boolean(job.isRecommended),
   category: job.category?.name || job.categoryId || '',
+  categoryId: job.categoryId || null,
   subcategory: job.subcategory || '',
   experienceLevel: job.experienceLevel ? job.experienceLevel.toLowerCase() : undefined,
   visibility: job.visibility ? job.visibility.toLowerCase() : undefined,
   duration: job.duration || undefined,
-  clientName: job.client?.name || 'Client'
+  attachments: job.attachments || [],
+  clientId: job.client?.id || job.clientId,
+  clientName: job.client?.name || 'Client',
+  clientAvatar: job.client?.avatar || null,
+  clientProfilePhotoFileId: job.client?.profilePhotoFileId || null,
+  clientIsPro: Boolean((pro as any).employerIsPro),
+  adminStatus: job.adminStatus ? job.adminStatus.toLowerCase() : undefined,
+  adminReason: job.adminReason || undefined
 });
+};
 
 export const listJobs = async (req: Request, res: Response) => {
   try {
@@ -49,7 +111,7 @@ export const listJobs = async (req: Request, res: Response) => {
     const jobs = await prisma.job.findMany({
       where,
       orderBy: { updatedAt: 'desc' },
-      include: { category: true, client: true }
+      include: { category: true, client: { select: safeUserSelect } }
     });
 
     return res.json({ success: true, data: jobs.map(serializeJob) });
@@ -63,7 +125,7 @@ export const getJob = async (req: Request, res: Response) => {
   try {
     const job = await prisma.job.findUnique({
       where: { id: req.params.id },
-      include: { category: true, client: true }
+      include: { category: true, client: { select: safeUserSelect } }
     });
     if (!job) return res.status(404).json({ success: false, error: 'Job not found' });
     return res.json({ success: true, data: serializeJob(job) });
@@ -83,21 +145,23 @@ export const createJob = async (req: Request, res: Response) => {
       data: {
         title: payload.title,
         description: payload.description || '',
-        budget: payload.budget || '',
-        type: payload.type ? payload.type.toUpperCase() : 'FIXED_PRICE',
+        budget: normalizeBudget(payload.budget) ?? '',
+        type: normalizeJobType(payload.type, 'FIXED_PRICE'),
         tags: payload.tags || [],
         status: 'DRAFT',
-        isActive: true,
-        isVisible: true,
+        isActive: false,
+        isVisible: false,
         categoryId: payload.categoryId || null,
         subcategory: payload.subcategory || null,
         experienceLevel: payload.experienceLevel ? payload.experienceLevel.toUpperCase() : null,
         visibility: payload.visibility ? payload.visibility.toUpperCase() : 'PUBLIC',
         duration: payload.duration || null,
         attachments: payload.attachments || [],
-        clientId: userId
+        clientId: userId,
+        adminStatus: 'PENDING',
+        adminReason: null
       },
-      include: { category: true, client: true }
+      include: { category: true, client: { select: safeUserSelect } }
     });
 
     return res.status(201).json({ success: true, data: serializeJob(created) });
@@ -119,13 +183,14 @@ export const updateJob = async (req: Request, res: Response) => {
     }
 
     const payload = req.body || {};
+    const budgetValue = normalizeBudget(payload.budget);
     const updated = await prisma.job.update({
       where: { id: req.params.id },
       data: {
         title: payload.title ?? existing.title,
         description: payload.description ?? existing.description,
-        budget: payload.budget ?? existing.budget,
-        type: payload.type ? payload.type.toUpperCase() : existing.type,
+        budget: budgetValue === undefined ? existing.budget : budgetValue,
+        type: payload.type ? normalizeJobType(payload.type, existing.type) : existing.type,
         tags: payload.tags ?? existing.tags,
         categoryId: payload.categoryId ?? existing.categoryId,
         subcategory: payload.subcategory ?? existing.subcategory,
@@ -134,7 +199,7 @@ export const updateJob = async (req: Request, res: Response) => {
         duration: payload.duration ?? existing.duration,
         attachments: payload.attachments ?? existing.attachments
       },
-      include: { category: true, client: true }
+      include: { category: true, client: { select: safeUserSelect } }
     });
 
     return res.json({ success: true, data: serializeJob(updated) });
@@ -164,7 +229,30 @@ export const deleteJob = async (req: Request, res: Response) => {
 };
 
 export const submitJob = async (req: Request, res: Response) => {
-  return updateJobStatus(req, res, 'SUBMITTED' as JobStatus);
+  try {
+    const userId = req.user?.id as string | undefined;
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const existing = await prisma.job.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ success: false, error: 'Job not found' });
+    if (existing.clientId !== userId) {
+      return res.status(403).json({ success: false, error: 'Not authorized' });
+    }
+
+    const autoApprove = await getAutoApproveJobs();
+    const updated = await prisma.job.update({
+      where: { id: req.params.id },
+      data: autoApprove
+        ? { status: 'ACTIVE', adminStatus: 'APPROVED', isActive: true, isVisible: true, adminReason: null }
+        : { status: 'SUBMITTED', adminStatus: 'PENDING', isActive: false, isVisible: false, adminReason: null },
+      include: { category: true, client: { select: safeUserSelect } }
+    });
+
+    return res.json({ success: true, data: serializeJob(updated) });
+  } catch (error: any) {
+    console.error('Submit job error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to submit job' });
+  }
 };
 
 export const pauseJob = async (req: Request, res: Response) => {
@@ -190,10 +278,23 @@ const updateJobStatus = async (req: Request, res: Response, status: JobStatus) =
       return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
+    const statusData: any = { status };
+    if (status === 'ACTIVE') {
+      statusData.isActive = true;
+      statusData.isVisible = true;
+      statusData.adminStatus = 'APPROVED';
+      statusData.adminReason = null;
+    } else if (status === 'PAUSED') {
+      statusData.isActive = false;
+    } else if (status === 'CLOSED') {
+      statusData.isActive = false;
+      statusData.isVisible = false;
+    }
+
     const updated = await prisma.job.update({
       where: { id: req.params.id },
-      data: { status },
-      include: { category: true, client: true }
+      data: statusData,
+      include: { category: true, client: { select: safeUserSelect } }
     });
 
     return res.json({ success: true, data: serializeJob(updated) });

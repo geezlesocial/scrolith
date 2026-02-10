@@ -28,7 +28,7 @@ const DEFAULT_AI_CONFIG: AIConfig = {
     }
 };
 
-const STORAGE_KEY = 'geezle_ai_config';
+const STORAGE_KEY = 'scrolith_ai_config';
 
 export const AIConfigManager = {
     getConfig: (): AIConfig => {

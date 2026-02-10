@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   return {
-    base: '/geezle/', // Critical for GitHub Pages: matches repository name
+    base: mode === 'production' ? '/scrolith/' : '/', // Use repo base only for production (GH Pages); dev uses '/'
     server: {
       port: 3000,
       host: '0.0.0.0',

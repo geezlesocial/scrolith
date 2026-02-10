@@ -13,6 +13,8 @@ const CommunityLayout = () => {
     const navItems = [
         { label: 'Home', path: '/community', icon: Home },
         { label: 'Forum', path: '/community/forum', icon: MessageSquare },
+        { label: 'Gcoin', path: '/community/gcoin', icon: User },
+        { label: 'My Ads', path: '/community/my-ads', icon: Hash },
         { label: 'Chat', path: '/community/chat', icon: Hash },
         { label: 'Clubs', path: '/community/clubs', icon: Users },
         { label: 'Events', path: '/community/events', icon: Calendar },
@@ -33,7 +35,7 @@ const CommunityLayout = () => {
                     <div className="flex justify-between items-center h-16">
                         <div className="flex items-center">
                             <Link to="/community" className="font-bold text-xl text-indigo-600 mr-8 tracking-tight hidden md:block hover:opacity-80">
-                                Geezle Community
+                                Scrolith Community
                             </Link>
                             <nav className="flex space-x-1 overflow-x-auto no-scrollbar">
                                 {navItems.map((item) => (

@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import prisma from '../utils/prismaClient';
 
 interface AuthRequest extends Request {
   user?: {
@@ -263,8 +264,104 @@ export const unregisterEvent = (_req: AuthRequest, res: Response) => {
   return res.json({ success: true });
 };
 
-export const getTopContributors = (_req: Request, res: Response) => {
-  return res.json([]);
+export const getTopContributors = async (req: AuthRequest, res: Response) => {
+  try {
+    const requested = Number(req.query?.limit);
+    const limit = Number.isFinite(requested) ? Math.max(1, Math.min(20, Math.floor(requested))) : 5;
+    const requesterId = String(req.user?.id || '').trim();
+
+    let users: Array<{
+      id: string;
+      name: string | null;
+      username: string | null;
+      avatar: string | null;
+      role: string;
+      profile: { title: string | null; bio: string | null } | null;
+      _count: { followers: number; communityPosts: number };
+    }> = [];
+
+    try {
+      users = await prisma.user.findMany({
+        where: {
+          isActive: true,
+          ...(requesterId ? { id: { not: requesterId } } : {})
+        },
+        orderBy: [
+          { followers: { _count: 'desc' } },
+          { communityPosts: { _count: 'desc' } },
+          { createdAt: 'desc' }
+        ],
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          avatar: true,
+          role: true,
+          profile: {
+            select: {
+              title: true,
+              bio: true
+            }
+          },
+          _count: {
+            select: {
+              followers: true,
+              communityPosts: true
+            }
+          }
+        }
+      });
+    } catch (queryError) {
+      // Fallback for environments where relation-count ordering can fail.
+      users = await prisma.user.findMany({
+        where: {
+          isActive: true,
+          ...(requesterId ? { id: { not: requesterId } } : {})
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          avatar: true,
+          role: true,
+          profile: {
+            select: {
+              title: true,
+              bio: true
+            }
+          },
+          _count: {
+            select: {
+              followers: true,
+              communityPosts: true
+            }
+          }
+        }
+      });
+    }
+
+    const data = users.map((user) => ({
+      id: user.id,
+      name: user.name || user.username || 'Community member',
+      username: user.username || '',
+      userName: user.username || '',
+      avatar: user.avatar || '',
+      userAvatar: user.avatar || '',
+      title: user.profile?.title || '',
+      bio: user.profile?.bio || '',
+      role: user.role,
+      followersCount: user._count.followers,
+      postsCount: user._count.communityPosts
+    }));
+
+    return res.json(data);
+  } catch (error: any) {
+    console.error('getTopContributors error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to load contributors' });
+  }
 };
 
 export const getLeaderboard = (_req: Request, res: Response) => {

@@ -14,16 +14,16 @@ async function runStress() {
 function dumpRedis() {
   try {
     console.log('\n--- Redis Snapshot ---');
-    const raw = cp.execSync('docker exec geezle-redis redis-cli --raw KEYS "gcoin:*"').toString().trim();
+    const raw = cp.execSync('docker exec Scrolith-redis redis-cli --raw KEYS "gcoin:*"').toString().trim();
     const keys = raw.split(/\r?\n/).filter(Boolean);
     console.log('Keys:', keys);
     for (const k of keys) {
       console.log('\nKey:', k);
-      const zcard = cp.execSync(`docker exec geezle-redis redis-cli --raw ZCARD ${k}`).toString().trim();
+      const zcard = cp.execSync(`docker exec Scrolith-redis redis-cli --raw ZCARD ${k}`).toString().trim();
       console.log('ZCARD:', zcard);
-      const members = cp.execSync(`docker exec geezle-redis redis-cli --raw ZRANGE ${k} 0 -1 WITHSCORES`).toString().trim();
+      const members = cp.execSync(`docker exec Scrolith-redis redis-cli --raw ZRANGE ${k} 0 -1 WITHSCORES`).toString().trim();
       console.log('Members (member / score):\n', members || '(none)');
-      const ttl = cp.execSync(`docker exec geezle-redis redis-cli --raw TTL ${k}`).toString().trim();
+      const ttl = cp.execSync(`docker exec Scrolith-redis redis-cli --raw TTL ${k}`).toString().trim();
       console.log('TTL:', ttl);
     }
   } catch (e) {
@@ -61,3 +61,4 @@ if (require.main === module) {
     process.exit(0);
   })();
 }
+

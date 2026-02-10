@@ -2,10 +2,10 @@ import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import prisma from '../utils/prismaClient';
 import { initiateHostedCheckout, parseNotification } from '../services/payments/providers/payoneer';
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_mock_key', ({
-  apiVersion: '2023-10-16'
-} as any));
+import { findOrderPaymentIntentByReference, settleOrderPaymentIntent } from '../services/orderPayments';
+import { encryptSecret, maybeDecryptSecret } from '../utils/secretCipher';
+import { getStripeClient, getStripeGatewayConfig, invalidateStripeConfigCache } from '../services/stripeConfig.service';
+import { handleStripeConnectWebhookEvent } from './payouts.stripe.controller';
 
 interface AuthRequest extends Request {
   user?: {
@@ -35,7 +35,7 @@ const fail = (res: Response, status: number, message: string, code = 'ERR_WALLET
 const getAuthUser = (req: Request) => req.user as AuthRequest['user'] | undefined;
 
 const getOrCreateSettings = async () => {
-  let settings = await prisma.settings.findFirst();
+  let settings = await prisma.settings.findFirst({ orderBy: { updatedAt: 'desc' } });
   if (!settings) {
     settings = await prisma.settings.create({ data: {} });
   }
@@ -88,10 +88,18 @@ const getProviderConfig = (provider: string, settings: any) => {
   const entry = config?.[provider] || {};
 
   if (provider === 'stripe') {
+    const rawConnectEnabled = entry?.connectEnabled;
+    const connectEnabled =
+      rawConnectEnabled === true ||
+      rawConnectEnabled === 1 ||
+      String(rawConnectEnabled || '').toLowerCase() === 'true' ||
+      String(rawConnectEnabled || '').toLowerCase() === '1';
     return {
       enabled: entry?.enabled ?? true,
-      secretKey: entry?.secretKey || process.env.STRIPE_SECRET_KEY,
-      webhookSecret: entry?.webhookSecret || process.env.STRIPE_WEBHOOK_SECRET
+      secretKey: maybeDecryptSecret(entry?.secretKey || process.env.STRIPE_SECRET_KEY),
+      webhookSecret: maybeDecryptSecret(entry?.webhookSecret || process.env.STRIPE_WEBHOOK_SECRET),
+      connectEnabled,
+      connectType: String(entry?.connectType || 'express').toLowerCase() === 'standard' ? 'standard' : 'express'
     };
   }
 
@@ -99,7 +107,7 @@ const getProviderConfig = (provider: string, settings: any) => {
     return {
       enabled: entry?.enabled ?? false,
       clientId: entry?.clientId || settings?.paymentPaypalClientId || process.env.PAYPAL_CLIENT_ID,
-      clientSecret: entry?.clientSecret || settings?.paymentPaypalSecret || process.env.PAYPAL_SECRET,
+      clientSecret: maybeDecryptSecret(entry?.clientSecret || settings?.paymentPaypalSecret || process.env.PAYPAL_SECRET),
       environment: entry?.environment || process.env.PAYPAL_ENV || 'sandbox'
     };
   }
@@ -107,54 +115,54 @@ const getProviderConfig = (provider: string, settings: any) => {
   if (provider === 'paystack') {
     return {
       enabled: entry?.enabled ?? false,
-      secretKey: entry?.secretKey || process.env.PAYSTACK_SECRET_KEY
+      secretKey: maybeDecryptSecret(entry?.secretKey || process.env.PAYSTACK_SECRET_KEY)
     };
   }
 
   if (provider === 'flutterwave') {
     return {
       enabled: entry?.enabled ?? false,
-      secretKey: entry?.secretKey || process.env.FLUTTERWAVE_SECRET_KEY
+      secretKey: maybeDecryptSecret(entry?.secretKey || process.env.FLUTTERWAVE_SECRET_KEY)
     };
   }
 
   if (provider === 'paymongo') {
     return {
       enabled: entry?.enabled ?? false,
-      secretKey: entry?.secretKey || process.env.PAYMONGO_SECRET_KEY
+      secretKey: maybeDecryptSecret(entry?.secretKey || process.env.PAYMONGO_SECRET_KEY)
     };
   }
 
   if (provider === 'xendit') {
     return {
       enabled: entry?.enabled ?? false,
-      secretKey: entry?.secretKey || process.env.XENDIT_SECRET_KEY,
-      callbackToken: entry?.callbackToken || process.env.XENDIT_CALLBACK_TOKEN
+      secretKey: maybeDecryptSecret(entry?.secretKey || process.env.XENDIT_SECRET_KEY),
+      callbackToken: maybeDecryptSecret(entry?.callbackToken || process.env.XENDIT_CALLBACK_TOKEN)
     };
   }
 
   if (provider === 'monnify') {
     return {
       enabled: entry?.enabled ?? false,
-      apiKey: entry?.apiKey || process.env.MONNIFY_API_KEY,
-      secretKey: entry?.secretKey || process.env.MONNIFY_SECRET_KEY,
-      contractCode: entry?.contractCode || process.env.MONNIFY_CONTRACT_CODE
+      apiKey: maybeDecryptSecret(entry?.apiKey || process.env.MONNIFY_API_KEY),
+      secretKey: maybeDecryptSecret(entry?.secretKey || process.env.MONNIFY_SECRET_KEY),
+      contractCode: maybeDecryptSecret(entry?.contractCode || process.env.MONNIFY_CONTRACT_CODE)
     };
   }
 
   if (provider === 'opay') {
     return {
       enabled: entry?.enabled ?? false,
-      merchantId: entry?.merchantId || process.env.OPAY_MERCHANT_ID,
-      secretKey: entry?.secretKey || process.env.OPAY_SECRET_KEY
+      merchantId: maybeDecryptSecret(entry?.merchantId || process.env.OPAY_MERCHANT_ID),
+      secretKey: maybeDecryptSecret(entry?.secretKey || process.env.OPAY_SECRET_KEY)
     };
   }
 
   if (provider === 'dragonpay') {
     return {
       enabled: entry?.enabled ?? false,
-      merchantId: entry?.merchantId || process.env.DRAGONPAY_MERCHANT_ID,
-      secretKey: entry?.secretKey || process.env.DRAGONPAY_SECRET_KEY
+      merchantId: maybeDecryptSecret(entry?.merchantId || process.env.DRAGONPAY_MERCHANT_ID),
+      secretKey: maybeDecryptSecret(entry?.secretKey || process.env.DRAGONPAY_SECRET_KEY)
     };
   }
 
@@ -162,11 +170,11 @@ const getProviderConfig = (provider: string, settings: any) => {
     return {
       enabled: entry?.enabled ?? false,
       clientId: entry?.clientId || process.env.PAYONEER_CLIENT_ID,
-      clientSecret: entry?.clientSecret || process.env.PAYONEER_CLIENT_SECRET,
+      clientSecret: maybeDecryptSecret(entry?.clientSecret || process.env.PAYONEER_CLIENT_SECRET),
       programId: entry?.programId || process.env.PAYONEER_PROGRAM_ID,
       apiBaseUrl: entry?.apiBaseUrl || process.env.PAYONEER_API_BASE_URL,
-      authToken: entry?.authToken || process.env.PAYONEER_AUTH_TOKEN,
-      notificationSecret: entry?.notificationSecret || process.env.PAYONEER_NOTIFICATION_SECRET,
+      authToken: maybeDecryptSecret(entry?.authToken || process.env.PAYONEER_AUTH_TOKEN),
+      notificationSecret: maybeDecryptSecret(entry?.notificationSecret || process.env.PAYONEER_NOTIFICATION_SECRET),
       createSessionPath: entry?.createSessionPath || process.env.PAYONEER_CREATE_SESSION_PATH || '/checkout/hosted/session'
     };
   }
@@ -287,16 +295,49 @@ const paymentGatewayCatalog = [
   }
 ];
 
+const secretFieldMap: Record<string, string[]> = {
+  stripe: ['secretKey', 'webhookSecret'],
+  paypal: ['clientSecret'],
+  paystack: ['secretKey'],
+  flutterwave: ['secretKey'],
+  paymongo: ['secretKey'],
+  xendit: ['secretKey', 'callbackToken'],
+  monnify: ['apiKey', 'secretKey', 'contractCode'],
+  opay: ['merchantId', 'secretKey'],
+  dragonpay: ['merchantId', 'secretKey'],
+  payoneer: ['clientSecret', 'authToken', 'notificationSecret']
+};
+
+const sanitizeConfigForAdmin = (providerId: string, entry: any) => {
+  const secretFields = secretFieldMap[providerId] || [];
+  const sanitized: any = { ...(entry || {}) };
+  secretFields.forEach((key) => {
+    const value = entry?.[key];
+    if (value) {
+      sanitized[key] = '';
+      sanitized[`has_${key}`] = true;
+      sanitized[`has${key.charAt(0).toUpperCase()}${key.slice(1)}`] = true;
+    } else {
+      sanitized[`has_${key}`] = false;
+      sanitized[`has${key.charAt(0).toUpperCase()}${key.slice(1)}`] = false;
+    }
+  });
+  return sanitized;
+};
+
 const mapGateway = (gateway: any, settings: any) => {
   const config = normalizeProvidersConfig(settings);
   const entry = config?.[gateway.id] || {};
   const enabled = entry?.enabled ?? false;
+  const explicitEnv = entry?.environment || entry?.mode;
+  const resolvedMode = explicitEnv ? (explicitEnv === 'live' ? 'live' : 'test') : (settings?.paymentTestMode ? 'test' : 'live');
   return {
     ...gateway,
+    logo: entry?.logo || gateway.logo,
     is_enabled: Boolean(enabled),
     isEnabled: Boolean(enabled),
-    mode: settings?.paymentTestMode ? 'test' : 'live',
-    config: entry
+    mode: resolvedMode,
+    config: sanitizeConfigForAdmin(gateway.id, entry)
   };
 };
 
@@ -311,6 +352,23 @@ export const listFundingGatewaysAdmin = async (req: Request, res: Response) => {
   }
 };
 
+export const listFundingGatewaysPublic = async (req: Request, res: Response) => {
+  try {
+    const settings = await getOrCreateSettings();
+    const data = paymentGatewayCatalog
+      .map((gw) => mapGateway(gw, settings))
+      .filter((gw) => Boolean(gw.is_enabled ?? gw.isEnabled))
+      .map((gw) => {
+        const { config, ...rest } = gw as any;
+        return rest;
+      });
+    return ok(res, data);
+  } catch (error: any) {
+    console.error('Failed to load public gateways:', error);
+    return fail(res, 500, error?.message || 'Failed to load gateways', 'ERR_GATEWAYS_PUBLIC');
+  }
+};
+
 export const saveFundingGatewaysAdmin = async (req: Request, res: Response) => {
   try {
     const settings = await getOrCreateSettings();
@@ -318,19 +376,81 @@ export const saveFundingGatewaysAdmin = async (req: Request, res: Response) => {
     const incoming = Array.isArray(payload) ? payload : Array.isArray(payload.gateways) ? payload.gateways : [payload];
     const existing = normalizeProvidersConfig(settings);
 
+    const allowedFields: Record<string, string[]> = {
+      stripe: ['enabled', 'publishableKey', 'secretKey', 'webhookSecret', 'logo', 'environment', 'connectEnabled', 'connectType'],
+      paypal: ['enabled', 'clientId', 'clientSecret', 'environment', 'logo'],
+      paystack: ['enabled', 'secretKey', 'logo'],
+      flutterwave: ['enabled', 'secretKey', 'logo'],
+      paymongo: ['enabled', 'secretKey', 'logo'],
+      xendit: ['enabled', 'secretKey', 'callbackToken', 'logo'],
+      monnify: ['enabled', 'apiKey', 'secretKey', 'contractCode', 'logo'],
+      opay: ['enabled', 'merchantId', 'secretKey', 'logo', 'environment'],
+      dragonpay: ['enabled', 'merchantId', 'secretKey', 'logo'],
+      payoneer: ['enabled', 'clientId', 'clientSecret', 'programId', 'apiBaseUrl', 'authToken', 'notificationSecret', 'createSessionPath', 'logo']
+    };
+    const requiredFields: Record<string, string[]> = {
+      stripe: ['secretKey'],
+      paypal: ['clientId', 'clientSecret'],
+      paystack: ['secretKey'],
+      flutterwave: ['secretKey'],
+      paymongo: ['secretKey'],
+      xendit: ['secretKey'],
+      monnify: ['apiKey', 'secretKey', 'contractCode'],
+      opay: ['merchantId', 'secretKey'],
+      dragonpay: ['merchantId', 'secretKey'],
+      payoneer: ['clientId', 'clientSecret', 'apiBaseUrl', 'authToken']
+    };
+
     const updatedProviders = { ...existing };
     for (const item of incoming) {
       if (!item?.id) continue;
-      updatedProviders[item.id] = {
-        ...(existing[item.id] || {}),
-        enabled: Boolean(item.isEnabled ?? item.is_enabled ?? item.enabled ?? false)
-      };
+      const providerId = item.id;
+      const allow = allowedFields[providerId] || ['enabled', 'logo'];
+      const current = existing[providerId] || {};
+      const next = { ...current };
+
+      const enabled = Boolean(item.isEnabled ?? item.is_enabled ?? item.enabled ?? current.enabled ?? false);
+      next.enabled = enabled;
+
+      const config = item.config && typeof item.config === 'object' ? item.config : {};
+      const payloadConfig = { ...item, ...config };
+
+      for (const key of allow) {
+        if (key === 'enabled') continue;
+        if (payloadConfig[key] === undefined) continue;
+        if (typeof payloadConfig[key] === 'string' && payloadConfig[key].trim() === '') continue;
+        const rawValue = payloadConfig[key];
+        const shouldEncrypt = (secretFieldMap[providerId] || []).includes(key) && typeof rawValue === 'string';
+        next[key] = shouldEncrypt ? encryptSecret(rawValue) : rawValue;
+      }
+
+      if (next.enabled) {
+        const required = requiredFields[providerId] || [];
+        const legacyFallbacks: Record<string, any> = {
+          stripe: {
+            secretKey: settings?.paymentStripeSecret,
+            publishableKey: settings?.paymentStripeKey
+          },
+          paypal: {
+            clientId: settings?.paymentPaypalClientId,
+            clientSecret: settings?.paymentPaypalSecret
+          }
+        };
+        const legacy = legacyFallbacks[providerId] || {};
+        const missing = required.filter((field) => !next[field] && !legacy[field]);
+        if (missing.length) {
+          return fail(res, 400, `Missing required credentials for ${providerId}: ${missing.join(', ')}`, 'ERR_GATEWAY_CONFIG');
+        }
+      }
+
+      updatedProviders[providerId] = next;
     }
 
     await prisma.settings.update({
       where: { id: settings.id },
       data: { walletFundingProviders: updatedProviders }
     });
+    invalidateStripeConfigCache();
 
     const data = paymentGatewayCatalog.map((gw) => mapGateway(gw, { ...settings, walletFundingProviders: updatedProviders }));
     return ok(res, data);
@@ -568,7 +688,11 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
       const successUrl = `${frontendBase}${dashboardPath}?tab=wallet&topup_intent=${intent.id}&topup_status=success`;
       const cancelUrl = `${frontendBase}${dashboardPath}?tab=wallet&topup_intent=${intent.id}&topup_status=cancel`;
 
-      const session = await stripe.checkout.sessions.create({
+      const stripeClient = await getStripeClient();
+      if (!stripeClient) {
+        return fail(res, 400, 'Stripe is not configured', 'ERR_PROVIDER_CONFIG');
+      }
+      const session = await stripeClient.checkout.sessions.create({
         mode: 'payment',
         success_url: successUrl,
         cancel_url: cancelUrl,
@@ -579,7 +703,7 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
               currency: currency.toLowerCase(),
               unit_amount: Math.round(amount * 100),
               product_data: {
-                name: 'Geezle Wallet Top-up'
+                name: 'Scrolith Wallet Top-up'
               }
             },
             quantity: 1
@@ -749,7 +873,7 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
           redirect_url: redirectUrl,
           customer: {
             email: user.email || 'user@example.com',
-            name: user.email ? user.email.split('@')[0] : 'Geezle User'
+            name: user.email ? user.email.split('@')[0] : 'Scrolith User'
           },
           meta: {
             walletFundingIntentId: intent.id,
@@ -791,7 +915,7 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
           data: {
             attributes: {
               amount: Math.round(amount * 100),
-              description: 'Geezle Wallet Top-up',
+              description: 'Scrolith Wallet Top-up',
               remarks: intent.id,
               currency
             }
@@ -835,7 +959,7 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
           external_id: intent.id,
           amount,
           payer_email: user.email || 'user@example.com',
-          description: 'Geezle Wallet Top-up',
+          description: 'Scrolith Wallet Top-up',
           currency
         })
       });
@@ -888,7 +1012,7 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
         },
         body: JSON.stringify({
           amount,
-          customerName: user.email ? user.email.split('@')[0] : 'Geezle User',
+          customerName: user.email ? user.email.split('@')[0] : 'Scrolith User',
           customerEmail: user.email || 'user@example.com',
           paymentReference: intent.id,
           currencyCode: currency,
@@ -972,7 +1096,7 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
       }
 
       const email = user.email || 'user@example.com';
-      const description = encodeURIComponent('Geezle Wallet Top-up');
+      const description = encodeURIComponent('Scrolith Wallet Top-up');
       const redirectUrl = `${getDragonpayBaseUrl()}?merchantid=${encodeURIComponent(config.merchantId)}&txnid=${encodeURIComponent(intent.id)}&amount=${encodeURIComponent(amount.toFixed(2))}&ccy=${encodeURIComponent(currency)}&description=${description}&email=${encodeURIComponent(email)}`;
 
       await prisma.walletFundingIntent.update({
@@ -1081,11 +1205,15 @@ export const handleStripeWalletWebhook = async (req: Request, res: Response) => 
   let event: Stripe.Event;
 
   try {
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET || ''
-    );
+    const stripeConfig = await getStripeGatewayConfig();
+    if (!stripeConfig.webhookSecret) {
+      return res.status(400).json({ success: false, error: 'Stripe webhook secret not configured' });
+    }
+    const stripeClient = await getStripeClient();
+    if (!stripeClient) {
+      return res.status(400).json({ success: false, error: 'Stripe secret key not configured' });
+    }
+    event = stripeClient.webhooks.constructEvent(req.body, sig, stripeConfig.webhookSecret);
   } catch (err: any) {
     console.error('Stripe webhook signature error:', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
@@ -1100,6 +1228,22 @@ export const handleStripeWalletWebhook = async (req: Request, res: Response) => 
       if (intentId) {
         await settleWalletFundingIntent(intentId, 'stripe', providerReference, 'succeeded', session);
       }
+
+      const orderIntentId = session.metadata?.orderPaymentIntentId;
+      if (orderIntentId) {
+        try {
+          await settleOrderPaymentIntent({
+            provider: 'stripe',
+            providerReferenceId: providerReference,
+            status: 'succeeded',
+            rawEvent: session,
+            intentId: orderIntentId,
+            stripeIntentId: session.payment_intent?.toString() || null
+          });
+        } catch (e) {
+          console.warn('Stripe order payment settlement failed', e);
+        }
+      }
     }
 
     if (event.type === 'payment_intent.payment_failed') {
@@ -1109,7 +1253,25 @@ export const handleStripeWalletWebhook = async (req: Request, res: Response) => 
       if (intentId) {
         await settleWalletFundingIntent(intentId, 'stripe', providerReference, 'failed', intent);
       }
+
+      const orderIntentId = intent.metadata?.orderPaymentIntentId;
+      if (orderIntentId) {
+        try {
+          await settleOrderPaymentIntent({
+            provider: 'stripe',
+            providerReferenceId: providerReference,
+            status: 'failed',
+            rawEvent: intent,
+            intentId: orderIntentId,
+            stripeIntentId: providerReference
+          });
+        } catch (e) {
+          console.warn('Stripe order payment failure settlement failed', e);
+        }
+      }
     }
+
+    await handleStripeConnectWebhookEvent(event);
   } catch (error: any) {
     console.error('Stripe wallet webhook processing error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Webhook processing failed' });
@@ -1123,6 +1285,19 @@ export const handlePaystackWebhook = async (req: Request, res: Response) => {
     const event = req.body;
     const reference = event?.data?.reference || event?.data?.metadata?.walletFundingIntentId;
     if (!reference) return res.status(400).json({ success: false, error: 'Missing reference' });
+
+    const orderIntent = await findOrderPaymentIntentByReference('paystack', reference);
+    if (orderIntent) {
+      const status = event?.data?.status === 'success' ? 'succeeded' : 'failed';
+      await settleOrderPaymentIntent({
+        provider: 'paystack',
+        providerReferenceId: reference,
+        status,
+        rawEvent: event,
+        intentId: orderIntent.id
+      });
+      return res.json({ received: true });
+    }
 
     const settings = await getOrCreateSettings();
     const config = getProviderConfig('paystack', settings);
@@ -1150,6 +1325,19 @@ export const handleFlutterwaveWebhook = async (req: Request, res: Response) => {
     const transactionId = event?.data?.id;
     if (!txRef || !transactionId) {
       return res.status(400).json({ success: false, error: 'Missing transaction reference' });
+    }
+
+    const orderIntent = await findOrderPaymentIntentByReference('flutterwave', txRef);
+    if (orderIntent) {
+      const status = event?.data?.status === 'successful' ? 'succeeded' : 'failed';
+      await settleOrderPaymentIntent({
+        provider: 'flutterwave',
+        providerReferenceId: String(transactionId),
+        status,
+        rawEvent: event,
+        intentId: orderIntent.id
+      });
+      return res.json({ received: true });
     }
 
     const settings = await getOrCreateSettings();
@@ -1203,6 +1391,19 @@ export const handlePaypalWebhook = async (req: Request, res: Response) => {
     const customId = order?.purchase_units?.[0]?.custom_id;
     if (!customId) return res.status(400).json({ success: false, error: 'Missing intent reference' });
 
+    const orderIntent = await findOrderPaymentIntentByReference('paypal', customId);
+    if (orderIntent) {
+      const status = order?.status === 'COMPLETED' ? 'succeeded' : 'failed';
+      await settleOrderPaymentIntent({
+        provider: 'paypal',
+        providerReferenceId: orderId,
+        status,
+        rawEvent: order,
+        intentId: orderIntent.id
+      });
+      return res.json({ received: true });
+    }
+
     const status = order?.status === 'COMPLETED' ? 'succeeded' : 'failed';
     await settleWalletFundingIntent(customId, 'paypal', orderId, status, order);
     return res.json({ received: true });
@@ -1217,6 +1418,19 @@ export const handlePaymongoWebhook = async (req: Request, res: Response) => {
     const event = req.body;
     const referenceId = event?.data?.id;
     if (!referenceId) return res.status(400).json({ success: false, error: 'Missing reference' });
+
+    const orderIntent = await findOrderPaymentIntentByReference('paymongo', referenceId);
+    if (orderIntent) {
+      const status = event?.type === 'payment.paid' || event?.type === 'link.paid' ? 'succeeded' : 'failed';
+      await settleOrderPaymentIntent({
+        provider: 'paymongo',
+        providerReferenceId: referenceId,
+        status,
+        rawEvent: event,
+        intentId: orderIntent.id
+      });
+      return res.json({ received: true });
+    }
 
     const intent = await findIntentByReference('paymongo', referenceId);
     if (!intent) return res.status(404).json({ success: false, error: 'Intent not found' });
@@ -1243,6 +1457,19 @@ export const handleXenditWebhook = async (req: Request, res: Response) => {
     const referenceId = event?.id;
     if (!referenceId) return res.status(400).json({ success: false, error: 'Missing reference' });
 
+    const orderIntent = await findOrderPaymentIntentByReference('xendit', referenceId);
+    if (orderIntent) {
+      const status = event?.status === 'PAID' ? 'succeeded' : 'failed';
+      await settleOrderPaymentIntent({
+        provider: 'xendit',
+        providerReferenceId: referenceId,
+        status,
+        rawEvent: event,
+        intentId: orderIntent.id
+      });
+      return res.json({ received: true });
+    }
+
     const intent = await findIntentByReference('xendit', referenceId);
     if (!intent) return res.status(404).json({ success: false, error: 'Intent not found' });
 
@@ -1263,6 +1490,19 @@ export const handleMonnifyWebhook = async (req: Request, res: Response) => {
     const referenceId = transactionReference || paymentReference;
     if (!referenceId) return res.status(400).json({ success: false, error: 'Missing reference' });
 
+    const orderIntent = await findOrderPaymentIntentByReference('monnify', referenceId);
+    if (orderIntent) {
+      const status = event?.eventType === 'SUCCESSFUL_TRANSACTION' ? 'succeeded' : 'failed';
+      await settleOrderPaymentIntent({
+        provider: 'monnify',
+        providerReferenceId: referenceId,
+        status,
+        rawEvent: event,
+        intentId: orderIntent.id
+      });
+      return res.json({ received: true });
+    }
+
     const intent = await findIntentByReference('monnify', referenceId);
     if (!intent) return res.status(404).json({ success: false, error: 'Intent not found' });
 
@@ -1281,6 +1521,19 @@ export const handleOpayWebhook = async (req: Request, res: Response) => {
     const referenceId = event?.reference || event?.data?.reference;
     if (!referenceId) return res.status(400).json({ success: false, error: 'Missing reference' });
 
+    const orderIntent = await findOrderPaymentIntentByReference('opay', referenceId);
+    if (orderIntent) {
+      const status = event?.status === 'SUCCESS' ? 'succeeded' : 'failed';
+      await settleOrderPaymentIntent({
+        provider: 'opay',
+        providerReferenceId: referenceId,
+        status,
+        rawEvent: event,
+        intentId: orderIntent.id
+      });
+      return res.json({ received: true });
+    }
+
     const intent = await findIntentByReference('opay', referenceId);
     if (!intent) return res.status(404).json({ success: false, error: 'Intent not found' });
 
@@ -1297,6 +1550,19 @@ export const handleDragonpayCallback = async (req: Request, res: Response) => {
   try {
     const { txnid, status } = req.query as { txnid?: string; status?: string };
     if (!txnid) return res.status(400).json({ success: false, error: 'Missing txnid' });
+
+    const orderIntent = await findOrderPaymentIntentByReference('dragonpay', txnid);
+    if (orderIntent) {
+      const finalStatus = status === 'S' ? 'succeeded' : 'failed';
+      await settleOrderPaymentIntent({
+        provider: 'dragonpay',
+        providerReferenceId: txnid,
+        status: finalStatus,
+        rawEvent: req.query,
+        intentId: orderIntent.id
+      });
+      return res.json({ received: true });
+    }
 
     const intent = await prisma.walletFundingIntent.findUnique({ where: { id: txnid } });
     if (!intent) return res.status(404).json({ success: false, error: 'Intent not found' });
@@ -1320,6 +1586,17 @@ export const handlePayoneerNotify = async (req: Request, res: Response) => {
     }
 
     const parsed = parseNotification(req.body);
+    const orderIntent = await findOrderPaymentIntentByReference('payoneer', parsed.intentId);
+    if (orderIntent) {
+      await settleOrderPaymentIntent({
+        provider: 'payoneer',
+        providerReferenceId: parsed.providerReferenceId,
+        status: parsed.status as any,
+        rawEvent: parsed.raw,
+        intentId: orderIntent.id
+      });
+      return res.json({ received: true });
+    }
     await settleWalletFundingIntent(parsed.intentId, 'payoneer', parsed.providerReferenceId, parsed.status as any, parsed.raw);
     return res.json({ received: true });
   } catch (error: any) {
@@ -1327,3 +1604,4 @@ export const handlePayoneerNotify = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, error: error.message || 'Notify error' });
   }
 };
+

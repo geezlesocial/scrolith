@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { computeWalletFraudScore, recomputeAllWalletScores } from '../services/fraudDetector';
+import { getGcoinSettingsSafe, saveGcoinSettingsSafe } from '../utils/gcoinSettings';
 
 interface AuthRequest extends Request {
   user?: { id: string; email?: string; role?: string };
@@ -15,9 +16,7 @@ const fail = (res: Response, status: number, message: string, code = 'ERR_GCOIN'
 const isAdminRole = (role?: string) => (role || '').toString().toLowerCase().includes('admin');
 
 const getOrCreateGcoinSettings = async () => {
-  let s = await prisma.gcoinSettings.findFirst();
-  if (!s) s = await prisma.gcoinSettings.create({ data: {} });
-  return s;
+  return getGcoinSettingsSafe();
 };
 
 const getAdminRevenueUserId = async () => {
@@ -36,6 +35,81 @@ const getOrCreateGcoinWallet = async (userId: string) => {
   return prisma.gcoinWallet.create({ data: { userId, recipientId, balance: 0, lifetimeEarned: 0, status: 'active' } });
 };
 
+const emitConversionEvents = async (req: AuthRequest, payload: any) => {
+  try {
+    const io = (req.app as any).get('io');
+    io?.emit('community:gcoin_conversion_processed', payload);
+  } catch (e) {}
+  try {
+    realtime.emitToUser(payload.userId, 'community:gcoin_conversion_processed', payload);
+  } catch (e) {}
+};
+
+const approveConversionRequest = async (req: AuthRequest, reqRec: any, processedBy?: string) => {
+  const w = await getOrCreateGcoinWallet(reqRec.userId);
+  if (w.balance < reqRec.amountGcoin) {
+    throw new Error('Insufficient gcoin');
+  }
+  await prisma.$transaction(async (tx) => {
+    await tx.gcoinWallet.update({
+      where: { userId: reqRec.userId },
+      data: { balance: Number(w.balance) - Number(reqRec.amountGcoin) }
+    });
+    await tx.gcoinConversionRequest.update({
+      where: { id: reqRec.id },
+      data: { status: 'approved', processedAt: new Date(), processedBy: processedBy || null }
+    });
+
+    let wallet = await tx.wallet.findUnique({ where: { userId: reqRec.userId } });
+    if (!wallet) {
+      wallet = await tx.wallet.create({
+        data: { userId: reqRec.userId, balance: 0, pendingClearance: 0, escrowBalance: 0, frozen: false, currency: 'USD', isActive: true }
+      });
+    }
+
+    await tx.transaction.create({
+      data: {
+        walletId: wallet.id,
+        userId: reqRec.userId,
+        type: 'DEPOSIT',
+        amount: Number(reqRec.amountFiat),
+        currency: 'USD',
+        status: 'COMPLETED',
+        description: `Gcoin conversion approved: ${reqRec.id}`,
+        referenceId: reqRec.id,
+        metadata: { conversionRequestId: reqRec.id }
+      }
+    });
+
+    await tx.wallet.update({
+      where: { id: wallet.id },
+      data: { balance: { increment: Number(reqRec.amountFiat) } }
+    });
+  });
+
+  try {
+    const io = (req.app as any).get('io');
+    io?.emit('community:gcoin_balance_updated', {
+      userId: reqRec.userId,
+      balance: Number(w.balance) - Number(reqRec.amountGcoin)
+    });
+  } catch (e) {}
+  try {
+    realtime.emitToWallet(reqRec.userId, 'community:gcoin_balance_updated', {
+      userId: reqRec.userId,
+      balance: Number(w.balance) - Number(reqRec.amountGcoin)
+    });
+  } catch (e) {}
+
+  try {
+    const fiatWallet = await prisma.wallet.findUnique({ where: { userId: reqRec.userId } });
+    if (fiatWallet) {
+      try { (req.app as any).get('io')?.emit('community:fiat_balance_updated', { userId: reqRec.userId, fiatBalance: fiatWallet.balance }); } catch (e) {}
+      try { realtime.emitToUser(reqRec.userId, 'community:fiat_balance_updated', { userId: reqRec.userId, fiatBalance: fiatWallet.balance }); } catch (e) {}
+    }
+  } catch (e) {}
+};
+
 export const getSettings = async (req: AuthRequest, res: Response) => {
   try {
     const settings = await getOrCreateGcoinSettings();
@@ -49,13 +123,42 @@ export const getSettings = async (req: AuthRequest, res: Response) => {
 export const saveSettings = async (req: AuthRequest, res: Response) => {
   try {
     if (!isAdminRole(req.user?.role)) return fail(res, 403, 'Forbidden');
-    const payload = req.body || {};
-    const existing = await prisma.gcoinSettings.findFirst();
-    if (!existing) {
-      const created = await prisma.gcoinSettings.create({ data: payload });
-      return ok(res, created);
-    }
-    const updated = await prisma.gcoinSettings.update({ where: { id: existing.id }, data: payload });
+    const raw = req.body || {};
+    const toBool = (v: any) => {
+      if (v === undefined || v === null) return v;
+      if (typeof v === 'string') {
+        const n = v.trim().toLowerCase();
+        if (['true', '1', 'yes', 'on'].includes(n)) return true;
+        if (['false', '0', 'no', 'off'].includes(n)) return false;
+      }
+      return Boolean(v);
+    };
+    const toNum = (v: any) => (v === undefined || v === null || v === '' ? undefined : Number(v));
+    const payload: any = {
+      conversionRate: toNum(raw.conversionRate ?? raw.conversion_rate),
+      minWithdrawal: toNum(raw.minWithdrawal ?? raw.min_withdrawal),
+      conversionEnabled: toBool(raw.conversionEnabled ?? raw.conversion_enabled),
+      autoApproveConversions: toBool(raw.autoApproveConversions ?? raw.auto_approve_conversions),
+      userTransfersEnabled: toBool(raw.userTransfersEnabled ?? raw.user_transfers_enabled),
+      transferFeeType: raw.transferFeeType ?? raw.transfer_fee_type,
+      transferFeeValue: toNum(raw.transferFeeValue ?? raw.transfer_fee_value),
+      viewsUnit: toNum(raw.viewsUnit ?? raw.views_unit),
+      likesUnit: toNum(raw.likesUnit ?? raw.likes_unit),
+      repostsUnit: toNum(raw.repostsUnit ?? raw.reposts_unit),
+      sharesUnit: toNum(raw.sharesUnit ?? raw.shares_unit),
+      coinPerViewsUnit: toNum(raw.coinPerViewsUnit ?? raw.coin_per_views_unit),
+      coinPerLikesUnit: toNum(raw.coinPerLikesUnit ?? raw.coin_per_likes_unit),
+      coinPerRepostsUnit: toNum(raw.coinPerRepostsUnit ?? raw.coin_per_reposts_unit),
+      coinPerSharesUnit: toNum(raw.coinPerSharesUnit ?? raw.coin_per_shares_unit),
+      adminFeePercent: toNum(raw.adminFeePercent ?? raw.admin_fee_percent)
+    };
+    // Drop undefined keys to avoid Prisma rejecting unknown fields
+    Object.keys(payload).forEach((key) => payload[key] === undefined && delete payload[key]);
+    const updated = await saveGcoinSettingsSafe(payload);
+    try {
+      const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
+      io?.emit('community:gcoin_settings_updated', { settings: updated });
+    } catch (e) {}
     return ok(res, updated);
   } catch (e: any) {
     console.error(e);
@@ -221,31 +324,52 @@ export const createTransaction = async (req: AuthRequest, res: Response) => {
 export const creditUser = async (req: AuthRequest, res: Response) => {
   try {
     if (!isAdminRole(req.user?.role)) return fail(res, 403, 'Forbidden');
-    const { userId, amount, note } = req.body || {};
-    if (!userId || amount === undefined) return fail(res, 400, 'Missing fields');
-    const w = await getOrCreateGcoinWallet(userId);
+    const { userId, amount, note, recipientId, recipientIdentifier, email } = req.body || {};
+    const rawRecipient = recipientId || recipientIdentifier || userId || '';
+    const rawEmail = email || (typeof rawRecipient === 'string' && rawRecipient.includes('@') ? rawRecipient : null);
+    if (!rawRecipient && !rawEmail || amount === undefined) return fail(res, 400, 'Missing fields');
+
+    let resolvedUserId: string | null = null;
+    const recipientToken = typeof rawRecipient === 'string' ? rawRecipient.trim() : '';
+    if (recipientToken && recipientToken.toUpperCase().startsWith('GC-')) {
+      const wallet = await prisma.gcoinWallet.findFirst({
+        where: { recipientId: { equals: recipientToken, mode: 'insensitive' } }
+      });
+      resolvedUserId = wallet?.userId || null;
+    } else if (rawEmail) {
+      const user = await prisma.user.findUnique({ where: { email: rawEmail } });
+      resolvedUserId = user?.id || null;
+    } else if (recipientToken) {
+      resolvedUserId = recipientToken;
+    }
+
+    if (!resolvedUserId) return fail(res, 404, 'Recipient not found');
+    const existingUser = await prisma.user.findUnique({ where: { id: resolvedUserId } });
+    if (!existingUser) return fail(res, 404, 'Recipient not found');
+
+    const w = await getOrCreateGcoinWallet(resolvedUserId);
     const newBal = Number(w.balance) + Number(amount);
-    await prisma.gcoinWallet.update({ where: { userId }, data: { balance: newBal, lifetimeEarned: Number(w.lifetimeEarned) + Number(amount) } });
-    const tx = await prisma.gcoinTransaction.create({ data: { userId, amount: Number(amount), type: 'ADMIN_CREDIT', reason: note || 'Admin credit', status: 'completed', createdBy: req.user?.id } });
+    await prisma.gcoinWallet.update({ where: { userId: resolvedUserId }, data: { balance: newBal, lifetimeEarned: Number(w.lifetimeEarned) + Number(amount) } });
+    const tx = await prisma.gcoinTransaction.create({ data: { userId: resolvedUserId, amount: Number(amount), type: 'ADMIN_CREDIT', reason: note || 'Admin credit', status: 'completed', createdBy: req.user?.id } });
     const io = (req.app as any).get('io');
     try { io?.emit('community:gcoin_transaction_created', { tx }); } catch(e){}
-    try { io?.emit('community:gcoin_balance_updated', { userId, balance: newBal }); } catch(e){}
-    try { realtime.emitToWallet(userId, 'community:gcoin_balance_updated', { userId, balance: newBal }); } catch(e){}
-    try { realtime.emitToUser(userId, 'community:gcoin_transaction_created', { tx }); } catch(e){}
-    try { realtime.emitToWallet(userId, 'community:gcoin_balance_updated', { userId, balance: newBal }); } catch(e){}
-    try { realtime.emitToUser(userId, 'community:gcoin_transaction_created', { tx }); } catch(e){}
-    try { realtime.emitToWallet(userId, 'community:gcoin_balance_updated', { userId, balance: newBal }); } catch(e){}
-    try { realtime.emitToUser(userId, 'community:gcoin_transaction_created', { tx }); } catch(e){}
+    try { io?.emit('community:gcoin_balance_updated', { userId: resolvedUserId, balance: newBal }); } catch(e){}
+    try { realtime.emitToWallet(resolvedUserId, 'community:gcoin_balance_updated', { userId: resolvedUserId, balance: newBal }); } catch(e){}
+    try { realtime.emitToUser(resolvedUserId, 'community:gcoin_transaction_created', { tx }); } catch(e){}
+    try { realtime.emitToWallet(resolvedUserId, 'community:gcoin_balance_updated', { userId: resolvedUserId, balance: newBal }); } catch(e){}
+    try { realtime.emitToUser(resolvedUserId, 'community:gcoin_transaction_created', { tx }); } catch(e){}
+    try { realtime.emitToWallet(resolvedUserId, 'community:gcoin_balance_updated', { userId: resolvedUserId, balance: newBal }); } catch(e){}
+    try { realtime.emitToUser(resolvedUserId, 'community:gcoin_transaction_created', { tx }); } catch(e){}
     // emit fiat wallet balance for UI consistency (if exists)
     try {
-      const fiatWallet = await prisma.wallet.findUnique({ where: { userId } });
+      const fiatWallet = await prisma.wallet.findUnique({ where: { userId: resolvedUserId } });
       if (fiatWallet) {
-        try { io?.emit('community:fiat_balance_updated', { userId, fiatBalance: fiatWallet.balance }); } catch(e){}
+        try { io?.emit('community:fiat_balance_updated', { userId: resolvedUserId, fiatBalance: fiatWallet.balance }); } catch(e){}
       }
     } catch(e) {
       console.error('Failed to emit fiat balance on admin credit:', e);
     }
-    return ok(res, { wallet: { userId, balance: newBal }, tx });
+    return ok(res, { wallet: { userId: resolvedUserId, balance: newBal }, tx, message: 'Grant processed' });
   } catch (e: any) {
     console.error(e);
     return fail(res, 500, 'Failed to credit user');
@@ -255,8 +379,9 @@ export const creditUser = async (req: AuthRequest, res: Response) => {
 export const adminAdjustBalance = async (req: AuthRequest, res: Response) => {
   try {
     if (!isAdminRole(req.user?.role)) return fail(res, 403, 'Forbidden');
-    const { userId } = req.params;
-    const { amount, note } = req.body || {};
+    const { userId: userIdParam } = req.params;
+    const { amount, note, userId: userIdBody } = req.body || {};
+    const userId = userIdParam || userIdBody;
     if (!userId || amount === undefined) return fail(res, 400, 'Missing fields');
     const w = await getOrCreateGcoinWallet(userId);
     const newBal = Number(w.balance) + Number(amount);
@@ -439,8 +564,9 @@ export const transferGcoin = async (req: AuthRequest, res: Response) => {
   try {
     const sender = req.user;
     if (!sender?.id) return fail(res, 401, 'Unauthorized');
-    const { toRecipientId, toEmail, amount, note } = req.body || {};
-    const value = Number(amount);
+    const { toRecipientId, toEmail, amount, amountGcoin, note, recipientIdentifier } = req.body || {};
+    const resolvedAmount = amount !== undefined ? amount : amountGcoin;
+    const value = Number(resolvedAmount);
     if (!value || value <= 0) return fail(res, 400, 'Invalid amount');
     // Rate limit / anti-fraud: per-user limits
     const allowed = await tryRecordTransfer(sender.id);
@@ -449,12 +575,14 @@ export const transferGcoin = async (req: AuthRequest, res: Response) => {
     const senderW = await getOrCreateGcoinWallet(sender.id);
     if (senderW.status === 'frozen') return fail(res, 403, 'Wallet frozen');
     let recipientUser: any = null;
-    if (toRecipientId) {
-      const wallet = await prisma.gcoinWallet.findUnique({ where: { recipientId: toRecipientId } });
+    const resolvedRecipientId = toRecipientId || (!toEmail && recipientIdentifier && !String(recipientIdentifier).includes('@') ? recipientIdentifier : null);
+    const resolvedEmail = toEmail || (recipientIdentifier && String(recipientIdentifier).includes('@') ? recipientIdentifier : null);
+    if (resolvedRecipientId) {
+      const wallet = await prisma.gcoinWallet.findUnique({ where: { recipientId: resolvedRecipientId } });
       if (!wallet) return fail(res, 404, 'Recipient not found');
       recipientUser = await prisma.user.findUnique({ where: { id: wallet.userId } });
-    } else if (toEmail) {
-      recipientUser = await prisma.user.findUnique({ where: { email: toEmail } });
+    } else if (resolvedEmail) {
+      recipientUser = await prisma.user.findUnique({ where: { email: resolvedEmail } });
       if (!recipientUser) return fail(res, 404, 'Recipient not found');
     } else {
       return fail(res, 400, 'Missing recipient');
@@ -463,11 +591,14 @@ export const transferGcoin = async (req: AuthRequest, res: Response) => {
     // Apply transfer fee (configured in GcoinSettings)
     const settingsRaw = await getOrCreateGcoinSettings();
     const settings: any = settingsRaw as any;
+    if (settings.userTransfersEnabled === false) {
+      return fail(res, 403, 'Transfers are currently disabled');
+    }
     const feeType = (settings.transferFeeType || 'percentage').toString();
     const feeValue = Number(settings.transferFeeValue || 0);
     let feeAmount = 0;
     if (feeType === 'percentage') {
-      feeAmount = Number((value * feeValue).toFixed(8));
+      feeAmount = Number((value * (feeValue / 100)).toFixed(8));
     } else {
       feeAmount = Number(feeValue);
     }
@@ -547,8 +678,9 @@ export const donateGcoin = async (req: AuthRequest, res: Response) => {
     const sender = req.user;
     if (!sender?.id) return fail(res, 401, 'Unauthorized');
     
-    const { postId, amount, note } = req.body || {};
-    const value = Number(amount);
+    const { postId, amount, amountGcoin, note } = req.body || {};
+    const resolvedAmount = amount !== undefined ? amount : amountGcoin;
+    const value = Number(resolvedAmount);
     
     if (!postId || !value || value <= 0) {
       return fail(res, 400, 'postId and amount are required');
@@ -587,7 +719,7 @@ export const donateGcoin = async (req: AuthRequest, res: Response) => {
     const feeValue = Number(settings.transferFeeValue || 0);
     let feeAmount = 0;
     if (feeType === 'percentage') {
-      feeAmount = Number((value * feeValue).toFixed(8));
+      feeAmount = Number((value * (feeValue / 100)).toFixed(8));
     } else {
       feeAmount = Number(feeValue);
     }
@@ -713,18 +845,22 @@ export const requestConversion = async (req: AuthRequest, res: Response) => {
   try {
     const user = req.user;
     if (!user?.id) return fail(res, 401, 'Unauthorized');
-    const { amount, payoutMethodId } = req.body || {};
-    const value = Number(amount);
+    const { amount, amountGcoin, payoutMethodId } = req.body || {};
+    const resolvedAmount = amount !== undefined ? amount : amountGcoin;
+    const value = Number(resolvedAmount);
     if (!value || value <= 0) return fail(res, 400, 'Invalid amount');
     const w = await getOrCreateGcoinWallet(user.id);
     if (w.balance < value) return fail(res, 400, 'Insufficient gcoin');
     // Check platform settings for min withdrawal
     const settings = await getOrCreateGcoinSettings();
+    if (!settings.conversionEnabled) return fail(res, 400, 'Conversions are disabled');
     if (settings.minWithdrawal && value < Number(settings.minWithdrawal)) return fail(res, 400, 'Amount below minimum withdrawal');
+    const rate = Number(settings.conversionRate || 0);
+    if (!rate || rate <= 0) return fail(res, 400, 'Conversion rate is not configured');
     // Rate limit conversions per user
     const allowed = await tryRecordConversion(user.id);
     if (!allowed) return fail(res, 429, 'Too many conversion requests');
-    const amountFiat = Number((value * (settings.conversionRate || 0)).toFixed(2));
+    const amountFiat = Number((value * rate).toFixed(2));
     
     // Store payoutMethodId in metadata if provided
     const metadata: any = {};
@@ -747,6 +883,17 @@ export const requestConversion = async (req: AuthRequest, res: Response) => {
     try { io?.emit('community:gcoin_conversion_requested', { id: rec.id, userId: user.id, amountGcoin: value, amountFiat, payoutMethodId: payoutMethodId || null }); } catch(e){}
     try { realtime.emitToUser(user.id, 'community:gcoin_conversion_requested', { id: rec.id, userId: user.id, amountGcoin: value, amountFiat, payoutMethodId: payoutMethodId || null }); } catch(e){}
     
+    if (settings.autoApproveConversions) {
+      try {
+        const adminId = await getAdminRevenueUserId();
+        await approveConversionRequest(req, rec, adminId || undefined);
+        await emitConversionEvents(req, { id: rec.id, status: 'approved', userId: user.id, amountGcoin: value, amountFiat });
+        return ok(res, { ...rec, status: 'approved', payoutMethodId: payoutMethodId || null, autoApproved: true });
+      } catch (e: any) {
+        console.error('Auto-approve conversion failed:', e);
+      }
+    }
+
     return ok(res, { ...rec, payoutMethodId: payoutMethodId || null });
   } catch (e: any) {
     console.error(e);
@@ -780,75 +927,23 @@ export const processConversion = async (req: AuthRequest, res: Response) => {
     if (!reqRec) return fail(res, 404, 'Not found');
     if (reqRec.status !== 'pending') return fail(res, 400, 'Already processed');
       if (action === 'approve') {
-      const w = await getOrCreateGcoinWallet(reqRec.userId);
-      if (w.balance < reqRec.amountGcoin) return fail(res, 400, 'Insufficient gcoin');
-        // Perform approve flow inside transaction: debit Gcoin wallet, credit fiat wallet via Transaction
-        await prisma.$transaction(async (tx) => {
-          // debit Gcoin
-          await tx.gcoinWallet.update({ where: { userId: reqRec.userId }, data: { balance: Number(w.balance) - Number(reqRec.amountGcoin) } });
-          // mark conversion request approved
-          await tx.gcoinConversionRequest.update({ where: { id }, data: { status: 'approved', processedAt: new Date(), processedBy: req.user?.id } });
-
-          // Credit user's fiat Wallet using existing Transaction model and Wallet update
-          // find or create Wallet for user
-          let wallet = await tx.wallet.findUnique({ where: { userId: reqRec.userId } });
-          if (!wallet) {
-            wallet = await tx.wallet.create({ data: { userId: reqRec.userId, balance: 0, pendingClearance: 0, escrowBalance: 0, frozen: false, currency: 'USD', isActive: true } });
+        await approveConversionRequest(req, reqRec, req.user?.id || undefined);
+        await emitConversionEvents(req, { id, status: 'approved', userId: reqRec.userId, amountGcoin: reqRec.amountGcoin, amountFiat: reqRec.amountFiat });
+        // create admin note notification if provided
+        try {
+          if (note && note.toString().trim().length > 0) {
+            await prisma.notification.create({ data: {
+              userId: reqRec.userId,
+              actorId: req.user?.id || null,
+              type: 'gcoin_conversion_note',
+              title: 'Conversion processed',
+              body: `Admin note: ${note}`,
+              meta: { conversionId: id, action: 'approved' }
+            } });
           }
-
-          // create a Transaction record referencing the conversion request
-          await tx.transaction.create({ data: {
-            walletId: wallet.id,
-            userId: reqRec.userId,
-            type: 'DEPOSIT',
-            amount: Number(reqRec.amountFiat),
-            currency: 'USD',
-            status: 'COMPLETED',
-            description: `Gcoin conversion approved: ${reqRec.id}`,
-            referenceId: reqRec.id,
-            metadata: { conversionRequestId: reqRec.id }
-          } });
-
-          // update Wallet balance (credit funds)
-          await tx.wallet.update({ where: { id: wallet.id }, data: { balance: { increment: Number(reqRec.amountFiat) } } });
-        });
-
-          const io = (req.app as any).get('io');
-          try { io?.emit('community:gcoin_conversion_processed', { id, status: 'approved', userId: reqRec.userId, amountGcoin: reqRec.amountGcoin, amountFiat: reqRec.amountFiat }); } catch(e){}
-          // publish updated gcoin balance
-          try { io?.emit('community:gcoin_balance_updated', { userId: reqRec.userId, balance: Number(w.balance) - Number(reqRec.amountGcoin) }); } catch(e){}
-          try {
-            realtime.emitToUser(reqRec.userId, 'community:gcoin_conversion_processed', { id, status: 'approved', userId: reqRec.userId, amountGcoin: reqRec.amountGcoin, amountFiat: reqRec.amountFiat });
-          } catch (e) {}
-          try {
-            realtime.emitToWallet(reqRec.userId, 'community:gcoin_balance_updated', { userId: reqRec.userId, balance: Number(w.balance) - Number(reqRec.amountGcoin) });
-          } catch (e) {}
-
-          // publish fiat balance update (reconciled from Wallet)
-          try {
-            const fiatWallet = await prisma.wallet.findUnique({ where: { userId: reqRec.userId } });
-            if (fiatWallet) {
-              try { io?.emit('community:fiat_balance_updated', { userId: reqRec.userId, fiatBalance: fiatWallet.balance }); } catch(e){}
-              try { realtime.emitToUser(reqRec.userId, 'community:fiat_balance_updated', { userId: reqRec.userId, fiatBalance: fiatWallet.balance }); } catch(e){}
-            }
-          } catch(e) {
-            console.error('Failed to publish fiat balance after conversion:', e);
-          }
-          // create admin note notification if provided
-          try {
-            if (note && note.toString().trim().length > 0) {
-              await prisma.notification.create({ data: {
-                userId: reqRec.userId,
-                actorId: req.user?.id || null,
-                type: 'gcoin_conversion_note',
-                title: 'Conversion processed',
-                body: `Admin note: ${note}`,
-                meta: { conversionId: id, action: 'approved' }
-              } });
-            }
-          } catch (e) {
-            console.error('Failed to create conversion admin note notification:', e);
-          }
+        } catch (e) {
+          console.error('Failed to create conversion admin note notification:', e);
+        }
         return ok(res, { id, status: 'approved' });
     }
     await prisma.gcoinConversionRequest.update({ where: { id }, data: { status: 'denied', processedAt: new Date(), processedBy: req.user?.id } });

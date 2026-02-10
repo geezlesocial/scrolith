@@ -1,5 +1,5 @@
 const fs = require('fs');
-const p = 'c:\\Projects\\geezle-backend\\prisma\\migrations\\20260124_add_social_notifications\\migration.sql';
+const p = 'c:\\Projects\\Scrolith-backend\\prisma\\migrations\\20260124_add_social_notifications\\migration.sql';
 const sql = `-- Migration: add social UserFollow and Notification tables
 -- Generated: 2026-01-24
 
@@ -45,3 +45,4 @@ ALTER TABLE IF EXISTS "Notification"
 `;
 fs.writeFileSync(p, sql, 'utf8');
 console.log('written migration with quotes');
+

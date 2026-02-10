@@ -2,8 +2,8 @@
 import { Contract, TimeEntry, ContractStatus } from '../types';
 import { MOCK_CONTRACTS, MOCK_TIME_ENTRIES } from '../constants';
 
-const CONTRACTS_KEY = 'geezle_contracts';
-const TIME_ENTRIES_KEY = 'geezle_time_entries';
+const CONTRACTS_KEY = 'scrolith_contracts';
+const TIME_ENTRIES_KEY = 'scrolith_time_entries';
 const ACTIVE_SESSION_PREFIX = 'gzl_active_session_';
 
 export const ContractService = {

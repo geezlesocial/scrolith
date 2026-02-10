@@ -1,5 +1,5 @@
 import 'dotenv/config';
-// C:\Projects\geezle-backend\src\server.ts
+// C:\Projects\Scrolith-backend\src\server.ts
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import path from 'path';
@@ -36,8 +36,10 @@ import withdrawalRoutes from './routes/withdrawal.routes';
 import communityRoutes from './routes/community';
 import contractsRoutes from './routes/contracts.routes';
 import messagesRoutes from './routes/messages.routes';
+import moderationChatRoutes from './routes/moderation.chat.routes';
 import filesRoutes from './routes/files.routes';
 import favoritesRoutes from './routes/favorites.routes';
+import cartRoutes from './routes/cart.routes';
 import ordersRoutes from './routes/orders.routes';
 import proposalsRoutes from './routes/proposals.routes';
 import kycRoutes from './routes/kyc.routes';
@@ -45,26 +47,62 @@ import supportRoutes from './routes/support.routes';
 import gcoinRoutes from './routes/gcoin.routes';
 import reviewsRoutes from './routes/reviews.routes';
 import paymentRoutes from './routes/payment.routes';
+import currenciesRoutes from './routes/currencies.routes';
 import briefsRoutes from './routes/briefs.routes';
 import notificationsRoutes from './routes/notifications.routes';
+import { isPushEnabled } from './services/pushNotifications';
+import plansRoutes from './routes/plans.routes';
+import formsRoutes from './routes/forms.routes';
+import marketingPublicRoutes from './routes/marketing.routes';
+import reactionsRoutes from './routes/reactions.routes';
+import monetizationRoutes from './routes/monetization.routes';
+import payoutsStripeRoutes from './routes/payouts.stripe.routes';
+import preloaderRoutes from './routes/preloader.routes';
+import adminPreloadersRoutes from './routes/admin/preloaders.routes';
+import { authMiddleware } from './middleware/auth.middleware';
+// Import community admin controllers so we can mount explicit admin config endpoints
+import { getAdminConfig, updateAdminConfig } from './controllers/community.admin.controller';
 import { handleStripeWalletWebhook } from './controllers/walletFunding.controller';
 import cron from 'node-cron';
 import { reconcileAdPayments } from './scripts/reconcileAdPayments';
+// Restart trigger comment (no-op) to force ts-node-dev reload when modified during debugging
 
 
 // Validate environment early and warn about missing values
 validateEnv();
+// Initialize Firebase Admin (if configured) so push is ready at boot.
+isPushEnabled();
+
+const isDevelopment = process.env.NODE_ENV !== 'production';
+const allowedOrigins = new Set<string>(
+  [
+    process.env.FRONTEND_URL,
+    process.env.PUBLIC_APP_URL,
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost',
+    'http://127.0.0.1',
+    'capacitor://localhost',
+    'ionic://localhost'
+  ].filter(Boolean) as string[]
+);
+const corsOrigin = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+  if (!origin) return callback(null, true);
+  if (isDevelopment) return callback(null, true);
+  if (allowedOrigins.has(origin)) return callback(null, true);
+  return callback(new Error('Not allowed by CORS'));
+};
 
 const app = express();
 const server = http.createServer(app);
 
 // IMPORTANT: Enhanced Socket.io configuration
 const io = new Server(server, {
-  cors: {
-    origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-  },
+    cors: {
+      origin: corsOrigin,
+      credentials: true,
+      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    },
   path: '/socket.io',
   transports: ['websocket', 'polling'],
   allowUpgrades: true,
@@ -85,8 +123,73 @@ const io = new Server(server, {
 
 // Create a community-specific namespace so frontend and backend can subscribe to community events
 const communityNs = io.of('/community');
-communityNs.on('connection', (socket) => {
+const presenceCounts = new Map<string, number>();
+
+const emitPresenceUpdate = (userId: string, isOnline: boolean, lastSeenAt?: Date) => {
+  try {
+    communityNs.to('community:global').emit('presence:update', {
+      userId,
+      isOnline,
+      lastSeenAt: lastSeenAt ? lastSeenAt.toISOString() : undefined
+    });
+    communityNs.to('community:admin').emit('presence:update', {
+      userId,
+      isOnline,
+      lastSeenAt: lastSeenAt ? lastSeenAt.toISOString() : undefined
+    });
+    communityNs.to(`community:user:${userId}`).emit('presence:update', {
+      userId,
+      isOnline,
+      lastSeenAt: lastSeenAt ? lastSeenAt.toISOString() : undefined
+    });
+  } catch (e) {
+    console.warn('Failed to emit presence update', e);
+  }
+};
+
+const markPresenceOnline = async (userId: string) => {
+  if (!userId) return;
+  const count = (presenceCounts.get(userId) || 0) + 1;
+  presenceCounts.set(userId, count);
+  if (count === 1) {
+    const lastSeenAt = new Date();
+    try {
+      await prisma.user.update({ where: { id: userId }, data: { isOnline: true, lastSeenAt } });
+    } catch (e) {
+      console.warn('Failed to mark user online', e);
+    }
+    emitPresenceUpdate(userId, true, lastSeenAt);
+  }
+};
+
+const markPresenceOffline = async (userId: string) => {
+  if (!userId) return;
+  const current = presenceCounts.get(userId) || 0;
+  if (current <= 1) {
+    presenceCounts.delete(userId);
+    const lastSeenAt = new Date();
+    try {
+      await prisma.user.update({ where: { id: userId }, data: { isOnline: false, lastSeenAt } });
+    } catch (e) {
+      console.warn('Failed to mark user offline', e);
+    }
+    emitPresenceUpdate(userId, false, lastSeenAt);
+  } else {
+    presenceCounts.set(userId, current - 1);
+  }
+};
+
+communityNs.on('connection', async (socket) => {
   console.log('Client connected to /community namespace', { id: socket.id, handshake: socket.handshake.query });
+  const normalizeRole = (value: any) => String(value || '').toLowerCase();
+  const joinCommunityRooms = (requested: string, isAdmin: boolean) => {
+    socket.join(`community:user:${requested}`);
+    socket.join('community:global');
+    socket.join('community:ads');
+    socket.join(`wallet:${requested}`);
+    socket.join(requested);
+    if (isAdmin) socket.join('community:admin');
+  };
   // Attempt to apply JWT auth for namespace sockets (mirrors io.use middleware)
   try {
     const hs = socket.handshake as any;
@@ -97,14 +200,17 @@ communityNs.on('connection', (socket) => {
       try {
         const decoded = jwt.verify(token, secret) as any;
         if (decoded && decoded.id) {
-          prisma.user.findUnique({ where: { id: decoded.id }, select: { id: true, email: true, role: true, isActive: true } })
-            .then(user => {
-              if (user && user.isActive) {
-                (socket as any).data = (socket as any).data || {};
-                (socket as any).data.user = { id: user.id, role: user.role, email: user.email };
-              }
-            })
-            .catch(e => console.warn('communityNs auth prisma error:', e));
+          const user = await prisma.user.findUnique({
+            where: { id: decoded.id },
+            select: { id: true, email: true, role: true, isActive: true }
+          });
+          if (user && user.isActive) {
+            (socket as any).data = (socket as any).data || {};
+            (socket as any).data.user = { id: user.id, role: user.role, email: user.email };
+            (socket as any).data.presenceUserId = user.id;
+            await markPresenceOnline(user.id);
+            (socket as any).data.presenceMarked = true;
+          }
         }
       } catch (e) {
         console.warn('communityNs JWT verify failed:', (e as any)?.message ?? String(e));
@@ -114,8 +220,57 @@ communityNs.on('connection', (socket) => {
     console.error('communityNs auth setup error:', e);
   }
 
+  // Auto-join stable per-user rooms to avoid race conditions when clients emit join events
+  // immediately after connect.
+  try {
+    const requested = String((socket.handshake as any)?.query?.userId || '').trim();
+    const identity = String((socket as any).data?.user?.id || '').trim();
+    const tokenRole = normalizeRole((socket as any).data?.user?.role);
+    const roleHint = normalizeRole((socket.handshake as any)?.query?.role);
+    const isAdmin = tokenRole.includes('admin') || roleHint.includes('admin');
+    const allowDevJoin = process.env.NODE_ENV === 'development' && !identity;
+    if (requested && (identity === requested || allowDevJoin)) {
+      joinCommunityRooms(requested, isAdmin);
+      socket.emit('joined', {
+        auto: true,
+        rooms: ['community:global', 'community:ads', `community:user:${requested}`, `wallet:${requested}`, requested]
+      });
+    }
+  } catch (e) {
+    console.warn('communityNs auto-join failed:', e);
+  }
+
   socket.on('handshake', (data) => {
     console.log('Community handshake:', data);
+  });
+  socket.on('community:join', (payload: { userId: string }) => {
+    const handleJoin = () => {
+      try {
+        const requested = payload?.userId;
+        const identity = (socket as any).data?.user?.id || null;
+        const role = normalizeRole((socket as any).data?.user?.role);
+        const roleHint = normalizeRole((socket.handshake as any)?.query?.role);
+        const isAdmin = role.includes('admin') || roleHint.includes('admin');
+        if (!requested) { socket.emit('error', { code: 'MISSING_USERID', message: 'userId required' }); return; }
+        const allowDevJoin = process.env.NODE_ENV === 'development' && !identity;
+        if (identity !== requested && !isAdmin && !allowDevJoin) {
+          socket.emit('error', { code: 'FORBIDDEN', message: 'Not authorized to join user room' });
+          return;
+        }
+        joinCommunityRooms(requested, isAdmin);
+        socket.emit('joined', {
+          rooms: ['community:global', 'community:ads', `community:user:${requested}`, `wallet:${requested}`, requested]
+        });
+        if (identity && identity === requested && !(socket as any).data?.presenceMarked) {
+          (socket as any).data.presenceUserId = identity;
+          (socket as any).data.presenceMarked = true;
+          void markPresenceOnline(identity);
+        }
+      } catch (e) {
+        console.error('community:join error (community ns):', e);
+      }
+    };
+    handleJoin();
   });
   // Also allow listening sockets in /community to perform room joins so they receive targeted emits
   socket.on('join:wallet', (payload: { userId: string }) => {
@@ -198,6 +353,13 @@ communityNs.on('connection', (socket) => {
     };
     void handleJoinAd(payload);
   });
+
+  socket.on('disconnect', () => {
+    const presenceUserId = (socket as any).data?.presenceUserId || (socket as any).data?.user?.id;
+    if (presenceUserId) {
+      void markPresenceOffline(presenceUserId);
+    }
+  });
 });
 
 // Socket auth: verify JWT if provided, attach user to socket.data.user
@@ -229,6 +391,7 @@ io.use(async (socket, next) => {
 
 app.set('io', io);
 app.set('communityIo', communityNs);
+app.set('communityNs', communityNs);
 // Expose io and community namespace globally for webhook handlers that don't have app context
 (global as any).appIo = io;
 (global as any).appCommunityIo = communityNs;
@@ -263,13 +426,12 @@ app.use(helmet({
 }));
 
 app.use(cors({
-  origin: ["http://localhost:3000", "http://127.0.0.1:3000"],
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-}));
+    origin: corsOrigin,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  }));
 
-// Rate limiting
-const isDevelopment = process.env.NODE_ENV === 'development';
+  // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: isDevelopment ? 10000 : 1000,
@@ -311,6 +473,7 @@ app.use((req: Request, res: Response, next) => {
 
 // Stripe webhook for wallet top-ups (must be raw body)
 app.post('/api/payments/stripe/webhook', express.raw({ type: 'application/json' }), handleStripeWalletWebhook);
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), handleStripeWalletWebhook);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -347,17 +510,17 @@ app.get('/api/health', (req: Request, res: Response) => {
     res.json({ 
       status: 'OK', 
       timestamp: new Date().toISOString(),
-      services: {
-        cms: '/api/cms/test',
-        admin: '/api/admin/test',
-        auth: '/api/auth',
-        users: '/api/users',
-        commerce: '/api/commerce',
-        search: '/api/search',
-        ai: '/api/ai',
-        'gigs-jobs': '/api/admin/gigs-jobs/test',
-        'homepage': '/api/cms/homepage'
-      },
+        services: {
+          cms: '/api/cms/test',
+          admin: '/api/admin/test',
+          auth: '/api/auth/health',
+          users: '/api/users/health',
+          commerce: '/api/commerce/health',
+          search: '/api/search/health',
+          ai: '/api/ai/health',
+          'gigs-jobs': '/api/admin/gigs-jobs/test',
+          'homepage': '/api/cms/homepage'
+        },
       socket: {
         status: io.engine?.clientsCount ? 'active' : 'inactive',
         connected: io.engine?.clientsCount || 0
@@ -497,6 +660,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/marketing', marketingPublicRoutes);
 app.use('/api/commerce', commerceRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/ai', aiRoutes);
@@ -510,19 +674,115 @@ app.use('/api/wallet', walletRoutes);
 app.use('/api/escrow', escrowRoutes);
 app.use('/api/withdrawal', withdrawalRoutes);
 app.use('/api/community', communityRoutes);
+
+// Explicit admin config endpoints (ensure runtime availability even when nested routers vary)
+app.get('/api/community/admin/config', (req: Request, res: Response, next) => {
+  // require auth
+  const run = async () => {
+    try {
+      // Reuse auth middleware flow
+      await new Promise<void>((resolve, reject) => {
+        (authMiddleware as any)(req, res, (err?: any) => err ? reject(err) : resolve());
+      });
+      const role = (req as any).user?.role || '';
+      if (!role || !role.toString().toLowerCase().includes('admin')) {
+        return res.status(403).json({ success: false, error: 'Admin role required' });
+      }
+      return getAdminConfig(req, res);
+    } catch (e) {
+      return next(e);
+    }
+  };
+  void run();
+});
+
+app.put('/api/community/admin/config', (req: Request, res: Response, next) => {
+  const run = async () => {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        (authMiddleware as any)(req, res, (err?: any) => err ? reject(err) : resolve());
+      });
+      const role = (req as any).user?.role || '';
+      if (!role || !role.toString().toLowerCase().includes('admin')) {
+        return res.status(403).json({ success: false, error: 'Admin role required' });
+      }
+      return updateAdminConfig(req, res);
+    } catch (e) {
+      return next(e);
+    }
+  };
+  void run();
+});
 app.use('/api/contracts', contractsRoutes);
 app.use('/api/messages', messagesRoutes);
+app.use('/api/moderation/chat', moderationChatRoutes);
+app.use('/api/reactions', reactionsRoutes);
 app.use('/api/files', filesRoutes);
 app.use('/api/favorites', favoritesRoutes);
+app.use('/api/cart', cartRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/proposals', proposalsRoutes);
+app.use('/api/plans', plansRoutes);
 app.use('/api/kyc', kycRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api/gcoin', gcoinRoutes);
 app.use('/api/reviews', reviewsRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/currencies', currenciesRoutes);
 app.use('/api/briefs', briefsRoutes);
 app.use('/api/notifications', notificationsRoutes);
+app.use('/api/forms', formsRoutes);
+app.use('/api/monetization', monetizationRoutes);
+app.use('/api/payouts/stripe', payoutsStripeRoutes);
+app.use('/api/public/preloader', preloaderRoutes);
+app.use('/api/admin/preloaders', adminPreloadersRoutes);
+
+// Temporary debug: list mounted API routes (for local debugging only)
+app.get('/api/_routes', (req: Request, res: Response) => {
+  try {
+    const routes: string[] = [];
+    const stack = (app as any)._router && (app as any)._router.stack;
+    if (Array.isArray(stack)) {
+      stack.forEach((layer: any) => {
+        try {
+          if (layer && layer.route && layer.route.path) {
+            const methods = layer.route.methods ? Object.keys(layer.route.methods).join(',') : '';
+            routes.push(`${methods} ${layer.route.path}`);
+          } else if (layer && layer.name === 'router' && layer.regexp) {
+            // top-level mounted router
+            const mount = String(layer.regexp);
+            routes.push(`router ${mount}`);
+            // attempt to expand child routes
+            const childStack = layer.handle && layer.handle.stack;
+            if (Array.isArray(childStack)) {
+              childStack.forEach((child: any) => {
+                if (child && child.route && child.route.path) {
+                  const methods = child.route.methods ? Object.keys(child.route.methods).join(',') : '';
+                  routes.push(`  ${methods} ${mount} -> ${child.route.path}`);
+                }
+                // deeper nested routers (like /admin) may be under child.handle.stack
+                if (child && child.name === 'router' && child.handle && Array.isArray(child.handle.stack)) {
+                  child.handle.stack.forEach((grand: any) => {
+                    if (grand && grand.route && grand.route.path) {
+                      const methods = grand.route.methods ? Object.keys(grand.route.methods).join(',') : '';
+                      routes.push(`    ${methods} ${mount} -> ${child.regexp} -> ${grand.route.path}`);
+                    }
+                  });
+                }
+              });
+            }
+          }
+        } catch (e) {
+          // ignore per-layer errors
+        }
+      });
+    }
+    return res.json({ success: true, routes });
+  } catch (e) {
+    console.error('Failed to list routes', e);
+    return res.status(500).json({ success: false, error: 'Failed to list routes' });
+  }
+});
 
 // Socket.io connection with enhanced logging and error handling
 io.on('connection', (socket) => {
@@ -537,7 +797,7 @@ io.on('connection', (socket) => {
     });
 
     socket.emit('welcome', { 
-      message: 'Connected to Geezle Socket.io server',
+      message: 'Connected to Scrolith Socket.io server',
       id: socket.id,
       timestamp: new Date().toISOString()
     });
@@ -555,6 +815,26 @@ io.on('connection', (socket) => {
         status: 'connected',
         timestamp: new Date().toISOString()
       });
+    });
+    socket.on('community:join', (payload: { userId: string }) => {
+      try {
+        const requested = payload?.userId;
+        const identity = (socket as any).data?.user?.id || null;
+        const role = ((socket as any).data?.user?.role || '').toString().toLowerCase();
+        const isAdmin = role.includes('admin');
+        if (!requested) { socket.emit('error', { code: 'MISSING_USERID', message: 'userId required' }); return; }
+        if (identity !== requested && !isAdmin) {
+          socket.emit('error', { code: 'FORBIDDEN', message: 'Not authorized to join user room' });
+          return;
+        }
+        socket.join(`community:user:${requested}`);
+        socket.join('community:global');
+        socket.join('community:ads');
+        if (isAdmin) socket.join('community:admin');
+        socket.emit('joined', { rooms: ['community:global', 'community:ads', `community:user:${requested}`] });
+      } catch (e) {
+        console.error('community:join error (root ns):', e);
+      }
     });
 
     socket.on('join-room', (roomId: string) => {
@@ -759,7 +1039,7 @@ const PORT = parseInt(process.env.PORT!) || 5000;
 if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
   server.listen(PORT, () => {
     console.log(`========================================`);
-    console.log(`🚀 Geezle Marketplace Backend Started`);
+    console.log(`🚀 Scrolith Marketplace Backend Started`);
     console.log(`📍 Port: ${PORT}`);
     console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔗 Frontend URL: http://localhost:3000`);
@@ -816,3 +1096,4 @@ if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
 
 export default app;
 export { server, io, communityNs };
+

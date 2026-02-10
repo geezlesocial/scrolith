@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
+import { createEngagementNotification } from '../services/engagementNotifications.service';
 
 const ensureAuthId = (req: Request) => req.user?.id as string | undefined;
 
@@ -17,20 +18,30 @@ export const followUser = async (req: Request, res: Response) => {
 
     await prisma.userFollow.create({ data: { followerId: authId, followeeId: userId } });
 
-    // Optionally create an in-app notification
+    // Follow notification (persist + realtime)
     try {
-      await prisma.notification.create({
-        data: {
-          userId,
+      const actor = await prisma.user.findUnique({
+        where: { id: authId },
+        select: { id: true, name: true, username: true }
+      });
+      const actorName = actor?.name || actor?.username || 'Someone';
+      const actorUsername = actor?.username || authId;
+      await createEngagementNotification({
+        recipientId: userId,
+        actorId: authId,
+        type: 'followed_you',
+        title: 'New follower',
+        message: `${actorName} started following you.`,
+        actionUrl: `/u/${actorUsername}`,
+        metadata: {
           actorId: authId,
-          type: 'follow',
-          title: 'New follower',
-          body: 'You have a new follower.',
-          isRead: false
+          actorUsername,
+          followerId: authId,
+          followingId: userId
         }
       });
     } catch (e) {
-      // silent
+      console.warn('[social.followUser] followed_you notification failed', e);
     }
 
     return res.json({ success: true, data: { following: true } });

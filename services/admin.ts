@@ -8,9 +8,9 @@ const API_BASE = '/api/admin/commerce';
 // --- Local Storage Fallback Keys ---
 const ADMIN_STAFF_KEY = 'atmyworks_staff';
 const ADMIN_ROLES_KEY = 'atmyworks_staff_roles';
-const LOCAL_GIGS_KEY = 'geezle_admin_gigs';
-const LOCAL_JOBS_KEY = 'geezle_admin_jobs';
-const LOCAL_CATS_KEY = 'geezle_admin_categories';
+const LOCAL_GIGS_KEY = 'scrolith_admin_gigs';
+const LOCAL_JOBS_KEY = 'scrolith_admin_jobs';
+const LOCAL_CATS_KEY = 'scrolith_admin_categories';
 
 // --- Helper Functions ---
 
@@ -87,11 +87,11 @@ export const AdminService = {
     getUsers: async (): Promise<User[]> => {
         return new Promise(resolve => {
             setTimeout(() => {
-                const stored = localStorage.getItem('geezle_user'); 
+                const stored = localStorage.getItem('scrolith_user'); 
                 const users: User[] = [
                     { id: 'u1', name: 'John Freelancer', email: 'john@example.com', role: 'freelancer' as any, status: 'active', avatar: 'https://ui-avatars.com/api/?name=John+Freelancer' },
                     { id: 'client-1', name: 'Alice Client', email: 'alice@example.com', role: 'employer' as any, status: 'active', avatar: 'https://ui-avatars.com/api/?name=Alice+Client' },
-                    { id: 'admin-1', name: 'Super Admin', email: 'admin@geezle.com', role: 'admin' as any, status: 'active', avatar: 'https://ui-avatars.com/api/?name=Admin' }
+                    { id: 'admin-1', name: 'Super Admin', email: 'admin@scrolith.com', role: 'admin' as any, status: 'active', avatar: 'https://ui-avatars.com/api/?name=Admin' }
                 ];
                 if (stored) {
                     const current = JSON.parse(stored);
@@ -122,12 +122,12 @@ export const AdminService = {
     },
 
     updateUserDetail: async (userId: string, data: Partial<User>, adminId: string): Promise<User> => {
-        const stored = localStorage.getItem('geezle_user');
+        const stored = localStorage.getItem('scrolith_user');
         if (stored) {
             const current = JSON.parse(stored);
             if (current.id === userId) {
                 const updated = { ...current, ...data };
-                localStorage.setItem('geezle_user', JSON.stringify(updated));
+                localStorage.setItem('scrolith_user', JSON.stringify(updated));
             }
         }
         return { id: userId, ...data } as User;

@@ -19,7 +19,11 @@ const OPTIONAL_KEYS: EnvKey[] = [
   { key: 'EMAIL_PASS', description: 'SMTP password' },
   { key: 'GOOGLE_API_KEY', description: 'Google / Vertex AI key' },
   { key: 'OPENAI_API_KEY', description: 'OpenAI API key' },
-  { key: 'STORAGE_DRIVER', description: 'Storage driver: local | s3 | backblaze' }
+  { key: 'STORAGE_DRIVER', description: 'Storage driver: local | s3 | backblaze' },
+  { key: 'FCM_SERVICE_ACCOUNT_JSON', description: 'Firebase service account JSON (inline)' },
+  { key: 'FCM_SERVICE_ACCOUNT_B64', description: 'Firebase service account JSON (base64)' },
+  { key: 'FCM_SERVICE_ACCOUNT_PATH', description: 'Firebase service account JSON path' },
+  { key: 'GOOGLE_APPLICATION_CREDENTIALS', description: 'Google ADC credentials path' }
 ];
 
 export function validateEnv() {

@@ -1,14 +1,363 @@
 import { Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { PrismaClient, CmsTarget } from '@prisma/client';
+import { defaultAuthPagesConfig, normalizeAuthPagesConfig, sanitizeAuthPagesConfig } from '../utils/authPagesConfig';
+import { sendSystemMessage } from '../services/systemMessaging';
 
 const prisma = new PrismaClient();
 
 const emitCmsEvent = (req: Request, event: string, payload?: any) => {
   const io = req.app.get('io');
+  const communityIo = req.app.get('communityIo');
   if (io) {
     io.emit(event, payload);
   }
+  if (communityIo) {
+    communityIo.emit(event, payload);
+  }
+};
+
+const CMS_PAGES_SCOPE = 'cms_pages';
+const CMS_PAGE_CATEGORIES_SCOPE = 'cms_page_categories';
+const CMS_AUTH_PAGES_SCOPE = 'cms_auth_pages';
+const CMS_ANSWERS_SCOPE = 'cms_answers_page';
+const CMS_GUIDES_SCOPE = 'cms_guides_page';
+const CMS_HIRE_SCOPE = 'cms_hire_page';
+const CMS_FREELANCER_SCOPE = 'cms_freelancer_page';
+const CMS_BLOG_POSTS_SCOPE = 'cms_blog_posts';
+const CMS_BLOG_CATEGORIES_SCOPE = 'cms_blog_categories';
+const CMS_BLOG_SETTINGS_SCOPE = 'cms_blog_settings';
+
+const PLATFORM_SETTINGS_FILE = path.resolve(__dirname, '../../data/platform-system-settings.json');
+const getPublicPlatformSettings = () => {
+  const defaults = {
+    siteName: 'Scrolith Marketplace',
+    tagline: 'Find, hire, and work with the best talent',
+    logoUrl: '/logo.svg',
+    faviconUrl: '/favicon.ico',
+    adminEmail: 'admin@Scrolith.com',
+    supportEmail: 'support@Scrolith.com',
+    gigExperience: {
+      enabled: true,
+      chatBarEnabled: true,
+      inlineChatEnabled: true,
+      shareModalEnabled: true,
+      allowGuestOpenChat: true,
+      showSellerMeta: true,
+      quickPrompts: [
+        'Hey, can you help me with this gig?',
+        'Can you provide your timeline and budget estimate?',
+        'Can you customize this package for my requirements?'
+      ]
+    }
+  };
+  try {
+    if (fs.existsSync(PLATFORM_SETTINGS_FILE)) {
+      const raw = fs.readFileSync(PLATFORM_SETTINGS_FILE, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.platform) {
+        return {
+          ...defaults,
+          ...parsed.platform,
+          gigExperience: {
+            ...defaults.gigExperience,
+            ...(parsed.platform.gigExperience || {}),
+            quickPrompts: Array.isArray(parsed.platform.gigExperience?.quickPrompts) && parsed.platform.gigExperience.quickPrompts.length
+              ? parsed.platform.gigExperience.quickPrompts
+              : defaults.gigExperience.quickPrompts
+          }
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('[cms] Failed to read platform settings file', e);
+  }
+  return defaults;
+};
+
+const getAppSetting = async (scope: string, fallback: any) => {
+  const existing = await prisma.appSetting.findUnique({ where: { scope } });
+  if (!existing) return fallback;
+  return existing.data ?? fallback;
+};
+
+const saveAppSetting = async (scope: string, data: any) => {
+  const saved = await prisma.appSetting.upsert({
+    where: { scope },
+    create: { scope, data },
+    update: { data }
+  });
+  return saved.data;
+};
+
+const slugify = (value: string) =>
+  value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '');
+
+const defaultAnswersPage = {
+  hero: {
+    title: 'Scrolith Answers',
+    subtitle: 'Get expert answers and AI-powered insights for your business challenges.',
+    primaryCtaLabel: 'Ask a Question',
+    primaryCtaUrl: '#ask-ai',
+    backgroundImage: '',
+    badgeLabel: 'AI Powered'
+  },
+  ai: {
+    enabled: true,
+    allowGuest: true,
+    disclaimer: 'AI responses are for informational purposes only. Always verify critical decisions.'
+  },
+  categories: [
+    { id: 'cat-strategy', label: 'Business Strategy', description: 'Growth, positioning, competitive analysis.' },
+    { id: 'cat-finance', label: 'Finance & Pricing', description: 'Pricing, unit economics, forecasting.' },
+    { id: 'cat-marketing', label: 'Marketing & Sales', description: 'Funnels, acquisition, brand strategy.' },
+    { id: 'cat-ops', label: 'Operations', description: 'Process, scale, productivity.' }
+  ],
+  featuredQuestions: [
+    { id: 'q1', question: 'How do I price a new service offering?', tags: ['pricing', 'strategy'] },
+    { id: 'q2', question: 'What is a good CAC:LTV ratio?', tags: ['marketing', 'finance'] },
+    { id: 'q3', question: 'How can I improve team productivity?', tags: ['operations'] }
+  ],
+  faq: [
+    { id: 'faq1', question: 'Is Scrolith Answers free?', answer: 'Yes. AI answers are available based on system settings.' },
+    { id: 'faq2', question: 'Are answers reviewed by humans?', answer: 'AI responses are generated instantly. For verified expert help, consult professionals.' }
+  ],
+  updated_at: new Date().toISOString()
+};
+
+const defaultGuidesPage = {
+  hero: {
+    title: 'Scrolith Guides',
+    subtitle: 'In-depth, professional guides for founders, freelancers, and teams.',
+    primaryCtaLabel: 'Explore Guides',
+    primaryCtaUrl: '#guides',
+    backgroundImage: '',
+    badgeLabel: 'Deep Dives'
+  },
+  ai: {
+    enabled: true,
+    allowGuest: true,
+    disclaimer: 'AI-generated guides are drafts. Validate facts and tailor to your context.'
+  },
+  topics: [
+    { id: 'topic-startup', label: 'Startup Foundations', description: 'Launch, validate, and scale.' },
+    { id: 'topic-growth', label: 'Growth & Marketing', description: 'Acquisition, retention, growth loops.' },
+    { id: 'topic-finance', label: 'Finance & Operations', description: 'Run a healthy business.' },
+    { id: 'topic-legal', label: 'Legal & Compliance', description: 'Contracts, policies, risk.' }
+  ],
+  featuredGuides: [
+    { id: 'guide-1', title: 'Go-to-Market Strategy Blueprint', excerpt: 'Plan your launch with confidence.', category: 'Growth & Marketing', readTime: '8 min', coverImage: '' },
+    { id: 'guide-2', title: 'Pricing Models That Scale', excerpt: 'Choose pricing that matches your value.', category: 'Finance & Operations', readTime: '10 min', coverImage: '' },
+    { id: 'guide-3', title: 'Founder Hiring Playbook', excerpt: 'Build your first team the right way.', category: 'Startup Foundations', readTime: '7 min', coverImage: '' }
+  ],
+  callToAction: {
+    title: 'Need a tailored guide?',
+    subtitle: 'Use our AI guide builder to generate a custom playbook.',
+    ctaLabel: 'Generate Guide',
+    ctaUrl: '#ai-guide-builder'
+  },
+  updated_at: new Date().toISOString()
+};
+
+const defaultHirePage = {
+  hero: {
+    title: 'I am seeking to hire',
+    subtitle: 'We’re looking for proven freelance talent and a premium business solution to drive results.',
+    primaryCtaLabel: 'Post a Project',
+    primaryCtaUrl: '/create-job',
+    secondaryCtaLabel: 'Browse Talent',
+    secondaryCtaUrl: '/browse',
+    backgroundImage: '',
+    badgeLabel: 'Premium Hiring'
+  },
+  ai: {
+    enabled: true,
+    allowGuest: true,
+    disclaimer: 'AI recommendations are advisory. Validate candidates and scope before hiring.'
+  },
+  highlights: [
+    { id: 'h1', title: 'Vetted Experts', description: 'Work with proven, high-performance freelancers.' },
+    { id: 'h2', title: 'Business Outcomes', description: 'Strategic focus on measurable impact.' },
+    { id: 'h3', title: 'Premium Support', description: 'Dedicated success guidance and escalation path.' }
+  ],
+  steps: [
+    { id: 's1', title: 'Define scope', description: 'Describe goals, timeline, and budget.' },
+    { id: 's2', title: 'Match with experts', description: 'We shortlist top candidates for your project.' },
+    { id: 's3', title: 'Launch confidently', description: 'Start with clear milestones and reporting.' }
+  ],
+  testimonials: [
+    { id: 't1', name: 'Morgan K.', role: 'COO', quote: 'Exceptional execution and communication.' }
+  ],
+  updated_at: new Date().toISOString()
+};
+
+const defaultFreelancerPage = {
+  hero: {
+    title: 'Professional Freelancer for Strategic Business Projects',
+    subtitle: 'I deliver premium freelance and agency-level services for strategic business projects—combining expert execution with scalable solutions tailored to your goals.',
+    primaryCtaLabel: 'Join as Pro Freelancer',
+    primaryCtaUrl: '/auth/signup',
+    secondaryCtaLabel: 'View Opportunities',
+    secondaryCtaUrl: '/browse-jobs',
+    backgroundImage: '',
+    badgeLabel: 'Elite Talent'
+  },
+  ai: {
+    enabled: true,
+    allowGuest: true,
+    disclaimer: 'AI assistance supports positioning and proposals; verify details before sending.'
+  },
+  services: [
+    { id: 'svc1', title: 'Strategy & Growth', description: 'Market positioning, go-to-market, growth planning.' },
+    { id: 'svc2', title: 'Operations', description: 'Process design, execution planning, KPIs.' },
+    { id: 'svc3', title: 'Finance & Analytics', description: 'Financial models, dashboards, forecasting.' }
+  ],
+  proof: [
+    { id: 'p1', metric: '150+', label: 'Projects delivered' },
+    { id: 'p2', metric: '4.9/5', label: 'Average rating' },
+    { id: 'p3', metric: '24h', label: 'Response time' }
+  ],
+  callToAction: {
+    title: 'Ready to deliver premium outcomes?',
+    subtitle: 'Set up your elite freelancer profile and attract high-value clients.',
+    ctaLabel: 'Create Profile',
+    ctaUrl: '/profile/edit'
+  },
+  updated_at: new Date().toISOString()
+};
+
+const defaultBlogSettings = {
+  page_title: 'Blog',
+  meta_title: 'Scrolith Blog',
+  meta_description: 'Latest news and insights from Scrolith',
+  banner_image: '',
+  posts_per_page: 10,
+  default_category: '',
+  show_author: true,
+  show_date: true,
+  updated_at: new Date().toISOString()
+};
+
+const normalizeBlogSettings = (payload: any = {}) => {
+  const src = payload || {};
+  const normalized = {
+    page_title: src.page_title ?? src.pageTitle ?? defaultBlogSettings.page_title,
+    meta_title: src.meta_title ?? src.metaTitle ?? defaultBlogSettings.meta_title,
+    meta_description: src.meta_description ?? src.metaDescription ?? defaultBlogSettings.meta_description,
+    banner_image: src.banner_image ?? src.bannerImage ?? defaultBlogSettings.banner_image,
+    posts_per_page: Number(src.posts_per_page ?? src.postsPerPage ?? defaultBlogSettings.posts_per_page),
+    default_category: src.default_category ?? src.defaultCategory ?? defaultBlogSettings.default_category,
+    show_author: src.show_author ?? src.showAuthor ?? defaultBlogSettings.show_author,
+    show_date: src.show_date ?? src.showDate ?? defaultBlogSettings.show_date,
+    updated_at: src.updated_at ?? new Date().toISOString()
+  };
+  return {
+    ...normalized,
+    pageTitle: normalized.page_title,
+    metaTitle: normalized.meta_title,
+    metaDescription: normalized.meta_description,
+    bannerImage: normalized.banner_image,
+    postsPerPage: normalized.posts_per_page,
+    defaultCategory: normalized.default_category,
+    showAuthor: normalized.show_author,
+    showDate: normalized.show_date
+  };
+};
+
+const normalizeBlogPost = (incoming: any, categories: any[] = [], now?: string) => {
+  const timestamp = now || new Date().toISOString();
+  const id = String(incoming?.id || incoming?._id || `post-${Date.now()}`);
+  const baseSlug = slugify(incoming?.slug || incoming?.title || '');
+  const slug = baseSlug || `post-${Date.now()}`;
+  const categoryId = incoming?.category_id ?? incoming?.categoryId ?? '';
+  const category = categories.find((c: any) => c.id === categoryId);
+  const categoryName =
+    incoming?.category_name ??
+    incoming?.categoryName ??
+    category?.name ??
+    '';
+  const seoRaw = incoming?.seo || {};
+  const seo = {
+    meta_title: seoRaw.meta_title ?? seoRaw.metaTitle ?? '',
+    meta_description: seoRaw.meta_description ?? seoRaw.metaDescription ?? '',
+    meta_keywords: seoRaw.meta_keywords ?? seoRaw.metaKeywords ?? [],
+    no_index: seoRaw.no_index ?? seoRaw.noIndex ?? false,
+    metaTitle: seoRaw.metaTitle ?? seoRaw.meta_title ?? '',
+    metaDescription: seoRaw.metaDescription ?? seoRaw.meta_description ?? '',
+    metaKeywords: seoRaw.metaKeywords ?? seoRaw.meta_keywords ?? [],
+    noIndex: seoRaw.noIndex ?? seoRaw.no_index ?? false
+  };
+
+  const createdAt = incoming?.created_at || incoming?.createdAt || timestamp;
+
+  const normalized = {
+    id,
+    title: incoming?.title || '',
+    slug,
+    content: incoming?.content || '',
+    blocks: Array.isArray(incoming?.blocks) ? incoming.blocks : [],
+    excerpt: incoming?.excerpt || incoming?.short_description || incoming?.shortDescription || '',
+    short_description: incoming?.short_description ?? incoming?.shortDescription ?? '',
+    shortDescription: incoming?.shortDescription ?? incoming?.short_description ?? '',
+    featured_image: incoming?.featured_image ?? incoming?.featuredImage ?? '',
+    featuredImage: incoming?.featuredImage ?? incoming?.featured_image ?? '',
+    status: (incoming?.status || 'draft').toString().toLowerCase(),
+    visibility: incoming?.visibility || 'public',
+    author_name: incoming?.author_name ?? incoming?.authorName ?? 'Admin',
+    authorName: incoming?.authorName ?? incoming?.author_name ?? 'Admin',
+    category_id: categoryId,
+    categoryId,
+    category_name: categoryName,
+    categoryName,
+    tags: Array.isArray(incoming?.tags) ? incoming.tags : [],
+    views: Number(incoming?.views ?? 0),
+    seo,
+    allow_comments: incoming?.allow_comments ?? incoming?.allowComments ?? true,
+    allowComments: incoming?.allowComments ?? incoming?.allow_comments ?? true,
+    is_featured: incoming?.is_featured ?? incoming?.isFeatured ?? false,
+    isFeatured: incoming?.isFeatured ?? incoming?.is_featured ?? false,
+    created_at: createdAt,
+    createdAt,
+    updated_at: timestamp,
+    updatedAt: timestamp,
+    scheduled_at: incoming?.scheduled_at ?? incoming?.scheduledAt ?? null,
+    scheduledAt: incoming?.scheduledAt ?? incoming?.scheduled_at ?? null
+  };
+
+  return normalized;
+};
+
+const computeCategoryCounts = (posts: any[], categories: any[]) => {
+  const counts: Record<string, number> = {};
+  posts.forEach((post: any) => {
+    const catId = post.category_id || post.categoryId;
+    if (!catId) return;
+    counts[catId] = (counts[catId] || 0) + 1;
+  });
+
+  return categories.map((cat: any) => ({
+    ...cat,
+    count: counts[cat.id] || 0
+  }));
+};
+
+const isBlogPostPublic = (post: any) => {
+  const status = String(post?.status || '').toLowerCase();
+  if (status === 'published') return true;
+  if (status === 'scheduled') {
+    const rawDate = post?.scheduled_at ?? post?.scheduledAt ?? post?.publish_at ?? post?.publishAt;
+    if (!rawDate) return false;
+    const ts = new Date(rawDate).getTime();
+    if (!Number.isFinite(ts)) return false;
+    return ts <= Date.now();
+  }
+  return false;
 };
 
 // Helper function to get or create CMS config
@@ -77,7 +426,7 @@ let cmsData = {
       { id: 'dashboard', label: 'Dashboard', url: '/freelancer/dashboard', icon: 'dashboard', visibility: ['FREELANCER', 'EMPLOYER', 'ADMIN'] },
       { id: 'settings', label: 'Settings', url: '/settings', icon: 'settings', visibility: ['FREELANCER', 'EMPLOYER', 'ADMIN'] }
     ],
-    logoUrl: 'https://ui-avatars.com/api/?name=Geezle&background=0D8ABC&color=fff&size=128&bold=true',
+    logoUrl: 'https://ui-avatars.com/api/?name=Scrolith&background=0D8ABC&color=fff&size=128&bold=true',
     faviconUrl: 'https://ui-avatars.com/api/?name=G&background=0D8ABC&color=fff&size=64&bold=true',
     searchEnabled: true,
     searchMode: 'keyword',
@@ -88,11 +437,12 @@ let cmsData = {
     id: 'default-footer',
     logoUrl: '/logo.svg',
     description: 'Connect with top freelancers and find your next project.',
-    copyright: '© 2024 Geezle. All rights reserved.',
+    socialLabelTitle: '',
+    copyright: '© 2024 Scrolith. All rights reserved.',
     socials: [
-      { id: 'social-1', platform: 'facebook', icon: 'facebook', url: 'https://facebook.com/geezle', enabled: true },
-      { id: 'social-2', platform: 'twitter', icon: 'twitter', url: 'https://twitter.com/geezle', enabled: true },
-      { id: 'social-3', platform: 'linkedin', icon: 'linkedin', url: 'https://linkedin.com/company/geezle', enabled: true }
+      { id: 'social-1', platform: 'facebook', icon: 'facebook', url: 'https://facebook.com/Scrolith', enabled: true },
+      { id: 'social-2', platform: 'twitter', icon: 'twitter', url: 'https://twitter.com/Scrolith', enabled: true },
+      { id: 'social-3', platform: 'linkedin', icon: 'linkedin', url: 'https://linkedin.com/company/Scrolith', enabled: true }
     ],
     columns: [
       {
@@ -124,8 +474,8 @@ let cmsData = {
       }
     ],
     contact: {
-      adminEmail: 'admin@geezle.com',
-      supportEmail: 'support@geezle.com',
+      adminEmail: 'admin@Scrolith.com',
+      supportEmail: 'support@Scrolith.com',
       ticketRoute: '/support'
     }
   },
@@ -387,7 +737,12 @@ export const getHeaderConfig = async (req: Request, res: Response) => {
         switch_selling: true,
         profile: true
       },
-      profile_menu: Array.isArray(headerAny['profileMenu']) ? (headerAny['profileMenu'] as unknown[]) : Array.isArray(headerAny['profile_menu']) ? (headerAny['profile_menu'] as unknown[]) : []
+      profile_menu: Array.isArray(headerAny['profileMenu']) ? (headerAny['profileMenu'] as unknown[]) : Array.isArray(headerAny['profile_menu']) ? (headerAny['profile_menu'] as unknown[]) : [],
+      profile_menu_group_labels: headerAny['profileMenuGroupLabels'] || headerAny['profile_menu_group_labels'] || headerAny['profile_group_labels'] || {},
+      guest_primary_dropdown: headerAny['guestPrimaryDropdown'] || headerAny['guest_primary_dropdown'] || headerAny['guestProDropdown'] || headerAny['guest_pro_dropdown'] || null,
+      guest_explore_dropdown: headerAny['guestExploreDropdown'] || headerAny['guest_explore_dropdown'] || headerAny['guestExplore'] || headerAny['guest_explore'] || null,
+      guest_ctas: headerAny['guestCtas'] || headerAny['guest_ctas'] || headerAny['guestActions'] || headerAny['guest_actions'] || [],
+      role_switch: headerAny['roleSwitch'] || headerAny['role_switch'] || headerAny['switchRole'] || null
     };
 
     console.log('✅ Header config served from database:', {
@@ -412,7 +767,12 @@ export const getHeaderConfig = async (req: Request, res: Response) => {
       favicon_url: (headerAny.faviconUrl as string) || (headerAny.favicon_url as string) || '/favicon.ico',
       navigation: Array.isArray(headerAny.navigation) ? headerAny.navigation : [],
       actions: (headerAny.actions as Record<string, unknown>) || {},
-      profile_menu: Array.isArray(headerAny.profileMenu) ? headerAny.profileMenu : Array.isArray(headerAny.profile_menu) ? headerAny.profile_menu : []
+      profile_menu: Array.isArray(headerAny.profileMenu) ? headerAny.profileMenu : Array.isArray(headerAny.profile_menu) ? headerAny.profile_menu : [],
+      profile_menu_group_labels: headerAny.profileMenuGroupLabels || headerAny.profile_menu_group_labels || headerAny.profile_group_labels || {},
+      guest_primary_dropdown: headerAny.guestPrimaryDropdown || headerAny.guest_primary_dropdown || headerAny.guestProDropdown || headerAny.guest_pro_dropdown || null,
+      guest_explore_dropdown: headerAny.guestExploreDropdown || headerAny.guest_explore_dropdown || headerAny.guestExplore || headerAny.guest_explore || null,
+      guest_ctas: headerAny.guestCtas || headerAny.guest_ctas || headerAny.guestActions || headerAny.guest_actions || [],
+      role_switch: headerAny.roleSwitch || headerAny.role_switch || headerAny.switchRole || null
     };
     res.json(transformed);
   }
@@ -436,9 +796,55 @@ export const getFooterConfig = async (req: Request, res: Response) => {
 
 export const getActivityConfig = async (req: Request, res: Response) => {
   try {
-    res.json(cmsData.activity);
+    // Try to load from CMS config first
+    const config = await getOrCreateCMSConfig(CmsTarget.HOMEPAGE, {
+      header: cmsData.header,
+      footer: cmsData.footer,
+      heroSearch: cmsData.heroSearch,
+      activity: cmsData.activity
+    });
+    const data = config.data as any;
+    const activity = data?.activity || cmsData.activity;
+    res.json(activity);
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+const POLICY_SLUGS = new Set(['terms', 'terms-of-service', 'privacy', 'privacy-policy']);
+
+const broadcastPolicyUpdate = async (page: any) => {
+  const slug = String(page?.slug || '').toLowerCase();
+  const status = String(page?.status || '').toUpperCase();
+  if (!POLICY_SLUGS.has(slug)) return;
+  if (!['PUBLISHED', 'ACTIVE'].includes(status)) return;
+
+  const policyType = slug.includes('privacy') ? 'Privacy Policy' : 'Terms of Service';
+  const policyUrl = `/p/${slug}`;
+  const effectiveDate = page?.updatedAt || page?.updated_at || new Date().toISOString();
+
+  const users = await prisma.user.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true, email: true }
+  });
+
+  const chunkSize = 200;
+  for (let i = 0; i < users.length; i += chunkSize) {
+    const batch = users.slice(i, i + chunkSize);
+    await Promise.all(
+      batch.map((user) =>
+        sendSystemMessage({
+          templateKey: 'policy_update',
+          userId: user.id,
+          user,
+          context: {
+            policy: { type: policyType, url: policyUrl, effectiveDate }
+          },
+          actionUrl: policyUrl,
+          typeOverride: 'policy'
+        })
+      )
+    );
   }
 };
 
@@ -568,9 +974,23 @@ export const getHeroSearchConfig = async (req: Request, res: Response) => {
 export const saveHeaderConfig = async (req: Request, res: Response) => {
   try {
     const config = req.body;
+    // Debug: log incoming navigation payload for troubleshooting visibility issues
+    try {
+      console.log('🔔 Incoming header.save navigation payload sample:', Array.isArray(config?.navigation) ? config.navigation.map((n: any) => ({ id: n.id, label: n.label, visibility: n.visibility })) : config?.navigation);
+    } catch (e) {
+      /* ignore logging errors */
+    }
     const userId = req.user?.id;
 
     // Normalize incoming data (handle both camelCase and snake_case)
+    // Detailed logging to trace navigation visibility persistence issues
+    try {
+      console.log('🔍 saveHeaderConfig - incoming navigation count:', Array.isArray(config?.navigation) ? config.navigation.length : 0);
+      console.log('🔍 saveHeaderConfig - incoming navigation sample:', Array.isArray(config?.navigation) ? config.navigation.slice(0,5) : config?.navigation);
+    } catch (e) {
+      /* ignore logging errors */
+    }
+
     const normalized = {
       ...cmsData.header,
       // Map snake_case to camelCase for internal storage
@@ -579,12 +999,32 @@ export const saveHeaderConfig = async (req: Request, res: Response) => {
       homeUrl: config.home_url || config.homeUrl || cmsData.header.homeUrl,
       searchEnabled: config.search_enabled !== undefined ? config.search_enabled : (config.searchEnabled !== undefined ? config.searchEnabled : cmsData.header.searchEnabled),
       searchMode: config.search_mode || config.searchMode || cmsData.header.searchMode,
-      navigation: config.navigation || cmsData.header.navigation,
-      profileMenu: config.profile_menu || config.profileMenu || cmsData.header.profileMenu,
+      // Ensure navigation items preserve and normalize visibility lists
+      navigation: Array.isArray(config.navigation)
+        ? config.navigation.map((it: any) => ({
+            ...it,
+            visibility: Array.isArray(it?.visibility)
+              ? it.visibility.map((v: any) => String(v).toLowerCase())
+              : []
+          }))
+        : cmsData.header.navigation,
+      profileMenu: config.profile_menu || config.profileMenu || config.userMenu || cmsData.header.profileMenu,
+      profileMenuGroupLabels: config.profile_menu_group_labels || config.profileMenuGroupLabels || config.profile_group_labels || cmsData.header.profileMenuGroupLabels,
+      guestPrimaryDropdown: config.guest_primary_dropdown || config.guestPrimaryDropdown || config.guestProDropdown || cmsData.header.guestPrimaryDropdown,
+      guestExploreDropdown: config.guest_explore_dropdown || config.guestExploreDropdown || config.guestExplore || cmsData.header.guestExploreDropdown,
+      guestCtas: config.guest_ctas || config.guestCtas || config.guestActions || cmsData.header.guestCtas,
+      roleSwitch: config.role_switch || config.roleSwitch || config.switchRole || cmsData.header.roleSwitch,
       actions: config.actions || cmsData.header.actions,
       variant: config.variant || cmsData.header.variant,
       updatedAt: new Date()
     };
+
+    // Log normalized navigation before saving
+    try {
+      console.log('🔍 saveHeaderConfig - normalized.navigation sample:', Array.isArray(normalized.navigation) ? normalized.navigation.map((n: any) => ({ id: n.id, visibility: n.visibility })) : normalized.navigation);
+    } catch (e) {
+      /* ignore */
+    }
 
     // Get existing homepage config or create new
     const existingConfig = await getOrCreateCMSConfig(CmsTarget.HOMEPAGE, { header: cmsData.header, footer: cmsData.footer, heroSearch: cmsData.heroSearch });
@@ -597,16 +1037,26 @@ export const saveHeaderConfig = async (req: Request, res: Response) => {
     };
 
     // Save to database
-    await saveCMSConfig(CmsTarget.HOMEPAGE, updatedData, userId);
+    const saved = await saveCMSConfig(CmsTarget.HOMEPAGE, updatedData, userId);
+
+    try {
+      console.log('✅ saveHeaderConfig - saved CMS config id:', saved.id, 'version:', saved.version);
+    } catch (e) {
+      /* ignore */
+    }
 
     // Also update in-memory cache
     cmsData.header = normalized;
 
-    console.log('✅ Header config saved to database:', {
+    try {
+      console.log('✅ Header config saved to database:', {
       hasLogo: !!normalized.logoUrl,
       hasFavicon: !!normalized.faviconUrl,
       navItems: Array.isArray(normalized.navigation) ? normalized.navigation.length : 0
     });
+    } catch (e) {
+      /* ignore */
+    }
 
     // Emit realtime event so connected clients can refresh immediately
     emitCmsEvent(req, 'cms:header_updated', normalized);
@@ -634,6 +1084,13 @@ export const saveFooterConfig = async (req: Request, res: Response) => {
       id: config.id || cmsData.footer.id,
       logoUrl: config.logo_url || config.logoUrl || cmsData.footer.logoUrl,
       description: config.description || cmsData.footer.description,
+      socialLabelTitle:
+        config.social_label_title ??
+        config.socialLabelTitle ??
+        config.social_title ??
+        config.socialTitle ??
+        cmsData.footer.socialLabelTitle ??
+        '',
       copyright: config.copyright || cmsData.footer.copyright,
       columns: Array.isArray(config.columns) ? config.columns : cmsData.footer.columns,
       socials: Array.isArray(config.socials) ? config.socials : cmsData.footer.socials,
@@ -670,12 +1127,129 @@ export const saveFooterConfig = async (req: Request, res: Response) => {
 // Activity Config - Save/Update
 export const saveActivityConfig = async (req: Request, res: Response) => {
   try {
-    const config = req.body;
-    cmsData.activity = {
+    const config = req.body || {};
+    const userId = req.user?.id;
+
+    const normalizeBoolean = (value: any, fallback: boolean) => {
+      if (value === undefined || value === null) return fallback;
+      if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+        if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+        return Boolean(normalized);
+      }
+      return Boolean(value);
+    };
+
+    const normalizeNumber = (value: any, fallback: number) => {
+      const parsed = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+
+    const normalizeRole = (role: any) => {
+      if (!role) return 'guest';
+      const r = String(role).toLowerCase().trim();
+      if (r === 'public') return 'guest';
+      if (r === 'client') return 'employer';
+      if (r === 'all' || r === '*') return 'all';
+      return r;
+    };
+
+    const normalizeRoleList = (value: any) => {
+      if (Array.isArray(value)) return value.map(normalizeRole).filter(Boolean);
+      if (typeof value === 'string') {
+        return value
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+          .map(normalizeRole);
+      }
+      return [];
+    };
+
+    const incomingDesign = config.design || {};
+    const iconStyle = incomingDesign.iconStyle || incomingDesign.icon_style || cmsData.activity.design.iconStyle || 'outline';
+    const iconSize = normalizeNumber(incomingDesign.iconSize ?? incomingDesign.icon_size, cmsData.activity.design.iconSize || 20);
+    const badgeColor = incomingDesign.badgeColor || incomingDesign.badge_color || cmsData.activity.design.badgeColor || '#3b82f6';
+    const showBadges = normalizeBoolean(incomingDesign.showBadges ?? incomingDesign.show_badges, cmsData.activity.design.showBadges ?? true);
+
+    const normalizedIcons = Array.isArray(config.icons)
+      ? config.icons.map((icon: any, index: number) => {
+          const sortOrder = normalizeNumber(icon.sortOrder ?? icon.sort_order, index + 1);
+          const isEnabled = normalizeBoolean(icon.isEnabled ?? icon.is_enabled, true);
+          const showLabel = normalizeBoolean(icon.showLabel ?? icon.show_label, true);
+          const roles = normalizeRoleList(icon.roles ?? icon.visibility ?? icon.visible_to);
+          return {
+            ...icon,
+            sortOrder,
+            sort_order: sortOrder,
+            isEnabled,
+            is_enabled: isEnabled,
+            showLabel,
+            show_label: showLabel,
+            roles
+          };
+        })
+      : cmsData.activity.icons;
+
+    const incomingHelpMenu = Array.isArray(config.helpMenu)
+      ? config.helpMenu
+      : Array.isArray(config.help_menu)
+        ? config.help_menu
+        : cmsData.activity.helpMenu;
+
+    const normalizedHelpMenu = Array.isArray(incomingHelpMenu)
+      ? incomingHelpMenu.map((link: any, index: number) => {
+          const isEnabled = normalizeBoolean(link.isEnabled ?? link.is_enabled, true);
+          return {
+            ...link,
+            id: link.id ?? `hl-${index}`,
+            label: link.label ?? 'Help Link',
+            url: link.url ?? '/',
+            target: link.target ?? '_self',
+            isEnabled,
+            is_enabled: isEnabled
+          };
+        })
+      : cmsData.activity.helpMenu;
+
+    const normalized = {
       ...cmsData.activity,
       ...config,
+      design: {
+        iconStyle,
+        iconSize,
+        badgeColor,
+        showBadges,
+        icon_style: iconStyle,
+        icon_size: iconSize,
+        badge_color: badgeColor,
+        show_badges: showBadges
+      },
+      icons: normalizedIcons,
+      helpMenu: normalizedHelpMenu,
+      help_menu: normalizedHelpMenu,
       updatedAt: new Date()
     };
+
+    // Persist into CMS config (homepage target)
+    const existingConfig = await getOrCreateCMSConfig(CmsTarget.HOMEPAGE, {
+      header: cmsData.header,
+      footer: cmsData.footer,
+      heroSearch: cmsData.heroSearch,
+      activity: cmsData.activity
+    });
+    const existingData = existingConfig.data as any;
+    const updatedData = {
+      ...existingData,
+      activity: normalized
+    };
+
+    await saveCMSConfig(CmsTarget.HOMEPAGE, updatedData, userId);
+
+    // Also update in-memory cache
+    cmsData.activity = normalized;
+
     // Emit activity update so UI components depending on activity can refresh
     emitCmsEvent(req, 'cms:activity_updated', cmsData.activity);
     res.json({
@@ -1282,12 +1856,12 @@ export const getTrendingConfig = async (req: Request, res: Response) => {
 
 // --- Affiliate Content (Public GET, Admin POST save) ---
 const defaultAffiliateContent = {
-  heroTitle: 'Become a Geezle Affiliate',
+  heroTitle: 'Become a Scrolith Affiliate',
   heroSubtitle: 'Earn commissions by referring users to our platform',
   heroButtonText: 'Join Now',
   benefits: [
     { title: 'High Commission', description: 'Earn up to 30% commission on referrals', icon: 'dollar-sign' },
-    { title: 'Recurring Earnings', description: 'Get paid for as long as your referrals use Geezle', icon: 'repeat' },
+    { title: 'Recurring Earnings', description: 'Get paid for as long as your referrals use Scrolith', icon: 'repeat' },
     { title: 'Marketing Tools', description: 'Access banners, links, and tracking tools', icon: 'tool' }
   ],
   updated_at: new Date().toISOString()
@@ -1359,6 +1933,551 @@ export const saveAffiliateContent = async (req: Request, res: Response) => {
   }
 };
 
+// --- CMS Pages (Static Pages) ---
+export const getPages = async (_req: Request, res: Response) => {
+  try {
+    const data = await getAppSetting(CMS_PAGES_SCOPE, { pages: [] });
+    const pages = Array.isArray((data as any)?.pages) ? (data as any).pages : [];
+    res.json(pages);
+  } catch (error) {
+    console.error('❌ Error getting CMS pages:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getPageBySlug = async (req: Request, res: Response) => {
+  try {
+    const slug = String(req.params?.slug || '').trim().toLowerCase();
+    const data = await getAppSetting(CMS_PAGES_SCOPE, { pages: [] });
+    const pages = Array.isArray((data as any)?.pages) ? (data as any).pages : [];
+    const page = pages.find((p: any) => String(p.slug || '').toLowerCase() === slug);
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+    res.json(page);
+  } catch (error) {
+    console.error('❌ Error getting CMS page by slug:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const savePage = async (req: Request, res: Response) => {
+  try {
+    const incoming = req.body || {};
+    const now = new Date().toISOString();
+    const data = await getAppSetting(CMS_PAGES_SCOPE, { pages: [] });
+    const pages = Array.isArray((data as any)?.pages) ? (data as any).pages : [];
+
+    const baseSlug = slugify(incoming.slug || incoming.title || '');
+    let slug = baseSlug || `page-${Date.now()}`;
+    const id = String(incoming.id || req.params?.id || `page-${Date.now()}`);
+
+    const duplicate = pages.find((p: any) => p.slug === slug && p.id !== id);
+    if (duplicate) {
+      slug = `${slug}-${Date.now().toString().slice(-4)}`;
+    }
+
+    const normalized = {
+      id,
+      title: incoming.title || '',
+      slug,
+      content: incoming.content || '',
+      blocks: Array.isArray(incoming.blocks) ? incoming.blocks : [],
+      status: incoming.status || 'DRAFT',
+      visibility: incoming.visibility || 'public',
+      categoryId: incoming.categoryId || incoming.category_id || '',
+      seo: incoming.seo || { metaTitle: '', metaDescription: '', metaKeywords: [] },
+      images: Array.isArray(incoming.images) ? incoming.images : [],
+      videos: Array.isArray(incoming.videos) ? incoming.videos : [],
+      updatedAt: now,
+      updated_at: now,
+      createdAt: incoming.createdAt || incoming.created_at || now,
+      created_at: incoming.created_at || incoming.createdAt || now
+    };
+
+    const index = pages.findIndex((p: any) => p.id === id);
+    let updatedPages;
+    if (index >= 0) {
+      updatedPages = [...pages];
+      updatedPages[index] = { ...updatedPages[index], ...normalized };
+    } else {
+      updatedPages = [...pages, normalized];
+    }
+
+    await saveAppSetting(CMS_PAGES_SCOPE, { pages: updatedPages });
+    emitCmsEvent(req, 'cms:pages_updated', updatedPages);
+    emitCmsEvent(req, 'cms:page_updated', normalized);
+
+    try {
+      void broadcastPolicyUpdate(normalized);
+    } catch (policyError) {
+      console.warn('Failed to broadcast policy update', policyError);
+    }
+
+    res.json({ success: true, data: normalized });
+  } catch (error) {
+    console.error('❌ Error saving CMS page:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const deletePage = async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params?.id || '');
+    const data = await getAppSetting(CMS_PAGES_SCOPE, { pages: [] });
+    const pages = Array.isArray((data as any)?.pages) ? (data as any).pages : [];
+    const updatedPages = pages.filter((p: any) => String(p.id) !== id);
+    await saveAppSetting(CMS_PAGES_SCOPE, { pages: updatedPages });
+    emitCmsEvent(req, 'cms:pages_updated', updatedPages);
+    emitCmsEvent(req, 'cms:page_deleted', { id });
+    res.json({ success: true, id });
+  } catch (error) {
+    console.error('❌ Error deleting CMS page:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// --- CMS Page Categories ---
+export const getPageCategories = async (_req: Request, res: Response) => {
+  try {
+    const data = await getAppSetting(CMS_PAGE_CATEGORIES_SCOPE, { categories: [] });
+    const categories = Array.isArray((data as any)?.categories) ? (data as any).categories : [];
+    res.json(categories);
+  } catch (error) {
+    console.error('❌ Error getting CMS categories:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const savePageCategory = async (req: Request, res: Response) => {
+  try {
+    const incoming = req.body || {};
+    const now = new Date().toISOString();
+    const data = await getAppSetting(CMS_PAGE_CATEGORIES_SCOPE, { categories: [] });
+    const categories = Array.isArray((data as any)?.categories) ? (data as any).categories : [];
+
+    const baseSlug = slugify(incoming.slug || incoming.name || '');
+    let slug = baseSlug || `cat-${Date.now()}`;
+    const id = String(incoming.id || req.params?.id || `cat-${Date.now()}`);
+
+    const duplicate = categories.find((c: any) => c.slug === slug && c.id !== id);
+    if (duplicate) {
+      slug = `${slug}-${Date.now().toString().slice(-4)}`;
+    }
+
+    const normalized = {
+      id,
+      name: incoming.name || '',
+      slug,
+      status: incoming.status || 'active',
+      description: incoming.description || '',
+      image: incoming.image || null,
+      sortOrder: incoming.sortOrder ?? incoming.sort_order ?? 0,
+      sort_order: incoming.sort_order ?? incoming.sortOrder ?? 0,
+      created_at: incoming.created_at || incoming.createdAt || now,
+      updated_at: now
+    };
+
+    const index = categories.findIndex((c: any) => c.id === id);
+    let updatedCategories;
+    if (index >= 0) {
+      updatedCategories = [...categories];
+      updatedCategories[index] = { ...updatedCategories[index], ...normalized };
+    } else {
+      updatedCategories = [...categories, normalized];
+    }
+
+    await saveAppSetting(CMS_PAGE_CATEGORIES_SCOPE, { categories: updatedCategories });
+    emitCmsEvent(req, 'cms:categories_updated', updatedCategories);
+    emitCmsEvent(req, 'cms:category_updated', normalized);
+
+    res.json({ success: true, data: normalized });
+  } catch (error) {
+    console.error('❌ Error saving CMS category:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const deletePageCategory = async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params?.id || '');
+    const data = await getAppSetting(CMS_PAGE_CATEGORIES_SCOPE, { categories: [] });
+    const categories = Array.isArray((data as any)?.categories) ? (data as any).categories : [];
+    const updatedCategories = categories.filter((c: any) => String(c.id) !== id);
+    await saveAppSetting(CMS_PAGE_CATEGORIES_SCOPE, { categories: updatedCategories });
+    emitCmsEvent(req, 'cms:categories_updated', updatedCategories);
+    emitCmsEvent(req, 'cms:category_deleted', { id });
+    res.json({ success: true, id });
+  } catch (error) {
+    console.error('❌ Error deleting CMS category:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// --- BLOG POSTS ---
+export const getBlogPosts = async (_req: Request, res: Response) => {
+  try {
+    const data = await getAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: [] });
+    const posts = Array.isArray((data as any)?.posts) ? (data as any).posts : [];
+    const categoriesData = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
+    const categories = Array.isArray((categoriesData as any)?.categories) ? (categoriesData as any).categories : [];
+    const filtered = posts.filter((post: any) => isBlogPostPublic(post));
+    const normalized = filtered.map((post: any) => normalizeBlogPost(post, categories, post?.updated_at || post?.updatedAt));
+    normalized.sort((a: any, b: any) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+    res.json(normalized);
+  } catch (error) {
+    console.error('❌ Error getting blog posts:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getBlogPostBySlug = async (req: Request, res: Response) => {
+  try {
+    const slug = String(req.params?.slug || '').trim().toLowerCase();
+    const data = await getAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: [] });
+    const posts = Array.isArray((data as any)?.posts) ? (data as any).posts : [];
+    const categoriesData = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
+    const categories = Array.isArray((categoriesData as any)?.categories) ? (categoriesData as any).categories : [];
+    const post = posts.find((p: any) => String(p.slug || '').toLowerCase() === slug);
+    if (!post || !isBlogPostPublic(post)) return res.status(404).json({ error: 'Post not found' });
+    res.json(normalizeBlogPost(post, categories, post?.updated_at || post?.updatedAt));
+  } catch (error) {
+    console.error('❌ Error getting blog post by slug:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getBlogPostsAdmin = async (_req: Request, res: Response) => {
+  try {
+    const data = await getAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: [] });
+    const posts = Array.isArray((data as any)?.posts) ? (data as any).posts : [];
+    const categoriesData = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
+    const categories = Array.isArray((categoriesData as any)?.categories) ? (categoriesData as any).categories : [];
+    const normalized = posts.map((post: any) => normalizeBlogPost(post, categories, post?.updated_at || post?.updatedAt));
+    normalized.sort((a: any, b: any) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+    res.json(normalized);
+  } catch (error) {
+    console.error('❌ Error getting admin blog posts:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getBlogPostByIdAdmin = async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params?.id || '').trim();
+    const data = await getAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: [] });
+    const posts = Array.isArray((data as any)?.posts) ? (data as any).posts : [];
+    const categoriesData = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
+    const categories = Array.isArray((categoriesData as any)?.categories) ? (categoriesData as any).categories : [];
+    const post = posts.find((p: any) => String(p.id || '') === id);
+    if (!post) return res.status(404).json({ error: 'Post not found' });
+    res.json(normalizeBlogPost(post, categories, post?.updated_at || post?.updatedAt));
+  } catch (error) {
+    console.error('❌ Error getting admin blog post by id:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const saveBlogPost = async (req: Request, res: Response) => {
+  try {
+    const incoming = req.body || {};
+    const now = new Date().toISOString();
+    const data = await getAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: [] });
+    const posts = Array.isArray((data as any)?.posts) ? (data as any).posts : [];
+    const categoriesData = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
+    const categories = Array.isArray((categoriesData as any)?.categories) ? (categoriesData as any).categories : [];
+
+    const id = String(incoming.id || req.params?.id || `post-${Date.now()}`);
+    const baseSlug = slugify(incoming.slug || incoming.title || '');
+    let slug = baseSlug || `post-${Date.now()}`;
+
+    const duplicate = posts.find((p: any) => p.slug === slug && p.id !== id);
+    if (duplicate) {
+      slug = `${slug}-${Date.now().toString().slice(-4)}`;
+    }
+
+    const normalized = normalizeBlogPost({ ...incoming, id, slug, updated_at: now }, categories, now);
+
+    const index = posts.findIndex((p: any) => p.id === id);
+    let updatedPosts: any[];
+    if (index >= 0) {
+      updatedPosts = [...posts];
+      updatedPosts[index] = { ...updatedPosts[index], ...normalized };
+    } else {
+      updatedPosts = [...posts, normalized];
+    }
+
+    await saveAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: updatedPosts });
+
+    const updatedCategories = computeCategoryCounts(updatedPosts, categories);
+    await saveAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: updatedCategories });
+
+    emitCmsEvent(req, 'cms:blog_posts_updated', updatedPosts);
+    emitCmsEvent(req, 'cms:blog_post_updated', normalized);
+
+    res.json({ success: true, data: normalized });
+  } catch (error) {
+    console.error('❌ Error saving blog post:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const deleteBlogPost = async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params?.id || '');
+    const data = await getAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: [] });
+    const posts = Array.isArray((data as any)?.posts) ? (data as any).posts : [];
+    const updatedPosts = posts.filter((p: any) => String(p.id) !== id);
+    await saveAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: updatedPosts });
+
+    const categoriesData = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
+    const categories = Array.isArray((categoriesData as any)?.categories) ? (categoriesData as any).categories : [];
+    const updatedCategories = computeCategoryCounts(updatedPosts, categories);
+    await saveAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: updatedCategories });
+
+    emitCmsEvent(req, 'cms:blog_posts_updated', updatedPosts);
+    emitCmsEvent(req, 'cms:blog_post_deleted', { id });
+    res.json({ success: true, id });
+  } catch (error) {
+    console.error('❌ Error deleting blog post:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// --- BLOG CATEGORIES ---
+export const getBlogCategories = async (_req: Request, res: Response) => {
+  try {
+    const data = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
+    const categories = Array.isArray((data as any)?.categories) ? (data as any).categories : [];
+    const postsData = await getAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: [] });
+    const posts = Array.isArray((postsData as any)?.posts) ? (postsData as any).posts : [];
+    const normalized = computeCategoryCounts(posts, categories);
+    res.json(normalized);
+  } catch (error) {
+    console.error('❌ Error getting blog categories:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const saveBlogCategory = async (req: Request, res: Response) => {
+  try {
+    const incoming = req.body || {};
+    const now = new Date().toISOString();
+    const data = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
+    const categories = Array.isArray((data as any)?.categories) ? (data as any).categories : [];
+
+    const baseSlug = slugify(incoming.slug || incoming.name || '');
+    let slug = baseSlug || `cat-${Date.now()}`;
+    const id = String(incoming.id || req.params?.id || `cat-${Date.now()}`);
+
+    const duplicate = categories.find((c: any) => c.slug === slug && c.id !== id);
+    if (duplicate) {
+      slug = `${slug}-${Date.now().toString().slice(-4)}`;
+    }
+
+    const normalized = {
+      id,
+      name: incoming.name || '',
+      slug,
+      status: incoming.status || 'active',
+      description: incoming.description || '',
+      count: Number(incoming.count ?? 0),
+      created_at: incoming.created_at || incoming.createdAt || now,
+      updated_at: now
+    };
+
+    const index = categories.findIndex((c: any) => c.id === id);
+    let updatedCategories: any[];
+    if (index >= 0) {
+      updatedCategories = [...categories];
+      updatedCategories[index] = { ...updatedCategories[index], ...normalized };
+    } else {
+      updatedCategories = [...categories, normalized];
+    }
+
+    const postsData = await getAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: [] });
+    const posts = Array.isArray((postsData as any)?.posts) ? (postsData as any).posts : [];
+    const withCounts = computeCategoryCounts(posts, updatedCategories);
+
+    await saveAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: withCounts });
+    emitCmsEvent(req, 'cms:blog_categories_updated', withCounts);
+    emitCmsEvent(req, 'cms:blog_category_updated', normalized);
+    res.json({ success: true, data: normalized });
+  } catch (error) {
+    console.error('❌ Error saving blog category:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const deleteBlogCategory = async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params?.id || '');
+    const data = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
+    const categories = Array.isArray((data as any)?.categories) ? (data as any).categories : [];
+    const updatedCategories = categories.filter((c: any) => String(c.id) !== id);
+    await saveAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: updatedCategories });
+    emitCmsEvent(req, 'cms:blog_categories_updated', updatedCategories);
+    emitCmsEvent(req, 'cms:blog_category_deleted', { id });
+    res.json({ success: true, id });
+  } catch (error) {
+    console.error('❌ Error deleting blog category:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// --- BLOG SETTINGS ---
+export const getBlogSettings = async (_req: Request, res: Response) => {
+  try {
+    const data = await getAppSetting(CMS_BLOG_SETTINGS_SCOPE, defaultBlogSettings);
+    const normalized = normalizeBlogSettings(data);
+    res.json(normalized);
+  } catch (error) {
+    console.error('❌ Error getting blog settings:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const saveBlogSettings = async (req: Request, res: Response) => {
+  try {
+    const payload = req.body || {};
+    const existing = await getAppSetting(CMS_BLOG_SETTINGS_SCOPE, defaultBlogSettings);
+    const merged = normalizeBlogSettings({ ...existing, ...payload, updated_at: new Date().toISOString() });
+    const saved = await saveAppSetting(CMS_BLOG_SETTINGS_SCOPE, merged);
+    emitCmsEvent(req, 'cms:blog_settings_updated', saved);
+    res.json({ success: true, data: saved });
+  } catch (error) {
+    console.error('❌ Error saving blog settings:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// --- Auth Pages Config (Login / Signup screens) ---
+export const getAuthPagesConfig = async (_req: Request, res: Response) => {
+  try {
+    const data = await getAppSetting(CMS_AUTH_PAGES_SCOPE, defaultAuthPagesConfig);
+    const normalized = normalizeAuthPagesConfig(data || {});
+    const sanitized = sanitizeAuthPagesConfig(normalized);
+    res.json(sanitized);
+  } catch (error) {
+    console.error('❌ Error getting auth pages config:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const saveAuthPagesConfig = async (req: Request, res: Response) => {
+  try {
+    const payload = req.body || {};
+    const existing = await getAppSetting(CMS_AUTH_PAGES_SCOPE, defaultAuthPagesConfig);
+    const normalized = normalizeAuthPagesConfig(payload, existing || {});
+    const saved = await saveAppSetting(CMS_AUTH_PAGES_SCOPE, normalized);
+    const sanitized = sanitizeAuthPagesConfig(saved);
+    emitCmsEvent(req, 'cms:auth_pages_updated', sanitized);
+    res.json({ success: true, data: sanitized });
+  } catch (error) {
+    console.error('❌ Error saving auth pages config:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// --- Answers Page (AI Q&A) ---
+export const getAnswersPage = async (_req: Request, res: Response) => {
+  try {
+    const data = await getAppSetting(CMS_ANSWERS_SCOPE, defaultAnswersPage);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('❌ Error getting Answers page config:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const saveAnswersPage = async (req: Request, res: Response) => {
+  try {
+    const payload = req.body?.data ?? req.body ?? {};
+    const merged = { ...defaultAnswersPage, ...payload, updated_at: new Date().toISOString() };
+    const saved = await saveAppSetting(CMS_ANSWERS_SCOPE, merged);
+    emitCmsEvent(req, 'cms:answers_updated', saved);
+    res.json({ success: true, data: saved });
+  } catch (error) {
+    console.error('❌ Error saving Answers page config:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// --- Guides Page ---
+export const getGuidesPage = async (_req: Request, res: Response) => {
+  try {
+    const data = await getAppSetting(CMS_GUIDES_SCOPE, defaultGuidesPage);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('❌ Error getting Guides page config:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const saveGuidesPage = async (req: Request, res: Response) => {
+  try {
+    const payload = req.body?.data ?? req.body ?? {};
+    const merged = { ...defaultGuidesPage, ...payload, updated_at: new Date().toISOString() };
+    const saved = await saveAppSetting(CMS_GUIDES_SCOPE, merged);
+    emitCmsEvent(req, 'cms:guides_updated', saved);
+    res.json({ success: true, data: saved });
+  } catch (error) {
+    console.error('❌ Error saving Guides page config:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// --- Hire Page ---
+export const getHirePage = async (_req: Request, res: Response) => {
+  try {
+    const data = await getAppSetting(CMS_HIRE_SCOPE, defaultHirePage);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('❌ Error getting Hire page config:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const saveHirePage = async (req: Request, res: Response) => {
+  try {
+    const payload = req.body?.data ?? req.body ?? {};
+    const merged = { ...defaultHirePage, ...payload, updated_at: new Date().toISOString() };
+    const saved = await saveAppSetting(CMS_HIRE_SCOPE, merged);
+    emitCmsEvent(req, 'cms:hire_updated', saved);
+    res.json({ success: true, data: saved });
+  } catch (error) {
+    console.error('❌ Error saving Hire page config:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// --- Freelancer Page ---
+export const getFreelancerPage = async (_req: Request, res: Response) => {
+  try {
+    const data = await getAppSetting(CMS_FREELANCER_SCOPE, defaultFreelancerPage);
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('❌ Error getting Freelancer page config:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const saveFreelancerPage = async (req: Request, res: Response) => {
+  try {
+    const payload = req.body?.data ?? req.body ?? {};
+    const merged = { ...defaultFreelancerPage, ...payload, updated_at: new Date().toISOString() };
+    const saved = await saveAppSetting(CMS_FREELANCER_SCOPE, merged);
+    emitCmsEvent(req, 'cms:freelancer_updated', saved);
+    res.json({ success: true, data: saved });
+  } catch (error) {
+    console.error('❌ Error saving Freelancer page config:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getPlatformSettingsPublic = async (_req: Request, res: Response) => {
+  const data = getPublicPlatformSettings();
+  res.json({ success: true, data });
+};
+
 // Default export for compatibility
 export default {
   // GET Functions
@@ -1372,6 +2491,20 @@ export default {
   getHomepageAnalytics,
   getTrendingConfig,
   getAffiliateContent,
+  getPages,
+  getPageBySlug,
+  getPageCategories,
+  getBlogPosts,
+  getBlogPostBySlug,
+  getBlogPostsAdmin,
+  getBlogPostByIdAdmin,
+  getBlogCategories,
+  getBlogSettings,
+  getAuthPagesConfig,
+  getAnswersPage,
+  getGuidesPage,
+  getHirePage,
+  getFreelancerPage,
 
   // POST/PUT/DELETE Functions
   saveHeaderConfig,
@@ -1386,8 +2519,23 @@ export default {
   saveHomeSlide,
   updateHomeSlideOrder,
   deleteHomeSlide,
-  saveAffiliateContent
+  saveAffiliateContent,
+  savePage,
+  deletePage,
+  savePageCategory,
+  deletePageCategory,
+  saveBlogPost,
+  deleteBlogPost,
+  saveBlogCategory,
+  deleteBlogCategory,
+  saveBlogSettings,
+  saveAuthPagesConfig,
+  saveAnswersPage,
+  saveGuidesPage,
+  saveHirePage,
+  saveFreelancerPage
 };
+
 
 
 

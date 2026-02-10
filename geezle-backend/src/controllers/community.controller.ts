@@ -1,23 +1,416 @@
 import { Request, Response } from 'express';
 import { PrismaClient, Prisma } from '@prisma/client';
+import { getGcoinSettingsSafe } from '../utils/gcoinSettings';
+import jwt from 'jsonwebtoken';
 
 const prisma = new PrismaClient();
 
 import realtime from '../utils/realtime';
+import { syncFileUsages, removeUsage } from '../utils/fileUsage';
+import {
+  buildSnippet,
+  canUserViewPostForNotification,
+  createEngagementNotification,
+  extractMentionUsernames,
+  filterRecipientsForNotification,
+  resolveMentionedUserIds
+} from '../services/engagementNotifications.service';
 
 // Safe helper to retrieve the `io` instance from `req.app` without broad `as any` casts
 const getAppIo = (req: Request) => {
-  const getter = (req.app as unknown as { get?: (k: string) => unknown }).get;
-  if (typeof getter === 'function') {
-    // Prefer community namespace when available
-    const community = getter('communityIo') as { emit?: (...args: unknown[]) => void } | undefined;
-    if (community) return community;
-    return getter('io') as { emit?: (...args: unknown[]) => void } | undefined;
+  const app = req.app as unknown as {
+    get?: (k: string) => unknown;
+    locals?: Record<string, unknown>;
+  } | undefined;
+  if (app && typeof app.get === 'function') {
+    try {
+      // Prefer community namespace when available
+      const community = app.get('communityIo') as { emit?: (...args: unknown[]) => void } | undefined;
+      if (community) return community;
+      const io = app.get('io') as { emit?: (...args: unknown[]) => void } | undefined;
+      if (io) return io;
+      if (app.locals?.communityIo) return app.locals.communityIo as { emit?: (...args: unknown[]) => void };
+      if (app.locals?.io) return app.locals.io as { emit?: (...args: unknown[]) => void };
+    } catch (e) {
+      console.error('Failed to read io from app context:', e);
+    }
   }
   // Fallback to global namespace if set
   if ((global as any).appCommunityIo) return (global as any).appCommunityIo;
   if ((global as any).appIo) return (global as any).appIo;
   return undefined;
+};
+
+const NOTIFICATION_BATCH_SIZE = 250;
+
+const resolveAttachments = async (fileIds: string[]) => {
+  const ids = Array.from(new Set((fileIds || []).filter(Boolean)));
+  if (!ids.length) return [];
+  const files = (await prisma.file.findMany({ where: { id: { in: ids } } })) as Array<{
+    id: string;
+    url: string;
+    originalName: string;
+    mimeType: string;
+    size: number;
+  }>;
+  const map = new Map<string, (typeof files)[number]>(files.map((f) => [f.id, f]));
+  return ids
+    .map((id) => {
+      const file = map.get(id);
+      if (!file) return null;
+      const mimeType = file.mimeType || '';
+      const type = mimeType.startsWith('image/')
+        ? 'image'
+        : mimeType.startsWith('video/')
+          ? 'video'
+          : 'document';
+      return {
+        id: file.id,
+        url: file.url,
+        name: file.originalName,
+        mimeType: file.mimeType,
+        type,
+        size: Number(file.size || 0)
+      };
+    })
+    .filter(Boolean);
+};
+
+const buildReactionSummary = (reactions: Array<{ postId: string; type: string; _count: { _all: number } }>) => {
+  const map = new Map<string, Record<string, number>>();
+  reactions.forEach((r) => {
+    const entry = map.get(r.postId) || {};
+    entry[r.type] = r._count?._all || 0;
+    map.set(r.postId, entry);
+  });
+  return map;
+};
+
+const buildCommentCounts = (counts: Array<{ postId: string; _count: { _all: number } }>) => {
+  const map = new Map<string, number>();
+  counts.forEach((c) => map.set(c.postId, c._count?._all || 0));
+  return map;
+};
+
+const emitPostMetricsUpdated = async (
+  io: { emit?: (...args: unknown[]) => void } | undefined,
+  postId: string,
+  metric: string
+) => {
+  const payload: any = { postId, metric };
+  try {
+    const post = await prisma.communityPost.findUnique({
+      where: { id: postId },
+      select: {
+        likesCount: true,
+        commentsCount: true,
+        sharesCount: true,
+        repostsCount: true,
+        viewsCount: true
+      }
+    });
+    if (post) {
+      payload.interactions = {
+        likes: Number(post.likesCount || 0),
+        comments: Number(post.commentsCount || 0),
+        shares: Number(post.sharesCount || 0),
+        reposts: Number(post.repostsCount || 0),
+        views: Number(post.viewsCount || 0)
+      };
+    }
+  } catch (error) {
+    console.warn('[community.emitPostMetricsUpdated] failed to resolve counts', error);
+  }
+
+  try {
+    io?.emit('community:post_metrics_updated', payload);
+  } catch (error) {
+    console.error('Socket emit error (post_metrics_updated):', error);
+  }
+  try {
+    realtime.emitToPost(postId, 'community:post_metrics_updated', payload);
+  } catch (error) {}
+};
+
+const normalizeTag = (value: unknown) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^[#]+/, '')
+    .replace(/[^a-z0-9_]/g, '');
+
+const extractHashtags = (value: unknown) => {
+  const content = String(value || '');
+  const matches = content.match(/(^|[^#\w])#([a-zA-Z0-9_]{2,40})/g) || [];
+  const tags = matches
+    .map((entry) => {
+      const m = /#([a-zA-Z0-9_]{2,40})/.exec(entry);
+      return normalizeTag(m?.[1] || '');
+    })
+    .filter(Boolean);
+  return Array.from(new Set(tags));
+};
+
+const collectPostTags = (post: { tags?: string[] | null; content?: string | null }) => {
+  const fromArray = Array.isArray(post.tags) ? post.tags.map((tag) => normalizeTag(tag)).filter(Boolean) : [];
+  const fromContent = extractHashtags(post.content || '');
+  return Array.from(new Set([...fromArray, ...fromContent]));
+};
+
+const MAX_PINNED_HIGHLIGHTED_POSTS = 3;
+
+const isPrivilegedUser = (user?: { role?: string }) =>
+  user?.role === 'ADMIN' || user?.role === 'MODERATOR';
+
+const normalizeCommentPolicy = (value: unknown) => {
+  if (value === undefined || value === null) return undefined;
+  const policy = String(value).toLowerCase().trim();
+  const allowed = new Set(['everyone', 'followers', 'following', 'mutuals', 'none']);
+  if (!allowed.has(policy)) return null;
+  return policy;
+};
+
+const hasUserBlockRelation = async (a: string | undefined, b: string | undefined) => {
+  const first = String(a || '').trim();
+  const second = String(b || '').trim();
+  if (!first || !second || first === second) return false;
+  const row = await prisma.userBlock.findFirst({
+    where: {
+      OR: [
+        { blockerId: first, blockedId: second },
+        { blockerId: second, blockedId: first }
+      ]
+    },
+    select: { id: true }
+  });
+  return Boolean(row);
+};
+
+const getBlockedAuthorIdsForViewer = async (viewerId: string | undefined) => {
+  const normalizedViewerId = String(viewerId || '').trim();
+  if (!normalizedViewerId) return [] as string[];
+  const blocks = await prisma.userBlock.findMany({
+    where: {
+      OR: [{ blockerId: normalizedViewerId }, { blockedId: normalizedViewerId }]
+    },
+    select: { blockerId: true, blockedId: true }
+  });
+  const excluded = new Set<string>();
+  blocks.forEach((row) => {
+    if (row.blockerId === normalizedViewerId && row.blockedId) excluded.add(row.blockedId);
+    if (row.blockedId === normalizedViewerId && row.blockerId) excluded.add(row.blockerId);
+  });
+  return Array.from(excluded);
+};
+
+const filterMentionTargetsForActor = async (actorId: string, candidateUserIds: string[]) => {
+  const actor = String(actorId || '').trim();
+  const uniqueCandidates = Array.from(new Set((candidateUserIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+  if (!actor || !uniqueCandidates.length) return [];
+  const blocks = await prisma.userBlock.findMany({
+    where: {
+      OR: [
+        { blockerId: actor, blockedId: { in: uniqueCandidates } },
+        { blockedId: actor, blockerId: { in: uniqueCandidates } }
+      ]
+    },
+    select: { blockerId: true, blockedId: true }
+  });
+  const blockedSet = new Set<string>();
+  blocks.forEach((row) => {
+    if (row.blockerId === actor && row.blockedId) blockedSet.add(row.blockedId);
+    if (row.blockedId === actor && row.blockerId) blockedSet.add(row.blockerId);
+  });
+  return uniqueCandidates.filter((id) => !blockedSet.has(id));
+};
+
+const canUserCommentOnPost = async (
+  post: { authorId: string; commentPolicy?: string | null },
+  userId: string | undefined,
+  userRole?: string
+) => {
+  if (!userId) return false;
+  if (post.authorId === userId) return true;
+  if (userRole === 'ADMIN' || userRole === 'MODERATOR') return true;
+  if (await hasUserBlockRelation(post.authorId, userId)) return false;
+
+  const policy = (post.commentPolicy || 'everyone').toLowerCase();
+  if (policy === 'everyone') return true;
+  if (policy === 'none') return false;
+
+  const [isFollower, isFollowing] = await Promise.all([
+    prisma.userFollow.findUnique({
+      where: {
+        followerId_followeeId: { followerId: userId, followeeId: post.authorId }
+      }
+    }),
+    prisma.userFollow.findUnique({
+      where: {
+        followerId_followeeId: { followerId: post.authorId, followeeId: userId }
+      }
+    })
+  ]);
+
+  if (policy === 'followers') return !!isFollower;
+  if (policy === 'following') return !!isFollowing;
+  if (policy === 'mutuals') return !!isFollower && !!isFollowing;
+  return true;
+};
+
+const parseCookieHeader = (cookieHeader?: string) => {
+  const jar: Record<string, string> = {};
+  if (!cookieHeader) return jar;
+  cookieHeader.split(';').forEach((part) => {
+    const [rawKey, ...rest] = part.trim().split('=');
+    if (!rawKey) return;
+    const key = rawKey.trim();
+    if (!key) return;
+    const value = rest.join('=').trim();
+    try {
+      jar[key] = decodeURIComponent(value);
+    } catch {
+      jar[key] = value;
+    }
+  });
+  return jar;
+};
+
+const resolveOptionalUserFromRequest = async (req: Request): Promise<{ id: string; role?: string } | null> => {
+  if (req.user?.id) {
+    return { id: req.user.id, role: req.user.role };
+  }
+
+  let authHeader = req.headers.authorization as string | undefined;
+  if (!authHeader) {
+    const cookies = parseCookieHeader(req.headers.cookie as string | undefined);
+    const cookieToken = cookies['Scrolith_token'] || cookies['token'];
+    if (cookieToken) authHeader = `Bearer ${cookieToken}`;
+  }
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+
+  const token = authHeader.split(' ')[1];
+  if (!token) return null;
+
+  try {
+    const secret = process.env.JWT_SECRET || 'dev_jwt_secret';
+    const decoded = jwt.verify(token, secret) as { id?: string };
+    const userId = String(decoded?.id || '').trim();
+    if (!userId) return null;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true, isActive: true }
+    });
+    if (!user || user.isActive === false) return null;
+    return { id: user.id, role: user.role };
+  } catch {
+    return null;
+  }
+};
+
+const resolveBusinessAvatarUrl = (logoFileId?: string | null, displayName?: string | null) => {
+  const raw = String(logoFileId || '').trim();
+  if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('/')) {
+    return raw;
+  }
+  if (raw.startsWith('disk:')) {
+    return `/uploads/${raw.slice('disk:'.length).replace(/^\/+/, '')}`;
+  }
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName || 'Business')}`;
+};
+
+const buildPostAuthorPayload = (author: {
+  id: string;
+  name: string | null;
+  username?: string | null;
+  avatar: string | null;
+  isVerified?: boolean | null;
+  freelancerPlanActive?: boolean | null;
+  employerPlanActive?: boolean | null;
+}, businessPage?: {
+  id: string;
+  name: string;
+  handle: string;
+  slug: string;
+  logoFileId: string | null;
+} | null) => {
+  if (businessPage) {
+    return {
+      id: businessPage.id,
+      username: businessPage.handle || businessPage.slug || '',
+      displayName: businessPage.name || 'Business page',
+      avatarUrl: resolveBusinessAvatarUrl(businessPage.logoFileId, businessPage.name),
+      type: 'business' as const,
+      businessSlug: businessPage.slug || null,
+      isVerified: false,
+      isPro: false
+    };
+  }
+
+  const displayName = author.name || 'Community member';
+  return {
+    id: author.id,
+    username: author.username || null,
+    displayName,
+    avatarUrl: author.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}`,
+    type: 'user' as const,
+    businessSlug: null,
+    isVerified: Boolean(author.isVerified),
+    isPro: Boolean(author.freelancerPlanActive || author.employerPlanActive)
+  };
+};
+
+const resolvePostAuthorIdentity = (
+  post: { authorId: string; businessPageId?: string | null },
+  author: { id: string; type: 'user' | 'business' }
+) => {
+  const isBusinessAuthor = author.type === 'business' && Boolean(post.businessPageId);
+  return {
+    authorId: isBusinessAuthor ? author.id : post.authorId,
+    authorUserId: post.authorId
+  };
+};
+
+const resolveFollowLookupForPosts = async (
+  posts: Array<{ authorId: string; businessPageId?: string | null }>,
+  viewerId?: string
+) => {
+  const followingUserIds = new Set<string>();
+  const followingPageIds = new Set<string>();
+
+  if (!viewerId || !posts.length) {
+    return { followingUserIds, followingPageIds };
+  }
+
+  const userAuthorIds = Array.from(
+    new Set(posts.filter((post) => !post.businessPageId).map((post) => post.authorId).filter(Boolean))
+  );
+  const businessPageIds = Array.from(
+    new Set(posts.map((post) => String(post.businessPageId || '').trim()).filter(Boolean))
+  );
+
+  const [userFollows, pageFollows] = await Promise.all([
+    userAuthorIds.length
+      ? prisma.userFollow.findMany({
+          where: { followerId: viewerId, followeeId: { in: userAuthorIds } },
+          select: { followeeId: true }
+        })
+      : Promise.resolve([]),
+    businessPageIds.length
+      ? prisma.communityBusinessPageFollower.findMany({
+          where: { userId: viewerId, pageId: { in: businessPageIds } },
+          select: { pageId: true }
+        })
+      : Promise.resolve([])
+  ]);
+
+  userFollows.forEach((entry) => followingUserIds.add(entry.followeeId));
+  pageFollows.forEach((entry) => followingPageIds.add(entry.pageId));
+
+  return { followingUserIds, followingPageIds };
 };
 
 // Get all threads
@@ -740,7 +1133,7 @@ const processThresholds = async (postId: string, io: any) => {
   if (!post) return;
 
   // Read admin-configurable rules from GcoinSettings or fallback
-  const s = await prisma.gcoinSettings.findFirst();
+  const s = await getGcoinSettingsSafe();
   const ss: any = s;
   const rules = ss ? {
     viewsUnit: ss.viewsUnit ?? DEFAULT_RULES.viewsUnit,
@@ -864,6 +1257,7 @@ export const postView = async (req: Request, res: Response) => {
   try {
     const postId = req.params.id;
     const actorId = req.user?.id;
+    const io = getAppIo(req);
     const sessionHash = req.body?.sessionHash || req.header('X-Session-Hash') || undefined;
     const eventKey = buildEventKey(postId, 'view', actorId, sessionHash);
 
@@ -873,9 +1267,7 @@ export const postView = async (req: Request, res: Response) => {
     // increment view count
     await prisma.communityPost.update({ where: { id: postId }, data: { viewsCount: { increment: 1 } as any } as any });
 
-    const io = (req.app as any).get('io');
-    try { io?.emit('community:post_metrics_updated', { postId, metric: 'view' }); } catch(e){}
-    try { realtime.emitToPost(postId, 'community:post_metrics_updated', { postId, metric: 'view' }); } catch(e){}
+    await emitPostMetricsUpdated(io, postId, 'view');
 
     // process thresholds asynchronously but don't block response
     processThresholds(postId, io).catch(e => console.error('Threshold processing error:', e));
@@ -891,6 +1283,7 @@ export const postShare = async (req: Request, res: Response) => {
   try {
     const postId = req.params.id;
     const actorId = req.user?.id;
+    const io = getAppIo(req);
     const platform = req.body?.platform || 'external';
     const sessionHash = req.body?.sessionHash || req.header('X-Session-Hash') || undefined;
     const eventKey = buildEventKey(postId, 'share', actorId, sessionHash) + `:${platform}`;
@@ -900,9 +1293,7 @@ export const postShare = async (req: Request, res: Response) => {
 
     await prisma.communityPost.update({ where: { id: postId }, data: { sharesCount: { increment: 1 } as any } as any });
 
-    const io = (req.app as any).get('io');
-    try { io?.emit('community:post_metrics_updated', { postId, metric: 'share' }); } catch(e){}
-    try { realtime.emitToPost(postId, 'community:post_metrics_updated', { postId, metric: 'share' }); } catch(e){}
+    await emitPostMetricsUpdated(io, postId, 'share');
 
     processThresholds(postId, io).catch(e => console.error('Threshold processing error:', e));
 
@@ -917,7 +1308,18 @@ export const postRepost = async (req: Request, res: Response) => {
   try {
     const postId = req.params.id;
     const actorId = req.user?.id;
+    const io = getAppIo(req);
     const sessionHash = req.body?.sessionHash || req.header('X-Session-Hash') || undefined;
+    const originalPost = await prisma.communityPost.findUnique({
+      where: { id: postId },
+      select: { id: true, authorId: true, title: true, content: true, status: true }
+    });
+    if (!originalPost || originalPost.status === 'deleted') {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+    if (actorId && await hasUserBlockRelation(actorId, originalPost.authorId)) {
+      return res.status(403).json({ error: 'Interaction is not allowed for this post' });
+    }
     const eventKey = buildEventKey(postId, 'repost', actorId, sessionHash);
 
     const created = await tryCreateEarningEvent({ postId, actorId, eventType: 'repost', eventKey });
@@ -925,13 +1327,60 @@ export const postRepost = async (req: Request, res: Response) => {
 
     await prisma.communityPost.update({ where: { id: postId }, data: { repostsCount: { increment: 1 } as any } as any });
 
-    const io = (req.app as any).get('io');
-    try { io?.emit('community:post_metrics_updated', { postId, metric: 'repost' }); } catch(e){}
-    try { realtime.emitToPost(postId, 'community:post_metrics_updated', { postId, metric: 'repost' }); } catch(e){}
+    await emitPostMetricsUpdated(io, postId, 'repost');
+
+    let wrapperPost: any = null;
+    if (actorId && req.body?.createWrapper !== false) {
+      try {
+        wrapperPost = await prisma.communityPost.create({
+          data: {
+            authorId: actorId,
+            content: String(req.body?.content || '').trim() || '',
+            title: req.body?.title || null,
+            attachments: Array.isArray(req.body?.attachments) ? req.body.attachments : [],
+            visibility: req.body?.visibility || 'public',
+            originalPostId: postId,
+            status: 'active'
+          }
+        });
+        try { await syncFileUsages('community_post', wrapperPost.id, wrapperPost.attachments || [], 'Community Post Media'); } catch (e) {}
+        try { io?.emit('community:post_created', { post: wrapperPost }); } catch (e) {}
+        try { realtime.emitToPost(wrapperPost.id, 'community:post_created', { post: wrapperPost }); } catch (e) {}
+      } catch (e) {
+        console.warn('Failed to create repost wrapper', e);
+      }
+    }
 
     processThresholds(postId, io).catch(e => console.error('Threshold processing error:', e));
 
-    return res.json({ success: true });
+    if (actorId && originalPost.authorId !== actorId) {
+      try {
+        const actor = await prisma.user.findUnique({
+          where: { id: actorId },
+          select: { id: true, name: true, username: true }
+        });
+        const actorName = actor?.name || actor?.username || 'Someone';
+        await createEngagementNotification({
+          recipientId: originalPost.authorId,
+          actorId,
+          type: 'repost',
+          title: 'Reposted',
+          message: `${actorName} reposted your post.`,
+          actionUrl: `/community/posts/${postId}`,
+          metadata: {
+            postId,
+            actorId,
+            postAuthorId: originalPost.authorId
+          },
+          dedupeWindowMinutes: 60,
+          dedupeMetaKeys: ['postId', 'actorId']
+        });
+      } catch (notifyError) {
+        console.warn('[community.postRepost] notification failed', notifyError);
+      }
+    }
+
+    return res.json({ success: true, data: { repostPost: wrapperPost } });
   } catch (error: any) {
     console.error('postRepost error:', error);
     return res.status(500).json({ error: error.message });
@@ -942,7 +1391,16 @@ export const postLike = async (req: Request, res: Response) => {
   try {
     const postId = req.params.id;
     const actorId = req.user?.id;
+    const io = getAppIo(req);
     if (!actorId) return res.status(401).json({ error: 'Unauthorized' });
+    const post = await prisma.communityPost.findUnique({
+      where: { id: postId },
+      select: { id: true, authorId: true, status: true }
+    });
+    if (!post || post.status === 'deleted') return res.status(404).json({ error: 'Post not found' });
+    if (await hasUserBlockRelation(actorId, post.authorId)) {
+      return res.status(403).json({ error: 'Interaction is not allowed for this post' });
+    }
 
     const eventKey = buildEventKey(postId, 'like', actorId);
     // Prevent double-like via unique eventKey
@@ -951,9 +1409,7 @@ export const postLike = async (req: Request, res: Response) => {
 
     await prisma.communityPost.update({ where: { id: postId }, data: { likesCount: { increment: 1 } as any } as any });
 
-    const io = (req.app as any).get('io');
-    try { io?.emit('community:post_metrics_updated', { postId, metric: 'like' }); } catch(e){}
-    try { realtime.emitToPost(postId, 'community:post_metrics_updated', { postId, metric: 'like' }); } catch(e){}
+    await emitPostMetricsUpdated(io, postId, 'like');
 
     processThresholds(postId, io).catch(e => console.error('Threshold processing error:', e));
 
@@ -968,6 +1424,7 @@ export const postUnlike = async (req: Request, res: Response) => {
   try {
     const postId = req.params.id;
     const actorId = req.user?.id;
+    const io = getAppIo(req);
     if (!actorId) return res.status(401).json({ error: 'Unauthorized' });
 
     // Remove the actor-specific like event if exists
@@ -978,9 +1435,7 @@ export const postUnlike = async (req: Request, res: Response) => {
       await prisma.communityPost.update({ where: { id: postId }, data: { likesCount: { decrement: 1 } as any } as any });
     }
 
-    const io = (req.app as any).get('io');
-    try { io?.emit('community:post_metrics_updated', { postId, metric: 'unlike' }); } catch(e){}
-    try { realtime.emitToPost(postId, 'community:post_metrics_updated', { postId, metric: 'unlike' }); } catch(e){}
+    await emitPostMetricsUpdated(io, postId, 'unlike');
 
     return res.json({ success: true });
   } catch (error: any) {
@@ -994,12 +1449,39 @@ export const postUnlike = async (req: Request, res: Response) => {
 // Get all community posts (feed)
 export const getPosts = async (req: Request, res: Response) => {
   try {
-    const { limit = 50, offset = 0, status = 'active' } = req.query;
-    const userId = req.user?.id;
+    const {
+      limit = 50,
+      offset = 0,
+      status = 'active',
+      businessPageId: businessPageIdRaw,
+      businessPageSlug: businessPageSlugRaw
+    } = req.query as any;
+    const viewer = await resolveOptionalUserFromRequest(req);
+    const userId = viewer?.id;
+    const blockedAuthorIds = await getBlockedAuthorIdsForViewer(userId);
 
     const where: any = {
       status: status as string
     };
+
+    const businessPageId = String(businessPageIdRaw || '').trim();
+    const businessPageSlug = String(businessPageSlugRaw || '').trim().toLowerCase();
+    if (businessPageId) {
+      where.businessPageId = businessPageId;
+    } else if (businessPageSlug) {
+      const page = await prisma.communityBusinessPage.findFirst({
+        where: { slug: businessPageSlug },
+        select: { id: true, status: true }
+      });
+      if (!page || String(page.status || '').toLowerCase() !== 'active') {
+        return res.json({ success: true, data: [] });
+      }
+      where.businessPageId = page.id;
+    }
+
+    if (blockedAuthorIds.length) {
+      where.authorId = { notIn: blockedAuthorIds };
+    }
 
     const posts = await prisma.communityPost.findMany({
       where,
@@ -1009,12 +1491,31 @@ export const getPosts = async (req: Request, res: Response) => {
             id: true,
             name: true,
             avatar: true,
-            role: true
+            role: true,
+            username: true,
+            isVerified: true,
+            freelancerPlanActive: true,
+            employerPlanActive: true
           }
         },
-        _count: {
+        businessPage: {
           select: {
-            earningEvents: true
+            id: true,
+            name: true,
+            handle: true,
+            slug: true,
+            logoFileId: true
+          }
+        },
+        originalPost: {
+          select: {
+            id: true,
+            author: {
+              select: {
+                name: true,
+                username: true
+              }
+            }
           }
         }
       },
@@ -1025,6 +1526,28 @@ export const getPosts = async (req: Request, res: Response) => {
       take: Number(limit),
       skip: Number(offset)
     });
+
+    const postIds = posts.map((p) => p.id);
+    const [reactionRows, commentRows, userReactions] = await Promise.all([
+      prisma.communityPostReaction.groupBy({
+        by: ['postId', 'type'],
+        where: { postId: { in: postIds } },
+        _count: { _all: true }
+      }),
+      prisma.communityPostComment.groupBy({
+        by: ['postId'],
+        where: { postId: { in: postIds }, status: 'active' },
+        _count: { _all: true }
+      }),
+      userId
+        ? prisma.communityPostReaction.findMany({ where: { postId: { in: postIds }, userId } })
+        : Promise.resolve([])
+    ]);
+
+    const reactionMap = buildReactionSummary(reactionRows);
+    const commentMap = buildCommentCounts(commentRows);
+    const userReactionMap = new Map(userReactions.map((r) => [r.postId, r.type]));
+    const { followingUserIds, followingPageIds } = await resolveFollowLookupForPosts(posts, userId);
 
     // Check which posts user liked (if authenticated)
     let likedPostIds = new Set<string>();
@@ -1040,32 +1563,82 @@ export const getPosts = async (req: Request, res: Response) => {
       likedPostIds = new Set(likes.map(l => l.postId));
     }
 
-    const transformed = posts.map(post => ({
-      id: post.id,
-      authorId: post.authorId,
-      authorName: post.author.name || 'Anonymous',
-      authorAvatar: post.author.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.author.name || 'User')}`,
-      title: post.title,
-      content: post.content,
-      attachments: post.attachments,
-      viewsCount: post.viewsCount,
-      likesCount: post.likesCount,
-      sharesCount: post.sharesCount,
-      repostsCount: post.repostsCount,
-      status: post.status,
-      isPinned: post.isPinned,
-      createdAt: post.createdAt.toISOString(),
-      updatedAt: post.updatedAt.toISOString(),
-      interactions: {
-        views: post.viewsCount,
-        likes: post.likesCount,
-        shares: post.sharesCount,
-        reposts: post.repostsCount
-      },
-      userState: {
-        liked: likedPostIds.has(post.id),
-        reposted: false // TODO: implement repost tracking
-      }
+    const transformed = await Promise.all(posts.map(async (post) => {
+      const author = buildPostAuthorPayload(post.author as any, post.businessPage as any);
+      const authorIdentity = resolvePostAuthorIdentity(
+        { authorId: post.authorId, businessPageId: post.businessPageId },
+        author
+      );
+      const isFollowingAuthor = author.type === 'business'
+        ? followingPageIds.has(String(post.businessPageId || ''))
+        : followingUserIds.has(post.authorId);
+
+      return {
+        id: post.id,
+        authorId: authorIdentity.authorId,
+        authorUserId: authorIdentity.authorUserId,
+        authorName: author.displayName,
+        authorUsername: author.username,
+        authorAvatar: author.avatarUrl,
+        author: {
+          id: author.id,
+          username: author.username,
+          displayName: author.displayName,
+          avatarUrl: author.avatarUrl,
+          type: author.type,
+          businessSlug: author.businessSlug,
+          isVerified: author.isVerified,
+          isPro: author.isPro
+        },
+        viewer: {
+          isFollowingAuthor
+        },
+        title: post.title,
+        content: post.content,
+        attachments: await resolveAttachments(post.attachments || []),
+        tags: post.tags || [],
+        mentions: post.mentions || [],
+        topic: post.topic || null,
+        location: post.location || null,
+        visibility: post.visibility || 'public',
+        commentPolicy: post.commentPolicy || 'everyone',
+        businessPage: post.businessPage ? {
+          id: post.businessPage.id,
+          name: post.businessPage.name,
+          handle: post.businessPage.handle,
+          slug: post.businessPage.slug,
+          logoFileId: post.businessPage.logoFileId || null
+        } : null,
+        viewsCount: post.viewsCount,
+        likesCount: post.likesCount,
+        sharesCount: post.sharesCount,
+        repostsCount: post.repostsCount,
+        status: post.status,
+        isPinned: post.isPinned,
+        isHighlighted: post.isHighlighted,
+        originalPostId: post.originalPostId || null,
+        originalPost: post.originalPost
+          ? {
+              id: post.originalPost.id,
+              authorName: post.originalPost.author?.name || post.originalPost.author?.username || 'Unknown'
+            }
+          : null,
+        createdAt: post.createdAt.toISOString(),
+        updatedAt: post.updatedAt.toISOString(),
+        interactions: {
+          views: post.viewsCount,
+          likes: post.likesCount,
+          shares: post.sharesCount,
+          reposts: post.repostsCount,
+          comments: commentMap.get(post.id) || 0,
+          reactions: reactionMap.get(post.id) || {}
+        },
+        userState: {
+          liked: likedPostIds.has(post.id),
+          reposted: false,
+          reaction: userReactionMap.get(post.id) || null
+        }
+      };
     }));
 
     return res.json({ success: true, data: transformed });
@@ -1075,11 +1648,218 @@ export const getPosts = async (req: Request, res: Response) => {
   }
 };
 
+// Get community feed with cursor pagination + visibility scope
+export const getFeed = async (req: Request, res: Response) => {
+  try {
+    const { limit = 20, cursor, scope = 'public', topic, region } = req.query as any;
+    const viewer = await resolveOptionalUserFromRequest(req);
+    const userId = viewer?.id;
+    const blockedAuthorIds = await getBlockedAuthorIdsForViewer(userId);
+    const baseWhere: any = { status: 'active' };
+    if (blockedAuthorIds.length) {
+      baseWhere.authorId = { notIn: blockedAuthorIds };
+    }
+    if (scope === 'following') {
+      if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+      const [followingUsers, followingPages] = await Promise.all([
+        prisma.userFollow.findMany({ where: { followerId: userId } }),
+        prisma.communityBusinessPageFollower.findMany({ where: { userId } })
+      ]);
+      const followeeIds = followingUsers
+        .map((f) => f.followeeId)
+        .filter((followeeId) => !blockedAuthorIds.includes(followeeId));
+      const pageIds = followingPages.map((f) => f.pageId);
+      baseWhere.OR = [
+        { authorId: userId },
+        ...(followeeIds.length ? [{ authorId: { in: followeeIds }, visibility: { in: ['public', 'friends', 'network'] } }] : []),
+        ...(pageIds.length ? [{ businessPageId: { in: pageIds }, visibility: { in: ['public', 'friends', 'network'] } }] : [])
+      ];
+    } else if (scope === 'discover') {
+      baseWhere.visibility = 'public';
+      const filters: any[] = [];
+      if (topic) {
+        filters.push({
+          OR: [
+            { topic: { equals: String(topic), mode: 'insensitive' } },
+            { tags: { has: String(topic) } }
+          ]
+        });
+      }
+      if (region) {
+        filters.push({ location: { contains: String(region), mode: 'insensitive' } });
+      }
+      if (filters.length) baseWhere.AND = filters;
+    } else {
+      const visibility = scope === 'friends'
+        ? ['public', 'friends']
+        : scope === 'network'
+          ? ['public', 'network']
+          : ['public'];
+
+      baseWhere.OR = [
+        { visibility: { in: visibility } },
+        ...(userId ? [{ authorId: userId }] : [])
+      ];
+    }
+
+    if (cursor) {
+      baseWhere.createdAt = { lt: new Date(cursor) };
+    }
+
+    const posts = await prisma.communityPost.findMany({
+      where: baseWhere,
+      include: {
+        author: {
+          select: {
+            id: true,
+            name: true,
+            avatar: true,
+            role: true,
+            username: true,
+            isVerified: true,
+            freelancerPlanActive: true,
+            employerPlanActive: true
+          }
+        },
+        businessPage: {
+          select: {
+            id: true,
+            name: true,
+            handle: true,
+            slug: true,
+            logoFileId: true
+          }
+        },
+        originalPost: {
+          select: {
+            id: true,
+            author: {
+              select: {
+                name: true,
+                username: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
+      take: Number(limit)
+    });
+
+    const postIds = posts.map((p) => p.id);
+    const [reactionRows, commentRows, userReactions] = await Promise.all([
+      prisma.communityPostReaction.groupBy({
+        by: ['postId', 'type'],
+        where: { postId: { in: postIds } },
+        _count: { _all: true }
+      }),
+      prisma.communityPostComment.groupBy({
+        by: ['postId'],
+        where: { postId: { in: postIds }, status: 'active' },
+        _count: { _all: true }
+      }),
+      userId
+        ? prisma.communityPostReaction.findMany({ where: { postId: { in: postIds }, userId } })
+        : Promise.resolve([])
+    ]);
+
+    const reactionMap = buildReactionSummary(reactionRows);
+    const commentMap = buildCommentCounts(commentRows);
+    const userReactionMap = new Map(userReactions.map((r) => [r.postId, r.type]));
+    const { followingUserIds, followingPageIds } = await resolveFollowLookupForPosts(posts, userId);
+
+    const transformed = await Promise.all(posts.map(async (post) => {
+      const author = buildPostAuthorPayload(post.author as any, post.businessPage as any);
+      const authorIdentity = resolvePostAuthorIdentity(
+        { authorId: post.authorId, businessPageId: post.businessPageId },
+        author
+      );
+      const isFollowingAuthor = author.type === 'business'
+        ? followingPageIds.has(String(post.businessPageId || ''))
+        : followingUserIds.has(post.authorId);
+
+      return {
+        id: post.id,
+        authorId: authorIdentity.authorId,
+        authorUserId: authorIdentity.authorUserId,
+        authorName: author.displayName,
+        authorUsername: author.username,
+        authorAvatar: author.avatarUrl,
+        author: {
+          id: author.id,
+          username: author.username,
+          displayName: author.displayName,
+          avatarUrl: author.avatarUrl,
+          type: author.type,
+          businessSlug: author.businessSlug,
+          isVerified: author.isVerified,
+          isPro: author.isPro
+        },
+        viewer: {
+          isFollowingAuthor
+        },
+        title: post.title,
+        content: post.content,
+        attachments: await resolveAttachments(post.attachments || []),
+        tags: post.tags || [],
+        mentions: post.mentions || [],
+        topic: post.topic || null,
+        location: post.location || null,
+        visibility: post.visibility || 'public',
+        commentPolicy: post.commentPolicy || 'everyone',
+        businessPage: post.businessPage ? {
+          id: post.businessPage.id,
+          name: post.businessPage.name,
+          handle: post.businessPage.handle,
+          slug: post.businessPage.slug,
+          logoFileId: post.businessPage.logoFileId || null
+        } : null,
+        viewsCount: post.viewsCount,
+        likesCount: post.likesCount,
+        sharesCount: post.sharesCount,
+        repostsCount: post.repostsCount,
+        status: post.status,
+        isPinned: post.isPinned,
+        isHighlighted: post.isHighlighted,
+        originalPostId: post.originalPostId || null,
+        originalPost: post.originalPost
+          ? {
+              id: post.originalPost.id,
+              authorName: post.originalPost.author?.name || post.originalPost.author?.username || 'Unknown'
+            }
+          : null,
+        createdAt: post.createdAt.toISOString(),
+        updatedAt: post.updatedAt.toISOString(),
+        interactions: {
+          views: post.viewsCount,
+          likes: post.likesCount,
+          shares: post.sharesCount,
+          reposts: post.repostsCount,
+          comments: commentMap.get(post.id) || 0,
+          reactions: reactionMap.get(post.id) || {}
+        },
+        userState: {
+          liked: false,
+          reposted: false,
+          reaction: userReactionMap.get(post.id) || null
+        }
+      };
+    }));
+
+    const nextCursor = posts.length ? posts[posts.length - 1].createdAt.toISOString() : null;
+    return res.json({ success: true, data: { items: transformed, nextCursor } });
+  } catch (error: any) {
+    console.error('Get feed error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load feed' });
+  }
+};
+
 // Get single post by ID
 export const getPostById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const userId = req.user?.id;
+    const viewer = await resolveOptionalUserFromRequest(req);
+    const userId = viewer?.id;
 
     const post = await prisma.communityPost.findUnique({
       where: { id },
@@ -1090,9 +1870,33 @@ export const getPostById = async (req: Request, res: Response) => {
             name: true,
             avatar: true,
             role: true,
+            username: true,
+            isVerified: true,
+            freelancerPlanActive: true,
+            employerPlanActive: true,
             gcoinWallet: {
               select: {
                 recipientId: true
+              }
+            }
+          }
+        },
+        businessPage: {
+          select: {
+            id: true,
+            name: true,
+            handle: true,
+            slug: true,
+            logoFileId: true
+          }
+        },
+        originalPost: {
+          select: {
+            id: true,
+            author: {
+              select: {
+                name: true,
+                username: true
               }
             }
           }
@@ -1106,6 +1910,9 @@ export const getPostById = async (req: Request, res: Response) => {
     });
 
     if (!post) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+    if (userId && await hasUserBlockRelation(userId, post.authorId)) {
       return res.status(404).json({ error: 'Post not found' });
     }
 
@@ -1122,32 +1929,113 @@ export const getPostById = async (req: Request, res: Response) => {
       isLiked = !!like;
     }
 
+    const [reactionRows, commentRows, userReaction] = await Promise.all([
+      prisma.communityPostReaction.groupBy({
+        by: ['postId', 'type'],
+        where: { postId: id },
+        _count: { _all: true }
+      }),
+      prisma.communityPostComment.groupBy({
+        by: ['postId'],
+        where: { postId: id, status: 'active' },
+        _count: { _all: true }
+      }),
+      userId ? prisma.communityPostReaction.findFirst({ where: { postId: id, userId } }) : Promise.resolve(null)
+    ]);
+    const reactionMap = buildReactionSummary(reactionRows as any);
+    const commentMap = buildCommentCounts(commentRows as any);
+    const author = buildPostAuthorPayload(post.author as any, post.businessPage as any);
+
+    let isFollowingAuthor = false;
+    if (userId) {
+      if (author.type === 'business' && post.businessPageId) {
+        const pageFollow = await prisma.communityBusinessPageFollower.findFirst({
+          where: { userId, pageId: post.businessPageId },
+          select: { id: true }
+        });
+        isFollowingAuthor = Boolean(pageFollow);
+      } else if (post.authorId !== userId) {
+        const follow = await prisma.userFollow.findUnique({
+          where: {
+            followerId_followeeId: {
+              followerId: userId,
+              followeeId: post.authorId
+            }
+          },
+          select: { id: true }
+        });
+        isFollowingAuthor = Boolean(follow);
+      }
+    }
+
     const transformed = {
       id: post.id,
-      authorId: post.authorId,
-      authorName: post.author.name || 'Anonymous',
-      authorAvatar: post.author.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.author.name || 'User')}`,
+      authorId: resolvePostAuthorIdentity(
+        { authorId: post.authorId, businessPageId: post.businessPageId },
+        author
+      ).authorId,
+      authorUserId: post.authorId,
+      authorName: author.displayName,
+      authorUsername: author.username,
+      authorAvatar: author.avatarUrl,
       authorRecipientId: post.author.gcoinWallet?.recipientId || null,
+      author: {
+        id: author.id,
+        username: author.username,
+        displayName: author.displayName,
+        avatarUrl: author.avatarUrl,
+        type: author.type,
+        businessSlug: author.businessSlug,
+        isVerified: author.isVerified,
+        isPro: author.isPro
+      },
+      viewer: {
+        isFollowingAuthor
+      },
       title: post.title,
       content: post.content,
-      attachments: post.attachments,
+      attachments: await resolveAttachments(post.attachments || []),
+      tags: post.tags || [],
+      mentions: post.mentions || [],
+      topic: post.topic || null,
+      location: post.location || null,
+      visibility: post.visibility || 'public',
+      commentPolicy: post.commentPolicy || 'everyone',
+      businessPage: post.businessPage ? {
+        id: post.businessPage.id,
+        name: post.businessPage.name,
+        handle: post.businessPage.handle,
+        slug: post.businessPage.slug,
+        logoFileId: post.businessPage.logoFileId || null
+      } : null,
       viewsCount: post.viewsCount,
       likesCount: post.likesCount,
       sharesCount: post.sharesCount,
       repostsCount: post.repostsCount,
       status: post.status,
       isPinned: post.isPinned,
+      isHighlighted: post.isHighlighted,
+      originalPostId: post.originalPostId || null,
+      originalPost: post.originalPost
+        ? {
+            id: post.originalPost.id,
+            authorName: post.originalPost.author?.name || post.originalPost.author?.username || 'Unknown'
+          }
+        : null,
       createdAt: post.createdAt.toISOString(),
       updatedAt: post.updatedAt.toISOString(),
       interactions: {
         views: post.viewsCount,
         likes: post.likesCount,
         shares: post.sharesCount,
-        reposts: post.repostsCount
+        reposts: post.repostsCount,
+        comments: commentMap.get(post.id) || 0,
+        reactions: reactionMap.get(post.id) || {}
       },
       userState: {
         liked: isLiked,
-        reposted: false
+        reposted: false,
+        reaction: userReaction?.type || null
       }
     };
 
@@ -1155,6 +2043,196 @@ export const getPostById = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Get post by ID error:', error);
     return res.status(500).json({ error: error.message });
+  }
+};
+
+export const getCommunityTags = async (req: Request, res: Response) => {
+  try {
+    const q = normalizeTag(req.query?.q);
+    const limitRaw = Number(req.query?.limit || 25);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.trunc(limitRaw))) : 25;
+
+    const posts = await prisma.communityPost.findMany({
+      where: { status: 'active' },
+      select: { tags: true, content: true },
+      take: 1000
+    });
+
+    const counts = new Map<string, number>();
+    posts.forEach((post) => {
+      collectPostTags(post).forEach((tag) => {
+        if (q && !tag.includes(q)) return;
+        counts.set(tag, (counts.get(tag) || 0) + 1);
+      });
+    });
+
+    const data = Array.from(counts.entries())
+      .map(([slug, count]) => ({ slug, name: slug, count }))
+      .sort((a, b) => b.count - a.count || a.slug.localeCompare(b.slug))
+      .slice(0, limit);
+
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    console.error('Get community tags error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load tags' });
+  }
+};
+
+export const getCommunityTrendingTags = async (req: Request, res: Response) => {
+  try {
+    const limitRaw = Number(req.query?.limit || 12);
+    const daysRaw = Number(req.query?.days || 7);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(50, Math.trunc(limitRaw))) : 12;
+    const days = Number.isFinite(daysRaw) ? Math.max(1, Math.min(30, Math.trunc(daysRaw))) : 7;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const posts = await prisma.communityPost.findMany({
+      where: { status: 'active', createdAt: { gte: since } },
+      select: {
+        tags: true,
+        content: true,
+        viewsCount: true,
+        likesCount: true,
+        sharesCount: true,
+        repostsCount: true
+      },
+      take: 1500
+    });
+
+    const stats = new Map<string, { postsCount: number; viewsCount: number; engagementCount: number }>();
+    posts.forEach((post) => {
+      const postTags = collectPostTags(post);
+      const views = Number(post.viewsCount || 0);
+      const engagement = Number(post.likesCount || 0) + Number(post.sharesCount || 0) + Number(post.repostsCount || 0);
+      postTags.forEach((tag) => {
+        const current = stats.get(tag) || { postsCount: 0, viewsCount: 0, engagementCount: 0 };
+        current.postsCount += 1;
+        current.viewsCount += views;
+        current.engagementCount += engagement;
+        stats.set(tag, current);
+      });
+    });
+
+    const data = Array.from(stats.entries())
+      .map(([slug, value]) => {
+        const score = value.viewsCount * 0.2 + value.engagementCount * 1.0 + value.postsCount * 0.5;
+        return {
+          slug,
+          name: slug,
+          postsCount: value.postsCount,
+          viewsCount: value.viewsCount,
+          engagementCount: value.engagementCount,
+          score: Number(score.toFixed(2))
+        };
+      })
+      .sort((a, b) => b.score - a.score || b.engagementCount - a.engagementCount)
+      .slice(0, limit);
+
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    console.error('Get community trending tags error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load trending tags' });
+  }
+};
+
+export const getCommunityPostsByTag = async (req: Request, res: Response) => {
+  try {
+    const slug = normalizeTag(req.params?.slug);
+    if (!slug) return res.status(400).json({ success: false, error: 'Invalid tag slug' });
+
+    const limitRaw = Number(req.query?.limit || 20);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.trunc(limitRaw))) : 20;
+
+    const posts = await prisma.communityPost.findMany({
+      where: {
+        status: 'active',
+        OR: [
+          { tags: { has: slug } },
+          { tags: { has: slug.toLowerCase() } },
+          { tags: { has: slug.toUpperCase() } }
+        ]
+      },
+      include: {
+        author: {
+          select: {
+            id: true,
+            name: true,
+            avatar: true,
+            role: true,
+            username: true,
+            isVerified: true,
+            freelancerPlanActive: true,
+            employerPlanActive: true
+          }
+        },
+        businessPage: {
+          select: {
+            id: true,
+            name: true,
+            handle: true,
+            slug: true,
+            logoFileId: true
+          }
+        }
+      },
+      orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
+      take: limit
+    });
+
+    const filtered = posts.filter((post) => collectPostTags(post).includes(slug));
+    const data = await Promise.all(
+      filtered.map(async (post) => {
+        const author = buildPostAuthorPayload(post.author as any, post.businessPage as any);
+        const authorIdentity = resolvePostAuthorIdentity(
+          { authorId: post.authorId, businessPageId: post.businessPageId },
+          author
+        );
+        return {
+          id: post.id,
+          authorId: authorIdentity.authorId,
+          authorUserId: authorIdentity.authorUserId,
+          authorName: author.displayName,
+          authorUsername: author.username,
+          authorAvatar: author.avatarUrl,
+          author: {
+            id: author.id,
+            username: author.username,
+            displayName: author.displayName,
+            avatarUrl: author.avatarUrl,
+            type: author.type,
+            businessSlug: author.businessSlug,
+            isVerified: author.isVerified,
+            isPro: author.isPro
+          },
+          viewer: {
+            isFollowingAuthor: false
+          },
+          title: post.title,
+          content: post.content,
+          attachments: await resolveAttachments(post.attachments || []),
+          tags: post.tags || [],
+          mentions: post.mentions || [],
+          topic: post.topic || null,
+          location: post.location || null,
+          visibility: post.visibility || 'public',
+          commentPolicy: post.commentPolicy || 'everyone',
+          viewsCount: post.viewsCount,
+          likesCount: post.likesCount,
+          sharesCount: post.sharesCount,
+          repostsCount: post.repostsCount,
+          status: post.status,
+          isPinned: post.isPinned,
+          isHighlighted: post.isHighlighted,
+          createdAt: post.createdAt.toISOString(),
+          updatedAt: post.updatedAt.toISOString()
+        };
+      })
+    );
+
+    return res.json({ success: true, data: { tag: slug, items: data } });
+  } catch (error: any) {
+    console.error('Get community posts by tag error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load posts for tag' });
   }
 };
 
@@ -1166,10 +2244,43 @@ export const createPost = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { title, content, attachments, status = 'active' } = req.body;
+    const { title, content, attachments, status = 'active', tags, mentions, visibility, businessPageId, originalPostId, topic, location, commentPolicy } = req.body;
+
+    const normalizedPolicy = normalizeCommentPolicy(commentPolicy);
+    if (commentPolicy !== undefined && !normalizedPolicy) {
+      return res.status(400).json({ error: 'Invalid comment policy' });
+    }
 
     if (!content || content.trim().length === 0) {
       return res.status(400).json({ error: 'Content is required' });
+    }
+
+    const explicitMentionUserIds = Array.isArray(mentions)
+      ? mentions.map((value: any) => String(value || '').trim()).filter(Boolean)
+      : [];
+    const explicitMentionUsers = explicitMentionUserIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: explicitMentionUserIds } },
+          select: { id: true }
+        })
+      : [];
+    const mentionedUsersByUsername = await resolveMentionedUserIds(extractMentionUsernames(String(content || '')));
+    const rawMentionUserIds = Array.from(
+      new Set([...explicitMentionUsers.map((user) => user.id), ...mentionedUsersByUsername.map((user) => user.id)])
+    ).filter((mentionedUserId) => mentionedUserId !== userId);
+    const normalizedMentionUserIds = await filterMentionTargetsForActor(userId, rawMentionUserIds);
+
+    let resolvedBusinessPageId: string | null = businessPageId || null;
+    if (resolvedBusinessPageId) {
+      const page = await prisma.communityBusinessPage.findUnique({ where: { id: resolvedBusinessPageId } });
+      if (!page) return res.status(404).json({ error: 'Business page not found' });
+      if (String(page.status || 'active').toLowerCase() !== 'active') {
+        return res.status(403).json({ error: 'Only active business pages can publish posts' });
+      }
+      const isOwner = page.ownerId === userId;
+      if (!isOwner && req.user?.role !== 'ADMIN') {
+        return res.status(403).json({ error: 'Not authorized to post for this page' });
+      }
     }
 
     const post = await prisma.communityPost.create({
@@ -1178,6 +2289,14 @@ export const createPost = async (req: Request, res: Response) => {
         title: title || null,
         content: content.trim(),
         attachments: attachments || [],
+        tags: Array.isArray(tags) ? tags : [],
+        mentions: normalizedMentionUserIds,
+        topic: topic || null,
+        location: location || null,
+        visibility: visibility || 'public',
+        commentPolicy: normalizedPolicy || 'everyone',
+        businessPageId: resolvedBusinessPageId,
+        originalPostId: originalPostId || null,
         status: status
       },
       include: {
@@ -1187,33 +2306,85 @@ export const createPost = async (req: Request, res: Response) => {
             name: true,
             avatar: true,
             role: true,
+            username: true,
+            isVerified: true,
+            freelancerPlanActive: true,
+            employerPlanActive: true,
             gcoinWallet: {
               select: {
                 recipientId: true
               }
             }
           }
+        },
+        businessPage: {
+          select: {
+            id: true,
+            name: true,
+            handle: true,
+            slug: true,
+            logoFileId: true
+          }
         }
       }
     });
 
+    try {
+      await syncFileUsages('community_post', post.id, post.attachments || [], 'Community Post Media');
+    } catch (e) {}
+
     const io = getAppIo(req);
+    const author = buildPostAuthorPayload(post.author as any, post.businessPage as any);
+    const authorIdentity = resolvePostAuthorIdentity(
+      { authorId: post.authorId, businessPageId: post.businessPageId },
+      author
+    );
 
     const payload = {
       id: post.id,
-      authorId: post.authorId,
-      authorName: post.author.name || 'Anonymous',
-      authorAvatar: post.author.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.author.name || 'User')}`,
+      authorId: authorIdentity.authorId,
+      authorUserId: authorIdentity.authorUserId,
+      authorName: author.displayName,
+      authorUsername: author.username,
+      authorAvatar: author.avatarUrl,
       authorRecipientId: post.author.gcoinWallet?.recipientId || null,
+      author: {
+        id: author.id,
+        username: author.username,
+        displayName: author.displayName,
+        avatarUrl: author.avatarUrl,
+        type: author.type,
+        businessSlug: author.businessSlug,
+        isVerified: author.isVerified,
+        isPro: author.isPro
+      },
+      viewer: {
+        isFollowingAuthor: false
+      },
       title: post.title,
       content: post.content,
-      attachments: post.attachments,
+      attachments: await resolveAttachments(post.attachments || []),
+      tags: post.tags || [],
+      mentions: post.mentions || [],
+      topic: post.topic || null,
+      location: post.location || null,
+      visibility: post.visibility || 'public',
+      commentPolicy: post.commentPolicy || 'everyone',
+      businessPage: post.businessPage ? {
+        id: post.businessPage.id,
+        name: post.businessPage.name,
+        handle: post.businessPage.handle,
+        slug: post.businessPage.slug,
+        logoFileId: post.businessPage.logoFileId || null
+      } : null,
       viewsCount: 0,
       likesCount: 0,
       sharesCount: 0,
       repostsCount: 0,
       status: post.status,
-      isPinned: false,
+      isPinned: post.isPinned,
+      isHighlighted: post.isHighlighted,
+      originalPostId: post.originalPostId || null,
       createdAt: post.createdAt.toISOString(),
       updatedAt: post.updatedAt.toISOString(),
       interactions: {
@@ -1235,6 +2406,81 @@ export const createPost = async (req: Request, res: Response) => {
     }
     try { realtime.emitToPost(post.id, 'community:post_created', { post: payload }); } catch (e) {}
 
+    try {
+      const actorName = author.displayName || 'Someone';
+      const postSnippet = buildSnippet(post.title || post.content || '', 100);
+
+      if (normalizedMentionUserIds.length) {
+        const mentionedRecipientIds = await filterRecipientsForNotification('mention_post', normalizedMentionUserIds);
+        for (const mentionedUserId of mentionedRecipientIds) {
+          const canView = await canUserViewPostForNotification(
+            {
+              authorId: post.authorId,
+              visibility: post.visibility,
+              mentions: post.mentions
+            },
+            mentionedUserId
+          );
+          if (!canView) continue;
+
+          await createEngagementNotification({
+            recipientId: mentionedUserId,
+            actorId: userId,
+            type: 'mention_post',
+            title: 'You were mentioned',
+            message: `${actorName} mentioned you in a post.`,
+            actionUrl: `/community/posts/${post.id}?mention=${encodeURIComponent(mentionedUserId)}`,
+            metadata: {
+              postId: post.id,
+              commentId: null,
+              actorId: userId,
+              mentionedUserId,
+              snippet: postSnippet
+            },
+            skipRecipientChecks: true
+          });
+        }
+      }
+
+      if ((post.status || 'active') === 'active') {
+        const followers = await prisma.userFollow.findMany({
+          where: { followeeId: userId },
+          select: { followerId: true }
+        });
+        const followerIds = followers
+          .map((follow) => follow.followerId)
+          .filter((followerId) => followerId && followerId !== userId);
+        const recipientIds = await filterRecipientsForNotification('followed_new_post', followerIds);
+        const message = postSnippet ? `${actorName} posted: "${postSnippet}"` : `${actorName} posted a new update.`;
+
+        for (let i = 0; i < recipientIds.length; i += NOTIFICATION_BATCH_SIZE) {
+          const batch = recipientIds.slice(i, i + NOTIFICATION_BATCH_SIZE);
+          await Promise.all(
+            batch.map((recipientId) =>
+              createEngagementNotification({
+                recipientId,
+                actorId: userId,
+                type: 'followed_new_post',
+                title: 'New post',
+                message,
+                actionUrl: `/community/posts/${post.id}`,
+                metadata: {
+                  postId: post.id,
+                  authorId: userId,
+                  snippet: postSnippet
+                },
+                dedupeWindowMinutes: 30,
+                dedupeMetaKeys: ['authorId'],
+                skipRecipientChecks: true
+              })
+            )
+          );
+        }
+      }
+    } catch (notifyError) {
+      console.warn('[community.createPost] notification fanout failed', notifyError);
+    }
+
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Create post error:', error);
@@ -1251,7 +2497,7 @@ export const updatePost = async (req: Request, res: Response) => {
     }
 
     const { id } = req.params;
-    const { title, content, attachments, status } = req.body;
+    const { title, content, attachments, status, tags, mentions, visibility, topic, location, commentPolicy, isPinned, isHighlighted } = req.body;
 
     const post = await prisma.communityPost.findUnique({
       where: { id }
@@ -1270,6 +2516,52 @@ export const updatePost = async (req: Request, res: Response) => {
     if (title !== undefined) updateData.title = title;
     if (content !== undefined) updateData.content = content.trim();
     if (attachments !== undefined) updateData.attachments = attachments;
+    if (tags !== undefined) updateData.tags = Array.isArray(tags) ? tags : [];
+    if (mentions !== undefined) updateData.mentions = Array.isArray(mentions) ? mentions : [];
+    if (visibility !== undefined) updateData.visibility = visibility;
+    if (topic !== undefined) updateData.topic = topic;
+    if (location !== undefined) updateData.location = location;
+    if (commentPolicy !== undefined) {
+      const normalizedPolicy = normalizeCommentPolicy(commentPolicy);
+      if (!normalizedPolicy) {
+        return res.status(400).json({ error: 'Invalid comment policy' });
+      }
+      updateData.commentPolicy = normalizedPolicy;
+    }
+    if (isPinned !== undefined) {
+      const pinValue = Boolean(isPinned);
+      if (pinValue && !post.isPinned) {
+        const pinnedCount = await prisma.communityPost.count({
+          where: {
+            authorId: post.authorId,
+            status: 'active',
+            isPinned: true,
+            NOT: { id }
+          }
+        });
+        if (pinnedCount >= MAX_PINNED_HIGHLIGHTED_POSTS) {
+          return res.status(400).json({ error: 'You can pin a maximum of 3 posts' });
+        }
+      }
+      updateData.isPinned = pinValue;
+    }
+    if (isHighlighted !== undefined) {
+      const highlightValue = Boolean(isHighlighted);
+      if (highlightValue && !post.isHighlighted) {
+        const highlightedCount = await prisma.communityPost.count({
+          where: {
+            authorId: post.authorId,
+            status: 'active',
+            isHighlighted: true,
+            NOT: { id }
+          }
+        });
+        if (highlightedCount >= MAX_PINNED_HIGHLIGHTED_POSTS) {
+          return res.status(400).json({ error: 'You can highlight a maximum of 3 posts' });
+        }
+      }
+      updateData.isHighlighted = highlightValue;
+    }
     if (status !== undefined && (req.user?.role === 'ADMIN' || req.user?.role === 'MODERATOR')) {
       updateData.status = status;
     }
@@ -1284,33 +2576,85 @@ export const updatePost = async (req: Request, res: Response) => {
             name: true,
             avatar: true,
             role: true,
+            username: true,
+            isVerified: true,
+            freelancerPlanActive: true,
+            employerPlanActive: true,
             gcoinWallet: {
               select: {
                 recipientId: true
               }
             }
           }
+        },
+        businessPage: {
+          select: {
+            id: true,
+            name: true,
+            handle: true,
+            slug: true,
+            logoFileId: true
+          }
         }
       }
     });
 
+    if (attachments !== undefined) {
+      try { await syncFileUsages('community_post', updated.id, updated.attachments || [], 'Community Post Media'); } catch (e) {}
+    }
+
     const io = getAppIo(req);
+    const author = buildPostAuthorPayload(updated.author as any, updated.businessPage as any);
+    const authorIdentity = resolvePostAuthorIdentity(
+      { authorId: updated.authorId, businessPageId: updated.businessPageId },
+      author
+    );
 
     const payload = {
       id: updated.id,
-      authorId: updated.authorId,
-      authorName: updated.author.name || 'Anonymous',
-      authorAvatar: updated.author.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(updated.author.name || 'User')}`,
+      authorId: authorIdentity.authorId,
+      authorUserId: authorIdentity.authorUserId,
+      authorName: author.displayName,
+      authorUsername: author.username,
+      authorAvatar: author.avatarUrl,
       authorRecipientId: updated.author.gcoinWallet?.recipientId || null,
+      author: {
+        id: author.id,
+        username: author.username,
+        displayName: author.displayName,
+        avatarUrl: author.avatarUrl,
+        type: author.type,
+        businessSlug: author.businessSlug,
+        isVerified: author.isVerified,
+        isPro: author.isPro
+      },
+      viewer: {
+        isFollowingAuthor: false
+      },
       title: updated.title,
       content: updated.content,
-      attachments: updated.attachments,
+      attachments: await resolveAttachments(updated.attachments || []),
+      tags: updated.tags || [],
+      mentions: updated.mentions || [],
+      topic: updated.topic || null,
+      location: updated.location || null,
+      visibility: updated.visibility || 'public',
+      commentPolicy: updated.commentPolicy || 'everyone',
+      businessPage: updated.businessPage ? {
+        id: updated.businessPage.id,
+        name: updated.businessPage.name,
+        handle: updated.businessPage.handle,
+        slug: updated.businessPage.slug,
+        logoFileId: updated.businessPage.logoFileId || null
+      } : null,
       viewsCount: updated.viewsCount,
       likesCount: updated.likesCount,
       sharesCount: updated.sharesCount,
       repostsCount: updated.repostsCount,
       status: updated.status,
       isPinned: updated.isPinned,
+      isHighlighted: updated.isHighlighted,
+      originalPostId: updated.originalPostId || null,
       createdAt: updated.createdAt.toISOString(),
       updatedAt: updated.updatedAt.toISOString(),
       interactions: {
@@ -1324,6 +2668,57 @@ export const updatePost = async (req: Request, res: Response) => {
         reposted: false
       }
     };
+
+    if (updateData.content !== undefined || updateData.mentions !== undefined) {
+      try {
+        const mentionedUsersByUsername = await resolveMentionedUserIds(
+          extractMentionUsernames(String(updated.content || ''))
+        );
+        const explicitMentionIds = Array.isArray(updated.mentions)
+          ? updated.mentions.map((entry) => String(entry || '').trim()).filter(Boolean)
+          : [];
+        const rawMentionUserIds = Array.from(
+          new Set([
+            ...explicitMentionIds,
+            ...mentionedUsersByUsername.map((entry) => String(entry.id || '').trim())
+          ])
+        ).filter((id) => id && id !== userId);
+        const normalizedMentionUserIds = await filterMentionTargetsForActor(userId, rawMentionUserIds);
+
+        const mentionRecipients = await filterRecipientsForNotification('mention_post', normalizedMentionUserIds);
+        const snippet = buildSnippet(updated.title || updated.content || '', 100);
+        for (const recipientId of mentionRecipients) {
+          const canView = await canUserViewPostForNotification(
+            {
+              authorId: updated.authorId,
+              visibility: updated.visibility,
+              mentions: updated.mentions || []
+            },
+            recipientId
+          );
+          if (!canView) continue;
+          await createEngagementNotification({
+            recipientId,
+            actorId: userId,
+            type: 'mention_post',
+            title: 'You were mentioned',
+            message: `${author.displayName || 'Someone'} mentioned you in a post.`,
+            actionUrl: `/community/posts/${updated.id}?mention=${encodeURIComponent(recipientId)}`,
+            metadata: {
+              postId: updated.id,
+              commentId: null,
+              actorId: userId,
+              mentionedUserId: recipientId,
+              snippet
+            },
+            dedupeWindowMinutes: 10,
+            dedupeMetaKeys: ['postId', 'mentionedUserId']
+          });
+        }
+      } catch (notifyError) {
+        console.warn('[community.updatePost] mention notification failed', notifyError);
+      }
+    }
 
     try {
       io?.emit('community:post_updated', { post: payload });
@@ -1365,8 +2760,9 @@ export const deletePost = async (req: Request, res: Response) => {
     // Soft delete: set status to 'deleted' instead of actually deleting
     await prisma.communityPost.update({
       where: { id },
-      data: { status: 'deleted' }
+      data: { status: 'deleted', isPinned: false, isHighlighted: false }
     });
+    try { await removeUsage('community_post', id); } catch (e) {}
 
     const io = getAppIo(req);
 
@@ -1381,5 +2777,610 @@ export const deletePost = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Delete post error:', error);
     return res.status(500).json({ error: error.message });
+  }
+};
+
+// Create a reaction on a community post
+export const createPostReaction = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const postId = req.params.id;
+    const type = (req.body?.type || '').toString().trim();
+    if (!postId || !type) return res.status(400).json({ success: false, error: 'Missing reaction type' });
+    try {
+      const cfg = await prisma.appSetting.findUnique({ where: { scope: 'community_reactions' } });
+      const reactions = (cfg?.data as any)?.reactions || [];
+      if (Array.isArray(reactions) && reactions.length) {
+        const enabled = reactions.find((r: any) => r.id === type && r.enabled !== false);
+        if (!enabled) return res.status(400).json({ success: false, error: 'Reaction type not allowed' });
+      }
+    } catch (e) {}
+
+    const post = await prisma.communityPost.findUnique({
+      where: { id: postId },
+      select: { id: true, authorId: true, title: true, content: true, status: true }
+    });
+    if (!post || post.status === 'deleted') {
+      return res.status(404).json({ success: false, error: 'Post not found' });
+    }
+    if (await hasUserBlockRelation(userId, post.authorId)) {
+      return res.status(403).json({ success: false, error: 'Interaction is not allowed for this post' });
+    }
+
+    let isSameReaction = false;
+    await prisma.$transaction(async (tx) => {
+      const existingRows = await tx.communityPostReaction.findMany({
+        where: { postId, userId },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, type: true }
+      });
+
+      const [primary, ...duplicates] = existingRows;
+      if (duplicates.length) {
+        await tx.communityPostReaction.deleteMany({
+          where: { id: { in: duplicates.map((row) => row.id) } }
+        });
+      }
+
+      isSameReaction = primary?.type === type;
+      if (!primary) {
+        await tx.communityPostReaction.create({ data: { postId, userId, type } });
+      } else if (!isSameReaction) {
+        await tx.communityPostReaction.update({
+          where: { id: primary.id },
+          data: { type }
+        });
+      }
+    });
+
+    const reactionRows = await prisma.communityPostReaction.groupBy({
+      by: ['postId', 'type'],
+      where: { postId },
+      _count: { _all: true }
+    });
+
+    const reactions = buildReactionSummary(reactionRows as any).get(postId) || {};
+
+    const io = getAppIo(req);
+    try { io?.emit('community:post_reaction_updated', { postId, reactions }); } catch (e) {}
+    try { realtime.emitToPost(postId, 'community:post_reaction_updated', { postId, reactions }); } catch (e) {}
+
+    if (!isSameReaction && post.authorId !== userId) {
+      try {
+        const actor = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { id: true, name: true, username: true }
+        });
+        const actorName = actor?.name || actor?.username || 'Someone';
+        await createEngagementNotification({
+          recipientId: post.authorId,
+          actorId: userId,
+          type: 'reaction_on_post',
+          title: 'New reaction',
+          message: `${actorName} reacted ${type} to your post.`,
+          actionUrl: `/community/posts/${postId}`,
+          metadata: {
+            postId,
+            actorId: userId,
+            postAuthorId: post.authorId,
+            reactionType: type
+          },
+          dedupeWindowMinutes: 20,
+          dedupeMetaKeys: ['postId', 'actorId']
+        });
+      } catch (notifyError) {
+        console.warn('[community.createPostReaction] notification failed', notifyError);
+      }
+    }
+
+    return res.json({ success: true, data: { postId, reactions } });
+  } catch (error: any) {
+    console.error('Create post reaction error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to react' });
+  }
+};
+
+export const deletePostReaction = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const postId = req.params.id;
+    await prisma.communityPostReaction.deleteMany({ where: { postId, userId } });
+    const reactionRows = await prisma.communityPostReaction.groupBy({
+      by: ['postId', 'type'],
+      where: { postId },
+      _count: { _all: true }
+    });
+    const reactions = buildReactionSummary(reactionRows as any).get(postId) || {};
+    const io = getAppIo(req);
+    try { io?.emit('community:post_reaction_updated', { postId, reactions }); } catch (e) {}
+    try { realtime.emitToPost(postId, 'community:post_reaction_updated', { postId, reactions }); } catch (e) {}
+    return res.json({ success: true, data: { postId, reactions } });
+  } catch (error: any) {
+    console.error('Delete post reaction error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to remove reaction' });
+  }
+};
+
+export const createPostComment = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const postId = req.params.id;
+    const { content, parentId, attachments } = req.body || {};
+    if (!content || !postId) return res.status(400).json({ success: false, error: 'Content required' });
+
+    const post = await prisma.communityPost.findUnique({
+      where: { id: postId },
+      select: { id: true, authorId: true, commentPolicy: true, status: true, visibility: true, mentions: true }
+    });
+    if (!post || post.status === 'deleted') {
+      return res.status(404).json({ success: false, error: 'Post not found' });
+    }
+
+    const canComment = await canUserCommentOnPost(post, userId, req.user?.role);
+    if (!canComment) {
+      return res.status(403).json({ success: false, error: 'Comments are restricted for this post' });
+    }
+
+    if (parentId) {
+      const parent = await prisma.communityPostComment.findUnique({
+        where: { id: parentId },
+        select: { id: true, postId: true, status: true }
+      });
+      if (!parent || parent.postId !== postId) {
+        return res.status(400).json({ success: false, error: 'Invalid parent comment' });
+      }
+      if (parent.status === 'deleted') {
+        return res.status(400).json({ success: false, error: 'Cannot reply to a deleted comment' });
+      }
+    }
+
+    const commentContent = String(content || '');
+    const mentionedUsersByUsername = await resolveMentionedUserIds(extractMentionUsernames(commentContent));
+    const rawMentionedUserIds: string[] = Array.from(
+      new Set(
+        mentionedUsersByUsername
+          .map((user) => String(user.id || '').trim())
+          .filter((mentionedUserId) => mentionedUserId && mentionedUserId !== userId)
+      )
+    );
+    const mentionedUserIds = await filterMentionTargetsForActor(userId, rawMentionedUserIds);
+
+    const comment = await prisma.communityPostComment.create({
+      data: {
+        postId,
+        authorId: userId,
+        parentId: parentId || null,
+        content: commentContent,
+        attachments: Array.isArray(attachments) ? attachments : []
+      },
+      include: {
+        author: { select: { id: true, name: true, avatar: true } }
+      }
+    });
+
+    if (comment.attachments?.length) {
+      try { await syncFileUsages('community_post_comment', comment.id, comment.attachments || [], 'Community Post Comment Media'); } catch (e) {}
+    }
+
+    const payload = {
+      id: comment.id,
+      postId: comment.postId,
+      parentId: comment.parentId,
+      userId: comment.authorId,
+      userName: comment.author?.name || 'Anonymous',
+      userAvatar: comment.author?.avatar || null,
+      content: comment.content,
+      attachments: await resolveAttachments(comment.attachments || []),
+      status: comment.status,
+      deletedAt: comment.deletedAt ? comment.deletedAt.toISOString() : null,
+      likesCount: 0,
+      likedByMe: false,
+      canEdit: true,
+      canDelete: true,
+      createdAt: comment.createdAt.toISOString(),
+      updatedAt: comment.updatedAt.toISOString()
+    };
+
+    const io = getAppIo(req);
+    try { io?.emit('community:post_comment_created', { comment: payload, postId }); } catch (e) {}
+    try { realtime.emitToPost(postId, 'community:post_comment_created', { comment: payload, postId }); } catch (e) {}
+
+    try {
+      const actor = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, name: true, username: true }
+      });
+      const actorName = actor?.name || actor?.username || 'Someone';
+      const snippet = buildSnippet(comment.content || '', 100);
+      const actionUrl = `/community/posts/${postId}?comment=${comment.id}`;
+
+      if (post.authorId && post.authorId !== userId) {
+        await createEngagementNotification({
+          recipientId: post.authorId,
+          actorId: userId,
+          type: 'comment_on_post',
+          title: 'New comment',
+          message: `${actorName} commented on your post.`,
+          actionUrl,
+          metadata: {
+            postId,
+            commentId: comment.id,
+            actorId: userId,
+            postAuthorId: post.authorId,
+            snippet
+          }
+        });
+      }
+
+      if (mentionedUserIds.length) {
+        const mentionRecipients = await filterRecipientsForNotification('mention_comment', mentionedUserIds);
+        for (const mentionedUserId of mentionRecipients) {
+          const canView = await canUserViewPostForNotification(
+            {
+              authorId: post.authorId,
+              visibility: post.visibility,
+              mentions: post.mentions
+            },
+            mentionedUserId
+          );
+          if (!canView) continue;
+
+          await createEngagementNotification({
+            recipientId: mentionedUserId,
+            actorId: userId,
+            type: 'mention_comment',
+            title: 'You were mentioned',
+            message: `${actorName} mentioned you in a comment.`,
+            actionUrl: `${actionUrl}&mention=${encodeURIComponent(mentionedUserId)}`,
+            metadata: {
+              postId,
+              commentId: comment.id,
+              actorId: userId,
+              mentionedUserId,
+              snippet
+            },
+            skipRecipientChecks: true
+          });
+        }
+      }
+    } catch (notifyError) {
+      console.warn('[community.createPostComment] notification fanout failed', notifyError);
+    }
+
+    return res.json({ success: true, data: payload });
+  } catch (error: any) {
+    console.error('Create post comment error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to comment' });
+  }
+};
+
+export const getPostComments = async (req: Request, res: Response) => {
+  try {
+    const viewer = await resolveOptionalUserFromRequest(req);
+    const userId = viewer?.id;
+    const postId = req.params.id;
+    const { limit = 20, cursor } = req.query as any;
+
+    const post = await prisma.communityPost.findUnique({
+      where: { id: postId },
+      select: { id: true, status: true, authorId: true }
+    });
+    if (!post || post.status === 'deleted') {
+      return res.status(404).json({ success: false, error: 'Post not found' });
+    }
+    if (userId && await hasUserBlockRelation(userId, post.authorId)) {
+      return res.status(404).json({ success: false, error: 'Post not found' });
+    }
+
+    const query: any = {
+      where: { postId, parentId: null },
+      orderBy: { createdAt: 'asc' },
+      take: Number(limit),
+      include: {
+        author: { select: { id: true, name: true, avatar: true } },
+        replies: {
+          where: { postId },
+          orderBy: { createdAt: 'asc' },
+          include: { author: { select: { id: true, name: true, avatar: true } } }
+        }
+      }
+    };
+
+    if (cursor) {
+      query.cursor = { id: String(cursor) };
+      query.skip = 1;
+    }
+
+    const comments = await prisma.communityPostComment.findMany(query);
+    const allComments = comments.flatMap((c) => [c, ...(c.replies || [])]);
+    const commentIds = allComments.map((c) => c.id);
+
+    const [likeCounts, likedByMe] = await Promise.all([
+      commentIds.length
+        ? prisma.communityPostCommentLike.groupBy({
+            by: ['commentId'],
+            where: { commentId: { in: commentIds } },
+            _count: { _all: true }
+          })
+        : Promise.resolve([]),
+      userId && commentIds.length
+        ? prisma.communityPostCommentLike.findMany({
+            where: { commentId: { in: commentIds }, userId },
+            select: { commentId: true }
+          })
+        : Promise.resolve([])
+    ]);
+
+    const likeCountMap = new Map(likeCounts.map((c) => [c.commentId, c._count?._all || 0]));
+    const likedSet = new Set(likedByMe.map((c) => c.commentId));
+
+    const buildPayload = async (comment: any) => {
+      const isDeleted = comment.status === 'deleted';
+      return {
+        id: comment.id,
+        postId: comment.postId,
+        parentId: comment.parentId,
+        userId: comment.authorId,
+        userName: comment.author?.name || 'Anonymous',
+        userAvatar: comment.author?.avatar || null,
+        content: isDeleted ? '' : comment.content,
+        attachments: isDeleted ? [] : await resolveAttachments(comment.attachments || []),
+        status: comment.status,
+        deletedAt: comment.deletedAt ? comment.deletedAt.toISOString() : null,
+        createdAt: comment.createdAt.toISOString(),
+        updatedAt: comment.updatedAt.toISOString(),
+        likesCount: likeCountMap.get(comment.id) || 0,
+        likedByMe: likedSet.has(comment.id),
+        canEdit: !!userId && (comment.authorId === userId || isPrivilegedUser(req.user)),
+        canDelete: !!userId && (comment.authorId === userId || isPrivilegedUser(req.user))
+      };
+    };
+
+    const items = await Promise.all(
+      comments.map(async (comment) => {
+        if (userId && await hasUserBlockRelation(userId, comment.authorId)) return null;
+        const replies = await Promise.all((comment.replies || []).map(async (reply) => {
+          if (userId && await hasUserBlockRelation(userId, reply.authorId)) return null;
+          return buildPayload(reply);
+        }));
+        return {
+          ...(await buildPayload(comment)),
+          replies: replies.filter(Boolean)
+        };
+      })
+    );
+
+    const filteredItems = items.filter(Boolean);
+    const nextCursor = filteredItems.length ? (filteredItems[filteredItems.length - 1] as any).id : null;
+    return res.json({ success: true, data: { items: filteredItems, nextCursor } });
+  } catch (error: any) {
+    console.error('Get post comments error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load comments' });
+  }
+};
+
+export const updatePostComment = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const { id } = req.params;
+    const { content, attachments } = req.body || {};
+
+    const comment = await prisma.communityPostComment.findUnique({
+      where: { id },
+      include: { author: { select: { id: true, name: true, avatar: true } } }
+    });
+    if (!comment) return res.status(404).json({ success: false, error: 'Comment not found' });
+    if (comment.status === 'deleted') {
+      return res.status(400).json({ success: false, error: 'Cannot edit a deleted comment' });
+    }
+    if (comment.authorId !== userId && !isPrivilegedUser(req.user)) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+
+    const updateData: any = {};
+    if (content !== undefined) {
+      const trimmed = String(content).trim();
+      if (!trimmed) return res.status(400).json({ success: false, error: 'Content required' });
+      updateData.content = trimmed;
+    }
+    if (attachments !== undefined) {
+      updateData.attachments = Array.isArray(attachments) ? attachments : [];
+    }
+    if (!Object.keys(updateData).length) {
+      return res.status(400).json({ success: false, error: 'Nothing to update' });
+    }
+
+    const updated = await prisma.communityPostComment.update({
+      where: { id },
+      data: updateData,
+      include: { author: { select: { id: true, name: true, avatar: true } } }
+    });
+
+    if (attachments !== undefined) {
+      try { await syncFileUsages('community_post_comment', updated.id, updated.attachments || [], 'Community Post Comment Media'); } catch (e) {}
+    }
+
+    const likesCount = await prisma.communityPostCommentLike.count({ where: { commentId: updated.id } });
+    const likedByMe = !!(await prisma.communityPostCommentLike.findUnique({
+      where: { commentId_userId: { commentId: updated.id, userId } }
+    }));
+
+    const payload = {
+      id: updated.id,
+      postId: updated.postId,
+      parentId: updated.parentId,
+      userId: updated.authorId,
+      userName: updated.author?.name || 'Anonymous',
+      userAvatar: updated.author?.avatar || null,
+      content: updated.content,
+      attachments: await resolveAttachments(updated.attachments || []),
+      status: updated.status,
+      deletedAt: updated.deletedAt ? updated.deletedAt.toISOString() : null,
+      createdAt: updated.createdAt.toISOString(),
+      updatedAt: updated.updatedAt.toISOString(),
+      likesCount,
+      likedByMe,
+      canEdit: true,
+      canDelete: true
+    };
+
+    if (updateData.content !== undefined) {
+      try {
+        const post = await prisma.communityPost.findUnique({
+          where: { id: updated.postId },
+          select: { id: true, authorId: true, visibility: true, mentions: true, status: true }
+        });
+        if (post && post.status !== 'deleted') {
+          const mentionedUsersByUsername = await resolveMentionedUserIds(
+            extractMentionUsernames(String(updated.content || ''))
+          );
+          const rawMentionUserIds = Array.from(
+            new Set(mentionedUsersByUsername.map((entry) => String(entry.id || '').trim()))
+          ).filter((id) => id && id !== userId) as string[];
+          const mentionedUserIds = await filterMentionTargetsForActor(userId, rawMentionUserIds);
+
+          const mentionRecipients = await filterRecipientsForNotification('mention_comment', mentionedUserIds);
+          const snippet = buildSnippet(updated.content || '', 100);
+          for (const recipientId of mentionRecipients) {
+            const canView = await canUserViewPostForNotification(
+              {
+                authorId: post.authorId,
+                visibility: post.visibility,
+                mentions: Array.isArray(post.mentions) ? post.mentions.map((id) => String(id)) : []
+              },
+              recipientId
+            );
+            if (!canView) continue;
+            await createEngagementNotification({
+              recipientId,
+              actorId: userId,
+              type: 'mention_comment',
+              title: 'You were mentioned',
+              message: `${updated.author?.name || 'Someone'} mentioned you in a comment.`,
+              actionUrl: `/community/posts/${updated.postId}?comment=${updated.id}&mention=${encodeURIComponent(recipientId)}`,
+              metadata: {
+                postId: updated.postId,
+                commentId: updated.id,
+                actorId: userId,
+                mentionedUserId: recipientId,
+                snippet
+              },
+              dedupeWindowMinutes: 10,
+              dedupeMetaKeys: ['postId', 'commentId', 'mentionedUserId']
+            });
+          }
+        }
+      } catch (notifyError) {
+        console.warn('[community.updatePostComment] mention notification failed', notifyError);
+      }
+    }
+
+    const io = getAppIo(req);
+    try { io?.emit('community:post_comment_updated', { comment: payload, postId: updated.postId }); } catch (e) {}
+    try { realtime.emitToPost(updated.postId, 'community:post_comment_updated', { comment: payload, postId: updated.postId }); } catch (e) {}
+
+    return res.json({ success: true, data: payload });
+  } catch (error: any) {
+    console.error('Update post comment error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to update comment' });
+  }
+};
+
+export const deletePostComment = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const { id } = req.params;
+
+    const comment = await prisma.communityPostComment.findUnique({
+      where: { id },
+      select: { id: true, postId: true, parentId: true, authorId: true, status: true }
+    });
+    if (!comment) return res.status(404).json({ success: false, error: 'Comment not found' });
+    if (comment.authorId !== userId && !isPrivilegedUser(req.user)) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+    if (comment.status === 'deleted') {
+      return res.json({ success: true });
+    }
+
+    await prisma.communityPostComment.update({
+      where: { id },
+      data: { status: 'deleted', deletedAt: new Date(), content: '', attachments: [] }
+    });
+    try { await removeUsage('community_post_comment', id); } catch (e) {}
+
+    const io = getAppIo(req);
+    try { io?.emit('community:post_comment_deleted', { commentId: id, postId: comment.postId, parentId: comment.parentId }); } catch (e) {}
+    try { realtime.emitToPost(comment.postId, 'community:post_comment_deleted', { commentId: id, postId: comment.postId, parentId: comment.parentId }); } catch (e) {}
+    return res.json({ success: true });
+  } catch (error: any) {
+    console.error('Delete post comment error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to delete comment' });
+  }
+};
+
+export const togglePostCommentLike = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const { id } = req.params;
+
+    const comment = await prisma.communityPostComment.findUnique({
+      where: { id },
+      select: { id: true, postId: true, status: true, authorId: true, post: { select: { authorId: true } } }
+    });
+    if (!comment || comment.status === 'deleted') {
+      return res.status(404).json({ success: false, error: 'Comment not found' });
+    }
+    const relatedAuthorIds = [comment.authorId, comment.post?.authorId].filter(Boolean) as string[];
+    for (const relatedAuthorId of relatedAuthorIds) {
+      if (await hasUserBlockRelation(userId, relatedAuthorId)) {
+        return res.status(403).json({ success: false, error: 'Interaction is not allowed for this comment' });
+      }
+    }
+
+    let liked = false;
+    await prisma.$transaction(async (tx) => {
+      const existingRows = await tx.communityPostCommentLike.findMany({
+        where: { commentId: id, userId },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true }
+      });
+
+      const [primary, ...duplicates] = existingRows;
+      if (duplicates.length) {
+        await tx.communityPostCommentLike.deleteMany({
+          where: { id: { in: duplicates.map((row) => row.id) } }
+        });
+      }
+
+      if (primary) {
+        await tx.communityPostCommentLike.delete({
+          where: { id: primary.id }
+        });
+      } else {
+        await tx.communityPostCommentLike.create({
+          data: { commentId: id, userId }
+        });
+        liked = true;
+      }
+    });
+
+    const likesCount = await prisma.communityPostCommentLike.count({ where: { commentId: id } });
+
+    const io = getAppIo(req);
+    const payload = { commentId: id, postId: comment.postId, liked, likesCount, userId };
+    try { io?.emit('community:post_comment_like_toggled', payload); } catch (e) {}
+    try { realtime.emitToPost(comment.postId, 'community:post_comment_like_toggled', payload); } catch (e) {}
+
+    return res.json({ success: true, data: payload });
+  } catch (error: any) {
+    console.error('Toggle post comment like error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to like comment' });
   }
 };

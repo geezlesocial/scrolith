@@ -28,8 +28,8 @@ const mockSystemSettings = {
       port: 587,
       username: '',
       password: '',
-      fromName: 'Geezle Support',
-      fromEmail: 'support@geezle.com'
+      fromName: 'Scrolith Support',
+      fromEmail: 'support@Scrolith.com'
     },
     regionalCompliance: [
       {
@@ -77,24 +77,24 @@ export const saveSettings = async (req: Request, res: Response) => {
 export const getPlatformSettings = async (req: Request, res: Response) => {
   try {
     const platformSettings = {
-      siteName: 'Geezle Marketplace',
+      siteName: 'Scrolith Marketplace',
       tagline: 'Find, hire, and work with the best talent',
       logoUrl: '/logo.svg',
       faviconUrl: '/favicon.ico',
-      adminEmail: 'admin@geezle.com',
-      supportEmail: 'support@geezle.com',
-      footerAboutTitle: 'About Geezle',
+      adminEmail: 'admin@Scrolith.com',
+      supportEmail: 'support@Scrolith.com',
+      footerAboutTitle: 'About Scrolith',
       footerAboutText: 'Connecting talented freelancers with businesses worldwide.',
-      footerCopyright: `© ${new Date().getFullYear()} Geezle Marketplace. All rights reserved.`,
+      footerCopyright: `© ${new Date().getFullYear()} Scrolith Marketplace. All rights reserved.`,
       footerLinks: [
         { title: 'Privacy Policy', url: '/privacy' },
         { title: 'Terms of Service', url: '/terms' },
         { title: 'Cookie Policy', url: '/cookies' }
       ],
       socialLinks: [
-        { platform: 'facebook', url: 'https://facebook.com/geezle' },
-        { platform: 'twitter', url: 'https://twitter.com/geezle' },
-        { platform: 'linkedin', url: 'https://linkedin.com/company/geezle' }
+        { platform: 'facebook', url: 'https://facebook.com/Scrolith' },
+        { platform: 'twitter', url: 'https://twitter.com/Scrolith' },
+        { platform: 'linkedin', url: 'https://linkedin.com/company/Scrolith' }
       ],
       system: mockSystemSettings.system
     };

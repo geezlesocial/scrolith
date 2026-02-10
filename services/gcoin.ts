@@ -1,9 +1,9 @@
 
 import { GcoinWallet, GcoinTransaction, GcoinSettings, GcoinConversionRequest } from '../types';
 
-const WALLET_KEY = 'geezle_gcoin_wallets';
-const SETTINGS_KEY = 'geezle_gcoin_settings';
-const CONVERSION_KEY = 'geezle_gcoin_conversions';
+const WALLET_KEY = 'scrolith_gcoin_wallets';
+const SETTINGS_KEY = 'scrolith_gcoin_settings';
+const CONVERSION_KEY = 'scrolith_gcoin_conversions';
 
 // Mock initial data
 const INITIAL_WALLETS: GcoinWallet[] = [
@@ -81,14 +81,26 @@ export const GcoinService = {
     },
 
     getAllWallets: async (): Promise<GcoinWallet[]> => {
-        return new Promise(resolve => {
-             const wallets = JSON.parse(localStorage.getItem(WALLET_KEY) || JSON.stringify(INITIAL_WALLETS));
-             resolve(wallets);
-        });
+        // prefer backend admin endpoint when available
+        try {
+            const res = await fetch('/api/admin/community/gcoin/wallets');
+            if (res.ok) {
+                const json = await res.json();
+                if (json && json.success) return json.data;
+            }
+        } catch (e) { /* ignore and fallback */ }
+        return JSON.parse(localStorage.getItem(WALLET_KEY) || JSON.stringify(INITIAL_WALLETS));
     },
 
     // --- Admin Action ---
     creditUser: async (identifier: string, amount: number, reason: string): Promise<{ success: boolean; message: string }> => {
+        try {
+            const res = await fetch('/api/admin/community/gcoin/credit', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ identifier, amount, reason }) });
+            if (res.ok) {
+                const json = await res.json();
+                if (json && json.success) return { success: true, message: json.message || 'Credited via backend' };
+            }
+        } catch (e) { /* fallback */ }
         const wallets: GcoinWallet[] = JSON.parse(localStorage.getItem(WALLET_KEY) || JSON.stringify(INITIAL_WALLETS));
         
         // Find by Recipient ID or Email (Mock email lookup by checking if ID looks like email or matches internal user)
@@ -96,10 +108,8 @@ export const GcoinService = {
         
         // Mock Email Lookup
         if (!target && identifier.includes('@')) {
-            // In real app: db.users.findOne({ email: identifier }) -> userId -> wallet
-            // Here we assume for demo purposes 'u2' has email 'alice@example.com'
             if (identifier === 'alice@example.com') target = wallets.find(w => w.userId === 'client-1');
-            else target = wallets.find(w => w.userId === 'u1'); // Default fallback for demo
+            else target = wallets.find(w => w.userId === 'u1');
         }
 
         if (!target) return { success: false, message: "User wallet not found." };
@@ -230,6 +240,13 @@ export const GcoinService = {
     // --- Conversion Logic ---
 
     getSettings: async (): Promise<GcoinSettings> => {
+        try {
+            const res = await fetch('/api/admin/community/gcoin/settings');
+            if (res.ok) {
+                const json = await res.json();
+                if (json && json.success) return json.data;
+            }
+        } catch (e) { /* ignore */ }
         return new Promise(resolve => {
             const settings = localStorage.getItem(SETTINGS_KEY);
             resolve(settings ? JSON.parse(settings) : DEFAULT_SETTINGS);
@@ -237,6 +254,10 @@ export const GcoinService = {
     },
 
     saveSettings: async (settings: GcoinSettings): Promise<void> => {
+        try {
+            await fetch('/api/admin/community/gcoin/settings', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(settings) });
+            return;
+        } catch (e) { /* fallback */ }
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     },
 
@@ -269,10 +290,21 @@ export const GcoinService = {
     },
 
     getConversionRequests: async (): Promise<GcoinConversionRequest[]> => {
+        try {
+            const res = await fetch('/api/admin/community/gcoin/conversions');
+            if (res.ok) {
+                const json = await res.json();
+                if (json && json.success) return json.data;
+            }
+        } catch (e) { /* ignore */ }
         return JSON.parse(localStorage.getItem(CONVERSION_KEY) || '[]');
     },
 
     processConversion: async (requestId: string, action: 'approve' | 'reject', adminId: string): Promise<void> => {
+        try {
+            await fetch(`/api/admin/community/gcoin/conversions/${requestId}`, { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ action }) });
+            return;
+        } catch (e) { /* fallback to local */ }
         const requests: GcoinConversionRequest[] = JSON.parse(localStorage.getItem(CONVERSION_KEY) || '[]');
         const idx = requests.findIndex(r => r.id === requestId);
         
@@ -285,8 +317,6 @@ export const GcoinService = {
             // Refund Gcoin
             await GcoinService.addTransaction(req.userId, req.amountGcoin, 'admin_adjustment', 'Conversion Rejected Refund');
         } else {
-            // In a real app, this would credit the FIAT wallet here via WalletService
-            // WalletService.creditFiat(req.userId, req.amountFiat);
             console.log(`[Gcoin] Credited $${req.amountFiat} to user ${req.userId}`);
         }
 
@@ -296,6 +326,10 @@ export const GcoinService = {
     // --- Admin Management ---
     
     freezeWallet: async (userId: string): Promise<void> => {
+        try {
+            await fetch(`/api/admin/community/gcoin/adjust/${userId}`, { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ action: 'freeze' }) });
+            return;
+        } catch (e) { /* fallback */ }
         const wallets: GcoinWallet[] = JSON.parse(localStorage.getItem(WALLET_KEY) || JSON.stringify(INITIAL_WALLETS));
         const idx = wallets.findIndex(w => w.userId === userId);
         if (idx >= 0) {
@@ -305,6 +339,10 @@ export const GcoinService = {
     },
 
     unfreezeWallet: async (userId: string): Promise<void> => {
+        try {
+            await fetch(`/api/admin/community/gcoin/adjust/${userId}`, { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ action: 'unfreeze' }) });
+            return;
+        } catch (e) { /* fallback */ }
         const wallets: GcoinWallet[] = JSON.parse(localStorage.getItem(WALLET_KEY) || JSON.stringify(INITIAL_WALLETS));
         const idx = wallets.findIndex(w => w.userId === userId);
         if (idx >= 0) {
@@ -315,6 +353,10 @@ export const GcoinService = {
     },
     
     adminAdjustBalance: async (userId: string, amount: number, reason: string): Promise<void> => {
+        try {
+            await fetch(`/api/admin/community/gcoin/adjust/${userId}`, { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ amount, reason }) });
+            return;
+        } catch (e) { /* fallback */ }
         await GcoinService.addTransaction(userId, amount, 'admin_adjustment', reason);
     }
 };

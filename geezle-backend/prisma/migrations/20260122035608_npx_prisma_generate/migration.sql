@@ -534,7 +534,7 @@ CREATE TABLE "SupportTicketReply" (
 -- CreateTable
 CREATE TABLE "Settings" (
     "id" TEXT NOT NULL,
-    "siteName" TEXT NOT NULL DEFAULT 'Geezle Marketplace',
+    "siteName" TEXT NOT NULL DEFAULT 'Scrolith Marketplace',
     "siteDescription" TEXT NOT NULL DEFAULT 'Connect with top freelancers and find your next project',
     "siteTagline" TEXT NOT NULL DEFAULT 'Find, hire, and work with the best talent',
     "logoUrl" TEXT NOT NULL DEFAULT '/logo.svg',
@@ -553,7 +553,7 @@ CREATE TABLE "Settings" (
     "defaultUserRole" TEXT NOT NULL DEFAULT 'GUEST',
     "maxFileSize" INTEGER NOT NULL DEFAULT 5242880,
     "allowedFileTypes" TEXT NOT NULL DEFAULT '["image/jpeg","image/png","image/gif","application/pdf"]',
-    "seoTitle" TEXT NOT NULL DEFAULT 'Geezle - Freelance Marketplace',
+    "seoTitle" TEXT NOT NULL DEFAULT 'Scrolith - Freelance Marketplace',
     "seoDescription" TEXT NOT NULL DEFAULT 'Connect with top freelancers and find your next project',
     "seoKeywords" TEXT NOT NULL DEFAULT '["freelance","marketplace","jobs","talent","hire"]',
     "googleAnalyticsId" TEXT,
@@ -564,7 +564,7 @@ CREATE TABLE "Settings" (
     "smtpUser" TEXT,
     "smtpPassword" TEXT,
     "smtpEncryption" TEXT NOT NULL DEFAULT 'tls',
-    "mailFromName" TEXT NOT NULL DEFAULT 'Geezle Support',
+    "mailFromName" TEXT NOT NULL DEFAULT 'Scrolith Support',
     "socialFacebook" TEXT,
     "socialTwitter" TEXT,
     "socialLinkedin" TEXT,

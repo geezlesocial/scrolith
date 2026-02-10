@@ -1,9 +1,9 @@
 
 import { User, UserProfile, UserSettings } from '../types';
 
-const PROFILE_KEY = 'geezle_user_profile';
-const SETTINGS_KEY = 'geezle_user_settings';
-const USER_KEY = 'geezle_user'; // Reference key for main user data if stored individually or in session
+const PROFILE_KEY = 'scrolith_user_profile';
+const SETTINGS_KEY = 'scrolith_user_settings';
+const USER_KEY = 'scrolith_user'; // Reference key for main user data if stored individually or in session
 
 const DEFAULT_PROFILE: UserProfile = {
     userId: '',

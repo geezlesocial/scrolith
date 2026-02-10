@@ -62,4 +62,7 @@ router.get('/conversions', authMiddleware, getConversionRequests);
 router.post('/conversions', authMiddleware, requestConversion);
 router.post('/conversions/:id', authMiddleware, adminMiddleware, processConversion);
 
+// Alias for community spec: POST /gcoin/convert/request
+router.post('/convert/request', authMiddleware, requestConversion);
+
 export default router;

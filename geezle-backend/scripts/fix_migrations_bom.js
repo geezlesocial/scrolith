@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const dir = 'c:\\Projects\\geezle-backend\\prisma\\migrations';
+const dir = 'c:\\Projects\\Scrolith-backend\\prisma\\migrations';
 fs.readdirSync(dir).forEach(folder => {
   try {
     const p = path.join(dir, folder, 'migration.sql');
@@ -13,3 +13,4 @@ fs.readdirSync(dir).forEach(folder => {
     // skip non-folders
   }
 });
+

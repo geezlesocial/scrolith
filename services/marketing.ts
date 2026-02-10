@@ -11,8 +11,8 @@ let emailConfig: EmailProviderConfig = {
     port: 2525,
     username: 'user',
     password: 'password',
-    fromName: 'Geezle',
-    fromEmail: 'no-reply@geezle.com'
+    fromName: 'Scrolith',
+    fromEmail: 'no-reply@scrolith.com'
 };
 
 export const MarketingService = {

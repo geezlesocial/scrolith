@@ -1,4 +1,4 @@
-C:\Projects\geezle>npm run dev
+C:\Projects\scrolith>npm run dev
 
 > atmyworks@0.0.0 dev
 > vite

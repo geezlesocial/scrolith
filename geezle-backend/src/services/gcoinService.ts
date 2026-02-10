@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
+import { getGcoinSettingsSafe } from '../utils/gcoinSettings';
 
 const prisma = new PrismaClient();
 
@@ -55,7 +56,7 @@ export class GcoinService {
       if (cfgData.transferFeeType === 'percentage') fee = amount * Number(cfgData.transferFeeValue || 0);
       else if (cfgData.transferFeeType === 'flat') fee = Number(cfgData.transferFeeValue || 0);
     } else {
-      const s = await prisma.gcoinSettings.findFirst();
+      const s = await getGcoinSettingsSafe();
       if (s) {
         if (s.transferFeeType === 'percentage') fee = amount * Number(s.transferFeeValue || 0);
         else if (s.transferFeeType === 'flat') fee = Number(s.transferFeeValue || 0);

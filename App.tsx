@@ -48,6 +48,8 @@ const Clubs = React.lazy(() => import('./community/Clubs'));
 const Events = React.lazy(() => import('./community/Events'));
 const Chat = React.lazy(() => import('./community/Chat'));
 const Leaderboard = React.lazy(() => import('./community/Leaderboard'));
+const GcoinDash = React.lazy(() => import('./community/GcoinDash'));
+const MyAds = React.lazy(() => import('./community/MyAds'));
 
 interface ErrorBoundaryProps {
   children?: ReactNode;
@@ -148,6 +150,8 @@ const AppContent = () => {
                   <Route path="clubs" element={<Clubs />} />
                   <Route path="events" element={<Events />} />
                   <Route path="leaderboard" element={<Leaderboard />} />
+                  <Route path="gcoin" element={<GcoinDash />} />
+                  <Route path="my-ads" element={<MyAds />} />
                   <Route path="content" element={<div className="p-12 text-center text-gray-500">Knowledge Hub Coming Soon</div>} />
               </Route>
               

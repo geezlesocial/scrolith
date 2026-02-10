@@ -3,12 +3,14 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Twitter, Linkedin, Instagram, Facebook, Youtube, Globe, Mail } from 'lucide-react';
 import { CMSService } from '../services/cms';
-import { FooterConfig } from '../types';
+import { FooterConfig, UserRole } from '../types';
 import { useContent } from '../context/ContentContext';
+import { useUser } from '../context/UserContext';
 
 const DynamicFooter = () => {
   const [config, setConfig] = useState<FooterConfig | null>(null);
   const { settings } = useContent();
+  const { user } = useUser();
 
   useEffect(() => {
     const loadConfig = async () => {
@@ -35,6 +37,19 @@ const DynamicFooter = () => {
 
   if (!config) return null;
 
+  const role = (user?.role || UserRole.GUEST).toString().toLowerCase();
+  const isVisibleToRole = (visibility?: string[]) => {
+    if (!Array.isArray(visibility) || visibility.length === 0) return true;
+    return visibility.some(v => String(v).toLowerCase() === role);
+  };
+
+  const visibleColumns = (config.columns || [])
+    .map(col => ({
+      ...col,
+      links: (col.links || []).filter(link => isVisibleToRole(link.visibility))
+    }))
+    .filter(col => col.links.length > 0);
+
   // Priority: Footer Config > Global Settings
   const displayLogo = config.logoUrl || settings?.logoUrl;
 
@@ -51,7 +66,7 @@ const DynamicFooter = () => {
               ) : (
                    <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-lg text-white">G</div>
               )}
-              <span className="text-xl font-bold hidden">Geezle</span> 
+              <span className="text-xl font-bold hidden">Scrolith</span> 
             </Link>
             <p className="text-gray-400 text-sm leading-relaxed">
               {config.description}
@@ -72,7 +87,7 @@ const DynamicFooter = () => {
           </div>
 
           {/* Dynamic Link Columns */}
-          {config.columns.map((col, idx) => (
+          {visibleColumns.map((col, idx) => (
             <div key={idx}>
               <h3 className="text-lg font-semibold mb-4">{col.title}</h3>
               <ul className="space-y-2">

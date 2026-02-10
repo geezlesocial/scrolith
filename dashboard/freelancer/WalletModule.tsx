@@ -38,6 +38,43 @@ const WalletModule = () => {
         loadData();
     }, [user]);
 
+    // Listen for community socket events forwarded to window and refresh wallet data
+    useEffect(() => {
+        const onGcoin = (ev: Event) => {
+            try {
+                const ce: any = ev as CustomEvent;
+                const detail = ce.detail || {};
+                if (!detail) return;
+                // If the event concerns the current user, refresh
+                if (detail.userId && user && detail.userId === user.id) {
+                    loadData();
+                    showNotification('success', 'Gcoin Updated', 'Your Gcoin balance changed');
+                }
+            } catch (e) { console.error('onGcoin', e); }
+        };
+
+        const onTransaction = (ev: Event) => {
+            try {
+                const ce: any = ev as CustomEvent;
+                const detail = ce.detail || {};
+                if (!detail) return;
+                if (detail.userId && user && detail.userId === user.id) {
+                    // append or reload transactions
+                    loadData();
+                    showNotification('info', 'Transaction', detail.message || 'A wallet transaction occurred');
+                }
+            } catch (e) { console.error('onTransaction', e); }
+        };
+
+        window.addEventListener('community:gcoin_balance_updated', onGcoin as EventListener);
+        window.addEventListener('community:wallet_transaction', onTransaction as EventListener);
+
+        return () => {
+            window.removeEventListener('community:gcoin_balance_updated', onGcoin as EventListener);
+            window.removeEventListener('community:wallet_transaction', onTransaction as EventListener);
+        };
+    }, [user]);
+
     const loadData = async () => {
         if (!user) return;
         setLoading(true);

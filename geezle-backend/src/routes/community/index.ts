@@ -2,11 +2,13 @@ import express from 'express';
 import gcoinRoutes from './gcoin';
 import adsRoutes from './ads';
 import postsRoutes from './posts';
+import adminRoutes from './admin';
 
 const router = express.Router();
 
 router.use('/gcoin', gcoinRoutes);
 router.use('/ads', adsRoutes);
 router.use('/posts', postsRoutes);
+router.use('/admin', adminRoutes);
 
 export default router;

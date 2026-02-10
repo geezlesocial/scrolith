@@ -1,7 +1,7 @@
 
 import { UploadedFile } from '../types';
 
-const FILES_KEY = 'geezle_files';
+const FILES_KEY = 'scrolith_files';
 
 export const FileService = {
     getFiles: async (userId: string): Promise<UploadedFile[]> => {

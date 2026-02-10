@@ -1,5 +1,8 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
+import { sendSystemMessage } from '../services/systemMessaging';
+import realtime from '../utils/realtime';
+import EVENTS from '../realtime/events';
 
 const apiStatusFromDb = (status: string) => {
   const value = status.toUpperCase();
@@ -85,8 +88,9 @@ export const submitKyc = async (req: Request, res: Response) => {
       }
     });
 
+    let createdDocs: any[] = [];
     if (documents.length > 0) {
-      const createDocs = await Promise.all(documents.map(async (doc: any) => {
+      createdDocs = await Promise.all(documents.map(async (doc: any) => {
         const fileId = doc.file_id || doc.fileId;
         const file = fileId ? await prisma.file.findUnique({ where: { id: fileId } }) : null;
         return prisma.kYCDocument.create({
@@ -100,15 +104,24 @@ export const submitKyc = async (req: Request, res: Response) => {
           }
         });
       }));
-
-      return res.json({
-        success: true,
-        data: mapSubmission({ ...submission, documents: createDocs })
-      });
     }
 
     await prisma.user.update({ where: { id: userId }, data: { kycStatus: 'PENDING' } });
-    return res.json({ success: true, data: mapSubmission({ ...submission, documents: [] }) });
+
+    const payload = mapSubmission({ ...submission, documents: createdDocs });
+    realtime.emitToUser(userId, EVENTS.KYC_UPDATED, {
+      userId,
+      submissionId: submission.id,
+      status: 'pending'
+    });
+    realtime.emitToRoom('community:admin', 'kyc.submitted', {
+      userId,
+      submissionId: submission.id,
+      status: 'pending',
+      action: 'created'
+    });
+
+    return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Submit KYC error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to submit KYC' });
@@ -160,7 +173,21 @@ export const updateKyc = async (req: Request, res: Response) => {
     }
 
     await prisma.user.update({ where: { id: userId }, data: { kycStatus: 'PENDING' } });
-    return res.json({ success: true, data: mapSubmission({ ...updated, documents: docs }) });
+
+    const payload = mapSubmission({ ...updated, documents: docs });
+    realtime.emitToUser(userId, EVENTS.KYC_UPDATED, {
+      userId,
+      submissionId: submission.id,
+      status: 'pending'
+    });
+    realtime.emitToRoom('community:admin', 'kyc.submitted', {
+      userId,
+      submissionId: submission.id,
+      status: 'pending',
+      action: 'updated'
+    });
+
+    return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Update KYC error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to update KYC' });
@@ -253,7 +280,36 @@ export const updateKycStatus = async (req: Request, res: Response) => {
       data: { kycStatus: status === 'APPROVED' ? 'VERIFIED' : status === 'REJECTED' ? 'REJECTED' : 'PENDING' }
     });
 
-    return res.json({ success: true, data: mapSubmission(updated) });
+    const payload = mapSubmission(updated);
+    const apiStatus = apiStatusFromDb(updated.status);
+    realtime.emitToUser(submission.userId, EVENTS.KYC_UPDATED, {
+      userId: submission.userId,
+      submissionId,
+      status: apiStatus,
+      rejectionReason: rejectionReason || undefined
+    });
+    realtime.emitToRoom('community:admin', 'kyc.updated', {
+      userId: submission.userId,
+      submissionId,
+      status: apiStatus
+    });
+
+    try {
+      const kycLink = `/dashboard?tab=kyc`;
+      void sendSystemMessage({
+        templateKey: 'kyc_status_update',
+        userId: submission.userId,
+        context: {
+          kyc: { status: apiStatus, link: kycLink }
+        },
+        actionUrl: kycLink,
+        typeOverride: 'kyc'
+      });
+    } catch (notifyError) {
+      console.warn('KYC status notification failed', notifyError);
+    }
+
+    return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Update KYC status error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to update KYC status' });

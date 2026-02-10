@@ -248,7 +248,8 @@ const toClientFile = (record: any) => {
     owner_id: record.owner_id || record.ownerId,
     owner_role: record.owner_role || record.ownerRole,
     visibility: (record.visibility || DEFAULT_VISIBILITY).toString().toLowerCase(),
-    created_at: createdAt
+    created_at: createdAt,
+    usedIn: Array.isArray(record.usedIn) ? record.usedIn : []
   };
 };
 
@@ -301,6 +302,24 @@ export const listFiles = async (req: Request, res: Response) => {
       dbFiles = [];
     }
 
+    const fileIds = dbFiles.map((file) => file.id);
+    const usageMap = new Map<string, Array<{ type: string; id: string; label?: string }>>();
+    if (fileIds.length) {
+      try {
+        const usages = await prisma.fileUsage.findMany({
+          where: { fileId: { in: fileIds } },
+          orderBy: { createdAt: 'desc' }
+        });
+        for (const usage of usages) {
+          const list = usageMap.get(usage.fileId) || [];
+          list.push({ type: usage.usageType, id: usage.usageId, label: usage.label || undefined });
+          usageMap.set(usage.fileId, list);
+        }
+      } catch (error) {
+        console.warn('File usage lookup failed:', error);
+      }
+    }
+
     const baseUrl = getBaseFileUrl(req);
     const normalized = dbFiles.map((file) =>
       normalizeRecord({
@@ -314,7 +333,8 @@ export const listFiles = async (req: Request, res: Response) => {
         storage_key: file.storageKey,
         visibility: file.visibility,
         created_at: file.createdAt,
-        category: inferCategory(file.mimeType)
+        category: inferCategory(file.mimeType),
+        usedIn: usageMap.get(file.id) || []
       })
     );
 

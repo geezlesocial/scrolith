@@ -77,7 +77,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
       }`}>
         {/* Logo */}
         <div className="flex items-center justify-center h-16 px-4 bg-indigo-600">
-          <h1 className="text-xl font-bold text-white">GEEZLE</h1>
+          <h1 className="text-xl font-bold text-white">SCROLITH</h1>
         </div>
 
         {/* Navigation */}

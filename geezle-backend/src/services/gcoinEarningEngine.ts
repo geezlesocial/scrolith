@@ -1,6 +1,15 @@
 import prisma from '../utils/prismaClient';
+import { getGcoinSettingsSafe } from '../utils/gcoinSettings';
 
 type Metric = 'view' | 'like' | 'share' | 'repost';
+
+const isMonetizationEnabledForUser = async (userId: string) => {
+  const profile = await prisma.monetizationProfile.findUnique({
+    where: { userId },
+    select: { isEnabled: true }
+  });
+  return Boolean(profile?.isEnabled);
+};
 
 // Record an event and evaluate whether awards should be issued to the post author
 export const recordEventAndEvaluate = async (actorId: string, postId: string, metric: Metric) => {
@@ -10,9 +19,11 @@ export const recordEventAndEvaluate = async (actorId: string, postId: string, me
   // Load post and author
   const post = await prisma.communityPost.findUnique({ where: { id: postId }, select: { id: true, authorId: true, viewsCount: true, likesCount: true, sharesCount: true, repostsCount: true } });
   if (!post) return { awarded: 0, units: 0 };
+  if (!(await isMonetizationEnabledForUser(post.authorId))) {
+    return { awarded: 0, units: 0 };
+  }
 
-  const settingsRaw = await prisma.gcoinSettings.findFirst();
-  const s: any = settingsRaw || {};
+  const s: any = await getGcoinSettingsSafe();
   const rules: Record<Metric, { unit: number; coinPerUnit: number }> = {
     view: { unit: Number(s.viewsUnit ?? 200), coinPerUnit: Number(s.coinPerViewsUnit ?? 1) },
     like: { unit: Number(s.likesUnit ?? 30), coinPerUnit: Number(s.coinPerLikesUnit ?? 1) },
@@ -102,6 +113,7 @@ export async function processEarningForPost(postId: string) {
 
   const post = await prisma.communityPost.findUnique({ where: { id: postId } });
   if (!post) throw new Error('Post not found');
+  if (!(await isMonetizationEnabledForUser(post.authorId))) return null;
 
   // compute awards from aggregated counts
   const awards: Array<{type:string, coins:number}> = [];

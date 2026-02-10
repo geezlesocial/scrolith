@@ -51,7 +51,7 @@ const DynamicFooter = () => {
               ) : (
                    <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-lg text-white">G</div>
               )}
-              <span className="text-xl font-bold hidden">Geezle</span> 
+              <span className="text-xl font-bold hidden">Scrolith</span> 
             </Link>
             <p className="text-gray-400 text-sm leading-relaxed">
               {config.description}

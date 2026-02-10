@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import prisma from "../utils/prismaClient";
+import { sendSystemMessage } from "../services/systemMessaging";
 
 type RoleNorm = "admin" | "superadmin" | "freelancer" | "client" | "employer" | "user" | "guest" | "";
 
@@ -241,6 +242,30 @@ export const updateContractStatus = async (req: Request, res: Response) => {
       where: { id: contract.id },
       data: { status: statusEnum }
     });
+
+    try {
+      const contractLink = `/dashboard?tab=contracts&contract_id=${contract.id}`;
+      void sendSystemMessage({
+        templateKey: "contract_update",
+        userId: contract.clientId,
+        context: {
+          contract: { title: contract.title, status: statusEnum, link: contractLink }
+        },
+        actionUrl: contractLink,
+        typeOverride: "contract"
+      });
+      void sendSystemMessage({
+        templateKey: "contract_update",
+        userId: contract.freelancerId,
+        context: {
+          contract: { title: contract.title, status: statusEnum, link: contractLink }
+        },
+        actionUrl: contractLink,
+        typeOverride: "contract"
+      });
+    } catch (notifyError) {
+      console.warn("Contract status notification failed", notifyError);
+    }
 
     return res.json({ success: true });
   } catch (err: any) {

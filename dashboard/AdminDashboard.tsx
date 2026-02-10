@@ -137,7 +137,7 @@ const AdminDashboard: React.FC = () => {
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-white overflow-hidden">
                 {user?.avatar ? <img src={user.avatar} className="w-full h-full object-cover" alt="Admin" /> : "G"}
             </div>
-            <span className="font-bold text-lg tracking-tight">Geezle</span>
+            <span className="font-bold text-lg tracking-tight">Scrolith</span>
           </div>
           <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400"><X size={20} /></button>
         </div>

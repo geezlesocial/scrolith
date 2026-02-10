@@ -1,7 +1,14 @@
 import express, { Request, Response } from 'express';
-import { getGigs, getCategories } from '../controllers/commerce.controller';
+import { getGigs, getGigById, getCategories } from '../controllers/commerce.controller';
+import { purchaseGig } from '../controllers/orderPayments.controller';
+import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = express.Router();
+
+// Health check (no auth)
+router.get('/health', (_req, res) => {
+  res.json({ success: true, service: 'commerce' });
+});
 
 // Get categories with optional type filter (gig|job)
 router.get('/categories', async (req: Request, res: Response) => {
@@ -96,5 +103,7 @@ router.get('/categories', async (req: Request, res: Response) => {
 
 // Get gigs
 router.get('/gigs', getGigs);
+router.get('/gigs/:id', getGigById);
+router.post('/gigs/:id/purchase', authMiddleware, purchaseGig);
 
 export default router;
