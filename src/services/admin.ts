@@ -680,6 +680,10 @@ export const AdminService = {
     return adminPost<any>('/system/email/test', payload);
   },
 
+  clearRuntimeCache: async (): Promise<{ cleared: string[]; results: Array<{ key: string; ok: boolean; detail?: string }> }> => {
+    return adminPost<any>('/system/cache/clear', {});
+  },
+
   getPlatformSettings: async (): Promise<PlatformSettings> => {
     return adminGet<PlatformSettings>('/platform/settings');
   },

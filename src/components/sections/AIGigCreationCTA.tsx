@@ -1,14 +1,56 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Sparkles, ArrowRight } from "lucide-react";
+import { useNotification } from "../../context/NotificationContext";
+import { useUser } from "../../context/UserContext";
 import type { GigCreationContent } from "../../types";
 
 const AIGigCreationCTA = ({ content }: { content?: GigCreationContent }) => {
+  const navigate = useNavigate();
+  const { showNotification } = useNotification();
+  const { user, isAuthenticated } = useUser();
+  const isGuest = !isAuthenticated || !user || String(user.role || "").toLowerCase() === "guest";
+
+  const badgeLabel =
+    (content as any)?.badgeLabel || (content as any)?.badge_label || "Scrolitha Gig Assistant";
   const headline = (content as any)?.headline || "Create a Gig That Gets Hired";
   const subheadline =
     (content as any)?.subheadline ||
-    "Let our AI assist you in crafting the perfect service offering. We generate titles, tags, and pricing strategies for you.";
-  const buttonText = (content as any)?.buttonText || "Create Gig with AI";
+    "Let Scrolitha help you craft your service offering with stronger titles, clear deliverables, and practical pricing suggestions.";
+  const buttonText = (content as any)?.buttonText || (content as any)?.button_text || "Create Gig with AI";
+  const guestButtonText =
+    (content as any)?.guestButtonText || (content as any)?.guest_button_text || "Login to Create Gig with AI";
+  const helperText =
+    (content as any)?.helperText ||
+    (content as any)?.helper_text ||
+    "Scrolitha will guide you through gig setup, content, tags, and positioning.";
+  const guestHelperText =
+    (content as any)?.guestHelperText ||
+    (content as any)?.guest_helper_text ||
+    "Login or register to continue with Scrolitha gig creation.";
+  const loginButtonText =
+    (content as any)?.loginButtonText || (content as any)?.login_button_text || "Login";
+  const registerButtonText =
+    (content as any)?.registerButtonText || (content as any)?.register_button_text || "Register";
+
+  const routeToAuth = (mode: "login" | "signup") => {
+    const redirect = encodeURIComponent("/create-gig?mode=ai");
+    navigate(`/auth/${mode}?redirect=${redirect}&source=scrolitha_gig_creation`);
+  };
+
+  const handlePrimaryClick = () => {
+    if (isGuest) {
+      showNotification(
+        "warning",
+        "Login Required",
+        "Please login or register to continue with AI gig creation."
+      );
+      routeToAuth("login");
+      return;
+    }
+
+    navigate("/create-gig?mode=ai");
+  };
 
   return (
     <div className="py-20 bg-gray-900 text-white text-center relative overflow-hidden">
@@ -18,20 +60,40 @@ const AIGigCreationCTA = ({ content }: { content?: GigCreationContent }) => {
       </div>
 
       <div className="max-w-3xl mx-auto px-4 relative z-10">
-        <div className="inline-block p-4 bg-white/10 rounded-full mb-8 backdrop-blur-sm border border-white/10">
-          <Sparkles className="w-8 h-8 text-yellow-400" />
+        <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 rounded-full mb-8 backdrop-blur-sm border border-white/10">
+          <Sparkles className="w-5 h-5 text-yellow-400" />
+          <span className="text-sm font-semibold">{badgeLabel}</span>
         </div>
 
         <h2 className="text-3xl md:text-5xl font-bold mb-6 tracking-tight">{headline}</h2>
 
         <p className="text-xl text-gray-300 mb-10 leading-relaxed max-w-2xl mx-auto">{subheadline}</p>
 
-        <Link
-          to="/create-gig?mode=ai"
+        <button
+          onClick={handlePrimaryClick}
           className="inline-flex items-center px-10 py-5 bg-blue-600 hover:bg-blue-700 rounded-xl font-bold text-xl transition shadow-lg shadow-blue-900/50 hover:scale-105 transform"
         >
-          {buttonText} <ArrowRight className="ml-3 w-6 h-6" />
-        </Link>
+          {isGuest ? guestButtonText : buttonText} <ArrowRight className="ml-3 w-6 h-6" />
+        </button>
+
+        <p className="mt-4 text-sm text-gray-300">{isGuest ? guestHelperText : helperText}</p>
+
+        {isGuest && (
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <button
+              onClick={() => routeToAuth("login")}
+              className="px-4 py-2 rounded-lg border border-white/30 bg-white/10 text-white text-sm font-semibold hover:bg-white/20 transition-colors"
+            >
+              {loginButtonText}
+            </button>
+            <button
+              onClick={() => routeToAuth("signup")}
+              className="px-4 py-2 rounded-lg border border-white/30 bg-white text-blue-700 text-sm font-semibold hover:bg-blue-100 transition-colors"
+            >
+              {registerButtonText}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

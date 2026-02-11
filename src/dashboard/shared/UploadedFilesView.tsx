@@ -4,6 +4,7 @@ import { UploadedFile } from '../../types';
 import { ConfirmModal } from './ConfirmModal';
 import { FilePickerModal } from './FilePickerModal';
 import { Loader2, Copy, Trash2 } from 'lucide-react';
+import MediaPreviewModal from '../../components/media/MediaPreviewModal';
 
 interface UploadedFilesViewProps {
   role?: 'freelancer' | 'employer' | string;
@@ -15,6 +16,7 @@ export const UploadedFilesView: React.FC<UploadedFilesViewProps> = ({ role = 'fr
   const [showConfirm, setShowConfirm] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showPicker, setShowPicker] = useState(false);
+  const [preview, setPreview] = useState<UploadedFile | null>(null);
 
   const loadFiles = async () => {
     setLoading(true);
@@ -60,8 +62,16 @@ export const UploadedFilesView: React.FC<UploadedFilesViewProps> = ({ role = 'fr
   const copyUrl = async (url?: string) => {
     if (!url) return;
     try {
-      await navigator.clipboard.writeText(url);
-      // Minimal UI feedback
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = url;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
       alert('URL copied to clipboard');
     } catch (error) {
       console.error('Copy failed', error);
@@ -94,9 +104,17 @@ export const UploadedFilesView: React.FC<UploadedFilesViewProps> = ({ role = 'fr
             {files.map((file) => (
               <div key={file.id} className="border rounded overflow-hidden p-2 relative">
                 {file.type === 'image' && file.url ? (
-                  <img src={file.url} alt={file.name} className="w-full h-32 object-cover mb-2" />
+                  <button type="button" onClick={() => setPreview(file)} className="block w-full">
+                    <img src={file.url} alt={file.name} className="w-full h-32 object-cover mb-2" />
+                  </button>
+                ) : file.type === 'video' ? (
+                  <button type="button" onClick={() => setPreview(file)} className="flex w-full h-32 items-center justify-center bg-gray-100 mb-2 text-gray-500">
+                    Video
+                  </button>
                 ) : (
-                  <div className="w-full h-32 bg-gray-100 flex items-center justify-center mb-2">{file.name}</div>
+                  <button type="button" onClick={() => setPreview(file)} className="w-full h-32 bg-gray-100 flex items-center justify-center mb-2">
+                    {file.name}
+                  </button>
                 )}
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-gray-700 truncate">{file.name}</div>
@@ -119,6 +137,20 @@ export const UploadedFilesView: React.FC<UploadedFilesViewProps> = ({ role = 'fr
       </div>
 
       <FilePickerModal isOpen={showPicker} onClose={() => setShowPicker(false)} onSelect={handleUploadSelected} allowUpload />
+
+      <MediaPreviewModal
+        open={Boolean(preview)}
+        media={preview ? {
+          id: preview.id,
+          url: preview.url,
+          name: preview.name,
+          type: preview.type,
+          mimeType: preview.mimeType || preview.mime_type,
+          thumbnailUrl: preview.thumbnailUrl || preview.thumbnail_url || null,
+          duration: preview.duration
+        } : null}
+        onClose={() => setPreview(null)}
+      />
 
       <ConfirmModal
         isOpen={showConfirm}

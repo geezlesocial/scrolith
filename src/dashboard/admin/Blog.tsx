@@ -5,9 +5,10 @@ import {
     Settings, List, Layout, Globe, Calendar, CheckCircle, XCircle, Type, 
     MoreVertical, Video, Quote, Code, ArrowUp, ArrowDown, Upload
 } from 'lucide-react';
-import { BlogPost, BlogCategory, BlogSettings, ContentBlock, BlogPostStatus } from '../../types';
+import { BlogPost, BlogCategory, BlogSettings, ContentBlock, BlogPostStatus, UploadedFile } from '../../types';
 import { CMSService } from '../../services/cms';
 import { useNotification } from '../../context/NotificationContext';
+import FilePickerModal from '../shared/FilePickerModal';
 
 const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab, setView }: any) => (
     <button 
@@ -264,6 +265,8 @@ const BlogEditor = ({ post, setPost, onSave, onCancel, categories }: {
     onCancel: () => void, 
     categories: BlogCategory[] 
 }) => {
+    const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
+    const [imageTarget, setImageTarget] = useState<{ field: 'banner' | 'block'; blockId?: string } | null>(null);
     
     // --- Block Helpers ---
     const addBlock = (type: ContentBlock['type']) => {
@@ -295,18 +298,21 @@ const BlogEditor = ({ post, setPost, onSave, onCancel, categories }: {
         setPost({ ...post, blocks: newBlocks });
     };
 
-    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, field: 'banner' | 'block', blockId?: string) => {
-        if (e.target.files && e.target.files[0]) {
-            try {
-                const media = await CMSService.uploadMedia(e.target.files[0]);
-                if (field === 'banner') {
-                    setPost({ ...post, featuredImage: media.url });
-                } else if (field === 'block' && blockId) {
-                    updateBlock(blockId, { content: media.url });
-                }
-            } catch (err) {
-                console.error("Upload failed", err);
-            }
+    const openImagePicker = (field: 'banner' | 'block', blockId?: string) => {
+        setImageTarget({ field, blockId });
+        setIsFilePickerOpen(true);
+    };
+
+    const handleImageSelected = (file: UploadedFile) => {
+        const target = imageTarget;
+        setImageTarget(null);
+        if (!target) return;
+        if (target.field === 'banner') {
+            setPost({ ...post, featuredImage: file.url });
+            return;
+        }
+        if (target.blockId) {
+            updateBlock(target.blockId, { content: file.url });
         }
     };
 
@@ -390,11 +396,14 @@ const BlogEditor = ({ post, setPost, onSave, onCancel, categories }: {
                                                 <button onClick={() => updateBlock(block.id, { content: '' })} className="absolute top-2 right-2 bg-black/50 text-white p-1 rounded-full"><XCircle className="w-4 h-4"/></button>
                                             </div>
                                         ) : (
-                                            <label className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                                            <button
+                                                type="button"
+                                                onClick={() => openImagePicker('block', block.id)}
+                                                className="flex w-full flex-col items-center justify-center h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50"
+                                            >
                                                 <ImageIcon className="w-8 h-8 text-gray-400 mb-2" />
                                                 <span className="text-sm text-gray-500">Upload Image</span>
-                                                <input type="file" className="hidden" accept="image/*" onChange={(e) => handleImageUpload(e, 'block', block.id)} />
-                                            </label>
+                                            </button>
                                         )}
                                         <input 
                                             className="w-full text-xs text-center border-none focus:ring-0 text-gray-400" 
@@ -533,7 +542,14 @@ const BlogEditor = ({ post, setPost, onSave, onCancel, categories }: {
                                     <span className="text-xs text-gray-500">1300 x 650 Recommended</span>
                                 </div>
                             )}
-                            <input type="file" className="absolute inset-0 opacity-0 cursor-pointer" accept="image/*" onChange={e => handleImageUpload(e, 'banner')} />
+                            {!post.featuredImage && (
+                                <button
+                                    type="button"
+                                    onClick={() => openImagePicker('banner')}
+                                    className="absolute inset-0"
+                                    aria-label="Select banner image from Uploaded Files"
+                                />
+                            )}
                         </div>
                     </div>
 
@@ -567,6 +583,22 @@ const BlogEditor = ({ post, setPost, onSave, onCancel, categories }: {
                     </div>
                 </div>
             </div>
+            <FilePickerModal
+                open={isFilePickerOpen}
+                onClose={() => {
+                    setIsFilePickerOpen(false);
+                    setImageTarget(null);
+                }}
+                onSelect={handleImageSelected}
+                allowUpload
+                allowCamera
+                multiple={false}
+                filterType="image"
+                acceptedTypes={['image']}
+                title="Select blog image"
+                role="admin"
+                visibility="public"
+            />
         </div>
     );
 };

@@ -15,6 +15,7 @@ import {
   Users
 } from 'lucide-react';
 import { CommunityService } from '../services/community';
+import { RecoService } from '../services/reco';
 import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
 import MentionText from '../community/components/MentionText';
@@ -298,17 +299,59 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
           if (isOwner) {
             await loadPageFollowing(normalizedPage.id);
             const [usersRes, pagesRes] = await Promise.allSettled([
-              CommunityService.getTopContributors(8),
-              CommunityService.getRecommendedBusinessPages(8)
+              Promise.allSettled([
+                RecoService.getAccounts({ surface: 'who_to_follow', type: 'freelancer', limit: 6 }),
+                RecoService.getAccounts({ surface: 'who_to_follow', type: 'client', limit: 4 })
+              ]).then((results) => {
+                const freelancerRows =
+                  results[0].status === 'fulfilled' && Array.isArray(results[0].value) ? results[0].value : [];
+                const clientRows =
+                  results[1].status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : [];
+                const merged = [...freelancerRows, ...clientRows];
+                if (merged.length) return merged;
+                return CommunityService.getTopContributors(8);
+              }),
+              RecoService.getAccounts({ surface: 'member_home', type: 'page', limit: 8 }).catch(() =>
+                CommunityService.getRecommendedBusinessPages(8)
+              )
             ]);
             if (usersRes.status === 'fulfilled') {
-              setRecommendedUsers(Array.isArray(usersRes.value) ? usersRes.value : []);
+              setRecommendedUsers(
+                (Array.isArray(usersRes.value) ? usersRes.value : [])
+                  .map((entry: any) => {
+                    const account = entry?.account || entry;
+                    const id = String(account?.id || entry?.entityId || entry?.id || '').trim();
+                    if (!id) return null;
+                    return {
+                      id,
+                      name: account?.name || entry?.name || entry?.displayName || 'User',
+                      username: account?.username || entry?.username || null,
+                      avatar: account?.avatar || entry?.avatar || null
+                    };
+                  })
+                  .filter(Boolean)
+              );
             }
             if (pagesRes.status === 'fulfilled') {
               setRecommendedPages(
-                (Array.isArray(pagesRes.value) ? pagesRes.value : []).filter(
-                  (entry: any) => String(entry?.id || '') !== String(normalizedPage.id)
-                )
+                (Array.isArray(pagesRes.value) ? pagesRes.value : [])
+                  .map((entry: any) => {
+                    const account = entry?.account || entry;
+                    const id = String(account?.id || entry?.entityId || entry?.id || '').trim();
+                    if (!id) return null;
+                    return {
+                      id,
+                      name: account?.name || entry?.name || 'Business page',
+                      slug: account?.pageSlug || account?.slug || entry?.slug || id,
+                      handle: account?.pageHandle || account?.handle || entry?.handle || null,
+                      avatar: account?.avatar || entry?.avatar || null
+                    };
+                  })
+                  .filter(
+                    (entry: any) =>
+                      entry &&
+                      String(entry.id || '') !== String(normalizedPage.id)
+                  )
               );
             }
           } else {

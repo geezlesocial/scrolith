@@ -397,11 +397,15 @@ class CommunityService {
     return this.get(endpoint);
   }
 
-  static async createPost(data: { title?: string; content: string; attachments?: string[]; status?: string; tags?: string[]; mentions?: string[]; visibility?: string; businessPageId?: string; topic?: string; location?: string; commentPolicy?: string }): Promise<any> {
+  static async createPost(data: { title?: string; content: string; attachments?: string[]; attachmentFileIds?: string[]; status?: string; tags?: string[]; mentions?: string[]; visibility?: string; businessPageId?: string; topic?: string; location?: string; commentPolicy?: string }): Promise<any> {
+    const attachmentFileIds = Array.from(
+      new Set([...(data.attachmentFileIds || []), ...(data.attachments || [])].filter(Boolean))
+    );
     const payload = {
       title: data.title,
       content: data.content,
-      attachments: data.attachments || [],
+      attachmentFileIds,
+      attachments: attachmentFileIds,
       status: data.status || 'active',
       tags: data.tags || [],
       mentions: data.mentions || [],
@@ -424,8 +428,15 @@ class CommunityService {
     return extractData<any>(response);
   }
 
-  static async commentOnPost(postId: string, payload: { content: string; attachments?: string[]; parentId?: string | null }): Promise<any> {
-    return this.post(`/community/posts/${postId}/comments`, payload);
+  static async commentOnPost(postId: string, payload: { content: string; attachments?: string[]; attachmentFileIds?: string[]; parentId?: string | null }): Promise<any> {
+    const attachmentFileIds = Array.from(
+      new Set([...(payload.attachmentFileIds || []), ...(payload.attachments || [])].filter(Boolean))
+    );
+    return this.post(`/community/posts/${postId}/comments`, {
+      ...payload,
+      attachmentFileIds,
+      attachments: attachmentFileIds
+    });
   }
 
   static async getPostComments(postId: string, params?: { limit?: number; cursor?: string }): Promise<any> {
@@ -436,8 +447,15 @@ class CommunityService {
     return this.get(endpoint);
   }
 
-  static async updatePostComment(commentId: string, payload: { content?: string; attachments?: string[] }): Promise<any> {
-    const response = await api.put(`/community/comments/${commentId}`, payload);
+  static async updatePostComment(commentId: string, payload: { content?: string; attachments?: string[]; attachmentFileIds?: string[] }): Promise<any> {
+    const attachmentFileIds = Array.from(
+      new Set([...(payload.attachmentFileIds || []), ...(payload.attachments || [])].filter(Boolean))
+    );
+    const response = await api.put(`/community/comments/${commentId}`, {
+      ...payload,
+      attachmentFileIds,
+      attachments: attachmentFileIds
+    });
     return extractData<any>(response);
   }
 
@@ -451,8 +469,15 @@ class CommunityService {
     return response;
   }
 
-  static async updatePost(postId: string, payload: { title?: string; content?: string; attachments?: string[]; tags?: string[]; mentions?: string[]; visibility?: string; topic?: string; location?: string; status?: string; commentPolicy?: string; isPinned?: boolean; isHighlighted?: boolean }): Promise<any> {
-    const response = await api.put(`/community/posts/${postId}`, payload);
+  static async updatePost(postId: string, payload: { title?: string; content?: string; attachments?: string[]; attachmentFileIds?: string[]; tags?: string[]; mentions?: string[]; visibility?: string; topic?: string; location?: string; status?: string; commentPolicy?: string; isPinned?: boolean; isHighlighted?: boolean }): Promise<any> {
+    const attachmentFileIds = Array.from(
+      new Set([...(payload.attachmentFileIds || []), ...(payload.attachments || [])].filter(Boolean))
+    );
+    const response = await api.put(`/community/posts/${postId}`, {
+      ...payload,
+      attachmentFileIds,
+      attachments: attachmentFileIds
+    });
     return extractData<any>(response);
   }
 
@@ -494,6 +519,7 @@ class CommunityService {
   static async createStory(payload: {
     type: string;
     content?: string;
+    caption?: string;
     mediaFileId?: string;
     visibility?: string;
     textBackground?: string;
@@ -501,11 +527,15 @@ class CommunityService {
     textFont?: string;
     textAlign?: 'left' | 'center' | 'right';
   }): Promise<any> {
-    return this.post('/community/stories', payload);
+    return this.post('/community/stories', {
+      ...payload,
+      caption: payload.caption ?? payload.content
+    });
   }
 
   static async updateStory(id: string, payload: {
     content?: string;
+    caption?: string;
     visibility?: string;
     textBackground?: string;
     textColor?: string;
@@ -513,7 +543,10 @@ class CommunityService {
     textAlign?: 'left' | 'center' | 'right';
     mediaFileId?: string;
   }): Promise<any> {
-    const response = await api.put(`/community/stories/${id}`, payload);
+    const response = await api.put(`/community/stories/${id}`, {
+      ...payload,
+      caption: payload.caption ?? payload.content
+    });
     return extractData<any>(response);
   }
 
@@ -583,7 +616,17 @@ class CommunityService {
   }
 
   static async createBusinessPagePost(id: string, payload: any): Promise<any> {
-    return this.post(`/community/business-pages/${id}/posts`, payload);
+    const attachmentFileIds = Array.from(
+      new Set([
+        ...((payload?.attachmentFileIds as string[]) || []),
+        ...((payload?.attachments as string[]) || [])
+      ].filter(Boolean))
+    );
+    return this.post(`/community/business-pages/${id}/posts`, {
+      ...payload,
+      attachmentFileIds,
+      attachments: attachmentFileIds
+    });
   }
 
   static async listBusinessPageFollowing(id: string): Promise<any> {

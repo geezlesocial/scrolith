@@ -3,20 +3,69 @@ import { useNavigate } from "react-router-dom";
 import { Sparkles, ArrowRight, Loader2 } from "lucide-react";
 import { AIService } from "../../services/ai/ai.service";
 import { useNotification } from "../../context/NotificationContext";
+import { useUser } from "../../context/UserContext";
 import type { ProjectBriefContent } from "../../types";
 
 const AIProjectBriefGenerator = ({ content }: { content?: ProjectBriefContent }) => {
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const { user, isAuthenticated } = useUser();
   const { showNotification } = useNotification();
   const navigate = useNavigate();
 
+  const isGuest = !isAuthenticated || !user || String(user.role || "").toLowerCase() === "guest";
+  const promptValue = prompt.trim();
+
+  const badgeLabel =
+    (content as any)?.badgeLabel || (content as any)?.badge_label || "Scrolitha AI Project Assistant";
+  const title = (content as any)?.title || "Not sure where to start?";
+  const subtitle =
+    (content as any)?.subtitle ||
+    "Describe your project in simple words. Scrolitha drafts a professional brief, proposes budget guidance, and prepares you to hire the right talent.";
+  const inputPlaceholder =
+    (content as any)?.inputPlaceholder ||
+    (content as any)?.input_placeholder ||
+    "e.g. I need a modern logo for my coffee shop...";
+  const buttonText = (content as any)?.buttonText || (content as any)?.button_text || "Build Brief";
+  const guestButtonText =
+    (content as any)?.guestButtonText || (content as any)?.guest_button_text || "Login to Build Brief";
+  const helperText =
+    (content as any)?.helperText ||
+    (content as any)?.helper_text ||
+    "Takes ~5 seconds. Scrolitha will draft your project brief instantly.";
+  const guestHelperText =
+    (content as any)?.guestHelperText ||
+    (content as any)?.guest_helper_text ||
+    "Login or register to generate your brief and continue to posting.";
+  const loginButtonText =
+    (content as any)?.loginButtonText || (content as any)?.login_button_text || "Login";
+  const registerButtonText =
+    (content as any)?.registerButtonText || (content as any)?.register_button_text || "Register";
+
+  const routeToAuth = (mode: "login" | "signup") => {
+    if (promptValue) {
+      sessionStorage.setItem("scrolitha_pending_project_prompt", promptValue);
+    }
+    const redirect = encodeURIComponent("/create-job?mode=ai_draft");
+    navigate(`/auth/${mode}?redirect=${redirect}&source=scrolitha_project_brief`);
+  };
+
   const handleGenerate = async () => {
-    if (!prompt.trim()) return;
+    if (!promptValue) return;
+
+    if (isGuest) {
+      showNotification(
+        "warning",
+        "Login Required",
+        "Please login or register to generate a Scrolitha project brief."
+      );
+      routeToAuth("login");
+      return;
+    }
 
     setIsGenerating(true);
     try {
-      const brief = await AIService.generateProjectBrief({ prompt });
+      const brief = await AIService.generateProjectBrief({ prompt: promptValue });
 
       sessionStorage.setItem("ai_job_brief", JSON.stringify(brief));
       showNotification("success", "Brief Generated", "Redirecting to job creation...");
@@ -37,22 +86,17 @@ const AIProjectBriefGenerator = ({ content }: { content?: ProjectBriefContent })
       <div className="max-w-4xl mx-auto px-4 relative z-10 text-center">
         <div className="inline-flex items-center px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm border border-white/20 text-sm font-bold mb-6">
           <Sparkles className="w-4 h-4 mr-2 text-yellow-300" />
-          AI Project Assistant
+          {badgeLabel}
         </div>
 
-        <h2 className="text-3xl md:text-5xl font-extrabold mb-6 tracking-tight leading-tight">
-          {(content as any)?.title || "Not sure where to start?"}
-        </h2>
+        <h2 className="text-3xl md:text-5xl font-extrabold mb-6 tracking-tight leading-tight">{title}</h2>
 
-        <p className="text-lg md:text-xl text-indigo-100 mb-10 max-w-2xl mx-auto leading-relaxed">
-          {(content as any)?.subtitle ||
-            "Describe your project in simple words. Our AI will draft a professional job post, suggest a budget, and find the perfect talent for you."}
-        </p>
+        <p className="text-lg md:text-xl text-indigo-100 mb-10 max-w-2xl mx-auto leading-relaxed">{subtitle}</p>
 
         <div className="bg-white p-2 rounded-2xl shadow-2xl flex flex-col md:flex-row gap-3 max-w-2xl mx-auto transition-transform hover:scale-[1.01]">
           <input
             type="text"
-            placeholder="e.g. I need a modern logo for my coffee shop..."
+            placeholder={inputPlaceholder}
             className="flex-1 px-6 py-4 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-lg"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -60,7 +104,7 @@ const AIProjectBriefGenerator = ({ content }: { content?: ProjectBriefContent })
           />
           <button
             onClick={handleGenerate}
-            disabled={isGenerating || !prompt.trim()}
+            disabled={isGenerating || !promptValue}
             className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-4 rounded-xl font-bold text-lg transition-all flex items-center justify-center disabled:opacity-70 disabled:cursor-not-allowed shadow-lg"
           >
             {isGenerating ? (
@@ -69,13 +113,31 @@ const AIProjectBriefGenerator = ({ content }: { content?: ProjectBriefContent })
               </>
             ) : (
               <>
-                Build Brief <ArrowRight className="w-5 h-5 ml-2" />
+                {isGuest ? guestButtonText : buttonText}
+                <ArrowRight className="w-5 h-5 ml-2" />
               </>
             )}
           </button>
         </div>
 
-        <p className="text-sm text-indigo-300 mt-4">Takes ~5 seconds. Free to use. No sign-up required to draft.</p>
+        <p className="text-sm text-indigo-300 mt-4">{isGuest ? guestHelperText : helperText}</p>
+
+        {isGuest && (
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+            <button
+              onClick={() => routeToAuth("login")}
+              className="px-4 py-2 rounded-lg border border-white/30 bg-white/10 text-white text-sm font-semibold hover:bg-white/20 transition-colors"
+            >
+              {loginButtonText}
+            </button>
+            <button
+              onClick={() => routeToAuth("signup")}
+              className="px-4 py-2 rounded-lg border border-white/30 bg-white text-indigo-700 text-sm font-semibold hover:bg-indigo-100 transition-colors"
+            >
+              {registerButtonText}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

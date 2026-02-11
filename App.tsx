@@ -4,6 +4,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import DynamicFooter from './components/DynamicFooter';
 import SupportWidget from './components/SupportWidget';
+import ScrolithaWidget from './components/scrolitha/ScrolithaWidget';
 import { UserRole } from './types';
 import { CurrencyProvider } from './context/CurrencyContext';
 import { ContentProvider, useContent } from './context/ContentContext';
@@ -210,6 +211,7 @@ const AppContent = () => {
         </Suspense>
       </main>
       {!isAdminRoute && <DynamicFooter />}
+      <ScrolithaWidget />
       <SupportWidget />
     </div>
   );

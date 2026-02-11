@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { CMSService } from "../../services/cms";
 import { AdminService } from "../../services/admin";
-import api from "../../services/api";
 import { SearchService } from "../../services/search";
 import { AIService } from "../../services/ai/ai.service";
 import PreloaderManagement from "./PreloaderManagement";
@@ -1899,13 +1898,6 @@ const HeaderBuilder = () => {
                 <div className="text-xs text-gray-500">Upload and apply favicon</div>
               </div>
               <div className="flex items-center gap-2">
-                <input
-                  ref={(el) => { /* placeholder for typing */ }}
-                  id="favicon-direct-input"
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                />
                 <button
                   onClick={() => {
                     setTargetLogo("favicon");
@@ -1915,55 +1907,8 @@ const HeaderBuilder = () => {
                 >
                   Upload (modal)
                 </button>
-                <button
-                  onClick={() => document.getElementById('favicon-direct-input')?.click()}
-                  className="text-xs bg-gray-100 px-2 py-1 rounded hover:bg-gray-200"
-                >
-                  Choose File
-                </button>
               </div>
             </div>
-            <input
-              id="favicon-direct-input-handler"
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={async (e) => {
-                const file = (e.target as HTMLInputElement).files?.[0];
-                if (!file) return;
-                try {
-                  const form = new FormData();
-                  form.append('file', file);
-                  form.append('role', 'admin');
-                  // Tell backend to also mark this upload as the site's favicon so a canonical
-                  // favicon copy is created server-side for /favicon.ico resolution.
-                  form.append('applyAsFavicon', 'true');
-                  const resp = await api.post('/files/upload', form, {
-                    headers: { 'Content-Type': 'multipart/form-data' }
-                  });
-                  const fileData = resp?.data?.data || resp?.data;
-                  const url = fileData?.url || fileData?.file?.url;
-                  if (url && config) {
-                    const next = { ...(config as any), favicon_url: url, faviconUrl: url } as any;
-                    setConfig(next);
-                    try {
-                      await CMSService.saveHeaderConfig(next as any);
-                      showNotification('success', 'Uploaded', 'Favicon uploaded and saved');
-                    } catch (saveErr) {
-                      console.error('Failed to save header after favicon upload', saveErr);
-                      showNotification('error', 'Save failed', 'Uploaded but failed to save settings');
-                    }
-                  } else {
-                    showNotification('error', 'Upload failed', 'No file URL returned from server');
-                  }
-                } catch (err: any) {
-                  console.error('Favicon upload failed', err);
-                  showNotification('error', 'Upload failed', err?.message || String(err));
-                } finally {
-                  (e.target as HTMLInputElement).value = '';
-                }
-              }}
-            />
           </div>
 
           <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -3502,6 +3447,12 @@ const LayoutManager = () => {
   const memberHomeContent = editingSection?.type === "member_home"
     ? ((editingSection as any).content || {})
     : {};
+  const projectBriefContent = editingSection?.type === "project_brief_generator"
+    ? ((editingSection as any).content || {})
+    : {};
+  const gigCreationContent = editingSection?.type === "gig_creation"
+    ? ((editingSection as any).content || {})
+    : {};
 
   const memberHomeToggles: { key: string; label: string }[] = [
     { key: "showSearch", label: "Search bar" },
@@ -3844,6 +3795,57 @@ const LayoutManager = () => {
                     </div>
                   </div>
 
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 space-y-3">
+                    <p className="text-[11px] font-semibold text-gray-700">Featured Quick Actions (Scrolitha)</p>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-600 mb-1">Featured Label</label>
+                        <input
+                          className="w-full border rounded p-2 text-sm"
+                          value={memberHomeContent.featuredActionsTitle || ""}
+                          onChange={(e) => updateEditingContent({ featuredActionsTitle: e.target.value })}
+                          placeholder="Featured"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-600 mb-1">Project Brief Label</label>
+                        <input
+                          className="w-full border rounded p-2 text-sm"
+                          value={memberHomeContent.projectBriefQuickActionTitle || ""}
+                          onChange={(e) => updateEditingContent({ projectBriefQuickActionTitle: e.target.value })}
+                          placeholder="Scrolitha Project Brief"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-600 mb-1">Project Brief Text</label>
+                        <input
+                          className="w-full border rounded p-2 text-sm"
+                          value={memberHomeContent.projectBriefQuickActionSubtitle || ""}
+                          onChange={(e) => updateEditingContent({ projectBriefQuickActionSubtitle: e.target.value })}
+                          placeholder="Draft a professional project brief with AI"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-600 mb-1">Gig Creation Label</label>
+                        <input
+                          className="w-full border rounded p-2 text-sm"
+                          value={memberHomeContent.gigCreationQuickActionTitle || ""}
+                          onChange={(e) => updateEditingContent({ gigCreationQuickActionTitle: e.target.value })}
+                          placeholder="Scrolitha Gig Creation"
+                        />
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="block text-[11px] font-semibold text-gray-600 mb-1">Gig Creation Text</label>
+                        <input
+                          className="w-full border rounded p-2 text-sm"
+                          value={memberHomeContent.gigCreationQuickActionSubtitle || ""}
+                          onChange={(e) => updateEditingContent({ gigCreationQuickActionSubtitle: e.target.value })}
+                          placeholder="Generate your gig setup with AI guidance"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-[11px] font-semibold text-gray-600 mb-2">Visibility Toggles</label>
                     <div className="grid grid-cols-2 gap-2">
@@ -3902,6 +3904,263 @@ const LayoutManager = () => {
                     />
                     <p className="text-[10px] text-gray-400 mt-1">Use uploaded file URLs for imageUrl or videoUrl. Leave empty to use Community sliders.</p>
                   </div>
+                </div>
+              )}
+
+              {(editingSection as any).type === "project_brief_generator" && (
+                <div className="rounded-lg border border-gray-200 p-3 space-y-3">
+                  <div className="text-[10px] font-bold uppercase text-gray-500">Scrolitha Project Brief Generator</div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Badge Label</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={projectBriefContent.badgeLabel ?? projectBriefContent.badge_label ?? ""}
+                        onChange={(e) => updateEditingContent({ badgeLabel: e.target.value, badge_label: e.target.value })}
+                        placeholder="Scrolitha AI Project Assistant"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Input Placeholder</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={projectBriefContent.inputPlaceholder ?? projectBriefContent.input_placeholder ?? ""}
+                        onChange={(e) =>
+                          updateEditingContent({ inputPlaceholder: e.target.value, input_placeholder: e.target.value })
+                        }
+                        placeholder="e.g. I need a modern logo for my coffee shop..."
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-600 mb-1">Section Title</label>
+                    <input
+                      className="w-full border rounded p-2 text-sm"
+                      value={projectBriefContent.title || ""}
+                      onChange={(e) => updateEditingContent({ title: e.target.value })}
+                      placeholder="Not sure where to start?"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-600 mb-1">Section Subtitle</label>
+                    <textarea
+                      className="w-full border rounded p-2 text-sm h-20"
+                      value={projectBriefContent.subtitle || ""}
+                      onChange={(e) => updateEditingContent({ subtitle: e.target.value })}
+                      placeholder="Describe your project in simple words. Scrolitha drafts a professional brief..."
+                    />
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Primary Button (Logged-in)</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={projectBriefContent.buttonText ?? projectBriefContent.button_text ?? ""}
+                        onChange={(e) => updateEditingContent({ buttonText: e.target.value, button_text: e.target.value })}
+                        placeholder="Build Brief"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Primary Button (Guest)</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={projectBriefContent.guestButtonText ?? projectBriefContent.guest_button_text ?? ""}
+                        onChange={(e) =>
+                          updateEditingContent({
+                            guestButtonText: e.target.value,
+                            guest_button_text: e.target.value,
+                          })
+                        }
+                        placeholder="Login to Build Brief"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Helper Text (Logged-in)</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={projectBriefContent.helperText ?? projectBriefContent.helper_text ?? ""}
+                        onChange={(e) => updateEditingContent({ helperText: e.target.value, helper_text: e.target.value })}
+                        placeholder="Takes ~5 seconds. Scrolitha will draft your project brief instantly."
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Helper Text (Guest)</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={projectBriefContent.guestHelperText ?? projectBriefContent.guest_helper_text ?? ""}
+                        onChange={(e) =>
+                          updateEditingContent({
+                            guestHelperText: e.target.value,
+                            guest_helper_text: e.target.value,
+                          })
+                        }
+                        placeholder="Login or register to generate your brief and continue to posting."
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Login Button Label</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={projectBriefContent.loginButtonText ?? projectBriefContent.login_button_text ?? ""}
+                        onChange={(e) =>
+                          updateEditingContent({ loginButtonText: e.target.value, login_button_text: e.target.value })
+                        }
+                        placeholder="Login"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Register Button Label</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={projectBriefContent.registerButtonText ?? projectBriefContent.register_button_text ?? ""}
+                        onChange={(e) =>
+                          updateEditingContent({
+                            registerButtonText: e.target.value,
+                            register_button_text: e.target.value,
+                          })
+                        }
+                        placeholder="Register"
+                      />
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] text-gray-500">
+                    Guests can type in the prompt, but completion is gated to Login/Register before brief generation.
+                  </p>
+                </div>
+              )}
+
+              {(editingSection as any).type === "gig_creation" && (
+                <div className="rounded-lg border border-gray-200 p-3 space-y-3">
+                  <div className="text-[10px] font-bold uppercase text-gray-500">Scrolitha Gig Creation</div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Badge Label</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={gigCreationContent.badgeLabel ?? gigCreationContent.badge_label ?? ""}
+                        onChange={(e) => updateEditingContent({ badgeLabel: e.target.value, badge_label: e.target.value })}
+                        placeholder="Scrolitha Gig Assistant"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Primary Button (Logged-in)</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={gigCreationContent.buttonText ?? gigCreationContent.button_text ?? ""}
+                        onChange={(e) => updateEditingContent({ buttonText: e.target.value, button_text: e.target.value })}
+                        placeholder="Create Gig with AI"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-600 mb-1">Headline</label>
+                    <input
+                      className="w-full border rounded p-2 text-sm"
+                      value={gigCreationContent.headline || ""}
+                      onChange={(e) => updateEditingContent({ headline: e.target.value })}
+                      placeholder="Create a Gig That Gets Hired"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-gray-600 mb-1">Subheadline</label>
+                    <textarea
+                      className="w-full border rounded p-2 text-sm h-20"
+                      value={gigCreationContent.subheadline || ""}
+                      onChange={(e) => updateEditingContent({ subheadline: e.target.value })}
+                      placeholder="Let Scrolitha help you craft your service offering..."
+                    />
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Primary Button (Guest)</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={gigCreationContent.guestButtonText ?? gigCreationContent.guest_button_text ?? ""}
+                        onChange={(e) =>
+                          updateEditingContent({
+                            guestButtonText: e.target.value,
+                            guest_button_text: e.target.value,
+                          })
+                        }
+                        placeholder="Login to Create Gig with AI"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Helper Text (Logged-in)</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={gigCreationContent.helperText ?? gigCreationContent.helper_text ?? ""}
+                        onChange={(e) => updateEditingContent({ helperText: e.target.value, helper_text: e.target.value })}
+                        placeholder="Scrolitha will guide you through gig setup and positioning."
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Helper Text (Guest)</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={gigCreationContent.guestHelperText ?? gigCreationContent.guest_helper_text ?? ""}
+                        onChange={(e) =>
+                          updateEditingContent({
+                            guestHelperText: e.target.value,
+                            guest_helper_text: e.target.value,
+                          })
+                        }
+                        placeholder="Login or register to continue with Scrolitha gig creation."
+                      />
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-600 mb-1">Login Button Label</label>
+                        <input
+                          className="w-full border rounded p-2 text-sm"
+                          value={gigCreationContent.loginButtonText ?? gigCreationContent.login_button_text ?? ""}
+                          onChange={(e) =>
+                            updateEditingContent({
+                              loginButtonText: e.target.value,
+                              login_button_text: e.target.value,
+                            })
+                          }
+                          placeholder="Login"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-600 mb-1">Register Button Label</label>
+                        <input
+                          className="w-full border rounded p-2 text-sm"
+                          value={gigCreationContent.registerButtonText ?? gigCreationContent.register_button_text ?? ""}
+                          onChange={(e) =>
+                            updateEditingContent({
+                              registerButtonText: e.target.value,
+                              register_button_text: e.target.value,
+                            })
+                          }
+                          placeholder="Register"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-[10px] text-gray-500">
+                    Guests must Login/Register before completing AI gig creation from this section.
+                  </p>
                 </div>
               )}
 

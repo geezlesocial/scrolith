@@ -1581,9 +1581,22 @@ export interface GrowthDashContent {
 }
 
 export interface GigCreationContent {
+  badgeLabel?: string;
+  badge_label?: string;
   headline?: string;
   subheadline?: string;
   button_text?: string;
+  buttonText?: string;
+  guest_button_text?: string;
+  guestButtonText?: string;
+  helper_text?: string;
+  helperText?: string;
+  guest_helper_text?: string;
+  guestHelperText?: string;
+  login_button_text?: string;
+  loginButtonText?: string;
+  register_button_text?: string;
+  registerButtonText?: string;
 }
 
 export interface MarketInsightsContent {
@@ -1592,8 +1605,24 @@ export interface MarketInsightsContent {
 }
 
 export interface ProjectBriefContent {
+  badgeLabel?: string;
+  badge_label?: string;
   title?: string;
   subtitle?: string;
+  input_placeholder?: string;
+  inputPlaceholder?: string;
+  button_text?: string;
+  buttonText?: string;
+  guest_button_text?: string;
+  guestButtonText?: string;
+  helper_text?: string;
+  helperText?: string;
+  guest_helper_text?: string;
+  guestHelperText?: string;
+  login_button_text?: string;
+  loginButtonText?: string;
+  register_button_text?: string;
+  registerButtonText?: string;
 }
 
 export interface ProjectBrief {
@@ -1981,6 +2010,8 @@ export interface UploadedFile {
   user_id: string;
   owner_role?: string;
   owner_id?: string;
+  ownerId?: string;
+  ownerRole?: string;
   name: string;
   type: MediaType | string;
   size: number;
@@ -1988,8 +2019,17 @@ export interface UploadedFile {
   category: FileCategory;
   created_at: string;
   storage_key?: string;
+  storageKey?: string;
+  storage_provider?: string;
+  storageProvider?: string;
   visibility?: 'public' | 'private';
   mime_type?: string;
+  mimeType?: string;
+  thumbnail_url?: string | null;
+  thumbnailUrl?: string | null;
+  width?: number | null;
+  height?: number | null;
+  duration?: number | null;
   usedIn?: { type: string; id: string; label?: string }[];
 }
 

@@ -57,13 +57,20 @@ const normalizeUploadedFile = (payload: any): UploadedFile => {
   const visibility = normalizeVisibility(payload.visibility);
   const createdAt = payload.uploadedAt || payload.created_at || payload.createdAt || new Date().toISOString();
   const fileSize = payload.size ?? 0;
+  const thumbnailUrl = payload.thumbnail_url || payload.thumbnailUrl || null;
+  const storageProvider = payload.storage_provider || payload.storageProvider || 'local';
+  const width = payload.width !== undefined && payload.width !== null ? Number(payload.width) : null;
+  const height = payload.height !== undefined && payload.height !== null ? Number(payload.height) : null;
+  const duration = payload.duration !== undefined && payload.duration !== null ? Number(payload.duration) : null;
 
   return {
     id: payload.id,
     fileId: payload.id,
     user_id: ownerId,
     owner_id: ownerId,
+    ownerId,
     owner_role: ownerRole,
+    ownerRole,
     name: payload.name || payload.original_name || payload.filename || 'file',
     type: mediaType,
     size: typeof fileSize === 'bigint' ? Number(fileSize) : Number(fileSize ?? 0),
@@ -71,8 +78,17 @@ const normalizeUploadedFile = (payload: any): UploadedFile => {
     category: payload.category || (mediaType === 'document' ? 'document' : 'portfolio'),
     created_at: createdAt,
     storage_key: payload.storage_key || payload.storageKey,
+    storageKey: payload.storage_key || payload.storageKey,
+    storage_provider: storageProvider,
+    storageProvider,
     visibility,
     mime_type: mime || undefined,
+    mimeType: mime || undefined,
+    thumbnail_url: thumbnailUrl,
+    thumbnailUrl,
+    width,
+    height,
+    duration,
     usedIn: payload.usedIn || []
   };
 };
@@ -94,7 +110,7 @@ type GetFilesOptions =
   | {
       role?: string;
       visibility?: VisibilityOption;
-      type?: 'image' | 'video' | 'document' | 'other';
+      type?: 'image' | 'video' | 'document' | 'pdf' | 'other';
       search?: string;
       page?: number;
       limit?: number;

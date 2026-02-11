@@ -295,8 +295,10 @@ const CommunityDashboard: React.FC = () => {
   const [businessFollowBusy, setBusinessFollowBusy] = useState(false);
   const [paymentGateways, setPaymentGateways] = useState<PaymentGateway[]>([]);
   const [selectedGatewayId, setSelectedGatewayId] = useState('');
+  const [showPostMediaPicker, setShowPostMediaPicker] = useState(false);
   const [showAdMediaPicker, setShowAdMediaPicker] = useState(false);
   const [showStoryMediaPicker, setShowStoryMediaPicker] = useState(false);
+  const [assetPickerTarget, setAssetPickerTarget] = useState<'profile' | 'business-logo' | 'business-cover' | null>(null);
   const [adsConfig, setAdsConfig] = useState<any>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
@@ -306,7 +308,6 @@ const CommunityDashboard: React.FC = () => {
   const recordedChunksRef = useRef<Blob[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [replaceMediaId, setReplaceMediaId] = useState<string | null>(null);
-  const postMediaInputRef = useRef<HTMLInputElement | null>(null);
   const [postDraft, setPostDraft] = useState<PostDraft>({
     title: '',
     content: '',
@@ -947,21 +948,45 @@ const CommunityDashboard: React.FC = () => {
     }
   };
 
-  const handlePostMedia = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
+  const applySelectedPostMedia = (files: UploadedFile[]) => {
     if (!files.length) return;
     const replaceTarget = replaceMediaId;
     setReplaceMediaId(null);
-    if (replaceTarget) {
-      await queuePostMediaUpload(files[0], replaceTarget);
-    } else {
-      for (const file of files) {
-        await queuePostMediaUpload(file);
+    const mapped = files.map((file, index) => {
+      const mediaType = inferMediaType({
+        url: file.url,
+        mimeType: file.mimeType || file.mime_type,
+        type: file.type
+      }) as PostMediaItem['type'];
+      return {
+        localId: file.id || `media-${Date.now()}-${index}`,
+        id: file.id,
+        url: file.url,
+        name: file.name,
+        type: mediaType,
+        progress: 100,
+        uploading: false
+      } as PostMediaItem;
+    });
+    if (!mapped.length) return;
+
+    if (replaceTarget && mapped[0]) {
+      replacePostMedia(replaceTarget, mapped[0]);
+      if (mapped.length > 1) {
+        setPostDraft((prev) => ({ ...prev, media: [...prev.media, ...mapped.slice(1)] }));
       }
+      return;
     }
-    if (postMediaInputRef.current) {
-      postMediaInputRef.current.value = '';
-    }
+
+    setPostDraft((prev) => ({ ...prev, media: [...prev.media, ...mapped] }));
+  };
+
+  const handlePostMediaSelected = (file: UploadedFile) => {
+    applySelectedPostMedia([file]);
+  };
+
+  const handlePostMediaSelectedMultiple = (files: UploadedFile[]) => {
+    applySelectedPostMedia(files);
   };
 
   const handlePostMediaRemove = (localId: string) => {
@@ -977,7 +1002,7 @@ const CommunityDashboard: React.FC = () => {
 
   const handlePostMediaReplace = (localId: string) => {
     setReplaceMediaId(localId);
-    postMediaInputRef.current?.click();
+    setShowPostMediaPicker(true);
   };
 
   const handlePostSubmit = async () => {
@@ -998,7 +1023,7 @@ const CommunityDashboard: React.FC = () => {
       await CommunityService.createPost({
         title: postDraft.title.trim(),
         content: postDraft.content,
-        attachments: postDraft.media.map((m) => m.id).filter(Boolean),
+        attachmentFileIds: postDraft.media.map((m) => m.id).filter(Boolean),
         tags: postDraft.tags.split(',').map((t) => t.trim()).filter(Boolean),
         mentions: postDraft.mentions.split(',').map((m) => m.trim()).filter(Boolean),
         topic: postDraft.topic || undefined,
@@ -1380,28 +1405,14 @@ const CommunityDashboard: React.FC = () => {
     });
   };
 
-  const handleBusinessLogo = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      const uploaded = await FileService.uploadFile(file, 'community');
-      handleBusinessUpdate({ logoFileId: uploaded.id, logo: { id: uploaded.id, url: uploaded.url } });
-      showNotification('success', 'Business Page', 'Logo uploaded.');
-    } catch (error) {
-      showNotification('error', 'Business Page', 'Logo upload failed.');
-    }
+  const handleBusinessLogoSelected = (file: UploadedFile) => {
+    handleBusinessUpdate({ logoFileId: file.id, logo: { id: file.id, url: file.url } });
+    showNotification('success', 'Business Page', 'Logo selected from Uploaded Files.');
   };
 
-  const handleBusinessCover = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      const uploaded = await FileService.uploadFile(file, 'community');
-      handleBusinessUpdate({ coverFileId: uploaded.id, cover: { id: uploaded.id, url: uploaded.url } });
-      showNotification('success', 'Business Page', 'Cover image uploaded.');
-    } catch (error) {
-      showNotification('error', 'Business Page', 'Cover upload failed.');
-    }
+  const handleBusinessCoverSelected = (file: UploadedFile) => {
+    handleBusinessUpdate({ coverFileId: file.id, cover: { id: file.id, url: file.url } });
+    showNotification('success', 'Business Page', 'Cover selected from Uploaded Files.');
   };
 
   const handleBusinessFollowToggle = async () => {
@@ -1556,15 +1567,28 @@ const CommunityDashboard: React.FC = () => {
     }
   };
 
-  const handleProfilePhoto = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      const uploaded = await FileService.uploadFile(file, 'community');
-      setProfilePhoto({ id: uploaded.id, url: uploaded.url });
-    } catch (error) {
-      showNotification('error', 'Profile', 'Upload failed.');
+  const handleProfilePhotoSelected = (file: UploadedFile) => {
+    setProfilePhoto({ id: file.id, url: file.url });
+    showNotification('success', 'Profile', 'Photo selected from Uploaded Files.');
+  };
+
+  const openProfilePhotoPicker = () => setAssetPickerTarget('profile');
+  const openBusinessLogoPicker = () => setAssetPickerTarget('business-logo');
+  const openBusinessCoverPicker = () => setAssetPickerTarget('business-cover');
+
+  const handleAssetPickerSelect = (file: UploadedFile) => {
+    const target = assetPickerTarget;
+    setAssetPickerTarget(null);
+    if (!target) return;
+    if (target === 'profile') {
+      handleProfilePhotoSelected(file);
+      return;
     }
+    if (target === 'business-logo') {
+      handleBusinessLogoSelected(file);
+      return;
+    }
+    handleBusinessCoverSelected(file);
   };
 
   const handleAdSubmit = async (mode: 'draft' | 'submit' | 'pay') => {
@@ -1782,22 +1806,13 @@ const CommunityDashboard: React.FC = () => {
               type="button"
               onClick={() => {
                 setReplaceMediaId(null);
-                postMediaInputRef.current?.click();
+                setShowPostMediaPicker(true);
               }}
               className="rounded-full bg-slate-100 px-3 py-1 font-semibold uppercase text-slate-600 shadow-inner"
             >
               <Camera className="mr-1 inline h-3.5 w-3.5" />
-              Upload Media
+              Library / Upload
             </button>
-            <input
-              ref={postMediaInputRef}
-              type="file"
-              accept="image/*,video/*"
-              capture="environment"
-              multiple
-              onChange={handlePostMedia}
-              className="hidden"
-            />
             <button
               type="button"
               onClick={startCamera}
@@ -2584,10 +2599,13 @@ const CommunityDashboard: React.FC = () => {
                 <UserCircle className="mx-auto mt-3 h-10 w-10 text-slate-400" />
               )}
             </div>
-            <label className="cursor-pointer rounded-2xl border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">
-              Upload photo
-              <input type="file" accept="image/*" onChange={handleProfilePhoto} className="hidden" />
-            </label>
+            <button
+              type="button"
+              onClick={openProfilePhotoPicker}
+              className="rounded-2xl border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              Select photo
+            </button>
           </div>
           <div className="mt-4 space-y-3">
             <input
@@ -3075,10 +3093,13 @@ const CommunityDashboard: React.FC = () => {
                     <Building2 className="mx-auto mt-4 h-6 w-6 text-slate-400" />
                   )}
                   </div>
-                  <label className="cursor-pointer rounded-2xl border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">
-                    Upload logo
-                    <input type="file" accept="image/*" onChange={handleBusinessLogo} className="hidden" />
-                  </label>
+                  <button
+                    type="button"
+                    onClick={openBusinessLogoPicker}
+                    className="rounded-2xl border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Select logo
+                  </button>
                 </div>
               </div>
               <div>
@@ -3091,10 +3112,13 @@ const CommunityDashboard: React.FC = () => {
                       <div className="flex h-full items-center justify-center text-xs text-slate-400">No cover</div>
                     )}
                   </div>
-                  <label className="cursor-pointer rounded-2xl border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">
-                    Upload cover
-                    <input type="file" accept="image/*" onChange={handleBusinessCover} className="hidden" />
-                  </label>
+                  <button
+                    type="button"
+                    onClick={openBusinessCoverPicker}
+                    className="rounded-2xl border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Select cover
+                  </button>
                 </div>
               </div>
             </div>
@@ -3351,10 +3375,47 @@ const CommunityDashboard: React.FC = () => {
         renderContent()
       )}
       <FilePickerModal
+        open={showPostMediaPicker}
+        onClose={() => {
+          setShowPostMediaPicker(false);
+          setReplaceMediaId(null);
+        }}
+        onSelect={handlePostMediaSelected}
+        onSelectMultiple={handlePostMediaSelectedMultiple}
+        allowUpload
+        allowCamera
+        multiple={!replaceMediaId}
+        filterType="all"
+        acceptedTypes={['image', 'video', 'document']}
+        title={replaceMediaId ? 'Replace post attachment' : 'Select post media'}
+        role={user?.role}
+        visibility="public"
+      />
+      <FilePickerModal
+        open={Boolean(assetPickerTarget)}
+        onClose={() => setAssetPickerTarget(null)}
+        onSelect={handleAssetPickerSelect}
+        allowUpload
+        allowCamera
+        multiple={false}
+        filterType="image"
+        acceptedTypes={['image']}
+        title={
+          assetPickerTarget === 'profile'
+            ? 'Select profile photo'
+            : assetPickerTarget === 'business-logo'
+              ? 'Select business logo'
+              : 'Select cover image'
+        }
+        role={user?.role}
+        visibility="public"
+      />
+      <FilePickerModal
         open={showStoryMediaPicker}
         onClose={() => setShowStoryMediaPicker(false)}
         onSelect={handleStoryMediaSelected}
         allowUpload
+        allowCamera
         multiple={false}
         filterType="all"
         acceptedTypes={['image', 'video']}

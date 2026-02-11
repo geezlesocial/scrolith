@@ -15,6 +15,7 @@ import { ConfirmModal } from './ConfirmModal';
 import FilePickerModal from './FilePickerModal';
 import { UploadedFile } from '../../types';
 import { FileService } from '../../services/files';
+import MediaPreviewModal from '../../components/media/MediaPreviewModal';
 
 type Props = {
   role: 'freelancer' | 'employer';
@@ -216,7 +217,13 @@ export default function UploadedFilesManager({ role }: Props) {
                 {f.type === 'image' ? (
                   <img src={f.url} alt={f.name} className="w-full h-28 object-cover rounded-xl mb-2" />
                 ) : f.type === 'video' ? (
-                  <video src={f.url} className="w-full h-28 object-cover rounded-xl mb-2" />
+                  f.thumbnailUrl || f.thumbnail_url ? (
+                    <img src={f.thumbnailUrl || f.thumbnail_url || ''} alt={f.name} className="w-full h-28 object-cover rounded-xl mb-2" />
+                  ) : (
+                    <div className="w-full h-28 bg-gray-100 rounded-xl flex items-center justify-center mb-2 text-gray-400">
+                      <FileVideo className="w-10 h-10" />
+                    </div>
+                  )
                 ) : (
                   <div className="w-full h-28 bg-gray-50 rounded-xl flex items-center justify-center mb-2 text-gray-400">
                     <FileText className="w-10 h-10" />
@@ -289,62 +296,19 @@ export default function UploadedFilesManager({ role }: Props) {
         allowUpload
       />
 
-      {preview && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b flex items-center justify-between">
-              <div>
-                <div className="text-sm font-bold text-gray-900">{preview.name}</div>
-                <div className="text-xs text-gray-500">
-                  {preview.type} -{' '}
-                  {typeof preview.size === 'number' ? (preview.size / 1024 / 1024).toFixed(2) : '0.00'} MB
-                </div>
-              </div>
-              <button
-                onClick={() => setPreview(null)}
-                className="px-3 py-2 rounded-xl border text-sm font-bold hover:bg-gray-50"
-                type="button"
-              >
-                Close
-              </button>
-            </div>
-            <div className="p-6">
-              {preview.type === 'image' ? (
-                <img src={preview.url} alt={preview.name} className="w-full max-h-[60vh] object-contain rounded-xl" />
-              ) : preview.type === 'video' ? (
-                <video src={preview.url} controls className="w-full max-h-[60vh] rounded-xl" />
-              ) : (
-                <iframe title="document" src={preview.url} className="w-full h-[60vh] rounded-xl border" />
-              )}
-
-              <div className="mt-4 flex gap-2">
-                <button
-                  onClick={() => copyUrl(preview.url)}
-                  className="px-4 py-2 rounded-xl bg-gray-900 text-white text-sm font-bold hover:bg-gray-800 inline-flex items-center"
-                  type="button"
-                >
-                  <Copy className="w-4 h-4 mr-2" /> Copy URL
-                </button>
-                <a
-                  href={preview.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-4 py-2 rounded-xl border text-sm font-bold hover:bg-gray-50 inline-flex items-center"
-                >
-                  <ExternalLink className="w-4 h-4 mr-2" /> Open in new tab
-                </a>
-                <button
-                  onClick={() => openDelete(preview)}
-                  className="ml-auto px-4 py-2 rounded-xl border text-sm font-bold text-red-600 hover:bg-red-50 inline-flex items-center"
-                  type="button"
-                >
-                  <Trash2 className="w-4 h-4 mr-2" /> Delete
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <MediaPreviewModal
+        open={Boolean(preview)}
+        media={preview ? {
+          id: preview.id,
+          url: preview.url,
+          name: preview.name,
+          mimeType: preview.mimeType || preview.mime_type,
+          type: preview.type,
+          thumbnailUrl: preview.thumbnailUrl || preview.thumbnail_url || null,
+          duration: preview.duration
+        } : null}
+        onClose={() => setPreview(null)}
+      />
 
       <ConfirmModal
         isOpen={confirmDeleteOpen}

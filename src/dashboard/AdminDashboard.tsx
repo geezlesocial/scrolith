@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-    Home, ShoppingBag, DollarSign, CreditCard, LayoutTemplate, BookOpen, Megaphone, Users, HardDrive, Shield, FileText, LifeBuoy, Settings, Menu, X, Bell, LogOut, User, MessageSquare, Brain, PieChart, Clock, MessageCircle, Navigation, BarChart2, Globe
+import {
+    Home, ShoppingBag, DollarSign, CreditCard, LayoutTemplate, BookOpen, Megaphone, Users, HardDrive, Shield, FileText, LifeBuoy, Settings, Menu, X, Bell, LogOut, User, MessageSquare, Brain, PieChart, Clock, MessageCircle, Navigation, BarChart2, Globe, ExternalLink, RotateCcw, Sparkles, Bot
 } from 'lucide-react';
 import { useNotification } from "../context/NotificationContext";
 import { useUser } from "../context/UserContext";
 import RealtimeProvider from './shared/RealtimeProvider';
 import { useSearchParams } from 'react-router-dom';
 import { SupportService } from '../services/support'; 
+import { AdminService } from '../services/admin';
 
 // Import New Modules
 import Overview from './admin/Overview';
@@ -40,9 +41,11 @@ import CommerceEngagement from './admin/CommerceEngagement';
 import FormBuilder from './admin/FormBuilder';
 import GoogleSettings from './admin/GoogleSettings';
 import MonetizationManagement from './admin/MonetizationManagement';
+import RecommendationManagement from './admin/RecommendationManagement';
+import ScrolithaManagement from './admin/ScrolithaManagement';
 
 // Define valid tab types
-type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'blog' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings';
+type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'blog' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha';
 
 // Define navigation item interface
 interface NavItem {
@@ -64,6 +67,7 @@ const AdminDashboard: React.FC = () => {
     const { user, logout } = useUser();
     const [searchParams] = useSearchParams();
     const [showAdminNotifications, setShowAdminNotifications] = useState(false);
+    const [isClearingCache, setIsClearingCache] = useState(false);
     const adminNotifRef = useRef<HTMLDivElement>(null);
     const unreadNotificationCount = notifications.filter(n => !n.isRead).length;
 
@@ -79,7 +83,7 @@ const AdminDashboard: React.FC = () => {
         const validTabs: Tab[] = [
             'overview', 'analytics', 'listings', 'engagement', 'finance', 'gateways', 'cms', 
             'homepage', 'blog', 'marketing', 'users', 'monetization', 'files', 'staff', 'role-management', 'moderator-console', 'message-records', 'kyc', 
-            'support', 'system', 'profile', 'messages', 'ai', 'atm', 'community', 'navigation', 'reviews', 'languages', 'forms', 'google-settings'
+            'support', 'system', 'profile', 'messages', 'ai', 'atm', 'community', 'recommendations', 'navigation', 'reviews', 'languages', 'forms', 'google-settings', 'scrolitha'
         ];
         return validTabs.includes(tab as Tab);
     };
@@ -123,6 +127,72 @@ const AdminDashboard: React.FC = () => {
         if (actionUrl) window.location.href = actionUrl;
     };
 
+    const clearBrowserCachePreservingSession = async () => {
+        const localKeysToKeep = ['token', 'user'];
+        const sessionKeysToKeep = ['token', 'user'];
+
+        const preservedLocal = new Map<string, string>();
+        const preservedSession = new Map<string, string>();
+
+        for (const key of localKeysToKeep) {
+            const value = localStorage.getItem(key);
+            if (value !== null) preservedLocal.set(key, value);
+        }
+
+        for (const key of sessionKeysToKeep) {
+            const value = sessionStorage.getItem(key);
+            if (value !== null) preservedSession.set(key, value);
+        }
+
+        try {
+            localStorage.clear();
+            preservedLocal.forEach((value, key) => localStorage.setItem(key, value));
+        } catch {
+            // ignore storage clear issues in private mode / sandboxed browsers
+        }
+
+        try {
+            sessionStorage.clear();
+            preservedSession.forEach((value, key) => sessionStorage.setItem(key, value));
+        } catch {
+            // ignore storage clear issues in private mode / sandboxed browsers
+        }
+
+        if ('caches' in window) {
+            try {
+                const keys = await window.caches.keys();
+                await Promise.all(keys.map((key) => window.caches.delete(key)));
+            } catch {
+                // ignore Cache Storage API failures
+            }
+        }
+    };
+
+    const handleBrowseWebsite = () => {
+        window.location.href = '/';
+    };
+
+    const handleClearCache = async () => {
+        if (isClearingCache) return;
+        setIsClearingCache(true);
+        try {
+            const result = await AdminService.clearRuntimeCache();
+            await clearBrowserCachePreservingSession();
+            const cleared = Array.isArray(result?.cleared) ? result.cleared.join(', ') : 'runtime cache';
+            showNotification('success', 'Cache Cleared', `Successfully cleared: ${cleared}`);
+            window.location.reload();
+        } catch (error: any) {
+            const message =
+                error?.response?.data?.error ||
+                error?.response?.data?.message ||
+                error?.message ||
+                'Failed to clear cache';
+            showNotification('error', 'Cache Clear Failed', message);
+        } finally {
+            setIsClearingCache(false);
+        }
+    };
+
     // Strict Navigation Structure
     const navStructure: NavGroup[] = [
         { 
@@ -137,7 +207,8 @@ const AdminDashboard: React.FC = () => {
             title: 'Intelligence', 
             items: [
                 { id: 'ai', label: 'AI Intelligence', icon: Brain },
-                { id: 'atm', label: 'ATM Time Tracker', icon: Clock }
+                { id: 'atm', label: 'ATM Time Tracker', icon: Clock },
+                { id: 'scrolitha', label: 'Scrolitha', icon: Bot }
                 , { id: 'market-intelligence', label: 'Market Intelligence', icon: BarChart2 }
             ]
         },
@@ -168,6 +239,7 @@ const AdminDashboard: React.FC = () => {
             title: 'Community', 
             items: [
                 { id: 'community', label: 'Community & Forum', icon: MessageCircle },
+                { id: 'recommendations', label: 'Recommendations', icon: Sparkles },
                 { id: 'reviews', label: 'Reviews', icon: FileText }
             ] 
         },
@@ -227,6 +299,7 @@ const AdminDashboard: React.FC = () => {
             case 'messages': return <AdminMessages />;
             case 'ai': return <AIIntelligence />;
             case 'atm': return <ATMTrackerModule />;
+            case 'scrolitha': return <ScrolithaManagement />;
             case 'market-intelligence': return <MarketIntelligence />;
             case 'listings': return <ListingsManagementTab />;
             case 'engagement': return <CommerceEngagement />;
@@ -236,6 +309,7 @@ const AdminDashboard: React.FC = () => {
             case 'homepage': return <HomepageSettings />;
             case 'blog': return <BlogManagement />;
             case 'community': return <CommunityManagement />;
+            case 'recommendations': return <RecommendationManagement />;
             case 'reviews': return <AdminReviews />;
             case 'marketing': return <MarketingTab />;
             case 'users': return <UsersManagementTab />;
@@ -353,6 +427,27 @@ const AdminDashboard: React.FC = () => {
                         </h1>
                         
                         <div className="flex items-center space-x-4">
+                            <button
+                                onClick={handleBrowseWebsite}
+                                className="hidden md:inline-flex items-center px-3 py-1.5 bg-white border border-gray-300 rounded-full text-gray-700 text-sm font-medium hover:bg-gray-50 transition"
+                                title="Open platform website"
+                            >
+                                <ExternalLink className="w-4 h-4 mr-1.5" />
+                                Browse Website
+                            </button>
+                            <button
+                                onClick={handleClearCache}
+                                disabled={isClearingCache}
+                                className={`hidden md:inline-flex items-center px-3 py-1.5 border rounded-full text-sm font-medium transition ${
+                                    isClearingCache
+                                        ? 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
+                                        : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                                }`}
+                                title="Clear server and browser cache"
+                            >
+                                <RotateCcw className={`w-4 h-4 mr-1.5 ${isClearingCache ? 'animate-spin' : ''}`} />
+                                {isClearingCache ? 'Clearing...' : 'Clear Cache'}
+                            </button>
                             <div className="hidden md:flex items-center px-3 py-1.5 bg-green-50 border border-green-200 rounded-full text-green-700 text-sm font-medium">
                                 <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
                                 System Operational

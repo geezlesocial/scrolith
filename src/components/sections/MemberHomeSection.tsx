@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Briefcase,
   Camera,
   Compass,
   Edit3,
-  Image as ImageIcon,
+  FileText,
   Heart,
   MapPin,
   MessageCircle,
@@ -27,8 +27,10 @@ import { useNotification } from '../../context/NotificationContext';
 import { CommunityService } from '../../services/community';
 import { FileService } from '../../services/files';
 import { UserService } from '../../services/user';
+import { AIService } from '../../services/ai/ai.service';
 import { jobsApi, Job } from '../../services/jobs';
 import { gigsApi, Gig } from '../../services/gigs';
+import { RecoService } from '../../services/reco';
 import { MessagingService } from '../../services/messaging';
 import { SearchService } from '../../services/search';
 import FilePickerModal from '../../dashboard/shared/FilePickerModal';
@@ -41,8 +43,7 @@ import MentionText from '../../community/components/MentionText';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from '../../community/followState';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../community/storyStyles';
 import { resolveAssetUrl } from '../../utils/assetUrl';
-import { Capacitor } from '@capacitor/core';
-import { captureAndUpload } from '../../mobile/uploads';
+import MediaPreviewModal, { PreviewMedia } from '../media/MediaPreviewModal';
 
 type MemberHomeContent = {
   title?: string;
@@ -89,6 +90,11 @@ type MemberHomeContent = {
   freelancersTitle?: string;
   messagesTitle?: string;
   sliderTitle?: string;
+  featuredActionsTitle?: string;
+  projectBriefQuickActionTitle?: string;
+  projectBriefQuickActionSubtitle?: string;
+  gigCreationQuickActionTitle?: string;
+  gigCreationQuickActionSubtitle?: string;
   sliderItems?: {
     id?: string;
     title?: string;
@@ -104,7 +110,18 @@ type FeedPost = {
   id: string;
   title?: string;
   content?: string;
-  attachments?: { id?: string; url: string; name?: string; type?: string; mimeType?: string }[];
+  attachmentFileIds?: string[];
+  attachments?: {
+    id?: string;
+    url: string;
+    name?: string;
+    type?: string;
+    mimeType?: string;
+    thumbnailUrl?: string | null;
+    duration?: number | null;
+    width?: number | null;
+    height?: number | null;
+  }[];
   author?: {
     id?: string;
     username?: string | null;
@@ -150,6 +167,7 @@ type ProfileCard = {
   subtitle?: string;
   avatar?: string | null;
   username?: string;
+  entityType?: 'freelancer' | 'client';
   viewedAt?: string;
 };
 
@@ -182,6 +200,9 @@ type PostMediaItem = {
   url: string;
   name?: string;
   type?: 'image' | 'video' | 'document';
+  mimeType?: string;
+  thumbnailUrl?: string | null;
+  duration?: number | null;
   progress?: number;
   uploading?: boolean;
   error?: string;
@@ -369,8 +390,31 @@ const inferMediaType = (media: { url?: string; mimeType?: string; type?: string 
   return 'document';
 };
 
+const formatMediaDuration = (duration?: number | null) => {
+  if (!duration || Number.isNaN(duration)) return '';
+  const totalSeconds = Math.max(0, Math.round(Number(duration)));
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+const toPreviewMedia = (media: any): PreviewMedia | null => {
+  const url = String(media?.url || '').trim();
+  if (!url) return null;
+  return {
+    id: media?.id,
+    url,
+    name: media?.name,
+    mimeType: media?.mimeType || media?.mime_type,
+    type: media?.type,
+    thumbnailUrl: media?.thumbnailUrl || media?.thumbnail_url || null,
+    duration: media?.duration
+  };
+};
+
 const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const params = useParams<{ id?: string }>();
   const { user } = useUser();
   const { settings } = useContent();
@@ -466,6 +510,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     media: []
   });
   const [posting, setPosting] = useState(false);
+  const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
   const postMediaInputRef = useRef<HTMLInputElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [postPickerOpen, setPostPickerOpen] = useState(false);
@@ -476,6 +521,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const [isRecording, setIsRecording] = useState(false);
+  const [projectBriefOpen, setProjectBriefOpen] = useState(false);
+  const [projectBriefPrompt, setProjectBriefPrompt] = useState('');
+  const [projectBriefGenerating, setProjectBriefGenerating] = useState(false);
   const [conversations, setConversations] = useState<any[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [sliderItems, setSliderItems] = useState<any[]>([]);
@@ -542,6 +590,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const regions = dedupeLabels(content?.regions?.length ? content.regions : defaultRegions);
   const isFreelancer = (user?.role || '').toLowerCase() === 'freelancer';
   const isEmployer = (user?.role || '').toLowerCase() === 'employer';
+  const isGuest = !user || String(user?.role || '').toLowerCase() === 'guest';
   const currentUserId = String((user as any)?.id || (user as any)?.user_id || '').trim();
   const feedTabStorageKey = `member_home_feed_tab:${currentUserId || 'guest'}`;
   const feedTabInitializedRef = useRef(false);
@@ -602,19 +651,20 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     };
   }, []);
   const normalizeRecommendedPage = useCallback((page: any): RecommendedPageCard | null => {
-    const id = String(page?.id || '').trim();
+    const source = page?.account || page || {};
+    const id = String(source?.id || page?.entityId || page?.id || '').trim();
     if (!id) return null;
     return {
       id,
-      name: String(page?.name || 'Business page').trim() || 'Business page',
-      slug: page?.slug || page?.handle || '',
-      handle: page?.handle || '',
-      tagline: page?.tagline || page?.description || '',
-      industry: page?.industry || '',
-      avatar: page?.logo?.url || page?.logoUrl || null,
-      followersCount: Number(page?.followersCount || 0),
-      isFollowing: Boolean(page?.isFollowing),
-      followId: page?.followId || null
+      name: String(source?.name || page?.name || 'Business page').trim() || 'Business page',
+      slug: source?.pageSlug || source?.slug || page?.slug || page?.handle || '',
+      handle: source?.pageHandle || source?.handle || page?.handle || '',
+      tagline: source?.headline || source?.tagline || page?.tagline || page?.description || '',
+      industry: source?.industry || page?.industry || '',
+      avatar: source?.avatar || page?.logo?.url || page?.logoUrl || null,
+      followersCount: Number(source?.followersCount || page?.followersCount || 0),
+      isFollowing: Boolean(source?.isFollowing ?? page?.isFollowing),
+      followId: source?.followId || page?.followId || null
     };
   }, []);
   const storyTitle = content?.storyTitle || 'Stories';
@@ -627,6 +677,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const freelancersTitle = content?.freelancersTitle || 'Freelancers to connect';
   const messagesTitle = content?.messagesTitle || 'Recent messages';
   const sliderTitle = content?.sliderTitle || 'Highlights';
+  const featuredActionsTitle =
+    content?.featuredActionsTitle || (content as any)?.featured_actions_title || 'Featured';
+  const projectBriefQuickActionTitle =
+    content?.projectBriefQuickActionTitle ||
+    (content as any)?.project_brief_quick_action_title ||
+    'Scrolitha Project Brief';
+  const projectBriefQuickActionSubtitle =
+    content?.projectBriefQuickActionSubtitle ||
+    (content as any)?.project_brief_quick_action_subtitle ||
+    'Draft a professional project brief with AI';
+  const gigCreationQuickActionTitle =
+    content?.gigCreationQuickActionTitle ||
+    (content as any)?.gig_creation_quick_action_title ||
+    'Scrolitha Gig Creation';
+  const gigCreationQuickActionSubtitle =
+    content?.gigCreationQuickActionSubtitle ||
+    (content as any)?.gig_creation_quick_action_subtitle ||
+    'Generate your gig setup with AI guidance';
   const searchPlaceholder = content?.searchPlaceholder || 'Search posts, jobs, gigs, people, or pages';
   const searchHint = content?.searchHint || 'Search across posts, jobs, gigs, people, and pages.';
 
@@ -661,12 +729,21 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       id: post.id || `${authorId}-${Date.now()}`,
       title: post.title,
       content: post.content,
+      attachmentFileIds: Array.isArray(post.attachmentFileIds)
+        ? post.attachmentFileIds
+        : Array.isArray(post.attachments)
+          ? post.attachments.map((item: any) => item?.id).filter(Boolean)
+          : [],
       attachments: (post.attachments || []).map((item: any) => ({
         id: item.id || item.fileId,
         url: item.url || item,
         name: item.name || item.originalName || item.filename,
         mimeType: item.mimeType || item.mime_type,
-        type: item.type || inferMediaType(item)
+        type: item.type || inferMediaType(item),
+        thumbnailUrl: item.thumbnailUrl || item.thumbnail_url,
+        duration: item.duration,
+        width: item.width,
+        height: item.height
       })),
       author: {
         id: post.author?.id || (authorType === 'business' ? post.businessPage?.id : authorId),
@@ -812,14 +889,41 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     setViewersLoading(true);
     try {
       const tasks: Promise<any>[] = [];
-      tasks.push(showProfiles ? CommunityService.getTopContributors(maxProfiles) : Promise.resolve([]));
+      tasks.push(
+        showProfiles
+          ? Promise.allSettled([
+              RecoService.getAccounts({
+                surface: 'who_to_follow',
+                type: 'freelancer',
+                limit: Math.max(3, maxProfiles)
+              }),
+              RecoService.getAccounts({
+                surface: 'who_to_follow',
+                type: 'client',
+                limit: Math.max(2, Math.ceil(maxProfiles / 2))
+              })
+            ]).then((results) => {
+              const freelancerItems =
+                results[0].status === 'fulfilled' && Array.isArray(results[0].value) ? results[0].value : [];
+              const clientItems =
+                results[1].status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : [];
+              const merged = [...freelancerItems, ...clientItems];
+              if (merged.length) return merged;
+              return CommunityService.getTopContributors(maxProfiles);
+            })
+          : Promise.resolve([])
+      );
       tasks.push((showJobs || showEmployers) ? jobsApi.getJobs({ status: 'active', limit: maxJobs }) : Promise.resolve(null));
       tasks.push((showGigs || showFreelancers) ? gigsApi.getGigs({ status: 'active', limit: maxGigs }) : Promise.resolve(null));
       tasks.push(showProfileViewers ? UserService.getProfileViewers(user.id, maxProfileViewers) : Promise.resolve({ viewers: [] }));
       tasks.push(showProfileViewing ? UserService.getProfilesViewed(user.id, maxProfileViewing) : Promise.resolve({ viewed: [] }));
       tasks.push(
         showPagesRecommendations
-          ? CommunityService.getRecommendedBusinessPages(maxPagesRecommendations)
+          ? RecoService.getAccounts({
+              surface: 'member_home',
+              type: 'page',
+              limit: maxPagesRecommendations
+            }).catch(() => CommunityService.getRecommendedBusinessPages(maxPagesRecommendations))
           : Promise.resolve([])
       );
       tasks.push(
@@ -832,11 +936,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
 
       const nextProfiles = profilesRes.status === 'fulfilled' && Array.isArray(profilesRes.value)
         ? profilesRes.value.slice(0, maxProfiles).map((p: any) => ({
-            id: p.id || p.userId || p.user_id,
-            name: p.name || p.userName || 'Community member',
-            subtitle: p.title || p.bio || p.tagline || 'Recommended profile',
-            avatar: p.avatar || p.userAvatar,
-            username: p.username || p.user_name || p.userName || ''
+            id: (p?.account?.id || p?.entityId || p?.id || p?.userId || p?.user_id || '').toString(),
+            name: p?.account?.name || p?.name || p?.userName || 'Community member',
+            subtitle:
+              p?.account?.headline ||
+              p?.account?.category ||
+              p?.title ||
+              p?.bio ||
+              p?.tagline ||
+              'Recommended profile',
+            avatar: p?.account?.avatar || p?.avatar || p?.userAvatar,
+            username: p?.account?.username || p?.username || p?.user_name || p?.userName || '',
+            entityType: (p?.entityType || p?.account?.entityType || 'freelancer') as 'freelancer' | 'client'
           }))
         : [];
 
@@ -1192,6 +1303,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       updatePostMedia(localId, {
         id: uploaded.id,
         url: uploaded.url,
+        type: uploaded.type === 'video' ? 'video' : uploaded.type === 'image' ? 'image' : 'document',
+        mimeType: uploaded.mimeType || uploaded.mime_type,
+        thumbnailUrl: uploaded.thumbnailUrl || uploaded.thumbnail_url,
+        duration: uploaded.duration,
         uploading: false,
         progress: 100
       });
@@ -1215,7 +1330,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       id: file.id,
       url: file.url,
       name: file.name,
-      type: file.type === 'video' ? 'video' : file.type === 'image' ? 'image' : 'document'
+      type: file.type === 'video' ? 'video' : file.type === 'image' ? 'image' : 'document',
+      mimeType: file.mimeType || file.mime_type,
+      thumbnailUrl: file.thumbnailUrl || file.thumbnail_url,
+      duration: file.duration
     });
   }, [addPostMediaItem]);
 
@@ -1223,44 +1341,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     (files || []).forEach((file) => handlePostUploaded(file));
   }, [handlePostUploaded]);
 
-  const startCamera = useCallback(async () => {
-    if (!user) return;
-    if (Capacitor.isNativePlatform()) {
-      try {
-        const uploaded = await captureAndUpload({
-          category: 'community',
-          role: user.role,
-          visibility: postDraft.visibility === 'private' ? 'private' : 'public',
-          userId: user.id
-        });
-        addPostMediaItem({
-          localId: `native-${Date.now()}`,
-          id: uploaded.id,
-          url: uploaded.url,
-          name: uploaded.name,
-          type: uploaded.type === 'video' ? 'video' : 'image'
-        });
-        showNotification('success', 'Media', 'Camera upload added.');
-      } catch (error) {
-        console.error(error);
-        showNotification('error', 'Camera', 'Unable to access camera.');
-      }
-      return;
-    }
-
-    if (!navigator.mediaDevices?.getUserMedia) {
-      showNotification('warning', 'Camera', 'Camera access is not available in this browser.');
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      setCameraStream(stream);
-      setCameraOpen(true);
-    } catch (error) {
-      console.error(error);
-      showNotification('error', 'Camera', 'Unable to access camera.');
-    }
-  }, [addPostMediaItem, postDraft.visibility, showNotification, user]);
+  const startCamera = useCallback(() => {
+    setPostPickerOpen(true);
+  }, []);
 
   const stopCamera = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
@@ -1356,7 +1439,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       const created = await CommunityService.createPost({
         title: postDraft.title.trim(),
         content: postDraft.content,
-        attachments: postDraft.media.map((m) => m.id).filter(Boolean) as string[],
+        attachmentFileIds: postDraft.media.map((m) => m.id).filter(Boolean) as string[],
         tags: postDraft.tags.split(',').map((t) => t.trim()).filter(Boolean),
         mentions: postDraft.mentions.split(',').map((m) => m.trim()).filter(Boolean),
         topic: postDraft.topic || undefined,
@@ -1444,7 +1527,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       const updated = await CommunityService.updatePost(editingPostId, {
         title: editingDraft.title.trim(),
         content: editingDraft.content,
-        attachments: editingDraft.media.map((media) => media.id).filter(Boolean) as string[],
+        attachmentFileIds: editingDraft.media.map((media) => media.id).filter(Boolean) as string[],
         tags: parseList(editingDraft.tags),
         mentions: parseList(editingDraft.mentions),
         topic: editingDraft.topic || undefined,
@@ -1700,6 +1783,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       const created = await CommunityService.createStory({
         type,
         mediaFileId: uploaded.id,
+        caption: storyDraft.content?.trim() || undefined,
         visibility: storyDraft.visibility
       });
       setStories((prev) => filterActiveStories([created, ...prev]).slice(0, maxStories));
@@ -1720,6 +1804,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       const created = await CommunityService.createStory({
         type,
         mediaFileId: file.id,
+        caption: storyDraft.content?.trim() || undefined,
         visibility: storyDraft.visibility
       });
       setStories((prev) => filterActiveStories([created, ...prev]).slice(0, maxStories));
@@ -1733,43 +1818,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     }
   }, [maxStories, showNotification, storyDraft.visibility]);
 
-  const startStoryCamera = useCallback(async () => {
-    if (!user) return;
-    if (Capacitor.isNativePlatform()) {
-      try {
-        const uploaded = await captureAndUpload({
-          category: 'community',
-          role: user.role,
-          visibility: isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public',
-          userId: user.id
-        });
-        const created = await CommunityService.createStory({
-          type: 'image',
-          mediaFileId: uploaded.id,
-          visibility: storyDraft.visibility
-        });
-        setStories((prev) => filterActiveStories([created, ...prev]).slice(0, maxStories));
-        showNotification('success', 'Stories', 'Your story is live.');
-      } catch (error) {
-        console.error(error);
-        showNotification('error', 'Camera', 'Unable to access camera.');
-      }
-      return;
-    }
-
-    if (!navigator.mediaDevices?.getUserMedia) {
-      showNotification('warning', 'Camera', 'Camera access is not available in this browser.');
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      setStoryCameraStream(stream);
-      setStoryCameraOpen(true);
-    } catch (error) {
-      console.error(error);
-      showNotification('error', 'Camera', 'Unable to access camera.');
-    }
-  }, [maxStories, showNotification, storyDraft.visibility, user]);
+  const startStoryCamera = useCallback(() => {
+    setStoryPickerOpen(true);
+  }, []);
 
   const stopStoryCamera = useCallback(() => {
     if (storyRecorderRef.current && storyRecording) {
@@ -1949,6 +2000,31 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     const refreshStories = () => loadStories();
     const refreshSlider = () => loadSlider();
     const refreshSidebar = () => scheduleSidebarRefresh();
+    const handlePostCreated = (payload: any) => {
+      const created = payload?.post || payload;
+      if (!created?.id) {
+        refreshFeed();
+        return;
+      }
+      const normalized = normalizePost(created);
+      setFeedItems((prev) => {
+        if (prev.some((item) => item.id === normalized.id)) return prev;
+        return [normalized, ...prev];
+      });
+      syncCommentCount(normalized.id, normalized.interactions?.comments ?? 0);
+    };
+    const handleStoryCreated = (payload: any) => {
+      const created = payload?.story || payload;
+      if (!created?.id) {
+        refreshStories();
+        return;
+      }
+      setStories((prev) => {
+        const exists = prev.some((story) => story.id === created.id);
+        if (exists) return prev;
+        return filterActiveStories([created, ...prev]);
+      });
+    };
     const handleStoryUpdated = (payload: any) => {
       const updated = payload?.story || payload;
       if (updated?.id) {
@@ -1985,27 +2061,31 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
           : current
       );
     };
-    socket.on('community:post_created', refreshFeed);
+    socket.on('community:post_created', handlePostCreated);
     socket.on('community:post_updated', refreshFeed);
     socket.on('community:post_deleted', refreshFeed);
-    socket.on('community:story_created', refreshStories);
+    socket.on('community:story_created', handleStoryCreated);
     socket.on('community:story_deleted', refreshStories);
     socket.on('community:story_updated', handleStoryUpdated);
     socket.on('community:story_liked', handleStoryLiked);
     socket.on('community:homepage_updated', refreshSlider);
     socket.on('community:profile_view_logged', refreshSidebar);
+    socket.on('reco:config_updated', refreshSidebar);
+    socket.on('reco:rules_updated', refreshSidebar);
     return () => {
-      socket.off('community:post_created', refreshFeed);
+      socket.off('community:post_created', handlePostCreated);
       socket.off('community:post_updated', refreshFeed);
       socket.off('community:post_deleted', refreshFeed);
-      socket.off('community:story_created', refreshStories);
+      socket.off('community:story_created', handleStoryCreated);
       socket.off('community:story_deleted', refreshStories);
       socket.off('community:story_updated', handleStoryUpdated);
       socket.off('community:story_liked', handleStoryLiked);
       socket.off('community:homepage_updated', refreshSlider);
       socket.off('community:profile_view_logged', refreshSidebar);
+      socket.off('reco:config_updated', refreshSidebar);
+      socket.off('reco:rules_updated', refreshSidebar);
     };
-  }, [socket, user, loadFeed, loadStories, loadSlider, scheduleSidebarRefresh, applyStoryUpdate]);
+  }, [socket, user, loadFeed, loadStories, loadSlider, scheduleSidebarRefresh, applyStoryUpdate, normalizePost, syncCommentCount, filterActiveStories]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -2080,7 +2160,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     const id = window.setInterval(() => {
       loadFeed();
       loadSidebar();
-    }, 45000);
+    }, 60000);
     return () => window.clearInterval(id);
   }, [socket, user, loadFeed, loadSidebar]);
 
@@ -2160,6 +2240,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     setFollowingIds((prev) => new Set(prev).add(target.id));
     try {
       await CommunityService.followTarget({ targetType: 'user', targetId: target.id });
+      void RecoService.submitFeedback({
+        surface: 'who_to_follow',
+        entityType: target.entityType || 'freelancer',
+        entityId: target.id,
+        action: 'follow'
+      }).catch(() => null);
       showNotification('success', 'Following', `You are now following ${target.name}.`);
     } catch (error: any) {
       console.error('Follow failed', error);
@@ -2222,6 +2308,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       } else {
         const response = await CommunityService.followTarget({ targetType: 'page', targetId: pageId });
         const followId = response?.id || response?.data?.id || null;
+        void RecoService.submitFeedback({
+          surface: 'member_home',
+          entityType: 'page',
+          entityId: pageId,
+          action: 'follow'
+        }).catch(() => null);
         setRecommendedPages((current) =>
           current.map((entry) =>
             entry.id === pageId ? { ...entry, followId, isFollowing: true } : entry
@@ -2340,26 +2432,57 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         {attachments.map((media) => {
           const type = inferMediaType(media || {});
+          const preview = toPreviewMedia(media);
+          const durationLabel = formatMediaDuration((media as any)?.duration);
           if (type === 'video') {
             return (
-              <div key={media.id || media.url} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                <video src={media.url} controls className="h-44 w-full object-cover" />
-              </div>
+              <button
+                key={media.id || media.url}
+                type="button"
+                onClick={() => preview && setPreviewMedia(preview)}
+                className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
+              >
+                {(media as any)?.thumbnailUrl ? (
+                  <img src={(media as any).thumbnailUrl} alt={media.name || 'Video preview'} className="h-44 w-full object-cover" />
+                ) : (
+                  <div className="flex h-44 w-full items-center justify-center bg-slate-200">
+                    <Video className="h-10 w-10 text-slate-500" />
+                  </div>
+                )}
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20">
+                  <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-slate-800">Play</div>
+                </div>
+                {durationLabel && (
+                  <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                    {durationLabel}
+                  </span>
+                )}
+              </button>
             );
           }
           if (type === 'image') {
             return (
-              <div key={media.id || media.url} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+              <button
+                key={media.id || media.url}
+                type="button"
+                onClick={() => preview && setPreviewMedia(preview)}
+                className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
+              >
                 <img src={media.url} alt={media.name || 'Post media'} className="h-44 w-full object-cover" />
-              </div>
+              </button>
             );
           }
+          const isPdf = String(media.mimeType || '').toLowerCase() === 'application/pdf' || String(media.url || '').toLowerCase().endsWith('.pdf');
           return (
-            <div key={media.id || media.url} className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-              <a href={media.url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
-                {media.name || media.url?.split('/').pop() || 'View attachment'}
-              </a>
-            </div>
+            <button
+              key={media.id || media.url}
+              type="button"
+              onClick={() => preview && setPreviewMedia(preview)}
+              className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-left text-xs text-slate-600 hover:bg-slate-100"
+            >
+              <p className="truncate font-semibold text-slate-700">{media.name || media.url?.split('/').pop() || 'Attachment'}</p>
+              <p className="mt-1 text-[11px] text-slate-500">{isPdf ? 'PDF document' : 'Document'}</p>
+            </button>
           );
         })}
       </div>
@@ -2371,6 +2494,58 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     window.setTimeout(() => composerInputRef.current?.focus(), 250);
   }, [showComposer]);
+
+  const routeToAuth = useCallback(
+    (mode: 'login' | 'signup', action: 'project_brief' | 'gig_creation') => {
+      const cleanPrompt = projectBriefPrompt.trim();
+      if (action === 'project_brief' && cleanPrompt) {
+        sessionStorage.setItem('scrolitha_pending_project_prompt', cleanPrompt);
+      }
+      const redirect =
+        action === 'project_brief'
+          ? encodeURIComponent('/create-job?mode=ai_draft')
+          : encodeURIComponent('/create-gig?mode=ai');
+      navigate(`/auth/${mode}?redirect=${redirect}&source=member_home_${action}`);
+    },
+    [navigate, projectBriefPrompt]
+  );
+
+  const handleFeaturedGigCreation = useCallback(() => {
+    if (isGuest) {
+      showNotification('warning', 'Login Required', 'Please login or register to continue with AI gig creation.');
+      routeToAuth('login', 'gig_creation');
+      return;
+    }
+    navigate('/create-gig?mode=ai');
+  }, [isGuest, navigate, routeToAuth, showNotification]);
+
+  const handleFeaturedProjectBrief = useCallback(async () => {
+    const prompt = projectBriefPrompt.trim();
+    if (!prompt) {
+      showNotification('warning', 'Prompt Required', 'Please describe your project before building a brief.');
+      return;
+    }
+
+    if (isGuest) {
+      showNotification('warning', 'Login Required', 'Please login or register to build a project brief.');
+      routeToAuth('login', 'project_brief');
+      return;
+    }
+
+    setProjectBriefGenerating(true);
+    try {
+      const brief = await AIService.generateProjectBrief({ prompt });
+      sessionStorage.setItem('ai_job_brief', JSON.stringify(brief));
+      setProjectBriefOpen(false);
+      showNotification('success', 'Brief Generated', 'Redirecting to job creation...');
+      navigate('/create-job?mode=ai_draft');
+    } catch (error) {
+      console.error('Featured project brief generation failed:', error);
+      showNotification('alert', 'Error', 'Could not generate brief. Please try again.');
+    } finally {
+      setProjectBriefGenerating(false);
+    }
+  }, [isGuest, navigate, projectBriefPrompt, routeToAuth, showNotification]);
 
   return (
     <section className="relative bg-[#f3f2ef] py-12 text-base sm:text-[17px] leading-relaxed">
@@ -2536,6 +2711,42 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   Messages
                   <MessageCircle className="h-4 w-4 text-slate-400" />
                 </Link>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-blue-50 p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-500">{featuredActionsTitle}</p>
+                  <Sparkles className="h-4 w-4 text-indigo-500" />
+                </div>
+                <div className="mt-2 space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setProjectBriefOpen(true)}
+                    className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-left hover:border-indigo-300 hover:bg-indigo-50/40"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">{projectBriefQuickActionTitle}</p>
+                        <p className="text-xs text-slate-500">{projectBriefQuickActionSubtitle}</p>
+                      </div>
+                      <FileText className="h-4 w-4 text-indigo-500" />
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleFeaturedGigCreation}
+                    className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 text-left hover:border-indigo-300 hover:bg-indigo-50/40"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">{gigCreationQuickActionTitle}</p>
+                        <p className="text-xs text-slate-500">{gigCreationQuickActionSubtitle}</p>
+                      </div>
+                      <Briefcase className="h-4 w-4 text-indigo-500" />
+                    </div>
+                  </button>
+                </div>
               </div>
             </div>
           </aside>
@@ -2860,6 +3071,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                         <div className="grid gap-3 md:grid-cols-2">
                           {postDraft.media.map((media) => {
                             const type = media.type || inferMediaType(media);
+                            const durationLabel = formatMediaDuration(media.duration);
                             return (
                               <div key={media.localId} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
                                 <button
@@ -2870,13 +3082,40 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                                   <X className="h-4 w-4" />
                                 </button>
                                 {type === 'video' ? (
-                                  <video src={media.url} className="h-40 w-full object-cover" controls />
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewMedia(toPreviewMedia(media))}
+                                    className="relative block h-40 w-full"
+                                  >
+                                    {media.thumbnailUrl ? (
+                                      <img src={media.thumbnailUrl} alt={media.name || 'Video preview'} className="h-40 w-full object-cover" />
+                                    ) : (
+                                      <div className="flex h-40 w-full items-center justify-center bg-slate-200">
+                                        <Video className="h-8 w-8 text-slate-500" />
+                                      </div>
+                                    )}
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                                      <div className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-slate-900">Play</div>
+                                    </div>
+                                    {durationLabel && (
+                                      <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                                        {durationLabel}
+                                      </span>
+                                    )}
+                                  </button>
                                 ) : type === 'image' ? (
-                                  <img src={media.url} alt={media.name || 'Post media'} className="h-40 w-full object-cover" />
+                                  <button type="button" onClick={() => setPreviewMedia(toPreviewMedia(media))} className="block h-40 w-full">
+                                    <img src={media.url} alt={media.name || 'Post media'} className="h-40 w-full object-cover" />
+                                  </button>
                                 ) : (
-                                  <div className="flex h-40 w-full items-center justify-center p-4 text-xs text-slate-500">
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewMedia(toPreviewMedia(media))}
+                                    className="flex h-40 w-full flex-col items-center justify-center p-4 text-xs text-slate-500"
+                                  >
+                                    <FileText className="mb-2 h-6 w-6 text-slate-400" />
                                     {media.name || 'Attachment'}
-                                  </div>
+                                  </button>
                                 )}
                                 {media.uploading && (
                                   <div className="absolute inset-0 flex items-center justify-center bg-white/70 text-xs font-semibold text-slate-600">
@@ -2898,14 +3137,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
 
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => postMediaInputRef.current?.click()}
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
-                      >
-                        <ImageIcon className="h-4 w-4" />
-                        Upload media
-                      </button>
                       <button
                         type="button"
                         onClick={() => setPostPickerOpen(true)}
@@ -2932,15 +3163,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                       {posting ? 'Posting...' : 'Post update'}
                     </button>
                   </div>
-
-                  <input
-                    ref={postMediaInputRef}
-                    type="file"
-                    multiple
-                    accept="image/*,video/*"
-                    className="hidden"
-                    onChange={handlePostMedia}
-                  />
                 </div>
               )}
             </div>
@@ -3729,8 +3951,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         allowCamera
         multiple
         filterType="all"
-        acceptedTypes={['image', 'video']}
-        title="Add media from uploads"
+        acceptedTypes={['image', 'video', 'document']}
+        title="Add media"
         role={user?.role}
         visibility={postDraft.visibility === 'private' ? 'private' : 'public'}
       />
@@ -3740,6 +3962,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         onClose={() => setStoryPickerOpen(false)}
         onSelect={handleStoryMediaSelected}
         allowUpload
+        allowCamera
         multiple={false}
         filterType="all"
         acceptedTypes={['image', 'video']}
@@ -3747,6 +3970,73 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         role={user?.role}
         visibility={isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public'}
       />
+
+      {projectBriefOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Scrolitha Project Brief</h3>
+                <p className="text-xs text-slate-500">Describe your project and let AI prepare your draft brief.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (projectBriefGenerating) return;
+                  setProjectBriefOpen(false);
+                }}
+                className="text-slate-500 hover:text-slate-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <textarea
+              value={projectBriefPrompt}
+              onChange={(event) => setProjectBriefPrompt(event.target.value)}
+              placeholder="e.g. I need a modern logo and brand kit for my coffee business..."
+              className="mt-4 min-h-[140px] w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700 focus:border-slate-400 focus:outline-none"
+              disabled={projectBriefGenerating}
+            />
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-slate-500">
+                {isGuest
+                  ? 'Login or register is required before generating the final brief.'
+                  : 'Your generated brief will be attached to the AI job creation flow.'}
+              </p>
+              <div className="flex items-center gap-2">
+                {isGuest && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => routeToAuth('login', 'project_brief')}
+                      className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700"
+                    >
+                      Login
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => routeToAuth('signup', 'project_brief')}
+                      className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700"
+                    >
+                      Register
+                    </button>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={handleFeaturedProjectBrief}
+                  disabled={projectBriefGenerating || !projectBriefPrompt.trim()}
+                  className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-60"
+                >
+                  {projectBriefGenerating ? 'Building...' : isGuest ? 'Login to Build Brief' : 'Build Brief'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {storyTextOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
@@ -4105,7 +4395,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                 const mediaUrl = resolveStoryMediaUrl(activeStory);
                 if (mediaUrl) {
                   return activeStory.type === 'video' ? (
-                    <video src={mediaUrl} controls className="h-80 w-full object-cover" />
+                    <video src={mediaUrl} controls autoPlay muted playsInline className="h-80 w-full object-contain bg-black" />
                   ) : (
                     <img src={mediaUrl} alt="Story" className="h-80 w-full object-cover" />
                   );
@@ -4157,6 +4447,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
           </div>
         </div>
       )}
+
+      <MediaPreviewModal
+        open={Boolean(previewMedia)}
+        media={previewMedia}
+        onClose={() => setPreviewMedia(null)}
+      />
     </section>
   );
 };

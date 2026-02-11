@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Edit2, Trash2, Save, ArrowLeft, Image as ImageIcon, Link as LinkIcon, Type, Eye, Upload, X, Code, Bold, Italic, List, Video, Folder, Globe, Settings, Mail } from 'lucide-react';
+import { Plus, Edit2, Trash2, Save, ArrowLeft, Image as ImageIcon, Link as LinkIcon, Eye, Upload, X, Code, Bold, Italic, List, Video, Folder, Globe, Settings, Mail, Underline, ListOrdered, Quote, Heading1, Heading2, Pilcrow } from 'lucide-react';
 import { StaticPage, PageCategory, MediaItem, ContentBlock, BlogCategory, BlogSettings, AnswersPageConfig, GuidesPageConfig, HirePageConfig, FreelancerPageConfig } from '../../types';
 import { CMSService } from '../../services/cms';
 import { useNotification } from '../../context/NotificationContext';
@@ -8,6 +8,110 @@ import { useSocket } from '../../context/SocketContext';
 import FilePickerModal from '../shared/FilePickerModal';
 import AuthPagesManager from './AuthPagesManager';
 import SystemMessagesManager from './SystemMessagesManager';
+
+type ContentEditorMode = 'html' | 'plain';
+
+const escapeHtml = (value: string) =>
+    String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+const decodeEntities = (value: string) => {
+    if (typeof window === 'undefined') return value;
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = value;
+    return textarea.value;
+};
+
+const htmlToPlainText = (html: string) => {
+    const source = String(html || '').replace(/\r\n/g, '\n');
+    const withBreaks = source
+        .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+        .replace(/<\s*\/\s*(p|div|h1|h2|h3|h4|h5|h6|blockquote|pre)\s*>/gi, '\n')
+        .replace(/<\s*li[^>]*>/gi, '\n- ')
+        .replace(/<\s*\/\s*li\s*>/gi, '');
+    const withoutTags = withBreaks.replace(/<[^>]*>/g, '');
+    return decodeEntities(withoutTags)
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+};
+
+const autoLinkText = (text: string) =>
+    text.replace(
+        /((https?:\/\/|www\.)[^\s<]+)/gi,
+        (match) => `<a href="${match.startsWith('http') ? match : `https://${match}`}" target="_blank" rel="noopener noreferrer">${match}</a>`
+    );
+
+const formatInlinePlainText = (line: string) => {
+    let output = escapeHtml(line);
+    output = output.replace(/`([^`]+)`/g, '<code>$1</code>');
+    output = output.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    output = output.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    output = output.replace(/__([^_]+)__/g, '<u>$1</u>');
+    output = autoLinkText(output);
+    return output;
+};
+
+const plainTextToHtml = (plainText: string) => {
+    const lines = String(plainText || '').replace(/\r\n/g, '\n').split('\n');
+    const html: string[] = [];
+    let ulItems: string[] = [];
+    let olItems: string[] = [];
+
+    const flushUl = () => {
+        if (!ulItems.length) return;
+        html.push(`<ul>\n${ulItems.map((item) => `  <li>${item}</li>`).join('\n')}\n</ul>`);
+        ulItems = [];
+    };
+    const flushOl = () => {
+        if (!olItems.length) return;
+        html.push(`<ol>\n${olItems.map((item) => `  <li>${item}</li>`).join('\n')}\n</ol>`);
+        olItems = [];
+    };
+    const flushLists = () => {
+        flushUl();
+        flushOl();
+    };
+
+    for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) {
+            flushLists();
+            continue;
+        }
+
+        if (/^[-*]\s+/.test(line)) {
+            flushOl();
+            ulItems.push(formatInlinePlainText(line.replace(/^[-*]\s+/, '')));
+            continue;
+        }
+        if (/^\d+\.\s+/.test(line)) {
+            flushUl();
+            olItems.push(formatInlinePlainText(line.replace(/^\d+\.\s+/, '')));
+            continue;
+        }
+
+        flushLists();
+        if (/^###\s+/.test(line)) {
+            html.push(`<h3>${formatInlinePlainText(line.replace(/^###\s+/, ''))}</h3>`);
+        } else if (/^##\s+/.test(line)) {
+            html.push(`<h2>${formatInlinePlainText(line.replace(/^##\s+/, ''))}</h2>`);
+        } else if (/^#\s+/.test(line)) {
+            html.push(`<h1>${formatInlinePlainText(line.replace(/^#\s+/, ''))}</h1>`);
+        } else if (/^>\s+/.test(line)) {
+            html.push(`<blockquote>${formatInlinePlainText(line.replace(/^>\s+/, ''))}</blockquote>`);
+        } else {
+            html.push(`<p>${formatInlinePlainText(line)}</p>`);
+        }
+    }
+
+    flushLists();
+    if (!html.length) return '<p></p>';
+    return html.join('\n');
+};
 
 const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab, setView }: any) => (
     <button 
@@ -23,6 +127,8 @@ const CMSPages = () => {
     const [categories, setCategories] = useState<PageCategory[]>([]);
     const [view, setView] = useState<'list' | 'editor' | 'categories' | 'auth-pages' | 'system-messages' | 'answers' | 'guides' | 'hire' | 'freelancer'>('list');
     const [editingPage, setEditingPage] = useState<StaticPage | null>(null);
+    const [editorMode, setEditorMode] = useState<ContentEditorMode>('html');
+    const [plainTextDraft, setPlainTextDraft] = useState('');
     const [isPreviewing, setIsPreviewing] = useState(false);
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
     const [filePickerType, setFilePickerType] = useState<'image' | 'video'>('image');
@@ -70,11 +176,12 @@ const CMSPages = () => {
     // --- Page Actions ---
 
     const handleCreate = () => {
+        const initialContent = '<p>Start writing your page content here...</p>';
         setEditingPage({
             id: Math.random().toString(36).substr(2, 9),
             title: '',
             slug: '',
-            content: '',
+            content: initialContent,
             blocks: [],
             status: 'DRAFT',
             visibility: 'public',
@@ -84,16 +191,22 @@ const CMSPages = () => {
             images: [],
             videos: []
         });
+        setEditorMode('html');
+        setPlainTextDraft(htmlToPlainText(initialContent));
         setView('editor');
     };
 
     const handleEdit = (page: StaticPage) => {
+        const content = String(page?.content || '<p></p>');
         setEditingPage({ 
             ...page, 
+            content,
             seo: page.seo || { metaTitle: '', metaDescription: '' },
             images: page.images || [],
             videos: page.videos || []
         });
+        setPlainTextDraft(htmlToPlainText(content));
+        setEditorMode('html');
         setView('editor');
     };
 
@@ -151,24 +264,81 @@ const CMSPages = () => {
 
     // --- Editor Helpers ---
 
-    const insertTag = (tag: string) => {
+    const updateContentFromPlainText = (value: string) => {
+        if (!editingPage) return;
+        setPlainTextDraft(value);
+        setEditingPage({ ...editingPage, content: plainTextToHtml(value) });
+    };
+
+    const insertTextAtSelection = (before: string, after: string = '', fallbackText = 'Content') => {
         if (!contentRef.current || !editingPage) return;
         const textarea = contentRef.current;
         const start = textarea.selectionStart;
         const end = textarea.selectionEnd;
-        const text = textarea.value;
-        
-        let insertion = '';
-        if (tag === 'img') insertion = `<img src="URL_HERE" alt="Image" class="w-full rounded-lg my-4" />`;
-        else if (tag === 'video') insertion = `<div class="aspect-video my-4"><iframe src="EMBED_URL" class="w-full h-full"></iframe></div>`;
-        else if (tag === 'a') insertion = `<a href="#" class="text-blue-600 hover:underline">Link Text</a>`;
-        else insertion = `<${tag}>${text.substring(start, end) || 'Content'}</${tag}>`;
+        const source = editorMode === 'plain' ? plainTextDraft : editingPage.content;
+        const selected = source.substring(start, end) || fallbackText;
+        const next = `${source.substring(0, start)}${before}${selected}${after}${source.substring(end)}`;
+        if (editorMode === 'plain') {
+            updateContentFromPlainText(next);
+        } else {
+            setEditingPage({ ...editingPage, content: next });
+        }
+        setTimeout(() => {
+            textarea.focus();
+            const cursorStart = start + before.length;
+            const cursorEnd = cursorStart + selected.length;
+            textarea.setSelectionRange(cursorStart, cursorEnd);
+        }, 0);
+    };
 
-        const newContent = text.substring(0, start) + insertion + text.substring(end);
-        setEditingPage({ ...editingPage, content: newContent });
-        
-        // Restore focus (simplified)
-        setTimeout(() => textarea.focus(), 0);
+    const insertTag = (tag: string) => {
+        if (!editingPage) return;
+        const htmlActions: Record<string, () => void> = {
+            b: () => insertTextAtSelection('<strong>', '</strong>', 'Bold text'),
+            i: () => insertTextAtSelection('<em>', '</em>', 'Italic text'),
+            u: () => insertTextAtSelection('<u>', '</u>', 'Underlined text'),
+            p: () => insertTextAtSelection('<p>', '</p>', 'Paragraph text'),
+            h1: () => insertTextAtSelection('<h1>', '</h1>', 'Main heading'),
+            h2: () => insertTextAtSelection('<h2>', '</h2>', 'Section heading'),
+            ul: () => insertTextAtSelection('<ul>\n  <li>', '</li>\n</ul>', 'List item'),
+            ol: () => insertTextAtSelection('<ol>\n  <li>', '</li>\n</ol>', 'List item'),
+            quote: () => insertTextAtSelection('<blockquote>', '</blockquote>', 'Quote'),
+            code: () => insertTextAtSelection('<pre><code>', '</code></pre>', 'Code snippet'),
+            a: () => insertTextAtSelection('<a href="https://" target="_blank" rel="noopener noreferrer">', '</a>', 'Link text'),
+            img: () => insertTextAtSelection('<img src="URL_HERE" alt="Image" class="w-full rounded-lg my-4" />', '', ''),
+            video: () => insertTextAtSelection('<video src="VIDEO_URL_HERE" controls class="w-full rounded-lg my-4"></video>', '', '')
+        };
+
+        const plainActions: Record<string, () => void> = {
+            b: () => insertTextAtSelection('**', '**', 'bold text'),
+            i: () => insertTextAtSelection('*', '*', 'italic text'),
+            u: () => insertTextAtSelection('__', '__', 'underlined text'),
+            p: () => insertTextAtSelection('', '', 'Paragraph text'),
+            h1: () => insertTextAtSelection('# ', '', 'Main heading'),
+            h2: () => insertTextAtSelection('## ', '', 'Section heading'),
+            ul: () => insertTextAtSelection('- ', '', 'List item'),
+            ol: () => insertTextAtSelection('1. ', '', 'List item'),
+            quote: () => insertTextAtSelection('> ', '', 'Quote'),
+            code: () => insertTextAtSelection('`', '`', 'code'),
+            a: () => insertTextAtSelection('[', '](https://example.com)', 'Link text'),
+            img: () => insertTextAtSelection('[Image: ', '](https://image-url)', 'alt text'),
+            video: () => insertTextAtSelection('[Video: ', '](https://video-url)', 'title')
+        };
+
+        const actions = editorMode === 'plain' ? plainActions : htmlActions;
+        actions[tag]?.();
+    };
+
+    const switchEditorMode = (mode: ContentEditorMode) => {
+        if (!editingPage) return;
+        if (mode === editorMode) return;
+        if (mode === 'plain') {
+            setPlainTextDraft(htmlToPlainText(editingPage.content));
+            setEditorMode('plain');
+            return;
+        }
+        setEditingPage({ ...editingPage, content: plainTextToHtml(plainTextDraft) });
+        setEditorMode('html');
     };
 
     const openFilePicker = (type: 'image' | 'video') => {
@@ -178,18 +348,34 @@ const CMSPages = () => {
 
     const handleFilePicked = (file: { url: string; name: string; type?: string }) => {
         if (!editingPage || !file?.url) return;
+        const imageSnippet = `<img src="${file.url}" alt="${escapeHtml(file.name || 'Image')}" class="w-full rounded-lg my-4" />`;
+        const videoSnippet = `<video src="${file.url}" controls class="w-full rounded-lg my-4"></video>`;
         if (filePickerType === 'image') {
+            const nextImages = [...(editingPage.images || []), file.url];
             setEditingPage({
                 ...editingPage,
-                images: [...(editingPage.images || []), file.url],
-                content: editingPage.content + `\n<img src="${file.url}" alt="${file.name || 'Image'}" class="w-full rounded-lg my-4" />`
+                images: nextImages,
+                content:
+                    editorMode === 'plain'
+                        ? plainTextToHtml(`${plainTextDraft}\n[Image: ${file.name || 'Image'}](${file.url})`.trim())
+                        : `${editingPage.content}\n${imageSnippet}`.trim()
             });
+            if (editorMode === 'plain') {
+                setPlainTextDraft(`${plainTextDraft}\n[Image: ${file.name || 'Image'}](${file.url})`.trim());
+            }
         } else {
+            const nextVideos = [...(editingPage.videos || []), file.url];
             setEditingPage({
                 ...editingPage,
-                videos: [...(editingPage.videos || []), file.url],
-                content: editingPage.content + `\n<video src="${file.url}" controls class="w-full rounded-lg my-4"></video>`
+                videos: nextVideos,
+                content:
+                    editorMode === 'plain'
+                        ? plainTextToHtml(`${plainTextDraft}\n[Video: ${file.name || 'Video'}](${file.url})`.trim())
+                        : `${editingPage.content}\n${videoSnippet}`.trim()
             });
+            if (editorMode === 'plain') {
+                setPlainTextDraft(`${plainTextDraft}\n[Video: ${file.name || 'Video'}](${file.url})`.trim());
+            }
         }
         showNotification('success', 'Media Added', 'File added from Uploaded Files.');
     };
@@ -202,17 +388,26 @@ const CMSPages = () => {
         }
         const urls = files.map((f) => f.url).filter(Boolean);
         const newContent = files.reduce((acc, f) => (
-            acc + `\n<img src="${f.url}" alt="${f.name || 'Image'}" class="w-full rounded-lg my-4" />`
-        ), editingPage.content);
+            `${acc}\n<img src="${f.url}" alt="${f.name || 'Image'}" class="w-full rounded-lg my-4" />`
+        ), editingPage.content).trim();
+        const plainAppend = files.map((f) => `[Image: ${f.name || 'Image'}](${f.url})`).join('\n');
+        const nextPlain = `${plainTextDraft}\n${plainAppend}`.trim();
         setEditingPage({
             ...editingPage,
             images: [...(editingPage.images || []), ...urls],
-            content: newContent
+            content: editorMode === 'plain' ? plainTextToHtml(nextPlain) : newContent
         });
+        if (editorMode === 'plain') setPlainTextDraft(nextPlain);
         if (files.length > 0) showNotification('success', 'Media Added', 'Files added from Uploaded Files.');
     };
 
     // --- Render ---
+    const editorPlainText = editingPage
+        ? (editorMode === 'plain' ? plainTextDraft : htmlToPlainText(editingPage.content))
+        : '';
+    const wordCount = editorPlainText ? editorPlainText.split(/\s+/).filter(Boolean).length : 0;
+    const charCount = editorPlainText.length;
+    const readingMinutes = wordCount > 0 ? Math.max(1, Math.ceil(wordCount / 220)) : 0;
 
     return view === 'categories' ? (
         <CategoryManager categories={categories} reload={loadData} setView={setView} />
@@ -266,23 +461,75 @@ const CMSPages = () => {
                         <div>
                             <div className="flex justify-between items-center mb-1">
                                 <label className="block text-sm font-medium text-gray-700">Content (HTML Editor)</label>
-                                <div className="flex space-x-1">
-                                    <button onClick={() => insertTag('b')} className="p-1.5 hover:bg-gray-100 rounded text-gray-600" title="Bold"><Bold className="w-4 h-4" /></button>
-                                    <button onClick={() => insertTag('i')} className="p-1.5 hover:bg-gray-100 rounded text-gray-600" title="Italic"><Italic className="w-4 h-4" /></button>
-                                    <button onClick={() => insertTag('h2')} className="p-1.5 hover:bg-gray-100 rounded text-gray-600" title="Heading 2"><Type className="w-4 h-4" /></button>
-                                    <button onClick={() => insertTag('ul')} className="p-1.5 hover:bg-gray-100 rounded text-gray-600" title="List"><List className="w-4 h-4" /></button>
-                                    <button onClick={() => insertTag('a')} className="p-1.5 hover:bg-gray-100 rounded text-gray-600" title="Link"><LinkIcon className="w-4 h-4" /></button>
-                                    <button onClick={() => insertTag('img')} className="p-1.5 hover:bg-gray-100 rounded text-gray-600" title="Image Tag"><ImageIcon className="w-4 h-4" /></button>
-                                    <button onClick={() => insertTag('video')} className="p-1.5 hover:bg-gray-100 rounded text-gray-600" title="Embed Video"><Video className="w-4 h-4" /></button>
+                                <div className="flex items-center space-x-2">
+                                    <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-white">
+                                        <button
+                                            type="button"
+                                            onClick={() => switchEditorMode('html')}
+                                            className={`px-2 py-1 text-xs rounded-md transition-colors ${editorMode === 'html' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                                        >
+                                            Rich HTML
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => switchEditorMode('plain')}
+                                            className={`px-2 py-1 text-xs rounded-md transition-colors ${editorMode === 'plain' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}
+                                        >
+                                            Plain Text
+                                        </button>
+                                    </div>
                                 </div>
+                            </div>
+                            <div className="mb-2 flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 p-2">
+                                <button type="button" onClick={() => insertTag('h1')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Heading 1"><Heading1 className="w-4 h-4" /></button>
+                                <button type="button" onClick={() => insertTag('h2')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Heading 2"><Heading2 className="w-4 h-4" /></button>
+                                <button type="button" onClick={() => insertTag('p')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Paragraph"><Pilcrow className="w-4 h-4" /></button>
+                                <div className="mx-1 h-4 w-px bg-gray-300" />
+                                <button type="button" onClick={() => insertTag('b')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Bold"><Bold className="w-4 h-4" /></button>
+                                <button type="button" onClick={() => insertTag('i')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Italic"><Italic className="w-4 h-4" /></button>
+                                <button type="button" onClick={() => insertTag('u')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Underline"><Underline className="w-4 h-4" /></button>
+                                <button type="button" onClick={() => insertTag('code')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Code"><Code className="w-4 h-4" /></button>
+                                <div className="mx-1 h-4 w-px bg-gray-300" />
+                                <button type="button" onClick={() => insertTag('ul')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Bulleted list"><List className="w-4 h-4" /></button>
+                                <button type="button" onClick={() => insertTag('ol')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Numbered list"><ListOrdered className="w-4 h-4" /></button>
+                                <button type="button" onClick={() => insertTag('quote')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Quote"><Quote className="w-4 h-4" /></button>
+                                <button type="button" onClick={() => insertTag('a')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Link"><LinkIcon className="w-4 h-4" /></button>
+                                <button type="button" onClick={() => insertTag('img')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Image tag"><ImageIcon className="w-4 h-4" /></button>
+                                <button type="button" onClick={() => insertTag('video')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Video tag"><Video className="w-4 h-4" /></button>
                             </div>
                             <textarea 
                                 ref={contentRef}
-                                className="w-full border-gray-300 rounded-lg p-4 font-mono text-sm h-[500px] focus:ring-blue-500 focus:border-blue-500"
-                                value={editingPage.content}
-                                onChange={e => setEditingPage({ ...editingPage, content: e.target.value })}
-                                placeholder="<p>Start writing your page content here...</p>"
+                                className={`w-full border-gray-300 rounded-lg p-4 text-sm h-[420px] focus:ring-blue-500 focus:border-blue-500 ${editorMode === 'html' ? 'font-mono' : 'font-sans'}`}
+                                value={editorMode === 'plain' ? plainTextDraft : editingPage.content}
+                                onChange={e => {
+                                    const next = e.target.value;
+                                    if (editorMode === 'plain') {
+                                        updateContentFromPlainText(next);
+                                    } else {
+                                        setEditingPage({ ...editingPage, content: next });
+                                    }
+                                }}
+                                placeholder={editorMode === 'plain' ? 'Write naturally in plain text. Use # headings, - lists, and paste URLs.' : '<p>Start writing your page content here...</p>'}
                             />
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                                <span className="rounded bg-gray-100 px-2 py-1">Words: {wordCount}</span>
+                                <span className="rounded bg-gray-100 px-2 py-1">Characters: {charCount}</span>
+                                <span className="rounded bg-gray-100 px-2 py-1">Reading time: {readingMinutes} min</span>
+                                <span className="rounded bg-blue-50 px-2 py-1 text-blue-700">
+                                    {editorMode === 'plain'
+                                        ? 'Plain text is converted to clean blog-friendly HTML in real time.'
+                                        : 'Editing raw HTML. Changes are reflected in live preview immediately.'}
+                                </span>
+                            </div>
+                            <div className="mt-4 rounded-lg border border-gray-200 bg-white">
+                                <div className="border-b border-gray-100 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                    Live Preview
+                                </div>
+                                <div
+                                    className="prose prose-sm max-w-none px-4 py-4 max-h-64 overflow-auto"
+                                    dangerouslySetInnerHTML={{ __html: editingPage.content || '<p class="text-gray-400">Nothing to preview yet.</p>' }}
+                                />
+                            </div>
                         </div>
 
                         {/* SEO Section */}
