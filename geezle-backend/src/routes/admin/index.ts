@@ -23,6 +23,9 @@ import formsAdminRoutes from './forms.routes';
 import withdrawalsAdminRoutes from './withdrawals.routes';
 import monetizationAdminRoutes from './monetization.routes';
 import payoutsStripeAdminRoutes from './payouts.stripe.routes';
+import recoAdminRoutes from './reco.routes';
+import scrolithaAdminRoutes from './scrolitha.routes';
+import { clearPlatformRuntimeCache } from '../../controllers/admin.cache.controller';
 
 const router = express.Router();
 
@@ -92,6 +95,8 @@ router.use('/forms', formsAdminRoutes);
 router.use('/withdrawals', withdrawalsAdminRoutes);
 router.use('/monetization', monetizationAdminRoutes);
 router.use('/payouts/stripe', payoutsStripeAdminRoutes);
+router.use('/reco', recoAdminRoutes);
+router.use('/scrolitha', scrolithaAdminRoutes);
 // Mount admin community routes (Gcoin + Ads admin panels)
 router.use('/community', adminCommunityRoutes);
 
@@ -326,6 +331,7 @@ router.get('/system/settings', getSystemSettings);
 router.post('/system/settings', updateSystemSettings);
 
 router.post('/system/email/test', testEmailSettings);
+router.post('/system/cache/clear', clearPlatformRuntimeCache);
 
 // ============ GENERAL SETTINGS (for backward compatibility) ============
 router.get('/settings', (req, res) => {
@@ -380,6 +386,7 @@ router.get('/test', (req, res) => {
       'GET    /api/admin/system/settings',
       'POST   /api/admin/system/settings',
       'POST   /api/admin/system/email/test',
+      'POST   /api/admin/system/cache/clear',
       'GET    /api/admin/settings',
       'POST   /api/admin/settings',
       'GET    /api/admin/gigs-jobs/gigs',

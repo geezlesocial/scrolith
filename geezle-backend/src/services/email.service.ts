@@ -22,6 +22,11 @@ export type EmailSendInput = {
 let cachedTransporter: any | null = null;
 let cachedSignature: string | null = null;
 
+export const invalidateEmailTransportCache = () => {
+  cachedTransporter = null;
+  cachedSignature = null;
+};
+
 const normalizeEmailSettings = (raw: any): EmailSettings | null => {
   const host = raw?.host || process.env.EMAIL_HOST || '';
   const port = Number(raw?.port || process.env.EMAIL_PORT || 0);

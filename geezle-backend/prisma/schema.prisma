@@ -554,6 +554,250 @@ model AppSetting {
   createdAt DateTime @default(now())
 }
 
+model RecoConfig {
+  id         String   @id @default(cuid())
+  surface    String
+  entityType String   @map("entity_type")
+  mode       String   @default("hybrid")
+  enabled    Boolean  @default(true)
+  weights    Json
+  gating     Json
+  penalties  Json
+  diversity  Json
+  coldStart  Json     @map("cold_start")
+  notes      String?
+  updatedBy  String?  @map("updated_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([surface, entityType])
+  @@index([surface])
+  @@index([entityType])
+  @@map("reco_config")
+}
+
+model RecoManualRule {
+  id         String   @id @default(cuid())
+  entityType String   @map("entity_type")
+  entityId   String   @default("*") @map("entity_id")
+  action     String
+  value      Float?
+  priority   Int      @default(100)
+  surface    String   @default("*")
+  startAt    DateTime? @map("start_at")
+  endAt      DateTime? @map("end_at")
+  isActive   Boolean  @default(true) @map("is_active")
+  metadata   Json?
+  note       String?
+  createdBy  String?  @map("created_by")
+  updatedBy  String?  @map("updated_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([entityType, entityId])
+  @@index([surface, isActive])
+  @@index([startAt, endAt])
+  @@map("reco_manual_rule")
+}
+
+model RecoImpressionLog {
+  id         String   @id @default(cuid())
+  viewerId   String   @map("viewer_id")
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  surface    String
+  shownAtDay DateTime @map("shown_at_day")
+  count      Int      @default(1)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([viewerId, entityType, entityId, surface, shownAtDay])
+  @@index([entityType, entityId, surface, shownAtDay])
+  @@index([viewerId, shownAtDay])
+  @@map("reco_impression_log")
+}
+
+model RecoFeedbackLog {
+  id         String   @id @default(cuid())
+  viewerId   String?  @map("viewer_id")
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  surface    String
+  action     String
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, entityId, surface, action, createdAt])
+  @@index([viewerId, createdAt])
+  @@map("reco_feedback_log")
+}
+
+model ScrolithaConversation {
+  id              String   @id @default(cuid())
+  userId          String   @map("user_id")
+  userRole        String   @map("user_role")
+  scope           String   @default("user")
+  status          String   @default("open")
+  pageContext     String?  @map("page_context")
+  entityContextId String?  @map("entity_context_id")
+  summary         String?
+  metadata        Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  messages    ScrolithaMessage[]
+  actionPlans ScrolithaActionPlan[]
+  feedback    ScrolithaFeedback[]
+  audits      ScrolithaAuditLog[]
+
+  @@index([userId, createdAt])
+  @@index([scope, status, createdAt])
+  @@map("scrolitha_conversation")
+}
+
+model ScrolithaMessage {
+  id             String   @id @default(cuid())
+  conversationId String   @map("conversation_id")
+  sender         String
+  content        String   @db.Text
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation ScrolithaConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("scrolitha_message")
+}
+
+model ScrolithaSkill {
+  id              String   @id @default(cuid())
+  key             String   @unique
+  name            String
+  roleScope       String[] @default([])
+  description     String   @db.Text
+  inputsSchema    Json     @map("inputs_schema")
+  stepsSchema     Json     @map("steps_schema")
+  successCriteria Json     @map("success_criteria")
+  isActive        Boolean  @default(true) @map("is_active")
+  version         Int      @default(1)
+  createdBy       String?  @map("created_by")
+  updatedBy       String?  @map("updated_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive, updatedAt])
+  @@map("scrolitha_skill")
+}
+
+model ScrolithaActionPlan {
+  id                 String   @id @default(cuid())
+  conversationId     String   @map("conversation_id")
+  userId             String   @map("user_id")
+  userRole           String   @map("user_role")
+  scope              String   @default("user")
+  actionKey          String   @map("action_key")
+  toolKey            String   @map("tool_key")
+  summary            String   @db.Text
+  requiresConfirmation Boolean @default(false) @map("requires_confirmation")
+  confirmationStatus String   @default("not_required") @map("confirmation_status")
+  status             String   @default("planned")
+  paramsPreview      Json?    @map("params_preview")
+  paramsRedacted     Json?    @map("params_redacted")
+  resultPayload      Json?    @map("result_payload")
+  errorCode          String?  @map("error_code")
+  errorMessage       String?  @map("error_message")
+  confirmedAt        DateTime? @map("confirmed_at")
+  executedAt         DateTime? @map("executed_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  conversation ScrolithaConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  audits       ScrolithaAuditLog[]
+
+  @@index([conversationId, createdAt])
+  @@index([userId, status, createdAt])
+  @@index([toolKey, status, createdAt])
+  @@map("scrolitha_action_plan")
+}
+
+model ScrolithaAuditLog {
+  id                  String   @id @default(cuid())
+  actorId             String   @map("actor_id")
+  actorRole           String   @map("actor_role")
+  actorScope          String   @map("actor_scope")
+  conversationId      String?  @map("conversation_id")
+  actionPlanId        String?  @map("action_plan_id")
+  eventType           String   @map("event_type")
+  intent              String?
+  toolKey             String?  @map("tool_key")
+  requestPayload      Json?    @map("request_payload")
+  redactedPayload     Json?    @map("redacted_payload")
+  resultStatus        String   @default("ok") @map("result_status")
+  resultSummary       String?  @map("result_summary")
+  confirmationStatus  String?  @map("confirmation_status")
+  ipAddress           String?  @map("ip_address")
+  userAgent           String?  @map("user_agent")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  conversation ScrolithaConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  actionPlan   ScrolithaActionPlan?   @relation(fields: [actionPlanId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([actorScope, eventType, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([actionPlanId, createdAt])
+  @@map("scrolitha_audit_log")
+}
+
+model ScrolithaConfig {
+  id                           String   @id @default(cuid())
+  scope                        String   @unique
+  enabled                      Boolean  @default(true)
+  safeMode                     Boolean  @default(false) @map("safe_mode")
+  requireConfirmationByDefault Boolean  @default(true) @map("require_confirmation_by_default")
+  lowRiskAutoExecute           Boolean  @default(false) @map("low_risk_auto_execute")
+  denyListedTools              String[] @default([]) @map("deny_listed_tools")
+  promptBlocklist              String[] @default([]) @map("prompt_blocklist")
+  userRateLimitPerMinute       Int      @default(30) @map("user_rate_limit_per_minute")
+  adminActionCapPerMinute      Int      @default(10) @map("admin_action_cap_per_minute")
+  metadata                     Json?
+  updatedBy                    String?  @map("updated_by")
+  createdAt                    DateTime @default(now()) @map("created_at")
+  updatedAt                    DateTime @updatedAt @map("updated_at")
+
+  @@index([scope])
+  @@map("scrolitha_config")
+}
+
+model ScrolithaUserPreference {
+  id                  String   @id @default(cuid())
+  userId              String   @unique @map("user_id")
+  quickActions        String[] @default([]) @map("quick_actions")
+  troubleshootingMode String   @default("standard") @map("troubleshooting_mode")
+  assistantTone       String   @default("concise") @map("assistant_tone")
+  metadata            Json?
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("scrolitha_user_preference")
+}
+
+model ScrolithaFeedback {
+  id             String   @id @default(cuid())
+  conversationId String   @map("conversation_id")
+  userId         String?  @map("user_id")
+  rating         Int
+  note           String?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation ScrolithaConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([userId, createdAt])
+  @@map("scrolitha_feedback")
+}
+
 model Favorite {
   id         String             @id @default(cuid())
   userId     String
@@ -1019,6 +1263,11 @@ model File {
   size         BigInt
   url          String
   storageKey   String         @unique @map("storage_key")
+  storageProvider String      @default("local") @map("storage_provider")
+  thumbnailUrl String?        @map("thumbnail_url")
+  width        Int?
+  height       Int?
+  duration     Float?
   visibility   FileVisibility @default(PUBLIC)
   createdAt    DateTime       @default(now()) @map("created_at")
   usages       FileUsage[]

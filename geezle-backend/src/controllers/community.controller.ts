@@ -51,6 +51,10 @@ const resolveAttachments = async (fileIds: string[]) => {
     url: string;
     originalName: string;
     mimeType: string;
+    thumbnailUrl?: string | null;
+    width?: number | null;
+    height?: number | null;
+    duration?: number | null;
     size: number;
   }>;
   const map = new Map<string, (typeof files)[number]>(files.map((f) => [f.id, f]));
@@ -69,11 +73,99 @@ const resolveAttachments = async (fileIds: string[]) => {
         url: file.url,
         name: file.originalName,
         mimeType: file.mimeType,
+        thumbnailUrl: file.thumbnailUrl || undefined,
+        width: file.width ?? undefined,
+        height: file.height ?? undefined,
+        duration: file.duration ?? undefined,
         type,
         size: Number(file.size || 0)
       };
     })
     .filter(Boolean);
+};
+
+type HttpError = Error & { statusCode?: number };
+
+const httpError = (statusCode: number, message: string): HttpError => {
+  const err = new Error(message) as HttpError;
+  err.statusCode = statusCode;
+  return err;
+};
+
+const extractAttachmentFileIds = (...inputs: unknown[]) => {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const input of inputs) {
+    if (!Array.isArray(input)) continue;
+    for (const entry of input) {
+      const value = String((entry as any)?.id || (entry as any)?.fileId || entry || '').trim();
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      ids.push(value);
+    }
+  }
+  return ids;
+};
+
+const looksLikeDirectMediaUrl = (value: string) => {
+  if (!value) return false;
+  const normalized = value.toLowerCase().trim();
+  if (!normalized) return false;
+  return (
+    normalized.startsWith('http://') ||
+    normalized.startsWith('https://') ||
+    normalized.startsWith('/uploads/') ||
+    normalized.startsWith('uploads/') ||
+    normalized.includes('.png') ||
+    normalized.includes('.jpg') ||
+    normalized.includes('.jpeg') ||
+    normalized.includes('.webp') ||
+    normalized.includes('.gif') ||
+    normalized.includes('.mp4') ||
+    normalized.includes('.webm') ||
+    normalized.includes('.mov') ||
+    normalized.includes('.pdf')
+  );
+};
+
+const resolveValidatedAttachmentIds = async (
+  rawInputs: unknown[],
+  actor: { userId: string; role?: string | null }
+) => {
+  const ids = extractAttachmentFileIds(...rawInputs);
+  if (!ids.length) return [];
+
+  const directUrl = ids.find((value) => looksLikeDirectMediaUrl(value));
+  if (directUrl) {
+    throw httpError(400, 'Attachments must reference Uploaded Files by file ID, not raw URL');
+  }
+
+  const files = await prisma.file.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, ownerId: true }
+  });
+  const byId = new Map<string, { id: string; ownerId: string | null }>(
+    files.map((file) => [file.id, file])
+  );
+
+  const missingIds = ids.filter((id) => !byId.has(id));
+  if (missingIds.length) {
+    throw httpError(400, 'One or more attachmentFileIds were not found in Uploaded Files');
+  }
+
+  const role = String(actor.role || '').toLowerCase();
+  const isPrivileged = role === 'admin' || role === 'moderator';
+  if (!isPrivileged) {
+    const notOwned = ids.filter((id) => {
+      const file = byId.get(id);
+      return !file || !file.ownerId || file.ownerId !== actor.userId;
+    });
+    if (notOwned.length) {
+      throw httpError(403, 'You can only attach files from your Uploaded Files library');
+    }
+  }
+
+  return ids;
 };
 
 const buildReactionSummary = (reactions: Array<{ postId: string; type: string; _count: { _all: number } }>) => {
@@ -1332,20 +1424,30 @@ export const postRepost = async (req: Request, res: Response) => {
     let wrapperPost: any = null;
     if (actorId && req.body?.createWrapper !== false) {
       try {
+        const wrapperAttachmentIds = await resolveValidatedAttachmentIds(
+          [req.body?.attachmentFileIds, req.body?.attachments],
+          { userId: actorId, role: req.user?.role }
+        );
         wrapperPost = await prisma.communityPost.create({
           data: {
             authorId: actorId,
             content: String(req.body?.content || '').trim() || '',
             title: req.body?.title || null,
-            attachments: Array.isArray(req.body?.attachments) ? req.body.attachments : [],
+            attachments: wrapperAttachmentIds,
             visibility: req.body?.visibility || 'public',
             originalPostId: postId,
             status: 'active'
           }
         });
-        try { await syncFileUsages('community_post', wrapperPost.id, wrapperPost.attachments || [], 'Community Post Media'); } catch (e) {}
-        try { io?.emit('community:post_created', { post: wrapperPost }); } catch (e) {}
-        try { realtime.emitToPost(wrapperPost.id, 'community:post_created', { post: wrapperPost }); } catch (e) {}
+        try { await syncFileUsages('community_post', wrapperPost.id, wrapperAttachmentIds, 'Community Post Media'); } catch (e) {}
+        const wrapperPayload = {
+          ...wrapperPost,
+          attachmentFileIds: wrapperAttachmentIds,
+          attachments: await resolveAttachments(wrapperAttachmentIds)
+        };
+        try { io?.emit('community:post_created', { post: wrapperPayload }); } catch (e) {}
+        try { realtime.emitToPost(wrapperPost.id, 'community:post_created', { post: wrapperPayload }); } catch (e) {}
+        wrapperPost = wrapperPayload;
       } catch (e) {
         console.warn('Failed to create repost wrapper', e);
       }
@@ -1595,6 +1697,7 @@ export const getPosts = async (req: Request, res: Response) => {
         },
         title: post.title,
         content: post.content,
+        attachmentFileIds: post.attachments || [],
         attachments: await resolveAttachments(post.attachments || []),
         tags: post.tags || [],
         mentions: post.mentions || [],
@@ -1800,6 +1903,7 @@ export const getFeed = async (req: Request, res: Response) => {
         },
         title: post.title,
         content: post.content,
+        attachmentFileIds: post.attachments || [],
         attachments: await resolveAttachments(post.attachments || []),
         tags: post.tags || [],
         mentions: post.mentions || [],
@@ -1994,6 +2098,7 @@ export const getPostById = async (req: Request, res: Response) => {
       },
       title: post.title,
       content: post.content,
+      attachmentFileIds: post.attachments || [],
       attachments: await resolveAttachments(post.attachments || []),
       tags: post.tags || [],
       mentions: post.mentions || [],
@@ -2209,6 +2314,7 @@ export const getCommunityPostsByTag = async (req: Request, res: Response) => {
           },
           title: post.title,
           content: post.content,
+          attachmentFileIds: post.attachments || [],
           attachments: await resolveAttachments(post.attachments || []),
           tags: post.tags || [],
           mentions: post.mentions || [],
@@ -2244,7 +2350,21 @@ export const createPost = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { title, content, attachments, status = 'active', tags, mentions, visibility, businessPageId, originalPostId, topic, location, commentPolicy } = req.body;
+    const {
+      title,
+      content,
+      attachments,
+      attachmentFileIds,
+      status = 'active',
+      tags,
+      mentions,
+      visibility,
+      businessPageId,
+      originalPostId,
+      topic,
+      location,
+      commentPolicy
+    } = req.body;
 
     const normalizedPolicy = normalizeCommentPolicy(commentPolicy);
     if (commentPolicy !== undefined && !normalizedPolicy) {
@@ -2283,12 +2403,17 @@ export const createPost = async (req: Request, res: Response) => {
       }
     }
 
+    const normalizedAttachmentIds = await resolveValidatedAttachmentIds(
+      [attachmentFileIds, attachments],
+      { userId, role: req.user?.role }
+    );
+
     const post = await prisma.communityPost.create({
       data: {
         authorId: userId,
         title: title || null,
         content: content.trim(),
-        attachments: attachments || [],
+        attachments: normalizedAttachmentIds,
         tags: Array.isArray(tags) ? tags : [],
         mentions: normalizedMentionUserIds,
         topic: topic || null,
@@ -2363,6 +2488,7 @@ export const createPost = async (req: Request, res: Response) => {
       },
       title: post.title,
       content: post.content,
+      attachmentFileIds: post.attachments || [],
       attachments: await resolveAttachments(post.attachments || []),
       tags: post.tags || [],
       mentions: post.mentions || [],
@@ -2484,7 +2610,8 @@ export const createPost = async (req: Request, res: Response) => {
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Create post error:', error);
-    return res.status(500).json({ error: error.message });
+    const status = Number(error?.statusCode || 500);
+    return res.status(status).json({ error: error?.message || 'Failed to create post' });
   }
 };
 
@@ -2497,7 +2624,21 @@ export const updatePost = async (req: Request, res: Response) => {
     }
 
     const { id } = req.params;
-    const { title, content, attachments, status, tags, mentions, visibility, topic, location, commentPolicy, isPinned, isHighlighted } = req.body;
+    const {
+      title,
+      content,
+      attachments,
+      attachmentFileIds,
+      status,
+      tags,
+      mentions,
+      visibility,
+      topic,
+      location,
+      commentPolicy,
+      isPinned,
+      isHighlighted
+    } = req.body;
 
     const post = await prisma.communityPost.findUnique({
       where: { id }
@@ -2515,7 +2656,13 @@ export const updatePost = async (req: Request, res: Response) => {
     const updateData: any = {};
     if (title !== undefined) updateData.title = title;
     if (content !== undefined) updateData.content = content.trim();
-    if (attachments !== undefined) updateData.attachments = attachments;
+    const attachmentsProvided = attachments !== undefined || attachmentFileIds !== undefined;
+    if (attachmentsProvided) {
+      updateData.attachments = await resolveValidatedAttachmentIds(
+        [attachmentFileIds, attachments],
+        { userId, role: req.user?.role }
+      );
+    }
     if (tags !== undefined) updateData.tags = Array.isArray(tags) ? tags : [];
     if (mentions !== undefined) updateData.mentions = Array.isArray(mentions) ? mentions : [];
     if (visibility !== undefined) updateData.visibility = visibility;
@@ -2599,7 +2746,7 @@ export const updatePost = async (req: Request, res: Response) => {
       }
     });
 
-    if (attachments !== undefined) {
+    if (attachmentsProvided) {
       try { await syncFileUsages('community_post', updated.id, updated.attachments || [], 'Community Post Media'); } catch (e) {}
     }
 
@@ -2633,6 +2780,7 @@ export const updatePost = async (req: Request, res: Response) => {
       },
       title: updated.title,
       content: updated.content,
+      attachmentFileIds: updated.attachments || [],
       attachments: await resolveAttachments(updated.attachments || []),
       tags: updated.tags || [],
       mentions: updated.mentions || [],
@@ -2730,7 +2878,8 @@ export const updatePost = async (req: Request, res: Response) => {
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Update post error:', error);
-    return res.status(500).json({ error: error.message });
+    const status = Number(error?.statusCode || 500);
+    return res.status(status).json({ error: error?.message || 'Failed to update post' });
   }
 };
 
@@ -2908,8 +3057,15 @@ export const createPostComment = async (req: Request, res: Response) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
     const postId = req.params.id;
-    const { content, parentId, attachments } = req.body || {};
-    if (!content || !postId) return res.status(400).json({ success: false, error: 'Content required' });
+    const { content, parentId, attachments, attachmentFileIds } = req.body || {};
+    const normalizedAttachmentIds = await resolveValidatedAttachmentIds(
+      [attachmentFileIds, attachments],
+      { userId, role: req.user?.role }
+    );
+    const normalizedContent = String(content || '').trim();
+    if (!postId || (!normalizedContent && !normalizedAttachmentIds.length)) {
+      return res.status(400).json({ success: false, error: 'Content or attachmentFileIds required' });
+    }
 
     const post = await prisma.communityPost.findUnique({
       where: { id: postId },
@@ -2937,7 +3093,7 @@ export const createPostComment = async (req: Request, res: Response) => {
       }
     }
 
-    const commentContent = String(content || '');
+    const commentContent = normalizedContent;
     const mentionedUsersByUsername = await resolveMentionedUserIds(extractMentionUsernames(commentContent));
     const rawMentionedUserIds: string[] = Array.from(
       new Set(
@@ -2954,7 +3110,7 @@ export const createPostComment = async (req: Request, res: Response) => {
         authorId: userId,
         parentId: parentId || null,
         content: commentContent,
-        attachments: Array.isArray(attachments) ? attachments : []
+        attachments: normalizedAttachmentIds
       },
       include: {
         author: { select: { id: true, name: true, avatar: true } }
@@ -2973,6 +3129,7 @@ export const createPostComment = async (req: Request, res: Response) => {
       userName: comment.author?.name || 'Anonymous',
       userAvatar: comment.author?.avatar || null,
       content: comment.content,
+      attachmentFileIds: comment.attachments || [],
       attachments: await resolveAttachments(comment.attachments || []),
       status: comment.status,
       deletedAt: comment.deletedAt ? comment.deletedAt.toISOString() : null,
@@ -3053,7 +3210,8 @@ export const createPostComment = async (req: Request, res: Response) => {
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Create post comment error:', error);
-    return res.status(500).json({ success: false, error: error.message || 'Failed to comment' });
+    const status = Number(error?.statusCode || 500);
+    return res.status(status).json({ success: false, error: error?.message || 'Failed to comment' });
   }
 };
 
@@ -3127,6 +3285,7 @@ export const getPostComments = async (req: Request, res: Response) => {
         userName: comment.author?.name || 'Anonymous',
         userAvatar: comment.author?.avatar || null,
         content: isDeleted ? '' : comment.content,
+        attachmentFileIds: isDeleted ? [] : (comment.attachments || []),
         attachments: isDeleted ? [] : await resolveAttachments(comment.attachments || []),
         status: comment.status,
         deletedAt: comment.deletedAt ? comment.deletedAt.toISOString() : null,
@@ -3167,7 +3326,7 @@ export const updatePostComment = async (req: Request, res: Response) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
     const { id } = req.params;
-    const { content, attachments } = req.body || {};
+    const { content, attachments, attachmentFileIds } = req.body || {};
 
     const comment = await prisma.communityPostComment.findUnique({
       where: { id },
@@ -3187,8 +3346,12 @@ export const updatePostComment = async (req: Request, res: Response) => {
       if (!trimmed) return res.status(400).json({ success: false, error: 'Content required' });
       updateData.content = trimmed;
     }
-    if (attachments !== undefined) {
-      updateData.attachments = Array.isArray(attachments) ? attachments : [];
+    const attachmentsProvided = attachments !== undefined || attachmentFileIds !== undefined;
+    if (attachmentsProvided) {
+      updateData.attachments = await resolveValidatedAttachmentIds(
+        [attachmentFileIds, attachments],
+        { userId, role: req.user?.role }
+      );
     }
     if (!Object.keys(updateData).length) {
       return res.status(400).json({ success: false, error: 'Nothing to update' });
@@ -3200,7 +3363,7 @@ export const updatePostComment = async (req: Request, res: Response) => {
       include: { author: { select: { id: true, name: true, avatar: true } } }
     });
 
-    if (attachments !== undefined) {
+    if (attachmentsProvided) {
       try { await syncFileUsages('community_post_comment', updated.id, updated.attachments || [], 'Community Post Comment Media'); } catch (e) {}
     }
 
@@ -3217,6 +3380,7 @@ export const updatePostComment = async (req: Request, res: Response) => {
       userName: updated.author?.name || 'Anonymous',
       userAvatar: updated.author?.avatar || null,
       content: updated.content,
+      attachmentFileIds: updated.attachments || [],
       attachments: await resolveAttachments(updated.attachments || []),
       status: updated.status,
       deletedAt: updated.deletedAt ? updated.deletedAt.toISOString() : null,
@@ -3286,7 +3450,8 @@ export const updatePostComment = async (req: Request, res: Response) => {
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Update post comment error:', error);
-    return res.status(500).json({ success: false, error: error.message || 'Failed to update comment' });
+    const status = Number(error?.statusCode || 500);
+    return res.status(status).json({ success: false, error: error?.message || 'Failed to update comment' });
   }
 };
 

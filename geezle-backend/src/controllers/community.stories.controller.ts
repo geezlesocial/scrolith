@@ -4,6 +4,7 @@ import realtime from '../utils/realtime';
 import { addFileUsage, removeUsage } from '../utils/fileUsage';
 
 const DISK_ID_PREFIX = 'disk:';
+const DEFAULT_VIDEO_THUMBNAIL_FILENAME = '__video_fallback_thumbnail.svg';
 const normalizeSlashes = (value: string) => value.replace(/\\/g, '/');
 const getBaseFileUrl = (req?: Request) => {
   const envBase =
@@ -45,18 +46,77 @@ const resolveStoryMedia = async (fileId?: string | null, req?: Request) => {
       url: buildUploadsUrl(relativePath, baseUrl),
       mimeType: null,
       name: relativePath.split('/').pop() || 'Story media',
-      storageKey: relativePath
+      storageKey: relativePath,
+      thumbnailUrl: null,
+      width: null,
+      height: null,
+      duration: null
     };
   }
   const file = await prisma.file.findUnique({ where: { id: fileId } });
   if (!file) return null;
+  const isVideo = String(file.mimeType || '').startsWith('video/');
+  const fallbackVideoThumbnail = buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME, baseUrl);
   return {
     id: file.id,
     url: file.storageKey ? buildUploadsUrl(file.storageKey, baseUrl) : file.url,
     mimeType: file.mimeType,
     name: file.originalName,
-    storageKey: file.storageKey
+    storageKey: file.storageKey,
+    thumbnailUrl: file.thumbnailUrl || (isVideo ? fallbackVideoThumbnail : null),
+    width: file.width ?? null,
+    height: file.height ?? null,
+    duration: file.duration ?? null
   };
+};
+
+const looksLikeDirectMediaUrl = (value: string) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.startsWith('http://') ||
+    normalized.startsWith('https://') ||
+    normalized.startsWith('/uploads/') ||
+    normalized.startsWith('uploads/') ||
+    normalized.includes('.png') ||
+    normalized.includes('.jpg') ||
+    normalized.includes('.jpeg') ||
+    normalized.includes('.webp') ||
+    normalized.includes('.gif') ||
+    normalized.includes('.mp4') ||
+    normalized.includes('.webm') ||
+    normalized.includes('.mov') ||
+    normalized.includes('.pdf')
+  );
+};
+
+const validateStoryMediaFileId = async (
+  mediaFileId: unknown,
+  actor: { userId: string; role?: string | null },
+  required = false
+) => {
+  const normalized = String(mediaFileId || '').trim();
+  if (!normalized) {
+    if (required) throw new Error('mediaFileId is required');
+    return null;
+  }
+  if (looksLikeDirectMediaUrl(normalized)) {
+    throw new Error('Stories must reference Uploaded Files by mediaFileId, not raw URL');
+  }
+
+  const file = await prisma.file.findUnique({
+    where: { id: normalized },
+    select: { id: true, ownerId: true, mimeType: true }
+  });
+  if (!file) throw new Error('Story media file was not found in Uploaded Files');
+
+  const role = String(actor.role || '').toLowerCase();
+  const isPrivileged = role.includes('admin');
+  if (!isPrivileged && file.ownerId !== actor.userId) {
+    throw new Error('You can only use story media from your Uploaded Files library');
+  }
+
+  return file;
 };
 
 const STORY_VISIBILITIES = new Set([
@@ -142,6 +202,7 @@ const buildStoryPayload = async (
     authorUsername: story.author?.username || null,
     type: story.type,
     content: story.content,
+    caption: story.content,
     visibility: story.visibility,
     media: await resolveStoryMedia(story.mediaFileId, req),
     mediaFileId: story.mediaFileId,
@@ -299,6 +360,7 @@ export const createStory = async (req: Request, res: Response) => {
     const {
       type = 'text',
       content,
+      caption,
       mediaFileId,
       visibility = 'public',
       textBackground,
@@ -307,11 +369,24 @@ export const createStory = async (req: Request, res: Response) => {
       textAlign
     } = req.body || {};
 
-    if (type === 'text' && !content) {
+    const normalizedContent = String((caption ?? content ?? '')).trim();
+    if (type === 'text' && !normalizedContent) {
       return res.status(400).json({ success: false, error: 'Content required for text story' });
     }
-    if ((type === 'image' || type === 'video') && !mediaFileId) {
-      return res.status(400).json({ success: false, error: 'Media file required for media story' });
+    const normalizedType = ['text', 'image', 'video'].includes(`${type}`.toLowerCase())
+      ? `${type}`.toLowerCase()
+      : 'text';
+    const mediaFile = await validateStoryMediaFileId(
+      mediaFileId,
+      { userId, role: req.user?.role },
+      normalizedType === 'image' || normalizedType === 'video'
+    );
+
+    if (normalizedType === 'image' && mediaFile && !String(mediaFile.mimeType || '').startsWith('image/')) {
+      return res.status(400).json({ success: false, error: 'mediaFileId must point to an image file' });
+    }
+    if (normalizedType === 'video' && mediaFile && !String(mediaFile.mimeType || '').startsWith('video/')) {
+      return res.status(400).json({ success: false, error: 'mediaFileId must point to a video file' });
     }
 
     const hours = await getStoryExpiryHours();
@@ -321,15 +396,12 @@ export const createStory = async (req: Request, res: Response) => {
       ? `${textAlign}`.toLowerCase()
       : 'center';
     const normalizedVisibility = normalizeVisibility(visibility);
-    const normalizedType = ['text', 'image', 'video'].includes(`${type}`.toLowerCase())
-      ? `${type}`.toLowerCase()
-      : 'text';
     const story = await prisma.communityStory.create({
       data: {
         authorId: userId,
         type: normalizedType,
-        content: content || null,
-        mediaFileId: mediaFileId || null,
+        content: normalizedContent || null,
+        mediaFileId: mediaFile?.id || null,
         visibility: normalizedVisibility,
         expiresAt,
         textBackground: typeof textBackground === 'string' && textBackground.trim() ? textBackground.trim() : null,
@@ -340,30 +412,11 @@ export const createStory = async (req: Request, res: Response) => {
       include: { author: { select: { id: true, name: true, avatar: true, username: true } } }
     });
 
-    if (mediaFileId) {
-      try { await addFileUsage({ fileId: mediaFileId, usageType: 'community_story', usageId: story.id, label: 'Community Story Media' }); } catch (e) {}
+    if (story.mediaFileId) {
+      try { await addFileUsage({ fileId: story.mediaFileId, usageType: 'community_story', usageId: story.id, label: 'Community Story Media' }); } catch (e) {}
     }
 
-    const payload = {
-      id: story.id,
-      authorId: story.authorId,
-      authorName: story.author?.name || 'Anonymous',
-      authorAvatar: story.author?.avatar || null,
-      authorUsername: story.author?.username || null,
-      type: story.type,
-      content: story.content,
-      visibility: story.visibility,
-      media: await resolveStoryMedia(story.mediaFileId, req),
-      mediaFileId: story.mediaFileId,
-      textBackground: story.textBackground,
-      textColor: story.textColor,
-      textFont: story.textFont,
-      textAlign: story.textAlign,
-      likesCount: 0,
-      viewerLiked: false,
-      createdAt: story.createdAt.toISOString(),
-      expiresAt: story.expiresAt.toISOString()
-    };
+    const payload = await buildStoryPayload({ ...story, likes: [] }, req, userId, 0);
 
     const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
     try { io?.emit('community:story_created', { story: payload }); } catch (e) {}
@@ -372,7 +425,14 @@ export const createStory = async (req: Request, res: Response) => {
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Create story error:', error);
-    return res.status(500).json({ success: false, error: error.message || 'Failed to create story' });
+    const message = String(error?.message || 'Failed to create story');
+    const lower = message.toLowerCase();
+    const status =
+      lower.includes('only use story media') ? 403 :
+      lower.includes('required') || lower.includes('must') || lower.includes('not found') || lower.includes('uploaded files')
+        ? 400
+        : 500;
+    return res.status(status).json({ success: false, error: message });
   }
 };
 
@@ -438,6 +498,7 @@ export const updateStory = async (req: Request, res: Response) => {
 
     const {
       content,
+      caption,
       visibility,
       textBackground,
       textColor,
@@ -448,7 +509,10 @@ export const updateStory = async (req: Request, res: Response) => {
 
     const updateData: any = {};
     if (typeof visibility === 'string') updateData.visibility = normalizeVisibility(visibility);
-    if (typeof content === 'string') updateData.content = content.trim() || null;
+    const normalizedContent = String((caption ?? content ?? '')).trim();
+    if (typeof content === 'string' || typeof caption === 'string') {
+      updateData.content = normalizedContent || null;
+    }
 
     if (story.type === 'text') {
       if (typeof textBackground === 'string') updateData.textBackground = textBackground.trim() || null;
@@ -460,13 +524,27 @@ export const updateStory = async (req: Request, res: Response) => {
           : 'center';
         updateData.textAlign = normalizedAlign;
       }
-      if (!updateData.content && typeof content !== 'undefined') {
+      if (!updateData.content && (typeof content !== 'undefined' || typeof caption !== 'undefined')) {
         return res.status(400).json({ success: false, error: 'Content required for text story' });
       }
     }
 
     if ((story.type === 'image' || story.type === 'video') && typeof mediaFileId === 'string') {
-      updateData.mediaFileId = mediaFileId;
+      const mediaFile = await validateStoryMediaFileId(
+        mediaFileId,
+        { userId, role: req.user?.role },
+        false
+      );
+      if (!mediaFile) {
+        return res.status(400).json({ success: false, error: 'mediaFileId is invalid' });
+      }
+      if (story.type === 'image' && !String(mediaFile.mimeType || '').startsWith('image/')) {
+        return res.status(400).json({ success: false, error: 'mediaFileId must point to an image file' });
+      }
+      if (story.type === 'video' && !String(mediaFile.mimeType || '').startsWith('video/')) {
+        return res.status(400).json({ success: false, error: 'mediaFileId must point to a video file' });
+      }
+      updateData.mediaFileId = mediaFile.id;
     }
 
     if (Object.keys(updateData).length === 0) {
@@ -583,7 +661,14 @@ export const updateStory = async (req: Request, res: Response) => {
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Update story error:', error);
-    return res.status(500).json({ success: false, error: error.message || 'Failed to update story' });
+    const message = String(error?.message || 'Failed to update story');
+    const lower = message.toLowerCase();
+    const status =
+      lower.includes('only use story media') ? 403 :
+      lower.includes('required') || lower.includes('must') || lower.includes('not found') || lower.includes('uploaded files')
+        ? 400
+        : 500;
+    return res.status(status).json({ success: false, error: message });
   }
 };
 

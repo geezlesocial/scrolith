@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
+import { execFile } from 'child_process';
 // Prefer Node's crypto.randomUUID to avoid importing `uuid` (ESM issues in some test runners)
 const crypto = require('crypto');
 const uuidv4 = () => {
@@ -30,6 +31,54 @@ ensureUploadDir();
 const safeFilename = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, '_');
 const DISK_ID_PREFIX = 'disk:';
 const DEFAULT_VISIBILITY: FileVisibility = 'PUBLIC';
+const DEFAULT_STORAGE_PROVIDER = 'local';
+const DEFAULT_VIDEO_THUMBNAIL_FILENAME = '__video_fallback_thumbnail.svg';
+const UPLOAD_THUMBNAILS_DIR = path.join(UPLOAD_DIR, 'thumbnails');
+
+const ALLOWED_IMAGE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif'
+]);
+
+const ALLOWED_VIDEO_MIME_TYPES = new Set([
+  'video/mp4',
+  'video/webm',
+  'video/quicktime'
+]);
+
+const ALLOWED_DOCUMENT_MIME_TYPES = new Set([
+  'application/pdf',
+  'text/plain',
+  'text/csv',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+]);
+
+const MAX_UPLOAD_BYTES: Record<'image' | 'video' | 'document', number> = {
+  image: 15 * 1024 * 1024,
+  video: 200 * 1024 * 1024,
+  document: 20 * 1024 * 1024
+};
+
+type UploadKind = 'image' | 'video' | 'document';
+
+type MediaMetadata = {
+  width: number | null;
+  height: number | null;
+  duration: number | null;
+  thumbnailRelativePath: string | null;
+  thumbnailUrl: string | null;
+};
+
+let ffmpegAvailableCache: boolean | null = null;
+let ffprobeAvailableCache: boolean | null = null;
+
 const normalizeSlashes = (value: string) => value.replace(/\\/g, '/');
 const getPathFromUrl = (value: string) => {
   try {
@@ -80,6 +129,92 @@ const buildUploadsUrl = (relativePath: string, baseUrl?: string) => {
 
 const getRelativeUploadPath = (filePath: string) =>
   normalizeSlashes(path.relative(UPLOAD_DIR, filePath));
+
+const ensureThumbnailsDir = () => {
+  if (!fs.existsSync(UPLOAD_THUMBNAILS_DIR)) {
+    fs.mkdirSync(UPLOAD_THUMBNAILS_DIR, { recursive: true });
+  }
+};
+
+const getFallbackVideoThumbnailPath = () => {
+  ensureUploadDir();
+  const fallbackPath = path.join(UPLOAD_DIR, DEFAULT_VIDEO_THUMBNAIL_FILENAME);
+  if (!fs.existsSync(fallbackPath)) {
+    const fallbackSvg = [
+      '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" preserveAspectRatio="xMidYMid slice">',
+      '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#0f172a"/><stop offset="100%" stop-color="#1e293b"/></linearGradient></defs>',
+      '<rect width="640" height="360" fill="url(#g)" />',
+      '<rect x="64" y="60" width="512" height="240" rx="24" fill="#111827" fill-opacity="0.65" />',
+      '<polygon points="292,160 292,220 352,190" fill="#f8fafc" />',
+      '<text x="320" y="276" font-family="Arial, Helvetica, sans-serif" font-size="22" text-anchor="middle" fill="#e2e8f0">Video Preview</text>',
+      '</svg>'
+    ].join('');
+    fs.writeFileSync(fallbackPath, fallbackSvg, 'utf8');
+  }
+  return fallbackPath;
+};
+getFallbackVideoThumbnailPath();
+
+const safeUnlink = (filePath?: string | null) => {
+  if (!filePath) return;
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch (error) {
+    console.warn('Failed to remove file from disk:', error);
+  }
+};
+
+const execFileAsync = (command: string, args: string[], timeout = 8000) =>
+  new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+    execFile(command, args, { timeout }, (error, stdout, stderr) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve({ stdout: String(stdout || ''), stderr: String(stderr || '') });
+    });
+  });
+
+const checkBinary = async (binary: 'ffmpeg' | 'ffprobe') => {
+  try {
+    await execFileAsync(binary, ['-version'], 2500);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const hasFfmpeg = async () => {
+  if (ffmpegAvailableCache !== null) return ffmpegAvailableCache;
+  ffmpegAvailableCache = await checkBinary('ffmpeg');
+  return ffmpegAvailableCache;
+};
+
+const hasFfprobe = async () => {
+  if (ffprobeAvailableCache !== null) return ffprobeAvailableCache;
+  ffprobeAvailableCache = await checkBinary('ffprobe');
+  return ffprobeAvailableCache;
+};
+
+const resolveUploadKind = (mimeType: string): UploadKind | null => {
+  if (ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) return 'image';
+  if (ALLOWED_VIDEO_MIME_TYPES.has(mimeType)) return 'video';
+  if (ALLOWED_DOCUMENT_MIME_TYPES.has(mimeType)) return 'document';
+  return null;
+};
+
+const validateUploadFile = (file: Express.Multer.File) => {
+  const mimeType = String(file?.mimetype || '').toLowerCase();
+  const kind = resolveUploadKind(mimeType);
+  if (!kind) {
+    throw new Error(`Unsupported file type: ${mimeType || 'unknown'}`);
+  }
+  const maxSize = MAX_UPLOAD_BYTES[kind];
+  if (typeof maxSize === 'number' && Number(file?.size || 0) > maxSize) {
+    throw new Error(`File exceeds ${kind} upload limit (${Math.floor(maxSize / (1024 * 1024))}MB)`);
+  }
+  return { kind };
+};
 
 const getUploadUrlFromFile = (file: Express.Multer.File, baseUrl?: string) => {
   const filePath = file.path || path.join(UPLOAD_DIR, file.filename);
@@ -158,13 +293,214 @@ const getMimeTypeFromFilename = (filename: string) => {
   return map[ext] || 'application/octet-stream';
 };
 
+const parseImageDimensionsFromBuffer = (buffer: Buffer, mimeType: string) => {
+  try {
+    if (mimeType === 'image/png' && buffer.length >= 24) {
+      const isPng =
+        buffer[0] === 0x89 &&
+        buffer[1] === 0x50 &&
+        buffer[2] === 0x4e &&
+        buffer[3] === 0x47;
+      if (isPng) {
+        return {
+          width: buffer.readUInt32BE(16),
+          height: buffer.readUInt32BE(20)
+        };
+      }
+    }
+
+    if (mimeType === 'image/gif' && buffer.length >= 10) {
+      return {
+        width: buffer.readUInt16LE(6),
+        height: buffer.readUInt16LE(8)
+      };
+    }
+
+    if (mimeType === 'image/webp' && buffer.length >= 30) {
+      const riff = buffer.toString('ascii', 0, 4) === 'RIFF';
+      const webp = buffer.toString('ascii', 8, 12) === 'WEBP';
+      if (riff && webp) {
+        const chunkType = buffer.toString('ascii', 12, 16);
+        if (chunkType === 'VP8X' && buffer.length >= 30) {
+          const width = 1 + buffer.readUIntLE(24, 3);
+          const height = 1 + buffer.readUIntLE(27, 3);
+          return { width, height };
+        }
+      }
+    }
+
+    if (mimeType === 'image/jpeg' && buffer.length > 4) {
+      let offset = 2;
+      while (offset < buffer.length) {
+        if (buffer[offset] !== 0xff) {
+          offset += 1;
+          continue;
+        }
+        const marker = buffer[offset + 1];
+        const hasSegmentLength = marker !== 0xd8 && marker !== 0xd9 && marker !== 0x01;
+        if (!hasSegmentLength) {
+          offset += 2;
+          continue;
+        }
+        const segmentLength = buffer.readUInt16BE(offset + 2);
+        const isSofMarker = marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker);
+        if (isSofMarker && segmentLength >= 7) {
+          const height = buffer.readUInt16BE(offset + 5);
+          const width = buffer.readUInt16BE(offset + 7);
+          return { width, height };
+        }
+        offset += 2 + segmentLength;
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to parse image dimensions from buffer:', error);
+  }
+  return { width: null, height: null };
+};
+
+const probeWithFfprobe = async (filePath: string) => {
+  if (!(await hasFfprobe())) return null;
+  try {
+    const { stdout } = await execFileAsync(
+      'ffprobe',
+      ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', filePath],
+      7000
+    );
+    return JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+};
+
+const extractMediaMetadata = async (filePath: string, mimeType: string) => {
+  const metadata: { width: number | null; height: number | null; duration: number | null } = {
+    width: null,
+    height: null,
+    duration: null
+  };
+
+  const probe = await probeWithFfprobe(filePath);
+  if (probe) {
+    const streams = Array.isArray(probe?.streams) ? probe.streams : [];
+    const videoStream = streams.find((stream: any) => Number(stream?.width) > 0 && Number(stream?.height) > 0);
+    if (videoStream) {
+      metadata.width = Number(videoStream.width) || null;
+      metadata.height = Number(videoStream.height) || null;
+      const streamDuration = Number(videoStream.duration);
+      if (Number.isFinite(streamDuration) && streamDuration > 0) {
+        metadata.duration = Number(streamDuration.toFixed(3));
+      }
+    }
+    if (metadata.duration === null) {
+      const formatDuration = Number(probe?.format?.duration);
+      if (Number.isFinite(formatDuration) && formatDuration > 0) {
+        metadata.duration = Number(formatDuration.toFixed(3));
+      }
+    }
+  }
+
+  if (mimeType.startsWith('image/') && (metadata.width === null || metadata.height === null)) {
+    try {
+      const buffer = fs.readFileSync(filePath);
+      const parsed = parseImageDimensionsFromBuffer(buffer, mimeType);
+      metadata.width = parsed.width ?? metadata.width;
+      metadata.height = parsed.height ?? metadata.height;
+    } catch (error) {
+      console.warn('Failed to read uploaded image for dimension parsing:', error);
+    }
+  }
+
+  return metadata;
+};
+
+const createVideoThumbnail = async (
+  filePath: string,
+  sourceRelativePath: string,
+  baseUrl: string
+): Promise<{ thumbnailRelativePath: string | null; thumbnailUrl: string }> => {
+  getFallbackVideoThumbnailPath();
+  const fallbackUrl = buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME, baseUrl);
+
+  if (!(await hasFfmpeg())) {
+    return { thumbnailRelativePath: null, thumbnailUrl: fallbackUrl };
+  }
+
+  try {
+    ensureThumbnailsDir();
+    const sourceName = path.basename(sourceRelativePath, path.extname(sourceRelativePath));
+    const safeSourceName = safeFilename(sourceName || `video-${Date.now()}`);
+    const thumbName = `${safeSourceName}-${Date.now()}.jpg`;
+    const thumbnailRelativePath = normalizeSlashes(path.join('thumbnails', thumbName));
+    const thumbnailPath = path.join(UPLOAD_DIR, thumbnailRelativePath);
+
+    await execFileAsync(
+      'ffmpeg',
+      ['-y', '-ss', '00:00:01.000', '-i', filePath, '-frames:v', '1', '-vf', 'scale=960:-1', thumbnailPath],
+      12000
+    );
+
+    if (fs.existsSync(thumbnailPath)) {
+      return {
+        thumbnailRelativePath,
+        thumbnailUrl: buildUploadsUrl(thumbnailRelativePath, baseUrl)
+      };
+    }
+  } catch (error) {
+    console.warn('Failed to generate video thumbnail with ffmpeg. Using fallback thumbnail.', error);
+  }
+
+  return { thumbnailRelativePath: null, thumbnailUrl: fallbackUrl };
+};
+
+const buildMediaMetadata = async (
+  file: Express.Multer.File,
+  relativePath: string,
+  baseUrl: string
+): Promise<MediaMetadata> => {
+  const metadata = await extractMediaMetadata(file.path || path.join(UPLOAD_DIR, file.filename), file.mimetype);
+
+  if (file.mimetype.startsWith('video/')) {
+    const generated = await createVideoThumbnail(file.path || path.join(UPLOAD_DIR, file.filename), relativePath, baseUrl);
+    return {
+      width: metadata.width,
+      height: metadata.height,
+      duration: metadata.duration,
+      thumbnailRelativePath: generated.thumbnailRelativePath,
+      thumbnailUrl: generated.thumbnailUrl
+    };
+  }
+
+  return {
+    width: metadata.width,
+    height: metadata.height,
+    duration: null,
+    thumbnailRelativePath: null,
+    thumbnailUrl: null
+  };
+};
+
 const normalizeRecord = (record: any) => {
   const createdAt = record?.created_at || record?.createdAt || record?.uploadedAt || new Date().toISOString();
+  const mimeType = record?.mime_type || record?.mimeType || record?.type || '';
+  const isVideo = String(mimeType || '').toLowerCase().startsWith('video/');
+  const thumbnailUrl =
+    record?.thumbnail_url ||
+    record?.thumbnailUrl ||
+    (isVideo ? buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME) : null);
   return {
     ...record,
     created_at: createdAt,
     createdAt,
-    uploadedAt: createdAt
+    uploadedAt: createdAt,
+    mime_type: mimeType,
+    mimeType,
+    storage_provider: record?.storage_provider || record?.storageProvider || DEFAULT_STORAGE_PROVIDER,
+    storageProvider: record?.storage_provider || record?.storageProvider || DEFAULT_STORAGE_PROVIDER,
+    thumbnail_url: thumbnailUrl,
+    thumbnailUrl,
+    width: record?.width !== undefined && record?.width !== null ? Number(record.width) : null,
+    height: record?.height !== undefined && record?.height !== null ? Number(record.height) : null,
+    duration: record?.duration !== undefined && record?.duration !== null ? Number(record.duration) : null
   };
 };
 
@@ -209,6 +545,7 @@ const buildDiskRecord = (entry: { relativePath: string; fullPath: string; stats:
   const name = path.basename(entry.relativePath);
   const mimeType = getMimeTypeFromFilename(name);
   const createdAt = getCreatedAtFromStats(entry.stats);
+  const isVideo = mimeType.startsWith('video/');
   return normalizeRecord({
     id: `${DISK_ID_PREFIX}${entry.relativePath}`,
     user_id: 'system',
@@ -218,6 +555,11 @@ const buildDiskRecord = (entry: { relativePath: string; fullPath: string; stats:
     size: entry.stats.size,
     url: buildUploadsUrl(entry.relativePath, baseUrl),
     storage_key: entry.relativePath,
+    storage_provider: DEFAULT_STORAGE_PROVIDER,
+    thumbnail_url: isVideo ? buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME, baseUrl) : null,
+    width: null,
+    height: null,
+    duration: null,
     category: inferCategory(mimeType),
     created_at: createdAt
   });
@@ -225,9 +567,11 @@ const buildDiskRecord = (entry: { relativePath: string; fullPath: string; stats:
 
 const toClientFile = (record: any) => {
   const createdAt = record?.created_at || record?.createdAt || record?.uploadedAt || new Date().toISOString();
-  const mimeType = record?.type || '';
+  const mimeType = record?.mime_type || record?.mimeType || record?.type || '';
   const url = record?.url || '';
   const storageKey = record?.storage_key || record?.storageKey || '';
+  const isVideo = String(mimeType || '').toLowerCase().startsWith('video/');
+  const thumbnailUrl = record?.thumbnail_url || record?.thumbnailUrl || (isVideo ? buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME) : null);
   const mediaType = mimeType.startsWith('image/')
     ? 'image'
     : mimeType.startsWith('video/')
@@ -241,12 +585,21 @@ const toClientFile = (record: any) => {
     storage_key: storageKey,
     storageKey,
     type: mediaType,
-    mime_type: record.mime_type || record.mimeType || mimeType,
-    mimeType: record.mime_type || record.mimeType || mimeType,
+    mime_type: mimeType,
+    mimeType,
     size: Number(record.size ?? 0),
     category: record.category,
     owner_id: record.owner_id || record.ownerId,
+    ownerId: record.owner_id || record.ownerId,
     owner_role: record.owner_role || record.ownerRole,
+    ownerRole: record.owner_role || record.ownerRole,
+    storage_provider: record.storage_provider || record.storageProvider || DEFAULT_STORAGE_PROVIDER,
+    storageProvider: record.storage_provider || record.storageProvider || DEFAULT_STORAGE_PROVIDER,
+    thumbnail_url: thumbnailUrl,
+    thumbnailUrl,
+    width: record?.width !== undefined && record?.width !== null ? Number(record.width) : null,
+    height: record?.height !== undefined && record?.height !== null ? Number(record.height) : null,
+    duration: record?.duration !== undefined && record?.duration !== null ? Number(record.duration) : null,
     visibility: (record.visibility || DEFAULT_VISIBILITY).toString().toLowerCase(),
     created_at: createdAt,
     usedIn: Array.isArray(record.usedIn) ? record.usedIn : []
@@ -260,12 +613,33 @@ const toMediaItem = (record: any) => {
     name: clientFile.name,
     url: clientFile.url,
     type: clientFile.type,
+    mimeType: clientFile.mimeType,
+    thumbnailUrl: clientFile.thumbnailUrl,
+    width: clientFile.width,
+    height: clientFile.height,
+    duration: clientFile.duration,
     size: clientFile.size,
     created_at: clientFile.created_at
   };
 };
 
 export const getUploadDir = () => UPLOAD_DIR;
+
+const parsePositiveInt = (value: unknown, fallback: number, max: number) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.min(max, Math.trunc(parsed)));
+};
+
+const buildMimeTypeFilter = (value: unknown) => {
+  const type = String(value || '').trim().toLowerCase();
+  if (!type || type === 'all') return null;
+  if (type === 'image') return { startsWith: 'image/' };
+  if (type === 'video') return { startsWith: 'video/' };
+  if (type === 'pdf') return { equals: 'application/pdf' };
+  if (type === 'document') return { notIn: [...ALLOWED_IMAGE_MIME_TYPES, ...ALLOWED_VIDEO_MIME_TYPES] };
+  return null;
+};
 
 export const listFiles = async (req: Request, res: Response) => {
   try {
@@ -281,7 +655,12 @@ export const listFiles = async (req: Request, res: Response) => {
       return;
     }
 
-    const whereClause: { ownerId?: string | null; ownerRole?: FileOwnerRole } = {};
+    const whereClause: {
+      ownerId?: string | null;
+      ownerRole?: FileOwnerRole;
+      mimeType?: any;
+      OR?: any[];
+    } = {};
 
     if (isAdmin) {
       if (requestedUserId) whereClause.ownerId = requestedUserId;
@@ -291,11 +670,28 @@ export const listFiles = async (req: Request, res: Response) => {
       whereClause.ownerRole = resolveOwnerRole(role);
     }
 
+    const mimeTypeFilter = buildMimeTypeFilter(req.query?.type);
+    if (mimeTypeFilter) whereClause.mimeType = mimeTypeFilter;
+
+    const search = String(req.query?.search || '').trim();
+    if (search) {
+      whereClause.OR = [
+        { originalName: { contains: search, mode: 'insensitive' } },
+        { filename: { contains: search, mode: 'insensitive' } }
+      ];
+    }
+
+    const limit = parsePositiveInt(req.query?.limit, 50, 200);
+    const page = parsePositiveInt(req.query?.page, 1, 10000);
+    const skip = (page - 1) * limit;
+
     let dbFiles: any[] = [];
     try {
       dbFiles = await prisma.file.findMany({
         where: Object.keys(whereClause).length ? whereClause : undefined,
-        orderBy: { createdAt: 'desc' }
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit
       });
     } catch (error) {
       console.error('File table lookup failed:', error);
@@ -331,6 +727,11 @@ export const listFiles = async (req: Request, res: Response) => {
         size: Number(file.size),
         url: file.storageKey ? buildUploadsUrl(file.storageKey, baseUrl) : file.url,
         storage_key: file.storageKey,
+        storage_provider: file.storageProvider || DEFAULT_STORAGE_PROVIDER,
+        thumbnail_url: file.thumbnailUrl || (String(file.mimeType || '').startsWith('video/') ? buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME, baseUrl) : null),
+        width: file.width,
+        height: file.height,
+        duration: file.duration,
         visibility: file.visibility,
         created_at: file.createdAt,
         category: inferCategory(file.mimeType),
@@ -359,10 +760,77 @@ export const listFiles = async (req: Request, res: Response) => {
   }
 };
 
+const persistUploadedFile = async (params: {
+  req: Request;
+  file: Express.Multer.File;
+  userId: string | null;
+  ownerRole: FileOwnerRole;
+}) => {
+  const { req, file, userId, ownerRole } = params;
+  const now = new Date();
+  const fileId = uuidv4();
+  const baseUrl = getBaseFileUrl(req);
+  const relativePath = getRelativeUploadPath(file.path || path.join(UPLOAD_DIR, file.filename));
+  const url = buildUploadsUrl(relativePath, baseUrl);
+  const visibility = resolveVisibility(req.body?.visibility);
+  const category = inferCategory(file.mimetype, req.body?.category || req.body?.file_category);
+  const mediaMetadata = await buildMediaMetadata(file, relativePath, baseUrl);
+
+  const created = await prisma.file.create({
+    data: {
+      id: fileId,
+      ownerId: userId || null,
+      ownerRole,
+      filename: file.filename,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+      size: BigInt(file.size),
+      url,
+      storageKey: relativePath,
+      storageProvider: DEFAULT_STORAGE_PROVIDER,
+      thumbnailUrl: mediaMetadata.thumbnailUrl,
+      width: mediaMetadata.width,
+      height: mediaMetadata.height,
+      duration: mediaMetadata.duration,
+      visibility,
+      createdAt: now
+    }
+  });
+
+  return normalizeRecord({
+    id: created.id,
+    user_id: created.ownerId,
+    owner_role: created.ownerRole?.toLowerCase(),
+    name: created.originalName,
+    type: created.mimeType,
+    size: Number(created.size),
+    url: created.url,
+    storage_key: created.storageKey,
+    storage_provider: created.storageProvider || DEFAULT_STORAGE_PROVIDER,
+    thumbnail_url:
+      created.thumbnailUrl ||
+      (String(created.mimeType || '').startsWith('video/') ? buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME, baseUrl) : null),
+    width: created.width,
+    height: created.height,
+    duration: created.duration,
+    visibility: created.visibility,
+    category,
+    created_at: created.createdAt
+  });
+};
+
 export const uploadFile = async (req: Request, res: Response) => {
   try {
     if (!req.file) {
       res.status(400).json({ success: false, error: 'No file uploaded' });
+      return;
+    }
+
+    try {
+      validateUploadFile(req.file);
+    } catch (validationError: any) {
+      safeUnlink(req.file?.path);
+      res.status(400).json({ success: false, error: validationError?.message || 'Invalid file upload' });
       return;
     }
 
@@ -390,41 +858,11 @@ export const uploadFile = async (req: Request, res: Response) => {
       }
     }
     const ownerRole = resolveOwnerRole(getRole(req));
-    const category = inferCategory(req.file.mimetype, req.body?.category || req.body?.file_category);
-    const now = new Date();
-    const fileId = uuidv4();
-    const relativePath = getRelativeUploadPath(req.file.path || path.join(UPLOAD_DIR, req.file.filename));
-    const url = buildUploadsUrl(relativePath, getBaseFileUrl(req));
-    const visibility = resolveVisibility(req.body?.visibility);
-
-    const created = await prisma.file.create({
-      data: {
-        id: fileId,
-        ownerId: userId || null,
-        ownerRole,
-        filename: req.file.filename,
-        originalName: req.file.originalname,
-        mimeType: req.file.mimetype,
-        size: BigInt(req.file.size),
-        url,
-        storageKey: relativePath,
-        visibility,
-        createdAt: now
-      }
-    });
-
-    const responseRecord = normalizeRecord({
-      id: created.id,
-      user_id: created.ownerId,
-      owner_role: created.ownerRole?.toLowerCase(),
-      name: created.originalName,
-      type: created.mimeType,
-      size: Number(created.size),
-      url: created.url,
-      storage_key: created.storageKey,
-      visibility: created.visibility,
-      category,
-      created_at: created.createdAt
+    const responseRecord = await persistUploadedFile({
+      req,
+      file: req.file,
+      userId: userId || null,
+      ownerRole
     });
 
     // If caller requested this upload to be used as the site's favicon,
@@ -451,6 +889,7 @@ export const uploadFile = async (req: Request, res: Response) => {
 
     res.json({ success: true, data: toClientFile(responseRecord) });
   } catch (error) {
+    safeUnlink(req.file?.path);
     console.error('Failed to upload file:', error);
     res.status(500).json({ success: false, error: 'Failed to upload file' });
   }
@@ -491,10 +930,13 @@ export const deleteFile = async (req: Request, res: Response) => {
 
     if (existing.url) {
       const filePath = resolveUploadPath(existing.url);
-      try {
-        if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
-      } catch (error) {
-        console.warn('Failed to remove file from disk:', error);
+      safeUnlink(filePath);
+    }
+
+    if (existing.thumbnailUrl) {
+      const thumbnailPath = resolveUploadPath(existing.thumbnailUrl);
+      if (thumbnailPath && thumbnailPath.includes(path.join('uploads', 'thumbnails'))) {
+        safeUnlink(thumbnailPath);
       }
     }
 
@@ -512,47 +954,26 @@ export const uploadMedia = async (req: Request, res: Response) => {
       return;
     }
 
-    const userId = getUserId(req);
+    try {
+      validateUploadFile(req.file);
+    } catch (validationError: any) {
+      safeUnlink(req.file?.path);
+      res.status(400).json({ success: false, error: validationError?.message || 'Invalid file upload' });
+      return;
+    }
+
+    const userId = getUserId(req) || null;
     const ownerRole = resolveOwnerRole(getRole(req));
-    const category = inferCategory(req.file.mimetype, req.body?.category || req.body?.file_category);
-    const now = new Date();
-    const fileId = uuidv4();
-    const relativePath = getRelativeUploadPath(req.file.path || path.join(UPLOAD_DIR, req.file.filename));
-    const url = buildUploadsUrl(relativePath, getBaseFileUrl(req));
-    const visibility = resolveVisibility(req.body?.visibility);
-
-    const created = await prisma.file.create({
-      data: {
-        id: fileId,
-        ownerId: userId || null,
-        ownerRole,
-        filename: req.file.filename,
-        originalName: req.file.originalname,
-        mimeType: req.file.mimetype,
-        size: BigInt(req.file.size),
-        url,
-        storageKey: relativePath,
-        visibility,
-        createdAt: now
-      }
-    });
-
-    const responseRecord = normalizeRecord({
-      id: created.id,
-      user_id: created.ownerId,
-      owner_role: created.ownerRole?.toLowerCase(),
-      name: created.originalName,
-      type: created.mimeType,
-      size: Number(created.size),
-      url: created.url,
-      storage_key: created.storageKey,
-      visibility: created.visibility,
-      category,
-      created_at: created.createdAt
+    const responseRecord = await persistUploadedFile({
+      req,
+      file: req.file,
+      userId,
+      ownerRole
     });
 
     res.json(toMediaItem(responseRecord));
   } catch (error) {
+    safeUnlink(req.file?.path);
     console.error('Failed to upload media:', error);
     res.status(500).json({ success: false, error: 'Failed to upload file' });
   }

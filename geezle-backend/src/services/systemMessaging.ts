@@ -175,4 +175,8 @@ export const sendSystemMessage = async (input: SendSystemMessageInput): Promise<
 
 export const getSystemMessagesConfig = loadSystemMessagesConfig;
 
+export const invalidateSystemMessagesConfigCache = () => {
+  cachedConfig = null;
+};
+
 

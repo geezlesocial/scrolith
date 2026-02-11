@@ -59,6 +59,8 @@ import monetizationRoutes from './routes/monetization.routes';
 import payoutsStripeRoutes from './routes/payouts.stripe.routes';
 import preloaderRoutes from './routes/preloader.routes';
 import adminPreloadersRoutes from './routes/admin/preloaders.routes';
+import recoRoutes from './routes/reco.routes';
+import scrolithaRoutes from './routes/scrolitha.routes';
 import { authMiddleware } from './middleware/auth.middleware';
 // Import community admin controllers so we can mount explicit admin config endpoints
 import { getAdminConfig, updateAdminConfig } from './controllers/community.admin.controller';
@@ -735,6 +737,8 @@ app.use('/api/forms', formsRoutes);
 app.use('/api/monetization', monetizationRoutes);
 app.use('/api/payouts/stripe', payoutsStripeRoutes);
 app.use('/api/public/preloader', preloaderRoutes);
+app.use('/api/reco', recoRoutes);
+app.use('/api/scrolitha', scrolithaRoutes);
 app.use('/api/admin/preloaders', adminPreloadersRoutes);
 
 // Temporary debug: list mounted API routes (for local debugging only)

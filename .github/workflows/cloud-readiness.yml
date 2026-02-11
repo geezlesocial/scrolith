@@ -1,0 +1,41 @@
+name: Cloud Readiness
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  validate-build-and-images:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install backend dependencies
+        run: npm ci --prefix geezle-backend
+
+      - name: Generate Prisma client (backend)
+        run: npm run prisma:generate --prefix geezle-backend
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix geezle
+
+      - name: Build frontend
+        run: npm run build --prefix geezle
+
+      - name: Build backend container image
+        run: docker build -f deploy/docker/backend.Dockerfile -t scrolith-backend:ci .
+
+      - name: Build frontend container image
+        run: docker build -f deploy/docker/frontend.Dockerfile -t scrolith-frontend:ci .

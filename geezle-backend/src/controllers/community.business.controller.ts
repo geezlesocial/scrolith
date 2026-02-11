@@ -138,15 +138,65 @@ const toAttachmentIds = (value: unknown) =>
       )
     : [];
 
+const looksLikeDirectMediaUrl = (value: string) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.startsWith('http://') ||
+    normalized.startsWith('https://') ||
+    normalized.startsWith('/uploads/') ||
+    normalized.startsWith('uploads/') ||
+    normalized.includes('.png') ||
+    normalized.includes('.jpg') ||
+    normalized.includes('.jpeg') ||
+    normalized.includes('.webp') ||
+    normalized.includes('.gif') ||
+    normalized.includes('.mp4') ||
+    normalized.includes('.webm') ||
+    normalized.includes('.mov') ||
+    normalized.includes('.pdf')
+  );
+};
+
+const resolveValidatedAttachmentIds = async (
+  raw: unknown,
+  actor: { userId: string; role?: string | null }
+) => {
+  const ids = toAttachmentIds(raw);
+  if (!ids.length) return [] as string[];
+  if (ids.some((id) => looksLikeDirectMediaUrl(id))) {
+    throw new Error('Attachments must be file IDs from Uploaded Files');
+  }
+
+  const files = await prisma.file.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, ownerId: true }
+  });
+  const byId = new Map<string, { id: string; ownerId: string | null }>(
+    files.map((file) => [file.id, file])
+  );
+  const missing = ids.filter((id) => !byId.has(id));
+  if (missing.length) throw new Error('One or more attachments were not found in Uploaded Files');
+
+  const role = String(actor.role || '').toLowerCase();
+  const isPrivileged = role.includes('admin');
+  if (!isPrivileged) {
+    const invalid = ids.filter((id) => byId.get(id)?.ownerId !== actor.userId);
+    if (invalid.length) throw new Error('You can only attach files from your Uploaded Files library');
+  }
+
+  return ids;
+};
+
 const resolvePostAttachments = async (attachments: any[]) => {
   const ids = toAttachmentIds(attachments);
   if (!ids.length) return [];
 
   const files = (await prisma.file.findMany({
     where: { id: { in: ids } },
-    select: { id: true, url: true, mimeType: true, originalName: true }
-  })) as Array<{ id: string; url: string | null; mimeType: string | null; originalName: string | null }>;
-  const map = new Map<string, { id: string; url: string | null; mimeType: string | null; originalName: string | null }>(
+    select: { id: true, url: true, mimeType: true, originalName: true, thumbnailUrl: true, width: true, height: true, duration: true }
+  })) as Array<{ id: string; url: string | null; mimeType: string | null; originalName: string | null; thumbnailUrl?: string | null; width?: number | null; height?: number | null; duration?: number | null }>;
+  const map = new Map<string, { id: string; url: string | null; mimeType: string | null; originalName: string | null; thumbnailUrl?: string | null; width?: number | null; height?: number | null; duration?: number | null }>(
     files.map((file) => [file.id, file])
   );
   return ids.map((id) => {
@@ -155,7 +205,11 @@ const resolvePostAttachments = async (attachments: any[]) => {
       id,
       url: file?.url || id,
       name: file?.originalName || undefined,
-      mimeType: file?.mimeType || undefined
+      mimeType: file?.mimeType || undefined,
+      thumbnailUrl: file?.thumbnailUrl || undefined,
+      width: file?.width ?? undefined,
+      height: file?.height ?? undefined,
+      duration: file?.duration ?? undefined
     };
   });
 };
@@ -636,8 +690,11 @@ export const createBusinessPagePost = async (req: Request, res: Response) => {
     const isAdmin = role.includes('admin');
     if (page.ownerId !== userId && !isAdmin) return res.status(403).json({ success: false, error: 'Forbidden' });
 
-    const { content, attachments, visibility = 'public', title } = req.body || {};
-    const attachmentIds = toAttachmentIds(attachments);
+    const { content, attachments, attachmentFileIds, visibility = 'public', title } = req.body || {};
+    const attachmentIds = await resolveValidatedAttachmentIds(
+      attachmentFileIds !== undefined ? attachmentFileIds : attachments,
+      { userId, role: req.user?.role }
+    );
     const normalizedContent = String(content || '').trim();
     if (!normalizedContent && !attachmentIds.length) {
       return res.status(400).json({ success: false, error: 'Add text or at least one attachment' });
@@ -713,6 +770,7 @@ export const createBusinessPagePost = async (req: Request, res: Response) => {
       },
       title: post.title,
       content: post.content,
+      attachmentFileIds: post.attachments || [],
       attachments: await resolvePostAttachments(post.attachments || []),
       tags: post.tags || [],
       mentions: post.mentions || [],
@@ -760,7 +818,13 @@ export const createBusinessPagePost = async (req: Request, res: Response) => {
     return res.json({ success: true, data: responsePost });
   } catch (error: any) {
     console.error('Create business page post error:', error);
-    return res.status(500).json({ success: false, error: error.message || 'Failed to create post' });
+    const message = String(error?.message || 'Failed to create post');
+    const status = message.includes('not found')
+      ? 400
+      : message.includes('only attach') || message.includes('Attachments must')
+        ? 403
+        : 500;
+    return res.status(status).json({ success: false, error: message });
   }
 };
 
