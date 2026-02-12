@@ -3,7 +3,7 @@ import { useContent } from '../../context/ContentContext';
 import { AdminService } from '../../services/admin';
 import { useNotification } from '../../context/NotificationContext';
 import { useCurrency } from '../../context/CurrencyContext';
-import { Save, Settings, Mail, HardDrive, DollarSign, Cpu, CheckCircle, ShieldCheck, Globe, FileText, Lock, Database, Server, RefreshCw, Plus, Trash2, Zap, X, Network, Send, Eye, Loader2, Image as ImageIcon } from 'lucide-react';
+import { Save, Settings, Mail, HardDrive, DollarSign, Cpu, CheckCircle, ShieldCheck, Globe, FileText, Lock, Database, Server, RefreshCw, Plus, Trash2, Zap, X, Network, Send, Eye, Loader2, AlertTriangle, Image as ImageIcon } from 'lucide-react';
 import { AIConfigManager } from '../../services/ai/ai.config';
 import { AIConfig, ComplianceConfig, Currency, PlatformSettings, EmailProviderConfig, UploadedFile } from '../../types';
 import { INITIAL_CURRENCIES } from '../../constants';
@@ -212,6 +212,7 @@ const SystemSettings = () => {
     // Loading states
     const [isSaving, setIsSaving] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+    const [isApplyingMaintenance, setIsApplyingMaintenance] = useState(false);
 
     // 2. Effects
     useEffect(() => {
@@ -452,6 +453,39 @@ const SystemSettings = () => {
                 ...prev,
                 [section]: { ...((prev as unknown as Record<string, any>)[section]) || {}, [field]: value }
             }));
+        }
+    };
+
+    const applyMaintenanceMode = async (nextValue: boolean) => {
+        if (isApplyingMaintenance) return;
+
+        const previousValue = maintenanceEnabled;
+        setIsApplyingMaintenance(true);
+        handleChange('system', 'maintenanceMode', nextValue);
+
+        try {
+            const saved = await AdminService.saveSystemSettings({ maintenanceMode: nextValue } as SystemConfig);
+            setLocalSettings((prev) => ({
+                ...prev,
+                system: {
+                    ...(prev.system || {}),
+                    ...(saved || {}),
+                    maintenanceMode: nextValue
+                }
+            }));
+            showNotification(
+                'success',
+                nextValue ? 'Maintenance Mode Enabled' : 'Maintenance Mode Disabled',
+                nextValue
+                    ? 'Non-admin API access is now restricted.'
+                    : 'Platform access has been restored for all users.'
+            );
+        } catch (error) {
+            handleChange('system', 'maintenanceMode', previousValue);
+            console.error('Failed to update maintenance mode:', error);
+            showNotification('error', 'Update Failed', 'Could not update maintenance mode. Please try again.');
+        } finally {
+            setIsApplyingMaintenance(false);
         }
     };
 
@@ -945,10 +979,27 @@ const SystemSettings = () => {
                                 <input 
                                     type="checkbox" 
                                     checked={maintenanceEnabled} 
-                                    onChange={e => handleChange('system', 'maintenanceMode', e.target.checked)} 
+                                    onChange={e => void applyMaintenanceMode(e.target.checked)} 
+                                    disabled={isApplyingMaintenance}
                                     className="rounded text-blue-600" 
                                 />
                             </div>
+                            <button
+                                type="button"
+                                onClick={() => void applyMaintenanceMode(!maintenanceEnabled)}
+                                disabled={isApplyingMaintenance}
+                                className={`w-full rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+                                    maintenanceEnabled
+                                        ? 'bg-amber-100 text-amber-900 hover:bg-amber-200'
+                                        : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                                } disabled:cursor-not-allowed disabled:opacity-60`}
+                            >
+                                {isApplyingMaintenance
+                                    ? 'Applying...'
+                                    : maintenanceEnabled
+                                        ? 'Disable Maintenance Mode'
+                                        : 'Enable Maintenance Mode'}
+                            </button>
                             <div className="flex items-center justify-between">
                                 <div>
                                     <span className="text-sm font-medium text-gray-700">Allow Registrations</span>
@@ -987,12 +1038,30 @@ const SystemSettings = () => {
                             </div>
                         </div>
 
-                        <div className="bg-green-50 border border-green-200 p-4 rounded-lg flex items-center justify-between">
+                        <div className={`p-4 rounded-lg flex items-center justify-between ${
+                            maintenanceEnabled
+                                ? 'bg-amber-50 border border-amber-200'
+                                : 'bg-green-50 border border-green-200'
+                        }`}>
                             <div>
-                                <span className="font-bold text-green-800 text-sm block">System Operational</span>
-                                <span className="text-green-600 text-xs">All services running normally</span>
+                                <span className={`font-bold text-sm block ${
+                                    maintenanceEnabled ? 'text-amber-800' : 'text-green-800'
+                                }`}>
+                                    {maintenanceEnabled ? 'Maintenance Mode Active' : 'System Operational'}
+                                </span>
+                                <span className={`text-xs ${
+                                    maintenanceEnabled ? 'text-amber-700' : 'text-green-600'
+                                }`}>
+                                    {maintenanceEnabled
+                                        ? 'Non-admin traffic is temporarily restricted.'
+                                        : 'All services running normally'}
+                                </span>
                             </div>
-                            <CheckCircle className="w-5 h-5 text-green-600" />
+                            {maintenanceEnabled ? (
+                                <AlertTriangle className="w-5 h-5 text-amber-600" />
+                            ) : (
+                                <CheckCircle className="w-5 h-5 text-green-600" />
+                            )}
                         </div>
                     </div>
                 )}
