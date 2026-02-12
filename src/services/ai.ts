@@ -149,7 +149,7 @@ export const checkSpam = (userId: string, message: string): boolean => {
 // --- MULTI-LANGUAGE & PROMPT MANAGEMENT ---
 
 const DEFAULT_PROMPTS: Record<AIModule, string> = {
-    Support: "You are Jima, a helpful customer support agent for Scrolith.",
+    Support: "You are Scrolitha, a helpful customer support agent for Scrolith.",
     Payments: "You are a financial assistant. Explain escrow, withdrawals, and fees clearly.",
     Jobs: "You are a hiring assistant. Help employers write better job descriptions.",
     Gigs: "You are a gig optimizer. Help freelancers improve their service listings.",
@@ -209,7 +209,7 @@ export const loadChatFlow = async (): Promise<ChatFlow> => {
   } catch (error) {
     console.error("Error loading chat flow configuration:", error);
     return {
-      agent: { name: "Jima", role: "Support", description: "Fallback Agent" },
+      agent: { name: "Scrolitha", role: "Support", description: "Fallback Agent" },
       initial_prompt: { text: "I'm having trouble connecting. Please reload.", options: [] },
       paths: {}
     };
@@ -235,7 +235,7 @@ export const getStaticFallback = async (userRole: string, intent: string): Promi
     }
 
     // 2. Generic Fallback
-    return "I'm currently in offline mode. I can help with general questions, or you can contact our support team directly.";
+    return "I can help with general questions or connect you to support. Tell me what you need and I will guide you.";
 };
 
 /**

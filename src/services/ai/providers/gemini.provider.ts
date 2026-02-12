@@ -115,7 +115,7 @@ export class GeminiProvider implements AIProvider {
         const context = input.history.map(h => `${h.sender}: ${h.text}`).join('\n');
         
         const prompt = `
-        You are Jima, an AI assistant for Scrolith.
+        You are Scrolitha, an AI assistant for Scrolith.
         Rules:
         - No financial advice
         - No legal advice

@@ -27,6 +27,20 @@ export type ScrolithaChatResponse = {
   draftChanges?: Record<string, any> | null;
 };
 
+export type ScrolithaWidgetConfig = {
+  enabled: boolean;
+  assistantName: string;
+  assistantRoleLabel: string;
+  textColor: string;
+  accentColor: string;
+  agentBubbleColor: string;
+  userBubbleColor: string;
+  logoUrl: string;
+  logoFileId: string;
+  welcomeText: string;
+  typingText: string;
+};
+
 export class ScrolithaService {
   static async chat(payload: {
     message: string;
@@ -140,6 +154,30 @@ export class ScrolithaService {
     const response = await api.get('/admin/scrolitha/tools');
     const data = extractData<any>(response);
     return Array.isArray(data) ? data : [];
+  }
+
+  static async getWidgetConfig(): Promise<ScrolithaWidgetConfig> {
+    const response = await api.get('/scrolitha/widget-config');
+    return extractData<ScrolithaWidgetConfig>(response);
+  }
+
+  static async adminGetChatRecords(payload?: {
+    limit?: number;
+    userId?: string;
+    scope?: 'user' | 'admin';
+    conversationId?: string;
+  }): Promise<{ items: any[] }> {
+    const params = new URLSearchParams();
+    if (typeof payload?.limit === 'number') params.set('limit', String(Math.max(1, Math.floor(payload.limit))));
+    if (payload?.userId) params.set('userId', payload.userId);
+    if (payload?.scope) params.set('scope', payload.scope);
+    if (payload?.conversationId) params.set('conversationId', payload.conversationId);
+    const query = params.toString();
+    const response = await api.get(`/admin/scrolitha/chat-records${query ? `?${query}` : ''}`);
+    const data = extractData<any>(response);
+    return {
+      items: Array.isArray(data?.items) ? data.items : []
+    };
   }
 }
 

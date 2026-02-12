@@ -1,18 +1,35 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BarChart3, Bot, FileSearch, Shield, Wrench } from 'lucide-react';
+import { BarChart3, Bot, FileSearch, Palette, Shield, Wrench } from 'lucide-react';
 import { useNotification } from '../../context/NotificationContext';
 import { useSocket } from '../../context/SocketContext';
-import ScrolithaService, { ScrolithaSuggestedAction } from '../../services/scrolitha';
+import ScrolithaService, { ScrolithaSuggestedAction, ScrolithaWidgetConfig } from '../../services/scrolitha';
+import FilePickerModal from '../shared/FilePickerModal';
+import { UploadedFile } from '../../types';
 
-type TabId = 'console' | 'skills' | 'policies' | 'audit' | 'analytics';
+type TabId = 'console' | 'skills' | 'policies' | 'widget' | 'audit' | 'analytics';
 
 const tabs: Array<{ id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'console', label: 'Console', icon: Bot },
   { id: 'skills', label: 'Skills Library', icon: Wrench },
   { id: 'policies', label: 'Policies & Security', icon: Shield },
+  { id: 'widget', label: 'Chat Widget', icon: Palette },
   { id: 'audit', label: 'Audit Logs', icon: FileSearch },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 }
 ];
+
+const defaultWidgetSettings: ScrolithaWidgetConfig = {
+  enabled: true,
+  assistantName: 'Scrolitha',
+  assistantRoleLabel: 'Support',
+  textColor: '#1e293b',
+  accentColor: '#4f46e5',
+  agentBubbleColor: '#f3f4f6',
+  userBubbleColor: '#4f46e5',
+  logoUrl: '',
+  logoFileId: '',
+  welcomeText: "Hi! I'm Scrolitha. I can help you navigate Scrolith. What describes you best?",
+  typingText: 'Scrolitha is thinking...'
+};
 
 const parseJson = (value: string) => {
   const source = String(value || '').trim();
@@ -45,6 +62,11 @@ const ScrolithaManagement: React.FC = () => {
   const [auditRows, setAuditRows] = useState<any[]>([]);
   const [auditCursor, setAuditCursor] = useState<string | null>(null);
   const [analytics, setAnalytics] = useState<any>(null);
+  const [widgetSettings, setWidgetSettings] = useState<ScrolithaWidgetConfig>(defaultWidgetSettings);
+  const [chatRecords, setChatRecords] = useState<any[]>([]);
+  const [chatRecordScope, setChatRecordScope] = useState<'user' | 'admin'>('user');
+  const [chatRecordUserId, setChatRecordUserId] = useState('');
+  const [showLogoPicker, setShowLogoPicker] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [runningActionId, setRunningActionId] = useState<string | null>(null);
@@ -58,11 +80,11 @@ const ScrolithaManagement: React.FC = () => {
 
   const loadConfig = async () => {
     const data = await ScrolithaService.adminGetConfig(configScope);
-    if (data && data.scope) {
-      setConfig(data);
-    } else {
-      setConfig(data?.[configScope] || null);
-    }
+    const next = data && data.scope ? data : data?.[configScope] || null;
+    setConfig(next);
+    const metadata = next?.metadata && typeof next.metadata === 'object' && !Array.isArray(next.metadata) ? next.metadata : {};
+    const chatWidget = metadata?.chatWidget && typeof metadata.chatWidget === 'object' ? metadata.chatWidget : {};
+    setWidgetSettings({ ...defaultWidgetSettings, ...(chatWidget as Partial<ScrolithaWidgetConfig>) });
   };
 
   const loadSkills = async () => {
@@ -85,12 +107,21 @@ const ScrolithaManagement: React.FC = () => {
     setAnalytics(data || null);
   };
 
+  const loadChatRecords = async () => {
+    const data = await ScrolithaService.adminGetChatRecords({
+      limit: 20,
+      scope: chatRecordScope,
+      userId: chatRecordUserId.trim() || undefined
+    });
+    setChatRecords(Array.isArray(data?.items) ? data.items : []);
+  };
+
   useEffect(() => {
     let mounted = true;
     const run = async () => {
       setLoading(true);
       try {
-        await Promise.all([loadConfig(), loadSkills(), loadAudit(null), loadAnalytics()]);
+        await Promise.all([loadConfig(), loadSkills(), loadAudit(null), loadAnalytics(), loadChatRecords()]);
       } catch (error: any) {
         if (!mounted) return;
         showNotification('error', 'Scrolitha', error?.message || 'Failed to load Scrolitha admin module.');
@@ -102,7 +133,7 @@ const ScrolithaManagement: React.FC = () => {
     return () => {
       mounted = false;
     };
-  }, [configScope]);
+  }, [configScope, chatRecordScope]);
 
   useEffect(() => {
     if (!socket) return;
@@ -111,6 +142,7 @@ const ScrolithaManagement: React.FC = () => {
       void loadSkills();
       void loadAudit(null);
       void loadAnalytics();
+      void loadChatRecords();
     };
     socket.on('scrolitha:config_updated', refresh);
     socket.on('scrolitha:skills_updated', refresh);
@@ -120,7 +152,7 @@ const ScrolithaManagement: React.FC = () => {
       socket.off('scrolitha:skills_updated', refresh);
       socket.off('scrolitha:action_completed', refresh);
     };
-  }, [socket, configScope]);
+  }, [socket, configScope, chatRecordScope, chatRecordUserId]);
 
   useEffect(() => {
     if (isConnected) return;
@@ -129,9 +161,10 @@ const ScrolithaManagement: React.FC = () => {
       void loadSkills();
       void loadAudit(null);
       void loadAnalytics();
+      void loadChatRecords();
     }, 60_000);
     return () => window.clearInterval(timer);
-  }, [isConnected, configScope]);
+  }, [isConnected, configScope, chatRecordScope, chatRecordUserId]);
 
   const submitChat = async () => {
     const value = message.trim();
@@ -170,6 +203,12 @@ const ScrolithaManagement: React.FC = () => {
     if (!config) return;
     setLoading(true);
     try {
+      const metadata = config?.metadata && typeof config.metadata === 'object' && !Array.isArray(config.metadata)
+        ? { ...config.metadata }
+        : {};
+      if (configScope === 'admin') {
+        (metadata as any).chatWidget = { ...defaultWidgetSettings, ...widgetSettings };
+      }
       const payload = {
         scope: configScope,
         enabled: Boolean(config.enabled),
@@ -185,7 +224,8 @@ const ScrolithaManagement: React.FC = () => {
           .map((entry) => entry.trim())
           .filter(Boolean),
         userRateLimitPerMinute: Number(config.userRateLimitPerMinute || 30),
-        adminActionCapPerMinute: Number(config.adminActionCapPerMinute || 10)
+        adminActionCapPerMinute: Number(config.adminActionCapPerMinute || 10),
+        metadata
       };
       await ScrolithaService.adminUpdateConfig(payload);
       await loadConfig();
@@ -195,6 +235,52 @@ const ScrolithaManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const saveWidgetSettings = async () => {
+    if (!config) return;
+    setLoading(true);
+    try {
+      const metadata = config?.metadata && typeof config.metadata === 'object' && !Array.isArray(config.metadata)
+        ? { ...config.metadata }
+        : {};
+      metadata.chatWidget = { ...defaultWidgetSettings, ...widgetSettings };
+
+      await ScrolithaService.adminUpdateConfig({
+        scope: 'admin',
+        enabled: Boolean(config.enabled),
+        safeMode: Boolean(config.safeMode),
+        requireConfirmationByDefault: Boolean(config.requireConfirmationByDefault),
+        lowRiskAutoExecute: Boolean(config.lowRiskAutoExecute),
+        denyListedTools: String(config.denyListedTools || '')
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean),
+        promptBlocklist: String(config.promptBlocklist || '')
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean),
+        userRateLimitPerMinute: Number(config.userRateLimitPerMinute || 30),
+        adminActionCapPerMinute: Number(config.adminActionCapPerMinute || 10),
+        metadata
+      });
+
+      await Promise.all([loadConfig(), loadChatRecords()]);
+      showNotification('success', 'Chat Widget', 'Widget settings saved.');
+    } catch (error: any) {
+      showNotification('error', 'Chat Widget', error?.message || 'Failed to save widget settings.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onLogoSelected = (file: UploadedFile) => {
+    setWidgetSettings((prev) => ({
+      ...prev,
+      logoUrl: String(file?.url || ''),
+      logoFileId: String(file?.id || '')
+    }));
+    setShowLogoPicker(false);
   };
 
   const createSkill = async () => {
@@ -367,6 +453,181 @@ const ScrolithaManagement: React.FC = () => {
         </section>
       ) : null}
 
+      {tab === 'widget' ? (
+        <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-4">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Chat Widget Settings</h3>
+            <p className="text-xs text-slate-500">Customize the Scrolitha support widget appearance and live behavior.</p>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="text-xs font-medium uppercase text-slate-500">
+              Assistant Name
+              <input
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={widgetSettings.assistantName}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, assistantName: event.target.value }))}
+              />
+            </label>
+            <label className="text-xs font-medium uppercase text-slate-500">
+              Role Label
+              <input
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={widgetSettings.assistantRoleLabel}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, assistantRoleLabel: event.target.value }))}
+              />
+            </label>
+            <label className="text-xs font-medium uppercase text-slate-500">
+              Accent Color
+              <input
+                className="mt-1 h-10 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={widgetSettings.accentColor}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, accentColor: event.target.value }))}
+              />
+            </label>
+            <label className="text-xs font-medium uppercase text-slate-500">
+              Text Color
+              <input
+                className="mt-1 h-10 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={widgetSettings.textColor}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, textColor: event.target.value }))}
+              />
+            </label>
+            <label className="text-xs font-medium uppercase text-slate-500">
+              Agent Bubble Color
+              <input
+                className="mt-1 h-10 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={widgetSettings.agentBubbleColor}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, agentBubbleColor: event.target.value }))}
+              />
+            </label>
+            <label className="text-xs font-medium uppercase text-slate-500">
+              User Bubble Color
+              <input
+                className="mt-1 h-10 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={widgetSettings.userBubbleColor}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, userBubbleColor: event.target.value }))}
+              />
+            </label>
+            <label className="text-xs font-medium uppercase text-slate-500 md:col-span-2">
+              Welcome Message
+              <textarea
+                rows={2}
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={widgetSettings.welcomeText}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, welcomeText: event.target.value }))}
+              />
+            </label>
+            <label className="text-xs font-medium uppercase text-slate-500 md:col-span-2">
+              Typing Message
+              <input
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={widgetSettings.typingText}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, typingText: event.target.value }))}
+              />
+            </label>
+          </div>
+
+          <div className="grid gap-2 md:grid-cols-[1fr_auto_auto] md:items-end">
+            <label className="text-xs font-medium uppercase text-slate-500">
+              Chat Logo URL
+              <input
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={widgetSettings.logoUrl}
+                onChange={(event) =>
+                  setWidgetSettings((prev) => ({
+                    ...prev,
+                    logoUrl: event.target.value,
+                    logoFileId: prev.logoFileId || ''
+                  }))
+                }
+                placeholder="https://..."
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => setShowLogoPicker(true)}
+              className="rounded-md border border-slate-300 px-3 py-2 text-xs text-slate-700"
+            >
+              Choose Logo
+            </button>
+            <button
+              type="button"
+              onClick={() => setWidgetSettings((prev) => ({ ...prev, logoUrl: '', logoFileId: '' }))}
+              className="rounded-md border border-rose-300 px-3 py-2 text-xs text-rose-700"
+            >
+              Clear Logo
+            </button>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => void saveWidgetSettings()}
+              className="rounded-md bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-60"
+            >
+              Save Widget Settings
+            </button>
+          </div>
+
+          <div className="border-t border-slate-200 pt-4">
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-xs font-medium uppercase text-slate-500">
+                Record Scope
+                <select
+                  value={chatRecordScope}
+                  onChange={(event) => setChatRecordScope(event.target.value as 'user' | 'admin')}
+                  className="mt-1 w-36 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                >
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </label>
+              <label className="text-xs font-medium uppercase text-slate-500">
+                Filter by User ID
+                <input
+                  value={chatRecordUserId}
+                  onChange={(event) => setChatRecordUserId(event.target.value)}
+                  className="mt-1 w-72 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                  placeholder="optional user id"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => void loadChatRecords()}
+                className="rounded-md border border-slate-300 px-3 py-2 text-xs text-slate-700"
+              >
+                Refresh Records
+              </button>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              {chatRecords.map((record) => (
+                <div key={record.id} className="rounded-md border border-slate-200 p-3 text-xs text-slate-700">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="font-semibold text-slate-800">Conversation {record.id}</span>
+                    <span>User: {record.userId}</span>
+                    <span>Role: {record.userRole}</span>
+                    <span>Updated: {formatDate(record.updatedAt)}</span>
+                    <span>Messages: {record.messageCount}</span>
+                  </div>
+                  <div className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded border border-slate-100 bg-slate-50 p-2">
+                    {(record.messages || []).map((msg: any) => (
+                      <div key={msg.id} className="rounded bg-white px-2 py-1">
+                        <span className="font-semibold text-slate-600">{String(msg.sender || 'unknown')}:</span>{' '}
+                        <span>{String(msg.content || '')}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {chatRecords.length === 0 ? <p className="text-xs text-slate-500">No chat records found.</p> : null}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       {tab === 'skills' ? (
         <section className="rounded-xl border border-gray-200 bg-white p-4">
           <h3 className="text-sm font-semibold text-slate-900">Skills Library</h3>
@@ -446,6 +707,17 @@ const ScrolithaManagement: React.FC = () => {
           </div>
         </section>
       ) : null}
+
+      <FilePickerModal
+        isOpen={showLogoPicker}
+        onClose={() => setShowLogoPicker(false)}
+        onSelect={onLogoSelected}
+        allowUpload
+        filterType="image"
+        acceptedTypes="image/*"
+        role="admin"
+        title="Select Chat Logo"
+      />
     </div>
   );
 };

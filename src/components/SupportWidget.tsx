@@ -1,9 +1,12 @@
 
-import React, { useState, useRef, useEffect } from 'react';
-import { MessageCircle, X, Send, Headphones, Sparkles, RefreshCw, Paperclip, FileText, Image as ImageIcon, ChevronRight, Mic, MicOff } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { X, Send, Headphones, Sparkles, RefreshCw, Paperclip, FileText, ChevronRight, Mic, MicOff } from 'lucide-react';
 import { getSupportResponse, loadChatFlow, ChatOption, ChatFlow } from '../services/ai';
+import ScrolithaService, { ScrolithaWidgetConfig } from '../services/scrolitha';
 import { Attachment } from '../types';
-import { Link, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useUser } from '../context/UserContext';
+import { useSocket } from '../context/SocketContext';
 
 type Sender = 'user' | 'agent' | 'system';
 type UserRole = 'Freelancer' | 'Employer' | null;
@@ -21,10 +24,42 @@ interface IWindow extends Window {
   SpeechRecognition: any;
 }
 
+const defaultWidgetConfig: ScrolithaWidgetConfig = {
+  enabled: true,
+  assistantName: 'Scrolitha',
+  assistantRoleLabel: 'Support',
+  textColor: '#1e293b',
+  accentColor: '#4f46e5',
+  agentBubbleColor: '#f3f4f6',
+  userBubbleColor: '#4f46e5',
+  logoUrl: '',
+  logoFileId: '',
+  welcomeText: "Hi! I'm Scrolitha. I can help you navigate Scrolith. What describes you best?",
+  typingText: 'Scrolitha is thinking...'
+};
+
+const colorToText = (color: string, fallback = '#ffffff') => {
+  const source = String(color || '').trim();
+  const hex = source.replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return fallback;
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return luma > 0.62 ? '#0f172a' : '#ffffff';
+};
+
 const SupportWidget: React.FC = () => {
+  const { user, isAuthenticated } = useUser();
+  const { socket } = useSocket();
+  const location = useLocation();
+  const navigate = useNavigate();
+
   const [chatFlow, setChatFlow] = useState<ChatFlow | null>(null);
+  const [widgetConfig, setWidgetConfig] = useState<ScrolithaWidgetConfig>(defaultWidgetConfig);
   const [isOpen, setIsOpen] = useState(false);
   const [role, setRole] = useState<UserRole>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   
   // Chat State
   const [chatHistory, setChatHistory] = useState<UIMessage[]>([]);
@@ -42,22 +77,47 @@ const SupportWidget: React.FC = () => {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const navigate = useNavigate();
+
+  const loadWidgetConfig = useCallback(async () => {
+    try {
+      const data = await ScrolithaService.getWidgetConfig();
+      setWidgetConfig({ ...defaultWidgetConfig, ...(data || {}) });
+    } catch {
+      setWidgetConfig(defaultWidgetConfig);
+    }
+  }, []);
 
   // Load Configuration on Mount
   useEffect(() => {
     const initChat = async () => {
       try {
-        const flow = await loadChatFlow();
-        setChatFlow(flow);
+        const [flow, config] = await Promise.all([
+          loadChatFlow(),
+          ScrolithaService.getWidgetConfig().catch(() => defaultWidgetConfig)
+        ]);
+        const normalizedConfig = { ...defaultWidgetConfig, ...(config || {}) };
+        setWidgetConfig(normalizedConfig);
+        const mergedFlow: ChatFlow = {
+          ...flow,
+          agent: {
+            ...(flow.agent || {}),
+            name: normalizedConfig.assistantName || flow.agent?.name || defaultWidgetConfig.assistantName
+          },
+          initial_prompt: {
+            ...(flow.initial_prompt || {}),
+            text: normalizedConfig.welcomeText || flow.initial_prompt?.text || defaultWidgetConfig.welcomeText,
+            options: Array.isArray(flow.initial_prompt?.options) ? flow.initial_prompt.options : []
+          }
+        };
+        setChatFlow(mergedFlow);
         setIsFlowLoaded(true);
-        setCurrentOptions(flow.initial_prompt.options);
+        setCurrentOptions(mergedFlow.initial_prompt.options);
         
         // Set initial greeting
         setChatHistory([
           { 
             sender: 'agent', 
-            text: flow.initial_prompt.text, 
+            text: mergedFlow.initial_prompt.text, 
             timestamp: new Date() 
           }
         ]);
@@ -100,6 +160,17 @@ const SupportWidget: React.FC = () => {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory, isTyping, currentOptions, isOpen]);
+
+  useEffect(() => {
+    if (!socket) return;
+    const refresh = () => {
+      void loadWidgetConfig();
+    };
+    socket.on('scrolitha:config_updated', refresh);
+    return () => {
+      socket.off('scrolitha:config_updated', refresh);
+    };
+  }, [socket, loadWidgetConfig]);
 
   const handleAction = (path: string) => {
       // Handle Navigation Actions based on path
@@ -171,6 +242,7 @@ const SupportWidget: React.FC = () => {
   const handleReset = () => {
       if (!chatFlow) return;
       setRole(null);
+      setConversationId(null);
       setCurrentOptions(chatFlow.initial_prompt.options);
       setChatHistory(prev => [
           ...prev, 
@@ -241,16 +313,27 @@ const SupportWidget: React.FC = () => {
     setIsTyping(true);
     setCurrentOptions([]); // Clear options when typing manually
 
-    // Fallback to AI
+    // Authenticated: Scrolitha orchestration. Guest: fallback assistant.
     try {
-        const response = await getSupportResponse(
-          userMsg + (currentFile ? ` [Attached: ${currentFile.name}]` : ''), 
-          role, 
-          chatHistory.filter(m => m.text).map(m => ({ sender: m.sender, text: m.text! }))
-        );
-        
-        setIsTyping(false);
-        setChatHistory(prev => [...prev, { sender: 'agent', text: response, timestamp: new Date() }]);
+        if (isAuthenticated && user?.id) {
+          const payloadMessage = userMsg + (currentFile ? ` [Attached: ${currentFile.name}]` : '');
+          const data = await ScrolithaService.chat({
+            message: payloadMessage,
+            conversationId: conversationId || undefined,
+            context: { page: location.pathname }
+          });
+          if (data?.conversationId) setConversationId(data.conversationId);
+          setIsTyping(false);
+          setChatHistory(prev => [...prev, { sender: 'agent', text: data?.reply || 'Done.', timestamp: new Date() }]);
+        } else {
+          const response = await getSupportResponse(
+            userMsg + (currentFile ? ` [Attached: ${currentFile.name}]` : ''), 
+            role, 
+            chatHistory.filter(m => m.text).map(m => ({ sender: m.sender, text: m.text! }))
+          );
+          setIsTyping(false);
+          setChatHistory(prev => [...prev, { sender: 'agent', text: response, timestamp: new Date() }]);
+        }
         
         // Add a "back to menu" option after AI response
         setCurrentOptions([{ label: "Back to Menu", path: "reset" }]);
@@ -261,7 +344,17 @@ const SupportWidget: React.FC = () => {
     }
   };
 
-  if (!isFlowLoaded) return null;
+  if (!isFlowLoaded || !widgetConfig.enabled) return null;
+
+  const headerColor = widgetConfig.accentColor || defaultWidgetConfig.accentColor;
+  const userBubbleColor = widgetConfig.userBubbleColor || defaultWidgetConfig.userBubbleColor;
+  const userBubbleTextColor = colorToText(userBubbleColor);
+  const agentBubbleColor = widgetConfig.agentBubbleColor || defaultWidgetConfig.agentBubbleColor;
+  const textColor = widgetConfig.textColor || defaultWidgetConfig.textColor;
+  const assistantName = widgetConfig.assistantName || chatFlow?.agent?.name || defaultWidgetConfig.assistantName;
+  const assistantRoleLabel = widgetConfig.assistantRoleLabel || defaultWidgetConfig.assistantRoleLabel;
+  const typingText = widgetConfig.typingText || defaultWidgetConfig.typingText;
+  const logoUrl = widgetConfig.logoUrl || '';
 
   return (
     <div
@@ -274,15 +367,19 @@ const SupportWidget: React.FC = () => {
         <div className="bg-white w-80 sm:w-96 h-[600px] rounded-2xl shadow-2xl border border-gray-200 mb-4 flex flex-col overflow-hidden animate-fade-in-up">
           
           {/* Header */}
-          <div className="bg-indigo-600 p-4 flex justify-between items-center text-white shadow-md">
+          <div className="p-4 flex justify-between items-center text-white shadow-md" style={{ backgroundColor: headerColor }}>
             <div className="flex items-center">
-              <div className="bg-white/20 p-2 rounded-full mr-3 relative">
-                <Sparkles className="h-5 w-5 text-yellow-300" />
+              <div className="bg-white/20 p-2 rounded-full mr-3 relative h-10 w-10 flex items-center justify-center overflow-hidden">
+                {logoUrl ? (
+                  <img src={logoUrl} alt={assistantName} className="h-full w-full object-cover" />
+                ) : (
+                  <Sparkles className="h-5 w-5 text-yellow-300" />
+                )}
                 <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-400 ring-2 ring-indigo-600" />
               </div>
               <div>
-                <h3 className="font-bold text-sm">{chatFlow?.agent.name || 'Jima'} (Support)</h3>
-                <p className="text-[10px] text-indigo-200">{role ? `${role} Mode` : 'How can we help?'}</p>
+                <h3 className="font-bold text-sm">{assistantName} ({assistantRoleLabel})</h3>
+                <p className="text-[10px] text-indigo-100">{role ? `${role} Mode` : 'How can we help?'}</p>
               </div>
             </div>
             <div className="flex items-center space-x-2">
@@ -305,15 +402,24 @@ const SupportWidget: React.FC = () => {
                 ) : (
                     <>
                         {msg.sender === 'agent' && (
-                        <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center mr-2 mt-1 flex-shrink-0">
-                            <Sparkles className="h-3 w-3 text-indigo-600" />
+                        <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center mr-2 mt-1 flex-shrink-0 overflow-hidden">
+                            {logoUrl ? (
+                              <img src={logoUrl} alt={assistantName} className="h-full w-full object-cover" />
+                            ) : (
+                              <Sparkles className="h-3 w-3 text-indigo-600" />
+                            )}
                         </div>
                         )}
-                        <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm whitespace-pre-wrap ${
-                        msg.sender === 'user' 
-                            ? 'bg-indigo-600 text-white rounded-br-none' 
-                            : 'bg-gray-100 text-gray-800 border border-gray-100 rounded-bl-none'
-                        }`}>
+                        <div
+                          className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm whitespace-pre-wrap ${
+                            msg.sender === 'user' ? 'rounded-br-none' : 'border border-gray-100 rounded-bl-none'
+                          }`}
+                          style={
+                            msg.sender === 'user'
+                              ? { backgroundColor: userBubbleColor, color: userBubbleTextColor }
+                              : { backgroundColor: agentBubbleColor, color: textColor }
+                          }
+                        >
                         {msg.text && <p>{msg.text}</p>}
                         
                         {msg.attachments && msg.attachments.map(att => (
@@ -331,9 +437,13 @@ const SupportWidget: React.FC = () => {
             {isTyping && (
               <div className="flex justify-start animate-pulse">
                  <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center mr-2">
-                    <Sparkles className="h-3 w-3 text-indigo-600" />
+                    {logoUrl ? (
+                      <img src={logoUrl} alt={assistantName} className="h-full w-full object-cover rounded-full" />
+                    ) : (
+                      <Sparkles className="h-3 w-3 text-indigo-600" />
+                    )}
                   </div>
-                <div className="bg-gray-100 rounded-2xl px-4 py-3 text-gray-500 text-xs">Jima is thinking...</div>
+                <div className="rounded-2xl px-4 py-3 text-xs" style={{ backgroundColor: agentBubbleColor, color: textColor }}>{typingText}</div>
               </div>
             )}
 
@@ -400,7 +510,8 @@ const SupportWidget: React.FC = () => {
               <button 
                 type="submit" 
                 disabled={!message.trim() && !selectedFile}
-                className="bg-indigo-600 text-white p-3 rounded-full hover:bg-indigo-700 transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                className="text-white p-3 rounded-full transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                style={{ backgroundColor: headerColor }}
               >
                 <Send className="h-4 w-4" />
               </button>
@@ -412,7 +523,8 @@ const SupportWidget: React.FC = () => {
       {/* Toggle Button */}
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className={`${isOpen ? 'bg-gray-700' : 'bg-indigo-600'} text-white p-4 rounded-full shadow-lg hover:opacity-90 transition-all transform hover:scale-105 flex items-center justify-center group`}
+        className={`${isOpen ? 'bg-gray-700' : ''} text-white p-4 rounded-full shadow-lg hover:opacity-90 transition-all transform hover:scale-105 flex items-center justify-center group`}
+        style={!isOpen ? { backgroundColor: headerColor } : undefined}
       >
         {isOpen ? <X className="h-6 w-6" /> : (
           <div className="relative">

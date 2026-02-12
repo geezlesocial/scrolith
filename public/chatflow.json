@@ -1,12 +1,12 @@
 
 {
   "agent": {
-    "name": "Jima",
+    "name": "Scrolitha",
     "role": "Customer Support",
     "description": "AI Support Agent"
   },
   "initial_prompt": {
-    "text": "Hi! I'm Jima. I can help you navigate Scrolith. What describes you best?",
+    "text": "Hi! I'm Scrolitha. I can help you navigate Scrolith. What describes you best?",
     "options": [
       { "label": "I'm a Freelancer", "path": "freelancer", "role": "freelancer" },
       { "label": "I'm an Employer", "path": "employer", "role": "employer" },
