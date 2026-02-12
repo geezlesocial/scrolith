@@ -637,3 +637,105 @@ export const getScrolithaAnalyticsForAdmin = async () => {
 export const getScrolithaToolRegistry = () => {
   return listScrolithaTools();
 };
+
+const DEFAULT_CHAT_WIDGET_CONFIG = {
+  enabled: true,
+  assistantName: 'Scrolitha',
+  assistantRoleLabel: 'Support',
+  textColor: '#1e293b',
+  accentColor: '#4f46e5',
+  agentBubbleColor: '#f3f4f6',
+  userBubbleColor: '#4f46e5',
+  logoUrl: '',
+  logoFileId: '',
+  welcomeText: "Hi! I'm Scrolitha. I can help you navigate Scrolith. What describes you best?",
+  typingText: 'Scrolitha is thinking...'
+};
+
+const sanitizeWidgetConfig = (input: any) => {
+  const src = input && typeof input === 'object' ? input : {};
+  const readString = (key: string, fallback = '') => String(src?.[key] || fallback).trim();
+  const readColor = (key: string, fallback: string) => {
+    const value = readString(key, fallback);
+    if (!value) return fallback;
+    const hex = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+    const rgb = /^rgba?\([\d\s.,%]+\)$/i;
+    return hex.test(value) || rgb.test(value) ? value : fallback;
+  };
+
+  return {
+    enabled: src?.enabled !== false,
+    assistantName: readString('assistantName', DEFAULT_CHAT_WIDGET_CONFIG.assistantName),
+    assistantRoleLabel: readString('assistantRoleLabel', DEFAULT_CHAT_WIDGET_CONFIG.assistantRoleLabel),
+    textColor: readColor('textColor', DEFAULT_CHAT_WIDGET_CONFIG.textColor),
+    accentColor: readColor('accentColor', DEFAULT_CHAT_WIDGET_CONFIG.accentColor),
+    agentBubbleColor: readColor('agentBubbleColor', DEFAULT_CHAT_WIDGET_CONFIG.agentBubbleColor),
+    userBubbleColor: readColor('userBubbleColor', DEFAULT_CHAT_WIDGET_CONFIG.userBubbleColor),
+    logoUrl: readString('logoUrl'),
+    logoFileId: readString('logoFileId'),
+    welcomeText: readString('welcomeText', DEFAULT_CHAT_WIDGET_CONFIG.welcomeText),
+    typingText: readString('typingText', DEFAULT_CHAT_WIDGET_CONFIG.typingText)
+  };
+};
+
+export const getScrolithaWidgetConfigPublic = async () => {
+  const adminConfig = await ensureScrolithaConfig('admin');
+  const metadata = adminConfig?.metadata && typeof adminConfig.metadata === 'object' ? adminConfig.metadata : {};
+  return sanitizeWidgetConfig((metadata as any).chatWidget || {});
+};
+
+export const getScrolithaChatRecordsForAdmin = async (query?: {
+  limit?: unknown;
+  userId?: unknown;
+  scope?: unknown;
+  conversationId?: unknown;
+}) => {
+  const limit = Math.max(1, Math.min(50, Math.floor(Number(query?.limit || 20))));
+  const userId = text(query?.userId);
+  const scope = text(query?.scope).toLowerCase();
+  const conversationId = text(query?.conversationId);
+
+  const where: any = {};
+  if (userId) where.userId = userId;
+  if (scope === 'user' || scope === 'admin') where.scope = scope;
+  if (conversationId) where.id = conversationId;
+
+  const conversations = await prisma.scrolithaConversation.findMany({
+    where,
+    orderBy: { updatedAt: 'desc' },
+    take: limit,
+    include: {
+      messages: {
+        orderBy: { createdAt: 'asc' },
+        take: 120
+      }
+    }
+  });
+
+  return {
+    items: conversations.map((entry) => {
+      const messages = Array.isArray(entry.messages)
+        ? entry.messages.map((msg) => ({
+            id: msg.id,
+            sender: msg.sender,
+            content: msg.content,
+            createdAt: msg.createdAt
+          }))
+        : [];
+      return {
+        id: entry.id,
+        userId: entry.userId,
+        userRole: entry.userRole,
+        scope: entry.scope,
+        status: entry.status,
+        pageContext: entry.pageContext,
+        entityContextId: entry.entityContextId,
+        createdAt: entry.createdAt,
+        updatedAt: entry.updatedAt,
+        messageCount: messages.length,
+        lastMessage: messages.length ? messages[messages.length - 1] : null,
+        messages
+      };
+    })
+  };
+};

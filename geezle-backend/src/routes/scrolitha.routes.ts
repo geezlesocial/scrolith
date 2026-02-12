@@ -4,10 +4,13 @@ import {
   scrolithaChatController,
   scrolithaExecuteController,
   scrolithaFeedbackController,
-  scrolithaHistoryController
+  scrolithaHistoryController,
+  scrolithaWidgetConfigController
 } from '../controllers/scrolitha.controller';
 
 const router = express.Router();
+
+router.get('/widget-config', scrolithaWidgetConfigController);
 
 router.use(authMiddleware);
 

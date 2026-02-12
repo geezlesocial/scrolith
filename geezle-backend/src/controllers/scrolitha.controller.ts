@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../services/scrolitha/scrolitha.audit';
 import {
+  getScrolithaWidgetConfigPublic,
   scrolithaChat,
   scrolithaExecute,
   scrolithaFeedback,
@@ -114,5 +115,18 @@ export const scrolithaFeedbackController = async (req: Request, res: Response) =
     const status = msg.toLowerCase().includes('required') || msg.toLowerCase().includes('rating') ? 400 : 500;
     console.error('[scrolitha] feedback error', error);
     return res.status(status).json({ success: false, message: 'Failed to save feedback', error: msg });
+  }
+};
+
+export const scrolithaWidgetConfigController = async (_req: Request, res: Response) => {
+  try {
+    const data = await getScrolithaWidgetConfigPublic();
+    return res.json({ success: true, data, message: 'Scrolitha widget config loaded' });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load Scrolitha widget config',
+      error: String(error?.message || 'Unknown error')
+    });
   }
 };

@@ -5,6 +5,7 @@ import {
   deleteScrolithaSkill,
   getScrolithaAnalyticsForAdmin,
   getScrolithaAuditForAdmin,
+  getScrolithaChatRecordsForAdmin,
   getScrolithaConfigForAdmin,
   getScrolithaToolRegistry,
   listScrolithaSkillsForAdmin,
@@ -239,6 +240,24 @@ export const getAdminScrolithaToolsController = async (_req: Request, res: Respo
     return res.status(500).json({
       success: false,
       message: 'Failed to load Scrolitha tool registry',
+      error: String(error?.message || 'Unknown error')
+    });
+  }
+};
+
+export const getAdminScrolithaChatRecordsController = async (req: Request, res: Response) => {
+  try {
+    const data = await getScrolithaChatRecordsForAdmin({
+      limit: req.query.limit,
+      userId: req.query.userId,
+      scope: req.query.scope,
+      conversationId: req.query.conversationId
+    });
+    return res.json({ success: true, data, message: 'Scrolitha chat records loaded' });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load Scrolitha chat records',
       error: String(error?.message || 'Unknown error')
     });
   }

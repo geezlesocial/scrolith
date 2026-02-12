@@ -1,5 +1,6 @@
 import express from 'express';
 import {
+  getAdminScrolithaChatRecordsController,
   deleteAdminScrolithaSkillController,
   getAdminScrolithaAnalyticsController,
   getAdminScrolithaAuditController,
@@ -26,5 +27,6 @@ router.delete('/skills/:id', deleteAdminScrolithaSkillController);
 router.get('/audit', getAdminScrolithaAuditController);
 router.get('/analytics', getAdminScrolithaAnalyticsController);
 router.get('/tools', getAdminScrolithaToolsController);
+router.get('/chat-records', getAdminScrolithaChatRecordsController);
 
 export default router;
