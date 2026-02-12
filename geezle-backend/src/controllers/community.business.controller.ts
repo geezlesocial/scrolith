@@ -25,7 +25,7 @@ const defaultBusinessConfig = {
   businessPageFollowEnabled: true
 };
 
-const getBaseFileUrl = () => {
+const getBaseFileUrl = (req?: Request) => {
   const envBase =
     process.env.FILE_BASE_URL ||
     process.env.BACKEND_URL ||
@@ -33,13 +33,18 @@ const getBaseFileUrl = () => {
     process.env.APP_URL;
   if (envBase) return envBase.replace(/\/$/, '');
 
+  if (req?.headers?.host) {
+    const proto = req.headers['x-forwarded-proto']?.toString().split(',')[0] || req.protocol || 'http';
+    return `${proto}://${req.headers.host}`;
+  }
+
   const host = process.env.HOST || 'localhost';
   const port = process.env.PORT || '5000';
   return `http://${host}:${port}`;
 };
 
-const buildFileContentUrl = (fileId: string) =>
-  `${getBaseFileUrl()}/api/files/content/${encodeURIComponent(fileId)}`;
+const buildFileContentUrl = (fileId: string, req?: Request) =>
+  `${getBaseFileUrl(req)}/api/files/content/${encodeURIComponent(fileId)}`;
 
 const parseLimit = (value: unknown, fallback = 6, max = 24) => {
   const parsed = Number(value);
@@ -202,11 +207,11 @@ const resolveStoredFileUrl = (file: {
   url?: string | null;
   storageKey?: string | null;
   storageProvider?: string | null;
-}) => {
+}, req?: Request) => {
   const storageProvider = String(file.storageProvider || '').trim().toLowerCase();
   const directUrl = normalizeDirectMediaUrl(file.url);
   if (storageProvider === 'azure_blob') {
-    if (file.id) return buildFileContentUrl(file.id);
+    if (file.id) return buildFileContentUrl(file.id, req);
     return file.url || directUrl || null;
   }
   if (directUrl) return directUrl;
@@ -214,7 +219,7 @@ const resolveStoredFileUrl = (file: {
   return file.url || null;
 };
 
-const resolveLogoUrlMap = async (logoRefs: Array<string | null | undefined>) => {
+const resolveLogoUrlMap = async (logoRefs: Array<string | null | undefined>, req?: Request) => {
   const ids = Array.from(
     new Set(
       logoRefs
@@ -230,7 +235,7 @@ const resolveLogoUrlMap = async (logoRefs: Array<string | null | undefined>) => 
   });
   const map = new Map<string, string>();
   files.forEach((file) => {
-    const url = resolveStoredFileUrl(file);
+    const url = resolveStoredFileUrl(file, req);
     if (url) map.set(file.id, url);
   });
   return map;
@@ -277,7 +282,7 @@ const resolveValidatedAttachmentIds = async (
   return ids;
 };
 
-const resolvePostAttachments = async (attachments: any[]) => {
+const resolvePostAttachments = async (attachments: any[], req?: Request) => {
   const ids = toAttachmentIds(attachments);
   if (!ids.length) return [];
 
@@ -328,7 +333,7 @@ const resolvePostAttachments = async (attachments: any[]) => {
     const file = map.get(id);
     return {
       id,
-      url: (file && resolveStoredFileUrl(file)) || id,
+      url: (file && resolveStoredFileUrl(file, req)) || id,
       name: file?.originalName || undefined,
       mimeType: file?.mimeType || undefined,
       thumbnailUrl: file?.thumbnailUrl || undefined,
@@ -348,7 +353,7 @@ const resolvePostAuthorIdentity = (
     authorUserId: post.authorId
   };
 };
-const resolvePageMedia = async (fileId?: string | null) => {
+const resolvePageMedia = async (fileId?: string | null, req?: Request) => {
   if (!fileId) return null;
   const directUrl = normalizeDirectMediaUrl(fileId);
   if (directUrl) {
@@ -361,7 +366,7 @@ const resolvePageMedia = async (fileId?: string | null) => {
   if (!file) return null;
   return {
     id: file.id,
-    url: resolveStoredFileUrl(file),
+    url: resolveStoredFileUrl(file, req),
     mimeType: file.mimeType,
     name: file.originalName
   };
@@ -428,7 +433,8 @@ const serializeBusinessPage = async (
     followId?: string | null;
     includeOwner?: boolean;
     postsCount?: number;
-  }
+  },
+  req?: Request
 ) => ({
   id: page.id,
   ownerId: page.ownerId,
@@ -448,8 +454,8 @@ const serializeBusinessPage = async (
   location: page.location,
   logoFileId: page.logoFileId,
   coverFileId: page.coverFileId,
-  logo: await resolvePageMedia(page.logoFileId),
-  cover: await resolvePageMedia(page.coverFileId),
+  logo: await resolvePageMedia(page.logoFileId, req),
+  cover: await resolvePageMedia(page.coverFileId, req),
   followersCount: Number(opts?.followersCount ?? page?._count?.followers ?? page?.followers?.length ?? 0),
   postsCount: Number(opts?.postsCount ?? page?._count?.posts ?? 0),
   isFollowing: Boolean(opts?.isFollowing),
@@ -542,7 +548,7 @@ export const getMyBusinessPages = async (req: Request, res: Response) => {
         serializeBusinessPage(page, {
           followersCount: page._count.followers,
           postsCount: page._count.posts
-        })
+        }, req)
       )
     );
 
@@ -593,7 +599,7 @@ export const createBusinessPage = async (req: Request, res: Response) => {
     const response = await serializeBusinessPage(page, {
       followersCount: page._count.followers,
       postsCount: page._count.posts
-    });
+    }, req);
 
     const io = getIo(req);
     try {
@@ -665,7 +671,7 @@ export const updateBusinessPage = async (req: Request, res: Response) => {
     const response = await serializeBusinessPage(updated, {
       followersCount: updated._count.followers,
       postsCount: updated._count.posts
-    });
+    }, req);
 
     const io = getIo(req);
     try {
@@ -743,7 +749,7 @@ export const getBusinessPageBySlug = async (req: Request, res: Response) => {
       postsCount: page._count.posts,
       isFollowing: Boolean(viewerFollow),
       followId: viewerFollow?.id || null
-    });
+    }, req);
 
     return res.json({ success: true, data });
   } catch (error: any) {
@@ -793,7 +799,7 @@ export const getRecommendedBusinessPages = async (req: Request, res: Response) =
           isFollowing: Boolean(viewerFollow),
           followId: viewerFollow?.id || null,
           includeOwner: true
-        });
+        }, req);
       })
     );
 
@@ -875,7 +881,7 @@ export const createBusinessPagePost = async (req: Request, res: Response) => {
       try { await syncFileUsages('community_post', post.id, attachmentIds, 'Community Post Media'); } catch {}
     }
 
-    const logoUrlMap = await resolveLogoUrlMap([post.businessPage?.logoFileId]);
+    const logoUrlMap = await resolveLogoUrlMap([post.businessPage?.logoFileId], req);
     const businessLogoUrl = resolveLogoUrl(post.businessPage?.logoFileId, logoUrlMap);
 
     const author = {
@@ -910,7 +916,7 @@ export const createBusinessPagePost = async (req: Request, res: Response) => {
       title: post.title,
       content: post.content,
       attachmentFileIds: post.attachments || [],
-      attachments: await resolvePostAttachments(post.attachments || []),
+      attachments: await resolvePostAttachments(post.attachments || [], req),
       tags: post.tags || [],
       mentions: post.mentions || [],
       topic: post.topic || null,
@@ -1068,7 +1074,7 @@ export const getBusinessPageFeed = async (req: Request, res: Response) => {
     const userReactionByPost = new Map(
       (userReactions as any[]).map((reaction: any) => [reaction.postId, reaction.type])
     );
-    const logoUrlMap = await resolveLogoUrlMap(posts.map((post) => post.businessPage?.logoFileId));
+    const logoUrlMap = await resolveLogoUrlMap(posts.map((post) => post.businessPage?.logoFileId), req);
 
     const items = await Promise.all(
       posts.map(async (post) => {
@@ -1103,7 +1109,7 @@ export const getBusinessPageFeed = async (req: Request, res: Response) => {
           },
           title: post.title,
           content: post.content,
-          attachments: await resolvePostAttachments(post.attachments || []),
+          attachments: await resolvePostAttachments(post.attachments || [], req),
           tags: post.tags || [],
           mentions: post.mentions || [],
           topic: post.topic || null,
@@ -1154,7 +1160,7 @@ export const getBusinessPageFeed = async (req: Request, res: Response) => {
           postsCount: page._count.posts,
           isFollowing: Boolean(viewerPageFollow),
           followId: viewerPageFollow?.id || null
-        }),
+        }, req),
         items,
         nextCursor
       }
@@ -1191,7 +1197,7 @@ export const getPageMentions = async (req: Request, res: Response) => {
   }
 };
 
-export const adminListBusinessPages = async (_req: Request, res: Response) => {
+export const adminListBusinessPages = async (req: Request, res: Response) => {
   try {
     const pages = await prisma.communityBusinessPage.findMany({
       include: {
@@ -1207,7 +1213,7 @@ export const adminListBusinessPages = async (_req: Request, res: Response) => {
           followersCount: page._count.followers,
           postsCount: page._count.posts,
           includeOwner: true
-        })
+        }, req)
       )
     );
 
@@ -1256,7 +1262,7 @@ export const adminUpdateBusinessPage = async (req: Request, res: Response) => {
       followersCount: updated._count.followers,
       postsCount: updated._count.posts,
       includeOwner: true
-    });
+    }, req);
 
     const io = getIo(req);
     try { io?.emit('community:business_page_updated', { page: response }); } catch {}
@@ -1314,7 +1320,7 @@ export const adminModerateBusinessPage = async (req: Request, res: Response) => 
       followersCount: updated._count.followers,
       postsCount: updated._count.posts,
       includeOwner: true
-    });
+    }, req);
 
     const io = getIo(req);
     try { io?.emit('community:business_page_updated', { page: response }); } catch {}
