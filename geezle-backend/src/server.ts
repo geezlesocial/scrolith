@@ -63,6 +63,7 @@ import adminPreloadersRoutes from './routes/admin/preloaders.routes';
 import recoRoutes from './routes/reco.routes';
 import scrolithaRoutes from './routes/scrolitha.routes';
 import { authMiddleware } from './middleware/auth.middleware';
+import { maintenanceModeMiddleware } from './middleware/maintenance.middleware';
 // Import community admin controllers so we can mount explicit admin config endpoints
 import { getAdminConfig, updateAdminConfig } from './controllers/community.admin.controller';
 import { handleStripeWalletWebhook } from './controllers/walletFunding.controller';
@@ -656,6 +657,10 @@ app.get('/socket-test', (req: Request, res: Response) => {
     timestamp: new Date().toISOString()
   });
 });
+
+// Enforce system maintenance mode for non-admin traffic while keeping admin/auth/CMS
+// access paths available for management and status pages.
+app.use('/api', maintenanceModeMiddleware);
 
 // API routes
 app.use('/api/cms', cmsRoutes);
