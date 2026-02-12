@@ -795,6 +795,14 @@ const parsePositiveInt = (value: unknown, fallback: number, max: number) => {
   return Math.max(1, Math.min(max, Math.trunc(parsed)));
 };
 
+const parseBooleanQuery = (value: unknown, fallback: boolean) => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (!normalized) return fallback;
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+};
+
 const buildMimeTypeFilter = (value: unknown) => {
   const type = String(value || '').trim().toLowerCase();
   if (!type || type === 'all') return null;
@@ -842,6 +850,8 @@ export const listFiles = async (req: Request, res: Response) => {
   try {
     const role = (req.user?.role || '').toString().toLowerCase();
     const isAdmin = role === 'admin';
+    const includeUsage = parseBooleanQuery(req.query?.includeUsage, true);
+    const includeDiskFallback = parseBooleanQuery(req.query?.includeDisk, true);
     const requestedUserId = req.query?.userId?.toString() || req.query?.user_id?.toString() || '';
     const effectiveUserId = requestedUserId || req.user?.id?.toString() || '';
     const queryRoleInput = (req.query?.role || req.query?.ownerRole) as string | undefined;
@@ -897,7 +907,7 @@ export const listFiles = async (req: Request, res: Response) => {
 
     const fileIds = dbFiles.map((file) => file.id);
     const usageMap = new Map<string, Array<{ type: string; id: string; label?: string }>>();
-    if (fileIds.length) {
+    if (includeUsage && fileIds.length) {
       try {
         const usages = await prisma.fileUsage.findMany({
           where: { fileId: { in: fileIds } },
@@ -953,7 +963,7 @@ export const listFiles = async (req: Request, res: Response) => {
 
     const seenUrls = new Set(normalized.map((file) => normalizeUploadsUrl(file.url || '')));
 
-    if (isAdmin) {
+    if (isAdmin && includeDiskFallback) {
       const diskEntries = listUploadFiles(UPLOAD_DIR);
       for (const entry of diskEntries) {
         const record = buildDiskRecord(entry, baseUrl);
