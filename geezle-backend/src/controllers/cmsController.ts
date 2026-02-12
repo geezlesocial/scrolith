@@ -31,50 +31,72 @@ const CMS_BLOG_CATEGORIES_SCOPE = 'cms_blog_categories';
 const CMS_BLOG_SETTINGS_SCOPE = 'cms_blog_settings';
 
 const PLATFORM_SETTINGS_FILE = path.resolve(__dirname, '../../data/platform-system-settings.json');
-const getPublicPlatformSettings = () => {
-  const defaults = {
-    siteName: 'Scrolith Marketplace',
-    tagline: 'Find, hire, and work with the best talent',
-    logoUrl: '/logo.svg',
-    faviconUrl: '/favicon.ico',
-    adminEmail: 'admin@Scrolith.com',
-    supportEmail: 'support@Scrolith.com',
+const PUBLIC_PLATFORM_DEFAULTS = {
+  siteName: 'Scrolith Marketplace',
+  tagline: 'Find, hire, and work with the best talent',
+  logoUrl: '/logo.svg',
+  faviconUrl: '/favicon.ico',
+  adminEmail: 'admin@Scrolith.com',
+  supportEmail: 'support@Scrolith.com',
+  gigExperience: {
+    enabled: true,
+    chatBarEnabled: true,
+    inlineChatEnabled: true,
+    shareModalEnabled: true,
+    allowGuestOpenChat: true,
+    showSellerMeta: true,
+    quickPrompts: [
+      'Hey, can you help me with this gig?',
+      'Can you provide your timeline and budget estimate?',
+      'Can you customize this package for my requirements?'
+    ]
+  }
+};
+
+const isObjectLike = (value: any): value is Record<string, any> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const mergePublicPlatformSettings = (platform: any) => {
+  const safePlatform = isObjectLike(platform) ? platform : {};
+  return {
+    ...PUBLIC_PLATFORM_DEFAULTS,
+    ...safePlatform,
     gigExperience: {
-      enabled: true,
-      chatBarEnabled: true,
-      inlineChatEnabled: true,
-      shareModalEnabled: true,
-      allowGuestOpenChat: true,
-      showSellerMeta: true,
-      quickPrompts: [
-        'Hey, can you help me with this gig?',
-        'Can you provide your timeline and budget estimate?',
-        'Can you customize this package for my requirements?'
-      ]
+      ...PUBLIC_PLATFORM_DEFAULTS.gigExperience,
+      ...(safePlatform.gigExperience || {}),
+      quickPrompts:
+        Array.isArray(safePlatform.gigExperience?.quickPrompts) && safePlatform.gigExperience.quickPrompts.length
+          ? safePlatform.gigExperience.quickPrompts
+          : PUBLIC_PLATFORM_DEFAULTS.gigExperience.quickPrompts
     }
   };
+};
+
+const getPublicPlatformSettings = () => {
   try {
     if (fs.existsSync(PLATFORM_SETTINGS_FILE)) {
       const raw = fs.readFileSync(PLATFORM_SETTINGS_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.platform) {
-        return {
-          ...defaults,
-          ...parsed.platform,
-          gigExperience: {
-            ...defaults.gigExperience,
-            ...(parsed.platform.gigExperience || {}),
-            quickPrompts: Array.isArray(parsed.platform.gigExperience?.quickPrompts) && parsed.platform.gigExperience.quickPrompts.length
-              ? parsed.platform.gigExperience.quickPrompts
-              : defaults.gigExperience.quickPrompts
-          }
-        };
+      if (isObjectLike(parsed?.platform)) {
+        return mergePublicPlatformSettings(parsed.platform);
       }
     }
   } catch (e) {
     console.warn('[cms] Failed to read platform settings file', e);
   }
-  return defaults;
+  return mergePublicPlatformSettings({});
+};
+
+const getPublicPlatformSettingsFromDb = async () => {
+  try {
+    const record = await prisma.appSetting.findUnique({ where: { scope: 'platform' } });
+    if (isObjectLike(record?.data)) {
+      return mergePublicPlatformSettings(record.data);
+    }
+  } catch (error) {
+    console.warn('[cms] Failed to read platform settings from DB', error);
+  }
+  return null;
 };
 
 const getAppSetting = async (scope: string, fallback: any) => {
@@ -1557,6 +1579,9 @@ export const saveHomeSlide = async (req: Request, res: Response) => {
     const userId = req.user?.id;
 
     // Normalize incoming data
+    const rawColor = String(slide.background_color || slide.backgroundColor || '#000000').trim();
+    const normalizedColor = /^#([0-9a-f]{6}|[0-9a-f]{3})$/i.test(rawColor) ? rawColor : '#000000';
+
     const normalized = {
       ...slide,
       id: slide.id || `slide-${Date.now()}`,
@@ -1568,7 +1593,8 @@ export const saveHomeSlide = async (req: Request, res: Response) => {
       roleVisibility: slide.role_visibility || slide.roleVisibility || ['GUEST', 'FREELANCER', 'EMPLOYER'],
       sortOrder: slide.sort_order !== undefined ? slide.sort_order : (slide.sortOrder !== undefined ? slide.sortOrder : 0),
       isActive: slide.is_active !== undefined ? slide.is_active : (slide.isActive !== undefined ? slide.isActive : true),
-      backgroundColor: slide.background_color || slide.backgroundColor || '#000000',
+      backgroundColor: normalizedColor,
+      background_color: normalizedColor,
       updatedAt: new Date().toISOString()
     };
 
@@ -2474,7 +2500,7 @@ export const saveFreelancerPage = async (req: Request, res: Response) => {
 };
 
 export const getPlatformSettingsPublic = async (_req: Request, res: Response) => {
-  const data = getPublicPlatformSettings();
+  const data = (await getPublicPlatformSettingsFromDb()) || getPublicPlatformSettings();
   res.json({ success: true, data });
 };
 

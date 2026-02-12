@@ -71,6 +71,9 @@ const writePersistedSettings = (payload: any) => {
   }
 };
 
+const isObjectLike = (value: any): value is Record<string, any> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
 // Apply auth and admin middleware to all admin routes
 router.use(authMiddleware);
 router.use(adminMiddleware);
@@ -101,7 +104,7 @@ router.use('/scrolitha', scrolithaAdminRoutes);
 router.use('/community', adminCommunityRoutes);
 
 // ============ PLATFORM SETTINGS ============
-router.get('/platform/settings', (req, res) => {
+router.get('/platform/settings', async (req, res) => {
   const defaults = {
     siteName: 'Scrolith Marketplace',
     tagline: 'Find, hire, and work with the best talent',
@@ -206,9 +209,33 @@ router.get('/platform/settings', (req, res) => {
     }
   };
 
+  let platform: Record<string, any> | null = null;
+  try {
+    const record = await prisma.appSetting.findUnique({ where: { scope: 'platform' } });
+    if (isObjectLike(record?.data)) {
+      platform = record.data as Record<string, any>;
+    }
+  } catch (error) {
+    console.warn('[admin] Failed to read platform settings from DB, falling back to file', error);
+  }
+
   const persisted = readPersistedSettings();
-  if (persisted && persisted.platform) {
-    const platform = persisted.platform || {};
+  if (!platform && isObjectLike(persisted?.platform)) {
+    platform = persisted.platform as Record<string, any>;
+    // Best-effort backfill so settings survive container restarts.
+    try {
+      await prisma.appSetting.upsert({
+        where: { scope: 'platform' },
+        create: { scope: 'platform', data: platform },
+        update: { data: platform }
+      });
+      console.log('[admin] Backfilled platform settings from file to DB');
+    } catch (error) {
+      console.warn('[admin] Failed to backfill platform settings from file to DB', error);
+    }
+  }
+
+  if (platform) {
     return res.json({
       success: true,
       data: {
@@ -304,19 +331,33 @@ router.post('/platform/ads/refund-policy', (req, res) => {
   res.json({ success: true, message: 'Refund policy saved' });
 });
 
-router.post('/platform/settings', (req, res) => {
+router.post('/platform/settings', async (req, res) => {
   const io = req.app.get('io');
-  io?.emit('settings:updated', { scope: 'platform', settings: req.body });
+  const payload = isObjectLike(req.body) ? req.body : {};
+  io?.emit('settings:updated', { scope: 'platform', settings: payload });
   // Log payload for debugging persistence issues
   try {
-    console.log('[admin] POST /platform/settings payload:', JSON.stringify(req.body));
+    console.log('[admin] POST /platform/settings payload:', JSON.stringify(payload));
   } catch (e) {
     console.warn('[admin] Failed to stringify platform settings payload', e);
   }
-  // persist in file for development
+
+  // Persist in DB first (survives container restarts in production).
+  try {
+    await prisma.appSetting.upsert({
+      where: { scope: 'platform' },
+      create: { scope: 'platform', data: payload },
+      update: { data: payload }
+    });
+    console.log('[admin] Persisted platform settings to DB');
+  } catch (e) {
+    console.error('[admin] Failed to persist platform settings to DB', e);
+  }
+
+  // Persist in file as secondary fallback.
   try {
     const persisted = readPersistedSettings() || {};
-    persisted.platform = req.body;
+    persisted.platform = payload;
     writePersistedSettings(persisted);
     console.log('[admin] Persisted platform settings to', SETTINGS_FILE);
   } catch (e) {
