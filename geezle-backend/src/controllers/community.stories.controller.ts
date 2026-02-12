@@ -30,6 +30,24 @@ const buildUploadsUrl = (relativePath: string, baseUrl?: string) => {
   return `${base}/uploads/${normalized}`;
 };
 
+const buildFileContentUrl = (fileId: string, baseUrl: string) =>
+  `${baseUrl}/api/files/content/${encodeURIComponent(fileId)}`;
+
+const resolveStoredFileUrl = (
+  file: { id?: string; url?: string | null; storageKey?: string | null; storageProvider?: string | null },
+  baseUrl: string
+) => {
+  const storageProvider = String(file.storageProvider || '').trim().toLowerCase();
+  if (storageProvider === 'azure_blob') {
+    if (file.id) return buildFileContentUrl(file.id, baseUrl);
+    return file.url || null;
+  }
+  if (file.storageKey) {
+    return buildUploadsUrl(file.storageKey, baseUrl);
+  }
+  return file.url || null;
+};
+
 const getStoryExpiryHours = async () => {
   const cfg = await prisma.communityConfig.findFirst();
   return cfg?.storyExpiryHours ?? 24;
@@ -59,7 +77,7 @@ const resolveStoryMedia = async (fileId?: string | null, req?: Request) => {
   const fallbackVideoThumbnail = buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME, baseUrl);
   return {
     id: file.id,
-    url: file.storageKey ? buildUploadsUrl(file.storageKey, baseUrl) : file.url,
+    url: resolveStoredFileUrl(file, baseUrl),
     mimeType: file.mimeType,
     name: file.originalName,
     storageKey: file.storageKey,

@@ -25,6 +25,22 @@ const defaultBusinessConfig = {
   businessPageFollowEnabled: true
 };
 
+const getBaseFileUrl = () => {
+  const envBase =
+    process.env.FILE_BASE_URL ||
+    process.env.BACKEND_URL ||
+    process.env.API_BASE_URL ||
+    process.env.APP_URL;
+  if (envBase) return envBase.replace(/\/$/, '');
+
+  const host = process.env.HOST || 'localhost';
+  const port = process.env.PORT || '5000';
+  return `http://${host}:${port}`;
+};
+
+const buildFileContentUrl = (fileId: string) =>
+  `${getBaseFileUrl()}/api/files/content/${encodeURIComponent(fileId)}`;
+
 const parseLimit = (value: unknown, fallback = 6, max = 24) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -158,6 +174,79 @@ const looksLikeDirectMediaUrl = (value: string) => {
   );
 };
 
+const normalizeUploadsPath = (value: string) => {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
+  const withoutPrefix = normalized.replace(/^uploads\//, '');
+  return `/uploads/${withoutPrefix}`;
+};
+
+const normalizeDirectMediaUrl = (value?: string | null) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return null;
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
+  if (normalized.startsWith('data:') || normalized.startsWith('blob:')) return normalized;
+  if (normalized.startsWith('/api/files/content/') || normalized.startsWith('api/files/content/')) {
+    return normalized.startsWith('/') ? normalized : `/${normalized}`;
+  }
+  if (normalized.startsWith('/uploads/') || normalized.startsWith('uploads/')) {
+    return normalizeUploadsPath(normalized);
+  }
+  return null;
+};
+
+const resolveStoredFileUrl = (file: {
+  id?: string;
+  url?: string | null;
+  storageKey?: string | null;
+  storageProvider?: string | null;
+}) => {
+  const storageProvider = String(file.storageProvider || '').trim().toLowerCase();
+  const directUrl = normalizeDirectMediaUrl(file.url);
+  if (storageProvider === 'azure_blob') {
+    if (file.id) return buildFileContentUrl(file.id);
+    return file.url || directUrl || null;
+  }
+  if (directUrl) return directUrl;
+  if (file.storageKey) return normalizeUploadsPath(file.storageKey);
+  return file.url || null;
+};
+
+const resolveLogoUrlMap = async (logoRefs: Array<string | null | undefined>) => {
+  const ids = Array.from(
+    new Set(
+      logoRefs
+        .map((value) => String(value || '').trim())
+        .filter((value) => value && !normalizeDirectMediaUrl(value))
+    )
+  );
+  if (!ids.length) return new Map<string, string>();
+
+  const files = await prisma.file.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, url: true, storageKey: true, storageProvider: true }
+  });
+  const map = new Map<string, string>();
+  files.forEach((file) => {
+    const url = resolveStoredFileUrl(file);
+    if (url) map.set(file.id, url);
+  });
+  return map;
+};
+
+const resolveLogoUrl = (
+  logoRef: string | null | undefined,
+  logoMap: Map<string, string>
+) => {
+  const normalized = String(logoRef || '').trim();
+  if (!normalized) return null;
+  const direct = normalizeDirectMediaUrl(normalized);
+  if (direct) return direct;
+  return logoMap.get(normalized) || null;
+};
+
 const resolveValidatedAttachmentIds = async (
   raw: unknown,
   actor: { userId: string; role?: string | null }
@@ -194,16 +283,52 @@ const resolvePostAttachments = async (attachments: any[]) => {
 
   const files = (await prisma.file.findMany({
     where: { id: { in: ids } },
-    select: { id: true, url: true, mimeType: true, originalName: true, thumbnailUrl: true, width: true, height: true, duration: true }
-  })) as Array<{ id: string; url: string | null; mimeType: string | null; originalName: string | null; thumbnailUrl?: string | null; width?: number | null; height?: number | null; duration?: number | null }>;
-  const map = new Map<string, { id: string; url: string | null; mimeType: string | null; originalName: string | null; thumbnailUrl?: string | null; width?: number | null; height?: number | null; duration?: number | null }>(
+    select: {
+      id: true,
+      url: true,
+      storageKey: true,
+      storageProvider: true,
+      mimeType: true,
+      originalName: true,
+      thumbnailUrl: true,
+      width: true,
+      height: true,
+      duration: true
+    }
+  })) as Array<{
+    id: string;
+    url: string | null;
+    storageKey?: string | null;
+    storageProvider?: string | null;
+    mimeType: string | null;
+    originalName: string | null;
+    thumbnailUrl?: string | null;
+    width?: number | null;
+    height?: number | null;
+    duration?: number | null;
+  }>;
+  const map = new Map<
+    string,
+    {
+      id: string;
+      url: string | null;
+      storageKey?: string | null;
+      storageProvider?: string | null;
+      mimeType: string | null;
+      originalName: string | null;
+      thumbnailUrl?: string | null;
+      width?: number | null;
+      height?: number | null;
+      duration?: number | null;
+    }
+  >(
     files.map((file) => [file.id, file])
   );
   return ids.map((id) => {
     const file = map.get(id);
     return {
       id,
-      url: file?.url || id,
+      url: (file && resolveStoredFileUrl(file)) || id,
       name: file?.originalName || undefined,
       mimeType: file?.mimeType || undefined,
       thumbnailUrl: file?.thumbnailUrl || undefined,
@@ -225,9 +350,21 @@ const resolvePostAuthorIdentity = (
 };
 const resolvePageMedia = async (fileId?: string | null) => {
   if (!fileId) return null;
-  const file = await prisma.file.findUnique({ where: { id: fileId } });
+  const directUrl = normalizeDirectMediaUrl(fileId);
+  if (directUrl) {
+    return { id: fileId, url: directUrl, mimeType: null, name: null };
+  }
+  const file = await prisma.file.findUnique({
+    where: { id: fileId },
+    select: { id: true, url: true, storageKey: true, storageProvider: true, mimeType: true, originalName: true }
+  });
   if (!file) return null;
-  return { id: file.id, url: file.url, mimeType: file.mimeType, name: file.originalName };
+  return {
+    id: file.id,
+    url: resolveStoredFileUrl(file),
+    mimeType: file.mimeType,
+    name: file.originalName
+  };
 };
 
 const getIo = (req: Request) => {
@@ -738,15 +875,17 @@ export const createBusinessPagePost = async (req: Request, res: Response) => {
       try { await syncFileUsages('community_post', post.id, attachmentIds, 'Community Post Media'); } catch {}
     }
 
+    const logoUrlMap = await resolveLogoUrlMap([post.businessPage?.logoFileId]);
+    const businessLogoUrl = resolveLogoUrl(post.businessPage?.logoFileId, logoUrlMap);
+
     const author = {
       id: post.businessPage?.id || post.author?.id || userId,
       username: post.businessPage?.handle || post.businessPage?.slug || post.author?.username || null,
       displayName: post.businessPage?.name || post.author?.name || 'Business page',
-      avatarUrl: post.businessPage?.logoFileId
-        ? String(post.businessPage.logoFileId).startsWith('http')
-          ? String(post.businessPage.logoFileId)
-          : `/uploads/${String(post.businessPage.logoFileId).replace(/^\/+/, '')}`
-        : post.author?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.businessPage?.name || post.author?.name || 'Business')}`,
+      avatarUrl:
+        businessLogoUrl ||
+        post.author?.avatar ||
+        `https://ui-avatars.com/api/?name=${encodeURIComponent(post.businessPage?.name || post.author?.name || 'Business')}`,
       type: post.businessPage ? 'business' : 'user',
       businessSlug: post.businessPage?.slug || null,
       isVerified: Boolean(post.author?.isVerified),
@@ -929,18 +1068,19 @@ export const getBusinessPageFeed = async (req: Request, res: Response) => {
     const userReactionByPost = new Map(
       (userReactions as any[]).map((reaction: any) => [reaction.postId, reaction.type])
     );
+    const logoUrlMap = await resolveLogoUrlMap(posts.map((post) => post.businessPage?.logoFileId));
 
     const items = await Promise.all(
       posts.map(async (post) => {
+        const businessLogoUrl = resolveLogoUrl(post.businessPage?.logoFileId, logoUrlMap);
         const author = {
           id: post.businessPage?.id || post.author?.id || post.authorId,
           username: post.businessPage?.handle || post.businessPage?.slug || post.author?.username || null,
           displayName: post.businessPage?.name || post.author?.name || 'Business page',
-          avatarUrl: post.businessPage?.logoFileId
-            ? String(post.businessPage.logoFileId).startsWith('http')
-              ? String(post.businessPage.logoFileId)
-              : `/uploads/${String(post.businessPage.logoFileId).replace(/^\/+/, '')}`
-            : post.author?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(post.businessPage?.name || post.author?.name || 'Business')}`,
+          avatarUrl:
+            businessLogoUrl ||
+            post.author?.avatar ||
+            `https://ui-avatars.com/api/?name=${encodeURIComponent(post.businessPage?.name || post.author?.name || 'Business')}`,
           type: post.businessPage ? 'business' : 'user',
           businessSlug: post.businessPage?.slug || null,
           isVerified: Boolean(post.author?.isVerified),

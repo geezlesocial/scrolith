@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
+import jwt from 'jsonwebtoken';
 // Prefer Node's crypto.randomUUID to avoid importing `uuid` (ESM issues in some test runners)
 const crypto = require('crypto');
 const uuidv4 = () => {
@@ -17,23 +18,51 @@ const uuidv4 = () => {
 };
 import { FileVisibility, FileOwnerRole } from '@prisma/client';
 import prisma from '../utils/prismaClient';
+import {
+  downloadBlobByName,
+  deleteBlobByName,
+  extractBlobNameFromUrl,
+  isAzureBlobConfigured,
+  uploadBufferToBlob
+} from '../services/storage/blobStorage';
 
 const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
+const TEMP_UPLOAD_DIR = path.join(UPLOAD_DIR, '.tmp');
 
 const ensureUploadDir = () => {
   if (!fs.existsSync(UPLOAD_DIR)) {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   }
 };
+const ensureTempUploadDir = () => {
+  if (!fs.existsSync(TEMP_UPLOAD_DIR)) {
+    fs.mkdirSync(TEMP_UPLOAD_DIR, { recursive: true });
+  }
+};
 
 ensureUploadDir();
+ensureTempUploadDir();
 
 const safeFilename = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, '_');
 const DISK_ID_PREFIX = 'disk:';
 const DEFAULT_VISIBILITY: FileVisibility = 'PUBLIC';
 const DEFAULT_STORAGE_PROVIDER = 'local';
+const AZURE_BLOB_STORAGE_PROVIDER = 'azure_blob';
 const DEFAULT_VIDEO_THUMBNAIL_FILENAME = '__video_fallback_thumbnail.svg';
 const UPLOAD_THUMBNAILS_DIR = path.join(UPLOAD_DIR, 'thumbnails');
+
+const resolveUploadDriver = () =>
+  String(process.env.UPLOAD_DRIVER || process.env.STORAGE_DRIVER || DEFAULT_STORAGE_PROVIDER)
+    .trim()
+    .toLowerCase();
+
+const shouldUseAzureBlobStorage = () => {
+  const driver = resolveUploadDriver();
+  return ['azure_blob', 'azure', 'blob'].includes(driver) && isAzureBlobConfigured();
+};
+
+const resolveStorageProvider = () =>
+  shouldUseAzureBlobStorage() ? AZURE_BLOB_STORAGE_PROVIDER : DEFAULT_STORAGE_PROVIDER;
 
 const ALLOWED_IMAGE_MIME_TYPES = new Set([
   'image/jpeg',
@@ -127,6 +156,11 @@ const buildUploadsUrl = (relativePath: string, baseUrl?: string) => {
   return `${base}/uploads/${normalized}`;
 };
 
+const buildFileContentUrl = (fileId: string, baseUrl?: string) => {
+  const base = baseUrl || getBaseFileUrl();
+  return `${base}/api/files/content/${encodeURIComponent(fileId)}`;
+};
+
 const getRelativeUploadPath = (filePath: string) =>
   normalizeSlashes(path.relative(UPLOAD_DIR, filePath));
 
@@ -162,6 +196,15 @@ const safeUnlink = (filePath?: string | null) => {
   } catch (error) {
     console.warn('Failed to remove file from disk:', error);
   }
+};
+
+const writeBufferToTempFile = (buffer: Buffer, originalName?: string) => {
+  ensureTempUploadDir();
+  const ext = path.extname(String(originalName || '')).toLowerCase() || '.bin';
+  const tempName = `upload-${Date.now()}-${uuidv4().slice(0, 8)}${ext}`;
+  const tempPath = path.join(TEMP_UPLOAD_DIR, tempName);
+  fs.writeFileSync(tempPath, buffer);
+  return tempPath;
 };
 
 const execFileAsync = (command: string, args: string[], timeout = 8000) =>
@@ -230,6 +273,53 @@ const resolveUploadPath = (value: string) => {
 
 const getRole = (req: Request) =>
   (req.body?.role || req.body?.owner_role || req.user?.role || 'guest').toString().toLowerCase();
+
+const parseCookies = (cookieHeader?: string): Record<string, string> => {
+  const jar: Record<string, string> = {};
+  if (!cookieHeader) return jar;
+  cookieHeader.split(';').forEach((part) => {
+    const [rawKey, ...rest] = part.trim().split('=');
+    if (!rawKey) return;
+    const key = rawKey.trim();
+    const value = rest.join('=').trim();
+    if (!key) return;
+    try {
+      jar[key] = decodeURIComponent(value);
+    } catch {
+      jar[key] = value;
+    }
+  });
+  return jar;
+};
+
+const resolveOptionalRequester = (req: Request) => {
+  const middlewareUser = req.user?.id ? req.user : null;
+  if (middlewareUser?.id) return middlewareUser;
+
+  let authHeader = req.headers.authorization as string | undefined;
+  if (!authHeader) {
+    const cookies = parseCookies(req.headers.cookie as string | undefined);
+    const cookieToken = cookies['Scrolith_token'] || cookies['token'];
+    if (cookieToken) authHeader = `Bearer ${cookieToken}`;
+  }
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+
+  const token = authHeader.split(' ')[1];
+  if (!token) return null;
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev_jwt_secret') as any;
+    const id = String(decoded?.id || '').trim();
+    if (!id) return null;
+    return {
+      id,
+      email: decoded?.email,
+      role: decoded?.role
+    };
+  } catch {
+    return null;
+  }
+};
 
 const resolveOwnerRole = (value?: string | null) => {
   const normalized = (value || '').toString().toLowerCase();
@@ -479,6 +569,80 @@ const buildMediaMetadata = async (
   };
 };
 
+const buildStorageKeyForUpload = (originalName: string, prefix = '') => {
+  const cleanPrefix = prefix.trim().replace(/^\/+|\/+$/g, '');
+  const safeOriginalName = safeFilename(path.basename(originalName || 'upload.bin'));
+  const uniqueName = `${Date.now()}-${uuidv4().slice(0, 8)}-${safeOriginalName}`;
+  return cleanPrefix ? `${cleanPrefix}/${uniqueName}` : uniqueName;
+};
+
+const buildMediaMetadataForAzure = async (
+  file: Express.Multer.File,
+  storageKey: string,
+  baseUrl: string
+): Promise<MediaMetadata> => {
+  const mimeType = String(file.mimetype || '').toLowerCase();
+  const metadata: MediaMetadata = {
+    width: null,
+    height: null,
+    duration: null,
+    thumbnailRelativePath: null,
+    thumbnailUrl: null
+  };
+
+  if (!file.buffer || !Buffer.isBuffer(file.buffer)) {
+    return metadata;
+  }
+
+  if (mimeType.startsWith('image/')) {
+    const parsed = parseImageDimensionsFromBuffer(file.buffer, mimeType);
+    metadata.width = parsed.width ?? null;
+    metadata.height = parsed.height ?? null;
+    return metadata;
+  }
+
+  if (!mimeType.startsWith('video/')) {
+    return metadata;
+  }
+
+  const tempInput = writeBufferToTempFile(file.buffer, file.originalname);
+  try {
+    const extracted = await extractMediaMetadata(tempInput, mimeType);
+    metadata.width = extracted.width;
+    metadata.height = extracted.height;
+    metadata.duration = extracted.duration;
+
+    const generated = await createVideoThumbnail(tempInput, storageKey, baseUrl);
+    if (generated.thumbnailRelativePath) {
+      const localThumbnailPath = path.join(UPLOAD_DIR, generated.thumbnailRelativePath);
+      if (fs.existsSync(localThumbnailPath)) {
+        const thumbnailBuffer = fs.readFileSync(localThumbnailPath);
+        const thumbnailMimeType = getMimeTypeFromFilename(localThumbnailPath);
+        const thumbnailStorageKey = `thumbnails/${path.basename(generated.thumbnailRelativePath)}`;
+        metadata.thumbnailRelativePath = thumbnailStorageKey;
+        metadata.thumbnailUrl = await uploadBufferToBlob({
+          buffer: thumbnailBuffer,
+          contentType: thumbnailMimeType,
+          fileName: thumbnailStorageKey
+        });
+        safeUnlink(localThumbnailPath);
+      } else {
+        metadata.thumbnailUrl = generated.thumbnailUrl;
+      }
+    } else {
+      metadata.thumbnailUrl = generated.thumbnailUrl;
+    }
+  } finally {
+    safeUnlink(tempInput);
+  }
+
+  if (!metadata.thumbnailUrl) {
+    metadata.thumbnailUrl = buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME, baseUrl);
+  }
+
+  return metadata;
+};
+
 const normalizeRecord = (record: any) => {
   const createdAt = record?.created_at || record?.createdAt || record?.uploadedAt || new Date().toISOString();
   const mimeType = record?.mime_type || record?.mimeType || record?.type || '';
@@ -718,17 +882,31 @@ export const listFiles = async (req: Request, res: Response) => {
 
     const baseUrl = getBaseFileUrl(req);
     const normalized = dbFiles.map((file) =>
-      normalizeRecord({
+      normalizeRecord((() => {
+        const storageProvider = (file.storageProvider || DEFAULT_STORAGE_PROVIDER).toString().toLowerCase();
+        const isAzure = storageProvider === AZURE_BLOB_STORAGE_PROVIDER;
+        const resolvedUrl =
+          isAzure
+            ? buildFileContentUrl(file.id, baseUrl)
+            : file.storageKey
+              ? buildUploadsUrl(file.storageKey, baseUrl)
+              : file.url;
+        const resolvedThumb =
+          file.thumbnailUrl ||
+          (String(file.mimeType || '').startsWith('video/')
+            ? buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME, baseUrl)
+            : null);
+        return {
         id: file.id,
         user_id: file.ownerId,
         owner_role: file.ownerRole?.toLowerCase(),
         name: file.originalName,
         type: file.mimeType,
         size: Number(file.size),
-        url: file.storageKey ? buildUploadsUrl(file.storageKey, baseUrl) : file.url,
+        url: resolvedUrl,
         storage_key: file.storageKey,
-        storage_provider: file.storageProvider || DEFAULT_STORAGE_PROVIDER,
-        thumbnail_url: file.thumbnailUrl || (String(file.mimeType || '').startsWith('video/') ? buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME, baseUrl) : null),
+        storage_provider: storageProvider || DEFAULT_STORAGE_PROVIDER,
+        thumbnail_url: resolvedThumb,
         width: file.width,
         height: file.height,
         duration: file.duration,
@@ -736,7 +914,8 @@ export const listFiles = async (req: Request, res: Response) => {
         created_at: file.createdAt,
         category: inferCategory(file.mimeType),
         usedIn: usageMap.get(file.id) || []
-      })
+      };
+      })())
     );
 
     const seenUrls = new Set(normalized.map((file) => normalizeUploadsUrl(file.url || '')));
@@ -760,6 +939,135 @@ export const listFiles = async (req: Request, res: Response) => {
   }
 };
 
+export const serveFileContent = async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params?.id || '').trim();
+    if (!id) {
+      res.status(400).json({ success: false, error: 'File id is required' });
+      return;
+    }
+
+    const requester = resolveOptionalRequester(req);
+    const requesterRole = String(requester?.role || '').toLowerCase();
+    const isAdmin = requesterRole.includes('admin');
+
+    if (id.startsWith(DISK_ID_PREFIX)) {
+      const relativePath = id.slice(DISK_ID_PREFIX.length).replace(/^(\.\.[/\\])+/, '');
+      const diskPath = path.resolve(UPLOAD_DIR, relativePath);
+      if (!diskPath.startsWith(path.resolve(UPLOAD_DIR))) {
+        res.status(400).json({ success: false, error: 'Invalid file path' });
+        return;
+      }
+      if (!fs.existsSync(diskPath)) {
+        res.status(404).json({ success: false, error: 'File not found' });
+        return;
+      }
+      const mimeType = getMimeTypeFromFilename(diskPath);
+      res.setHeader('Content-Type', mimeType);
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.sendFile(diskPath);
+      return;
+    }
+
+    const file = await prisma.file.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        ownerId: true,
+        filename: true,
+        mimeType: true,
+        visibility: true,
+        storageKey: true,
+        storageProvider: true,
+        url: true
+      }
+    });
+    if (!file) {
+      res.status(404).json({ success: false, error: 'File not found' });
+      return;
+    }
+
+    const isPrivate = String(file.visibility || DEFAULT_VISIBILITY).toUpperCase() === FileVisibility.PRIVATE;
+    const canAccessPrivate = Boolean(requester?.id) && (isAdmin || requester?.id === file.ownerId);
+    if (isPrivate && !canAccessPrivate) {
+      res.status(403).json({ success: false, error: 'You do not have access to this file' });
+      return;
+    }
+
+    const cacheControl = isPrivate
+      ? 'private, no-store, max-age=0'
+      : 'public, max-age=31536000, immutable';
+    const storedProvider = String(file.storageProvider || DEFAULT_STORAGE_PROVIDER).toLowerCase();
+
+    if (storedProvider === AZURE_BLOB_STORAGE_PROVIDER) {
+      if (!file.storageKey) {
+        res.status(404).json({ success: false, error: 'File storage key missing' });
+        return;
+      }
+
+      try {
+        const blobResponse = await downloadBlobByName(file.storageKey);
+        const contentType = blobResponse.contentType || file.mimeType || 'application/octet-stream';
+        if (blobResponse.contentLength !== undefined && blobResponse.contentLength !== null) {
+          res.setHeader('Content-Length', String(blobResponse.contentLength));
+        }
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Cache-Control', cacheControl);
+
+        const stream = blobResponse.readableStreamBody;
+        if (!stream) {
+          res.status(404).json({ success: false, error: 'File not found in storage' });
+          return;
+        }
+
+        stream.on('error', (streamError) => {
+          console.error('Azure blob stream error:', streamError);
+          if (!res.headersSent) {
+            res.status(500).end();
+          } else {
+            res.end();
+          }
+        });
+        stream.pipe(res);
+        return;
+      } catch (error: any) {
+        const statusCode = Number(error?.statusCode || 0);
+        const errorCode = String(error?.code || '');
+        if (statusCode === 404 || errorCode === 'BlobNotFound') {
+          res.status(404).json({ success: false, error: 'File not found in storage' });
+          return;
+        }
+        console.error('Failed to stream Azure blob:', error);
+        res.status(500).json({ success: false, error: 'Failed to read file from storage' });
+        return;
+      }
+    }
+
+    const storageKeyPath = file.storageKey ? stripUploadsPrefix(file.storageKey) : '';
+    const localPath = storageKeyPath
+      ? path.resolve(UPLOAD_DIR, storageKeyPath)
+      : path.resolve(resolveUploadPath(file.url || ''));
+
+    if (!localPath.startsWith(path.resolve(UPLOAD_DIR))) {
+      res.status(400).json({ success: false, error: 'Invalid file path' });
+      return;
+    }
+
+    if (!fs.existsSync(localPath)) {
+      res.status(404).json({ success: false, error: 'File not found' });
+      return;
+    }
+
+    const contentType = file.mimeType || getMimeTypeFromFilename(file.filename || localPath);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', cacheControl);
+    res.sendFile(localPath);
+  } catch (error) {
+    console.error('Failed to serve file content:', error);
+    res.status(500).json({ success: false, error: 'Failed to load file content' });
+  }
+};
+
 const persistUploadedFile = async (params: {
   req: Request;
   file: Express.Multer.File;
@@ -770,24 +1078,54 @@ const persistUploadedFile = async (params: {
   const now = new Date();
   const fileId = uuidv4();
   const baseUrl = getBaseFileUrl(req);
-  const relativePath = getRelativeUploadPath(file.path || path.join(UPLOAD_DIR, file.filename));
-  const url = buildUploadsUrl(relativePath, baseUrl);
+  const storageProvider = resolveStorageProvider();
   const visibility = resolveVisibility(req.body?.visibility);
   const category = inferCategory(file.mimetype, req.body?.category || req.body?.file_category);
-  const mediaMetadata = await buildMediaMetadata(file, relativePath, baseUrl);
+
+  let storageKey = '';
+  let url = '';
+  let filename = file.filename || safeFilename(file.originalname || `upload-${Date.now()}`);
+  let mediaMetadata: MediaMetadata;
+
+  if (storageProvider === AZURE_BLOB_STORAGE_PROVIDER) {
+    if (!file.buffer || !Buffer.isBuffer(file.buffer)) {
+      throw new Error('Azure Blob upload requires multer memoryStorage (file.buffer is missing)');
+    }
+    storageKey = buildStorageKeyForUpload(file.originalname || file.filename || 'upload.bin');
+    filename = storageKey;
+    await uploadBufferToBlob({
+      buffer: file.buffer,
+      contentType: file.mimetype,
+      fileName: storageKey
+    });
+    url = buildFileContentUrl(fileId, baseUrl);
+    mediaMetadata = await buildMediaMetadataForAzure(file, storageKey, baseUrl);
+  } else {
+    const fallbackFilename =
+      file.filename || `${Date.now()}-${safeFilename(file.originalname || 'upload.bin')}`;
+    const filePath = file.path || path.join(UPLOAD_DIR, fallbackFilename);
+    storageKey = getRelativeUploadPath(filePath);
+    filename = fallbackFilename;
+    url = buildUploadsUrl(storageKey, baseUrl);
+    mediaMetadata = await buildMediaMetadata(
+      { ...file, filename: fallbackFilename, path: filePath },
+      storageKey,
+      baseUrl
+    );
+  }
 
   const created = await prisma.file.create({
     data: {
       id: fileId,
       ownerId: userId || null,
       ownerRole,
-      filename: file.filename,
+      filename,
       originalName: file.originalname,
       mimeType: file.mimetype,
       size: BigInt(file.size),
       url,
-      storageKey: relativePath,
-      storageProvider: DEFAULT_STORAGE_PROVIDER,
+      storageKey,
+      storageProvider,
       thumbnailUrl: mediaMetadata.thumbnailUrl,
       width: mediaMetadata.width,
       height: mediaMetadata.height,
@@ -806,7 +1144,7 @@ const persistUploadedFile = async (params: {
     size: Number(created.size),
     url: created.url,
     storage_key: created.storageKey,
-    storage_provider: created.storageProvider || DEFAULT_STORAGE_PROVIDER,
+    storage_provider: created.storageProvider || storageProvider,
     thumbnail_url:
       created.thumbnailUrl ||
       (String(created.mimeType || '').startsWith('video/') ? buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME, baseUrl) : null),
@@ -870,15 +1208,29 @@ export const uploadFile = async (req: Request, res: Response) => {
     try {
       const applyAsFavicon = (req.body?.applyAsFavicon || req.body?.asFavicon || req.body?.favicon) as any;
       if (applyAsFavicon && typeof applyAsFavicon !== 'undefined') {
-        const uploadedPath = req.file.path || path.join(UPLOAD_DIR, req.file.filename);
-        const ext = path.extname(req.file.originalname) || path.extname(req.file.filename) || '.png';
+        const ext =
+          path.extname(req.file.originalname || '') ||
+          path.extname(req.file.filename || '') ||
+          '.png';
         const faviconName = `favicon${ext}`;
-        const faviconPath = path.join(UPLOAD_DIR, faviconName);
         try {
-          fs.copyFileSync(uploadedPath, faviconPath);
-          // Ensure the file is readable
-          fs.chmodSync(faviconPath, 0o644);
-          console.log('✅ Created favicon copy at uploads/', faviconName);
+          if (resolveStorageProvider() === AZURE_BLOB_STORAGE_PROVIDER && req.file.buffer) {
+            await uploadBufferToBlob({
+              buffer: req.file.buffer,
+              contentType: req.file.mimetype || getMimeTypeFromFilename(faviconName),
+              fileName: faviconName
+            });
+            console.log('Created favicon copy in Azure Blob:', faviconName);
+          } else {
+            const faviconPath = path.join(UPLOAD_DIR, faviconName);
+            if (req.file.path && fs.existsSync(req.file.path)) {
+              fs.copyFileSync(req.file.path, faviconPath);
+            } else if (req.file.buffer) {
+              fs.writeFileSync(faviconPath, req.file.buffer);
+            }
+            fs.chmodSync(faviconPath, 0o644);
+            console.log('Created favicon copy at uploads/', faviconName);
+          }
         } catch (e) {
           console.warn('Failed to create favicon copy:', e);
         }
@@ -928,15 +1280,33 @@ export const deleteFile = async (req: Request, res: Response) => {
 
     await prisma.file.delete({ where: { id } });
 
-    if (existing.url) {
-      const filePath = resolveUploadPath(existing.url);
-      safeUnlink(filePath);
-    }
+    const storageProvider = (existing.storageProvider || DEFAULT_STORAGE_PROVIDER).toString().toLowerCase();
+    if (storageProvider === AZURE_BLOB_STORAGE_PROVIDER) {
+      try {
+        await deleteBlobByName(existing.storageKey);
+      } catch (blobError) {
+        console.warn('Failed to delete Azure blob object:', blobError);
+      }
 
-    if (existing.thumbnailUrl) {
-      const thumbnailPath = resolveUploadPath(existing.thumbnailUrl);
-      if (thumbnailPath && thumbnailPath.includes(path.join('uploads', 'thumbnails'))) {
-        safeUnlink(thumbnailPath);
+      if (existing.thumbnailUrl) {
+        try {
+          const thumbnailBlobName = extractBlobNameFromUrl(existing.thumbnailUrl);
+          if (thumbnailBlobName) await deleteBlobByName(thumbnailBlobName);
+        } catch (thumbError) {
+          console.warn('Failed to delete Azure thumbnail object:', thumbError);
+        }
+      }
+    } else {
+      if (existing.url) {
+        const filePath = resolveUploadPath(existing.url);
+        safeUnlink(filePath);
+      }
+
+      if (existing.thumbnailUrl) {
+        const thumbnailPath = resolveUploadPath(existing.thumbnailUrl);
+        if (thumbnailPath && thumbnailPath.includes(path.join('uploads', 'thumbnails'))) {
+          safeUnlink(thumbnailPath);
+        }
       }
     }
 
@@ -978,3 +1348,4 @@ export const uploadMedia = async (req: Request, res: Response) => {
     res.status(500).json({ success: false, error: 'Failed to upload file' });
   }
 };
+

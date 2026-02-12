@@ -28,6 +28,7 @@
     "test:docker": "powershell -ExecutionPolicy Bypass -File ./scripts/test-with-docker.ps1"
   },
   "dependencies": {
+    "@azure/storage-blob": "^12.31.0",
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^6.19.1",
     "bcryptjs": "^3.0.3",
@@ -75,4 +76,3 @@
     "typescript": "^5.9.3"
   }
 }
-
