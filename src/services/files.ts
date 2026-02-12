@@ -15,6 +15,20 @@ interface ApiError {
   code?: string;
 }
 
+const FILE_LIST_TIMEOUT_MS = Number(import.meta.env.VITE_FILES_LIST_TIMEOUT_MS ?? 30000);
+const FILE_UPLOAD_TIMEOUT_BASE_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_BASE_MS ?? 45000);
+const FILE_UPLOAD_TIMEOUT_PER_MB_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_PER_MB_MS ?? 12000);
+const FILE_UPLOAD_TIMEOUT_MAX_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_MAX_MS ?? 300000);
+const FILE_LIST_RETRY_ATTEMPTS = Number(import.meta.env.VITE_FILES_LIST_RETRY_ATTEMPTS ?? 2);
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isTimeoutError = (error: any) => {
+  const code = String(error?.code || '').toUpperCase();
+  const message = String(error?.message || '').toLowerCase();
+  return code === 'ECONNABORTED' || message.includes('timeout');
+};
+
 const handleApiResponse = <T>(response: any): T => {
   if (response?.data?.success === false) {
     throw new Error(response.data.error || 'API request failed');
@@ -114,6 +128,8 @@ type GetFilesOptions =
       search?: string;
       page?: number;
       limit?: number;
+      includeUsage?: boolean;
+      includeDisk?: boolean;
     };
 
 type UploadFileOptions =
@@ -150,9 +166,30 @@ export const FileService = {
       if (options.search) params.search = options.search;
       if (options.page) params.page = options.page;
       if (options.limit) params.limit = options.limit;
+      if (typeof options.includeUsage === 'boolean') params.includeUsage = options.includeUsage ? 'true' : 'false';
+      if (typeof options.includeDisk === 'boolean') params.includeDisk = options.includeDisk ? 'true' : 'false';
+    }
+    let response: any = null;
+    let lastError: any = null;
+    const attempts = Math.max(1, FILE_LIST_RETRY_ATTEMPTS);
+
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        response = await api.get<ApiResponse<UploadedFile[] | { files: UploadedFile[]; pagination: any }>>('/files', {
+          params,
+          timeout: FILE_LIST_TIMEOUT_MS
+        });
+        lastError = null;
+        break;
+      } catch (error: any) {
+        lastError = error;
+        if (!isTimeoutError(error) || attempt === attempts - 1) break;
+        await wait(300 * (attempt + 1));
+      }
     }
 
-    const response = await api.get<ApiResponse<UploadedFile[] | { files: UploadedFile[]; pagination: any }>>('/files', { params });
+    if (lastError) throw lastError;
+
     const data = handleApiResponse<UploadedFile[] | { files: UploadedFile[]; pagination: any }>(response);
     
     // Handle both array and paginated response formats
@@ -208,9 +245,15 @@ export const FileService = {
       typeof options === 'object' && options
         ? options.onProgress
         : undefined;
+    const sizeMb = Math.max(1, Math.ceil((Number(file?.size || 0) || 0) / (1024 * 1024)));
+    const uploadTimeout = Math.min(
+      FILE_UPLOAD_TIMEOUT_MAX_MS,
+      Math.max(FILE_UPLOAD_TIMEOUT_BASE_MS, FILE_UPLOAD_TIMEOUT_BASE_MS + sizeMb * FILE_UPLOAD_TIMEOUT_PER_MB_MS)
+    );
 
     const response = await api.post<ApiResponse<UploadedFile>>('/files/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: uploadTimeout,
       onUploadProgress: onProgress
         ? (event) => {
             const total = event.total ?? 0;

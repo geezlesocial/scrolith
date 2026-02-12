@@ -101,6 +101,14 @@ const tabToApiType = (tab: FilterTab): 'image' | 'video' | 'document' | undefine
   return undefined;
 };
 
+const toFriendlyError = (error: any, fallback: string) => {
+  const timeout =
+    String(error?.code || '').toUpperCase() === 'ECONNABORTED' ||
+    String(error?.message || '').toLowerCase().includes('timeout');
+  if (timeout) return 'Request took too long. Please check your connection and try again.';
+  return String(error?.response?.data?.error || error?.message || fallback);
+};
+
 const FilePickerModal: React.FC<FilePickerModalProps> = ({
   isOpen,
   open,
@@ -123,6 +131,7 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState<FilterTab>(tabFromFilterType(filterType));
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -151,6 +160,7 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
 
   const loadFiles = async () => {
     setLoading(true);
+    setErrorMessage('');
     try {
       const response = await FileService.getFiles({
         role,
@@ -158,11 +168,14 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
         type: apiType,
         search: search || undefined,
         limit: 60,
-        page: 1
+        page: 1,
+        includeUsage: false,
+        includeDisk: false
       });
       setFiles(response?.files ?? []);
     } catch (error) {
       console.error('Failed to load uploaded files:', error);
+      setErrorMessage(toFriendlyError(error, 'Failed to load files.'));
       setFiles([]);
     } finally {
       setLoading(false);
@@ -206,9 +219,10 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
         onSelect(uploaded);
         onClose();
       }
+      setErrorMessage('');
     } catch (error: any) {
       console.error('Failed to upload file:', error);
-      alert(error?.response?.data?.error || error?.message || 'Failed to upload file.');
+      setErrorMessage(toFriendlyError(error, 'Failed to upload file.'));
     } finally {
       setUploading(false);
     }
@@ -235,7 +249,7 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
         }
       } catch (error) {
         console.error('Camera capture failed:', error);
-        alert('Unable to capture from camera.');
+        setErrorMessage('Unable to capture from camera.');
       } finally {
         setUploading(false);
       }
@@ -371,6 +385,20 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
               )}
             </div>
           </div>
+          {errorMessage ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <div className="flex items-center justify-between gap-2">
+                <span>{errorMessage}</span>
+                <button
+                  type="button"
+                  onClick={() => void loadFiles()}
+                  className="whitespace-nowrap rounded-full border border-amber-300 px-2 py-0.5 text-[11px] font-semibold hover:bg-amber-100"
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
