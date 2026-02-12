@@ -4,18 +4,26 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "web:build": "npm --prefix ../geezle run build",
     "sync": "npx cap sync",
+    "android:sync": "npm run web:build && npx cap sync android",
     "android": "npx cap open android",
+    "ios:sync": "npm run web:build && npx cap sync ios",
     "ios": "npx cap open ios"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^9.1.2",
     "@capacitor/android": "^8.0.0",
     "@capacitor/app": "^8.0.0",
+    "@capacitor/camera": "^8.0.0",
     "@capacitor/cli": "^8.0.0",
     "@capacitor/core": "^8.0.0",
     "@capacitor/ios": "^8.0.0",
+    "@capacitor/push-notifications": "^8.0.0",
     "@capacitor/preferences": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5"
   }
 }
 

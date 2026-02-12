@@ -1,5 +1,8 @@
 node_modules/
-android/
+
+# Commit native projects for reproducible builds/CI.
+# (They each have their own nested .gitignore to keep build artifacts out of git.)
+# ios/ is still optional; keep it ignored unless you intend to ship iOS too.
 ios/
 www/
 .idea/

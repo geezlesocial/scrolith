@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Scrolith</string>
+    <string name="title_activity_main">Scrolith</string>
+    <string name="package_name">com.scrolith.app</string>
+    <string name="custom_url_scheme">scrolith</string>
+</resources>

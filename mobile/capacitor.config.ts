@@ -25,7 +25,8 @@ const serverConfig = devServerUrl
 const config: CapacitorConfig = {
   appId: 'com.scrolith.app',
   appName: 'Scrolith',
-  webDir: '../scrolith/dist',
+  // The web app lives in ../geezle and outputs build artifacts to ../geezle/dist
+  webDir: '../geezle/dist',
   bundledWebRuntime: false,
   ...(serverConfig ? { server: serverConfig } : {}),
   ios: {
