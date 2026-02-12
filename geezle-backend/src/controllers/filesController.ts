@@ -805,6 +805,23 @@ const buildMimeTypeFilter = (value: unknown) => {
   return null;
 };
 
+const applyFileResponseHeaders = (
+  res: Response,
+  options: {
+    cacheControl: string;
+    contentType?: string;
+    contentLength?: number | null;
+  }
+) => {
+  // Required for assets loaded cross-origin (scrolith.com -> api.scrolith.com).
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Cache-Control', options.cacheControl);
+  if (options.contentType) res.setHeader('Content-Type', options.contentType);
+  if (options.contentLength !== undefined && options.contentLength !== null) {
+    res.setHeader('Content-Length', String(options.contentLength));
+  }
+};
+
 export const listFiles = async (req: Request, res: Response) => {
   try {
     const role = (req.user?.role || '').toString().toLowerCase();
@@ -963,8 +980,10 @@ export const serveFileContent = async (req: Request, res: Response) => {
         return;
       }
       const mimeType = getMimeTypeFromFilename(diskPath);
-      res.setHeader('Content-Type', mimeType);
-      res.setHeader('Cache-Control', 'public, max-age=86400');
+      applyFileResponseHeaders(res, {
+        contentType: mimeType,
+        cacheControl: 'public, max-age=86400'
+      });
       res.sendFile(diskPath);
       return;
     }
@@ -1008,11 +1027,11 @@ export const serveFileContent = async (req: Request, res: Response) => {
       try {
         const blobResponse = await downloadBlobByName(file.storageKey);
         const contentType = blobResponse.contentType || file.mimeType || 'application/octet-stream';
-        if (blobResponse.contentLength !== undefined && blobResponse.contentLength !== null) {
-          res.setHeader('Content-Length', String(blobResponse.contentLength));
-        }
-        res.setHeader('Content-Type', contentType);
-        res.setHeader('Cache-Control', cacheControl);
+        applyFileResponseHeaders(res, {
+          contentType,
+          contentLength: blobResponse.contentLength,
+          cacheControl
+        });
 
         const stream = blobResponse.readableStreamBody;
         if (!stream) {
@@ -1059,12 +1078,146 @@ export const serveFileContent = async (req: Request, res: Response) => {
     }
 
     const contentType = file.mimeType || getMimeTypeFromFilename(file.filename || localPath);
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', cacheControl);
+    applyFileResponseHeaders(res, {
+      contentType,
+      cacheControl
+    });
     res.sendFile(localPath);
   } catch (error) {
     console.error('Failed to serve file content:', error);
     res.status(500).json({ success: false, error: 'Failed to load file content' });
+  }
+};
+
+export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
+  try {
+    const wildcard = String((req.params as any)?.[0] || (req.params as any)?.path || '').trim();
+    const relativePath = normalizeSlashes(wildcard).replace(/^\/+/, '');
+    if (!relativePath) {
+      res.status(404).end();
+      return;
+    }
+
+    const uploadsRoot = path.resolve(UPLOAD_DIR);
+    const directLocalPath = path.resolve(UPLOAD_DIR, relativePath);
+    const directMimeType = getMimeTypeFromFilename(relativePath);
+    if (directLocalPath.startsWith(uploadsRoot) && fs.existsSync(directLocalPath)) {
+      applyFileResponseHeaders(res, {
+        contentType: directMimeType,
+        cacheControl: 'public, max-age=86400'
+      });
+      res.sendFile(directLocalPath);
+      return;
+    }
+
+    const baseName = path.basename(relativePath);
+    const legacyMatch = await prisma.file.findFirst({
+      where: {
+        OR: [
+          { storageKey: relativePath },
+          { storageKey: baseName },
+          { storageKey: { endsWith: `/${baseName}` } },
+          { filename: relativePath },
+          { filename: baseName },
+          { url: { endsWith: `/uploads/${relativePath}` } },
+          { url: { endsWith: `/uploads/${baseName}` } }
+        ]
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        filename: true,
+        mimeType: true,
+        storageKey: true,
+        storageProvider: true,
+        url: true
+      }
+    });
+
+    if (!legacyMatch) {
+      res.status(404).end();
+      return;
+    }
+
+    const storageProvider = String(legacyMatch.storageProvider || DEFAULT_STORAGE_PROVIDER).toLowerCase();
+    if (storageProvider === AZURE_BLOB_STORAGE_PROVIDER) {
+      const blobCandidates = Array.from(
+        new Set(
+          [
+            legacyMatch.storageKey,
+            legacyMatch.url ? extractBlobNameFromUrl(legacyMatch.url) : null,
+            relativePath,
+            baseName
+          ].filter(Boolean)
+        )
+      ) as string[];
+
+      for (const blobName of blobCandidates) {
+        try {
+          const blobResponse = await downloadBlobByName(blobName);
+          const contentType =
+            blobResponse.contentType ||
+            legacyMatch.mimeType ||
+            getMimeTypeFromFilename(legacyMatch.filename || baseName);
+
+          applyFileResponseHeaders(res, {
+            contentType,
+            contentLength: blobResponse.contentLength,
+            cacheControl: 'public, max-age=86400'
+          });
+
+          const stream = blobResponse.readableStreamBody;
+          if (!stream) continue;
+          stream.on('error', (streamError) => {
+            console.error('Azure blob stream error (legacy upload):', streamError);
+            if (!res.headersSent) {
+              res.status(500).end();
+            } else {
+              res.end();
+            }
+          });
+          stream.pipe(res);
+          return;
+        } catch (error: any) {
+          const statusCode = Number(error?.statusCode || 0);
+          const errorCode = String(error?.code || '');
+          if (statusCode === 404 || errorCode === 'BlobNotFound') {
+            continue;
+          }
+          throw error;
+        }
+      }
+
+      res.status(404).end();
+      return;
+    }
+
+    const localCandidates = Array.from(
+      new Set(
+        [
+          legacyMatch.storageKey ? path.resolve(UPLOAD_DIR, stripUploadsPrefix(legacyMatch.storageKey)) : '',
+          legacyMatch.url ? path.resolve(resolveUploadPath(legacyMatch.url)) : '',
+          directLocalPath
+        ].filter(Boolean)
+      )
+    ) as string[];
+
+    for (const candidate of localCandidates) {
+      if (!candidate.startsWith(uploadsRoot)) continue;
+      if (!fs.existsSync(candidate)) continue;
+      const contentType = legacyMatch.mimeType || getMimeTypeFromFilename(candidate);
+      applyFileResponseHeaders(res, {
+        contentType,
+        cacheControl: 'public, max-age=86400'
+      });
+      res.sendFile(candidate);
+      return;
+    }
+
+    res.status(404).end();
+  } catch (error) {
+    console.error('Failed to serve legacy upload asset:', error);
+    res.status(500).end();
   }
 };
 

@@ -38,6 +38,7 @@ import contractsRoutes from './routes/contracts.routes';
 import messagesRoutes from './routes/messages.routes';
 import moderationChatRoutes from './routes/moderation.chat.routes';
 import filesRoutes from './routes/files.routes';
+import { serveLegacyUploadAsset } from './controllers/filesController';
 import favoritesRoutes from './routes/favorites.routes';
 import cartRoutes from './routes/cart.routes';
 import ordersRoutes from './routes/orders.routes';
@@ -487,11 +488,13 @@ app.use('/uploads', (req, res, next) => {
   next();
 });
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+app.get('/uploads/*', serveLegacyUploadAsset);
 
 // Serve favicon from uploads if present so platform settings that point to
 // `/favicon.ico` resolve even when the file was uploaded to /uploads.
 app.get('/favicon.ico', (req: Request, res: Response) => {
   try {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     const uploadsDir = path.join(__dirname, '..', 'uploads');
     if (!fs.existsSync(uploadsDir)) return res.status(404).end();
     const files = fs.readdirSync(uploadsDir);
