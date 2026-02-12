@@ -116,7 +116,7 @@ const plainTextToHtml = (plainText: string) => {
 const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab, setView }: any) => (
     <button 
         onClick={() => { setActiveTab(id); setView('list'); }}
-        className={`px-4 py-2 text-sm font-medium rounded-md flex items-center transition-all ${activeTab === id ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:bg-gray-200'}`}
+        className={`shrink-0 px-4 py-2 text-sm font-medium rounded-md flex items-center transition-all ${activeTab === id ? 'bg-white shadow text-blue-600' : 'text-gray-600 hover:bg-gray-200'}`}
     >
         <Icon className="w-4 h-4 mr-2" /> {label}
     </button>
@@ -412,7 +412,7 @@ const CMSPages = () => {
     return view === 'categories' ? (
         <CategoryManager categories={categories} reload={loadData} setView={setView} />
     ) : view === 'editor' && editingPage ? (
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 animate-fade-in">
+        <div className="cms-pages-admin bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-200 animate-fade-in">
                 <FilePickerModal
                     isOpen={isFilePickerOpen}
                     onClose={() => setIsFilePickerOpen(false)}
@@ -426,26 +426,26 @@ const CMSPages = () => {
                     visibility="public"
                     title={filePickerType === 'image' ? 'Select Images' : 'Select Video'}
                 />
-                <div className="flex justify-between items-center mb-6 border-b pb-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6 border-b pb-4">
                     <button onClick={() => setView('list')} className="text-gray-500 hover:text-gray-900 flex items-center">
                         <ArrowLeft className="w-4 h-4 mr-2" /> Back to Pages
                     </button>
                     <h2 className="text-xl font-bold">{editingPage.id ? 'Edit Page' : 'New Page'}</h2>
-                    <div className="flex space-x-3">
+                    <div className="flex w-full sm:w-auto flex-wrap gap-2">
                         <button
                             onClick={handlePreview}
                             disabled={isPreviewing}
-                            className="px-4 py-2 border rounded-lg text-gray-700 hover:bg-gray-50 flex items-center disabled:opacity-60"
+                            className="px-4 py-2 border rounded-lg text-gray-700 hover:bg-gray-50 flex items-center justify-center disabled:opacity-60 flex-1 sm:flex-none"
                         >
                             <Eye className="w-4 h-4 mr-2" /> {isPreviewing ? 'Preparing...' : 'Preview'}
                         </button>
-                        <button onClick={handleSave} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 shadow-sm">
+                        <button onClick={handleSave} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center justify-center hover:bg-blue-700 shadow-sm flex-1 sm:flex-none">
                             <Save className="w-4 h-4 mr-2" /> {editingPage.status === 'PUBLISHED' ? 'Update Page' : 'Save Draft'}
                         </button>
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
                     {/* Main Editor */}
                     <div className="lg:col-span-2 space-y-6">
                         <div>
@@ -459,7 +459,7 @@ const CMSPages = () => {
                         </div>
 
                         <div>
-                            <div className="flex justify-between items-center mb-1">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-1">
                                 <label className="block text-sm font-medium text-gray-700">Content (HTML Editor)</label>
                                 <div className="flex items-center space-x-2">
                                     <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-white">
@@ -480,7 +480,7 @@ const CMSPages = () => {
                                     </div>
                                 </div>
                             </div>
-                            <div className="mb-2 flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 p-2">
+                            <div className="mb-2 flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 p-2 overflow-x-auto">
                                 <button type="button" onClick={() => insertTag('h1')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Heading 1"><Heading1 className="w-4 h-4" /></button>
                                 <button type="button" onClick={() => insertTag('h2')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Heading 2"><Heading2 className="w-4 h-4" /></button>
                                 <button type="button" onClick={() => insertTag('p')} className="p-1.5 hover:bg-gray-200 rounded text-gray-700" title="Paragraph"><Pilcrow className="w-4 h-4" /></button>
@@ -499,7 +499,7 @@ const CMSPages = () => {
                             </div>
                             <textarea 
                                 ref={contentRef}
-                                className={`w-full border-gray-300 rounded-lg p-4 text-sm h-[420px] focus:ring-blue-500 focus:border-blue-500 ${editorMode === 'html' ? 'font-mono' : 'font-sans'}`}
+                                className={`w-full border-gray-300 rounded-lg p-3 sm:p-4 text-sm h-[320px] sm:h-[420px] focus:ring-blue-500 focus:border-blue-500 ${editorMode === 'html' ? 'font-mono' : 'font-sans'}`}
                                 value={editorMode === 'plain' ? plainTextDraft : editingPage.content}
                                 onChange={e => {
                                     const next = e.target.value;
@@ -526,7 +526,7 @@ const CMSPages = () => {
                                     Live Preview
                                 </div>
                                 <div
-                                    className="prose prose-sm max-w-none px-4 py-4 max-h-64 overflow-auto"
+                                    className="prose prose-sm max-w-none px-3 sm:px-4 py-3 sm:py-4 max-h-64 overflow-auto"
                                     dangerouslySetInnerHTML={{ __html: editingPage.content || '<p class="text-gray-400">Nothing to preview yet.</p>' }}
                                 />
                             </div>
@@ -654,39 +654,39 @@ const CMSPages = () => {
     ) : view === 'freelancer' ? (
         <FreelancerPageManager setView={setView} />
     ) : (
-        <div className="space-y-6">
-            <div className="flex justify-between items-center">
+        <div className="cms-pages-admin space-y-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <h2 className="text-2xl font-bold text-gray-900">CMS Pages</h2>
-                <div className="flex space-x-2">
-                    <button onClick={() => setView('categories')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                    <button onClick={() => setView('categories')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm shrink-0">
                         <Folder className="w-4 h-4 mr-2" /> Manage Categories
                     </button>
-                    <button onClick={() => setView('auth-pages')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
+                    <button onClick={() => setView('auth-pages')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm shrink-0">
                         <Settings className="w-4 h-4 mr-2" /> Auth Pages
                     </button>
-                    <button onClick={() => setView('system-messages')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
+                    <button onClick={() => setView('system-messages')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm shrink-0">
                         <Mail className="w-4 h-4 mr-2" /> System Messages
                     </button>
-                    <button onClick={() => setView('answers')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
+                    <button onClick={() => setView('answers')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm shrink-0">
                         <Code className="w-4 h-4 mr-2" /> Answers Page
                     </button>
-                    <button onClick={() => setView('guides')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
+                    <button onClick={() => setView('guides')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm shrink-0">
                         <Globe className="w-4 h-4 mr-2" /> Guides Page
                     </button>
-                    <button onClick={() => setView('hire')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
+                    <button onClick={() => setView('hire')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm shrink-0">
                         <Settings className="w-4 h-4 mr-2" /> Hire Page
                     </button>
-                    <button onClick={() => setView('freelancer')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm">
+                    <button onClick={() => setView('freelancer')} className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm shrink-0">
                         <Settings className="w-4 h-4 mr-2" /> Freelancer Page
                     </button>
-                    <button onClick={handleCreate} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 shadow-sm">
+                    <button onClick={handleCreate} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 shadow-sm shrink-0">
                         <Plus className="w-4 h-4 mr-2" /> Create New Page
                     </button>
                 </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <table className="w-full text-sm text-left">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
+                <table className="w-full min-w-[760px] text-sm text-left">
                     <thead className="bg-gray-50 text-gray-500 font-medium">
                         <tr>
                             <th className="px-6 py-4">Title</th>
@@ -763,7 +763,7 @@ const CategoryManager = ({ categories, reload, setView }: { categories: PageCate
     };
 
     return (
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+        <div className="cms-pages-admin bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-200">
             <FilePickerModal
                 isOpen={isFilePickerOpen}
                 onClose={() => setIsFilePickerOpen(false)}
@@ -775,19 +775,19 @@ const CategoryManager = ({ categories, reload, setView }: { categories: PageCate
                 visibility="public"
                 title="Select Category Logo"
             />
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
                 <button onClick={() => setView('list')} className="text-gray-500 hover:text-gray-900 flex items-center">
                     <ArrowLeft className="w-4 h-4 mr-2" /> Back to Pages
                 </button>
                 <h2 className="text-xl font-bold">Page Categories</h2>
-                <button onClick={() => setEditingCat({ name: '', description: '' })} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700">
+                <button onClick={() => setEditingCat({ name: '', description: '' })} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700 w-full sm:w-auto justify-center">
                     <Plus className="w-4 h-4 mr-2" /> Add Category
                 </button>
             </div>
 
             {editingCat && (
                 <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Name</label>
                             <input className="w-full border-gray-300 rounded-md" value={editingCat.name} onChange={e => setEditingCat({ ...editingCat, name: e.target.value })} />
@@ -801,7 +801,7 @@ const CategoryManager = ({ categories, reload, setView }: { categories: PageCate
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Description</label>
                         <input className="w-full border-gray-300 rounded-md" value={editingCat.description} onChange={e => setEditingCat({ ...editingCat, description: e.target.value })} />
                     </div>
-                    <div className="flex items-center space-x-4">
+                    <div className="flex flex-wrap items-center gap-3">
                         <button
                             type="button"
                             onClick={() => setIsFilePickerOpen(true)}
@@ -812,14 +812,15 @@ const CategoryManager = ({ categories, reload, setView }: { categories: PageCate
                         </button>
                         {editingCat.image && <img src={editingCat.image} className="h-10 w-10 object-cover rounded" alt="Logo" />}
                     </div>
-                    <div className="flex justify-end space-x-2">
+                    <div className="flex flex-col-reverse sm:flex-row justify-end gap-2">
                         <button onClick={() => setEditingCat(null)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
                         <button onClick={saveCat} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">Save Category</button>
                     </div>
                 </div>
             )}
 
-            <table className="w-full text-sm text-left">
+            <div className="overflow-x-auto">
+            <table className="w-full min-w-[680px] text-sm text-left">
                 <thead className="bg-gray-50 text-gray-500"><tr><th className="px-6 py-3">Category</th><th className="px-6 py-3">Slug</th><th className="px-6 py-3">Active</th><th className="px-6 py-3 text-right">Actions</th></tr></thead>
                 <tbody className="divide-y">
                     {cats.map(c => (
@@ -842,6 +843,7 @@ const CategoryManager = ({ categories, reload, setView }: { categories: PageCate
                     ))}
                 </tbody>
             </table>
+            </div>
         </div>
     );
 };
@@ -962,7 +964,7 @@ const AnswersPageManager = ({ setView }: { setView: (v: any) => void }) => {
                     <h3 className="font-semibold text-gray-900">Hero</h3>
                     <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.title} onChange={e => updateConfig({ hero: { ...config.hero, title: e.target.value } })} placeholder="Hero Title" />
                     <textarea className="w-full border-gray-300 rounded-lg p-2.5 h-24" value={config.hero.subtitle} onChange={e => updateConfig({ hero: { ...config.hero, subtitle: e.target.value } })} placeholder="Hero Subtitle" />
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.primaryCtaLabel || ''} onChange={e => updateConfig({ hero: { ...config.hero, primaryCtaLabel: e.target.value } })} placeholder="CTA Label" />
                         <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.primaryCtaUrl || ''} onChange={e => updateConfig({ hero: { ...config.hero, primaryCtaUrl: e.target.value } })} placeholder="CTA URL" />
                     </div>
@@ -1209,7 +1211,7 @@ const GuidesPageManager = ({ setView }: { setView: (v: any) => void }) => {
                     <h3 className="font-semibold text-gray-900">Hero</h3>
                     <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.title} onChange={e => updateConfig({ hero: { ...config.hero, title: e.target.value } })} placeholder="Hero Title" />
                     <textarea className="w-full border-gray-300 rounded-lg p-2.5 h-24" value={config.hero.subtitle} onChange={e => updateConfig({ hero: { ...config.hero, subtitle: e.target.value } })} placeholder="Hero Subtitle" />
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.primaryCtaLabel || ''} onChange={e => updateConfig({ hero: { ...config.hero, primaryCtaLabel: e.target.value } })} placeholder="CTA Label" />
                         <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.primaryCtaUrl || ''} onChange={e => updateConfig({ hero: { ...config.hero, primaryCtaUrl: e.target.value } })} placeholder="CTA URL" />
                     </div>
@@ -1316,7 +1318,7 @@ const GuidesPageManager = ({ setView }: { setView: (v: any) => void }) => {
                 <h3 className="font-semibold text-gray-900">Call to Action</h3>
                 <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.callToAction?.title || ''} onChange={e => updateConfig({ callToAction: { ...(config.callToAction || {}), title: e.target.value } })} placeholder="CTA Title" />
                 <textarea className="w-full border-gray-300 rounded-lg p-2.5 h-20" value={config.callToAction?.subtitle || ''} onChange={e => updateConfig({ callToAction: { ...(config.callToAction || {}), subtitle: e.target.value } })} placeholder="CTA Subtitle" />
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.callToAction?.ctaLabel || ''} onChange={e => updateConfig({ callToAction: { ...(config.callToAction || {}), ctaLabel: e.target.value } })} placeholder="CTA Label" />
                     <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.callToAction?.ctaUrl || ''} onChange={e => updateConfig({ callToAction: { ...(config.callToAction || {}), ctaUrl: e.target.value } })} placeholder="CTA URL" />
                 </div>
@@ -1442,7 +1444,7 @@ const HirePageManager = ({ setView }: { setView: (v: any) => void }) => {
                     <h3 className="font-semibold text-gray-900">Hero</h3>
                     <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.title} onChange={e => updateConfig({ hero: { ...config.hero, title: e.target.value } })} placeholder="Hero Title" />
                     <textarea className="w-full border-gray-300 rounded-lg p-2.5 h-24" value={config.hero.subtitle} onChange={e => updateConfig({ hero: { ...config.hero, subtitle: e.target.value } })} placeholder="Hero Subtitle" />
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.primaryCtaLabel || ''} onChange={e => updateConfig({ hero: { ...config.hero, primaryCtaLabel: e.target.value } })} placeholder="Primary CTA Label" />
                         <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.primaryCtaUrl || ''} onChange={e => updateConfig({ hero: { ...config.hero, primaryCtaUrl: e.target.value } })} placeholder="Primary CTA URL" />
                         <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.secondaryCtaLabel || ''} onChange={e => updateConfig({ hero: { ...config.hero, secondaryCtaLabel: e.target.value } })} placeholder="Secondary CTA Label" />
@@ -1670,7 +1672,7 @@ const FreelancerPageManager = ({ setView }: { setView: (v: any) => void }) => {
                     <h3 className="font-semibold text-gray-900">Hero</h3>
                     <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.title} onChange={e => updateConfig({ hero: { ...config.hero, title: e.target.value } })} placeholder="Hero Title" />
                     <textarea className="w-full border-gray-300 rounded-lg p-2.5 h-24" value={config.hero.subtitle} onChange={e => updateConfig({ hero: { ...config.hero, subtitle: e.target.value } })} placeholder="Hero Subtitle" />
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.primaryCtaLabel || ''} onChange={e => updateConfig({ hero: { ...config.hero, primaryCtaLabel: e.target.value } })} placeholder="Primary CTA Label" />
                         <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.primaryCtaUrl || ''} onChange={e => updateConfig({ hero: { ...config.hero, primaryCtaUrl: e.target.value } })} placeholder="Primary CTA URL" />
                         <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.hero.secondaryCtaLabel || ''} onChange={e => updateConfig({ hero: { ...config.hero, secondaryCtaLabel: e.target.value } })} placeholder="Secondary CTA Label" />
@@ -1751,7 +1753,7 @@ const FreelancerPageManager = ({ setView }: { setView: (v: any) => void }) => {
                 <h3 className="font-semibold text-gray-900">Call to Action</h3>
                 <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.callToAction?.title || ''} onChange={e => updateConfig({ callToAction: { ...(config.callToAction || {}), title: e.target.value } })} placeholder="CTA Title" />
                 <textarea className="w-full border-gray-300 rounded-lg p-2.5 h-20" value={config.callToAction?.subtitle || ''} onChange={e => updateConfig({ callToAction: { ...(config.callToAction || {}), subtitle: e.target.value } })} placeholder="CTA Subtitle" />
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.callToAction?.ctaLabel || ''} onChange={e => updateConfig({ callToAction: { ...(config.callToAction || {}), ctaLabel: e.target.value } })} placeholder="CTA Label" />
                     <input className="w-full border-gray-300 rounded-lg p-2.5" value={config.callToAction?.ctaUrl || ''} onChange={e => updateConfig({ callToAction: { ...(config.callToAction || {}), ctaUrl: e.target.value } })} placeholder="CTA URL" />
                 </div>

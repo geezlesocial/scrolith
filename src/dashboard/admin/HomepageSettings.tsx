@@ -283,23 +283,23 @@ const HomepageSettings = () => {
   >("header");
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="homepage-settings-admin space-y-6">
+      <div className="homepage-settings-header flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold text-gray-900">Homepage Settings</h2>
           <p className="text-sm text-gray-500">Manage layout, personalization, and performance.</p>
         </div>
-        <div className="flex space-x-2">
+        <div className="homepage-settings-actions flex flex-wrap gap-2">
           <button
             onClick={() => window.open("/", "_blank")}
-            className="flex items-center px-4 py-2 border rounded-lg hover:bg-gray-50 text-gray-700 transition-colors"
+            className="flex w-full items-center justify-center px-4 py-2 border rounded-lg hover:bg-gray-50 text-gray-700 transition-colors sm:w-auto"
           >
             <Eye className="w-4 h-4 mr-2" /> Live Preview
           </button>
         </div>
       </div>
 
-      <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit overflow-x-auto">
+      <div className="homepage-settings-tabs flex w-full space-x-1 bg-gray-100 p-1 rounded-lg overflow-x-auto">
         <TabButton id="header" label="Header & Hero" icon={Menu} activeTab={activeTab} setActiveTab={setActiveTab} />
         <TabButton id="trending" label="Trending Categories" icon={TrendingUp} activeTab={activeTab} setActiveTab={setActiveTab} />
         <TabButton id="slider" label="Home Slider (Media)" icon={GalleryHorizontal} activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -330,7 +330,7 @@ const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab }: any) => (
   <button
     data-testid={`tab-${id}`}
     onClick={() => setActiveTab(id)}
-    className={`px-4 py-2 text-sm font-medium rounded-md flex items-center transition-all whitespace-nowrap ${
+    className={`shrink-0 px-4 py-2 text-sm font-medium rounded-md flex items-center transition-all whitespace-nowrap ${
       activeTab === id ? "bg-white shadow text-blue-600" : "text-gray-600 hover:bg-gray-200"
     }`}
   >
@@ -3106,6 +3106,11 @@ const SliderManager = () => {
   const [editingSlide, setEditingSlide] = useState<Partial<HomeSlide> | null>(null);
   const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
 
+  const normalizeColorValue = (value: unknown) => {
+    const color = String(value || "").trim();
+    return /^#([0-9a-f]{6}|[0-9a-f]{3})$/i.test(color) ? color : "#000000";
+  };
+
   useEffect(() => {
     (async () => {
       const data = await CMSService.getHomeSlides();
@@ -3119,6 +3124,7 @@ const SliderManager = () => {
   };
 
   const handleCreate = () => {
+    const color = "#000000";
     setEditingSlide({
       id: `slide-${uid()}`,
       mediaType: "image" as any,
@@ -3126,7 +3132,8 @@ const SliderManager = () => {
       isActive: true,
       sortOrder: slides.length + 1,
       roleVisibility: [UserRole.GUEST, UserRole.EMPLOYER] as any,
-      backgroundColor: "#000000",
+      backgroundColor: color,
+      background_color: color as any,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     } as any);
@@ -3144,12 +3151,25 @@ const SliderManager = () => {
   };
 
   const handleSave = async () => {
-    if (!editingSlide?.mediaUrl) {
+    const mediaUrl = (editingSlide as any)?.mediaUrl || (editingSlide as any)?.media_url || "";
+    if (!mediaUrl) {
       showNotification("error", "Missing media", "Please select an image/video.");
       return;
     }
+
+    const color = normalizeColorValue(
+      (editingSlide as any)?.backgroundColor || (editingSlide as any)?.background_color
+    );
+    const payload = {
+      ...editingSlide,
+      mediaUrl,
+      media_url: mediaUrl,
+      backgroundColor: color,
+      background_color: color,
+    } as any;
+
     try {
-      await CMSService.saveHomeSlide(editingSlide as any);
+      await CMSService.saveHomeSlide(payload);
       setEditingSlide(null);
       await reload();
       showNotification("success", "Saved", "Slide updated and is now live.");
@@ -3192,17 +3212,17 @@ const SliderManager = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between mb-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
         <h4 className="font-bold text-gray-900">Manage Slides</h4>
-        <button onClick={handleCreate} className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700">
+        <button onClick={handleCreate} className="bg-blue-600 text-white px-3 py-2 rounded text-sm hover:bg-blue-700 w-full sm:w-auto">
           + Add Slide
         </button>
       </div>
 
       <div className="bg-white border rounded-xl overflow-hidden">
         {slides.map((slide: any, idx: number) => (
-          <div key={slide.id} className="flex items-center p-4 border-b last:border-0 hover:bg-gray-50">
-            <div className="flex flex-col mr-4">
+          <div key={slide.id} className="admin-slide-row flex flex-col gap-3 p-4 border-b last:border-0 hover:bg-gray-50 sm:flex-row sm:items-center">
+            <div className="admin-slide-order-controls flex flex-row sm:flex-col gap-1 sm:mr-4">
               <button onClick={() => moveSlide(idx, "up")} className="text-gray-400 hover:text-blue-600">
                 <ChevronUp className="w-4 h-4" />
               </button>
@@ -3213,17 +3233,27 @@ const SliderManager = () => {
 
             <img
               src={slide.mediaUrl || slide.media_url || ""}
-              className="w-24 h-16 object-cover rounded bg-gray-200 mr-4"
+              className="admin-slide-thumbnail w-full h-36 sm:w-24 sm:h-16 object-cover rounded bg-gray-200 sm:mr-4"
             />
 
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <div className="font-bold text-sm">{slide.title || "Untitled"}</div>
-              <div className="text-xs text-gray-500">{slide.redirectUrl || slide.redirect_url || ""}</div>
+              <div className="text-xs text-gray-500 break-all">{slide.redirectUrl || slide.redirect_url || ""}</div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="admin-slide-actions flex items-center justify-end gap-2">
               <button
-                onClick={() => setEditingSlide(slide)}
+                onClick={() => {
+                  const color = normalizeColorValue((slide as any).backgroundColor || (slide as any).background_color);
+                  const mediaUrl = (slide as any).mediaUrl || (slide as any).media_url || "";
+                  setEditingSlide({
+                    ...(slide as any),
+                    mediaUrl,
+                    media_url: mediaUrl,
+                    backgroundColor: color,
+                    background_color: color
+                  } as any);
+                }}
                 className="p-2 bg-white border rounded text-blue-600 hover:bg-blue-50"
               >
                 <Edit2 className="w-4 h-4" />
@@ -3242,11 +3272,11 @@ const SliderManager = () => {
 
       {/* Slide Editor Modal */}
       {editingSlide && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-xl w-full max-w-2xl p-6 shadow-2xl">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-xl w-full max-w-2xl max-h-[92dvh] overflow-y-auto p-4 sm:p-6 shadow-2xl">
             <h3 className="font-bold text-lg mb-4">Edit Slide</h3>
 
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-4">
                 <div
                   className="border-2 border-dashed p-4 rounded-lg text-center cursor-pointer hover:bg-gray-50"
@@ -3284,8 +3314,11 @@ const SliderManager = () => {
                   <input
                     type="color"
                     className="w-full h-10 p-0 border-0 rounded cursor-pointer"
-                    value={(editingSlide as any).backgroundColor || "#000000"}
-                    onChange={(e) => setEditingSlide({ ...editingSlide, backgroundColor: e.target.value } as any)}
+                    value={normalizeColorValue((editingSlide as any).backgroundColor || (editingSlide as any).background_color)}
+                    onChange={(e) => {
+                      const color = normalizeColorValue(e.target.value);
+                      setEditingSlide({ ...editingSlide, backgroundColor: color, background_color: color } as any);
+                    }}
                   />
                 </div>
 
@@ -3301,11 +3334,11 @@ const SliderManager = () => {
               </div>
             </div>
 
-            <div className="mt-6 flex justify-end gap-2">
-              <button onClick={() => setEditingSlide(null)} className="px-4 py-2 border rounded">
+            <div className="mt-6 flex flex-col-reverse sm:flex-row justify-end gap-2">
+              <button onClick={() => setEditingSlide(null)} className="px-4 py-2 border rounded w-full sm:w-auto">
                 Cancel
               </button>
-              <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white rounded font-bold">
+              <button onClick={handleSave} className="px-4 py-2 bg-blue-600 text-white rounded font-bold w-full sm:w-auto">
                 Save
               </button>
             </div>

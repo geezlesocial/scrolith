@@ -12,6 +12,7 @@
   --color-cream: #f7f4ee;
   --color-moss: #0f6b4f;
   --color-clay: #e7e0d3;
+  --page-gutter: clamp(12px, 4vw, 24px);
 }
 
 /* BASE STYLES */
@@ -31,11 +32,24 @@ body {
   scrollbar-gutter: stable;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overflow-x: hidden;
+}
+
 html,
 body,
 #root {
   width: 100%;
   max-width: 100%;
+}
+
+main,
+section,
+article,
+aside {
+  min-width: 0;
 }
 
 img,
@@ -180,7 +194,56 @@ svg {
 /* RESPONSIVE CLASSES */
 @media (max-width: 640px) {
   .container {
-    @apply px-4;
+    padding-left: var(--page-gutter);
+    padding-right: var(--page-gutter);
+  }
+
+  body {
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  main {
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 1024px) {
+  .homepage-settings-admin .homepage-settings-tabs {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+
+  .homepage-settings-admin .admin-slide-actions {
+    width: 100%;
+  }
+
+  .homepage-settings-admin .admin-slide-actions button {
+    flex: 1 1 0%;
+  }
+
+  .cms-pages-admin .prose {
+    word-break: break-word;
+  }
+}
+
+@media (max-width: 768px) {
+  .homepage-settings-admin .homepage-settings-tabs {
+    border-radius: 0.75rem;
+  }
+
+  .homepage-settings-admin .admin-slide-order-controls {
+    margin-right: 0;
+  }
+
+  .homepage-settings-admin .admin-slide-thumbnail {
+    max-height: 11rem;
   }
 }
 
