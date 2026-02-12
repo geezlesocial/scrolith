@@ -1,5 +1,5 @@
 import express from 'express';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import prisma from '../../utils/prismaClient';
 import { ensureAdminStaffProfile, ensureRbacSeeded, isAdminRole } from '../../services/rbac.service';
 import { requirePermission, resolveStaffContext } from '../../middleware/rbac.middleware';

@@ -31,7 +31,7 @@ const router = express.Router();
 
 import { getSystemSettings, updateSystemSettings, testEmailSettings } from '../../controllers/admin.systemSettings.controller';
 import prisma from '../../utils/prismaClient';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 
 // Simple file-backed persistence for platform/system settings in development
 // Persist to repository-level `Scrolith-backend/data` so it's easy to find and permissions are typical.
