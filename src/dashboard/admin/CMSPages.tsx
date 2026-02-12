@@ -178,7 +178,7 @@ const CMSPages = () => {
     const handleCreate = () => {
         const initialContent = '<p>Start writing your page content here...</p>';
         setEditingPage({
-            id: Math.random().toString(36).substr(2, 9),
+            id: '',
             title: '',
             slug: '',
             content: initialContent,

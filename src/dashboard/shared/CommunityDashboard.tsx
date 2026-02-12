@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   BarChart3,
   Building2,
@@ -244,6 +244,8 @@ const CommunityDashboard: React.FC = () => {
   const { showNotification } = useNotification();
   const { isConnected } = useSocket();
   const location = useLocation();
+  const navigate = useNavigate();
+  const createPageRequestRef = useRef('');
   const { availableCurrencies } = useCurrency();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [loading, setLoading] = useState(true);
@@ -1387,6 +1389,23 @@ const CommunityDashboard: React.FC = () => {
     setActiveBusinessId('');
   };
 
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const shouldCreate = params.get('createPage') === '1';
+    if (!shouldCreate) {
+      createPageRequestRef.current = '';
+      return;
+    }
+    if (activeTab !== 'business' || loading) return;
+    const requestKey = `${location.pathname}?${location.search}`;
+    if (createPageRequestRef.current === requestKey) return;
+    createPageRequestRef.current = requestKey;
+    handleBusinessCreate();
+    params.delete('createPage');
+    const nextSearch = params.toString();
+    navigate(`${location.pathname}${nextSearch ? `?${nextSearch}` : ''}`, { replace: true });
+  }, [activeTab, loading, location.pathname, location.search, navigate, handleBusinessCreate]);
+
   const handleBusinessSwitch = (id: string) => {
     const page = businessPages.find((item) => item.id === id);
     if (page) {
@@ -1501,6 +1520,8 @@ const CommunityDashboard: React.FC = () => {
       setBusiness(merged);
       setBusinessPages(updatedPages);
       setActiveBusinessId(merged.id || '');
+      const eventName = business.id ? 'community:business_page_updated' : 'community:business_page_created';
+      window.dispatchEvent(new CustomEvent(eventName, { detail: { page: merged } }));
       showNotification('success', 'Business Page', 'Business page saved.');
     } catch (error) {
       console.error(error);
@@ -1535,6 +1556,7 @@ const CommunityDashboard: React.FC = () => {
         setBusiness(fallback);
         setActiveBusinessId('');
       }
+      window.dispatchEvent(new CustomEvent('community:business_page_updated', { detail: { pageId: business.id, deleted: true } }));
       showNotification('success', 'Business Page', 'Business page deleted.');
     } catch (error) {
       console.error(error);
@@ -1680,7 +1702,7 @@ const CommunityDashboard: React.FC = () => {
   };
 
     const tabsMenu = (
-      <div className="grid grid-cols-2 xl:grid-cols-6 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-3">
         {tabs.map((tab) => (
           <button
             key={tab.id}

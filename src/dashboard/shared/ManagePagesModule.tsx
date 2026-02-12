@@ -34,9 +34,16 @@ const ManagePagesModule: React.FC = () => {
 
   const dashboardPath = useMemo(() => {
     const path = String(location.pathname || '');
-    if (path.startsWith('/client/')) return '/client/dashboard?tab=community';
-    return '/freelancer/dashboard?tab=community';
-  }, [location.pathname]);
+    const search = new URLSearchParams(location.search);
+    const asParam = search.get('as');
+    const base = path.startsWith('/client/') ? '/client/dashboard' : '/freelancer/dashboard';
+    const nextSearch = new URLSearchParams();
+    nextSearch.set('tab', 'community');
+    nextSearch.set('section', 'business');
+    nextSearch.set('createPage', '1');
+    if (asParam) nextSearch.set('as', asParam);
+    return `${base}?${nextSearch.toString()}`;
+  }, [location.pathname, location.search]);
 
   const loadPages = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -63,6 +70,19 @@ const ManagePagesModule: React.FC = () => {
 
   useEffect(() => {
     void loadPages();
+  }, [loadPages]);
+
+  useEffect(() => {
+    const refresh = () => {
+      void loadPages(true);
+    };
+
+    window.addEventListener('community:business_page_created', refresh as EventListener);
+    window.addEventListener('community:business_page_updated', refresh as EventListener);
+    return () => {
+      window.removeEventListener('community:business_page_created', refresh as EventListener);
+      window.removeEventListener('community:business_page_updated', refresh as EventListener);
+    };
   }, [loadPages]);
 
   if (loading) {
