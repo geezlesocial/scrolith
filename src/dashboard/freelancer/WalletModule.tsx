@@ -952,41 +952,78 @@ const WalletModule = () => {
                         <div className="p-6 border-b border-gray-200">
                             <h3 className="font-bold text-gray-900">Transaction History</h3>
                         </div>
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-sm text-left">
-                                <thead className="bg-gray-50 text-gray-500">
-                                    <tr>
-                                        <th className="px-6 py-4">Date</th>
-                                        <th className="px-6 py-4">Description</th>
-                                        <th className="px-6 py-4 text-right">Amount</th>
-                                        <th className="px-6 py-4 text-center">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100">
+                        {transactions.length === 0 ? (
+                            <div className="p-4 text-sm text-gray-500">No transactions yet.</div>
+                        ) : (
+                            <>
+                                <div className="min-[360px]:hidden space-y-3 p-3">
                                     {transactions.map((tx) => (
-                                        <tr key={tx.id} className="hover:bg-gray-50 transition-colors">
-                                            <td className="px-6 py-4 text-gray-500 whitespace-nowrap">
-                                                {new Date(tx.createdAt).toLocaleDateString()}
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div className="font-medium text-gray-900">{tx.description}</div>
-                                                {tx.referenceId && <div className="text-xs text-gray-500 font-mono">Ref: {tx.referenceId}</div>}
-                                            </td>
-                                            <td className={`px-6 py-4 text-right font-bold ${tx.amount > 0 ? 'text-green-600' : 'text-gray-900'}`}>
-                                                {tx.amount > 0 ? '+' : ''}{formatPrice(tx.amount)}
-                                            </td>
-                                            <td className="px-6 py-4 text-center">
+                                        <article key={tx.id} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div>
+                                                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Date</p>
+                                                    <p className="mt-1 text-sm text-gray-900">
+                                                        {new Date(tx.createdAt).toLocaleDateString()}
+                                                    </p>
+                                                </div>
                                                 <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-bold uppercase ${
                                                     tx.status === 'cleared' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
                                                 }`}>
                                                     {tx.status}
                                                 </span>
-                                            </td>
-                                        </tr>
+                                            </div>
+                                            <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-2">
+                                                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Description</p>
+                                                <p className="mt-1 break-words text-sm font-medium text-gray-900">{tx.description}</p>
+                                                {tx.referenceId && <p className="mt-1 text-xs text-gray-500 font-mono break-all">Ref: {tx.referenceId}</p>}
+                                            </div>
+                                            <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-2">
+                                                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Amount</p>
+                                                <p className={`mt-1 text-sm font-bold ${tx.amount > 0 ? 'text-green-600' : 'text-gray-900'}`}>
+                                                    {tx.amount > 0 ? '+' : ''}{formatPrice(tx.amount)}
+                                                </p>
+                                            </div>
+                                        </article>
                                     ))}
-                                </tbody>
-                            </table>
-                        </div>
+                                </div>
+
+                                <div className="hidden min-[360px]:block overflow-x-auto">
+                                    <table className="w-full min-w-[760px] text-sm text-left">
+                                        <thead className="bg-gray-50 text-gray-500">
+                                            <tr>
+                                                <th className="px-6 py-4">Date</th>
+                                                <th className="px-6 py-4">Description</th>
+                                                <th className="px-6 py-4 text-right">Amount</th>
+                                                <th className="px-6 py-4 text-center">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-100">
+                                            {transactions.map((tx) => (
+                                                <tr key={tx.id} className="hover:bg-gray-50 transition-colors">
+                                                    <td className="px-6 py-4 text-gray-500 whitespace-nowrap">
+                                                        {new Date(tx.createdAt).toLocaleDateString()}
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <div className="font-medium text-gray-900">{tx.description}</div>
+                                                        {tx.referenceId && <div className="text-xs text-gray-500 font-mono">Ref: {tx.referenceId}</div>}
+                                                    </td>
+                                                    <td className={`px-6 py-4 text-right font-bold whitespace-nowrap ${tx.amount > 0 ? 'text-green-600' : 'text-gray-900'}`}>
+                                                        {tx.amount > 0 ? '+' : ''}{formatPrice(tx.amount)}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-center">
+                                                        <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-bold uppercase ${
+                                                            tx.status === 'cleared' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                                                        }`}>
+                                                            {tx.status}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     {/* Convert Modal */}

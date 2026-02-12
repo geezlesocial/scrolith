@@ -185,26 +185,55 @@ const GcoinPanel = () => {
         {transactions.length === 0 ? (
           <div className="p-6 text-sm text-gray-500">No Gcoin transactions yet.</div>
         ) : (
-          <table className="w-full text-sm text-left">
-            <thead className="bg-gray-50 text-gray-500">
-              <tr>
-                <th className="px-6 py-3">Type</th>
-                <th className="px-6 py-3">Amount</th>
-                <th className="px-6 py-3">Status</th>
-                <th className="px-6 py-3">Date</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
+          <>
+            <div className="min-[360px]:hidden space-y-3 p-3">
               {transactions.map((tx) => (
-                <tr key={tx.id}>
-                  <td className="px-6 py-3">{tx.type}</td>
-                  <td className="px-6 py-3 font-bold">{tx.amount} GC</td>
-                  <td className="px-6 py-3">{tx.status}</td>
-                  <td className="px-6 py-3">{new Date(tx.timestamp).toLocaleDateString()}</td>
-                </tr>
+                <article key={tx.id} className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+                  <div className="grid grid-cols-1 gap-2 text-xs">
+                    <div className="rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-2">
+                      <p className="font-semibold uppercase tracking-wide text-gray-500">Type</p>
+                      <p className="mt-1 text-sm font-medium text-gray-900 capitalize">{tx.type}</p>
+                    </div>
+                    <div className="rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-2">
+                      <p className="font-semibold uppercase tracking-wide text-gray-500">Amount</p>
+                      <p className="mt-1 text-sm font-bold text-gray-900">{tx.amount} GC</p>
+                    </div>
+                    <div className="rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-2">
+                      <p className="font-semibold uppercase tracking-wide text-gray-500">Status</p>
+                      <p className="mt-1 text-sm text-gray-900 capitalize">{tx.status}</p>
+                    </div>
+                    <div className="rounded-lg border border-gray-100 bg-gray-50 px-2.5 py-2">
+                      <p className="font-semibold uppercase tracking-wide text-gray-500">Date</p>
+                      <p className="mt-1 text-sm text-gray-900">{new Date(tx.timestamp).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                </article>
               ))}
-            </tbody>
-          </table>
+            </div>
+
+            <div className="hidden min-[360px]:block overflow-x-auto">
+              <table className="w-full min-w-[640px] text-sm text-left">
+                <thead className="bg-gray-50 text-gray-500">
+                  <tr>
+                    <th className="px-6 py-3">Type</th>
+                    <th className="px-6 py-3">Amount</th>
+                    <th className="px-6 py-3">Status</th>
+                    <th className="px-6 py-3">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {transactions.map((tx) => (
+                    <tr key={tx.id}>
+                      <td className="px-6 py-3 whitespace-nowrap">{tx.type}</td>
+                      <td className="px-6 py-3 font-bold whitespace-nowrap">{tx.amount} GC</td>
+                      <td className="px-6 py-3 whitespace-nowrap">{tx.status}</td>
+                      <td className="px-6 py-3 whitespace-nowrap">{new Date(tx.timestamp).toLocaleDateString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
