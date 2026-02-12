@@ -38,30 +38,30 @@ export default function EmployerOverview() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Employer Overview</h1>
+          <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">Employer Overview</h1>
           <p className="text-sm text-gray-500 mt-1">
             Track hiring progress, escrow, proposals, and ongoing work in one place.
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link
             to="/create-job"
-            className="px-4 py-2 rounded-xl bg-green-600 text-white text-sm font-bold hover:bg-green-700"
+            className="w-full rounded-xl bg-green-600 px-4 py-2 text-center text-sm font-bold text-white hover:bg-green-700 sm:w-auto"
           >
             Post a Job
           </Link>
           <Link
             to="/browse"
-            className="px-4 py-2 rounded-xl border bg-white text-sm font-bold hover:bg-gray-50"
+            className="w-full rounded-xl border bg-white px-4 py-2 text-center text-sm font-bold hover:bg-gray-50 sm:w-auto"
           >
             Browse Talent
           </Link>
           <Link
             to="/client/dashboard/project-briefs"
-            className="px-4 py-2 rounded-xl border bg-white text-sm font-bold hover:bg-gray-50"
+            className="w-full rounded-xl border bg-white px-4 py-2 text-center text-sm font-bold hover:bg-gray-50 sm:w-auto"
           >
             Create Brief (AI)
           </Link>

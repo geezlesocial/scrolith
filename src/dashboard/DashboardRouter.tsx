@@ -164,8 +164,12 @@ export const DashboardRouter: React.FC = () => {
   return (
     <DashboardLayout>
       {effectiveRole !== user.role && (
-        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-800">
-          Viewing dashboard as <strong>{effectiveRole}</strong>. Use the <code>?as=freelancer</code> or <code>?as=employer</code> query to toggle views, or switch roles in your profile.
+        <div className="mb-4 rounded-md border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
+          <span className="break-words">
+            Viewing dashboard as <strong className="capitalize">{effectiveRole}</strong>. Use the{' '}
+            <code className="break-all rounded bg-yellow-100 px-1 py-0.5">?as=freelancer</code> or{' '}
+            <code className="break-all rounded bg-yellow-100 px-1 py-0.5">?as=employer</code> query to toggle views, or switch roles in your profile.
+          </span>
         </div>
       )}
       {renderContent()}

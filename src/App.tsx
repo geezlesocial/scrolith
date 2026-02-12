@@ -121,7 +121,7 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBo
 // Inner App component to use hooks
 const AppContent = () => {
   const { user, isAuthenticated, logout } = useUser();
-  const { settings } = useContent();
+  const { settings, loading: settingsLoading } = useContent();
   const { showNotification } = useNotification();
   const location = useLocation();
   const navigate = useNavigate();
@@ -152,7 +152,17 @@ const AppContent = () => {
     const faviconUrl = candidateKeys.find(Boolean) as string | undefined;
 
     if (!faviconUrl) {
-      console.warn('⚠️ No favicon URL in settings');
+      if (settingsLoading) return;
+      const fallbackFavicon = `${window.location.origin}/favicon.ico`;
+      const existing = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
+      if (existing) {
+        existing.href = fallbackFavicon;
+      } else {
+        const link = document.createElement('link');
+        link.rel = 'icon';
+        link.href = fallbackFavicon;
+        document.head.appendChild(link);
+      }
       return;
     }
 
@@ -236,7 +246,7 @@ const AppContent = () => {
       updateLinks(dataUrl, 'image/svg+xml');
       console.warn('Favicon fetch failed, using inline fallback favicon');
     })();
-  }, [settings]);
+  }, [settings, settingsLoading]);
 
   // Dynamic title and meta description from platform settings
   useEffect(() => {

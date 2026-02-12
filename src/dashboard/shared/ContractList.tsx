@@ -161,7 +161,7 @@ const ContractList: React.FC<ContractListProps> = ({ role, userId }) => {
                             </span>
                         </div>
                         
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                             <div className="bg-gray-50 p-2 rounded-lg">
                                 <span className="text-xs text-gray-500 block">Rate</span>
                                 <span className="font-bold text-gray-900">{formatPrice(contract.hourlyRate)}/hr</span>

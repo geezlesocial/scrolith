@@ -996,7 +996,19 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
         });
         return normalizeAssetUrls(normalized) as HomeSlide[];
     },
-    saveHomeSlide: async (s: any) => api.post('/cms/slides/save', s),
+    saveHomeSlide: async (s: any) => {
+        const color = String(s?.backgroundColor || s?.background_color || s?.bgColor || s?.bg_color || '#000000').trim();
+        const normalizedColor = /^#([0-9a-f]{6}|[0-9a-f]{3})$/i.test(color) ? color : '#000000';
+        const mediaUrl = s?.mediaUrl || s?.media_url || s?.image_url || s?.video_url || '';
+        const payload = {
+            ...s,
+            mediaUrl,
+            media_url: mediaUrl,
+            backgroundColor: normalizedColor,
+            background_color: normalizedColor
+        };
+        return api.post('/cms/slides/save', payload);
+    },
     deleteHomeSlide: async (id: string) => api.post('/cms/slides/delete', { id }),
     updateHomeSlideOrder: async (slides: any[]) => api.post('/cms/slides/reorder', { slides }),
 

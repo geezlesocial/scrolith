@@ -54,12 +54,12 @@ export const Overview: React.FC = () => {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-center">
-        <h1 data-cy="page-title" className="text-3xl font-bold text-gray-900">Dashboard</h1>
-        <div className="flex items-center space-x-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 data-cy="page-title" className="text-2xl font-bold text-gray-900 sm:text-3xl">Dashboard</h1>
+        <div className="flex w-full items-center sm:w-auto">
           <Link
             to="/create-gig"
-            className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition"
+            className="flex w-full items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white transition hover:bg-indigo-700 sm:w-auto"
           >
             <PlusCircle className="w-4 h-4 mr-2" />
             Create Gig
@@ -74,7 +74,7 @@ export const Overview: React.FC = () => {
             <div className="text-sm text-gray-500 font-medium">Active Orders</div>
             <ShoppingCart className="w-5 h-5 text-blue-500" />
           </div>
-          <div data-cy="overview-value-active-orders" className="text-3xl font-bold text-gray-900">{overview.activeOrders}</div>
+          <div data-cy="overview-value-active-orders" className="text-2xl font-bold text-gray-900 sm:text-3xl">{overview.activeOrders}</div>
           {overview.revisionOrders > 0 && (
             <div className="mt-2 text-xs text-orange-600">
               {overview.revisionOrders} in revision
@@ -87,7 +87,7 @@ export const Overview: React.FC = () => {
             <div className="text-sm text-gray-500 font-medium">Earnings (Month)</div>
             <DollarSign className="w-5 h-5 text-green-500" />
           </div>
-          <div data-cy="overview-value-earnings" className="text-3xl font-bold text-green-600">
+          <div data-cy="overview-value-earnings" className="text-2xl font-bold text-green-600 sm:text-3xl">
             ${overview.earningsThisMonth.toFixed(2)}
           </div>
         </div>
@@ -97,7 +97,7 @@ export const Overview: React.FC = () => {
             <div className="text-sm text-gray-500 font-medium">Wallet Balance</div>
             <Wallet className="w-5 h-5 text-indigo-500" />
           </div>
-          <div data-cy="overview-value-wallet" className="text-3xl font-bold text-indigo-600">
+          <div data-cy="overview-value-wallet" className="text-2xl font-bold text-indigo-600 sm:text-3xl">
             ${overview.walletBalance.toFixed(2)}
           </div>
         </div>
@@ -107,7 +107,7 @@ export const Overview: React.FC = () => {
             <div className="text-sm text-gray-500 font-medium">Rating</div>
             <TrendingUp className="w-5 h-5 text-yellow-500" />
           </div>
-          <div data-cy="overview-value-rating" className="text-3xl font-bold text-gray-900">{overview.rating.toFixed(1)}</div>
+          <div data-cy="overview-value-rating" className="text-2xl font-bold text-gray-900 sm:text-3xl">{overview.rating.toFixed(1)}</div>
           <div className="text-xs text-gray-500 mt-1">{overview.reviews} reviews</div>
         </div>
       </div>
@@ -142,14 +142,14 @@ export const Overview: React.FC = () => {
         <div className="flex flex-wrap gap-3">
           <Link
             to="/create-gig"
-            className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition"
+            className="flex w-full items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white transition hover:bg-indigo-700 sm:w-auto"
           >
             <PlusCircle className="w-4 h-4 mr-2" />
             Create Gig
           </Link>
           <Link
             to="/freelancer/dashboard?tab=wallet"
-            className="flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition"
+            className="flex w-full items-center justify-center rounded-lg bg-gray-100 px-4 py-2 font-medium text-gray-700 transition hover:bg-gray-200 sm:w-auto"
           >
             <User className="w-4 h-4 mr-2" />
             Update Profile
@@ -157,7 +157,7 @@ export const Overview: React.FC = () => {
           {overview.walletBalance > 0 && (
             <Link
               to="/freelancer/dashboard?tab=withdrawals"
-              className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition"
+              className="flex w-full items-center justify-center rounded-lg bg-green-600 px-4 py-2 font-medium text-white transition hover:bg-green-700 sm:w-auto"
             >
               <DollarSign className="w-4 h-4 mr-2" />
               Withdraw Funds

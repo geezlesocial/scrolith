@@ -100,7 +100,7 @@ export const UploadedFilesView: React.FC<UploadedFilesViewProps> = ({ role = 'fr
         ) : files.length === 0 ? (
           <div className="text-gray-500 py-8 text-center">No files uploaded yet.</div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             {files.map((file) => (
               <div key={file.id} className="border rounded overflow-hidden p-2 relative">
                 {file.type === 'image' && file.url ? (

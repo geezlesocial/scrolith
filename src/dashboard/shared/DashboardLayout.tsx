@@ -4,6 +4,7 @@ import { useUser } from '../../context/UserContext';
 import { UserRole } from '../../types';
 import { useMessages } from '../../context/MessageContext';
 import { SupportService } from '../../services/support';
+import { Menu, X } from 'lucide-react';
 
 interface SidebarItemProps {
   tab: string;
@@ -42,6 +43,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   const navigate = useNavigate();
   const location = useLocation();
   const [activeTab, setActiveTab] = useState('overview');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { unreadCount } = useMessages();
   const [unreadSupportCount, setUnreadSupportCount] = useState(0);
   // Determine effective role view (honor ?as= override for admins or explicit view)
@@ -76,6 +78,10 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   }, [location]);
 
   useEffect(() => {
+    setIsSidebarOpen(false);
+  }, [location.pathname, location.search]);
+
+  useEffect(() => {
     if (!user) return;
     let mounted = true;
     let timer: number | undefined;
@@ -105,6 +111,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
     // Update URL without causing a navigation
     const newUrl = `${location.pathname}?tab=${tab}`;
     window.history.replaceState({}, '', newUrl);
+    setIsSidebarOpen(false);
 
     // Dispatch custom event for DashboardRouter
     window.dispatchEvent(new CustomEvent('dashboard-navigation', { detail: { tab } }));
@@ -185,42 +192,101 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   return (
-    <div className="min-h-screen flex">
-      <aside className="w-64 bg-white p-4 border-r border-gray-200">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Dashboard</h3>
+    <div className="min-h-screen bg-gray-50">
+      <div className="flex min-h-screen">
+        {isSidebarOpen && (
+          <button
+            type="button"
+            className="fixed inset-0 z-30 bg-black/40 md:hidden"
+            aria-label="Close dashboard menu"
+            onClick={() => setIsSidebarOpen(false)}
+          />
+        )}
+
+        <aside
+          className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[88vw] overflow-y-auto border-r border-gray-200 bg-white p-4 transition-transform duration-200 ease-out md:static md:z-auto md:w-64 md:max-w-none md:translate-x-0 ${
+            isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
+        >
+          <div className="mb-4 flex items-start justify-between gap-2">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">Dashboard</h3>
+              <p className="text-xs text-gray-500 capitalize">Viewing as {effectiveRole}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(false)}
+              className="rounded-md p-1 text-gray-600 hover:bg-gray-100 md:hidden"
+              aria-label="Close menu"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
           <button
             onClick={handleRoleSwitch}
-            className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors"
-            title={`Switch view`}
+            className="mb-4 w-full rounded-full bg-blue-100 px-3 py-2 text-sm text-blue-700 transition-colors hover:bg-blue-200"
+            title="Switch view"
           >
             {user?.role === UserRole.ADMIN ? `View as ${effectiveRole === UserRole.FREELANCER ? 'Client' : 'Freelancer'}` : `Switch to ${effectiveRole === UserRole.FREELANCER ? 'Client' : 'Freelancer'}`}
           </button>
+
+          <ul className="space-y-1">
+            {getSidebarItems().map((item) => (
+              <SidebarItem
+                key={item.tab}
+                tab={item.tab}
+                label={item.label}
+                isActive={activeTab === item.tab}
+                badgeCount={item.tab === 'messages' ? unreadCount : item.tab === 'support' ? unreadSupportCount : undefined}
+                onClick={handleTabChange}
+              />
+            ))}
+            <li className="pt-4 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setIsSidebarOpen(false);
+                  navigate('/');
+                }}
+                className="w-full rounded-md px-3 py-2 text-left text-gray-600 transition-colors hover:bg-gray-100"
+              >
+                Back to site
+              </button>
+            </li>
+          </ul>
+        </aside>
+
+        <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-20 border-b border-gray-200 bg-white/95 px-3 py-2 backdrop-blur md:hidden">
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setIsSidebarOpen(true)}
+                className="rounded-md border border-gray-200 p-2 text-gray-700"
+                aria-label="Open dashboard menu"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-gray-900">Dashboard</p>
+                <p className="truncate text-xs text-gray-500 capitalize">{effectiveRole}</p>
+              </div>
+              <button
+                onClick={handleRoleSwitch}
+                className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700"
+              >
+                Switch
+              </button>
+            </div>
+          </header>
+
+          <main className="min-w-0 flex-1 p-3 sm:p-4 md:p-6">
+            <div className="mx-auto w-full max-w-7xl min-w-0">
+              {children}
+            </div>
+          </main>
         </div>
-        <ul className="space-y-1">
-          {getSidebarItems().map((item) => (
-            <SidebarItem
-              key={item.tab}
-              tab={item.tab}
-              label={item.label}
-              isActive={activeTab === item.tab}
-              badgeCount={item.tab === 'messages' ? unreadCount : item.tab === 'support' ? unreadSupportCount : undefined}
-              onClick={handleTabChange}
-            />
-          ))}
-          <li className="pt-4 border-t border-gray-200">
-            <button
-              onClick={() => navigate('/')}
-              className="w-full text-left px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-            >
-              Back to site
-            </button>
-          </li>
-        </ul>
-      </aside>
-      <main className="flex-1 bg-gray-50 p-6">
-        {children}
-      </main>
+      </div>
     </div>
   );
 };

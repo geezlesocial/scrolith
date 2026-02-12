@@ -46,6 +46,38 @@ function normalizeBoolean(value: any, fallback: boolean): boolean {
 
 const ensureArray = <T,>(value: any): T[] => (Array.isArray(value) ? value : []);
 
+const toOverlayColor = (value: unknown, alpha = 0.35): string => {
+  const fallback = `rgba(0, 0, 0, ${alpha})`;
+  if (typeof value !== "string") return fallback;
+  const color = value.trim();
+  if (!color) return fallback;
+
+  const shortHex = color.match(/^#([0-9a-f]{3})$/i);
+  if (shortHex) {
+    const [r, g, b] = shortHex[1].split("").map((ch) => parseInt(ch + ch, 16));
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  const fullHex = color.match(/^#([0-9a-f]{6})$/i);
+  if (fullHex) {
+    const hex = fullHex[1];
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  const rgb = color.match(/^rgba?\(([^)]+)\)$/i);
+  if (rgb) {
+    const parts = rgb[1].split(",").map((part) => Number(part.trim()));
+    if (parts.length >= 3 && parts.slice(0, 3).every((part) => Number.isFinite(part))) {
+      return `rgba(${Math.max(0, Math.min(255, parts[0]))}, ${Math.max(0, Math.min(255, parts[1]))}, ${Math.max(0, Math.min(255, parts[2]))}, ${alpha})`;
+    }
+  }
+
+  return fallback;
+};
+
 const HomeSlider: React.FC<HomeSliderProps> = ({ slides, heroConfig, searchMode = "keyword" }) => {
   const { user } = useUser();
   const navigate = useNavigate();
@@ -249,7 +281,11 @@ const HomeSlider: React.FC<HomeSliderProps> = ({ slides, heroConfig, searchMode 
               />
             )}
 
-            <div className="absolute inset-0 bg-black/30 mix-blend-multiply" />
+            <div
+              className="absolute inset-0 mix-blend-multiply"
+              style={{ backgroundColor: toOverlayColor((slide as any).backgroundColor || (slide as any).background_color) }}
+            />
+            <div className="absolute inset-0 bg-black/15" />
 
             {/* Optional caption (safe, non-blocking) */}
             {((slide as any).title || (slide as any).subtitle) && (
