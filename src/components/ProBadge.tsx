@@ -1,5 +1,6 @@
 import React from 'react';
 import { useContent } from '../context/ContentContext';
+import { getApiBaseUrl } from '../utils/apiBase';
 
 type ProBadgeRole = 'freelancer' | 'employer';
 
@@ -15,18 +16,32 @@ const ProBadge: React.FC<ProBadgeProps> = ({ role, isPro, size = 'sm', className
 
   if (!isPro) return null;
 
+  const buildContentUrl = (fileId?: string) => {
+    if (!fileId) return '';
+    const apiBase = getApiBaseUrl();
+    return `${apiBase}/files/content/${encodeURIComponent(fileId)}`;
+  };
+
   const freelancerLogo =
     (settings as any)?.pro_freelancer_label_url ??
     (settings as any)?.proFreelancerLabelUrl ??
     (settings as any)?.pro_freelancer_label ??
     (settings as any)?.proFreelancerLabel;
+  const freelancerLogoFileId =
+    (settings as any)?.pro_freelancer_label_file_id ??
+    (settings as any)?.proFreelancerLabelFileId;
   const employerLogo =
     (settings as any)?.pro_employer_label_url ??
     (settings as any)?.proEmployerLabelUrl ??
     (settings as any)?.pro_employer_label ??
     (settings as any)?.proEmployerLabel;
+  const employerLogoFileId =
+    (settings as any)?.pro_employer_label_file_id ??
+    (settings as any)?.proEmployerLabelFileId;
 
-  const logoUrl = role === 'freelancer' ? freelancerLogo : employerLogo;
+  const logoUrl = role === 'freelancer'
+    ? (freelancerLogo || buildContentUrl(freelancerLogoFileId))
+    : (employerLogo || buildContentUrl(employerLogoFileId));
   const height = size === 'md' ? 'h-5' : 'h-4';
 
   if (logoUrl) {
