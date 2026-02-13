@@ -267,11 +267,25 @@ export const MessagingService = {
     messageId: string,
     userId: string,
     emoji: string
-  ): Promise<void> => {
-    await api.post(`/messages/conversations/${conversationId}/messages/${messageId}/reactions`, {
+  ): Promise<{
+    conversationId: string;
+    messageId: string;
+    reactions: MessageReaction[];
+    reactionSummary?: Record<string, number>;
+    userReaction?: string | null;
+  }> => {
+    const response = await api.post(`/messages/conversations/${conversationId}/messages/${messageId}/reactions`, {
       userId,
       emoji
     });
+    const data = extractData<any>(response) || {};
+    return {
+      conversationId: safeString(data?.conversationId ?? data?.conversation_id),
+      messageId: safeString(data?.messageId ?? data?.message_id),
+      reactions: safeArray<any>(data?.reactions).map(normalizeReaction),
+      reactionSummary: data?.reactionSummary ?? data?.reaction_summary ?? {},
+      userReaction: data?.userReaction ?? data?.user_reaction ?? null
+    };
   },
 
   createConversation: async (participants: Conversation['participants']): Promise<string> => {
@@ -285,8 +299,23 @@ export const MessagingService = {
     }
   },
 
-  deleteMessage: async (conversationId: string, messageId: string): Promise<void> => {
-    await api.delete(`/messages/conversations/${conversationId}/messages/${messageId}`);
+  deleteMessage: async (
+    conversationId: string,
+    messageId: string,
+    scope: 'me' | 'everyone' = 'everyone'
+  ): Promise<{
+    conversationId?: string;
+    messageId?: string;
+    scope?: 'me' | 'everyone';
+    deletedForMe?: boolean;
+    deleted_for_me?: boolean;
+    isDeleted?: boolean;
+    is_deleted?: boolean;
+  }> => {
+    const response = await api.delete(`/messages/conversations/${conversationId}/messages/${messageId}`, {
+      params: { scope }
+    });
+    return extractData<any>(response) || {};
   },
 
   editMessage: async (conversationId: string, messageId: string, text: string): Promise<Message> => {

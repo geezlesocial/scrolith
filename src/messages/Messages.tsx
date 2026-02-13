@@ -454,14 +454,30 @@ const Messages = () => {
           const convoId = payload?.conversationId || payload?.conversation_id;
           const messageId = payload?.messageId || payload?.id;
           if (!convoId || !messageId) return;
+          const deletedForMe = Boolean(payload?.deletedForMe ?? payload?.deleted_for_me ?? false);
           traceClient('socket.message_updated', {
               conversationId: convoId,
               messageId,
+              deletedForMe,
               isDeleted: Boolean(payload?.isDeleted ?? payload?.is_deleted),
               editedAt: payload?.editedAt ?? payload?.edited_at ?? null
           });
           setConversations(prev => prev.map(c => {
               if (c.id !== convoId) return c;
+              if (deletedForMe) {
+                  const nextMessages = c.messages.filter(m => m.id !== messageId);
+                  const nextLast = nextMessages[nextMessages.length - 1];
+                  const nextLastText = nextLast?.text || '';
+                  const nextLastAt = nextLast?.timestamp || '';
+                  return {
+                      ...c,
+                      messages: nextMessages,
+                      lastMessage: nextLastText,
+                      last_message: nextLastText,
+                      lastMessageAt: nextLastAt,
+                      last_message_at: nextLastAt
+                  };
+              }
               return {
                   ...c,
                   messages: c.messages.map(m => {
@@ -652,37 +668,74 @@ const Messages = () => {
       }
   };
 
-  const handleDeleteMessage = async (messageId: string) => {
+  const handleDeleteMessage = async (message: Message, scope: 'me' | 'everyone') => {
       if (!activeConvoId) return;
-      if (!confirm("Are you sure you want to delete this message?")) return;
-      traceClient('ui.delete_message.request', { conversationId: activeConvoId, messageId });
+      const messageId = String(message.id || '');
+      if (!messageId) return;
+      const confirmText =
+          scope === 'me'
+              ? 'Delete this message for you only?'
+              : 'Delete this message for everyone?';
+      if (!confirm(confirmText)) return;
+      traceClient('ui.delete_message.request', { conversationId: activeConvoId, messageId, scope });
       setMessageActionBusyId(messageId);
       try {
-          await MessagingService.deleteMessage(activeConvoId, messageId);
-          setConversations(prev => prev.map(c => {
-              if (c.id !== activeConvoId) return c;
-              return {
-                  ...c,
-                  messages: c.messages.map(m => {
-                      if (m.id !== messageId) return m;
-                      return {
-                          ...m,
-                          text: '[Message deleted]',
-                          attachments: [],
-                          isDeleted: true,
-                          is_deleted: true,
-                          deletedAt: new Date().toISOString(),
-                          deleted_at: new Date().toISOString()
-                      };
-                  })
-              };
-          }));
-          traceClient('ui.delete_message.success', { conversationId: activeConvoId, messageId });
+          const result = await MessagingService.deleteMessage(activeConvoId, messageId, scope);
+          const deletedForMe = Boolean(result?.deletedForMe ?? result?.deleted_for_me ?? scope === 'me');
+          if (deletedForMe) {
+              setConversations(prev => prev.map(c => {
+                  if (c.id !== activeConvoId) return c;
+                  const nextMessages = c.messages.filter(m => m.id !== messageId);
+                  const nextLast = nextMessages[nextMessages.length - 1];
+                  const nextLastText = nextLast?.text || '';
+                  const nextLastAt = nextLast?.timestamp || '';
+                  return {
+                      ...c,
+                      messages: nextMessages,
+                      lastMessage: nextLastText,
+                      last_message: nextLastText,
+                      lastMessageAt: nextLastAt,
+                      last_message_at: nextLastAt
+                  };
+              }));
+              if (replyToMessage?.id === messageId) setReplyToMessage(null);
+              if (editingMessageId === messageId) {
+                  setEditingMessageId(null);
+                  setEditDraft('');
+              }
+              if (expandedMessageId === messageId) setExpandedMessageId(null);
+              if (reactionPanelMessageId === messageId) setReactionPanelMessageId(null);
+          } else {
+              setConversations(prev => prev.map(c => {
+                  if (c.id !== activeConvoId) return c;
+                  return {
+                      ...c,
+                      messages: c.messages.map(m => {
+                          if (m.id !== messageId) return m;
+                          return {
+                              ...m,
+                              text: '[Message deleted]',
+                              attachments: [],
+                              isDeleted: true,
+                              is_deleted: true,
+                              deletedAt: new Date().toISOString(),
+                              deleted_at: new Date().toISOString()
+                          };
+                      })
+                  };
+              }));
+          }
+          traceClient('ui.delete_message.success', { conversationId: activeConvoId, messageId, scope });
       } catch (error) {
-          showNotification('error', 'Messages', 'Failed to delete message.');
+          showNotification(
+              'error',
+              'Messages',
+              scope === 'me' ? 'Failed to delete message for you.' : 'Failed to delete message for everyone.'
+          );
           traceClient('ui.delete_message.error', {
               conversationId: activeConvoId,
               messageId,
+              scope,
               error: String((error as any)?.message || error)
           });
       } finally {
@@ -827,7 +880,25 @@ const Messages = () => {
       setMessageActionBusyId(messageId);
       try {
           updateMessageReactionLocally(messageId, emoji);
-          await MessagingService.toggleReaction(activeConvoId, messageId, user.id, emoji);
+          const updated = await MessagingService.toggleReaction(activeConvoId, messageId, user.id, emoji);
+          if (updated?.messageId) {
+              setConversations(prev =>
+                  prev.map(conversation => {
+                      if (conversation.id !== activeConvoId) return conversation;
+                      return {
+                          ...conversation,
+                          messages: conversation.messages.map(message => {
+                              if (message.id !== updated.messageId) return message;
+                              return {
+                                  ...message,
+                                  reactions: Array.isArray(updated.reactions) ? updated.reactions : message.reactions,
+                                  reactionSummary: updated.reactionSummary || message.reactionSummary
+                              };
+                          })
+                      };
+                  })
+              );
+          }
           traceClient('ui.toggle_reaction.success', {
               conversationId: activeConvoId,
               messageId,
@@ -1456,16 +1527,28 @@ const Messages = () => {
                                                         <span>Edit</span>
                                                     </button>
                                                 )}
+                                                {!isDeleted && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleDeleteMessage(msg, 'me')}
+                                                        className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-white px-2 py-1 text-[11px] text-red-600 hover:bg-red-50"
+                                                        title="Delete for me"
+                                                        disabled={messageActionBusyId === msg.id}
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                        <span>Delete for me</span>
+                                                    </button>
+                                                )}
                                                 {canEditDelete && (
                                                     <button
                                                         type="button"
-                                                        onClick={() => handleDeleteMessage(msg.id)}
-                                                        className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-white px-2 py-1 text-[11px] text-red-600 hover:bg-red-50"
-                                                        title="Delete"
+                                                        onClick={() => handleDeleteMessage(msg, 'everyone')}
+                                                        className="inline-flex items-center gap-1 rounded-full border border-red-300 bg-white px-2 py-1 text-[11px] text-red-700 hover:bg-red-50"
+                                                        title="Delete for everyone"
                                                         disabled={isDeleted || messageActionBusyId === msg.id}
                                                     >
                                                         <Trash2 className="w-4 h-4" />
-                                                        <span>Delete</span>
+                                                        <span>Delete for everyone</span>
                                                     </button>
                                                 )}
                                             </div>
