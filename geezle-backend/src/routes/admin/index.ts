@@ -25,6 +25,7 @@ import monetizationAdminRoutes from './monetization.routes';
 import payoutsStripeAdminRoutes from './payouts.stripe.routes';
 import recoAdminRoutes from './reco.routes';
 import scrolithaAdminRoutes from './scrolitha.routes';
+import appsAdminRoutes from './apps.routes';
 import { clearPlatformRuntimeCache } from '../../controllers/admin.cache.controller';
 
 const router = express.Router();
@@ -100,6 +101,7 @@ router.use('/monetization', monetizationAdminRoutes);
 router.use('/payouts/stripe', payoutsStripeAdminRoutes);
 router.use('/reco', recoAdminRoutes);
 router.use('/scrolitha', scrolithaAdminRoutes);
+router.use('/apps', appsAdminRoutes);
 // Mount admin community routes (Gcoin + Ads admin panels)
 router.use('/community', adminCommunityRoutes);
 
