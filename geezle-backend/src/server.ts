@@ -16,6 +16,7 @@ import validateEnv from './utils/validateEnv';
 // Import routes
 import cmsRoutes from './routes/cms';
 import cmsAuthPagesRoutes from './routes/cms.auth-pages.routes';
+import i18nRoutes from './routes/i18n';
 import adminRoutes from './routes/admin';
 import appsRoutes from './routes/apps.routes';
 import authRoutes from './routes/auth.routes';
@@ -695,6 +696,7 @@ app.use('/api', maintenanceModeMiddleware);
 // API routes
 app.use('/api/cms', cmsRoutes);
 app.use('/api/cms', cmsAuthPagesRoutes);
+app.use('/api/i18n', i18nRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/apps', appsRoutes);
 app.use('/api/auth', authRoutes);

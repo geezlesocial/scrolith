@@ -88,6 +88,9 @@ model User {
   // Admin-created Gcoin configs
   gcoinConfigsUpdated GcoinConfig[]
   preloaderConfigsUpdated PreloaderConfig[]
+  translationValuesUpdated TranslationValue[] @relation("TranslationValueUpdatedBy")
+  textOverridesUpdated     TextOverride[]     @relation("TextOverrideUpdatedBy")
+  languageConfigsUpdated   LanguageConfig[]   @relation("LanguageConfigUpdatedBy")
 
   // Market intelligence relationships
   ltvPredictions LtvPrediction[]
@@ -552,6 +555,76 @@ model AppSetting {
   data      Json
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
+}
+
+model TranslationKey {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  namespace   String?
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  values TranslationValue[]
+
+  @@index([namespace])
+  @@index([isActive])
+}
+
+model TranslationValue {
+  id               String   @id @default(cuid())
+  translationKeyId String
+  locale           String
+  value            String   @db.Text
+  updatedByAdminId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  translationKey TranslationKey @relation(fields: [translationKeyId], references: [id], onDelete: Cascade)
+  updatedByAdmin User?          @relation("TranslationValueUpdatedBy", fields: [updatedByAdminId], references: [id], onDelete: SetNull)
+
+  @@unique([translationKeyId, locale])
+  @@index([locale])
+  @@index([updatedByAdminId])
+  @@index([updatedAt])
+}
+
+model TextOverride {
+  id               String   @id @default(cuid())
+  locale           String
+  matchText        String   @db.Text
+  replacementText  String   @db.Text
+  isRegex          Boolean  @default(false)
+  enabled          Boolean  @default(true)
+  priority         Int      @default(100)
+  updatedByAdminId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  updatedByAdmin User? @relation("TextOverrideUpdatedBy", fields: [updatedByAdminId], references: [id], onDelete: SetNull)
+
+  @@index([locale, enabled, priority])
+  @@index([updatedByAdminId])
+  @@index([updatedAt])
+}
+
+model LanguageConfig {
+  id                    String   @id @default(cuid())
+  scope                 String   @unique @default("default")
+  defaultLocale         String   @default("en")
+  enabledLocales        String[] @default(["en"])
+  rtlLocales            String[] @default([])
+  dictionaryCacheSeconds Int     @default(300)
+  overridesCacheSeconds  Int     @default(300)
+  updatedByAdminId      String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  updatedByAdmin User? @relation("LanguageConfigUpdatedBy", fields: [updatedByAdminId], references: [id], onDelete: SetNull)
+
+  @@index([updatedByAdminId])
+  @@index([updatedAt])
 }
 
 model RecoConfig {

@@ -26,6 +26,7 @@ import payoutsStripeAdminRoutes from './payouts.stripe.routes';
 import recoAdminRoutes from './reco.routes';
 import scrolithaAdminRoutes from './scrolitha.routes';
 import appsAdminRoutes from './apps.routes';
+import i18nAdminRoutes from './i18n.routes';
 import { clearPlatformRuntimeCache } from '../../controllers/admin.cache.controller';
 
 const router = express.Router();
@@ -103,6 +104,7 @@ router.use('/payouts/stripe', payoutsStripeAdminRoutes);
 router.use('/reco', recoAdminRoutes);
 router.use('/scrolitha', scrolithaAdminRoutes);
 router.use('/apps', appsAdminRoutes);
+router.use('/i18n', i18nAdminRoutes);
 // Mount admin community routes (Gcoin + Ads admin panels)
 router.use('/community', adminCommunityRoutes);
 
@@ -431,6 +433,10 @@ router.get('/test', (req, res) => {
       'POST   /api/admin/system/settings',
       'POST   /api/admin/system/email/test',
       'POST   /api/admin/system/cache/clear',
+      'GET    /api/admin/i18n/config',
+      'PUT    /api/admin/i18n/config',
+      'GET    /api/admin/i18n/keys',
+      'PUT    /api/admin/i18n/values',
       'GET    /api/admin/settings',
       'POST   /api/admin/settings',
       'GET    /api/admin/gigs-jobs/gigs',
