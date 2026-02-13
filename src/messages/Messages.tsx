@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MessagingService } from '../services/messaging';
 import { Conversation, Message, UploadedFile, UserRole } from '../types';
-import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star } from 'lucide-react';
 import { AIService } from '../services/ai/ai.service';
 import { UserService } from '../services/user';
 import { useUser } from '../context/UserContext';
@@ -13,7 +13,8 @@ import { useNotification } from '../context/NotificationContext';
 import { useContent } from '../context/ContentContext';
 import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import ProBadge from '../components/ProBadge';
-import ReactionBar from '../community/components/ReactionBar';
+
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
 const Messages = () => {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -46,6 +47,9 @@ const Messages = () => {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const [messageActionBusyId, setMessageActionBusyId] = useState<string | null>(null);
+  const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
+  const [reactionPanelMessageId, setReactionPanelMessageId] = useState<string | null>(null);
+  const [showStarredOnly, setShowStarredOnly] = useState(false);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -92,8 +96,12 @@ const Messages = () => {
   // Auto-scroll to bottom
   useEffect(() => {
       if (!shouldAutoScrollRef.current) return;
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeConvoId, typingUser, conversations]); 
+      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+  }, [
+      activeConvoId,
+      typingUser,
+      conversations.find((conversation) => conversation.id === activeConvoId)?.messages?.length
+  ]); 
 
   useEffect(() => {
       setPendingAttachments([]);
@@ -101,10 +109,25 @@ const Messages = () => {
       setEditingMessageId(null);
       setEditDraft('');
       setMessageActionBusyId(null);
+      setExpandedMessageId(null);
+      setReactionPanelMessageId(null);
       setShowConversationMenu(false);
   }, [activeConvoId]);
 
   const activeConvo = conversations.find(c => c.id === activeConvoId);
+  const visibleConversations = [...conversations]
+      .sort((a, b) => {
+          const aStar = Number(Boolean(a.isStarred ?? a.is_starred));
+          const bStar = Number(Boolean(b.isStarred ?? b.is_starred));
+          if (aStar !== bStar) return bStar - aStar;
+          const aTime = new Date(a.lastMessageAt || a.last_message_at || 0).getTime();
+          const bTime = new Date(b.lastMessageAt || b.last_message_at || 0).getTime();
+          return bTime - aTime;
+      })
+      .filter((conversation) => {
+          if (!showStarredOnly) return true;
+          return Boolean(conversation.isStarred ?? conversation.is_starred);
+      });
   const otherParticipant = activeConvo?.participants.find(p => p.id !== user?.id) || activeConvo?.participants[0];
   const otherOnline = Boolean(otherParticipant?.isOnline ?? otherParticipant?.is_online);
   const otherLastSeen = otherParticipant?.lastSeenAt ?? otherParticipant?.last_seen_at;
@@ -212,13 +235,36 @@ const Messages = () => {
 
   const refreshConversationData = async (options?: { silent?: boolean }) => {
       if (!user || refreshingRef.current) return;
+      if (
+          options?.silent &&
+          (Boolean(messageInput.trim()) ||
+              Boolean(editingMessageId) ||
+              Boolean(replyToMessage) ||
+              pendingAttachments.length > 0)
+      ) {
+          return;
+      }
       refreshingRef.current = true;
       if (!options?.silent) setIsRefreshing(true);
       try {
           const list = await MessagingService.getAllConversations(user.id, user.role, { force: true });
-          setConversations(list);
+          setConversations(prev => {
+              const activeId = activeConvoIdRef.current;
+              const existingMap = new Map(prev.map(conversation => [conversation.id, conversation]));
+              return list.map((conversation) => {
+                  const existing = existingMap.get(conversation.id);
+                  if (!existing) return conversation;
+                  if (options?.silent && activeId && conversation.id === activeId) {
+                      return {
+                          ...conversation,
+                          messages: existing.messages
+                      };
+                  }
+                  return conversation;
+              });
+          });
           const convoId = activeConvoIdRef.current;
-          if (convoId) {
+          if (convoId && !options?.silent) {
               const full = await MessagingService.getConversationById(convoId);
               if (full) {
                   setConversations(prev => prev.map(c => c.id === convoId ? { ...c, ...full } : c));
@@ -237,9 +283,9 @@ const Messages = () => {
       if (!user) return;
       const interval = setInterval(() => {
           refreshConversationData({ silent: true });
-      }, 15000);
+      }, 30000);
                             return () => clearInterval(interval);
-  }, [user]);
+  }, [user, messageInput, editingMessageId, replyToMessage, pendingAttachments.length]);
 
   const handleMessagesScroll = () => {
       const container = messagesContainerRef.current;
@@ -401,19 +447,50 @@ const Messages = () => {
           }));
       };
 
+      const handleConversationUpdated = (payload: any) => {
+          const convoId = payload?.conversationId || payload?.conversation_id;
+          if (!convoId) return;
+          setConversations(prev => prev.map(conversation => {
+              if (conversation.id !== convoId) return conversation;
+              const merged = {
+                  ...conversation,
+                  ...(payload?.label !== undefined ? { label: payload.label } : {}),
+                  ...(payload?.isStarred !== undefined ? { isStarred: Boolean(payload.isStarred), is_starred: Boolean(payload.isStarred) } : {}),
+                  ...(payload?.isMuted !== undefined ? { isMuted: Boolean(payload.isMuted), is_muted: Boolean(payload.isMuted) } : {}),
+                  ...(payload?.isArchived !== undefined ? { isArchived: Boolean(payload.isArchived), is_archived: Boolean(payload.isArchived) } : {}),
+                  ...(payload?.unread_count !== undefined ? { unreadCount: Number(payload.unread_count), unread_count: Number(payload.unread_count) } : {})
+              };
+              return merged;
+          }));
+      };
+
+      const handleConversationDeleted = (payload: any) => {
+          const convoId = payload?.conversationId || payload?.conversation_id;
+          if (!convoId) return;
+          setConversations(prev => prev.filter(conversation => conversation.id !== convoId));
+          if (activeConvoIdRef.current === convoId) {
+              setActiveConvoId(null);
+              navigate('/messages');
+          }
+      };
+
       socket.on('messages:new', handleIncoming);
       socket.on('messages:sent', handleIncoming);
       socket.on('messages:read', handleRead);
       socket.on('presence:update', handlePresence);
       socket.on('messages:updated', handleMessageUpdated);
+      socket.on('messages:conversation_updated', handleConversationUpdated);
+      socket.on('messages:conversation_deleted', handleConversationDeleted);
       return () => {
           socket.off('messages:new', handleIncoming);
           socket.off('messages:sent', handleIncoming);
           socket.off('messages:read', handleRead);
           socket.off('presence:update', handlePresence);
           socket.off('messages:updated', handleMessageUpdated);
+          socket.off('messages:conversation_updated', handleConversationUpdated);
+          socket.off('messages:conversation_deleted', handleConversationDeleted);
       };
-  }, [socket, user, refreshMessages]);
+  }, [socket, user, refreshMessages, navigate]);
   const renderReplyPreview = (message: Message) => {
       const reply = (message.replyTo || message.reply_to || null) as any;
       if (!reply && !message.replyToMessageId && !message.reply_to_message_id) return null;
@@ -626,10 +703,82 @@ const Messages = () => {
       }
   };
 
+  const updateMessageReactionLocally = (messageId: string, emoji: string) => {
+      if (!user?.id) return;
+      setConversations(prev =>
+          prev.map(conversation => {
+              if (conversation.id !== activeConvoId) return conversation;
+              return {
+                  ...conversation,
+                  messages: conversation.messages.map(message => {
+                      if (message.id !== messageId) return message;
+                      const reactions = Array.isArray(message.reactions) ? [...message.reactions] : [];
+                      const existingReaction = reactions.find(
+                          (reaction) =>
+                              String(reaction.userId || reaction.user_id) === String(user.id)
+                      );
+                      const withoutMine = reactions.filter(
+                          (reaction) =>
+                              String(reaction.userId || reaction.user_id) !== String(user.id)
+                      );
+                      if (existingReaction?.emoji === emoji) {
+                          return {
+                              ...message,
+                              reactions: withoutMine
+                          };
+                      }
+                      return {
+                          ...message,
+                          reactions: [
+                              ...withoutMine,
+                              {
+                                  user_id: user.id,
+                                  userId: user.id,
+                                  emoji,
+                                  timestamp: new Date().toISOString()
+                              }
+                          ]
+                      };
+                  })
+              };
+          })
+      );
+  };
+
+  const handleToggleReaction = async (messageId: string, emoji: string) => {
+      if (!activeConvoId || !user?.id) return;
+      setMessageActionBusyId(messageId);
+      try {
+          updateMessageReactionLocally(messageId, emoji);
+          await MessagingService.toggleReaction(activeConvoId, messageId, user.id, emoji);
+      } catch (error) {
+          showNotification('error', 'Messages', 'Failed to update reaction.');
+          await refreshConversationData({ silent: true });
+      } finally {
+          setMessageActionBusyId(null);
+      }
+  };
+
   const updateConversationStateLocally = (conversationId: string, updates: Partial<Conversation>) => {
       setConversations((prev) =>
           prev.map((conversation) => (conversation.id === conversationId ? { ...conversation, ...updates } : conversation))
       );
+  };
+
+  const toggleFavoriteContact = async (conversationId: string, current: boolean) => {
+      if (actionBusy) return;
+      setActionBusy(true);
+      try {
+          const next = !current;
+          await MessagingService.updateConversationPreferences(conversationId, { isStarred: next });
+          updateConversationStateLocally(conversationId, { isStarred: next, is_starred: next });
+          showNotification('success', 'Messages', next ? 'Added to favorite contacts.' : 'Removed from favorite contacts.');
+      } catch (error: any) {
+          const message = error?.response?.data?.error || error?.message || 'Unable to update favorite contact.';
+          showNotification('error', 'Messages', message);
+      } finally {
+          setActionBusy(false);
+      }
   };
 
   const handleConversationAction = async (
@@ -703,28 +852,52 @@ const Messages = () => {
         <div className="bg-white shadow rounded-lg h-full flex overflow-hidden border border-gray-200">
             {/* Sidebar */}
             <div className={`w-full md:w-1/3 border-r border-gray-200 flex flex-col ${activeConvo ? 'hidden md:flex' : 'flex'}`}>
-                <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                        <h2 className="text-lg font-bold text-gray-800">Messages</h2>
+                <div className="p-4 border-b border-gray-200 bg-gray-50 space-y-3">
+                    <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                            <h2 className="text-lg font-bold text-gray-800">Messages</h2>
+                            <button
+                                onClick={() => refreshConversationData()}
+                                className="text-gray-400 hover:text-gray-600 p-1.5 rounded"
+                                title="Refresh"
+                                type="button"
+                            >
+                                {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                            </button>
+                        </div>
+                        {user?.role === UserRole.ADMIN && <span className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded font-mono">ADMIN VIEW</span>}
+                    </div>
+                    <div className="flex gap-2">
                         <button
-                            onClick={() => refreshConversationData()}
-                            className="text-gray-400 hover:text-gray-600 p-1.5 rounded"
-                            title="Refresh"
                             type="button"
+                            onClick={() => setShowStarredOnly(false)}
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                !showStarredOnly ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border border-gray-200'
+                            }`}
                         >
-                            {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                            All
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setShowStarredOnly(true)}
+                            className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${
+                                showStarredOnly ? 'bg-amber-500 text-white' : 'bg-white text-gray-600 border border-gray-200'
+                            }`}
+                        >
+                            <Star className="h-3.5 w-3.5" />
+                            Starred
                         </button>
                     </div>
-                    {user?.role === UserRole.ADMIN && <span className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded font-mono">ADMIN VIEW</span>}
                 </div>
                 <ul className="flex-1 overflow-y-auto">
-                    {conversations.length === 0 ? (
+                    {visibleConversations.length === 0 ? (
                         <li className="p-4 text-center text-gray-500 text-sm">No conversations yet.</li>
                     ) : (
-                        conversations.map((convo) => {
+                        visibleConversations.map((convo) => {
                             const participant = convo.participants.find(p => p.id !== user?.id) || convo.participants[0];
                             const participantRole = resolveParticipantRole(participant);
                             const participantIsPro = isParticipantPro(participant);
+                            const convoStarred = Boolean(convo.isStarred ?? convo.is_starred);
                             return (
                                 <li 
                                     key={convo.id} 
@@ -797,6 +970,20 @@ const Messages = () => {
                                                 {convo.unreadCount}
                                             </span>
                                         )}
+                                        <button
+                                            type="button"
+                                            onClick={(event) => {
+                                                event.preventDefault();
+                                                event.stopPropagation();
+                                                void toggleFavoriteContact(convo.id, convoStarred);
+                                            }}
+                                            className={`ml-2 rounded-full p-1 transition ${
+                                                convoStarred ? 'text-amber-500 hover:bg-amber-50' : 'text-gray-300 hover:text-amber-500 hover:bg-amber-50'
+                                            }`}
+                                            title={convoStarred ? 'Remove from favorite contacts' : 'Add to favorite contacts'}
+                                        >
+                                            <Star className={`h-4 w-4 ${convoStarred ? 'fill-current' : ''}`} />
+                                        </button>
                                     </div>
                                 </li>
                             );
@@ -834,6 +1021,29 @@ const Messages = () => {
                                             className="text-left text-sm font-bold text-gray-900 hover:text-blue-600"
                                         >
                                             {otherParticipant?.name || 'Conversation'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                activeConvoId
+                                                    ? void toggleFavoriteContact(
+                                                          activeConvoId,
+                                                          Boolean(activeConversationState.isStarred)
+                                                      )
+                                                    : undefined
+                                            }
+                                            className={`rounded-full p-1 transition ${
+                                                activeConversationState.isStarred
+                                                    ? 'text-amber-500 hover:bg-amber-50'
+                                                    : 'text-gray-300 hover:text-amber-500 hover:bg-amber-50'
+                                            }`}
+                                            title={
+                                                activeConversationState.isStarred
+                                                    ? 'Remove sender from favorite contacts'
+                                                    : 'Add sender to favorite contacts'
+                                            }
+                                        >
+                                            <Star className={`h-4 w-4 ${activeConversationState.isStarred ? 'fill-current' : ''}`} />
                                         </button>
                                         {otherParticipantRole && (
                                             <ProBadge role={otherParticipantRole} isPro={otherParticipantIsPro} />
@@ -983,6 +1193,18 @@ const Messages = () => {
                                 const canEditDelete = isOwner || isAdmin;
                                 const isDeleted = Boolean(msg.isDeleted ?? msg.is_deleted);
                                 const isEditing = editingMessageId === msg.id;
+                                const showMessageControls = expandedMessageId === msg.id;
+                                const showReactionPanel = reactionPanelMessageId === msg.id && !isDeleted;
+                                const messageReactions = Array.isArray(msg.reactions) ? msg.reactions : [];
+                                const myReaction = messageReactions.find(
+                                    (reaction) => String(reaction.userId || reaction.user_id) === String(user?.id || '')
+                                )?.emoji;
+                                const reactionCounts = messageReactions.reduce((acc: Record<string, number>, reaction: any) => {
+                                    const emojiKey = String(reaction?.emoji || '').trim();
+                                    if (!emojiKey) return acc;
+                                    acc[emojiKey] = (acc[emojiKey] || 0) + 1;
+                                    return acc;
+                                }, {});
                                 return (
                                 <div id={`message-${msg.id}`} key={msg.id} className={`flex ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
                                     <div className="max-w-[70%]">
@@ -991,7 +1213,19 @@ const Messages = () => {
                                         msg.senderId === user?.id
                                         ? 'bg-blue-600 text-white rounded-br-none'
                                         : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'
-                                    }`}>
+                                    }`}
+                                    onClick={() => {
+                                        if (isEditing) return;
+                                        setExpandedMessageId((prev) => (prev === msg.id ? null : msg.id));
+                                        if (!isDeleted) {
+                                            setReactionPanelMessageId((prev) => (prev === msg.id ? null : msg.id));
+                                        }
+                                    }}
+                                    onDoubleClick={() => {
+                                        if (isDeleted || isEditing) return;
+                                        setExpandedMessageId(msg.id);
+                                        setReactionPanelMessageId(msg.id);
+                                    }}>
                                         {renderReplyPreview(msg)}
                                         {isEditing ? (
                                             <div className="space-y-2">
@@ -1053,54 +1287,90 @@ const Messages = () => {
                                             )}
                                         </div>
 
-                                        {!isDeleted && <ReactionBar targetType="MESSAGE" targetId={msg.id} className="mt-2" />}
+                                        {showReactionPanel && (
+                                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                                {QUICK_REACTIONS.map((emoji) => (
+                                                    <button
+                                                        key={emoji}
+                                                        type="button"
+                                                        onClick={(event) => {
+                                                            event.preventDefault();
+                                                            event.stopPropagation();
+                                                            void handleToggleReaction(msg.id, emoji);
+                                                        }}
+                                                        disabled={messageActionBusyId === msg.id}
+                                                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition ${
+                                                            myReaction === emoji
+                                                                ? 'border-blue-200 bg-blue-50 text-blue-700'
+                                                                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-100'
+                                                        }`}
+                                                    >
+                                                        <span>{emoji}</span>
+                                                        {reactionCounts[emoji] ? <span className="font-semibold">{reactionCounts[emoji]}</span> : null}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Message Actions */}
                                     <div className={`mt-1 flex items-center gap-1 ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
                                         <button
                                             type="button"
-                                            onClick={() => setReplyToMessage(msg)}
+                                            onClick={() => setExpandedMessageId((prev) => (prev === msg.id ? null : msg.id))}
                                             className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
-                                            title="Reply"
-                                            disabled={isDeleted}
+                                            title="Message actions"
                                         >
-                                            <CornerUpLeft className="w-4 h-4" />
-                                            <span>Reply</span>
+                                            <MoreVertical className="w-4 h-4" />
+                                            <span>Actions</span>
                                         </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleCopyMessage(msg)}
-                                            className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
-                                            title="Copy"
-                                            disabled={messageActionBusyId === msg.id}
-                                        >
-                                            <Copy className="w-4 h-4" />
-                                            <span>Copy</span>
-                                        </button>
-                                        {canEditDelete && (
-                                            <button
-                                                type="button"
-                                                onClick={() => handleStartEditMessage(msg)}
-                                                className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
-                                                title="Edit"
-                                                disabled={isDeleted || messageActionBusyId === msg.id}
-                                            >
-                                                <Pencil className="w-4 h-4" />
-                                                <span>Edit</span>
-                                            </button>
-                                        )}
-                                        {canEditDelete && (
-                                            <button
-                                                type="button"
-                                                onClick={() => handleDeleteMessage(msg.id)}
-                                                className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-white px-2 py-1 text-[11px] text-red-600 hover:bg-red-50"
-                                                title="Delete"
-                                                disabled={isDeleted || messageActionBusyId === msg.id}
-                                            >
-                                                <Trash2 className="w-4 h-4" />
-                                                <span>Delete</span>
-                                            </button>
+                                        {showMessageControls && (
+                                            <div className="flex flex-wrap items-center gap-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setReplyToMessage(msg)}
+                                                    className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
+                                                    title="Reply"
+                                                    disabled={isDeleted}
+                                                >
+                                                    <CornerUpLeft className="w-4 h-4" />
+                                                    <span>Reply</span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleCopyMessage(msg)}
+                                                    className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
+                                                    title="Copy"
+                                                    disabled={messageActionBusyId === msg.id}
+                                                >
+                                                    <Copy className="w-4 h-4" />
+                                                    <span>Copy</span>
+                                                </button>
+                                                {canEditDelete && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleStartEditMessage(msg)}
+                                                        className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
+                                                        title="Edit"
+                                                        disabled={isDeleted || messageActionBusyId === msg.id}
+                                                    >
+                                                        <Pencil className="w-4 h-4" />
+                                                        <span>Edit</span>
+                                                    </button>
+                                                )}
+                                                {canEditDelete && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleDeleteMessage(msg.id)}
+                                                        className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-white px-2 py-1 text-[11px] text-red-600 hover:bg-red-50"
+                                                        title="Delete"
+                                                        disabled={isDeleted || messageActionBusyId === msg.id}
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                        <span>Delete</span>
+                                                    </button>
+                                                )}
+                                            </div>
                                         )}
                                     </div>
                                     </div>
