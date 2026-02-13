@@ -57,6 +57,25 @@ const Messages = () => {
   const activeConvoIdRef = useRef<string | null>(null);
   const userIdRef = useRef<string | null>(null);
   const refreshingRef = useRef(false);
+  const messagesTraceEnabled =
+      ['1', 'true', 'yes', 'on'].includes(String((import.meta as any)?.env?.VITE_MESSAGES_TRACE_DEBUG || '').toLowerCase());
+
+  const traceClient = (event: string, details?: Record<string, any>) => {
+      if (!messagesTraceEnabled) return;
+      const payload = {
+          event,
+          timestamp: new Date().toISOString(),
+          conversationId: activeConvoIdRef.current,
+          userId: userIdRef.current,
+          ...(details || {})
+      };
+      try {
+          console.log('[messages-trace][client]', payload);
+      } catch {}
+      try {
+          socket?.emit?.('messages:debug_trace', payload);
+      } catch {}
+  };
 
   useEffect(() => {
       activeConvoIdRef.current = activeConvoId;
@@ -245,6 +264,7 @@ const Messages = () => {
           return;
       }
       refreshingRef.current = true;
+      traceClient('ui.refresh_conversations.start', { silent: Boolean(options?.silent) });
       if (!options?.silent) setIsRefreshing(true);
       try {
           const list = await MessagingService.getAllConversations(user.id, user.role, { force: true });
@@ -271,8 +291,13 @@ const Messages = () => {
               }
           }
           refreshMessages();
+          traceClient('ui.refresh_conversations.success', {
+              totalConversations: list.length,
+              activeConversationId: activeConvoIdRef.current
+          });
       } catch (error) {
           console.error('Failed to refresh messages', error);
+          traceClient('ui.refresh_conversations.error', { error: String((error as any)?.message || error) });
       } finally {
           refreshingRef.current = false;
           if (!options?.silent) setIsRefreshing(false);
@@ -341,6 +366,12 @@ const Messages = () => {
           const message = normalizeIncomingMessage(payload);
           const convoId = message.conversation_id || message.conversationId;
           if (!convoId) return;
+          traceClient('socket.messages_incoming', {
+              socketEvent: payload?.sender_id === userIdRef.current ? 'messages:sent' : 'messages:new',
+              conversationId: convoId,
+              messageId: message.id,
+              textLength: String(message.text || '').length
+          });
 
           setConversations(prev => {
               let found = false;
@@ -396,6 +427,7 @@ const Messages = () => {
       const handleRead = (payload: any) => {
           const convoId = payload?.conversationId || payload?.conversation_id;
           if (!convoId) return;
+          traceClient('socket.messages_read', { conversationId: convoId });
           setConversations(prev => prev.map(c => {
               if (c.id !== convoId) return c;
               return {
@@ -422,6 +454,12 @@ const Messages = () => {
           const convoId = payload?.conversationId || payload?.conversation_id;
           const messageId = payload?.messageId || payload?.id;
           if (!convoId || !messageId) return;
+          traceClient('socket.message_updated', {
+              conversationId: convoId,
+              messageId,
+              isDeleted: Boolean(payload?.isDeleted ?? payload?.is_deleted),
+              editedAt: payload?.editedAt ?? payload?.edited_at ?? null
+          });
           setConversations(prev => prev.map(c => {
               if (c.id !== convoId) return c;
               return {
@@ -450,6 +488,7 @@ const Messages = () => {
       const handleConversationUpdated = (payload: any) => {
           const convoId = payload?.conversationId || payload?.conversation_id;
           if (!convoId) return;
+          traceClient('socket.conversation_updated', { conversationId: convoId, payload });
           setConversations(prev => prev.map(conversation => {
               if (conversation.id !== convoId) return conversation;
               const merged = {
@@ -467,6 +506,7 @@ const Messages = () => {
       const handleConversationDeleted = (payload: any) => {
           const convoId = payload?.conversationId || payload?.conversation_id;
           if (!convoId) return;
+          traceClient('socket.conversation_deleted', { conversationId: convoId });
           setConversations(prev => prev.filter(conversation => conversation.id !== convoId));
           if (activeConvoIdRef.current === convoId) {
               setActiveConvoId(null);
@@ -538,6 +578,12 @@ const Messages = () => {
       e.preventDefault();
       const trimmed = messageInput.trim();
       if ((!trimmed && pendingAttachments.length === 0) || !activeConvoId || !user) return;
+      traceClient('ui.send_message.request', {
+          conversationId: activeConvoId,
+          textLength: trimmed.length,
+          attachmentsCount: pendingAttachments.length,
+          replyToMessageId: replyToMessage?.id || null
+      });
 
       try {
           const attachmentIds = pendingAttachments.map(file => file.id).filter(Boolean);
@@ -567,9 +613,17 @@ const Messages = () => {
           setPendingAttachments([]);
           setReplyToMessage(null);
           refreshMessages(); 
+          traceClient('ui.send_message.success', {
+              conversationId: activeConvoId,
+              messageId: newMessage?.id || null
+          });
       } catch (error) {
           console.error("Failed to send message", error);
           showNotification('error', 'Message', 'Failed to send message');
+          traceClient('ui.send_message.error', {
+              conversationId: activeConvoId,
+              error: String((error as any)?.message || error)
+          });
       }
   };
 
@@ -601,6 +655,7 @@ const Messages = () => {
   const handleDeleteMessage = async (messageId: string) => {
       if (!activeConvoId) return;
       if (!confirm("Are you sure you want to delete this message?")) return;
+      traceClient('ui.delete_message.request', { conversationId: activeConvoId, messageId });
       setMessageActionBusyId(messageId);
       try {
           await MessagingService.deleteMessage(activeConvoId, messageId);
@@ -622,8 +677,14 @@ const Messages = () => {
                   })
               };
           }));
+          traceClient('ui.delete_message.success', { conversationId: activeConvoId, messageId });
       } catch (error) {
           showNotification('error', 'Messages', 'Failed to delete message.');
+          traceClient('ui.delete_message.error', {
+              conversationId: activeConvoId,
+              messageId,
+              error: String((error as any)?.message || error)
+          });
       } finally {
           setMessageActionBusyId(null);
       }
@@ -649,6 +710,11 @@ const Messages = () => {
           showNotification('error', 'Messages', 'Message text is required.');
           return;
       }
+      traceClient('ui.edit_message.request', {
+          conversationId: activeConvoId,
+          messageId,
+          textLength: nextText.length
+      });
       setMessageActionBusyId(messageId);
       try {
           const updated = await MessagingService.editMessage(activeConvoId, messageId, nextText);
@@ -661,9 +727,15 @@ const Messages = () => {
           }));
           setEditingMessageId(null);
           setEditDraft('');
+          traceClient('ui.edit_message.success', { conversationId: activeConvoId, messageId });
       } catch (error: any) {
           const message = error?.response?.data?.error || error?.message || 'Failed to edit message.';
           showNotification('error', 'Messages', message);
+          traceClient('ui.edit_message.error', {
+              conversationId: activeConvoId,
+              messageId,
+              error: String(message)
+          });
       } finally {
           setMessageActionBusyId(null);
       }
@@ -747,12 +819,28 @@ const Messages = () => {
 
   const handleToggleReaction = async (messageId: string, emoji: string) => {
       if (!activeConvoId || !user?.id) return;
+      traceClient('ui.toggle_reaction.request', {
+          conversationId: activeConvoId,
+          messageId,
+          emoji
+      });
       setMessageActionBusyId(messageId);
       try {
           updateMessageReactionLocally(messageId, emoji);
           await MessagingService.toggleReaction(activeConvoId, messageId, user.id, emoji);
+          traceClient('ui.toggle_reaction.success', {
+              conversationId: activeConvoId,
+              messageId,
+              emoji
+          });
       } catch (error) {
           showNotification('error', 'Messages', 'Failed to update reaction.');
+          traceClient('ui.toggle_reaction.error', {
+              conversationId: activeConvoId,
+              messageId,
+              emoji,
+              error: String((error as any)?.message || error)
+          });
           await refreshConversationData({ silent: true });
       } finally {
           setMessageActionBusyId(null);
@@ -767,15 +855,18 @@ const Messages = () => {
 
   const toggleFavoriteContact = async (conversationId: string, current: boolean) => {
       if (actionBusy) return;
+      traceClient('ui.toggle_favorite_contact.request', { conversationId, current });
       setActionBusy(true);
       try {
           const next = !current;
           await MessagingService.updateConversationPreferences(conversationId, { isStarred: next });
           updateConversationStateLocally(conversationId, { isStarred: next, is_starred: next });
           showNotification('success', 'Messages', next ? 'Added to favorite contacts.' : 'Removed from favorite contacts.');
+          traceClient('ui.toggle_favorite_contact.success', { conversationId, isStarred: next });
       } catch (error: any) {
           const message = error?.response?.data?.error || error?.message || 'Unable to update favorite contact.';
           showNotification('error', 'Messages', message);
+          traceClient('ui.toggle_favorite_contact.error', { conversationId, error: String(message) });
       } finally {
           setActionBusy(false);
       }
@@ -785,6 +876,7 @@ const Messages = () => {
       action: 'move_other' | 'label_jobs' | 'mark_unread' | 'toggle_star' | 'toggle_mute' | 'archive' | 'report_block' | 'delete'
   ) => {
       if (!activeConvoId || !activeConvo || actionBusy) return;
+      traceClient('ui.conversation_action.request', { conversationId: activeConvoId, action });
       setActionBusy(true);
       try {
           if (action === 'move_other') {
@@ -821,9 +913,15 @@ const Messages = () => {
               navigate('/messages');
               showNotification('success', 'Messages', 'Conversation deleted.');
           }
+          traceClient('ui.conversation_action.success', { conversationId: activeConvoId, action });
       } catch (error: any) {
           const message = error?.response?.data?.error || error?.message || 'Action failed.';
           showNotification('error', 'Messages', message);
+          traceClient('ui.conversation_action.error', {
+              conversationId: activeConvoId,
+              action,
+              error: String(message)
+          });
       } finally {
           setActionBusy(false);
           setShowConversationMenu(false);
