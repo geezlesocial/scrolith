@@ -375,6 +375,9 @@ const AppContent = () => {
   // Hide Navbar/Footer on Admin Dashboard for full screen feel
   const isAdminRoute = location.pathname.startsWith('/admin') || location.pathname.startsWith('/dev-docs');
   const isMessagesRoute = /^\/messages(\/|$)/.test(location.pathname);
+  const activeTab = new URLSearchParams(location.search).get('tab')?.toLowerCase();
+  const isMessagesTabRoute = activeTab === 'messages';
+  const shouldHideSupportWidget = isMessagesRoute || isMessagesTabRoute;
   
   return (
     <div className="flex flex-col min-h-screen relative">
@@ -607,7 +610,7 @@ const AppContent = () => {
         </ErrorBoundary>
       </main>
       {!isAdminRoute && !isMessagesRoute && <DynamicFooter />}
-      <SupportWidget />
+      {!shouldHideSupportWidget && <SupportWidget />}
       {!isAdminRoute && <MarketingPopups />}
       {biometricEnabled && !biometricVerified && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/80 p-6">
