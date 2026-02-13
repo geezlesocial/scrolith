@@ -20,12 +20,12 @@ export const extractPathFromUrl = (url: string): string | null => {
     // Custom scheme: scrolith://<path>  (case-insensitive)
     // We intentionally treat everything after `://` as the web path so
     // `scrolith://freelancer/dashboard` becomes `/freelancer/dashboard`.
-    const schemeMatch = raw.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):\\/\\/(.*)$/);
-    if (schemeMatch) {
-      const scheme = (schemeMatch[1] || '').toLowerCase();
-      const rest = schemeMatch[2] || '';
+    const schemeIndex = raw.indexOf('://');
+    if (schemeIndex > 0) {
+      const scheme = raw.slice(0, schemeIndex).toLowerCase();
+      const rest = raw.slice(schemeIndex + 3);
       if (scheme === CUSTOM_SCHEME) {
-        const normalized = rest.replace(/^\\/+/, '');
+        const normalized = rest.replace(/^\/+/, '');
         return `/${normalized}`;
       }
     }
