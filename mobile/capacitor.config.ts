@@ -23,7 +23,9 @@ const serverConfig = devServerUrl
     : undefined;
 
 const config: CapacitorConfig = {
-  appId: 'com.scrolith.app',
+  // Keep in sync with `mobile/android/app/build.gradle` applicationId/namespace.
+  // This also aligns with the existing Firebase Android app entry you created.
+  appId: 'com.geezle.app',
   appName: 'Scrolith',
   // The web app lives in ../geezle and outputs build artifacts to ../geezle/dist
   webDir: '../geezle/dist',

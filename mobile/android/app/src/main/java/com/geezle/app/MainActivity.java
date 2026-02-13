@@ -1,4 +1,4 @@
-package com.scrolith.app;
+package com.geezle.app;
 
 import com.getcapacitor.BridgeActivity;
 

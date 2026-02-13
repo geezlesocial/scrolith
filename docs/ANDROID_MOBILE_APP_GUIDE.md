@@ -161,7 +161,7 @@ Output:
 Push notifications require `mobile/android/app/google-services.json` to match the final Android `applicationId`.
 
 Current package:
-- `com.scrolith.app`
+- `com.geezle.app`
 
 If you change the package name later, you must:
 1. Add a new Android app in Firebase Console for the new package name.
