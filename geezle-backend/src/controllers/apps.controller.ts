@@ -8,6 +8,7 @@ import { sendPushToUser } from '../services/pushNotifications';
 const APP_DISTRIBUTION_SCOPE = 'app_distribution';
 const APP_CAMPAIGNS_SCOPE = 'app_distribution_campaigns';
 const TRACKING_EVENT_PREFIX = 'app_dist:';
+const BRAND_ASSET_URL = 'https://api.scrolith.com/api/files/content/3362f88f-69d6-4cee-9005-49f33411b53f';
 const KNOWN_EVENTS = new Set([
   'prompt_shown',
   'prompt_dismissed',
@@ -100,8 +101,8 @@ const defaultConfig = () => ({
   branding: {
     title: 'Install Scrolith App',
     subtitle: 'Get a faster app experience built for your device.',
-    logoUrl: '/favicon.ico',
-    iconUrl: '/favicon.ico'
+    logoUrl: BRAND_ASSET_URL,
+    iconUrl: BRAND_ASSET_URL
   },
   android: {
     enabled: true,
@@ -111,7 +112,7 @@ const defaultConfig = () => ({
     secondaryCtaLabel: 'I Installed',
     downloadUrl: '',
     version: 'beta',
-    iconUrl: '/favicon.ico'
+    iconUrl: BRAND_ASSET_URL
   },
   desktop: {
     enabled: true,
@@ -121,7 +122,7 @@ const defaultConfig = () => ({
     secondaryCtaLabel: 'I Installed',
     downloadUrl: '',
     version: 'beta',
-    iconUrl: '/favicon.ico'
+    iconUrl: BRAND_ASSET_URL
   }
 });
 

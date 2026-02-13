@@ -29,13 +29,14 @@ const CMS_FREELANCER_SCOPE = 'cms_freelancer_page';
 const CMS_BLOG_POSTS_SCOPE = 'cms_blog_posts';
 const CMS_BLOG_CATEGORIES_SCOPE = 'cms_blog_categories';
 const CMS_BLOG_SETTINGS_SCOPE = 'cms_blog_settings';
+const BRAND_ASSET_URL = 'https://api.scrolith.com/api/files/content/3362f88f-69d6-4cee-9005-49f33411b53f';
 
 const PLATFORM_SETTINGS_FILE = path.resolve(__dirname, '../../data/platform-system-settings.json');
 const PUBLIC_PLATFORM_DEFAULTS = {
   siteName: 'Scrolith Marketplace',
   tagline: 'Find, hire, and work with the best talent',
-  logoUrl: '/logo.svg',
-  faviconUrl: '/favicon.ico',
+  logoUrl: BRAND_ASSET_URL,
+  faviconUrl: BRAND_ASSET_URL,
   adminEmail: 'admin@Scrolith.com',
   supportEmail: 'support@Scrolith.com',
   gigExperience: {
@@ -448,8 +449,8 @@ let cmsData = {
       { id: 'dashboard', label: 'Dashboard', url: '/freelancer/dashboard', icon: 'dashboard', visibility: ['FREELANCER', 'EMPLOYER', 'ADMIN'] },
       { id: 'settings', label: 'Settings', url: '/settings', icon: 'settings', visibility: ['FREELANCER', 'EMPLOYER', 'ADMIN'] }
     ],
-    logoUrl: 'https://ui-avatars.com/api/?name=Scrolith&background=0D8ABC&color=fff&size=128&bold=true',
-    faviconUrl: 'https://ui-avatars.com/api/?name=G&background=0D8ABC&color=fff&size=64&bold=true',
+    logoUrl: BRAND_ASSET_URL,
+    faviconUrl: BRAND_ASSET_URL,
     searchEnabled: true,
     searchMode: 'keyword',
     createdAt: new Date(),
@@ -457,7 +458,7 @@ let cmsData = {
   },
   footer: {
     id: 'default-footer',
-    logoUrl: '/logo.svg',
+    logoUrl: BRAND_ASSET_URL,
     description: 'Connect with top freelancers and find your next project.',
     socialLabelTitle: '',
     copyright: '© 2024 Scrolith. All rights reserved.',
@@ -748,8 +749,8 @@ export const getHeaderConfig = async (req: Request, res: Response) => {
       variant: (headerAny['variant'] as string) || 'light',
       search_enabled: (headerAny['searchEnabled'] as boolean) ?? (headerAny['search_enabled'] as boolean) ?? true,
       search_mode: (headerAny['searchMode'] as string) || (headerAny['search_mode'] as string) || 'keyword',
-      logo_url: (headerAny['logoUrl'] as string) || (headerAny['logo_url'] as string) || '/logo.svg',
-      favicon_url: (headerAny['faviconUrl'] as string) || (headerAny['favicon_url'] as string) || '/favicon.ico',
+      logo_url: (headerAny['logoUrl'] as string) || (headerAny['logo_url'] as string) || BRAND_ASSET_URL,
+      favicon_url: (headerAny['faviconUrl'] as string) || (headerAny['favicon_url'] as string) || BRAND_ASSET_URL,
       navigation: Array.isArray(headerAny['navigation']) ? (headerAny['navigation'] as unknown[]) : [],
       actions: (headerAny['actions'] as Record<string, unknown>) || {
         notifications: true,
@@ -785,8 +786,8 @@ export const getHeaderConfig = async (req: Request, res: Response) => {
       variant: header.variant || 'light',
       search_enabled: (headerAny.searchEnabled as boolean) ?? (headerAny.search_enabled as boolean) ?? true,
       search_mode: (headerAny.searchMode as string) || (headerAny.search_mode as string) || 'keyword',
-      logo_url: (headerAny.logoUrl as string) || (headerAny.logo_url as string) || '/logo.svg',
-      favicon_url: (headerAny.faviconUrl as string) || (headerAny.favicon_url as string) || '/favicon.ico',
+      logo_url: (headerAny.logoUrl as string) || (headerAny.logo_url as string) || BRAND_ASSET_URL,
+      favicon_url: (headerAny.faviconUrl as string) || (headerAny.favicon_url as string) || BRAND_ASSET_URL,
       navigation: Array.isArray(headerAny.navigation) ? headerAny.navigation : [],
       actions: (headerAny.actions as Record<string, unknown>) || {},
       profile_menu: Array.isArray(headerAny.profileMenu) ? headerAny.profileMenu : Array.isArray(headerAny.profile_menu) ? headerAny.profile_menu : [],
