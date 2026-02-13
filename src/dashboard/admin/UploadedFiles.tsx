@@ -15,6 +15,13 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'documents', label: 'Documents' }
 ];
 
+const ADMIN_UPLOAD_ACCEPT =
+  'image/*,video/*,application/pdf,text/plain,text/csv,application/msword,' +
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document,' +
+  'application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,' +
+  'application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,' +
+  'application/vnd.android.package-archive,.apk';
+
 const tabFilters: Record<TabKey, (file: UploadedFile) => boolean> = {
   all: () => true,
   images: (file) => file.type === 'image' || file.type?.toLowerCase().startsWith('image/'),
@@ -96,7 +103,12 @@ const UploadedFilesTab = () => {
       })
       .catch((error) => {
         console.error('Failed to upload file:', error);
-        showNotification('error', 'Upload Error', 'Failed to upload file.');
+        const message =
+          error?.response?.data?.error ||
+          error?.response?.data?.message ||
+          error?.message ||
+          'Failed to upload file.';
+        showNotification('error', 'Upload Error', String(message));
       })
       .finally(() => {
         e.target.value = '';
@@ -157,7 +169,7 @@ const UploadedFilesTab = () => {
           </div>
           <label className="bg-blue-600 text-white px-4 py-2 rounded-lg cursor-pointer hover:bg-blue-700 flex items-center text-sm font-medium">
             <Upload className="w-4 h-4 mr-2" /> Upload
-            <input type="file" className="hidden" onChange={handleUpload} />
+            <input type="file" className="hidden" accept={ADMIN_UPLOAD_ACCEPT} onChange={handleUpload} />
           </label>
         </div>
       </div>

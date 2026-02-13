@@ -73,6 +73,8 @@ const acceptedStringForArray = (types?: FileType[]) => {
   if (types.includes('video')) accepts.add('video/*');
   if (types.includes('document')) {
     accepts.add('application/pdf');
+    accepts.add('application/vnd.android.package-archive');
+    accepts.add('.apk');
     accepts.add('.doc');
     accepts.add('.docx');
     accepts.add('.xls');
