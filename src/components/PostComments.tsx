@@ -46,6 +46,8 @@ type PostCommentsProps = {
   initialCount?: number;
   focusCommentId?: string;
   focusMentionToken?: string;
+  expanded?: boolean;
+  focusInputKey?: number;
   onCountChange?: (postId: string, count: number) => void;
 };
 
@@ -174,6 +176,8 @@ const PostComments: React.FC<PostCommentsProps> = ({
   initialCount = 0,
   focusCommentId,
   focusMentionToken,
+  expanded = true,
+  focusInputKey,
   onCountChange
 }) => {
   const { user } = useUser();
@@ -198,6 +202,8 @@ const PostComments: React.FC<PostCommentsProps> = ({
   const commentsRef = useRef<PostComment[]>([]);
   const submitLockRef = useRef(false);
   const pendingCreatedIdsRef = useRef<Set<string>>(new Set());
+  const expandedRef = useRef(expanded);
+  const draftRef = useRef<HTMLTextAreaElement | null>(null);
 
   const policy = useMemo(() => String(commentPolicy || 'everyone').toLowerCase() as CommentPolicy, [commentPolicy]);
   const isAuthor = !!user?.id && !!authorId && String(user.id) === String(authorId);
@@ -258,6 +264,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
   useEffect(() => {
     const id = String(focusCommentId || '').trim();
     if (!id) return;
+    if (!expanded) return;
     if (loading) return;
 
     const target = document.getElementById(`comment-${id}`);
@@ -283,8 +290,26 @@ const PostComments: React.FC<PostCommentsProps> = ({
   };
 
   useEffect(() => {
+    if (!expanded) return;
     loadComments();
-  }, [loadComments]);
+  }, [loadComments, expanded]);
+
+  useEffect(() => {
+    expandedRef.current = expanded;
+  }, [expanded]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    if (!user?.id) return;
+    if (commentsDisabled) return;
+    if (typeof focusInputKey === 'undefined' || focusInputKey === null) return;
+    const timer = window.setTimeout(() => {
+      try {
+        draftRef.current?.focus();
+      } catch {}
+    }, 60);
+    return () => window.clearTimeout(timer);
+  }, [expanded, focusInputKey, user?.id, commentsDisabled]);
 
   const checkAuth = () => {
     if (!user) {
@@ -299,6 +324,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
   const commentIds = useMemo(() => collectCommentIds(comments), [comments]);
 
   useEffect(() => {
+    if (!expanded) return;
     if (!commentIds.length) {
       setCommentReactionSummary({});
       return;
@@ -451,13 +477,17 @@ const PostComments: React.FC<PostCommentsProps> = ({
       pendingCreatedIdsRef.current.delete(incomingId);
     }
     const shouldIncrease = !isLocalEcho && incoming.status !== 'deleted' && !!incomingId && !commentExists(commentsRef.current, incomingId);
-    setComments((prev) => {
-      if (!incomingId) return prev;
-      if (commentExists(prev, incomingId)) {
-        return updateCommentInTree(prev, { ...incoming, replies: incoming.replies || [] });
-      }
-      return insertComment(prev, { ...incoming, replies: incoming.replies || [] });
-    });
+
+    // When collapsed, keep counts in sync but avoid maintaining a large in-memory comment tree.
+    if (expandedRef.current) {
+      setComments((prev) => {
+        if (!incomingId) return prev;
+        if (commentExists(prev, incomingId)) {
+          return updateCommentInTree(prev, { ...incoming, replies: incoming.replies || [] });
+        }
+        return insertComment(prev, { ...incoming, replies: incoming.replies || [] });
+      });
+    }
     if (shouldIncrease) {
       setCount((prev) => prev + 1);
     }
@@ -467,6 +497,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
     const detail = (event as CustomEvent).detail;
     if (!detail || detail.postId !== postId) return;
     const incoming: PostComment = detail.comment || detail;
+    if (!expandedRef.current) return;
     setComments((prev) => updateCommentInTree(prev, incoming));
   }, [postId]);
 
@@ -475,6 +506,11 @@ const PostComments: React.FC<PostCommentsProps> = ({
     if (!detail || detail.postId !== postId) return;
     const commentId = detail.commentId;
     if (!commentId) return;
+
+    if (!expandedRef.current) {
+      setCount((prev) => Math.max(0, prev - 1));
+      return;
+    }
     setComments((prev) => {
       const result = markCommentDeleted(prev, commentId);
       if (result.wasActive) {
@@ -489,6 +525,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
     if (!detail || detail.postId !== postId) return;
     const { commentId, likesCount, userId, liked } = detail;
     if (!commentId) return;
+    if (!expandedRef.current) return;
     setComments((prev) =>
       updateCommentInTree(prev, {
         id: commentId,
@@ -503,6 +540,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
     if (String(detail.targetType || '').toUpperCase() !== 'COMMENT') return;
     const commentId = String(detail.targetId || '').trim();
     if (!commentId) return;
+    if (!expandedRef.current) return;
     setCommentReactionSummary((prev) => {
       const existing = prev[commentId] || { counts: {}, userReaction: null };
       const actorMatchesViewer = !!(detail.actorUserId && user?.id && String(detail.actorUserId) === String(user.id));
@@ -759,6 +797,8 @@ const PostComments: React.FC<PostCommentsProps> = ({
     );
   };
 
+  if (!expanded) return null;
+
   return (
     <div id={`post-${postId}-comments`} className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -775,6 +815,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
       {user && (
         <div className="mt-3 space-y-2">
           <textarea
+            ref={draftRef}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder={commentsDisabled ? 'Comments are disabled for this post.' : 'Write a comment...'}

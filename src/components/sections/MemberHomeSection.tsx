@@ -34,11 +34,9 @@ import { RecoService } from '../../services/reco';
 import { MessagingService } from '../../services/messaging';
 import { SearchService } from '../../services/search';
 import FilePickerModal from '../../dashboard/shared/FilePickerModal';
-import InteractionBar from '../InteractionBar';
-import PostComments from '../PostComments';
 import ProBadge from '../ProBadge';
 import PostHeader from '../../community/components/PostHeader';
-import ReactionBar from '../../community/components/ReactionBar';
+import PostEngagementBar from '../../community/components/PostEngagementBar';
 import MentionText from '../../community/components/MentionText';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from '../../community/followState';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../community/storyStyles';
@@ -3469,28 +3467,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                               {post.location ? <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">Location: {post.location}</span> : null}
                             </div>
                           </div>
-                          <InteractionBar
-                            type="post"
-                            id={post.id}
-                            initialCounts={{
-                              likes: post.interactions?.likes ?? 0,
-                              comments: commentCount,
-                              reposts: post.interactions?.reposts ?? 0,
-                              shares: post.interactions?.shares ?? 0,
-                              views: post.interactions?.views ?? 0,
-                              reactions: sumReactionCounts(post.interactions?.reactions)
-                            }}
-                            initialState={post.userState || { liked: false, reposted: false }}
-                          />
-                          <ReactionBar targetType="POST" targetId={post.id} className="mb-2" />
-                          <PostComments
+                          <PostEngagementBar
                             postId={post.id}
                             authorId={post.authorUserId || post.authorId}
                             commentPolicy={post.commentPolicy}
-                            initialCount={commentCount}
+                            commentCount={commentCount}
+                            repostCount={post.repostsCount ?? post.interactions?.reposts ?? 0}
+                            shareCount={post.sharesCount ?? post.interactions?.shares ?? 0}
+                            viewCount={post.interactions?.views ?? post.viewsCount ?? 0}
+                            initialReactionCounts={post.interactions?.reactions}
                             focusCommentId={focusPostId === post.id ? focusCommentId : undefined}
                             focusMentionToken={focusPostId === post.id ? focusMentionToken : undefined}
-                            onCountChange={syncCommentCount}
+                            onCommentCountChange={syncCommentCount}
                           />
                         </>
                       )}

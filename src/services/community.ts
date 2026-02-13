@@ -496,8 +496,28 @@ class CommunityService {
     return Boolean(response?.success ?? true);
   }
 
-  static async postRepost(postId: string): Promise<boolean> {
-    const response = await this.post(`/community/posts/${postId}/repost`, {});
+  static async postRepost(
+    postId: string,
+    payload?: {
+      title?: string;
+      content?: string;
+      visibility?: string;
+      createWrapper?: boolean;
+      attachments?: string[];
+      attachmentFileIds?: string[];
+    }
+  ): Promise<boolean> {
+    const attachmentFileIds = Array.from(
+      new Set([...(payload?.attachmentFileIds || []), ...(payload?.attachments || [])].filter(Boolean))
+    );
+    const body = payload
+      ? {
+          ...payload,
+          attachmentFileIds,
+          attachments: attachmentFileIds
+        }
+      : {};
+    const response = await this.post(`/community/posts/${postId}/repost`, body);
     return Boolean(response?.success ?? true);
   }
 

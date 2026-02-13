@@ -6,10 +6,8 @@ import { CMSService } from '../services/cms';
 import DonateButton from '../components/DonateButton';
 import { CommunityService } from '../services/community';
 import { AdService } from '../services/ads';
-import InteractionBar from '../components/InteractionBar';
-import PostComments from '../components/PostComments';
 import PostHeader from './components/PostHeader';
-import ReactionBar from './components/ReactionBar';
+import PostEngagementBar from './components/PostEngagementBar';
 import MentionText from './components/MentionText';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from './followState';
 import { useNotification } from '../context/NotificationContext';
@@ -1790,28 +1788,18 @@ const CommunityHome = () => {
                               )}
                             </div>
                           )}
-                          <InteractionBar
-                            type="post"
-                            id={post.id}
-                            initialCounts={{
-                              likes: post.likesCount ?? post.interactions?.likes ?? 0,
-                              comments: commentCount,
-                              reposts: post.repostsCount ?? post.interactions?.reposts ?? 0,
-                              shares: post.sharesCount ?? post.interactions?.shares ?? 0,
-                              views: post.interactions?.views ?? post.viewsCount ?? 0,
-                              reactions: sumReactionCounts(post.interactions?.reactions)
-                            }}
-                            initialState={post.userState || { liked: false, reposted: false }}
-                          />
-                          <ReactionBar targetType="POST" targetId={post.id} className="mb-2" />
-                          <PostComments
+                          <PostEngagementBar
                             postId={post.id}
                             authorId={post.authorUserId || post.authorId}
                             commentPolicy={post.commentPolicy}
-                            initialCount={commentCount}
+                            commentCount={commentCount}
+                            repostCount={post.repostsCount ?? post.interactions?.reposts ?? 0}
+                            shareCount={post.sharesCount ?? post.interactions?.shares ?? 0}
+                            viewCount={post.interactions?.views ?? post.viewsCount ?? 0}
+                            initialReactionCounts={post.interactions?.reactions}
                             focusCommentId={focusPostId === post.id ? focusCommentId : undefined}
                             focusMentionToken={focusPostId === post.id ? focusMentionToken : undefined}
-                            onCountChange={syncCommentCount}
+                            onCommentCountChange={syncCommentCount}
                           />
                         </>
                       )}
