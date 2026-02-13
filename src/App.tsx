@@ -118,6 +118,72 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBo
   }
 }
 
+const normalizeRouteRule = (value: string) => {
+  let normalized = String(value || '').trim();
+  if (!normalized) return '';
+
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+    try {
+      normalized = new URL(normalized).pathname || '/';
+    } catch {
+      return '';
+    }
+  }
+
+  if (normalized !== '*' && !normalized.startsWith('/')) {
+    normalized = `/${normalized}`;
+  }
+
+  if (normalized.length > 1 && normalized.endsWith('/') && !normalized.endsWith('/*')) {
+    normalized = normalized.slice(0, -1);
+  }
+
+  return normalized;
+};
+
+const parseRouteRules = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return Array.from(
+      new Set(
+        value
+          .map((entry) => normalizeRouteRule(String(entry || '')))
+          .filter(Boolean)
+      )
+    );
+  }
+
+  if (typeof value === 'string') {
+    return Array.from(
+      new Set(
+        value
+          .split(/[\n,]/)
+          .map((entry) => normalizeRouteRule(entry))
+          .filter(Boolean)
+      )
+    );
+  }
+
+  return [];
+};
+
+const matchesRouteRule = (pathname: string, ruleValue: string) => {
+  const current = normalizeRouteRule(pathname || '/');
+  const rule = normalizeRouteRule(ruleValue);
+  if (!rule) return false;
+  if (rule === '*') return true;
+
+  if (rule.endsWith('*')) {
+    const prefix = rule.slice(0, -1).replace(/\/+$/, '');
+    if (!prefix) return true;
+    return current === prefix || current.startsWith(`${prefix}/`);
+  }
+
+  return current === rule || current.startsWith(`${rule}/`);
+};
+
+const matchesAnyRouteRule = (pathname: string, rules: string[]) =>
+  rules.some((rule) => matchesRouteRule(pathname, rule));
+
 // Inner App component to use hooks
 const AppContent = () => {
   const { user, isAuthenticated, logout } = useUser();
@@ -377,7 +443,28 @@ const AppContent = () => {
   const isMessagesRoute = /^\/messages(\/|$)/.test(location.pathname);
   const activeTab = new URLSearchParams(location.search).get('tab')?.toLowerCase();
   const isMessagesTabRoute = activeTab === 'messages';
-  const shouldHideSupportWidget = isMessagesRoute || isMessagesTabRoute;
+  const uiVisibility = ((settings as any)?.uiVisibility || (settings as any)?.ui_visibility || {}) as Record<string, any>;
+  const footerHiddenRoutes = parseRouteRules(
+    uiVisibility.footerHiddenRoutes ??
+      uiVisibility.footer_hidden_routes ??
+      (settings as any)?.footerHiddenRoutes ??
+      (settings as any)?.footer_hidden_routes ??
+      []
+  );
+  const supportWidgetHiddenRoutes = parseRouteRules(
+    uiVisibility.supportWidgetHiddenRoutes ??
+      uiVisibility.support_widget_hidden_routes ??
+      uiVisibility.chatWidgetHiddenRoutes ??
+      uiVisibility.chat_widget_hidden_routes ??
+      (settings as any)?.supportWidgetHiddenRoutes ??
+      (settings as any)?.support_widget_hidden_routes ??
+      []
+  );
+
+  const isFooterSuppressedByRule = matchesAnyRouteRule(location.pathname, footerHiddenRoutes);
+  const isSupportWidgetSuppressedByRule = matchesAnyRouteRule(location.pathname, supportWidgetHiddenRoutes);
+  const shouldHideSupportWidget = isMessagesRoute || isMessagesTabRoute || isSupportWidgetSuppressedByRule;
+  const shouldHideFooter = isAdminRoute || isMessagesRoute || isFooterSuppressedByRule;
   
   return (
     <div className="flex flex-col min-h-screen relative">
@@ -609,7 +696,7 @@ const AppContent = () => {
           </Suspense>
         </ErrorBoundary>
       </main>
-      {!isAdminRoute && !isMessagesRoute && <DynamicFooter />}
+      {!shouldHideFooter && <DynamicFooter />}
       {!shouldHideSupportWidget && <SupportWidget />}
       {!isAdminRoute && <MarketingPopups />}
       {biometricEnabled && !biometricVerified && (

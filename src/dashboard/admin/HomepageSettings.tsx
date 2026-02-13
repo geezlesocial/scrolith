@@ -4245,11 +4245,64 @@ const LayoutManager = () => {
 // -------------------------
 // 5) Footer Builder
 // -------------------------
+const normalizeVisibilityRoute = (value: string) => {
+  let normalized = String(value || "").trim();
+  if (!normalized) return "";
+
+  if (normalized.startsWith("http://") || normalized.startsWith("https://")) {
+    try {
+      normalized = new URL(normalized).pathname || "/";
+    } catch {
+      return "";
+    }
+  }
+
+  if (normalized !== "*" && !normalized.startsWith("/")) {
+    normalized = `/${normalized}`;
+  }
+
+  if (normalized.length > 1 && normalized.endsWith("/") && !normalized.endsWith("/*")) {
+    normalized = normalized.slice(0, -1);
+  }
+
+  return normalized;
+};
+
+const parseVisibilityRoutes = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return Array.from(
+      new Set(
+        value
+          .map((entry) => normalizeVisibilityRoute(String(entry || "")))
+          .filter(Boolean)
+      )
+    );
+  }
+
+  if (typeof value === "string") {
+    return Array.from(
+      new Set(
+        value
+          .split(/[\n,]/)
+          .map((entry) => normalizeVisibilityRoute(entry))
+          .filter(Boolean)
+      )
+    );
+  }
+
+  return [];
+};
+
+const formatVisibilityRoutes = (value: unknown): string => parseVisibilityRoutes(value).join("\n");
+
 const FooterBuilder = () => {
   const { showNotification } = useNotification();
+  const { settings } = useContent();
   const [config, setConfig] = useState<FooterConfig | null>(null);
   const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [footerHiddenRoutesInput, setFooterHiddenRoutesInput] = useState("");
+  const [supportWidgetHiddenRoutesInput, setSupportWidgetHiddenRoutesInput] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -4262,6 +4315,28 @@ const FooterBuilder = () => {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    const uiVisibility =
+      ((settings as any)?.uiVisibility || (settings as any)?.ui_visibility || {}) as Record<string, any>;
+    const footerRoutes =
+      uiVisibility.footerHiddenRoutes ??
+      uiVisibility.footer_hidden_routes ??
+      (settings as any)?.footerHiddenRoutes ??
+      (settings as any)?.footer_hidden_routes ??
+      [];
+    const supportRoutes =
+      uiVisibility.supportWidgetHiddenRoutes ??
+      uiVisibility.support_widget_hidden_routes ??
+      uiVisibility.chatWidgetHiddenRoutes ??
+      uiVisibility.chat_widget_hidden_routes ??
+      (settings as any)?.supportWidgetHiddenRoutes ??
+      (settings as any)?.support_widget_hidden_routes ??
+      [];
+
+    setFooterHiddenRoutesInput(formatVisibilityRoutes(footerRoutes));
+    setSupportWidgetHiddenRoutesInput(formatVisibilityRoutes(supportRoutes));
+  }, [settings]);
 
   const reload = async () => {
     const data = await CMSService.getFooterConfig();
@@ -4402,12 +4477,22 @@ const FooterBuilder = () => {
     if (!config) return;
     setIsSaving(true);
     try {
+      const platformSettings: any = { ...((settings as any) || {}) };
+      delete platformSettings.system;
+      const existingUiVisibility = (platformSettings.uiVisibility || platformSettings.ui_visibility || {}) as Record<string, any>;
+      platformSettings.uiVisibility = {
+        ...existingUiVisibility,
+        footerHiddenRoutes: parseVisibilityRoutes(footerHiddenRoutesInput),
+        supportWidgetHiddenRoutes: parseVisibilityRoutes(supportWidgetHiddenRoutesInput),
+      };
+
       await CMSService.saveFooterConfig(config as any);
+      await AdminService.savePlatformSettings(platformSettings);
       await reload();
-      showNotification("success", "Saved", "Footer updated and is now live.");
+      showNotification("success", "Saved", "Footer and visibility controls updated and live.");
     } catch (e: any) {
       console.error(e);
-      showNotification("error", "Error", e?.message || "Failed to save footer config");
+      showNotification("error", "Error", e?.message || "Failed to save footer settings");
     } finally {
       setIsSaving(false);
     }
@@ -4489,6 +4574,34 @@ const FooterBuilder = () => {
             onChange={(e) => updateContact("ticket_route", e.target.value)}
             placeholder="/support"
           />
+        </div>
+      </div>
+
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-4">
+        <h4 className="font-semibold text-gray-800">Visibility Controls By Route</h4>
+        <p className="text-xs text-gray-500">
+          Use one route per line. Supports exact paths (for example <code>/messages</code>) and wildcard prefixes
+          (for example <code>/messages/*</code>).
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-gray-600">Suppress Footer on routes</label>
+            <textarea
+              className="w-full border rounded p-2 font-mono text-xs h-32"
+              value={footerHiddenRoutesInput}
+              onChange={(e) => setFooterHiddenRoutesInput(e.target.value)}
+              placeholder={"/messages\n/client/dashboard/*"}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-gray-600">Suppress Chat Widget on routes</label>
+            <textarea
+              className="w-full border rounded p-2 font-mono text-xs h-32"
+              value={supportWidgetHiddenRoutesInput}
+              onChange={(e) => setSupportWidgetHiddenRoutesInput(e.target.value)}
+              placeholder={"/messages\n/community/chat/*"}
+            />
+          </div>
         </div>
       </div>
 

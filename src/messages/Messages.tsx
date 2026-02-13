@@ -50,6 +50,9 @@ const Messages = () => {
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
   const [reactionPanelMessageId, setReactionPanelMessageId] = useState<string | null>(null);
   const [showStarredOnly, setShowStarredOnly] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(
+      () => (typeof window !== 'undefined' ? window.innerWidth < 768 : false)
+  );
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -82,6 +85,12 @@ const Messages = () => {
   }, [activeConvoId]);
 
   useEffect(() => {
+      const onResize = () => setIsMobileViewport(window.innerWidth < 768);
+      window.addEventListener('resize', onResize);
+      return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
       userIdRef.current = user?.id || null;
   }, [user?.id]);
 
@@ -111,6 +120,15 @@ const Messages = () => {
           }
       }
   }, [conversationId, conversations.length, user]);
+
+  useEffect(() => {
+      if (!conversationId && isMobileViewport) {
+          setActiveConvoId(null);
+          setExpandedMessageId(null);
+          setReactionPanelMessageId(null);
+          setShowConversationMenu(false);
+      }
+  }, [conversationId, isMobileViewport]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -590,6 +608,14 @@ const Messages = () => {
       navigate(`/messages/${id}`);
   };
 
+  const handleBackToInbox = () => {
+      setActiveConvoId(null);
+      setExpandedMessageId(null);
+      setReactionPanelMessageId(null);
+      setShowConversationMenu(false);
+      navigate('/messages', { replace: true });
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
       e.preventDefault();
       const trimmed = messageInput.trim();
@@ -1017,7 +1043,7 @@ const Messages = () => {
   };
                             return (
     <>
-    <div className="max-w-6xl mx-auto px-4 py-8 h-[calc(100vh-64px)]">
+    <div className="max-w-6xl mx-auto px-4 py-8 h-[calc(100dvh-64px)] md:h-[calc(100vh-64px)]">
         <div className="bg-white shadow rounded-lg h-full flex overflow-hidden border border-gray-200">
             {/* Sidebar */}
             <div className={`w-full md:w-1/3 border-r border-gray-200 flex flex-col ${activeConvo ? 'hidden md:flex' : 'flex'}`}>
@@ -1168,7 +1194,7 @@ const Messages = () => {
                         {/* Chat Header */}
                         <div className="p-4 bg-white border-b border-gray-200 flex justify-between items-center shadow-sm">
                             <div className="flex items-center">
-                                <button onClick={() => navigate('/messages')} className="md:hidden mr-3 text-gray-500">
+                                <button onClick={handleBackToInbox} className="md:hidden mr-3 text-gray-500">
                                     <ArrowLeft className="w-5 h-5" />
                                 </button>
                                 <button
