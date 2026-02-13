@@ -154,7 +154,7 @@ const AppContent = () => {
 
     if (!faviconUrl) {
       if (settingsLoading) return;
-      const fallbackFavicon = `${window.location.origin}/favicon.ico`;
+      const fallbackFavicon = `${window.location.origin}/favicon.png`;
       const existing = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
       if (existing) {
         existing.href = fallbackFavicon;

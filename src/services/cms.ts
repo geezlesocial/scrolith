@@ -17,6 +17,7 @@ if (import.meta.env.PROD && !_hasBackendEnv) {
     throw new Error('VITE_BACKEND_URL (or VITE_API_URL) must be set when building for production');
 }
 const API_URL = getApiBaseUrl();
+const BRAND_ASSET_URL = 'https://api.scrolith.com/api/files/content/3362f88f-69d6-4cee-9005-49f33411b53f';
 
 const devLog = (...args: any[]) => {
     if (!import.meta.env.PROD) console.log(...args);
@@ -139,8 +140,8 @@ const fallbackData = {
         siteName: 'Scrolith Marketplace',
         siteDescription: 'Connect with top freelancers and find your next project',
         siteTagline: 'Find, hire, and work with the best talent',
-        logoUrl: '/logo.svg',
-        faviconUrl: '/favicon.ico',
+        logoUrl: BRAND_ASSET_URL,
+        faviconUrl: BRAND_ASSET_URL,
         adminEmail: 'admin@Scrolith.com',
         supportEmail: 'support@Scrolith.com',
         footerAboutTitle: 'About Scrolith',
