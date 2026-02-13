@@ -30,6 +30,7 @@ import MessagesPanel from './shared/MessagesPanel';
 import KYCVerification from './shared/KYCVerification';
 import ProjectBriefs from './employer/ProjectBriefs';
 import MyAds from '../pages/MyAds';
+import { useT } from '../i18n/useT';
 
 const SidebarItem = ({ id, label, icon: Icon, active, onClick }: any) => (
     <button
@@ -46,6 +47,7 @@ const SidebarItem = ({ id, label, icon: Icon, active, onClick }: any) => (
 );
 
 const ClientDashboard = () => {
+    const t = useT();
     const { user, switchRole, logout } = useUser();
     const [activeTab, setActiveTab] = useState<'overview' | 'jobs' | 'proposals' | 'contracts' | 'escrow' | 'candidates' | 'enterprise' | 'wallet' | 'gcoin' | 'favorites' | 'reviews' | 'project-briefs' | 'messages' | 'support' | 'kyc' | 'settings' | 'uploaded-files'>('overview');
     const navigate = useNavigate();
@@ -70,24 +72,24 @@ const ClientDashboard = () => {
     if (!user) return null;
 
     const navItems = [
-        { id: 'overview', label: 'Home', icon: Briefcase },
-        { id: 'jobs', label: 'My Jobs', icon: FileText },
-        { id: 'proposals', label: 'Proposals & Offers', icon: Users },
-        { id: 'contracts', label: 'Contracts', icon: Clock },
-        { id: 'escrow', label: 'Escrow Payments', icon: Lock },
-        { id: 'candidates', label: 'Candidates', icon: Users },
-        { id: 'enterprise', label: 'Enterprise AI', icon: Building2 }, // New Tab
-        { id: 'wallet', label: 'Wallet', icon: CreditCard },
-        { id: 'gcoin', label: 'Gcoin', icon: Coins },
-        { id: 'favorites', label: 'Favorites', icon: Star },
-        { id: 'reviews', label: 'Reviews', icon: CheckCircle },
-        { id: 'project-briefs', label: 'Project Briefs', icon: Sparkles },
-        { id: 'messages', label: 'Messages', icon: MessageSquare },
-        { id: 'support', label: 'Support', icon: LifeBuoy },
-        { id: 'kyc', label: 'KYC', icon: Shield },
-        { id: 'uploaded-files', label: 'Uploaded Files', icon: Camera },
-        { id: 'my-ads', label: 'My Ads', icon: Briefcase },
-        { id: 'settings', label: 'Settings', icon: Settings },
+        { id: 'overview', label: t('dashboard.client.nav.home', 'Home'), icon: Briefcase },
+        { id: 'jobs', label: t('dashboard.client.nav.jobs', 'My Jobs'), icon: FileText },
+        { id: 'proposals', label: t('dashboard.client.nav.proposals', 'Proposals & Offers'), icon: Users },
+        { id: 'contracts', label: t('dashboard.client.nav.contracts', 'Contracts'), icon: Clock },
+        { id: 'escrow', label: t('dashboard.client.nav.escrow', 'Escrow Payments'), icon: Lock },
+        { id: 'candidates', label: t('dashboard.client.nav.candidates', 'Candidates'), icon: Users },
+        { id: 'enterprise', label: t('dashboard.client.nav.enterprise_ai', 'Enterprise AI'), icon: Building2 },
+        { id: 'wallet', label: t('dashboard.client.nav.wallet', 'Wallet'), icon: CreditCard },
+        { id: 'gcoin', label: t('dashboard.client.nav.gcoin', 'Gcoin'), icon: Coins },
+        { id: 'favorites', label: t('dashboard.client.nav.favorites', 'Favorites'), icon: Star },
+        { id: 'reviews', label: t('dashboard.client.nav.reviews', 'Reviews'), icon: CheckCircle },
+        { id: 'project-briefs', label: t('dashboard.client.nav.project_briefs', 'Project Briefs'), icon: Sparkles },
+        { id: 'messages', label: t('dashboard.client.nav.messages', 'Messages'), icon: MessageSquare },
+        { id: 'support', label: t('dashboard.client.nav.support', 'Support'), icon: LifeBuoy },
+        { id: 'kyc', label: t('dashboard.client.nav.kyc', 'KYC'), icon: Shield },
+        { id: 'uploaded-files', label: t('dashboard.client.nav.uploaded_files', 'Uploaded Files'), icon: Camera },
+        { id: 'my-ads', label: t('dashboard.client.nav.my_ads', 'My Ads'), icon: Briefcase },
+        { id: 'settings', label: t('dashboard.client.nav.settings', 'Settings'), icon: Settings },
     ];
 
     return (
@@ -97,14 +99,14 @@ const ClientDashboard = () => {
                 <div className="p-6 border-b border-gray-200">
                     <div className="flex items-center space-x-3 mb-6">
                         <div className="w-10 h-10 bg-green-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-green-200">C</div>
-                        <span className="font-bold text-lg text-gray-800 tracking-tight">Client Portal</span>
+                        <span className="font-bold text-lg text-gray-800 tracking-tight">{t('dashboard.client.portal_title', 'Client Portal')}</span>
                     </div>
                     
                     <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
                         <img src={user.avatar} alt="" className="w-10 h-10 rounded-full border-2 border-white shadow-sm object-cover" />
                         <div className="flex-1 min-w-0">
                             <p className="text-sm font-bold text-gray-900 truncate">{user.name}</p>
-                            <p className="text-xs text-gray-500 truncate">Employer Account</p>
+                            <p className="text-xs text-gray-500 truncate">{t('dashboard.client.account_type', 'Employer Account')}</p>
                         </div>
                     </div>
                 </div>
@@ -127,13 +129,13 @@ const ClientDashboard = () => {
 
                 <div className="p-4 border-t border-gray-200 space-y-2">
                     <Link to="/create-job" className="w-full flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg font-bold text-sm hover:bg-green-700 transition shadow-sm mb-2">
-                        <PlusCircle className="w-4 h-4 mr-2" /> Post New Job
+                        <PlusCircle className="w-4 h-4 mr-2" /> {t('dashboard.client.post_new_job', 'Post New Job')}
                     </Link>
                     <button onClick={switchRole} className="w-full flex items-center px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 rounded-lg transition-colors">
-                        <Users className="w-4 h-4 mr-3" /> Switch to Freelancer
+                        <Users className="w-4 h-4 mr-3" /> {t('dashboard.client.switch_to_freelancer', 'Switch to Freelancer')}
                     </button>
                     <button onClick={handleLogout} className="w-full flex items-center px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors">
-                        <LogOut className="w-4 h-4 mr-3" /> Sign Out
+                        <LogOut className="w-4 h-4 mr-3" /> {t('common.sign_out', 'Sign Out')}
                     </button>
                 </div>
             </aside>
@@ -145,16 +147,16 @@ const ClientDashboard = () => {
                     {activeTab === 'proposals' && <ProposalsOffers />}
                     {activeTab === 'contracts' && (
                         <div className="space-y-6">
-                            <h2 className="text-2xl font-bold text-gray-900">Contracts</h2>
-                            <p className="text-gray-500">Review time logs and manage your hourly staff.</p>
+                            <h2 className="text-2xl font-bold text-gray-900">{t('dashboard.client.contracts_title', 'Contracts')}</h2>
+                            <p className="text-gray-500">{t('dashboard.client.contracts_subtitle', 'Review time logs and manage your hourly staff.')}</p>
                             <ContractList role="client" userId={user.id} />
                         </div>
                     )}
                     {activeTab === 'escrow' && <EscrowManagement user={user} />}
                     {activeTab === 'candidates' && (
                         <div className="space-y-6">
-                            <h2 className="text-2xl font-bold text-gray-900">AI Candidate Matching</h2>
-                            <p className="text-gray-500">Based on your recent job posts and preferences.</p>
+                            <h2 className="text-2xl font-bold text-gray-900">{t('dashboard.client.ai_candidates_title', 'AI Candidate Matching')}</h2>
+                            <p className="text-gray-500">{t('dashboard.client.ai_candidates_subtitle', 'Based on your recent job posts and preferences.')}</p>
                             <Recommendations userId={user.id} />
                         </div>
                     )}

@@ -26,6 +26,7 @@ import GcoinPanel from './shared/GcoinPanel';
 import SupportCenter from './shared/SupportCenter';
 import MessagesPanel from './shared/MessagesPanel';
 import KYCVerification from './shared/KYCVerification';
+import { useT } from '../i18n/useT';
 
 const SidebarItem = ({ id, label, icon: Icon, active, onClick }: any) => (
     <button
@@ -42,6 +43,7 @@ const SidebarItem = ({ id, label, icon: Icon, active, onClick }: any) => (
 );
 
 const FreelancerDashboard = () => {
+    const t = useT();
     const { user, switchRole, logout } = useUser();
     const [activeTab, setActiveTab] = useState<'overview' | 'growth' | 'contracts' | 'gigs' | 'orders' | 'proposals' | 'wallet' | 'gcoin' | 'messages' | 'support' | 'kyc' | 'reviews' | 'likes' | 'profile' | 'settings' | 'uploaded-files'>('overview');
     const navigate = useNavigate();
@@ -68,25 +70,25 @@ const FreelancerDashboard = () => {
     const isEmployerView = asParam.toLowerCase() === 'employer';
 
     const freelancerNav = [
-        { id: 'profile', label: 'My Profile', icon: User },
-        { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
-        { id: 'post-brief', label: 'Post a project brief', icon: FileText },
-        { id: 'your-briefs', label: 'Your briefs', icon: Folder },
-        { id: 'refer', label: 'Refer a friend', icon: ArrowRight },
-        { id: 'billing', label: 'Billing and payments', icon: DollarSign },
-        { id: 'settings', label: 'Settings', icon: Settings },
-        { id: 'sign-out', label: 'Sign Out', icon: LogOut },
+        { id: 'profile', label: t('dashboard.freelancer.nav.profile', 'My Profile'), icon: User },
+        { id: 'overview', label: t('dashboard.freelancer.nav.dashboard', 'Dashboard'), icon: LayoutDashboard },
+        { id: 'post-brief', label: t('dashboard.freelancer.nav.post_brief', 'Post a project brief'), icon: FileText },
+        { id: 'your-briefs', label: t('dashboard.freelancer.nav.your_briefs', 'Your briefs'), icon: Folder },
+        { id: 'refer', label: t('dashboard.freelancer.nav.refer', 'Refer a friend'), icon: ArrowRight },
+        { id: 'billing', label: t('dashboard.freelancer.nav.billing', 'Billing and payments'), icon: DollarSign },
+        { id: 'settings', label: t('dashboard.freelancer.nav.settings', 'Settings'), icon: Settings },
+        { id: 'sign-out', label: t('common.sign_out', 'Sign Out'), icon: LogOut },
     ];
 
     const employerNav = [
-        { id: 'profile', label: 'Profile', icon: User },
-        { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
-        { id: 'refer', label: 'Refer a friend', icon: ArrowRight },
-        { id: 'account-settings', label: 'Account settings', icon: Lock },
-        { id: 'billing', label: 'Billing and payments', icon: DollarSign },
-        { id: 'currency', label: 'Currency Switcher', icon: Coins },
-        { id: 'settings', label: 'Settings', icon: Settings },
-        { id: 'sign-out', label: 'Sign out', icon: LogOut },
+        { id: 'profile', label: t('dashboard.freelancer.employer_view.profile', 'Profile'), icon: User },
+        { id: 'overview', label: t('dashboard.freelancer.employer_view.dashboard', 'Dashboard'), icon: LayoutDashboard },
+        { id: 'refer', label: t('dashboard.freelancer.employer_view.refer', 'Refer a friend'), icon: ArrowRight },
+        { id: 'account-settings', label: t('dashboard.freelancer.employer_view.account_settings', 'Account settings'), icon: Lock },
+        { id: 'billing', label: t('dashboard.freelancer.employer_view.billing', 'Billing and payments'), icon: DollarSign },
+        { id: 'currency', label: t('dashboard.freelancer.employer_view.currency', 'Currency Switcher'), icon: Coins },
+        { id: 'settings', label: t('dashboard.freelancer.employer_view.settings', 'Settings'), icon: Settings },
+        { id: 'sign-out', label: t('common.sign_out', 'Sign out'), icon: LogOut },
     ];
 
     const navItems = isEmployerView ? employerNav : freelancerNav;
@@ -99,14 +101,14 @@ const FreelancerDashboard = () => {
                 <div className="p-6 border-b border-gray-200">
                     <div className="flex items-center space-x-3 mb-6">
                         <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-200">G</div>
-                        <span className="font-bold text-lg text-gray-800 tracking-tight">Scrolith</span>
+                        <span className="font-bold text-lg text-gray-800 tracking-tight">{t('site.name', 'Scrolith')}</span>
                     </div>
                     
                     <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
                         <img src={user.avatar} alt="" className="w-10 h-10 rounded-full border-2 border-white shadow-sm object-cover" />
                         <div className="flex-1 min-w-0">
                             <p className="text-sm font-bold text-gray-900 truncate">{user.name}</p>
-                            <p className="text-xs text-gray-500 truncate">Freelancer</p>
+                            <p className="text-xs text-gray-500 truncate">{t('dashboard.freelancer.role_label', 'Freelancer')}</p>
                         </div>
                     </div>
                 </div>
@@ -183,7 +185,7 @@ const FreelancerDashboard = () => {
 
                 <div className="p-4 border-t border-gray-200 space-y-2">
                     <button onClick={switchRole} className="w-full flex items-center px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 rounded-lg transition-colors">
-                        <User className="w-4 h-4 mr-3" /> Switch to Buying
+                        <User className="w-4 h-4 mr-3" /> {t('dashboard.freelancer.switch_to_buying', 'Switch to Buying')}
                     </button>
                 </div>
             </aside>
@@ -195,7 +197,7 @@ const FreelancerDashboard = () => {
                     {activeTab === 'growth' && <GrowthInsights user={user} />}
                     {activeTab === 'contracts' && (
                         <div className="space-y-6">
-                            <h2 className="text-2xl font-bold text-gray-900">Contracts</h2>
+                            <h2 className="text-2xl font-bold text-gray-900">{t('dashboard.freelancer.contracts_title', 'Contracts')}</h2>
                             <ContractList role="freelancer" userId={user.id} />
                         </div>
                     )}

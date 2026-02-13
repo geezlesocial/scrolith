@@ -76,6 +76,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'apps:metrics_updated', fn: forward('apps:metrics_updated') }
       ,{ ev: 'apps:campaign_sent', fn: forward('apps:campaign_sent') }
       ,{ ev: 'apps:config_updated', fn: forward('apps:config_updated') }
+      ,{ ev: 'i18n:updated', fn: forward('i18n:updated') }
+      ,{ ev: 'i18n:override_updated', fn: forward('i18n:override_updated') }
       ,{ ev: 'reactions:updated', fn: forward('reactions:updated') }
       ,{ ev: 'messages:updated', fn: forward('messages:updated') }
       ,{ ev: 'cart:updated', fn: forward('cart:updated') }

@@ -7,8 +7,10 @@ import { Briefcase, User, Shield, Mail, Lock, UserPlus, AlertCircle, Eye, EyeOff
 import { CMSService } from '../services/cms';
 import AuthSocialButtons from './AuthSocialButtons';
 import { executeRecaptcha } from '../services/recaptcha';
+import { useT } from '../i18n/useT';
 
 const Signup = () => {
+  const t = useT();
   const { register } = useUser(); // Use 'register' from context, not 'signup'
   const { settings } = useContent();
   const navigate = useNavigate();
@@ -29,13 +31,13 @@ const Signup = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const defaultSignupContent = {
-    headline: 'Join Our Community',
+    headline: t('auth.signup.headline', 'Join Our Community'),
     subheadline: '',
-    submit_label: 'Create Account',
+    submit_label: t('auth.signup.submit_label', 'Create Account'),
     terms_url: '/p/terms',
     privacy_url: '/p/privacy',
-    footer_text: 'Already have an account?',
-    footer_link_label: 'Sign in here',
+    footer_text: t('auth.signup.footer_text', 'Already have an account?'),
+    footer_link_label: t('auth.signup.footer_link_label', 'Sign in here'),
     footer_link_url: '/auth/login'
   };
 
@@ -71,28 +73,28 @@ const Signup = () => {
     const newErrors: Record<string, string> = {};
 
     // Name validation
-    if (!formData.firstName.trim()) newErrors.firstName = 'First name is required';
-    if (!formData.lastName.trim()) newErrors.lastName = 'Last name is required';
+    if (!formData.firstName.trim()) newErrors.firstName = t('auth.signup.errors.first_name_required', 'First name is required');
+    if (!formData.lastName.trim()) newErrors.lastName = t('auth.signup.errors.last_name_required', 'Last name is required');
 
     // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!formData.email) newErrors.email = 'Email is required';
-    else if (!emailRegex.test(formData.email)) newErrors.email = 'Please enter a valid email';
+    if (!formData.email) newErrors.email = t('auth.signup.errors.email_required', 'Email is required');
+    else if (!emailRegex.test(formData.email)) newErrors.email = t('auth.signup.errors.email_invalid', 'Please enter a valid email');
 
     // Password validation
-    if (!formData.password) newErrors.password = 'Password is required';
-    else if (formData.password.length < 8) newErrors.password = 'Password must be at least 8 characters';
+    if (!formData.password) newErrors.password = t('auth.signup.errors.password_required', 'Password is required');
+    else if (formData.password.length < 8) newErrors.password = t('auth.signup.errors.password_min', 'Password must be at least 8 characters');
     else if (!/(?=.*[A-Za-z])(?=.*\d)/.test(formData.password)) {
-      newErrors.password = 'Password must contain letters and numbers';
+      newErrors.password = t('auth.signup.errors.password_pattern', 'Password must contain letters and numbers');
     }
 
     // Confirm password
     if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
+      newErrors.confirmPassword = t('auth.signup.errors.password_match', 'Passwords do not match');
     }
 
     // Terms acceptance
-    if (!acceptTerms) newErrors.terms = 'You must accept the terms and conditions';
+    if (!acceptTerms) newErrors.terms = t('auth.signup.errors.terms_required', 'You must accept the terms and conditions');
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -137,10 +139,10 @@ const Signup = () => {
         else if (role === UserRole.EMPLOYER) navigate('/client/dashboard');
         else navigate('/freelancer/dashboard');
       } else {
-        setErrors({ submit: 'Signup failed. Please try again.' });
+        setErrors({ submit: t('auth.signup.failed', 'Signup failed. Please try again.') });
       }
     } catch (error: any) {
-      setErrors({ submit: error?.message || 'Signup failed. Please try again.' });
+      setErrors({ submit: error?.message || t('auth.signup.failed', 'Signup failed. Please try again.') });
     } finally {
       setIsLoading(false);
     }

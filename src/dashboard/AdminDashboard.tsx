@@ -44,6 +44,7 @@ import MonetizationManagement from './admin/MonetizationManagement';
 import RecommendationManagement from './admin/RecommendationManagement';
 import ScrolithaManagement from './admin/ScrolithaManagement';
 import AppManagement from './admin/AppManagement';
+import { useT } from '../i18n/useT';
 
 // Define valid tab types
 type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'blog' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps';
@@ -61,6 +62,7 @@ interface NavGroup {
 }
 
 const AdminDashboard: React.FC = () => {
+    const t = useT();
     const [activeTab, setActiveTab] = useState<Tab>('overview');
     const [isSidebarOpen, setSidebarOpen] = useState(false);
     const [unreadSupportCount, setUnreadSupportCount] = useState(0); 
@@ -197,28 +199,28 @@ const AdminDashboard: React.FC = () => {
     // Strict Navigation Structure
     const navStructure: NavGroup[] = [
         { 
-            title: 'Main', 
+            title: t('dashboard.admin.nav.main', 'Main'), 
             items: [
-                { id: 'overview', label: 'Overview', icon: Home },
-                { id: 'analytics', label: 'Market Intelligence', icon: PieChart },
-                { id: 'messages', label: 'Messages', icon: MessageSquare }
+                { id: 'overview', label: t('dashboard.admin.nav.overview', 'Overview'), icon: Home },
+                { id: 'analytics', label: t('dashboard.admin.nav.market_intelligence', 'Market Intelligence'), icon: PieChart },
+                { id: 'messages', label: t('dashboard.admin.nav.messages', 'Messages'), icon: MessageSquare }
             ] 
         },
         { 
-            title: 'Intelligence', 
+            title: t('dashboard.admin.nav.intelligence', 'Intelligence'), 
             items: [
-                { id: 'ai', label: 'AI Intelligence', icon: Brain },
-                { id: 'atm', label: 'ATM Time Tracker', icon: Clock },
-                { id: 'scrolitha', label: 'Scrolitha', icon: Bot }
-                , { id: 'market-intelligence', label: 'Market Intelligence', icon: BarChart2 }
+                { id: 'ai', label: t('dashboard.admin.nav.ai_intelligence', 'AI Intelligence'), icon: Brain },
+                { id: 'atm', label: t('dashboard.admin.nav.atm', 'ATM Time Tracker'), icon: Clock },
+                { id: 'scrolitha', label: t('dashboard.admin.nav.scrolitha', 'Scrolitha'), icon: Bot }
+                , { id: 'market-intelligence', label: t('dashboard.admin.nav.market_intelligence', 'Market Intelligence'), icon: BarChart2 }
             ]
         },
         { 
-            title: 'Commerce', 
+            title: t('dashboard.admin.nav.commerce', 'Commerce'), 
             items: [
-                { id: 'listings', label: 'Gigs & Jobs', icon: ShoppingBag },
-                { id: 'engagement', label: 'Favorites & Carts', icon: ShoppingBag },
-                { id: 'forms', label: 'Form Builder', icon: LayoutTemplate }
+                { id: 'listings', label: t('dashboard.admin.nav.gigs_jobs', 'Gigs & Jobs'), icon: ShoppingBag },
+                { id: 'engagement', label: t('dashboard.admin.nav.favorites_carts', 'Favorites & Carts'), icon: ShoppingBag },
+                { id: 'forms', label: t('dashboard.admin.nav.form_builder', 'Form Builder'), icon: LayoutTemplate }
             ] 
         },
         { 

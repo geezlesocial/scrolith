@@ -5,8 +5,10 @@ import { CMSService } from '../services/cms';
 import { AuthPagesConfig } from '../types';
 import api from '../services/api';
 import { useNotification } from '../context/NotificationContext';
+import { useT } from '../i18n/useT';
 
 const ForgotPassword = () => {
+  const t = useT();
   const { showNotification } = useNotification();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
@@ -15,12 +17,12 @@ const ForgotPassword = () => {
   const [authConfig, setAuthConfig] = useState<AuthPagesConfig | null>(null);
 
   const defaultContent = {
-    headline: 'Forgot your password?',
-    subheadline: 'Enter your email address and we will send a reset link.',
-    email_placeholder: 'Email address',
-    submit_label: 'Send reset link',
-    footer_text: 'Remembered your password?',
-    footer_link_label: 'Back to sign in',
+    headline: t('auth.forgot.headline', 'Forgot your password?'),
+    subheadline: t('auth.forgot.subheadline', 'Enter your email address and we will send a reset link.'),
+    email_placeholder: t('auth.forgot.email_placeholder', 'Email address'),
+    submit_label: t('auth.forgot.submit_label', 'Send reset link'),
+    footer_text: t('auth.forgot.footer_text', 'Remembered your password?'),
+    footer_link_label: t('auth.forgot.footer_link_label', 'Back to sign in'),
     footer_link_url: '/auth/login'
   };
 
@@ -60,7 +62,11 @@ const ForgotPassword = () => {
     try {
       await api.post('/auth/forgot-password', { email });
       setSubmitted(true);
-      showNotification('success', 'Check your email', 'If an account exists, a reset link has been sent.');
+      showNotification(
+        'success',
+        t('auth.forgot.check_email_title', 'Check your email'),
+        t('auth.forgot.check_email_message', 'If an account exists, a reset link has been sent.')
+      );
     } catch (err: any) {
       const message = err?.response?.data?.message || 'Unable to send reset email. Please try again later.';
       setError(message);
@@ -96,7 +102,7 @@ const ForgotPassword = () => {
           {submitted && (
             <div className="rounded-md bg-green-50 p-4">
               <div className="text-sm text-green-700">
-                If an account exists for this email, a reset link has been sent.
+                {t('auth.forgot.sent_message', 'If an account exists for this email, a reset link has been sent.')}
               </div>
             </div>
           )}
@@ -108,7 +114,7 @@ const ForgotPassword = () => {
 
           <form className="space-y-6" onSubmit={handleSubmit}>
             <div>
-              <label htmlFor="email" className="sr-only">Email address</label>
+              <label htmlFor="email" className="sr-only">{t('auth.forgot.email_placeholder', 'Email address')}</label>
               <div className="relative">
                 <Mail className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
@@ -119,7 +125,7 @@ const ForgotPassword = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="appearance-none rounded-md relative block w-full px-10 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  placeholder={forgotContent.email_placeholder || 'Email address'}
+                  placeholder={forgotContent.email_placeholder || t('auth.forgot.email_placeholder', 'Email address')}
                 />
               </div>
             </div>
@@ -146,7 +152,7 @@ const ForgotPassword = () => {
 
           <div className="flex justify-center">
             <Link to="/auth/login" className="text-xs text-gray-500 hover:text-gray-700 flex items-center">
-              <ArrowLeft className="w-3 h-3 mr-1" /> Back to sign in
+              <ArrowLeft className="w-3 h-3 mr-1" /> {t('auth.forgot.footer_link_label', 'Back to sign in')}
             </Link>
           </div>
         </div>

@@ -3,6 +3,7 @@ import { Loader } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { useContent } from '../context/ContentContext';
 import { useSocket } from '../context/SocketContext';
+import { useT } from '../i18n/useT';
 import { CMSService } from '../services/cms';
 import {
   HomepageSection,
@@ -141,6 +142,7 @@ const normalizeSectionType = (value: any): string => {
 };
 
 const Landing = () => {
+  const t = useT();
   const [sections, setSections] = useState<HomepageSection[]>([]);
   const [slides, setSlides] = useState<HomeSlide[]>([]);
   const [heroConfig, setHeroConfig] = useState<HeroSearchConfig | null>(null);
@@ -396,7 +398,7 @@ const Landing = () => {
         ))}
         {renderSections.length === 0 && (
           <div className="py-20 text-center text-gray-400">
-            <p>No content sections configured. Please configure via Admin Dashboard.</p>
+            <p>{t('landing.no_sections_configured', 'No content sections configured. Please configure via Admin Dashboard.')}</p>
           </div>
         )}
       </Suspense>

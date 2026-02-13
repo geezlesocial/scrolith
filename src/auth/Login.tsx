@@ -5,8 +5,10 @@ import { AuthPagesConfig } from '../types';
 import { Eye, EyeOff } from 'lucide-react';
 import { CMSService } from '../services/cms';
 import AuthSocialButtons from './AuthSocialButtons';
+import { useT } from '../i18n/useT';
 
 const Login = () => {
+  const t = useT();
   const { login } = useUser(); // Ensure login function accepts email and password only
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -23,13 +25,13 @@ const Login = () => {
   }, [location.search]);
 
   const defaultLoginContent = {
-    headline: 'Sign in to your account',
+    headline: t('auth.login.headline', 'Sign in to your account'),
     subheadline: '',
-    email_placeholder: 'Email address',
-    password_placeholder: 'Password',
-    submit_label: 'Sign in',
-    footer_text: "Don't have an account?",
-    footer_link_label: 'Sign up',
+    email_placeholder: t('auth.login.email_placeholder', 'Email address'),
+    password_placeholder: t('auth.login.password_placeholder', 'Password'),
+    submit_label: t('auth.login.submit_label', 'Sign in'),
+    footer_text: t('auth.login.footer_text', "Don't have an account?"),
+    footer_link_label: t('auth.login.footer_link_label', 'Sign up'),
     footer_link_url: '/auth/signup'
   };
 
@@ -74,10 +76,10 @@ const Login = () => {
         // UserContext handles role-based redirect after login.
         return;
       } else {
-        setError('Invalid credentials');
+        setError(t('auth.login.invalid_credentials', 'Invalid credentials'));
       }
     } catch (err: any) {
-      setError(err.message || 'Login failed');
+      setError(err.message || t('auth.login.failed', 'Login failed'));
     } finally {
       setLoading(false);
     }
@@ -109,7 +111,7 @@ const Login = () => {
           {resetSuccess && (
             <div className="rounded-md bg-green-50 p-4">
               <div className="text-sm text-green-700">
-                Password updated. Please sign in with your new password.
+                {t('auth.login.reset_success', 'Password updated. Please sign in with your new password.')}
               </div>
             </div>
           )}
@@ -121,7 +123,7 @@ const Login = () => {
           <div className="rounded-md shadow-sm -space-y-px">
             <div>
               <label htmlFor="email-address" className="sr-only">
-                Email address
+                {t('auth.login.email_placeholder', 'Email address')}
               </label>
               <input
                 id="email-address"
@@ -137,7 +139,7 @@ const Login = () => {
             </div>
             <div className="relative">
               <label htmlFor="password" className="sr-only">
-                Password
+                {t('auth.login.password_placeholder', 'Password')}
               </label>
               <input
                 id="password"
@@ -154,7 +156,7 @@ const Login = () => {
                 type="button"
                 onClick={() => setShowPassword(prev => !prev)}
                 className="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 hover:text-gray-700"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                aria-label={showPassword ? t('auth.login.hide_password', 'Hide password') : t('auth.login.show_password', 'Show password')}
               >
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -164,7 +166,7 @@ const Login = () => {
           <div className="flex items-center justify-between">
             <div />
             <Link to="/auth/forgot-password" className="text-xs font-medium text-blue-600 hover:text-blue-500">
-              Forgot password?
+              {t('auth.login.forgot_password', 'Forgot password?')}
             </Link>
           </div>
 
@@ -174,7 +176,7 @@ const Login = () => {
               disabled={loading}
               className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
             >
-              {loading ? 'Signing in...' : loginContent.submit_label}
+              {loading ? t('auth.login.loading', 'Signing in...') : loginContent.submit_label}
             </button>
           </div>
 

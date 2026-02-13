@@ -24,6 +24,7 @@ import { MessageProvider } from './context/MessageContext';
 import { UserProvider, useUser } from './context/UserContext';
 import { SocketProvider } from './context/SocketContext';
 import { PreloaderProvider } from './context/PreloaderContext';
+import { I18nProvider } from './i18n/I18nProvider';
 import GlobalPreloader from './components/GlobalPreloader';
 import { Loader, AlertTriangle } from 'lucide-react';
 import IntegrationsManager from './components/IntegrationsManager';
@@ -823,19 +824,21 @@ function App() {
         <SocketProvider>
           <PreloaderProvider>
             <ContentProvider>
-              <NotificationProvider>
-                <ToastContainer />
-                <CurrencyProvider>
-                  <FavoritesProvider>
-                    <CartProvider>
-                      <MessageProvider>
-                        <GlobalPreloader />
-                        <AppContent />
-                      </MessageProvider>
-                    </CartProvider>
-                  </FavoritesProvider>
-                </CurrencyProvider>
-              </NotificationProvider>
+              <I18nProvider>
+                <NotificationProvider>
+                  <ToastContainer />
+                  <CurrencyProvider>
+                    <FavoritesProvider>
+                      <CartProvider>
+                        <MessageProvider>
+                          <GlobalPreloader />
+                          <AppContent />
+                        </MessageProvider>
+                      </CartProvider>
+                    </FavoritesProvider>
+                  </CurrencyProvider>
+                </NotificationProvider>
+              </I18nProvider>
             </ContentProvider>
           </PreloaderProvider>
         </SocketProvider>

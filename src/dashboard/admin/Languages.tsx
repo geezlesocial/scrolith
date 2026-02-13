@@ -1,263 +1,472 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { AdminService } from '../../services/admin';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNotification } from '../../context/NotificationContext';
-import { Save, Plus, Upload, Download, FileText, Trash2, Edit, Globe } from 'lucide-react';
+import { I18nService, I18nConfig, TextOverrideRow, TranslationKeyRow, TranslationValueRow } from '../../services/i18n';
 
-const emptyLang = { name: '', code: '', flutterCode: '', isDefault: false };
+type TabId = 'settings' | 'keys' | 'editor' | 'overrides' | 'import_export';
+
+const tabs: Array<{ id: TabId; label: string }> = [
+  { id: 'settings', label: 'Locales & Settings' },
+  { id: 'keys', label: 'Translation Keys' },
+  { id: 'editor', label: 'Translate / Correct' },
+  { id: 'overrides', label: 'Quick Fix Overrides' },
+  { id: 'import_export', label: 'Import / Export' }
+];
+
+const defaultConfig: I18nConfig = {
+  defaultLocale: 'en',
+  enabledLocales: ['en'],
+  rtlLocales: ['ar', 'he', 'fa', 'ur'],
+  dictionaryCacheSeconds: 300,
+  overridesCacheSeconds: 300
+};
+
+const parseLocaleList = (value: string) =>
+  Array.from(new Set(String(value || '').split(/[\n,]/).map((item) => item.trim().toLowerCase()).filter(Boolean)));
 
 const LanguagesAdmin: React.FC = () => {
   const { showNotification } = useNotification();
-  const [languages, setLanguages] = useState<any[]>([]);
+  const [tab, setTab] = useState<TabId>('settings');
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<any | null>(null);
-  const [isAddOpen, setIsAddOpen] = useState(false);
-  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  const [config, setConfig] = useState<I18nConfig>(defaultConfig);
+  const [defaultLocale, setDefaultLocale] = useState('en');
+  const [enabledLocalesText, setEnabledLocalesText] = useState('en');
+  const [rtlLocalesText, setRtlLocalesText] = useState('ar, he, fa, ur');
+
+  const [search, setSearch] = useState('');
+  const [keys, setKeys] = useState<TranslationKeyRow[]>([]);
+  const [keyPage, setKeyPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [showMissingOnly, setShowMissingOnly] = useState(false);
+  const [newKey, setNewKey] = useState('');
+  const [selectedKey, setSelectedKey] = useState<TranslationKeyRow | null>(null);
+
+  const [valueRows, setValueRows] = useState<TranslationValueRow[]>([]);
+  const [values, setValues] = useState<Record<string, string>>({});
+
+  const [overrideRows, setOverrideRows] = useState<TextOverrideRow[]>([]);
+  const [overrideDraft, setOverrideDraft] = useState<Partial<TextOverrideRow>>({
+    locale: 'en',
+    matchText: '',
+    replacementText: '',
+    isRegex: false,
+    enabled: true,
+    priority: 100
+  });
+  const [editOverrideId, setEditOverrideId] = useState<string | null>(null);
+
+  const [importFormat, setImportFormat] = useState<'json' | 'csv'>('json');
+  const [importLocale, setImportLocale] = useState('en');
+  const [importContent, setImportContent] = useState('');
+  const [importReport, setImportReport] = useState('');
+  const [exportFormat, setExportFormat] = useState<'json' | 'csv'>('json');
+  const [exportLocale, setExportLocale] = useState('en');
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+
+  const loadKeys = async (page = keyPage, query = search) => {
+    const payload = await I18nService.listKeys({ page, limit: 25, search: query || undefined });
+    setKeys(payload.items || []);
+    setKeyPage(payload.page || 1);
+    setTotalPages(payload.totalPages || 1);
+  };
+
+  const loadOverrides = async () => {
+    const payload = await I18nService.listOverrides({ page: 1, limit: 200 });
+    setOverrideRows(payload.items || []);
+  };
+
+  const loadValues = async (row: TranslationKeyRow | null) => {
+    if (!row) {
+      setValueRows([]);
+      setValues({});
+      return;
+    }
+    const payload = await I18nService.listValues({ keyId: row.id });
+    const items = payload.items || [];
+    setValueRows(items);
+    const map: Record<string, string> = {};
+    items.forEach((item) => {
+      map[item.locale] = item.value || '';
+    });
+    setValues(map);
+  };
 
   useEffect(() => {
-    load();
-  }, []);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const langs = await AdminService.getLanguages();
-      setLanguages(Array.isArray(langs) ? langs : []);
-    } catch (e) {
-      console.error(e);
-      setLanguages([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const openAdd = () => {
-    setEditing({ ...emptyLang });
-    setIsAddOpen(true);
-  };
-
-  const save = async () => {
-    if (!editing) return;
-    if (!editing.name || !editing.code) {
-      showNotification('alert', 'Missing fields', 'Please provide both a name and code.');
-      return;
-    }
-    try {
-      const saved = await AdminService.saveLanguage(editing);
-      showNotification('success', 'Saved', 'Language saved successfully.');
-      setIsAddOpen(false);
-      setEditing(null);
-      await load();
-    } catch (e) {
-      showNotification('alert', 'Save failed', 'Unable to save language');
-    }
-  };
-
-  const remove = async (id: string) => {
-    if (!confirm('Delete language? This cannot be undone.')) return;
-    try {
-      await AdminService.deleteLanguage(id);
-      showNotification('success', 'Deleted', 'Language removed');
-      await load();
-    } catch (e) {
-      showNotification('alert', 'Delete failed', 'Unable to delete language');
-    }
-  };
-
-  const onImportClick = (langId: string) => {
-    if (!fileRef.current) return;
-    fileRef.current.onchange = async (ev: any) => {
-      const file = ev.target.files?.[0];
-      if (!file) return;
+    let mounted = true;
+    const init = async () => {
+      setLoading(true);
       try {
-        await AdminService.importTranslations(langId, file);
-        showNotification('success', 'Imported', 'Translations imported successfully');
-        await load();
-      } catch (e) {
-        showNotification('alert', 'Import failed', 'Unable to import translations');
+        const cfg = { ...defaultConfig, ...(await I18nService.getAdminConfig()) };
+        if (!mounted) return;
+        setConfig(cfg);
+        setDefaultLocale(cfg.defaultLocale);
+        setEnabledLocalesText(cfg.enabledLocales.join(', '));
+        setRtlLocalesText(cfg.rtlLocales.join(', '));
+        setImportLocale(cfg.defaultLocale);
+        setExportLocale(cfg.defaultLocale);
+        await Promise.all([loadKeys(1, ''), loadOverrides()]);
+      } catch (error: any) {
+        showNotification('error', 'Language', error?.message || 'Failed to load language module');
       } finally {
-        ev.target.value = '';
+        if (mounted) setLoading(false);
       }
     };
-    fileRef.current.click();
-  };
+    void init();
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const onExport = async (langId: string) => {
+  useEffect(() => {
+    void loadValues(selectedKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKey?.id]);
+
+  const keysWithMissing = useMemo(() => {
+    return (keys || []).map((item: any) => {
+      const localesPresent = new Set((item.values || []).map((value: any) => String(value.locale || '').toLowerCase()));
+      const missingLocales = config.enabledLocales.filter((locale) => !localesPresent.has(locale.toLowerCase()));
+      return { ...item, missingLocales };
+    });
+  }, [config.enabledLocales, keys]);
+
+  const visibleKeys = useMemo(
+    () => (showMissingOnly ? keysWithMissing.filter((item: any) => item.missingLocales.length > 0) : keysWithMissing),
+    [keysWithMissing, showMissingOnly]
+  );
+
+  const saveConfig = async () => {
     try {
-      const content = await AdminService.exportArb(langId);
-      if (!content) throw new Error('No content');
-      const blob = new Blob([content], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${langId || 'translations'}.arb`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      showNotification('success', 'Exported', 'Translation file downloaded');
-    } catch (e) {
-      showNotification('alert', 'Export failed', 'Unable to export translations');
+      const payload = await I18nService.updateAdminConfig({
+        defaultLocale: defaultLocale.trim().toLowerCase(),
+        enabledLocales: parseLocaleList(enabledLocalesText),
+        rtlLocales: parseLocaleList(rtlLocalesText)
+      });
+      const merged = { ...defaultConfig, ...(payload || {}) };
+      setConfig(merged);
+      showNotification('success', 'Language', 'Configuration updated');
+    } catch (error: any) {
+      showNotification('error', 'Language', error?.response?.data?.message || error?.message || 'Failed to save config');
     }
   };
 
-  const onTranslate = async (lang: any) => {
-    // Gather keys to translate from default language (if any)
-    const defaultLang = languages.find(l => l.isDefault) || languages[0];
-    const source = defaultLang?.translations || {};
-    const keys = Object.keys(source || {});
-    if (keys.length === 0) {
-      showNotification('alert', 'No keys', 'No translation keys available to translate');
-      return;
-    }
+  const saveAllValues = async () => {
+    if (!selectedKey) return;
     try {
-      const texts = keys.map(k => source[k] || k);
-      const translations = await AdminService.translateByGoogle(texts, lang.code);
-      // merge
-      const mapping: Record<string,string> = {};
-      keys.forEach((k, i) => mapping[k] = translations[i] || texts[i]);
-      const updated = { ...(lang || {}), translations: { ...(lang.translations || {}), ...mapping } };
-      await AdminService.saveLanguage(updated);
-      showNotification('success', 'Translated', 'Google translations applied (where available)');
-      await load();
-    } catch (e) {
-      showNotification('alert', 'Translate failed', 'Unable to translate automatically');
-    }
-  };
-
-  const onSyncForApp = async (langId: string) => {
-    try {
-      const ok = await AdminService.syncForApp(langId);
-      if (ok) showNotification('success', 'Synced', 'Translations synced for app'); else showNotification('alert', 'Sync not available', 'Server does not support app sync');
-    } catch (e) {
-      showNotification('alert', 'Sync failed', 'Unable to sync translations for app');
-    }
-  };
-
-  const toggleDefault = async (id: string) => {
-    try {
-      const next = languages.map(l => ({ ...l, isDefault: l.id === id }));
-      // save each language with updated isDefault; prefer backend call
-      for (const l of next) {
-        await AdminService.saveLanguage(l);
+      for (const locale of config.enabledLocales) {
+        await I18nService.upsertValue({ key: selectedKey.key, locale, value: values[locale] || '' });
       }
-      showNotification('success', 'Default set', 'Default language updated');
-      await load();
-    } catch (e) {
-      showNotification('alert', 'Update failed', 'Unable to set default language');
+      await loadValues(selectedKey);
+      showNotification('success', 'Language', 'Translations saved');
+    } catch (error: any) {
+      showNotification('error', 'Language', error?.response?.data?.message || error?.message || 'Failed to save values');
     }
   };
 
-  const toggleActive = async (id: string) => {
-    try {
-      const next = languages.map(l => l.id === id ? { ...l, isActive: !l.isActive } : l);
-      for (const l of next) {
-        await AdminService.saveLanguage(l);
-      }
-      showNotification('success', 'Updated', 'Language active state updated');
-      await load();
-    } catch (e) {
-      showNotification('alert', 'Update failed', 'Unable to update active state');
-    }
-  };
+  if (loading) return <div className="p-6 bg-white rounded-xl shadow-sm">Loading language module...</div>;
 
   return (
-    <div className="p-6 bg-white rounded-xl shadow-sm">
-      <input ref={fileRef} type="file" accept=".json,.arb" className="hidden" />
-
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold">Languages</h2>
-        <div className="flex items-center gap-2">
-          <button onClick={openAdd} className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg">
-            <Plus className="w-4 h-4 mr-2" /> Add New Language
+    <div className="p-6 bg-white rounded-xl shadow-sm space-y-4">
+      <h2 className="text-xl font-bold">Language Module (SSOT)</h2>
+      <div className="flex flex-wrap gap-2">
+        {tabs.map((item) => (
+          <button key={item.id} onClick={() => setTab(item.id)} className={`px-3 py-1.5 rounded ${tab === item.id ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>
+            {item.label}
           </button>
-        </div>
+        ))}
       </div>
 
-      <div className="space-y-4">
-        {loading ? (
-          <div>Loading...</div>
-        ) : (
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <div className="grid grid-cols-12 gap-4 items-center font-semibold text-sm text-gray-600 mb-3">
-              <div className="col-span-6">Name</div>
-              <div className="col-span-1">Active</div>
-              <div className="col-span-1">Default</div>
-              <div className="col-span-4 text-right">Options</div>
-            </div>
+      {tab === 'settings' && (
+        <div className="grid md:grid-cols-3 gap-3">
+          <input className="border rounded p-2" value={defaultLocale} onChange={(e) => setDefaultLocale(e.target.value)} placeholder="default locale" />
+          <input className="border rounded p-2" value={enabledLocalesText} onChange={(e) => setEnabledLocalesText(e.target.value)} placeholder="enabled locales" />
+          <input className="border rounded p-2" value={rtlLocalesText} onChange={(e) => setRtlLocalesText(e.target.value)} placeholder="rtl locales" />
+          <button onClick={saveConfig} className="px-4 py-2 bg-blue-600 text-white rounded">Save Config</button>
+        </div>
+      )}
 
-            {(languages || []).map((l: any) => (
-              <div key={l.id} className="grid grid-cols-12 gap-4 items-center py-3 border-t border-gray-100">
-                <div className="col-span-6 flex items-center gap-3">
-                  <div className="font-medium">{l.name}</div>
-                  <div className="text-xs text-gray-500">{l.code}{l.flutterCode ? ` · ${l.flutterCode}` : ''}</div>
-                </div>
-                <div className="col-span-1">
-                  <label className="inline-flex items-center">
-                    <input type="checkbox" checked={!!l.isActive} onChange={() => toggleActive(l.id)} />
-                    <span className="ml-2 text-xs text-gray-600">On</span>
-                  </label>
-                </div>
-                <div className="col-span-1">
-                  <label className="inline-flex items-center">
-                    <input type="radio" checked={!!l.isDefault} onChange={() => toggleDefault(l.id)} />
-                    <span className="ml-2 text-xs text-gray-600">Default</span>
-                  </label>
-                </div>
-                <div className="col-span-4 text-right space-x-2">
-                  <button onClick={() => onImportClick(l.id)} className="inline-flex items-center px-3 py-1.5 bg-white border rounded text-sm">
-                    <Upload className="w-4 h-4 mr-2" /> Import
-                  </button>
-                  <button onClick={() => onExport(l.id)} className="inline-flex items-center px-3 py-1.5 bg-white border rounded text-sm">
-                    <Download className="w-4 h-4 mr-2" /> Export
-                  </button>
-                  <button onClick={() => onTranslate(l)} className="inline-flex items-center px-3 py-1.5 bg-white border rounded text-sm">
-                    <Globe className="w-4 h-4 mr-2" /> Translate
-                  </button>
-                  <button onClick={() => onSyncForApp(l.id)} className="inline-flex items-center px-3 py-1.5 bg-white border rounded text-sm">
-                    <FileText className="w-4 h-4 mr-2" /> Sync App
-                  </button>
-                  <button onClick={() => remove(l.id)} className="inline-flex items-center px-3 py-1.5 bg-white border rounded text-sm text-red-600">
-                    <Trash2 className="w-4 h-4 mr-2" /> Delete
-                  </button>
-                </div>
+      {tab === 'keys' && (
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <input className="border rounded p-2 flex-1" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="search keys/value" />
+            <button onClick={() => void loadKeys(1, search)} className="px-3 py-2 bg-gray-100 rounded">Search</button>
+            <label className="text-sm inline-flex items-center gap-2"><input type="checkbox" checked={showMissingOnly} onChange={(e) => setShowMissingOnly(e.target.checked)} />Missing only</label>
+          </div>
+          <div className="flex gap-2">
+            <input className="border rounded p-2 flex-1" value={newKey} onChange={(e) => setNewKey(e.target.value)} placeholder="new key e.g. auth.login.title" />
+            <button
+              onClick={async () => {
+                if (!newKey.trim()) return;
+                try {
+                  setBusyAction('createKey');
+                  await I18nService.createKey({ key: newKey.trim() });
+                  setNewKey('');
+                  await loadKeys(1, search);
+                  showNotification('success', 'Language', 'Translation key added');
+                } catch (error: any) {
+                  showNotification(
+                    'error',
+                    'Language',
+                    error?.response?.data?.message || error?.message || 'Failed to add translation key'
+                  );
+                } finally {
+                  setBusyAction(null);
+                }
+              }}
+              disabled={busyAction === 'createKey'}
+              className="px-3 py-2 bg-blue-600 text-white rounded"
+            >
+              Add
+            </button>
+          </div>
+          <div className="border rounded overflow-hidden">
+            {visibleKeys.map((row: any) => (
+              <div key={row.id} className="grid grid-cols-12 gap-2 border-t p-2 items-center text-sm">
+                <button className="col-span-6 text-left font-medium hover:underline" onClick={() => { setSelectedKey(row); setTab('editor'); }}>{row.key}</button>
+                <div className="col-span-4 text-xs text-amber-700">{row.missingLocales?.length ? row.missingLocales.join(', ') : 'Complete'}</div>
+                <button
+                  className="col-span-2 text-red-600 text-right"
+                  onClick={async () => {
+                    if (!window.confirm(`Delete key ${row.key}?`)) return;
+                    try {
+                      setBusyAction(`deleteKey:${row.id}`);
+                      await I18nService.deleteKey(row.id);
+                      await loadKeys(keyPage, search);
+                      showNotification('success', 'Language', 'Translation key deleted');
+                    } catch (error: any) {
+                      showNotification(
+                        'error',
+                        'Language',
+                        error?.response?.data?.message || error?.message || 'Failed to delete translation key'
+                      );
+                    } finally {
+                      setBusyAction(null);
+                    }
+                  }}
+                >
+                  Delete
+                </button>
               </div>
             ))}
-
-            {(languages || []).length === 0 && (
-              <div className="p-8 text-center text-gray-500">No languages configured yet.</div>
-            )}
+            {!visibleKeys.length && <div className="p-3 text-sm text-gray-500">No keys found.</div>}
           </div>
-        )}
-      </div>
-
-      {/* Add / Edit Modal (simple inline panel) */}
-      {isAddOpen && editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg p-6 w-[720px]">
-            <h3 className="font-bold text-lg mb-4">Add Language</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-gray-600">Language Name</label>
-                <input className="w-full border p-2 rounded mt-1" value={editing.name} onChange={e => setEditing({...editing, name: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-600">Language Code (short)</label>
-                <input className="w-full border p-2 rounded mt-1" value={editing.code} onChange={e => setEditing({...editing, code: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-600">Flutter App Lang Code</label>
-                <input className="w-full border p-2 rounded mt-1" value={editing.flutterCode} onChange={e => setEditing({...editing, flutterCode: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-600">Default</label>
-                <input type="checkbox" checked={!!editing.isDefault} onChange={e => setEditing({...editing, isDefault: e.target.checked})} />
-              </div>
+          <div className="flex justify-between text-sm">
+            <span>Page {keyPage} / {totalPages}</span>
+            <div className="space-x-2">
+              <button disabled={keyPage <= 1} onClick={() => void loadKeys(keyPage - 1, search)} className="px-2 py-1 border rounded disabled:opacity-40">Prev</button>
+              <button disabled={keyPage >= totalPages} onClick={() => void loadKeys(keyPage + 1, search)} className="px-2 py-1 border rounded disabled:opacity-40">Next</button>
             </div>
+          </div>
+        </div>
+      )}
 
-            <div className="flex justify-end gap-2 mt-6">
-              <button onClick={() => { setIsAddOpen(false); setEditing(null); }} className="px-4 py-2 border rounded">Cancel</button>
-              <button onClick={save} className="px-4 py-2 bg-indigo-600 text-white rounded inline-flex items-center"><Save className="w-4 h-4 mr-2" /> Save</button>
+      {tab === 'editor' && (
+        <div className="space-y-3">
+          {!selectedKey ? (
+            <div className="text-sm text-gray-600">Select a key from the Translation Keys tab.</div>
+          ) : (
+            <>
+              <div className="text-sm font-semibold">{selectedKey.key}</div>
+              {config.enabledLocales.map((locale) => (
+                <div key={locale} className="space-y-1">
+                  <div className="text-xs uppercase font-semibold text-gray-600">{locale}</div>
+                  <textarea className="w-full border rounded p-2 text-sm" rows={3} value={values[locale] || ''} onChange={(e) => setValues((prev) => ({ ...prev, [locale]: e.target.value }))} />
+                </div>
+              ))}
+              <button onClick={saveAllValues} className="px-4 py-2 bg-blue-600 text-white rounded">Save Translations</button>
+              <div className="text-xs text-gray-500">Existing translations loaded: {valueRows.length}</div>
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === 'overrides' && (
+        <div className="space-y-3">
+          <div className="grid md:grid-cols-6 gap-2">
+            <input className="border rounded p-2" placeholder="locale" value={overrideDraft.locale || ''} onChange={(e) => setOverrideDraft((prev) => ({ ...prev, locale: e.target.value }))} />
+            <input className="border rounded p-2 md:col-span-2" placeholder="find text" value={overrideDraft.matchText || ''} onChange={(e) => setOverrideDraft((prev) => ({ ...prev, matchText: e.target.value }))} />
+            <input className="border rounded p-2 md:col-span-2" placeholder="replace with" value={overrideDraft.replacementText || ''} onChange={(e) => setOverrideDraft((prev) => ({ ...prev, replacementText: e.target.value }))} />
+            <input className="border rounded p-2" type="number" placeholder="priority" value={overrideDraft.priority ?? 100} onChange={(e) => setOverrideDraft((prev) => ({ ...prev, priority: Number(e.target.value || 100) }))} />
+          </div>
+          <div className="flex gap-4 text-sm">
+            <label><input type="checkbox" checked={Boolean(overrideDraft.enabled)} onChange={(e) => setOverrideDraft((prev) => ({ ...prev, enabled: e.target.checked }))} /> Enabled</label>
+            <label><input type="checkbox" checked={Boolean(overrideDraft.isRegex)} onChange={(e) => setOverrideDraft((prev) => ({ ...prev, isRegex: e.target.checked }))} /> Regex</label>
+            <button
+              onClick={async () => {
+                if (!overrideDraft.locale || !overrideDraft.matchText) return;
+                try {
+                  setBusyAction(editOverrideId ? `updateOverride:${editOverrideId}` : 'createOverride');
+                  if (editOverrideId) {
+                    await I18nService.updateOverride(editOverrideId, overrideDraft);
+                  } else {
+                    await I18nService.createOverride(overrideDraft as any);
+                  }
+                  setEditOverrideId(null);
+                  setOverrideDraft({ locale: config.defaultLocale, matchText: '', replacementText: '', isRegex: false, enabled: true, priority: 100 });
+                  await loadOverrides();
+                  showNotification('success', 'Language', `Override ${editOverrideId ? 'updated' : 'created'}`);
+                } catch (error: any) {
+                  showNotification(
+                    'error',
+                    'Language',
+                    error?.response?.data?.message || error?.message || 'Failed to save override'
+                  );
+                } finally {
+                  setBusyAction(null);
+                }
+              }}
+              disabled={Boolean(busyAction)}
+              className="px-3 py-2 bg-blue-600 text-white rounded"
+            >
+              {editOverrideId ? 'Update' : 'Add'} Override
+            </button>
+          </div>
+          <div className="border rounded overflow-hidden">
+            {overrideRows.map((row) => (
+              <div key={row.id} className="grid grid-cols-12 gap-2 border-t p-2 text-sm items-center">
+                <div className="col-span-1 uppercase">{row.locale}</div>
+                <div className="col-span-4 truncate" title={row.matchText}>{row.matchText}</div>
+                <div className="col-span-4 truncate" title={row.replacementText}>{row.replacementText}</div>
+                <div className="col-span-1">{row.priority}</div>
+                <button className="col-span-1 text-blue-600" onClick={() => { setEditOverrideId(row.id); setOverrideDraft(row); }}>Edit</button>
+                <button
+                  className="col-span-1 text-red-600"
+                  onClick={async () => {
+                    if (!window.confirm('Delete override?')) return;
+                    try {
+                      setBusyAction(`deleteOverride:${row.id}`);
+                      await I18nService.deleteOverride(row.id);
+                      await loadOverrides();
+                      showNotification('success', 'Language', 'Override deleted');
+                    } catch (error: any) {
+                      showNotification(
+                        'error',
+                        'Language',
+                        error?.response?.data?.message || error?.message || 'Failed to delete override'
+                      );
+                    } finally {
+                      setBusyAction(null);
+                    }
+                  }}
+                >
+                  Del
+                </button>
+              </div>
+            ))}
+            {!overrideRows.length && <div className="p-3 text-sm text-gray-500">No overrides.</div>}
+          </div>
+        </div>
+      )}
+
+      {tab === 'import_export' && (
+        <div className="grid md:grid-cols-2 gap-4">
+          <div className="border rounded p-3 space-y-2">
+            <h3 className="font-semibold">Import</h3>
+            <div className="flex gap-2">
+              <select className="border rounded p-2" value={importFormat} onChange={(e) => setImportFormat(e.target.value as 'json' | 'csv')}>
+                <option value="json">JSON</option>
+                <option value="csv">CSV</option>
+              </select>
+              <input className="border rounded p-2" value={importLocale} onChange={(e) => setImportLocale(e.target.value)} placeholder="locale" />
             </div>
+            <textarea className="w-full border rounded p-2 text-xs font-mono" rows={10} value={importContent} onChange={(e) => setImportContent(e.target.value)} />
+            {importReport && <div className="text-xs bg-gray-50 border border-gray-200 rounded p-2 whitespace-pre-wrap">{importReport}</div>}
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  try {
+                    setBusyAction('validateImport');
+                    const payload = importFormat === 'json'
+                      ? { format: 'json', locale: importLocale, json: importContent || '{}', validateOnly: true }
+                      : { format: 'csv', locale: importLocale, csv: importContent, validateOnly: true };
+                    const result = await I18nService.importData(payload as any);
+                    setImportReport(JSON.stringify(result || {}, null, 2));
+                    showNotification('success', 'Language', 'Import validation completed');
+                  } catch (error: any) {
+                    setImportReport('');
+                    showNotification(
+                      'error',
+                      'Language',
+                      error?.response?.data?.message || error?.message || 'Import validation failed'
+                    );
+                  } finally {
+                    setBusyAction(null);
+                  }
+                }}
+                disabled={Boolean(busyAction)}
+                className="px-3 py-2 bg-gray-100 text-gray-800 rounded"
+              >
+                Validate
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    setBusyAction('importData');
+                    const payload = importFormat === 'json'
+                      ? { format: 'json', locale: importLocale, json: importContent || '{}' }
+                      : { format: 'csv', locale: importLocale, csv: importContent };
+                    const result = await I18nService.importData(payload as any);
+                    setImportReport(JSON.stringify(result || {}, null, 2));
+                    await loadKeys(1, search);
+                    showNotification('success', 'Language', 'Import completed');
+                  } catch (error: any) {
+                    setImportReport('');
+                    showNotification(
+                      'error',
+                      'Language',
+                      error?.response?.data?.message || error?.message || 'Import failed'
+                    );
+                  } finally {
+                    setBusyAction(null);
+                  }
+                }}
+                disabled={Boolean(busyAction)}
+                className="px-3 py-2 bg-blue-600 text-white rounded"
+              >
+                Import
+              </button>
+            </div>
+          </div>
+          <div className="border rounded p-3 space-y-2">
+            <h3 className="font-semibold">Export</h3>
+            <div className="flex gap-2">
+              <select className="border rounded p-2" value={exportFormat} onChange={(e) => setExportFormat(e.target.value as 'json' | 'csv')}>
+                <option value="json">JSON</option>
+                <option value="csv">CSV</option>
+              </select>
+              <input className="border rounded p-2" value={exportLocale} onChange={(e) => setExportLocale(e.target.value)} placeholder="locale" />
+            </div>
+            <button
+              onClick={async () => {
+                try {
+                  setBusyAction('exportData');
+                  const payload = await I18nService.exportData({ format: exportFormat, locale: exportLocale });
+                  const blob = new Blob([payload.content || ''], { type: exportFormat === 'csv' ? 'text/csv' : 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = payload.filename || `translations-${exportLocale}.${exportFormat}`;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  URL.revokeObjectURL(url);
+                  showNotification('success', 'Language', 'Export generated');
+                } catch (error: any) {
+                  showNotification(
+                    'error',
+                    'Language',
+                    error?.response?.data?.message || error?.message || 'Failed to export translations'
+                  );
+                } finally {
+                  setBusyAction(null);
+                }
+              }}
+              disabled={Boolean(busyAction)}
+              className="px-3 py-2 bg-gray-900 text-white rounded"
+            >
+              Export
+            </button>
           </div>
         </div>
       )}
