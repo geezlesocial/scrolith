@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-    Home, ShoppingBag, DollarSign, CreditCard, LayoutTemplate, BookOpen, Megaphone, Users, HardDrive, Shield, FileText, LifeBuoy, Settings, Menu, X, Bell, LogOut, User, MessageSquare, Brain, PieChart, Clock, MessageCircle, Navigation, BarChart2, Globe, ExternalLink, RotateCcw, Sparkles, Bot
+    Home, ShoppingBag, DollarSign, CreditCard, LayoutTemplate, BookOpen, Megaphone, Users, HardDrive, Shield, FileText, LifeBuoy, Settings, Menu, X, Bell, LogOut, User, MessageSquare, Brain, PieChart, Clock, MessageCircle, Navigation, BarChart2, Globe, ExternalLink, RotateCcw, Sparkles, Bot, Smartphone
 } from 'lucide-react';
 import { useNotification } from "../context/NotificationContext";
 import { useUser } from "../context/UserContext";
@@ -43,9 +43,10 @@ import GoogleSettings from './admin/GoogleSettings';
 import MonetizationManagement from './admin/MonetizationManagement';
 import RecommendationManagement from './admin/RecommendationManagement';
 import ScrolithaManagement from './admin/ScrolithaManagement';
+import AppManagement from './admin/AppManagement';
 
 // Define valid tab types
-type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'blog' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha';
+type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'blog' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps';
 
 // Define navigation item interface
 interface NavItem {
@@ -83,7 +84,7 @@ const AdminDashboard: React.FC = () => {
         const validTabs: Tab[] = [
             'overview', 'analytics', 'listings', 'engagement', 'finance', 'gateways', 'cms', 
             'homepage', 'blog', 'marketing', 'users', 'monetization', 'files', 'staff', 'role-management', 'moderator-console', 'message-records', 'kyc', 
-            'support', 'system', 'profile', 'messages', 'ai', 'atm', 'community', 'recommendations', 'navigation', 'reviews', 'languages', 'forms', 'google-settings', 'scrolitha'
+            'support', 'system', 'profile', 'messages', 'ai', 'atm', 'community', 'recommendations', 'navigation', 'reviews', 'languages', 'forms', 'google-settings', 'scrolitha', 'apps'
         ];
         return validTabs.includes(tab as Tab);
     };
@@ -275,6 +276,7 @@ const AdminDashboard: React.FC = () => {
         { 
             title: 'System', 
             items: [
+                { id: 'apps', label: 'App Management', icon: Smartphone },
                 { id: 'navigation', label: 'Nav & Activity', icon: Navigation },
                 { id: 'system', label: 'System Settings', icon: Settings }
             ] 
@@ -323,6 +325,7 @@ const AdminDashboard: React.FC = () => {
             case 'support': return <SupportDisputes />;
             case 'navigation': return <NavigationManager />;
             case 'system': return <SystemSettings />;
+            case 'apps': return <AppManagement />;
             case 'languages': return <Languages />;
             case 'google-settings': return <GoogleSettings />;
             case 'profile': return <Profile />;

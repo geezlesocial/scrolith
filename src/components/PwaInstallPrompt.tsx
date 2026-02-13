@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Download, X } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
+import { useUser } from '../context/UserContext';
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -15,6 +16,7 @@ const isStandalone = () => {
 };
 
 const PwaInstallPrompt: React.FC = () => {
+  const { isAuthenticated } = useUser();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [visible, setVisible] = useState(false);
   const isNative = useMemo(() => {
@@ -26,7 +28,7 @@ const PwaInstallPrompt: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (isNative || isStandalone()) return;
+    if (!isAuthenticated || isNative || isStandalone()) return;
     const handler = (event: Event) => {
       event.preventDefault();
       setDeferredPrompt(event as BeforeInstallPromptEvent);
@@ -43,7 +45,7 @@ const PwaInstallPrompt: React.FC = () => {
       window.removeEventListener('beforeinstallprompt', handler);
       window.removeEventListener('appinstalled', installedHandler);
     };
-  }, [isNative]);
+  }, [isAuthenticated, isNative]);
 
   const handleInstall = async () => {
     if (!deferredPrompt) return;

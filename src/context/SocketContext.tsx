@@ -72,6 +72,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'community:admin_config_updated', fn: forward('community:admin_config_updated') }
       ,{ ev: 'community:reactions_updated', fn: forward('community:reactions_updated') }
       ,{ ev: 'community:profile_view_logged', fn: forward('community:profile_view_logged') }
+      ,{ ev: 'apps:event_tracked', fn: forward('apps:event_tracked') }
+      ,{ ev: 'apps:metrics_updated', fn: forward('apps:metrics_updated') }
+      ,{ ev: 'apps:campaign_sent', fn: forward('apps:campaign_sent') }
+      ,{ ev: 'apps:config_updated', fn: forward('apps:config_updated') }
       ,{ ev: 'reactions:updated', fn: forward('reactions:updated') }
       ,{ ev: 'messages:updated', fn: forward('messages:updated') }
       ,{ ev: 'cart:updated', fn: forward('cart:updated') }

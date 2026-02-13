@@ -14,6 +14,7 @@ import ToastContainer from './components/ToastContainer';
 import MarketingPopups from './components/MarketingPopups';
 import OfflineBanner from './components/OfflineBanner';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
+import AppDistributionPrompt from './components/AppDistributionPrompt';
 import { UserRole } from './types';
 import { CurrencyProvider } from './context/CurrencyContext';
 import { ContentProvider, useContent } from './context/ContentContext';
@@ -380,6 +381,7 @@ const AppContent = () => {
       <IntegrationsManager />
       <OfflineBanner />
       <PwaInstallPrompt />
+      <AppDistributionPrompt />
       {!isAdminRoute && <Navbar />}
       <main className="flex-grow">
         <ErrorBoundary>

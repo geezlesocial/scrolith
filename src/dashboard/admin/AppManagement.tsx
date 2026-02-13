@@ -1,0 +1,600 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Activity,
+  BarChart3,
+  Bell,
+  Download,
+  Loader2,
+  MapPin,
+  Save,
+  Send,
+  Smartphone,
+  Monitor
+} from 'lucide-react';
+import { AdminService } from '../../services/admin';
+import { useNotification } from '../../context/NotificationContext';
+
+const defaultConfig = {
+  enabled: true,
+  autoHideSeconds: 8,
+  maxShowsPerDay: 2,
+  cooldownHours: 2,
+  branding: {
+    title: 'Install Scrolith App',
+    subtitle: 'Get a faster app experience built for your device.',
+    logoUrl: '/favicon.ico',
+    iconUrl: '/favicon.ico'
+  },
+  android: {
+    enabled: true,
+    title: 'Try the Scrolith Android App',
+    message: 'Download the latest APK test build before Google Play release.',
+    ctaLabel: 'Download APK',
+    secondaryCtaLabel: 'I Installed',
+    downloadUrl: '',
+    version: 'beta',
+    iconUrl: '/favicon.ico'
+  },
+  desktop: {
+    enabled: true,
+    title: 'Get the Scrolith Desktop App',
+    message: 'Install the desktop build with your latest logo/icon branding.',
+    ctaLabel: 'Download Desktop App',
+    secondaryCtaLabel: 'I Installed',
+    downloadUrl: '',
+    version: 'beta',
+    iconUrl: '/favicon.ico'
+  }
+};
+
+const getValueByPath = (obj: Record<string, any>, path: string) => {
+  return path.split('.').reduce((acc: any, key) => (acc ? acc[key] : undefined), obj);
+};
+
+const setValueByPath = (obj: Record<string, any>, path: string, value: any) => {
+  const keys = path.split('.');
+  const out: Record<string, any> = { ...obj };
+  let cursor: Record<string, any> = out;
+  keys.forEach((key, index) => {
+    if (index === keys.length - 1) {
+      cursor[key] = value;
+      return;
+    }
+    cursor[key] = { ...(cursor[key] || {}) };
+    cursor = cursor[key];
+  });
+  return out;
+};
+
+const AppManagement: React.FC = () => {
+  const { showNotification } = useNotification();
+  const [loading, setLoading] = useState(true);
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [sendingCampaign, setSendingCampaign] = useState(false);
+  const [rangeDays, setRangeDays] = useState(7);
+
+  const [config, setConfig] = useState<any>(defaultConfig);
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [events, setEvents] = useState<any[]>([]);
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [campaignForm, setCampaignForm] = useState({
+    name: '',
+    title: '',
+    body: '',
+    mediaType: 'none',
+    mediaUrl: '',
+    actionUrl: '',
+    targetPlatform: 'all',
+    targetRole: 'all',
+    deliveryInApp: true,
+    deliveryPush: true
+  });
+
+  const loadDashboard = useCallback(async () => {
+    try {
+      const [loadedConfig, loadedAnalytics, loadedEvents, loadedCampaigns] =
+        await Promise.all([
+          AdminService.getAppDistributionConfig(),
+          AdminService.getAppDistributionAnalytics({ rangeDays }),
+          AdminService.getAppDistributionEvents({ limit: 150 }),
+          AdminService.getAppCampaigns()
+        ]);
+      setConfig(loadedConfig || defaultConfig);
+      setAnalytics(loadedAnalytics || null);
+      setEvents(Array.isArray(loadedEvents) ? loadedEvents : []);
+      setCampaigns(Array.isArray(loadedCampaigns) ? loadedCampaigns : []);
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to load App Management data';
+      showNotification('error', 'Load Failed', message);
+    } finally {
+      setLoading(false);
+    }
+  }, [rangeDays, showNotification]);
+
+  useEffect(() => {
+    void loadDashboard();
+  }, [loadDashboard]);
+
+  useEffect(() => {
+    const refresh = () => {
+      void loadDashboard();
+    };
+    const eventsToWatch = [
+      'apps:event_tracked',
+      'apps:metrics_updated',
+      'apps:campaign_sent',
+      'apps:config_updated'
+    ];
+    eventsToWatch.forEach((eventName) => {
+      window.addEventListener(eventName, refresh as EventListener);
+    });
+    return () => {
+      eventsToWatch.forEach((eventName) => {
+        window.removeEventListener(eventName, refresh as EventListener);
+      });
+    };
+  }, [loadDashboard]);
+
+  const summary = useMemo(() => {
+    return analytics?.summary || {
+      promptShown: 0,
+      downloads: 0,
+      installs: 0,
+      conversionRate: 0,
+      activePushUsers: 0,
+      totalDeviceTokens: 0
+    };
+  }, [analytics]);
+
+  const handleConfigChange = (path: string, value: any) => {
+    setConfig((prev: any) => setValueByPath(prev, path, value));
+  };
+
+  const saveConfig = async () => {
+    setSavingConfig(true);
+    try {
+      const saved = await AdminService.saveAppDistributionConfig(config);
+      setConfig(saved || config);
+      showNotification('success', 'Saved', 'App distribution settings saved.');
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to save settings';
+      showNotification('error', 'Save Failed', message);
+    } finally {
+      setSavingConfig(false);
+    }
+  };
+
+  const sendCampaign = async () => {
+    if (!campaignForm.title.trim() || !campaignForm.body.trim()) {
+      showNotification('error', 'Missing fields', 'Campaign title and body are required.');
+      return;
+    }
+    setSendingCampaign(true);
+    try {
+      const result = await AdminService.sendAppCampaign({
+        ...campaignForm,
+        name: campaignForm.name || campaignForm.title
+      });
+      showNotification(
+        'success',
+        'Campaign Sent',
+        `Delivered to ${result?.recipients || 0} recipients.`
+      );
+      setCampaignForm((prev) => ({
+        ...prev,
+        name: '',
+        title: '',
+        body: '',
+        mediaType: 'none',
+        mediaUrl: '',
+        actionUrl: ''
+      }));
+      await loadDashboard();
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to send campaign';
+      showNotification('error', 'Send Failed', message);
+    } finally {
+      setSendingCampaign(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[260px] items-center justify-center rounded-xl border border-gray-200 bg-white">
+        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs uppercase tracking-wide text-gray-500">Prompt Shown</p>
+          <p className="mt-2 text-2xl font-bold text-gray-900">{summary.promptShown || 0}</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs uppercase tracking-wide text-gray-500">Downloads</p>
+          <p className="mt-2 text-2xl font-bold text-gray-900">{summary.downloads || 0}</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs uppercase tracking-wide text-gray-500">Installs</p>
+          <p className="mt-2 text-2xl font-bold text-gray-900">{summary.installs || 0}</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs uppercase tracking-wide text-gray-500">Install Conversion</p>
+          <p className="mt-2 text-2xl font-bold text-gray-900">{summary.conversionRate || 0}%</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <section className="rounded-xl border border-gray-200 bg-white p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">App Distribution Settings</h2>
+            <button
+              onClick={saveConfig}
+              disabled={savingConfig}
+              className="inline-flex items-center rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {savingConfig ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              Save
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2">
+              <span className="text-sm font-medium text-gray-700">Prompt Enabled</span>
+              <input
+                type="checkbox"
+                checked={Boolean(config.enabled)}
+                onChange={(e) => handleConfigChange('enabled', e.target.checked)}
+              />
+            </label>
+            <label className="rounded-lg border border-gray-200 px-3 py-2">
+              <span className="text-sm text-gray-600">Auto Hide (seconds)</span>
+              <input
+                type="number"
+                min={3}
+                max={30}
+                value={Number(config.autoHideSeconds || 8)}
+                onChange={(e) => handleConfigChange('autoHideSeconds', Number(e.target.value || 8))}
+                className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+              />
+            </label>
+            <label className="rounded-lg border border-gray-200 px-3 py-2">
+              <span className="text-sm text-gray-600">Max Alerts Per Day</span>
+              <input
+                type="number"
+                min={1}
+                max={6}
+                value={Number(config.maxShowsPerDay || 2)}
+                onChange={(e) => handleConfigChange('maxShowsPerDay', Number(e.target.value || 2))}
+                className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+              />
+            </label>
+            <label className="rounded-lg border border-gray-200 px-3 py-2">
+              <span className="text-sm text-gray-600">Cooldown (hours)</span>
+              <input
+                type="number"
+                min={1}
+                max={12}
+                value={Number(config.cooldownHours || 2)}
+                onChange={(e) => handleConfigChange('cooldownHours', Number(e.target.value || 2))}
+                className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+              />
+            </label>
+            <label className="rounded-lg border border-gray-200 px-3 py-2 md:col-span-2">
+              <span className="text-sm text-gray-600">Brand Logo URL</span>
+              <input
+                type="text"
+                value={getValueByPath(config, 'branding.logoUrl') || ''}
+                onChange={(e) => handleConfigChange('branding.logoUrl', e.target.value)}
+                className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+              />
+            </label>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="rounded-lg border border-gray-200 p-3">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-800">
+                <Smartphone className="h-4 w-4" /> Android App
+              </div>
+              <label className="mb-2 block text-xs text-gray-500">APK Download URL</label>
+              <input
+                type="text"
+                value={getValueByPath(config, 'android.downloadUrl') || ''}
+                onChange={(e) => handleConfigChange('android.downloadUrl', e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+              />
+              <label className="mt-2 block text-xs text-gray-500">Icon URL</label>
+              <input
+                type="text"
+                value={getValueByPath(config, 'android.iconUrl') || ''}
+                onChange={(e) => handleConfigChange('android.iconUrl', e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+              />
+            </div>
+            <div className="rounded-lg border border-gray-200 p-3">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-800">
+                <Monitor className="h-4 w-4" /> Desktop App
+              </div>
+              <label className="mb-2 block text-xs text-gray-500">Desktop Download URL</label>
+              <input
+                type="text"
+                value={getValueByPath(config, 'desktop.downloadUrl') || ''}
+                onChange={(e) => handleConfigChange('desktop.downloadUrl', e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+              />
+              <label className="mt-2 block text-xs text-gray-500">Icon URL</label>
+              <input
+                type="text"
+                value={getValueByPath(config, 'desktop.iconUrl') || ''}
+                onChange={(e) => handleConfigChange('desktop.iconUrl', e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-gray-200 bg-white p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">Realtime Metrics</h2>
+            <select
+              value={rangeDays}
+              onChange={(e) => setRangeDays(Number(e.target.value))}
+              className="rounded-md border border-gray-300 px-2 py-1 text-sm"
+            >
+              <option value={1}>Today</option>
+              <option value={7}>7 days</option>
+              <option value={30}>30 days</option>
+              <option value={90}>90 days</option>
+            </select>
+          </div>
+
+          <div className="space-y-3">
+            <div className="rounded-lg border border-gray-200 p-3">
+              <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+                <BarChart3 className="h-4 w-4" /> Activity by Event
+              </p>
+              <div className="space-y-1 text-sm text-gray-600">
+                {(analytics?.byEvent || []).slice(0, 6).map((item: any) => (
+                  <div key={item.event} className="flex justify-between">
+                    <span>{item.event}</span>
+                    <span className="font-semibold">{item.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 p-3">
+              <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+                <MapPin className="h-4 w-4" /> Top Locations
+              </p>
+              <div className="space-y-1 text-sm text-gray-600">
+                {(analytics?.byCountry || []).slice(0, 6).map((item: any) => (
+                  <div key={item.country} className="flex justify-between">
+                    <span>{item.country}</span>
+                    <span className="font-semibold">{item.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-5">
+        <h2 className="mb-4 text-lg font-semibold text-gray-900">Send App Campaign</h2>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <input
+            placeholder="Campaign name"
+            value={campaignForm.name}
+            onChange={(e) => setCampaignForm((prev) => ({ ...prev, name: e.target.value }))}
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+          />
+          <input
+            placeholder="Title"
+            value={campaignForm.title}
+            onChange={(e) => setCampaignForm((prev) => ({ ...prev, title: e.target.value }))}
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+          />
+          <textarea
+            placeholder="Message body"
+            value={campaignForm.body}
+            onChange={(e) => setCampaignForm((prev) => ({ ...prev, body: e.target.value }))}
+            className="md:col-span-2 min-h-[88px] rounded-md border border-gray-300 px-3 py-2 text-sm"
+          />
+          <select
+            value={campaignForm.mediaType}
+            onChange={(e) => setCampaignForm((prev) => ({ ...prev, mediaType: e.target.value }))}
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+          >
+            <option value="none">Text only</option>
+            <option value="image">Text + image</option>
+            <option value="video">Text + video</option>
+          </select>
+          <input
+            placeholder="Media URL (image/video)"
+            value={campaignForm.mediaUrl}
+            onChange={(e) => setCampaignForm((prev) => ({ ...prev, mediaUrl: e.target.value }))}
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+          />
+          <input
+            placeholder="Action URL (optional)"
+            value={campaignForm.actionUrl}
+            onChange={(e) => setCampaignForm((prev) => ({ ...prev, actionUrl: e.target.value }))}
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+          />
+          <select
+            value={campaignForm.targetPlatform}
+            onChange={(e) =>
+              setCampaignForm((prev) => ({ ...prev, targetPlatform: e.target.value }))
+            }
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+          >
+            <option value="all">All platforms</option>
+            <option value="android">Android only</option>
+            <option value="desktop">Desktop only</option>
+          </select>
+          <select
+            value={campaignForm.targetRole}
+            onChange={(e) => setCampaignForm((prev) => ({ ...prev, targetRole: e.target.value }))}
+            className="rounded-md border border-gray-300 px-3 py-2 text-sm"
+          >
+            <option value="all">All roles</option>
+            <option value="freelancer">Freelancers</option>
+            <option value="employer">Employers</option>
+            <option value="admin">Admin/Staff</option>
+          </select>
+          <label className="flex items-center gap-2 rounded-md border border-gray-300 px-3 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={campaignForm.deliveryInApp}
+              onChange={(e) =>
+                setCampaignForm((prev) => ({ ...prev, deliveryInApp: e.target.checked }))
+              }
+            />
+            In-app notification
+          </label>
+          <label className="flex items-center gap-2 rounded-md border border-gray-300 px-3 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={campaignForm.deliveryPush}
+              onChange={(e) =>
+                setCampaignForm((prev) => ({ ...prev, deliveryPush: e.target.checked }))
+              }
+            />
+            Push notification
+          </label>
+        </div>
+
+        <button
+          onClick={sendCampaign}
+          disabled={sendingCampaign}
+          className="mt-4 inline-flex items-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {sendingCampaign ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Send className="mr-2 h-4 w-4" />
+          )}
+          Send Campaign
+        </button>
+      </section>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <section className="rounded-xl border border-gray-200 bg-white p-5">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-gray-900">
+            <Activity className="h-5 w-5" /> Recent App Events
+          </h2>
+          <div className="max-h-[360px] overflow-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-white">
+                <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
+                  <th className="pb-2">Event</th>
+                  <th className="pb-2">Platform</th>
+                  <th className="pb-2">Location</th>
+                  <th className="pb-2">Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.slice(0, 120).map((event) => (
+                  <tr key={event.id} className="border-t border-gray-100 text-gray-700">
+                    <td className="py-2">{event.event}</td>
+                    <td className="py-2">{event.platform || event.deviceCategory}</td>
+                    <td className="py-2">{event.country || 'unknown'}</td>
+                    <td className="py-2">{new Date(event.createdAt).toLocaleString()}</td>
+                  </tr>
+                ))}
+                {events.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="py-6 text-center text-gray-400">
+                      No app events yet
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-gray-200 bg-white p-5">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-gray-900">
+            <Bell className="h-5 w-5" /> Campaign Activity
+          </h2>
+          <div className="space-y-3">
+            {campaigns.slice(0, 12).map((campaign) => (
+              <div key={campaign.id} className="rounded-lg border border-gray-200 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{campaign.name || campaign.title}</p>
+                    <p className="text-xs text-gray-500">
+                      {campaign.targetPlatform} / {campaign.targetRole}
+                    </p>
+                  </div>
+                  <span className="text-xs text-gray-500">
+                    {campaign.lastSentAt
+                      ? new Date(campaign.lastSentAt).toLocaleString()
+                      : 'Not sent'}
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-gray-600">
+                  <div className="rounded bg-gray-50 p-2">
+                    <p className="font-semibold text-gray-900">{campaign.totalRecipients || 0}</p>
+                    <p>Recipients</p>
+                  </div>
+                  <div className="rounded bg-gray-50 p-2">
+                    <p className="font-semibold text-gray-900">{campaign.totalPushSent || 0}</p>
+                    <p>Push sent</p>
+                  </div>
+                  <div className="rounded bg-gray-50 p-2">
+                    <p className="font-semibold text-gray-900">
+                      {campaign.totalNotificationsCreated || 0}
+                    </p>
+                    <p>In-app</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {campaigns.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400">
+                No campaigns yet.
+              </div>
+            ) : null}
+          </div>
+        </section>
+      </div>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-600">
+        <p className="flex items-center gap-2 font-semibold text-gray-800">
+          <Download className="h-4 w-4" />
+          Enterprise App Delivery Notes
+        </p>
+        <p className="mt-2">
+          This module tracks guest prompt exposure, download/install intent, location signals,
+          and campaign delivery outcomes in realtime. Campaigns support text, image, and video metadata
+          and can deliver both in-app notifications and push notifications.
+        </p>
+      </section>
+    </div>
+  );
+};
+
+export default AppManagement;
+

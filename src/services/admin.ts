@@ -953,6 +953,46 @@ export const AdminService = {
     return extractData<any>(response);
   },
 
+  // ---- App Distribution Management ----
+  async getAppDistributionConfig(): Promise<any> {
+    return adminGet<any>('/apps/config');
+  },
+
+  async saveAppDistributionConfig(payload: any): Promise<any> {
+    return adminPut<any>('/apps/config', payload);
+  },
+
+  async getAppDistributionAnalytics(params?: { rangeDays?: number }): Promise<any> {
+    return adminGet<any>('/apps/analytics', params || {});
+  },
+
+  async getAppDistributionEvents(params?: { limit?: number }): Promise<any[]> {
+    const data = await adminGet<any[]>('/apps/events', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  async getAppCampaigns(): Promise<any[]> {
+    const data = await adminGet<any[]>('/apps/campaigns');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async sendAppCampaign(payload: {
+    id?: string;
+    name?: string;
+    title: string;
+    body: string;
+    mediaType?: 'none' | 'image' | 'video';
+    mediaUrl?: string;
+    actionUrl?: string;
+    targetPlatform?: 'all' | 'android' | 'desktop';
+    targetRole?: 'all' | 'freelancer' | 'employer' | 'admin';
+    deliveryInApp?: boolean;
+    deliveryPush?: boolean;
+    userIds?: string[];
+  }): Promise<any> {
+    return adminPost<any>('/apps/campaigns/send', payload);
+  },
+
   // ---- Form Builder ----
   async getFormConfig(): Promise<any> {
     return getAdminFormConfig<any>();
