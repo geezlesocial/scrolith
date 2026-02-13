@@ -131,6 +131,16 @@ const io = new Server(server, {
 // Create a community-specific namespace so frontend and backend can subscribe to community events
 const communityNs = io.of('/community');
 const presenceCounts = new Map<string, number>();
+const isMessagesTraceEnabled = () =>
+  ['1', 'true', 'yes', 'on'].includes(String(process.env.MESSAGES_TRACE_DEBUG || '').toLowerCase());
+const traceMessages = (event: string, payload?: Record<string, any>) => {
+  if (!isMessagesTraceEnabled()) return;
+  try {
+    console.log('[messages-trace]', JSON.stringify({ event, timestamp: new Date().toISOString(), ...(payload || {}) }));
+  } catch {
+    console.log('[messages-trace]', event, payload || {});
+  }
+};
 
 const emitPresenceUpdate = (userId: string, isOnline: boolean, lastSeenAt?: Date) => {
   try {
@@ -188,6 +198,11 @@ const markPresenceOffline = async (userId: string) => {
 
 communityNs.on('connection', async (socket) => {
   console.log('Client connected to /community namespace', { id: socket.id, handshake: socket.handshake.query });
+  traceMessages('socket.connected', {
+    socketId: socket.id,
+    userId: (socket as any).data?.user?.id || null,
+    role: (socket as any).data?.user?.role || null
+  });
   const normalizeRole = (value: any) => String(value || '').toLowerCase();
   const joinCommunityRooms = (requested: string, isAdmin: boolean) => {
     socket.join(`community:user:${requested}`);
@@ -249,6 +264,14 @@ communityNs.on('connection', async (socket) => {
 
   socket.on('handshake', (data) => {
     console.log('Community handshake:', data);
+  });
+  socket.on('messages:debug_trace', (payload: any) => {
+    traceMessages('client.trace', {
+      socketId: socket.id,
+      userId: (socket as any).data?.user?.id || null,
+      role: (socket as any).data?.user?.role || null,
+      trace: payload || {}
+    });
   });
   socket.on('community:join', (payload: { userId: string }) => {
     const handleJoin = () => {
@@ -362,6 +385,10 @@ communityNs.on('connection', async (socket) => {
   });
 
   socket.on('disconnect', () => {
+    traceMessages('socket.disconnected', {
+      socketId: socket.id,
+      userId: (socket as any).data?.presenceUserId || (socket as any).data?.user?.id || null
+    });
     const presenceUserId = (socket as any).data?.presenceUserId || (socket as any).data?.user?.id;
     if (presenceUserId) {
       void markPresenceOffline(presenceUserId);

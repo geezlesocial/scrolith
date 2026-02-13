@@ -6,6 +6,38 @@ import { notifyAdmins } from '../utils/notify';
 import { sendSystemMessage } from '../services/systemMessaging';
 
 const nowIso = () => new Date().toISOString();
+const isMessagesTraceEnabled = () =>
+  ['1', 'true', 'yes', 'on'].includes(String(process.env.MESSAGES_TRACE_DEBUG || '').toLowerCase());
+
+const traceMessageEvent = (event: string, details?: Record<string, any>) => {
+  if (!isMessagesTraceEnabled()) return;
+  try {
+    console.log('[messages-trace]', JSON.stringify({ event, timestamp: nowIso(), ...(details || {}) }));
+  } catch {
+    console.log('[messages-trace]', event, details || {});
+  }
+};
+
+const summarizeMessagePayload = (payload: any) => {
+  if (!payload || typeof payload !== 'object') return { type: typeof payload };
+  const text = String(payload.text || '');
+  const attachments = Array.isArray(payload.attachments)
+    ? payload.attachments
+    : Array.isArray(payload.attachment_ids)
+      ? payload.attachment_ids
+      : [];
+  return {
+    conversationId: payload.conversationId || payload.conversation_id || null,
+    messageId: payload.messageId || payload.id || null,
+    senderId: payload.senderId || payload.sender_id || null,
+    receiverId: payload.receiverId || payload.receiver_id || null,
+    textLength: text.length,
+    attachmentsCount: attachments.length,
+    isDeleted: Boolean(payload.isDeleted ?? payload.is_deleted ?? false),
+    editedAt: payload.editedAt || payload.edited_at || null,
+    reactionCount: Array.isArray(payload.reactions) ? payload.reactions.length : undefined
+  };
+};
 
 const resolveUserId = (req: Request) => {
   const userId = req.user?.id;
@@ -335,6 +367,13 @@ const emitToUser = (req: Request, userId: string, event: string, payload: any) =
     const ns = req.app.get('communityNs');
     if (ns && typeof ns.to === 'function') {
       ns.to(`community:user:${userId}`).emit(event, payload);
+      if (String(event || '').startsWith('messages:')) {
+        traceMessageEvent('socket.emit_to_user', {
+          userId,
+          socketEvent: event,
+          payload: summarizeMessagePayload(payload)
+        });
+      }
     }
   } catch (e) {
     console.warn('Message emit failed:', e);
@@ -602,6 +641,14 @@ export const postMessage = async (req: Request, res: Response) => {
     if (!senderId || (!text && attachments.length === 0)) {
       return res.status(400).json({ success: false, error: 'Sender and message content are required' });
     }
+    traceMessageEvent('api.post_message.request', {
+      conversationId,
+      senderId,
+      hasText: Boolean(text),
+      textLength: text.length,
+      attachmentsCount: attachments.length,
+      replyToMessageId: replyToMessageId || null
+    });
 
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },
@@ -781,6 +828,12 @@ export const postMessage = async (req: Request, res: Response) => {
 
     receiverIds.forEach((id) => emitToUser(req, id, 'messages:new', payload));
     emitToUser(req, senderId, 'messages:sent', payload);
+    traceMessageEvent('api.post_message.emitted', {
+      conversationId: conversation.id,
+      senderId,
+      receiverIds,
+      payload: summarizeMessagePayload(payload)
+    });
     if (!admin) {
       notifyAdmins({
         type: 'message',
@@ -814,6 +867,11 @@ export const postMessage = async (req: Request, res: Response) => {
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Post message error:', error);
+    traceMessageEvent('api.post_message.error', {
+      conversationId: req.params?.id,
+      senderId: req.body?.senderId || resolveUserId(req),
+      error: String(error?.message || error)
+    });
     return res.status(500).json({ success: false, error: error.message || 'Failed to send message' });
   }
 };
@@ -824,6 +882,7 @@ export const markRead = async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
     const conversationId = req.params.id;
+    traceMessageEvent('api.mark_read.request', { conversationId, userId });
     const participant = await prisma.conversationParticipant.findUnique({
       where: {
         conversationId_userId: {
@@ -845,9 +904,15 @@ export const markRead = async (req: Request, res: Response) => {
     });
 
     emitToUser(req, userId, 'messages:read', { conversationId });
+    traceMessageEvent('api.mark_read.success', { conversationId, userId });
     return res.json({ success: true });
   } catch (error: any) {
     console.error('Mark read error:', error);
+    traceMessageEvent('api.mark_read.error', {
+      conversationId: req.params?.id,
+      userId: resolveUserId(req),
+      error: String(error?.message || error)
+    });
     return res.status(500).json({ success: false, error: error.message || 'Failed to mark read' });
   }
 };
@@ -858,6 +923,16 @@ export const updateConversationPreferences = async (req: Request, res: Response)
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
     const conversationId = req.params.id;
+    traceMessageEvent('api.update_conversation_preferences.request', {
+      conversationId,
+      userId,
+      updates: {
+        label: req.body?.label,
+        isStarred: req.body?.isStarred,
+        isMuted: req.body?.isMuted,
+        isArchived: req.body?.isArchived
+      }
+    });
     const participant = await prisma.conversationParticipant.findUnique({
       where: {
         conversationId_userId: {
@@ -896,10 +971,16 @@ export const updateConversationPreferences = async (req: Request, res: Response)
       isArchived: Boolean(updated.isArchived)
     };
     emitToUser(req, userId, 'messages:conversation_updated', payload);
+    traceMessageEvent('api.update_conversation_preferences.success', { conversationId, userId, payload });
 
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Update conversation preferences error:', error);
+    traceMessageEvent('api.update_conversation_preferences.error', {
+      conversationId: req.params?.id,
+      userId: resolveUserId(req),
+      error: String(error?.message || error)
+    });
     return res.status(500).json({ success: false, error: error.message || 'Failed to update conversation preferences' });
   }
 };
@@ -910,6 +991,7 @@ export const markConversationUnread = async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
     const conversationId = req.params.id;
+    traceMessageEvent('api.mark_unread.request', { conversationId, userId });
     const participant = await prisma.conversationParticipant.findUnique({
       where: {
         conversationId_userId: {
@@ -931,10 +1013,16 @@ export const markConversationUnread = async (req: Request, res: Response) => {
       conversationId,
       unread_count: 1
     });
+    traceMessageEvent('api.mark_unread.success', { conversationId, userId });
 
     return res.json({ success: true });
   } catch (error: any) {
     console.error('Mark conversation unread error:', error);
+    traceMessageEvent('api.mark_unread.error', {
+      conversationId: req.params?.id,
+      userId: resolveUserId(req),
+      error: String(error?.message || error)
+    });
     return res.status(500).json({ success: false, error: error.message || 'Failed to mark conversation unread' });
   }
 };
@@ -1054,6 +1142,12 @@ export const toggleReaction = async (req: Request, res: Response) => {
     if (!userId || !emoji) {
       return res.status(400).json({ success: false, error: 'User and emoji are required' });
     }
+    traceMessageEvent('api.toggle_reaction.request', {
+      conversationId: req.params?.id,
+      messageId: req.params?.messageId,
+      userId,
+      emoji
+    });
 
     const messageId = req.params.messageId;
     const message = await prisma.directMessage.findUnique({
@@ -1110,10 +1204,23 @@ export const toggleReaction = async (req: Request, res: Response) => {
     message.conversation.participants.forEach((entry) => {
       emitToUser(req, entry.userId, 'messages:updated', payload);
     });
+    traceMessageEvent('api.toggle_reaction.success', {
+      conversationId: message.conversationId,
+      messageId,
+      userId,
+      emoji,
+      reactionSummary
+    });
 
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Toggle reaction error:', error);
+    traceMessageEvent('api.toggle_reaction.error', {
+      conversationId: req.params?.id,
+      messageId: req.params?.messageId,
+      userId: req.body?.userId || resolveUserId(req),
+      error: String(error?.message || error)
+    });
     return res.status(500).json({ success: false, error: error.message || 'Failed to toggle reaction' });
   }
 };
@@ -1125,6 +1232,12 @@ export const editMessage = async (req: Request, res: Response) => {
     const admin = isAdminRole(role);
     const messageId = req.params.messageId;
     const nextText = String(req.body?.text || '').trim();
+    traceMessageEvent('api.edit_message.request', {
+      conversationId: req.params?.id,
+      messageId,
+      userId,
+      textLength: nextText.length
+    });
 
     if (!nextText) {
       return res.status(400).json({ success: false, error: 'Edited message text is required' });
@@ -1214,10 +1327,22 @@ export const editMessage = async (req: Request, res: Response) => {
     message.conversation.participants.forEach((entry) => {
       emitToUser(req, entry.userId, 'messages:updated', payload);
     });
+    traceMessageEvent('api.edit_message.success', {
+      conversationId: message.conversationId,
+      messageId: message.id,
+      userId,
+      editedAt: payload.editedAt
+    });
 
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Edit message error:', error);
+    traceMessageEvent('api.edit_message.error', {
+      conversationId: req.params?.id,
+      messageId: req.params?.messageId,
+      userId: resolveUserId(req),
+      error: String(error?.message || error)
+    });
     return res.status(500).json({ success: false, error: error.message || 'Failed to edit message' });
   }
 };
@@ -1277,6 +1402,11 @@ export const deleteMessage = async (req: Request, res: Response) => {
     const userId = resolveUserId(req);
     const admin = isAdminRole(role);
     const messageId = req.params.messageId;
+    traceMessageEvent('api.delete_message.request', {
+      conversationId: req.params?.id,
+      messageId,
+      userId
+    });
     const message = await prisma.directMessage.findUnique({
       where: { id: messageId },
       include: {
@@ -1354,10 +1484,21 @@ export const deleteMessage = async (req: Request, res: Response) => {
     message.conversation.participants.forEach((entry) => {
       emitToUser(req, entry.userId, 'messages:updated', payload);
     });
+    traceMessageEvent('api.delete_message.success', {
+      conversationId: message.conversationId,
+      messageId: message.id,
+      userId
+    });
 
     return res.json({ success: true });
   } catch (error: any) {
     console.error('Delete message error:', error);
+    traceMessageEvent('api.delete_message.error', {
+      conversationId: req.params?.id,
+      messageId: req.params?.messageId,
+      userId: resolveUserId(req),
+      error: String(error?.message || error)
+    });
     return res.status(500).json({ success: false, error: error.message || 'Failed to delete message' });
   }
 };
