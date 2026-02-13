@@ -21,7 +21,7 @@ router.use((req, res, next) => {
   if (!role.includes('admin')) {
     return res.status(403).json({ success: false, error: 'Admin role required' });
   }
-  next();
+  return next();
 });
 
 router.get('/config', getAdminConfig);

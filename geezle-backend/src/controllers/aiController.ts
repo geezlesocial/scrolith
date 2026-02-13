@@ -85,9 +85,9 @@ export const getAIConfig = async (_req: Request, res: Response) => {
         temperature: aiConfig?.safety?.temperature ?? 0.7
       }
     };
-    res.json({ success: true, data: safe });
+    return res.json({ success: true, data: safe });
   } catch (error) {
-    res.status(500).json({ success: false, error: 'Failed to load AI config' });
+    return res.status(500).json({ success: false, error: 'Failed to load AI config' });
   }
 };
 
@@ -116,7 +116,7 @@ export const answerQuestion = async (req: Request, res: Response) => {
     return res.json({ success: true, data: { provider, model, answer: text } });
   } catch (error: any) {
     console.error('AI answer error:', error);
-    res.status(500).json({ success: false, error: error?.message || 'AI request failed' });
+    return res.status(500).json({ success: false, error: error?.message || 'AI request failed' });
   }
 };
 
@@ -145,7 +145,7 @@ export const generateGuide = async (req: Request, res: Response) => {
     return res.json({ success: true, data: { provider, model, guide: text } });
   } catch (error: any) {
     console.error('AI guide error:', error);
-    res.status(500).json({ success: false, error: error?.message || 'AI request failed' });
+    return res.status(500).json({ success: false, error: error?.message || 'AI request failed' });
   }
 };
 

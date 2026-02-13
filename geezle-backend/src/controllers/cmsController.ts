@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+﻿import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -191,7 +191,7 @@ const defaultGuidesPage = {
 const defaultHirePage = {
   hero: {
     title: 'I am seeking to hire',
-    subtitle: 'We’re looking for proven freelance talent and a premium business solution to drive results.',
+    subtitle: 'Weâ€™re looking for proven freelance talent and a premium business solution to drive results.',
     primaryCtaLabel: 'Post a Project',
     primaryCtaUrl: '/create-job',
     secondaryCtaLabel: 'Browse Talent',
@@ -223,7 +223,7 @@ const defaultHirePage = {
 const defaultFreelancerPage = {
   hero: {
     title: 'Professional Freelancer for Strategic Business Projects',
-    subtitle: 'I deliver premium freelance and agency-level services for strategic business projects—combining expert execution with scalable solutions tailored to your goals.',
+    subtitle: 'I deliver premium freelance and agency-level services for strategic business projectsâ€”combining expert execution with scalable solutions tailored to your goals.',
     primaryCtaLabel: 'Join as Pro Freelancer',
     primaryCtaUrl: '/auth/signup',
     secondaryCtaLabel: 'View Opportunities',
@@ -461,7 +461,7 @@ let cmsData = {
     logoUrl: BRAND_ASSET_URL,
     description: 'Connect with top freelancers and find your next project.',
     socialLabelTitle: '',
-    copyright: '© 2024 Scrolith. All rights reserved.',
+    copyright: 'Â© 2024 Scrolith. All rights reserved.',
     socials: [
       { id: 'social-1', platform: 'facebook', icon: 'facebook', url: 'https://facebook.com/Scrolith', enabled: true },
       { id: 'social-2', platform: 'twitter', icon: 'twitter', url: 'https://twitter.com/Scrolith', enabled: true },
@@ -768,7 +768,7 @@ export const getHeaderConfig = async (req: Request, res: Response) => {
       role_switch: headerAny['roleSwitch'] || headerAny['role_switch'] || headerAny['switchRole'] || null
     };
 
-    console.log('✅ Header config served from database:', {
+    console.log('âœ… Header config served from database:', {
       hasLogo: !!transformed.logo_url,
       hasFavicon: !!transformed.favicon_url,
       navItems: transformed.navigation.length
@@ -776,7 +776,7 @@ export const getHeaderConfig = async (req: Request, res: Response) => {
 
     res.json(transformed);
   } catch (error) {
-    console.error('❌ Error getting header config, using fallback:', error);
+    console.error('âŒ Error getting header config, using fallback:', error);
     // Fallback to mock data
     const header = cmsData.header;
     const headerAny = header as any;
@@ -828,9 +828,9 @@ export const getActivityConfig = async (req: Request, res: Response) => {
     });
     const data = config.data as any;
     const activity = data?.activity || cmsData.activity;
-    res.json(activity);
+    return res.json(activity);
   } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -889,14 +889,14 @@ export const getHomepageSections = async (req: Request, res: Response) => {
       }))
       .sort((a, b) => ((a as any).position || 0) - ((b as any).position || 0));
 
-    console.log('✅ Homepage sections served:', {
+    console.log('âœ… Homepage sections served:', {
       total: cmsData.homepageSections.length,
       active: filteredSections.length
     });
 
     res.json(filteredSections);
   } catch (error) {
-    console.error('❌ Error getting homepage sections:', error);
+    console.error('âŒ Error getting homepage sections:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -932,14 +932,14 @@ export const getHomeSlides = async (req: Request, res: Response) => {
       }))
       .sort((a: any, b: any) => a.sort_order - b.sort_order);
 
-    console.log('✅ Home slides served from database:', {
+    console.log('âœ… Home slides served from database:', {
       total: slides.length,
       active: activeSlides.length
     });
 
     res.json(activeSlides);
   } catch (error) {
-    console.error('❌ Error getting home slides, using fallback:', error);
+    console.error('âŒ Error getting home slides, using fallback:', error);
     // Fallback to mock data
     const activeSlides = cmsData.homeSlides
       .filter(slide => {
@@ -997,9 +997,10 @@ export const getHeroSearchConfig = async (req: Request, res: Response) => {
 export const saveHeaderConfig = async (req: Request, res: Response) => {
   try {
     const config = req.body;
+    const headerDefaults = (cmsData.header as any) || {};
     // Debug: log incoming navigation payload for troubleshooting visibility issues
     try {
-      console.log('🔔 Incoming header.save navigation payload sample:', Array.isArray(config?.navigation) ? config.navigation.map((n: any) => ({ id: n.id, label: n.label, visibility: n.visibility })) : config?.navigation);
+      console.log('ðŸ”” Incoming header.save navigation payload sample:', Array.isArray(config?.navigation) ? config.navigation.map((n: any) => ({ id: n.id, label: n.label, visibility: n.visibility })) : config?.navigation);
     } catch (e) {
       /* ignore logging errors */
     }
@@ -1008,20 +1009,20 @@ export const saveHeaderConfig = async (req: Request, res: Response) => {
     // Normalize incoming data (handle both camelCase and snake_case)
     // Detailed logging to trace navigation visibility persistence issues
     try {
-      console.log('🔍 saveHeaderConfig - incoming navigation count:', Array.isArray(config?.navigation) ? config.navigation.length : 0);
-      console.log('🔍 saveHeaderConfig - incoming navigation sample:', Array.isArray(config?.navigation) ? config.navigation.slice(0,5) : config?.navigation);
+      console.log('ðŸ” saveHeaderConfig - incoming navigation count:', Array.isArray(config?.navigation) ? config.navigation.length : 0);
+      console.log('ðŸ” saveHeaderConfig - incoming navigation sample:', Array.isArray(config?.navigation) ? config.navigation.slice(0,5) : config?.navigation);
     } catch (e) {
       /* ignore logging errors */
     }
 
     const normalized = {
-      ...cmsData.header,
+      ...headerDefaults,
       // Map snake_case to camelCase for internal storage
-      logoUrl: config.logo_url || config.logoUrl || cmsData.header.logoUrl,
-      faviconUrl: config.favicon_url || config.faviconUrl || cmsData.header.faviconUrl,
-      homeUrl: config.home_url || config.homeUrl || cmsData.header.homeUrl,
-      searchEnabled: config.search_enabled !== undefined ? config.search_enabled : (config.searchEnabled !== undefined ? config.searchEnabled : cmsData.header.searchEnabled),
-      searchMode: config.search_mode || config.searchMode || cmsData.header.searchMode,
+      logoUrl: config.logo_url || config.logoUrl || headerDefaults.logoUrl,
+      faviconUrl: config.favicon_url || config.faviconUrl || headerDefaults.faviconUrl,
+      homeUrl: config.home_url || config.homeUrl || headerDefaults.homeUrl,
+      searchEnabled: config.search_enabled !== undefined ? config.search_enabled : (config.searchEnabled !== undefined ? config.searchEnabled : headerDefaults.searchEnabled),
+      searchMode: config.search_mode || config.searchMode || headerDefaults.searchMode,
       // Ensure navigation items preserve and normalize visibility lists
       navigation: Array.isArray(config.navigation)
         ? config.navigation.map((it: any) => ({
@@ -1030,21 +1031,21 @@ export const saveHeaderConfig = async (req: Request, res: Response) => {
               ? it.visibility.map((v: any) => String(v).toLowerCase())
               : []
           }))
-        : cmsData.header.navigation,
-      profileMenu: config.profile_menu || config.profileMenu || config.userMenu || cmsData.header.profileMenu,
-      profileMenuGroupLabels: config.profile_menu_group_labels || config.profileMenuGroupLabels || config.profile_group_labels || cmsData.header.profileMenuGroupLabels,
-      guestPrimaryDropdown: config.guest_primary_dropdown || config.guestPrimaryDropdown || config.guestProDropdown || cmsData.header.guestPrimaryDropdown,
-      guestExploreDropdown: config.guest_explore_dropdown || config.guestExploreDropdown || config.guestExplore || cmsData.header.guestExploreDropdown,
-      guestCtas: config.guest_ctas || config.guestCtas || config.guestActions || cmsData.header.guestCtas,
-      roleSwitch: config.role_switch || config.roleSwitch || config.switchRole || cmsData.header.roleSwitch,
-      actions: config.actions || cmsData.header.actions,
-      variant: config.variant || cmsData.header.variant,
+        : headerDefaults.navigation,
+      profileMenu: config.profile_menu || config.profileMenu || config.userMenu || headerDefaults.profileMenu,
+      profileMenuGroupLabels: config.profile_menu_group_labels || config.profileMenuGroupLabels || config.profile_group_labels || headerDefaults.profileMenuGroupLabels,
+      guestPrimaryDropdown: config.guest_primary_dropdown || config.guestPrimaryDropdown || config.guestProDropdown || headerDefaults.guestPrimaryDropdown,
+      guestExploreDropdown: config.guest_explore_dropdown || config.guestExploreDropdown || config.guestExplore || headerDefaults.guestExploreDropdown,
+      guestCtas: config.guest_ctas || config.guestCtas || config.guestActions || headerDefaults.guestCtas,
+      roleSwitch: config.role_switch || config.roleSwitch || config.switchRole || headerDefaults.roleSwitch,
+      actions: config.actions || headerDefaults.actions,
+      variant: config.variant || headerDefaults.variant,
       updatedAt: new Date()
     };
 
     // Log normalized navigation before saving
     try {
-      console.log('🔍 saveHeaderConfig - normalized.navigation sample:', Array.isArray(normalized.navigation) ? normalized.navigation.map((n: any) => ({ id: n.id, visibility: n.visibility })) : normalized.navigation);
+      console.log('ðŸ” saveHeaderConfig - normalized.navigation sample:', Array.isArray(normalized.navigation) ? normalized.navigation.map((n: any) => ({ id: n.id, visibility: n.visibility })) : normalized.navigation);
     } catch (e) {
       /* ignore */
     }
@@ -1063,7 +1064,7 @@ export const saveHeaderConfig = async (req: Request, res: Response) => {
     const saved = await saveCMSConfig(CmsTarget.HOMEPAGE, updatedData, userId);
 
     try {
-      console.log('✅ saveHeaderConfig - saved CMS config id:', saved.id, 'version:', saved.version);
+      console.log('âœ… saveHeaderConfig - saved CMS config id:', saved.id, 'version:', saved.version);
     } catch (e) {
       /* ignore */
     }
@@ -1072,7 +1073,7 @@ export const saveHeaderConfig = async (req: Request, res: Response) => {
     cmsData.header = normalized;
 
     try {
-      console.log('✅ Header config saved to database:', {
+      console.log('âœ… Header config saved to database:', {
       hasLogo: !!normalized.logoUrl,
       hasFavicon: !!normalized.faviconUrl,
       navItems: Array.isArray(normalized.navigation) ? normalized.navigation.length : 0
@@ -1090,7 +1091,7 @@ export const saveHeaderConfig = async (req: Request, res: Response) => {
       data: normalized
     });
   } catch (error) {
-    console.error('❌ Error saving header config:', error);
+    console.error('âŒ Error saving header config:', error);
     res.status(500).json({ error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' });
   }
 };
@@ -1126,7 +1127,7 @@ export const saveFooterConfig = async (req: Request, res: Response) => {
     // Also update in-memory cache
     cmsData.footer = normalized;
 
-    console.log('✅ Footer config saved to database:', {
+    console.log('âœ… Footer config saved to database:', {
       hasLogo: !!normalized.logoUrl,
       hasDescription: !!normalized.description,
       columns: Array.isArray(normalized.columns) ? normalized.columns.length : 0,
@@ -1142,7 +1143,7 @@ export const saveFooterConfig = async (req: Request, res: Response) => {
       data: normalized
     });
   } catch (error) {
-    console.error('❌ Error saving footer config:', error);
+    console.error('âŒ Error saving footer config:', error);
     res.status(500).json({ error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' });
   }
 };
@@ -1328,7 +1329,7 @@ export const saveHeroSearchConfig = async (req: Request, res: Response) => {
     emitCmsEvent(req, 'cms:hero_updated', normalized);
     emitCmsEvent(req, 'cms:hero_search_updated', normalized);
 
-    console.log('✅ Hero search config saved to database:', {
+    console.log('âœ… Hero search config saved to database:', {
       hasHeadline: !!normalized.headline,
       hasPlaceholder: !!normalized.searchPlaceholder,
       quickTagsCount: Array.isArray(normalized.quickTags) ? normalized.quickTags.length : 0,
@@ -1342,7 +1343,7 @@ export const saveHeroSearchConfig = async (req: Request, res: Response) => {
       data: normalized
     });
   } catch (error) {
-    console.error('❌ Error saving hero search config:', error);
+    console.error('âŒ Error saving hero search config:', error);
     res.status(500).json({ error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' });
   }
 };
@@ -1396,7 +1397,7 @@ export const saveTrendingConfig = async (req: Request, res: Response) => {
     emitCmsEvent(req, 'cms:trending_config_updated', normalized);
     emitCmsEvent(req, 'cms:trending_updated', normalized);
 
-    console.log('✅ Trending config saved to database:', {
+    console.log('âœ… Trending config saved to database:', {
       hasOpportunities: Array.isArray(normalized.opportunities),
       opportunitiesCount: Array.isArray(normalized.opportunities) ? normalized.opportunities.length : 0,
       enabled: normalized.enabled,
@@ -1409,7 +1410,7 @@ export const saveTrendingConfig = async (req: Request, res: Response) => {
       data: normalized
     });
   } catch (error) {
-    console.error('❌ Error saving trending config:', error);
+    console.error('âŒ Error saving trending config:', error);
     res.status(500).json({ error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' });
   }
 };
@@ -1446,7 +1447,7 @@ export const saveHomepageSection = async (req: Request, res: Response) => {
       });
     }
 
-    console.log('✅ Homepage section saved:', {
+    console.log('âœ… Homepage section saved:', {
       id: normalized.id,
       type: normalized.type,
       isActive: normalized.isActive,
@@ -1461,7 +1462,7 @@ export const saveHomepageSection = async (req: Request, res: Response) => {
       data: normalized
     });
   } catch (error) {
-    console.error('❌ Error saving homepage section:', error);
+    console.error('âŒ Error saving homepage section:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -1527,7 +1528,7 @@ export const updateSectionOrder = async (req: Request, res: Response) => {
       updatedAt: new Date()
     }));
 
-    console.log('✅ Section order updated:', {
+    console.log('âœ… Section order updated:', {
       totalSections: cmsData.homepageSections.length,
       order: cmsData.homepageSections.map((s: any) => ({ id: s.id, name: s.name || s.title, order: s.sortOrder }))
     });
@@ -1540,7 +1541,7 @@ export const updateSectionOrder = async (req: Request, res: Response) => {
       data: cmsData.homepageSections
     });
   } catch (error) {
-    console.error('❌ Error updating section order:', error);
+    console.error('âŒ Error updating section order:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -1553,7 +1554,7 @@ export const deleteHomepageSection = async (req: Request, res: Response) => {
     cmsData.homepageSections = cmsData.homepageSections.filter(s => s.id !== id);
     const afterCount = cmsData.homepageSections.length;
 
-    console.log('✅ Homepage section deleted:', {
+    console.log('âœ… Homepage section deleted:', {
       id,
       beforeCount,
       afterCount,
@@ -1568,7 +1569,7 @@ export const deleteHomepageSection = async (req: Request, res: Response) => {
       deletedId: id
     });
   } catch (error) {
-    console.error('❌ Error deleting homepage section:', error);
+    console.error('âŒ Error deleting homepage section:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -1633,7 +1634,7 @@ export const saveHomeSlide = async (req: Request, res: Response) => {
     // Also update in-memory cache
     cmsData.homeSlides = updatedSlides;
 
-    console.log('✅ Home slide saved to database:', {
+    console.log('âœ… Home slide saved to database:', {
       id: normalized.id,
       title: normalized.title,
       isActive: normalized.isActive,
@@ -1649,7 +1650,7 @@ export const saveHomeSlide = async (req: Request, res: Response) => {
       data: normalized
     });
   } catch (error) {
-    console.error('❌ Error saving home slide:', error);
+    console.error('âŒ Error saving home slide:', error);
     res.status(500).json({ error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' });
   }
 };
@@ -1718,7 +1719,7 @@ export const deleteHomeSlide = async (req: Request, res: Response) => {
     // Update in-memory cache
     cmsData.homeSlides = updatedSlides;
 
-    console.log('✅ Home slide deleted from database:', {
+    console.log('âœ… Home slide deleted from database:', {
       id,
       remainingSlides: updatedSlides.length
     });
@@ -1730,7 +1731,7 @@ export const deleteHomeSlide = async (req: Request, res: Response) => {
       message: 'Home slide deleted successfully'
     });
   } catch (error) {
-    console.error('❌ Error deleting home slide:', error);
+    console.error('âŒ Error deleting home slide:', error);
     res.status(500).json({ error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' });
   }
 };
@@ -1836,7 +1837,7 @@ export const getHomepage = async (req: Request, res: Response) => {
       timestamp: new Date().toISOString()
     };
 
-    console.log(`✅ Homepage data served for ${pageTypeValue} (DB):`, {
+    console.log(`âœ… Homepage data served for ${pageTypeValue} (DB):`, {
       sections: activeSections.length,
       slides: activeSlides.length,
       trending: trending.length
@@ -1845,7 +1846,7 @@ export const getHomepage = async (req: Request, res: Response) => {
     // Always return data, even if empty (so frontend can handle it)
     res.json(response);
   } catch (error) {
-    console.error('❌ Error getting homepage:', error);
+    console.error('âŒ Error getting homepage:', error);
     // Return empty but valid structure instead of 500
     res.json({
       pageType: 'public_home',
@@ -1912,10 +1913,10 @@ export const getAffiliateContent = async (req: Request, res: Response) => {
       updated_at: affiliateRaw.updated_at || affiliateRaw.updatedAt || new Date().toISOString()
     };
 
-    console.log('✅ Served affiliate content (DB):', { hasBenefits: Array.isArray(normalized.benefits) ? normalized.benefits.length : 0 });
+    console.log('âœ… Served affiliate content (DB):', { hasBenefits: Array.isArray(normalized.benefits) ? normalized.benefits.length : 0 });
     res.json(normalized);
   } catch (error) {
-    console.error('❌ Error getting affiliate content, returning fallback:', error);
+    console.error('âŒ Error getting affiliate content, returning fallback:', error);
     res.json(defaultAffiliateContent);
   }
 };
@@ -1951,11 +1952,11 @@ export const saveAffiliateContent = async (req: Request, res: Response) => {
     // Emit event to connected clients if websocket exists
     emitCmsEvent(req, 'cms:affiliate_updated', normalized);
 
-    console.log('✅ Affiliate content saved to database by user:', userId || 'anonymous');
+    console.log('âœ… Affiliate content saved to database by user:', userId || 'anonymous');
 
     res.json({ success: true, message: 'Affiliate content saved', data: normalized });
   } catch (error) {
-    console.error('❌ Error saving affiliate content:', error);
+    console.error('âŒ Error saving affiliate content:', error);
     res.status(500).json({ error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' });
   }
 };
@@ -1967,7 +1968,7 @@ export const getPages = async (_req: Request, res: Response) => {
     const pages = Array.isArray((data as any)?.pages) ? (data as any).pages : [];
     res.json(pages);
   } catch (error) {
-    console.error('❌ Error getting CMS pages:', error);
+    console.error('âŒ Error getting CMS pages:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -1979,10 +1980,10 @@ export const getPageBySlug = async (req: Request, res: Response) => {
     const pages = Array.isArray((data as any)?.pages) ? (data as any).pages : [];
     const page = pages.find((p: any) => String(p.slug || '').toLowerCase() === slug);
     if (!page) return res.status(404).json({ error: 'Page not found' });
-    res.json(page);
+    return res.json(page);
   } catch (error) {
-    console.error('❌ Error getting CMS page by slug:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('âŒ Error getting CMS page by slug:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -2041,7 +2042,7 @@ export const savePage = async (req: Request, res: Response) => {
 
     res.json({ success: true, data: normalized });
   } catch (error) {
-    console.error('❌ Error saving CMS page:', error);
+    console.error('âŒ Error saving CMS page:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2057,7 +2058,7 @@ export const deletePage = async (req: Request, res: Response) => {
     emitCmsEvent(req, 'cms:page_deleted', { id });
     res.json({ success: true, id });
   } catch (error) {
-    console.error('❌ Error deleting CMS page:', error);
+    console.error('âŒ Error deleting CMS page:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2069,7 +2070,7 @@ export const getPageCategories = async (_req: Request, res: Response) => {
     const categories = Array.isArray((data as any)?.categories) ? (data as any).categories : [];
     res.json(categories);
   } catch (error) {
-    console.error('❌ Error getting CMS categories:', error);
+    console.error('âŒ Error getting CMS categories:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2118,7 +2119,7 @@ export const savePageCategory = async (req: Request, res: Response) => {
 
     res.json({ success: true, data: normalized });
   } catch (error) {
-    console.error('❌ Error saving CMS category:', error);
+    console.error('âŒ Error saving CMS category:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2132,10 +2133,10 @@ export const deletePageCategory = async (req: Request, res: Response) => {
     await saveAppSetting(CMS_PAGE_CATEGORIES_SCOPE, { categories: updatedCategories });
     emitCmsEvent(req, 'cms:categories_updated', updatedCategories);
     emitCmsEvent(req, 'cms:category_deleted', { id });
-    res.json({ success: true, id });
+    return res.json({ success: true, id });
   } catch (error) {
-    console.error('❌ Error deleting CMS category:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('âŒ Error deleting CMS category:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -2151,7 +2152,7 @@ export const getBlogPosts = async (_req: Request, res: Response) => {
     normalized.sort((a: any, b: any) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
     res.json(normalized);
   } catch (error) {
-    console.error('❌ Error getting blog posts:', error);
+    console.error('âŒ Error getting blog posts:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2165,10 +2166,10 @@ export const getBlogPostBySlug = async (req: Request, res: Response) => {
     const categories = Array.isArray((categoriesData as any)?.categories) ? (categoriesData as any).categories : [];
     const post = posts.find((p: any) => String(p.slug || '').toLowerCase() === slug);
     if (!post || !isBlogPostPublic(post)) return res.status(404).json({ error: 'Post not found' });
-    res.json(normalizeBlogPost(post, categories, post?.updated_at || post?.updatedAt));
+    return res.json(normalizeBlogPost(post, categories, post?.updated_at || post?.updatedAt));
   } catch (error) {
-    console.error('❌ Error getting blog post by slug:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('âŒ Error getting blog post by slug:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -2182,7 +2183,7 @@ export const getBlogPostsAdmin = async (_req: Request, res: Response) => {
     normalized.sort((a: any, b: any) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
     res.json(normalized);
   } catch (error) {
-    console.error('❌ Error getting admin blog posts:', error);
+    console.error('âŒ Error getting admin blog posts:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2196,10 +2197,10 @@ export const getBlogPostByIdAdmin = async (req: Request, res: Response) => {
     const categories = Array.isArray((categoriesData as any)?.categories) ? (categoriesData as any).categories : [];
     const post = posts.find((p: any) => String(p.id || '') === id);
     if (!post) return res.status(404).json({ error: 'Post not found' });
-    res.json(normalizeBlogPost(post, categories, post?.updated_at || post?.updatedAt));
+    return res.json(normalizeBlogPost(post, categories, post?.updated_at || post?.updatedAt));
   } catch (error) {
-    console.error('❌ Error getting admin blog post by id:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('âŒ Error getting admin blog post by id:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -2242,7 +2243,7 @@ export const saveBlogPost = async (req: Request, res: Response) => {
 
     res.json({ success: true, data: normalized });
   } catch (error) {
-    console.error('❌ Error saving blog post:', error);
+    console.error('âŒ Error saving blog post:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2264,7 +2265,7 @@ export const deleteBlogPost = async (req: Request, res: Response) => {
     emitCmsEvent(req, 'cms:blog_post_deleted', { id });
     res.json({ success: true, id });
   } catch (error) {
-    console.error('❌ Error deleting blog post:', error);
+    console.error('âŒ Error deleting blog post:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2279,7 +2280,7 @@ export const getBlogCategories = async (_req: Request, res: Response) => {
     const normalized = computeCategoryCounts(posts, categories);
     res.json(normalized);
   } catch (error) {
-    console.error('❌ Error getting blog categories:', error);
+    console.error('âŒ Error getting blog categories:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2329,7 +2330,7 @@ export const saveBlogCategory = async (req: Request, res: Response) => {
     emitCmsEvent(req, 'cms:blog_category_updated', normalized);
     res.json({ success: true, data: normalized });
   } catch (error) {
-    console.error('❌ Error saving blog category:', error);
+    console.error('âŒ Error saving blog category:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2345,7 +2346,7 @@ export const deleteBlogCategory = async (req: Request, res: Response) => {
     emitCmsEvent(req, 'cms:blog_category_deleted', { id });
     res.json({ success: true, id });
   } catch (error) {
-    console.error('❌ Error deleting blog category:', error);
+    console.error('âŒ Error deleting blog category:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2357,7 +2358,7 @@ export const getBlogSettings = async (_req: Request, res: Response) => {
     const normalized = normalizeBlogSettings(data);
     res.json(normalized);
   } catch (error) {
-    console.error('❌ Error getting blog settings:', error);
+    console.error('âŒ Error getting blog settings:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2371,7 +2372,7 @@ export const saveBlogSettings = async (req: Request, res: Response) => {
     emitCmsEvent(req, 'cms:blog_settings_updated', saved);
     res.json({ success: true, data: saved });
   } catch (error) {
-    console.error('❌ Error saving blog settings:', error);
+    console.error('âŒ Error saving blog settings:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2384,7 +2385,7 @@ export const getAuthPagesConfig = async (_req: Request, res: Response) => {
     const sanitized = sanitizeAuthPagesConfig(normalized);
     res.json(sanitized);
   } catch (error) {
-    console.error('❌ Error getting auth pages config:', error);
+    console.error('âŒ Error getting auth pages config:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2399,7 +2400,7 @@ export const saveAuthPagesConfig = async (req: Request, res: Response) => {
     emitCmsEvent(req, 'cms:auth_pages_updated', sanitized);
     res.json({ success: true, data: sanitized });
   } catch (error) {
-    console.error('❌ Error saving auth pages config:', error);
+    console.error('âŒ Error saving auth pages config:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2410,7 +2411,7 @@ export const getAnswersPage = async (_req: Request, res: Response) => {
     const data = await getAppSetting(CMS_ANSWERS_SCOPE, defaultAnswersPage);
     res.json({ success: true, data });
   } catch (error) {
-    console.error('❌ Error getting Answers page config:', error);
+    console.error('âŒ Error getting Answers page config:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2423,7 +2424,7 @@ export const saveAnswersPage = async (req: Request, res: Response) => {
     emitCmsEvent(req, 'cms:answers_updated', saved);
     res.json({ success: true, data: saved });
   } catch (error) {
-    console.error('❌ Error saving Answers page config:', error);
+    console.error('âŒ Error saving Answers page config:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2434,7 +2435,7 @@ export const getGuidesPage = async (_req: Request, res: Response) => {
     const data = await getAppSetting(CMS_GUIDES_SCOPE, defaultGuidesPage);
     res.json({ success: true, data });
   } catch (error) {
-    console.error('❌ Error getting Guides page config:', error);
+    console.error('âŒ Error getting Guides page config:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2447,7 +2448,7 @@ export const saveGuidesPage = async (req: Request, res: Response) => {
     emitCmsEvent(req, 'cms:guides_updated', saved);
     res.json({ success: true, data: saved });
   } catch (error) {
-    console.error('❌ Error saving Guides page config:', error);
+    console.error('âŒ Error saving Guides page config:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2458,7 +2459,7 @@ export const getHirePage = async (_req: Request, res: Response) => {
     const data = await getAppSetting(CMS_HIRE_SCOPE, defaultHirePage);
     res.json({ success: true, data });
   } catch (error) {
-    console.error('❌ Error getting Hire page config:', error);
+    console.error('âŒ Error getting Hire page config:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2471,7 +2472,7 @@ export const saveHirePage = async (req: Request, res: Response) => {
     emitCmsEvent(req, 'cms:hire_updated', saved);
     res.json({ success: true, data: saved });
   } catch (error) {
-    console.error('❌ Error saving Hire page config:', error);
+    console.error('âŒ Error saving Hire page config:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2482,7 +2483,7 @@ export const getFreelancerPage = async (_req: Request, res: Response) => {
     const data = await getAppSetting(CMS_FREELANCER_SCOPE, defaultFreelancerPage);
     res.json({ success: true, data });
   } catch (error) {
-    console.error('❌ Error getting Freelancer page config:', error);
+    console.error('âŒ Error getting Freelancer page config:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2495,7 +2496,7 @@ export const saveFreelancerPage = async (req: Request, res: Response) => {
     emitCmsEvent(req, 'cms:freelancer_updated', saved);
     res.json({ success: true, data: saved });
   } catch (error) {
-    console.error('❌ Error saving Freelancer page config:', error);
+    console.error('âŒ Error saving Freelancer page config:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -2562,6 +2563,7 @@ export default {
   saveHirePage,
   saveFreelancerPage
 };
+
 
 
 

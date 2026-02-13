@@ -4,7 +4,14 @@ import { getGcoinSettingsSafe } from '../utils/gcoinSettings';
 
 const prisma = new PrismaClient();
 
-export type TransferResult = { transactionId: string };
+// NOTE: Route handlers emit realtime wallet/transaction updates based on these fields.
+export type TransferResult = {
+  transactionId: string;
+  transaction: any;
+  fromWallet: any;
+  toWallet: any;
+  toUserId: string;
+};
 
 function genRecipientId() {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_';
@@ -136,7 +143,18 @@ export class GcoinService {
       console.warn('Failed to emit socket for gcoin transfer', e);
     }
 
-    return { transactionId: tx.id };
+    const [fromWalletAfter, toWalletAfter] = await Promise.all([
+      this.getWallet(fromUserId),
+      this.getWallet(recipient.userId)
+    ]);
+
+    return {
+      transactionId: tx.id,
+      transaction: tx,
+      fromWallet: fromWalletAfter || senderWallet,
+      toWallet: toWalletAfter || recipient,
+      toUserId: recipient.userId
+    };
   }
 
   async award(userId: string, amount: number, note?: string) {

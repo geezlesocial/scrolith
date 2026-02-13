@@ -27,5 +27,17 @@ declare module '@prisma/client' {
   export type OrderStatus = any;
   export const OrderStatus: any;
 
+  export type PreloaderBackgroundType = any;
+  export const PreloaderBackgroundType: any;
+
+  export type PreloaderLoaderType = any;
+  export const PreloaderLoaderType: any;
+
+  export type PreloaderPosition = any;
+  export const PreloaderPosition: any;
+
+  export type PreloaderStatus = any;
+  export const PreloaderStatus: any;
+
   export default any;
 }

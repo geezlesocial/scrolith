@@ -24,10 +24,10 @@ export const getGigs = async (req: Request, res: Response) => {
       },
       take: 20
     });
-    res.json({ success: true, data: gigs.map(serializeGig) });
+    return res.json({ success: true, data: gigs.map(serializeGig) });
   } catch (error: any) {
     console.error('Get gigs error:', error);
-    res.status(500).json({ success: false, error: 'Failed to fetch gigs' });
+    return res.status(500).json({ success: false, error: 'Failed to fetch gigs' });
   }
 };
 
@@ -60,7 +60,7 @@ export const getGigById = async (req: Request, res: Response) => {
     return res.json({ success: true, data: serializeGig(gig) });
   } catch (error: any) {
     console.error('Get gig by id error:', error);
-    res.status(500).json({ success: false, error: 'Failed to fetch gig' });
+    return res.status(500).json({ success: false, error: 'Failed to fetch gig' });
   }
 };
 

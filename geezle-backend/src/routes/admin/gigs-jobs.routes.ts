@@ -988,18 +988,18 @@ router.delete('/gigs/:id', async (req: Request, res: Response) => {
 
 // Get all jobs
 router.get('/jobs', async (req: Request, res: Response) => {
-  try {
-    const status = (req.query.status as string) || undefined;
-    const adminStatus =
-      (req.query.adminStatus as string) ||
-      (req.query.admin_status as string) ||
-      undefined;
-    const search = (req.query.search as string) || undefined;
-    const category = (req.query.category as string) || undefined;
-    const subcategory = (req.query.subcategory as string) || undefined;
-    const page = req.query.page ? Number(req.query.page) : undefined;
-    const limit = req.query.limit ? Number(req.query.limit) : undefined;
+  const status = (req.query.status as string) || undefined;
+  const adminStatus =
+    (req.query.adminStatus as string) ||
+    (req.query.admin_status as string) ||
+    undefined;
+  const search = (req.query.search as string) || undefined;
+  const category = (req.query.category as string) || undefined;
+  const subcategory = (req.query.subcategory as string) || undefined;
+  const page = req.query.page ? Number(req.query.page) : undefined;
+  const limit = req.query.limit ? Number(req.query.limit) : undefined;
 
+  try {
     const where: any = {};
     if (status) where.status = mapJobStatusInput(status, 'DRAFT');
     if (adminStatus) where.adminStatus = mapAdminStatusInput(adminStatus, 'PENDING');
@@ -1025,7 +1025,7 @@ router.get('/jobs', async (req: Request, res: Response) => {
       prisma.job.count({ where })
     ]);
 
-    res.json({
+    return res.json({
       success: true,
       data: rows.map(toAdminJob),
       meta: { total, page: page || 1, limit: take, pages: Math.max(1, Math.ceil(total / take)) }
@@ -1034,7 +1034,7 @@ router.get('/jobs', async (req: Request, res: Response) => {
     console.error('Error fetching jobs:', error);
     const filtered = applyFilters(jobs, { status, adminStatus, search, category, subcategory });
     const { items, meta } = applyPagination(filtered, page, limit);
-    res.json({
+    return res.json({
       success: true,
       data: items,
       meta: meta || undefined
@@ -1450,7 +1450,7 @@ router.post('/categories', async (req: Request, res: Response) => {
       return res.status(500).json({ success: false, error: 'Failed to save category' });
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: existing ? 'Category updated successfully' : 'Category created successfully',
       data: formatAdminCategory(record, type === 'JOB' ? 'job' : 'gig')
@@ -1463,7 +1463,7 @@ router.post('/categories', async (req: Request, res: Response) => {
         error: 'Category name or slug must be unique'
       });
     }
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       error: error?.message || 'Failed to save category'
     });

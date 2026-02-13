@@ -129,7 +129,7 @@ router.post('/subscribe', async (req, res) => {
   }
 
   await saveSubscribers(subscribers);
-  res.json({ success: true, message: 'Subscribed successfully' });
+  return res.json({ success: true, message: 'Subscribed successfully' });
 });
 
 router.get('/popup-banners', async (req, res) => {

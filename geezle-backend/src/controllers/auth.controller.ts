@@ -184,7 +184,9 @@ const FRONTEND_URL = (process.env.FRONTEND_URL || process.env.APP_URL || 'https:
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
-const getClientMeta = (req: Request) => {
+type ClientMeta = { ip?: string; userAgent?: string };
+
+const getClientMeta = (req: Request): ClientMeta => {
   const forwarded = (req.headers['x-forwarded-for'] || '') as string;
   const ip = (forwarded.split(',')[0] || req.ip || '').trim();
   const userAgent = String(req.headers['user-agent'] || '');
@@ -194,7 +196,7 @@ const getClientMeta = (req: Request) => {
 const logAuthEvent = async (payload: { userId?: string | null; email?: string | null; event: string; meta?: any }, req?: Request) => {
   try {
     const meta = payload.meta || {};
-    const client = req ? getClientMeta(req) : {};
+    const client: ClientMeta = req ? getClientMeta(req) : {};
     await prisma.authAuditLog.create({
       data: {
         userId: payload.userId || null,

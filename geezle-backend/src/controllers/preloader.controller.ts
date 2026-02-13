@@ -224,7 +224,10 @@ const buildLogoUrlMap = async (configs: any[]) => {
     where: { id: { in: logoIds } },
     select: { id: true, url: true }
   });
-  return new Map(files.map((row) => [row.id, row.url]));
+  const pairs: Array<[string, string]> = files
+    .map((row: any) => [String(row.id), String(row.url || '').trim()] as [string, string])
+    .filter(([, url]) => Boolean(url));
+  return new Map<string, string>(pairs);
 };
 
 const emitRealtimeUpdate = async (req: Request) => {

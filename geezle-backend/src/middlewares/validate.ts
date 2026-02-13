@@ -10,7 +10,7 @@ export function validate(schema: ZodSchema) {
         error: { message: 'Validation failed', code: 'VALIDATION_ERROR', details: parsed.error.flatten() },
       });
     }
-    next();
+    return next();
   };
 }
 
