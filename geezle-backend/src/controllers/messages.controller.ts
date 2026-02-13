@@ -301,21 +301,29 @@ const formatConversationMessage = (
   };
 };
 
-const buildConversationPayload = (conversation: any, viewerId?: string) => {
+const buildConversationPayload = (
+  conversation: any,
+  viewerId?: string,
+  options?: { hiddenMessageIds?: Set<string> }
+) => {
   const participants = conversation.participants.map(formatParticipant);
   const viewer = viewerId
     ? conversation.participants.find((p: any) => p.userId === viewerId)
     : null;
   const lastReadAt = viewer?.lastReadAt ? new Date(viewer.lastReadAt).getTime() : 0;
+  const hiddenMessageIds = options?.hiddenMessageIds || new Set<string>();
 
-  const messages = conversation.messages.map((message: any) =>
+  const visibleMessagesSource = Array.isArray(conversation.messages)
+    ? conversation.messages.filter((message: any) => !hiddenMessageIds.has(String(message?.id || '')))
+    : [];
+
+  const messages = visibleMessagesSource.map((message: any) =>
     formatConversationMessage(message, conversation, viewerId, lastReadAt)
   );
 
-  const lastMessage =
-    conversation.lastMessageText || messages[messages.length - 1]?.text || '';
-  const lastMessageAt =
-    conversation.lastMessageAt?.toISOString() || messages[messages.length - 1]?.timestamp || '';
+  const lastVisibleMessage = messages[messages.length - 1];
+  const lastMessage = lastVisibleMessage?.text || '';
+  const lastMessageAt = lastVisibleMessage?.timestamp || '';
 
   const unreadCount = viewerId
     ? messages.filter(
@@ -349,8 +357,12 @@ const buildConversationPayload = (conversation: any, viewerId?: string) => {
   };
 };
 
-const buildConversationPayloadWithAttachments = async (conversation: any, viewerId?: string) => {
-  const payload = buildConversationPayload(conversation, viewerId);
+const buildConversationPayloadWithAttachments = async (
+  conversation: any,
+  viewerId?: string,
+  options?: { hiddenMessageIds?: Set<string> }
+) => {
+  const payload = buildConversationPayload(conversation, viewerId, options);
   const attachmentIds = payload.messages.flatMap((msg: any) =>
     Array.isArray(msg.attachments) ? msg.attachments : []
   );
@@ -427,6 +439,43 @@ const writeMessageRecord = async (payload: {
   }
 };
 
+const getDeletedForMeMessageMap = async (userId: string, conversationIds: string[]) => {
+  const map = new Map<string, Set<string>>();
+  const normalizedUserId = String(userId || '').trim();
+  const normalizedConversationIds = Array.from(
+    new Set((conversationIds || []).map((value) => String(value || '').trim()).filter(Boolean))
+  );
+  if (!normalizedUserId || !normalizedConversationIds.length) return map;
+  try {
+    const repo = (prisma as any).directMessageRecord;
+    if (!repo || typeof repo.findMany !== 'function') return map;
+    const rows = await repo.findMany({
+      where: {
+        actorUserId: normalizedUserId,
+        action: 'DELETED_FOR_ME',
+        conversationId: { in: normalizedConversationIds },
+        messageId: { not: null }
+      },
+      select: {
+        conversationId: true,
+        messageId: true
+      }
+    });
+    (rows || []).forEach((row: any) => {
+      const conversationId = String(row?.conversationId || '').trim();
+      const messageId = String(row?.messageId || '').trim();
+      if (!conversationId || !messageId) return;
+      if (!map.has(conversationId)) map.set(conversationId, new Set<string>());
+      map.get(conversationId)!.add(messageId);
+    });
+  } catch (error: any) {
+    if (!isMessageRecordStoreUnsupportedError(error)) {
+      console.warn('[messages] failed to resolve deleted-for-me map', error);
+    }
+  }
+  return map;
+};
+
 export const listConversations = async (req: Request, res: Response) => {
   try {
     const role = resolveRole(req);
@@ -482,7 +531,14 @@ export const listConversations = async (req: Request, res: Response) => {
       } as any);
     }
 
-    const basePayload = conversations.map((conversation) => buildConversationPayload(conversation, userId));
+    const hiddenMessageMap = !admin && userId
+      ? await getDeletedForMeMessageMap(userId, conversations.map((conversation) => String(conversation.id || '')))
+      : new Map<string, Set<string>>();
+    const basePayload = conversations.map((conversation) =>
+      buildConversationPayload(conversation, userId, {
+        hiddenMessageIds: hiddenMessageMap.get(String(conversation.id || '')) || new Set<string>()
+      })
+    );
     const attachmentIds = basePayload.flatMap((conversation: any) =>
       conversation.messages.flatMap((msg: any) => (Array.isArray(msg.attachments) ? msg.attachments : []))
     );
@@ -548,9 +604,14 @@ export const getConversation = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
+    const hiddenMessageMap = !admin && userId
+      ? await getDeletedForMeMessageMap(userId, [String(conversation.id || '')])
+      : new Map<string, Set<string>>();
     return res.json({
       success: true,
-      data: await buildConversationPayloadWithAttachments(conversation, userId)
+      data: await buildConversationPayloadWithAttachments(conversation, userId, {
+        hiddenMessageIds: hiddenMessageMap.get(String(conversation.id || '')) || new Set<string>()
+      })
     });
   } catch (error: any) {
     console.error('Get conversation error:', error);
@@ -1201,8 +1262,14 @@ export const toggleReaction = async (req: Request, res: Response) => {
       userReaction: hasSame ? null : emoji
     };
 
-    message.conversation.participants.forEach((entry) => {
-      emitToUser(req, entry.userId, 'messages:updated', payload);
+    const fanoutUserIds = Array.from(
+      new Set([
+        String(message.senderId || '').trim(),
+        ...message.conversation.participants.map((entry) => String(entry.userId || '').trim())
+      ].filter(Boolean))
+    );
+    fanoutUserIds.forEach((targetUserId) => {
+      emitToUser(req, targetUserId, 'messages:updated', payload);
     });
     traceMessageEvent('api.toggle_reaction.success', {
       conversationId: message.conversationId,
@@ -1402,17 +1469,20 @@ export const deleteMessage = async (req: Request, res: Response) => {
     const userId = resolveUserId(req);
     const admin = isAdminRole(role);
     const messageId = req.params.messageId;
+    const deleteScopeRaw = String(req.query?.scope || req.body?.scope || 'everyone').trim().toLowerCase();
+    const deleteScope: 'me' | 'everyone' = deleteScopeRaw === 'me' ? 'me' : 'everyone';
     traceMessageEvent('api.delete_message.request', {
       conversationId: req.params?.id,
       messageId,
-      userId
+      userId,
+      scope: deleteScope
     });
     const message = await prisma.directMessage.findUnique({
       where: { id: messageId },
       include: {
         conversation: {
           include: {
-            participants: { select: { userId: true } }
+            participants: { select: { userId: true, deletedAt: true } }
           }
         }
       }
@@ -1420,20 +1490,88 @@ export const deleteMessage = async (req: Request, res: Response) => {
     if (!message) {
       return res.status(404).json({ success: false, error: 'Message not found' });
     }
-    if (!admin && message.senderId !== userId) {
+    const isParticipant = message.conversation.participants.some(
+      (entry) => entry.userId === userId && !entry.deletedAt
+    );
+    if (!admin && !isParticipant) {
       return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
-    if (message.deletedAt) {
-      return res.json({ success: true });
+    if (deleteScope === 'me') {
+      if (!userId) {
+        return res.status(400).json({ success: false, error: 'User is required for delete scope "me"' });
+      }
+      let alreadyDeletedForMe = false;
+      try {
+        const repo = (prisma as any).directMessageRecord;
+        if (repo && typeof repo.findFirst === 'function') {
+          const existing = await repo.findFirst({
+            where: {
+              messageId: message.id,
+              conversationId: message.conversationId,
+              actorUserId: userId,
+              action: 'DELETED_FOR_ME'
+            },
+            select: { id: true }
+          });
+          alreadyDeletedForMe = Boolean(existing?.id);
+        }
+      } catch (error: any) {
+        if (!isMessageRecordStoreUnsupportedError(error)) {
+          console.warn('[messages] failed to check deleted-for-me state', error);
+        }
+      }
+
+      if (!alreadyDeletedForMe) {
+        await writeMessageRecord({
+          messageId: message.id,
+          conversationId: message.conversationId,
+          action: 'DELETED_FOR_ME',
+          actorUserId: userId,
+          targetUserId: message.senderId,
+          beforeText: message.text,
+          afterText: message.text,
+          beforeAttachments: Array.isArray(message.attachments) ? message.attachments : [],
+          afterAttachments: Array.isArray(message.attachments) ? message.attachments : [],
+          metadata: {
+            scope: 'me',
+            conversationId: message.conversationId
+          }
+        });
+      }
+
+      const payload = {
+        conversationId: message.conversationId,
+        messageId: message.id,
+        deleted_for_me: true,
+        deletedForMe: true,
+        scope: 'me'
+      };
+      emitToUser(req, userId, 'messages:updated', payload);
+      traceMessageEvent('api.delete_message.success', {
+        conversationId: message.conversationId,
+        messageId: message.id,
+        userId,
+        scope: 'me'
+      });
+      return res.json({ success: true, data: payload });
     }
 
+    if (!admin && message.senderId !== userId) {
+      return res.status(403).json({ success: false, error: 'Only the sender can delete for everyone' });
+    }
+
+    if (message.deletedAt) {
+      return res.json({ success: true, data: { conversationId: message.conversationId, messageId: message.id, scope: 'everyone' } });
+    }
+
+    const deletedAt = new Date();
     await prisma.directMessage.update({
       where: { id: messageId },
       data: {
         text: '[Message deleted]',
         attachments: [],
-        deletedAt: new Date()
+        deletedAt
       }
     });
 
@@ -1476,21 +1614,29 @@ export const deleteMessage = async (req: Request, res: Response) => {
       text: '[Message deleted]',
       is_deleted: true,
       isDeleted: true,
-      deleted_at: new Date().toISOString(),
-      deletedAt: new Date().toISOString(),
-      attachments: []
+      deleted_at: deletedAt.toISOString(),
+      deletedAt: deletedAt.toISOString(),
+      attachments: [],
+      scope: 'everyone'
     };
 
-    message.conversation.participants.forEach((entry) => {
-      emitToUser(req, entry.userId, 'messages:updated', payload);
+    const fanoutUserIds = Array.from(
+      new Set([
+        String(message.senderId || '').trim(),
+        ...message.conversation.participants.map((entry) => String(entry.userId || '').trim())
+      ].filter(Boolean))
+    );
+    fanoutUserIds.forEach((targetUserId) => {
+      emitToUser(req, targetUserId, 'messages:updated', payload);
     });
     traceMessageEvent('api.delete_message.success', {
       conversationId: message.conversationId,
       messageId: message.id,
-      userId
+      userId,
+      scope: 'everyone'
     });
 
-    return res.json({ success: true });
+    return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Delete message error:', error);
     traceMessageEvent('api.delete_message.error', {
