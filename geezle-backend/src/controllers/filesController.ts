@@ -74,7 +74,13 @@ const ALLOWED_IMAGE_MIME_TYPES = new Set([
 const ALLOWED_VIDEO_MIME_TYPES = new Set([
   'video/mp4',
   'video/webm',
-  'video/quicktime'
+  'video/quicktime',
+  'video/x-msvideo',
+  'video/x-matroska',
+  'video/x-m4v',
+  'video/3gpp',
+  'video/3gpp2',
+  'video/mpeg'
 ]);
 
 const ALLOWED_DOCUMENT_MIME_TYPES = new Set([
@@ -88,6 +94,52 @@ const ALLOWED_DOCUMENT_MIME_TYPES = new Set([
   'application/vnd.ms-powerpoint',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 ]);
+
+const ALLOWED_IMAGE_EXTENSIONS = new Set([
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.webp',
+  '.gif',
+  '.bmp',
+  '.svg',
+  '.tif',
+  '.tiff'
+]);
+
+const ALLOWED_VIDEO_EXTENSIONS = new Set([
+  '.mp4',
+  '.webm',
+  '.mov',
+  '.avi',
+  '.mkv',
+  '.m4v',
+  '.3gp',
+  '.3g2',
+  '.mpeg',
+  '.mpg'
+]);
+
+const ALLOWED_DOCUMENT_EXTENSIONS = new Set([
+  '.pdf',
+  '.txt',
+  '.csv',
+  '.doc',
+  '.docx',
+  '.xls',
+  '.xlsx',
+  '.ppt',
+  '.pptx'
+]);
+
+// APK binaries are intentionally restricted to admin/staff uploads.
+const ALLOWED_ADMIN_BINARY_MIME_TYPES = new Set([
+  'application/vnd.android.package-archive',
+  'application/octet-stream'
+]);
+
+const ALLOWED_ADMIN_BINARY_EXTENSIONS = new Set(['.apk']);
+const MAX_ADMIN_BINARY_BYTES = 200 * 1024 * 1024;
 
 const MAX_UPLOAD_BYTES: Record<'image' | 'video' | 'document', number> = {
   image: 15 * 1024 * 1024,
@@ -239,22 +291,64 @@ const hasFfprobe = async () => {
   return ffprobeAvailableCache;
 };
 
-const resolveUploadKind = (mimeType: string): UploadKind | null => {
-  if (ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) return 'image';
-  if (ALLOWED_VIDEO_MIME_TYPES.has(mimeType)) return 'video';
-  if (ALLOWED_DOCUMENT_MIME_TYPES.has(mimeType)) return 'document';
+const isAdminUploadRequest = (req?: Request) => {
+  const roleCandidates = [
+    req?.user?.role,
+    req?.body?.role,
+    req?.body?.owner_role,
+    req?.query?.role
+  ];
+  return roleCandidates.some((value) =>
+    ['admin', 'superadmin', 'moderator'].includes(String(value || '').toLowerCase())
+  );
+};
+
+const resolveUploadKind = (
+  mimeType: string,
+  originalName?: string,
+  allowAdminBinary = false
+): UploadKind | null => {
+  const normalizedMime = String(mimeType || '').toLowerCase();
+  const ext = path.extname(String(originalName || '')).toLowerCase();
+
+  if (ALLOWED_IMAGE_MIME_TYPES.has(normalizedMime)) return 'image';
+  if (ALLOWED_VIDEO_MIME_TYPES.has(normalizedMime)) return 'video';
+  if (ALLOWED_DOCUMENT_MIME_TYPES.has(normalizedMime)) return 'document';
+
+  // Some clients upload supported files as generic octet-stream.
+  if (!normalizedMime || normalizedMime === 'application/octet-stream') {
+    if (ALLOWED_IMAGE_EXTENSIONS.has(ext)) return 'image';
+    if (ALLOWED_VIDEO_EXTENSIONS.has(ext)) return 'video';
+    if (ALLOWED_DOCUMENT_EXTENSIONS.has(ext)) return 'document';
+  }
+
+  if (allowAdminBinary) {
+    const isAdminBinaryMime =
+      ALLOWED_ADMIN_BINARY_MIME_TYPES.has(normalizedMime) ||
+      normalizedMime === '';
+    const isAdminBinaryExtension = ALLOWED_ADMIN_BINARY_EXTENSIONS.has(ext);
+    if (isAdminBinaryMime && isAdminBinaryExtension) return 'document';
+  }
   return null;
 };
 
-const validateUploadFile = (file: Express.Multer.File) => {
+const validateUploadFile = (file: Express.Multer.File, req?: Request) => {
   const mimeType = String(file?.mimetype || '').toLowerCase();
-  const kind = resolveUploadKind(mimeType);
+  const originalName = String(file?.originalname || file?.filename || '');
+  const allowAdminBinary = isAdminUploadRequest(req);
+  const ext = path.extname(originalName).toLowerCase();
+  const isAdminBinaryUpload =
+    allowAdminBinary &&
+    ALLOWED_ADMIN_BINARY_EXTENSIONS.has(ext) &&
+    (ALLOWED_ADMIN_BINARY_MIME_TYPES.has(mimeType) || !mimeType);
+  const kind = resolveUploadKind(mimeType, originalName, allowAdminBinary);
   if (!kind) {
     throw new Error(`Unsupported file type: ${mimeType || 'unknown'}`);
   }
-  const maxSize = MAX_UPLOAD_BYTES[kind];
+  const maxSize = isAdminBinaryUpload ? MAX_ADMIN_BINARY_BYTES : MAX_UPLOAD_BYTES[kind];
   if (typeof maxSize === 'number' && Number(file?.size || 0) > maxSize) {
-    throw new Error(`File exceeds ${kind} upload limit (${Math.floor(maxSize / (1024 * 1024))}MB)`);
+    const label = isAdminBinaryUpload ? 'APK' : kind;
+    throw new Error(`File exceeds ${label} upload limit (${Math.floor(maxSize / (1024 * 1024))}MB)`);
   }
   return { kind };
 };
@@ -376,6 +470,7 @@ const getMimeTypeFromFilename = (filename: string) => {
     '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     '.ppt': 'application/vnd.ms-powerpoint',
     '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.apk': 'application/vnd.android.package-archive',
     '.zip': 'application/zip',
     '.rar': 'application/vnd.rar',
     '.7z': 'application/x-7z-compressed'
@@ -1357,7 +1452,7 @@ export const uploadFile = async (req: Request, res: Response) => {
     }
 
     try {
-      validateUploadFile(req.file);
+      validateUploadFile(req.file, req);
     } catch (validationError: any) {
       safeUnlink(req.file?.path);
       res.status(400).json({ success: false, error: validationError?.message || 'Invalid file upload' });
@@ -1517,7 +1612,7 @@ export const uploadMedia = async (req: Request, res: Response) => {
     }
 
     try {
-      validateUploadFile(req.file);
+      validateUploadFile(req.file, req);
     } catch (validationError: any) {
       safeUnlink(req.file?.path);
       res.status(400).json({ success: false, error: validationError?.message || 'Invalid file upload' });
