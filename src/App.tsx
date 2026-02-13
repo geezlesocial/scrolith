@@ -13,7 +13,6 @@ import SupportWidget from './components/SupportWidget';
 import ToastContainer from './components/ToastContainer';
 import MarketingPopups from './components/MarketingPopups';
 import OfflineBanner from './components/OfflineBanner';
-import PwaInstallPrompt from './components/PwaInstallPrompt';
 import AppDistributionPrompt from './components/AppDistributionPrompt';
 import { UserRole } from './types';
 import { CurrencyProvider } from './context/CurrencyContext';
@@ -380,7 +379,6 @@ const AppContent = () => {
     <div className="flex flex-col min-h-screen relative">
       <IntegrationsManager />
       <OfflineBanner />
-      <PwaInstallPrompt />
       <AppDistributionPrompt />
       {!isAdminRoute && <Navbar />}
       <main className="flex-grow">
