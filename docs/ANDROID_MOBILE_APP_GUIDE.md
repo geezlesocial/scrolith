@@ -87,14 +87,13 @@ Notes:
 ## 5) Icons / Splash
 
 1. Put your source images in `mobile/assets/`:
-- `mobile/assets/icon.png` (1024x1024)
-- `mobile/assets/splash.png` (2732x2732 recommended)
+- `mobile/assets/logo.png` (at least 1024x1024, transparent background recommended)
 
 2. Generate Android assets:
 
 ```powershell
 cd C:\Projects\mobile
-npx @capacitor/assets generate --android
+npx @capacitor/assets generate --android --iconBackgroundColor "#0b1020" --splashBackgroundColor "#0b1020"
 ```
 
 Then re-sync:
@@ -175,4 +174,3 @@ Android App Links will only verify if `scrolith.com` hosts:
 - `/.well-known/assetlinks.json`
 
 This is optional (custom scheme `scrolith://...` will still work), but verified App Links provide a better UX.
-
