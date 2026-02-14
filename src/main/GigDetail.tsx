@@ -1657,8 +1657,13 @@ const GigDetail = () => {
                                         ? '[Message deleted]'
                                         : message.text || (hasAttachments ? 'Sent an attachment' : '');
                                     return (
-                                        <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                                            <div className={`max-w-[86%] rounded-xl px-3 py-2 ${mine ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'}`}>
+                                        <div key={message.id} className={`flex min-w-0 ${mine ? 'justify-end' : 'justify-start'}`}>
+                                            <div
+                                                className={[
+                                                    'min-w-0 max-w-[86%] rounded-xl px-3 py-2',
+                                                    mine ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'
+                                                ].join(' ')}
+                                            >
                                                 {replyPreview ? (
                                                     <div className={`mb-1 rounded-md border px-2 py-1 text-[11px] ${mine ? 'border-blue-300/60 bg-blue-500/50 text-blue-50' : 'border-gray-200 bg-white/70 text-gray-600'}`}>
                                                         <p className="font-semibold">
@@ -1669,7 +1674,9 @@ const GigDetail = () => {
                                                         </p>
                                                     </div>
                                                 ) : null}
-                                                <p className="whitespace-pre-wrap break-words text-sm">{messageText}</p>
+                                                <p className="max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word] text-sm">
+                                                    {messageText}
+                                                </p>
                                                 <div className={`mt-1 flex items-center justify-end gap-2 text-[11px] ${mine ? 'text-blue-100' : 'text-gray-500'}`}>
                                                     <span>{formatGigChatTime(message.timestamp)}</span>
                                                     {user && !(message.isDeleted || message.is_deleted) ? (
