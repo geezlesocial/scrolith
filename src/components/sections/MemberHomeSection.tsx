@@ -1420,10 +1420,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
 
   const handlePostSubmit = useCallback(async () => {
     if (!user) return;
-    if (!postDraft.content.trim()) {
-      showNotification('warning', 'Posts', 'Please add content before posting.');
-      return;
-    }
     if (postDraft.media.some((item) => item.uploading)) {
       showNotification('warning', 'Posts', 'Wait for uploads to finish before posting.');
       return;
@@ -1432,12 +1428,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       showNotification('warning', 'Posts', 'Remove failed uploads before posting.');
       return;
     }
+    const attachmentFileIds = postDraft.media.map((m) => m.id).filter(Boolean) as string[];
+    const hasText = Boolean(postDraft.title.trim() || postDraft.content.trim());
+    if (!hasText && attachmentFileIds.length === 0) {
+      showNotification('warning', 'Posts', 'Add text or at least one attachment.');
+      return;
+    }
     setPosting(true);
     try {
       const created = await CommunityService.createPost({
         title: postDraft.title.trim(),
         content: postDraft.content,
-        attachmentFileIds: postDraft.media.map((m) => m.id).filter(Boolean) as string[],
+        attachmentFileIds,
         tags: postDraft.tags.split(',').map((t) => t.trim()).filter(Boolean),
         mentions: postDraft.mentions.split(',').map((m) => m.trim()).filter(Boolean),
         topic: postDraft.topic || undefined,

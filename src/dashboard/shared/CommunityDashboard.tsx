@@ -1008,10 +1008,6 @@ const CommunityDashboard: React.FC = () => {
   };
 
   const handlePostSubmit = async () => {
-    if (!postDraft.content.trim()) {
-      showNotification('warning', 'Posts', 'Please add content before posting.');
-      return;
-    }
     if (postDraft.media.some((item) => item.uploading)) {
       showNotification('warning', 'Posts', 'Wait for uploads to finish before posting.');
       return;
@@ -1020,12 +1016,18 @@ const CommunityDashboard: React.FC = () => {
       showNotification('warning', 'Posts', 'Remove failed uploads before posting.');
       return;
     }
+    const attachmentFileIds = postDraft.media.map((m) => m.id).filter(Boolean);
+    const hasText = Boolean(postDraft.title.trim() || postDraft.content.trim());
+    if (!hasText && attachmentFileIds.length === 0) {
+      showNotification('warning', 'Posts', 'Add text or at least one attachment.');
+      return;
+    }
     setPosting(true);
     try {
       await CommunityService.createPost({
         title: postDraft.title.trim(),
         content: postDraft.content,
-        attachmentFileIds: postDraft.media.map((m) => m.id).filter(Boolean),
+        attachmentFileIds,
         tags: postDraft.tags.split(',').map((t) => t.trim()).filter(Boolean),
         mentions: postDraft.mentions.split(',').map((m) => m.trim()).filter(Boolean),
         topic: postDraft.topic || undefined,
