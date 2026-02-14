@@ -179,20 +179,9 @@ export default function MobilePostScreen() {
       <FilePickerModal
         isOpen={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        multiple
         filterType="all"
         allowUpload
         allowCamera
-        onSelectMultiple={(files) => {
-          setAttachments((prev) => {
-            const next = [...prev];
-            (files || []).forEach((f) => {
-              if (!next.some((x) => String(x.id) === String(f.id))) next.push(f);
-            });
-            return next;
-          });
-          setPickerOpen(false);
-        }}
         onSelect={(file) => {
           setAttachments((prev) => {
             if (prev.some((x) => String(x.id) === String(file.id))) return prev;
