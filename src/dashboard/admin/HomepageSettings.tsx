@@ -386,6 +386,38 @@ const ReactionsEngagementManager = () => {
         inlineFrequency: 6,
       }
     },
+    mobileHomeLayout: {
+      bottomTabs: {
+        home: true,
+        network: true,
+        post: true,
+        notifications: true,
+        jobs: true,
+        messages: false,
+      },
+      feed: {
+        showPromoted: true,
+        promotedFrequency: 6,
+        showSuggestedPeople: true,
+        showSuggestedPages: true,
+        showTrendingTags: true,
+        showRecommendedGigsJobs: false,
+      },
+      postCard: {
+        reactionsEnabled: true,
+        commentsEnabled: true,
+        repostsEnabled: true,
+        sendEnabled: true,
+        linkPreviewEnabled: true,
+        mediaPreviewEnabled: true,
+        mentionsEnabled: true,
+        hashtagsEnabled: true,
+      },
+      search: {
+        enabled: true,
+        categories: ['posts', 'people', 'pages', 'jobs', 'gigs'],
+      },
+    },
     gigExperience: {
       enabled: true,
       chatBarEnabled: true,
@@ -440,6 +472,7 @@ const ReactionsEngagementManager = () => {
     const source: any = settings || {};
     const reactions = source.reactions || {};
     const memberHome = source.memberHome || {};
+    const mobileHomeLayout = source.mobileHomeLayout || source.mobile_home_layout || {};
     const gigExperience = source.gigExperience || {};
     const notifications = source.notifications || {};
     const profileDemographics = source.profileDemographics || {};
@@ -447,6 +480,14 @@ const ReactionsEngagementManager = () => {
     const widgets = memberHome.widgets || {};
     const feed = memberHome.feed || {};
     const ads = memberHome.ads || {};
+    const mobileBottomTabs = mobileHomeLayout.bottomTabs || mobileHomeLayout.bottom_tabs || {};
+    const mobileFeed = mobileHomeLayout.feed || {};
+    const mobilePostCard = mobileHomeLayout.postCard || mobileHomeLayout.post_card || {};
+    const mobileSearch = mobileHomeLayout.search || {};
+    const mobileSearchCategories =
+      Array.isArray(mobileSearch.categories) && mobileSearch.categories.length
+        ? mobileSearch.categories
+        : undefined;
     const allowed = Array.isArray(reactions.allowed) && reactions.allowed.length
       ? reactions.allowed
       : config.reactions.allowed;
@@ -470,6 +511,27 @@ const ReactionsEngagementManager = () => {
         ads: {
           ...prev.memberHome.ads,
           ...ads
+        }
+      },
+      mobileHomeLayout: {
+        ...prev.mobileHomeLayout,
+        ...mobileHomeLayout,
+        bottomTabs: {
+          ...prev.mobileHomeLayout.bottomTabs,
+          ...mobileBottomTabs
+        },
+        feed: {
+          ...prev.mobileHomeLayout.feed,
+          ...mobileFeed
+        },
+        postCard: {
+          ...prev.mobileHomeLayout.postCard,
+          ...mobilePostCard
+        },
+        search: {
+          ...prev.mobileHomeLayout.search,
+          ...mobileSearch,
+          categories: mobileSearchCategories || prev.mobileHomeLayout.search.categories
         }
       },
       gigExperience: {
@@ -512,6 +574,26 @@ const ReactionsEngagementManager = () => {
           widgets: { ...((settings as any)?.memberHome?.widgets || {}), ...config.memberHome.widgets },
           feed: { ...((settings as any)?.memberHome?.feed || {}), ...config.memberHome.feed },
           ads: { ...((settings as any)?.memberHome?.ads || {}), ...config.memberHome.ads },
+        },
+        mobileHomeLayout: {
+          ...((settings as any)?.mobileHomeLayout || {}),
+          ...config.mobileHomeLayout,
+          bottomTabs: {
+            ...((settings as any)?.mobileHomeLayout?.bottomTabs || {}),
+            ...(config.mobileHomeLayout?.bottomTabs || {})
+          },
+          feed: {
+            ...((settings as any)?.mobileHomeLayout?.feed || {}),
+            ...(config.mobileHomeLayout?.feed || {})
+          },
+          postCard: {
+            ...((settings as any)?.mobileHomeLayout?.postCard || {}),
+            ...(config.mobileHomeLayout?.postCard || {})
+          },
+          search: {
+            ...((settings as any)?.mobileHomeLayout?.search || {}),
+            ...(config.mobileHomeLayout?.search || {})
+          }
         },
         gigExperience: {
           ...((settings as any)?.gigExperience || {}),
@@ -971,6 +1053,244 @@ const ReactionsEngagementManager = () => {
               }
             />
           </label>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="mb-1 flex items-center gap-2">
+          <Smartphone className="h-4 w-4 text-gray-700" />
+          <h3 className="text-base font-bold text-gray-900">Mobile Home Layout (Web + App)</h3>
+        </div>
+        <p className="text-xs text-gray-500">
+          Controls the LinkedIn-style mobile shell at <span className="font-semibold">/m/home</span>. Changes apply instantly for
+          logged-in users.
+        </p>
+
+        <div className="mt-5 space-y-6">
+          <div>
+            <div className="mb-2 text-sm font-semibold text-gray-800">Bottom Tabs</div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {(['home', 'network', 'post', 'notifications', 'jobs', 'messages'] as const).map((key) => (
+                <label key={key} className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+                  {key === 'home'
+                    ? 'Home'
+                    : key === 'network'
+                      ? 'My Network'
+                      : key === 'post'
+                        ? 'Post (+)'
+                        : key === 'notifications'
+                          ? 'Notifications'
+                          : key === 'jobs'
+                            ? 'Jobs'
+                            : 'Messages'}
+                  <input
+                    type="checkbox"
+                    checked={Boolean(config.mobileHomeLayout?.bottomTabs?.[key])}
+                    onChange={(e) =>
+                      setConfig((p: any) => ({
+                        ...p,
+                        mobileHomeLayout: {
+                          ...p.mobileHomeLayout,
+                          bottomTabs: { ...p.mobileHomeLayout.bottomTabs, [key]: e.target.checked }
+                        }
+                      }))
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 text-sm font-semibold text-gray-800">Feed Composition</div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+                Show promoted posts (ads)
+                <input
+                  type="checkbox"
+                  checked={Boolean(config.mobileHomeLayout?.feed?.showPromoted)}
+                  onChange={(e) =>
+                    setConfig((p: any) => ({
+                      ...p,
+                      mobileHomeLayout: { ...p.mobileHomeLayout, feed: { ...p.mobileHomeLayout.feed, showPromoted: e.target.checked } }
+                    }))
+                  }
+                />
+              </label>
+              <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+                <div className="mb-1 text-xs font-semibold text-gray-500">Promoted frequency (every N posts)</div>
+                <input
+                  type="number"
+                  min={2}
+                  max={20}
+                  className="w-full rounded border border-gray-200 px-2 py-1"
+                  value={Number(config.mobileHomeLayout?.feed?.promotedFrequency ?? 6)}
+                  onChange={(e) =>
+                    setConfig((p: any) => ({
+                      ...p,
+                      mobileHomeLayout: {
+                        ...p.mobileHomeLayout,
+                        feed: { ...p.mobileHomeLayout.feed, promotedFrequency: Number(e.target.value || 6) }
+                      }
+                    }))
+                  }
+                />
+              </label>
+              <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+                Suggested people cards
+                <input
+                  type="checkbox"
+                  checked={Boolean(config.mobileHomeLayout?.feed?.showSuggestedPeople)}
+                  onChange={(e) =>
+                    setConfig((p: any) => ({
+                      ...p,
+                      mobileHomeLayout: {
+                        ...p.mobileHomeLayout,
+                        feed: { ...p.mobileHomeLayout.feed, showSuggestedPeople: e.target.checked }
+                      }
+                    }))
+                  }
+                />
+              </label>
+              <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+                Suggested pages cards
+                <input
+                  type="checkbox"
+                  checked={Boolean(config.mobileHomeLayout?.feed?.showSuggestedPages)}
+                  onChange={(e) =>
+                    setConfig((p: any) => ({
+                      ...p,
+                      mobileHomeLayout: {
+                        ...p.mobileHomeLayout,
+                        feed: { ...p.mobileHomeLayout.feed, showSuggestedPages: e.target.checked }
+                      }
+                    }))
+                  }
+                />
+              </label>
+              <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+                Trending tags block
+                <input
+                  type="checkbox"
+                  checked={Boolean(config.mobileHomeLayout?.feed?.showTrendingTags)}
+                  onChange={(e) =>
+                    setConfig((p: any) => ({
+                      ...p,
+                      mobileHomeLayout: {
+                        ...p.mobileHomeLayout,
+                        feed: { ...p.mobileHomeLayout.feed, showTrendingTags: e.target.checked }
+                      }
+                    }))
+                  }
+                />
+              </label>
+              <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+                Recommended gigs/jobs block
+                <input
+                  type="checkbox"
+                  checked={Boolean(config.mobileHomeLayout?.feed?.showRecommendedGigsJobs)}
+                  onChange={(e) =>
+                    setConfig((p: any) => ({
+                      ...p,
+                      mobileHomeLayout: {
+                        ...p.mobileHomeLayout,
+                        feed: { ...p.mobileHomeLayout.feed, showRecommendedGigsJobs: e.target.checked }
+                      }
+                    }))
+                  }
+                />
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 text-sm font-semibold text-gray-800">Post Card Features</div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {[
+                ['reactionsEnabled', 'Reactions enabled'],
+                ['commentsEnabled', 'Comments enabled'],
+                ['repostsEnabled', 'Reposts enabled'],
+                ['sendEnabled', 'Send / Share enabled'],
+                ['linkPreviewEnabled', 'Link preview enabled'],
+                ['mediaPreviewEnabled', 'Media preview enabled'],
+                ['mentionsEnabled', 'Mentions enabled'],
+                ['hashtagsEnabled', 'Hashtags enabled']
+              ].map(([key, label]) => (
+                <label key={key} className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+                  {label}
+                  <input
+                    type="checkbox"
+                    checked={Boolean((config.mobileHomeLayout?.postCard || {})[key])}
+                    onChange={(e) =>
+                      setConfig((p: any) => ({
+                        ...p,
+                        mobileHomeLayout: {
+                          ...p.mobileHomeLayout,
+                          postCard: { ...p.mobileHomeLayout.postCard, [key]: e.target.checked }
+                        }
+                      }))
+                    }
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 text-sm font-semibold text-gray-800">Search</div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+                Search enabled
+                <input
+                  type="checkbox"
+                  checked={Boolean(config.mobileHomeLayout?.search?.enabled)}
+                  onChange={(e) =>
+                    setConfig((p: any) => ({
+                      ...p,
+                      mobileHomeLayout: {
+                        ...p.mobileHomeLayout,
+                        search: { ...p.mobileHomeLayout.search, enabled: e.target.checked }
+                      }
+                    }))
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <div className="mb-2 text-xs font-semibold text-gray-600">Search categories</div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {(['posts', 'people', 'pages', 'jobs', 'gigs'] as const).map((cat) => {
+                  const list = Array.isArray(config.mobileHomeLayout?.search?.categories) ? config.mobileHomeLayout.search.categories : [];
+                  const checked = list.includes(cat);
+                  return (
+                    <label key={cat} className="flex items-center justify-between rounded-md bg-white px-3 py-2 text-sm">
+                      {cat.toUpperCase()}
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) =>
+                          setConfig((p: any) => {
+                            const current = Array.isArray(p.mobileHomeLayout?.search?.categories) ? p.mobileHomeLayout.search.categories : [];
+                            const next = e.target.checked
+                              ? Array.from(new Set([...current, cat]))
+                              : current.filter((x: string) => x !== cat);
+                            return {
+                              ...p,
+                              mobileHomeLayout: {
+                                ...p.mobileHomeLayout,
+                                search: { ...p.mobileHomeLayout.search, categories: next }
+                              }
+                            };
+                          })
+                        }
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

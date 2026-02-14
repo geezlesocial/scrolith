@@ -79,6 +79,14 @@ const Favorites = React.lazy(() => import('./pages/Favorites'));
 const Cart = React.lazy(() => import('./pages/Cart'));
 const SettingsModule = React.lazy(() => import('./dashboard/shared/SettingsModule'));
 
+// Mobile (LinkedIn-style) logged-in home shell
+const MobileHome = React.lazy(() => import('./mobile/home/MobileHome'));
+const MobileFeedScreen = React.lazy(() => import('./mobile/home/screens/MobileFeedScreen'));
+const MobileNetworkScreen = React.lazy(() => import('./mobile/home/screens/MobileNetworkScreen'));
+const MobilePostScreen = React.lazy(() => import('./mobile/home/screens/MobilePostScreen'));
+const MobileNotificationsScreen = React.lazy(() => import('./mobile/home/screens/MobileNotificationsScreen'));
+const MobileJobsScreen = React.lazy(() => import('./mobile/home/screens/MobileJobsScreen'));
+
 // Community Components
 const CommunityLayout = React.lazy(() => import('./community/CommunityLayout'));
 const CommunityHome = React.lazy(() => import('./community/CommunityHome'));
@@ -442,6 +450,7 @@ const AppContent = () => {
   // Hide Navbar/Footer on Admin Dashboard for full screen feel
   const isAdminRoute = location.pathname.startsWith('/admin') || location.pathname.startsWith('/dev-docs');
   const isMessagesRoute = /^\/messages(\/|$)/.test(location.pathname);
+  const isMobileShellRoute = /^\/m(\/|$)/.test(location.pathname);
   const activeTab = new URLSearchParams(location.search).get('tab')?.toLowerCase();
   const isMessagesTabRoute = activeTab === 'messages';
   const uiVisibility = ((settings as any)?.uiVisibility || (settings as any)?.ui_visibility || {}) as Record<string, any>;
@@ -464,15 +473,15 @@ const AppContent = () => {
 
   const isFooterSuppressedByRule = matchesAnyRouteRule(location.pathname, footerHiddenRoutes);
   const isSupportWidgetSuppressedByRule = matchesAnyRouteRule(location.pathname, supportWidgetHiddenRoutes);
-  const shouldHideSupportWidget = isMessagesRoute || isMessagesTabRoute || isSupportWidgetSuppressedByRule;
-  const shouldHideFooter = isAdminRoute || isMessagesRoute || isFooterSuppressedByRule;
+  const shouldHideSupportWidget = isMobileShellRoute || isMessagesRoute || isMessagesTabRoute || isSupportWidgetSuppressedByRule;
+  const shouldHideFooter = isMobileShellRoute || isAdminRoute || isMessagesRoute || isFooterSuppressedByRule;
   
   return (
     <div className="flex flex-col min-h-screen relative">
       <IntegrationsManager />
       <OfflineBanner />
-      <AppDistributionPrompt />
-      {!isAdminRoute && <Navbar />}
+      {!isMobileShellRoute && <AppDistributionPrompt />}
+      {!isAdminRoute && !isMobileShellRoute && <Navbar />}
       <main className="flex-grow">
         <ErrorBoundary>
           <Suspense fallback={
@@ -485,6 +494,23 @@ const AppContent = () => {
           }>
             <Routes>
               <Route path="/" element={<Landing />} />
+
+              {/* Mobile logged-in shell (LinkedIn-style) */}
+              <Route
+                path="/m"
+                element={
+                  <ProtectedRoute>
+                    <MobileHome />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Navigate to="home" replace />} />
+                <Route path="home" element={<MobileFeedScreen />} />
+                <Route path="network" element={<MobileNetworkScreen />} />
+                <Route path="post" element={<MobilePostScreen />} />
+                <Route path="notifications" element={<MobileNotificationsScreen />} />
+                <Route path="jobs" element={<MobileJobsScreen />} />
+              </Route>
               <Route
                 path="/auth/login"
                 element={
@@ -699,7 +725,7 @@ const AppContent = () => {
       </main>
       {!shouldHideFooter && <DynamicFooter />}
       {!shouldHideSupportWidget && <SupportWidget />}
-      {!isAdminRoute && <MarketingPopups />}
+      {!isAdminRoute && !isMobileShellRoute && <MarketingPopups />}
       {biometricEnabled && !biometricVerified && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/80 p-6">
           <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">

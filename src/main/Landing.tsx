@@ -1,5 +1,6 @@
 import React, { useEffect, useState, Suspense, useMemo, useCallback } from 'react';
 import { Loader } from 'lucide-react';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { useContent } from '../context/ContentContext';
 import { useSocket } from '../context/SocketContext';
@@ -142,6 +143,7 @@ const normalizeSectionType = (value: any): string => {
 };
 
 const Landing = () => {
+  const location = useLocation();
   const t = useT();
   const [sections, setSections] = useState<HomepageSection[]>([]);
   const [slides, setSlides] = useState<HomeSlide[]>([]);
@@ -151,6 +153,24 @@ const Landing = () => {
   const { user } = useUser();
   const { settings } = useContent();
   const { socket } = useSocket();
+  const [isMobileViewport, setIsMobileViewport] = useState(
+    () => (typeof window !== 'undefined' ? window.innerWidth < 900 : false)
+  );
+
+  useEffect(() => {
+    const onResize = () => setIsMobileViewport(window.innerWidth < 900);
+    window.addEventListener('resize', onResize, { passive: true });
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const allowDesktopOverride =
+    new URLSearchParams(location.search).get('desktop') === '1' ||
+    new URLSearchParams(location.search).get('view') === 'desktop';
+
+  // Logged-in mobile home uses the dedicated LinkedIn-style shell for best UX.
+  if (user && isMobileViewport && !allowDesktopOverride) {
+    return <Navigate to="/m/home" replace />;
+  }
 
   const userRole = user?.role;
   const effectiveRole = userRole || UserRole.GUEST;

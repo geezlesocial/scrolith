@@ -29,6 +29,12 @@ type Props = {
   focusCommentId?: string;
   focusMentionToken?: string;
   onCommentCountChange?: (postId: string, count: number) => void;
+  features?: {
+    reactions?: boolean;
+    comments?: boolean;
+    reposts?: boolean;
+    send?: boolean;
+  };
   className?: string;
 };
 
@@ -78,6 +84,7 @@ const PostEngagementBar: React.FC<Props> = ({
   focusCommentId,
   focusMentionToken,
   onCommentCountChange,
+  features,
   className = ''
 }) => {
   const { user } = useUser();
@@ -92,8 +99,14 @@ const PostEngagementBar: React.FC<Props> = ({
   const reactionsEnabled = useMemo(() => {
     const master = reactionsSettings?.enabled ?? true;
     if (!master) return false;
+    if (features?.reactions === false) return false;
     return reactionsSettings?.postsEnabled ?? reactionsSettings?.posts_enabled ?? true;
-  }, [reactionsSettings]);
+  }, [features?.reactions, reactionsSettings]);
+
+  const commentsEnabled = features?.comments !== false;
+  const repostsEnabled = features?.reposts !== false;
+  const sendEnabled = features?.send !== false;
+  const actionCols = Math.max(1, [reactionsEnabled, commentsEnabled, repostsEnabled, sendEnabled].filter(Boolean).length);
 
   const allowed = useMemo(
     () => normalizeAllowed(reactionsSettings?.allowed),
@@ -244,7 +257,7 @@ const PostEngagementBar: React.FC<Props> = ({
     <div className={`mt-3 ${className}`}>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
         <div className="flex items-center gap-2">
-          {showCounts && totalReactions > 0 ? (
+          {showCounts && reactionsEnabled && totalReactions > 0 ? (
             <div className="inline-flex items-center gap-1">
               <div className="inline-flex -space-x-1">
                 {top.map((row) => (
@@ -264,19 +277,25 @@ const PostEngagementBar: React.FC<Props> = ({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              setCommentsOpen(true);
-              setFocusInputKey((prev) => prev + 1);
-              window.setTimeout(() => {
-                commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }, 40);
-            }}
-            className="hover:text-slate-700"
-          >
-            <span className="font-semibold text-slate-700">{commentCount}</span> comments
-          </button>
+          {commentsEnabled ? (
+            <button
+              type="button"
+              onClick={() => {
+                setCommentsOpen(true);
+                setFocusInputKey((prev) => prev + 1);
+                window.setTimeout(() => {
+                  commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 40);
+              }}
+              className="hover:text-slate-700"
+            >
+              <span className="font-semibold text-slate-700">{commentCount}</span> comments
+            </button>
+          ) : (
+            <span>
+              <span className="font-semibold text-slate-700">{commentCount}</span> comments
+            </span>
+          )}
           <span>
             <span className="font-semibold text-slate-700">{repostCount}</span> reposts
           </span>
@@ -289,7 +308,11 @@ const PostEngagementBar: React.FC<Props> = ({
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-4 gap-1 rounded-2xl border border-slate-100 bg-white p-1 shadow-sm">
+      <div
+        className="mt-3 grid gap-1 rounded-2xl border border-slate-100 bg-white p-1 shadow-sm"
+        style={{ gridTemplateColumns: `repeat(${actionCols}, minmax(0, 1fr))` }}
+      >
+        {reactionsEnabled ? (
         <div className="relative">
           <button
             ref={likeButtonRef}
@@ -348,103 +371,122 @@ const PostEngagementBar: React.FC<Props> = ({
             </div>
           ) : null}
         </div>
+        ) : null}
 
-        <button
-          type="button"
-          onClick={() => {
-            if (!checkAuth()) return;
-            setCommentsOpen((prev) => !prev);
-            setFocusInputKey((prev) => prev + 1);
-            window.setTimeout(() => {
-              commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }, 40);
-          }}
-          className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-        >
-          <MessageCircle className="h-4 w-4" />
-          <span>Comment</span>
-        </button>
+        {commentsEnabled ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (!checkAuth()) return;
+              setCommentsOpen((prev) => !prev);
+              setFocusInputKey((prev) => prev + 1);
+              window.setTimeout(() => {
+                commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }, 40);
+            }}
+            className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            <MessageCircle className="h-4 w-4" />
+            <span>Comment</span>
+          </button>
+        ) : null}
 
-        <button
-          type="button"
-          onClick={() => {
-            if (!checkAuth()) return;
-            setRepostOpen(true);
-          }}
-          className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-        >
-          <Repeat2 className="h-4 w-4" />
-          <span>Repost</span>
-        </button>
+        {repostsEnabled ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (!checkAuth()) return;
+              setRepostOpen(true);
+            }}
+            className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            <Repeat2 className="h-4 w-4" />
+            <span>Repost</span>
+          </button>
+        ) : null}
 
-        <button
-          type="button"
-          onClick={() => setShareOpen(true)}
-          className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-        >
-          <Send className="h-4 w-4" />
-          <span>Send</span>
-        </button>
+        {sendEnabled ? (
+          <button
+            type="button"
+            onClick={() => setShareOpen(true)}
+            className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            <Send className="h-4 w-4" />
+            <span>Send</span>
+          </button>
+        ) : null}
       </div>
 
       <div ref={commentsAnchorRef} />
-      <PostComments
-        postId={postId}
-        authorId={authorId}
-        commentPolicy={commentPolicy}
-        initialCount={commentCount}
-        focusCommentId={focusCommentId}
-        focusMentionToken={focusMentionToken}
-        expanded={commentsOpen}
-        focusInputKey={focusInputKey}
-        onCountChange={onCommentCountChange}
-      />
+      {commentsEnabled ? (
+        <PostComments
+          postId={postId}
+          authorId={authorId}
+          commentPolicy={commentPolicy}
+          initialCount={commentCount}
+          focusCommentId={focusCommentId}
+          focusMentionToken={focusMentionToken}
+          expanded={commentsOpen}
+          focusInputKey={focusInputKey}
+          onCountChange={onCommentCountChange}
+        />
+      ) : null}
 
-      <RepostModal
-        isOpen={repostOpen}
-        onClose={() => setRepostOpen(false)}
-        busy={actionBusy}
-        onRepostNow={async () => {
-          if (actionBusy) return;
-          if (!checkAuth()) return;
-          setActionBusy(true);
-          try {
-            const ok = await CommunityService.postRepost(postId, { createWrapper: true });
-            if (ok) {
-              showNotification('success', 'Repost', 'Shared to your feed.');
-              setRepostOpen(false);
-            } else {
-              showNotification('error', 'Repost', 'Unable to repost right now.');
+      {repostsEnabled ? (
+        <RepostModal
+          isOpen={repostOpen}
+          onClose={() => setRepostOpen(false)}
+          busy={actionBusy}
+          onRepostNow={async () => {
+            if (actionBusy) return;
+            if (!checkAuth()) return;
+            setActionBusy(true);
+            try {
+              const ok = await CommunityService.postRepost(postId, { createWrapper: true });
+              if (ok) {
+                showNotification('success', 'Repost', 'Shared to your feed.');
+                setRepostOpen(false);
+              } else {
+                showNotification('error', 'Repost', 'Unable to repost right now.');
+              }
+            } finally {
+              setActionBusy(false);
             }
-          } finally {
-            setActionBusy(false);
-          }
-        }}
-        onRepostWithComment={async (comment) => {
-          if (actionBusy) return;
-          if (!checkAuth()) return;
-          setActionBusy(true);
-          try {
-            const ok = await CommunityService.postRepost(postId, { createWrapper: true, content: comment });
-            if (ok) {
-              showNotification('success', 'Repost', 'Shared to your feed.');
-              setRepostOpen(false);
-            } else {
-              showNotification('error', 'Repost', 'Unable to repost right now.');
+          }}
+          onRepostWithComment={async (comment) => {
+            if (actionBusy) return;
+            if (!checkAuth()) return;
+            setActionBusy(true);
+            try {
+              const ok = await CommunityService.postRepost(postId, { createWrapper: true, content: comment });
+              if (ok) {
+                showNotification('success', 'Repost', 'Shared to your feed.');
+                setRepostOpen(false);
+              } else {
+                showNotification('error', 'Repost', 'Unable to repost right now.');
+              }
+            } finally {
+              setActionBusy(false);
             }
-          } finally {
-            setActionBusy(false);
-          }
-        }}
-      />
+          }}
+        />
+      ) : null}
 
-      <PostShareModal
-        isOpen={shareOpen}
-        onClose={() => setShareOpen(false)}
-        postId={postId}
-        postUrl={postUrl}
-        onShareToNetwork={() => setRepostOpen(true)}
-      />
+      {sendEnabled ? (
+        <PostShareModal
+          isOpen={shareOpen}
+          onClose={() => setShareOpen(false)}
+          postId={postId}
+          postUrl={postUrl}
+          onShareToNetwork={() => {
+            if (!repostsEnabled) {
+              showNotification('info', 'Share', 'Share-to-network is disabled right now.');
+              return;
+            }
+            setRepostOpen(true);
+          }}
+        />
+      ) : null}
     </div>
   );
 };
