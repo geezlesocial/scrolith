@@ -76,6 +76,8 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const loadMoreArmedRef = useRef(false);
   const cursorRef = useRef<string | null>(null);
   const loadInFlightRef = useRef(false);
+  const rateLimitUntilRef = useRef<number>(0);
+  const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
 
   const syncCommentCount = useCallback((postId: string, count: number) => {
     setPosts((prev) =>
@@ -89,6 +91,10 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   }, []);
 
   const load = useCallback(async (mode: 'initial' | 'more') => {
+    const now = Date.now();
+    if (rateLimitUntilRef.current && now < rateLimitUntilRef.current) {
+      return;
+    }
     if (loadInFlightRef.current) return;
     loadInFlightRef.current = true;
 
@@ -108,11 +114,41 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       const nextPosts = Array.isArray(resp?.items) ? resp.items : [];
       const nextCursor = resp?.nextCursor ? String(resp.nextCursor) : null;
 
+      rateLimitUntilRef.current = 0;
+      setRateLimitUntil(null);
       cursorRef.current = nextCursor;
       setCursor(nextCursor);
       setPosts((prev) => (mode === 'more' ? [...prev, ...nextPosts] : nextPosts));
     } catch (e: any) {
-      setError(e?.response?.data?.error ?? e?.message ?? 'Failed to load feed.');
+      const status = Number(e?.response?.status || 0);
+      const backendError = e?.response?.data?.error ?? e?.message ?? 'Failed to load feed.';
+
+      if (status === 429) {
+        const headers = (e?.response?.headers || {}) as Record<string, any>;
+        const retryAfterRaw = headers['retry-after'];
+        const resetRaw = headers['x-ratelimit-reset'];
+
+        let waitMs = 2 * 60 * 1000;
+        const retryAfterSeconds = Number.parseInt(String(retryAfterRaw || ''), 10);
+        if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+          waitMs = retryAfterSeconds * 1000;
+        } else {
+          const resetEpochSeconds = Number.parseInt(String(resetRaw || ''), 10);
+          if (Number.isFinite(resetEpochSeconds) && resetEpochSeconds > 0) {
+            const computed = resetEpochSeconds * 1000 - Date.now();
+            if (Number.isFinite(computed) && computed > 0) waitMs = computed;
+          }
+        }
+
+        // Clamp to a sane range to avoid giant or negative waits.
+        waitMs = clamp(waitMs, 10_000, 10 * 60 * 1000);
+        rateLimitUntilRef.current = Date.now() + waitMs;
+        setRateLimitUntil(rateLimitUntilRef.current);
+
+        setError(String(backendError || 'Too many requests. Please try again later.'));
+      } else {
+        setError(String(backendError));
+      }
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -286,6 +322,11 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
         <div className="rounded-2xl border border-red-200 bg-white p-4">
           <div className="text-sm font-semibold text-red-700">Feed error</div>
           <div className="mt-1 text-sm text-slate-700">{error}</div>
+          {rateLimitUntil && Date.now() < rateLimitUntil ? (
+            <div className="mt-2 text-xs font-semibold text-slate-500">
+              Rate limited. Please wait a moment, then retry.
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={() => void load('initial')}
@@ -477,7 +518,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
         <div ref={sentinelRef} className="h-6" />
 
-        {!cursor ? <div className="py-6 text-center text-xs text-slate-500">You’re all caught up.</div> : null}
+        {!cursor ? <div className="py-6 text-center text-xs text-slate-500">You're all caught up.</div> : null}
       </div>
     </div>
   );

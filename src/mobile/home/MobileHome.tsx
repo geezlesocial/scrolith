@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Briefcase, Coins, CreditCard, Eye, FileText, LayoutDashboard, LogOut, Plus, Settings, Users } from 'lucide-react';
+import { Briefcase, Coins, CreditCard, Eye, FileText, LayoutDashboard, LogOut, Plus, Settings, Star, Users } from 'lucide-react';
 
 import { useContent } from '../../context/ContentContext';
 import { useCurrency } from '../../context/CurrencyContext';
@@ -541,7 +541,7 @@ const MobileHome = () => {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <div className="truncate text-sm font-semibold text-slate-900">{name}</div>
-                        {starred ? <span className="text-xs text-amber-500">★</span> : null}
+                        {starred ? <Star className="h-4 w-4 text-amber-500" /> : null}
                       </div>
                       <div className="mt-0.5 truncate text-xs text-slate-500">
                         {lastMessage || 'Tap to open conversation'}
