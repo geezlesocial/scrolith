@@ -231,68 +231,112 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
   useEffect(() => {
     if (feedSettings.showPromoted === false) return;
-    CommunityService.getPublicAds({ placement: 'feed', limit: 8 })
-      .then((items) => setAds(shuffle(Array.isArray(items) ? items : [])))
-      .catch(() => setAds([]));
-  }, [feedSettings.showPromoted]);
+    if (loading || error) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      CommunityService.getPublicAds({ placement: 'feed', limit: 8 })
+        .then((items) => {
+          if (cancelled) return;
+          setAds(shuffle(Array.isArray(items) ? items : []));
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setAds([]);
+        });
+    }, 900);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [feedSettings.showPromoted, loading, error]);
 
   useEffect(() => {
     if (!showRecommendedGigsJobs) return;
+    if (loading || error) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
 
-    if (isFreelancerMode) {
-      jobsApi
-        .getJobs({ status: 'active', limit: 20 })
-        .then((data) => {
-          const list = Array.isArray(data?.jobs) ? data.jobs : [];
-          setRecommendedJobs(shuffle(list).slice(0, 8));
-          setRecommendedGigs([]);
-        })
-        .catch(() => {
-          setRecommendedJobs([]);
-        });
-      return;
-    }
+      if (isFreelancerMode) {
+        jobsApi
+          .getJobs({ status: 'active', limit: 20 })
+          .then((data) => {
+            if (cancelled) return;
+            const list = Array.isArray(data?.jobs) ? data.jobs : [];
+            setRecommendedJobs(shuffle(list).slice(0, 8));
+            setRecommendedGigs([]);
+          })
+          .catch(() => {
+            if (cancelled) return;
+            setRecommendedJobs([]);
+          });
+        return;
+      }
 
-    if (isClientMode) {
-      gigsApi
-        .getGigs({ status: 'active', limit: 20 })
-        .then((data: any) => {
-          const list = Array.isArray(data?.gigs) ? data.gigs : [];
-          setRecommendedGigs(shuffle(list).slice(0, 8));
-          setRecommendedJobs([]);
-        })
-        .catch(() => {
-          setRecommendedGigs([]);
-        });
-      return;
-    }
+      if (isClientMode) {
+        gigsApi
+          .getGigs({ status: 'active', limit: 20 })
+          .then((data: any) => {
+            if (cancelled) return;
+            const list = Array.isArray(data?.gigs) ? data.gigs : [];
+            setRecommendedGigs(shuffle(list).slice(0, 8));
+            setRecommendedJobs([]);
+          })
+          .catch(() => {
+            if (cancelled) return;
+            setRecommendedGigs([]);
+          });
+        return;
+      }
 
-    setRecommendedJobs([]);
-    setRecommendedGigs([]);
-  }, [showRecommendedGigsJobs, isFreelancerMode, isClientMode]);
+      setRecommendedJobs([]);
+      setRecommendedGigs([]);
+    }, 1100);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [showRecommendedGigsJobs, isFreelancerMode, isClientMode, loading, error]);
 
   useEffect(() => {
     if (feedSettings.showTrendingTags === false) return;
-    CommunityService.getTrendingTags(10, 7)
-      .then((items) => {
-        const mapped = (Array.isArray(items) ? items : []).map((row: any) => ({
-          slug: String(row?.slug || row?.id || row?.label || '').trim() || String(row?.label || '').trim(),
-          label: String(row?.label || row?.slug || row?.name || '').trim() || 'tag',
-          count: typeof row?.count === 'number' ? row.count : undefined
-        }));
-        setTrendingTags(mapped.filter((t) => t.slug && t.label));
-      })
-      .catch(() => setTrendingTags([]));
-  }, [feedSettings.showTrendingTags]);
+    if (loading || error) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      CommunityService.getTrendingTags(10, 7)
+        .then((items) => {
+          if (cancelled) return;
+          const mapped = (Array.isArray(items) ? items : []).map((row: any) => ({
+            slug: String(row?.slug || row?.id || row?.label || '').trim() || String(row?.label || '').trim(),
+            label: String(row?.label || row?.slug || row?.name || '').trim() || 'tag',
+            count: typeof row?.count === 'number' ? row.count : undefined
+          }));
+          setTrendingTags(mapped.filter((t) => t.slug && t.label));
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setTrendingTags([]);
+        });
+    }, 1400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [feedSettings.showTrendingTags, loading, error]);
 
   useEffect(() => {
     if (feedSettings.showSuggestedPeople === false) return;
     if (!user?.id) return;
+    if (loading || error) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
     Promise.allSettled([
       RecoService.getAccounts({ surface: 'who_to_follow', type: 'freelancer', limit: 4 }),
       RecoService.getAccounts({ surface: 'who_to_follow', type: 'client', limit: 4 })
     ])
       .then((results) => {
+        if (cancelled) return;
         const merged: any[] = [];
         results.forEach((r) => {
           if (r.status === 'fulfilled' && Array.isArray(r.value)) merged.push(...r.value);
@@ -310,29 +354,49 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
           .filter(Boolean);
         setSuggestedPeople(mapped.slice(0, 4));
       })
-      .catch(() => setSuggestedPeople([]));
-  }, [feedSettings.showSuggestedPeople, user?.id]);
+      .catch(() => {
+        if (cancelled) return;
+        setSuggestedPeople([]);
+      });
+    }, 1600);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [feedSettings.showSuggestedPeople, user?.id, loading, error]);
 
   useEffect(() => {
     if (feedSettings.showSuggestedPages === false) return;
     if (!user?.id) return;
-    RecoService.getAccounts({ surface: 'member_home', type: 'page', limit: 4 })
-      .then((items) => {
-        const mapped = (Array.isArray(items) ? items : [])
-          .map((p: any) => {
-            const account = p?.account || p;
-            const id = String(account?.id || p?.entityId || p?.id || p?.pageId || '').trim();
-            const name = String(account?.name || p?.name || 'Business page').trim();
-            const username = String(account?.slug || account?.handle || account?.username || p?.slug || '').trim();
-            const avatarUrl = account?.avatar || p?.avatar || null;
-            if (!id || !name) return null;
-            return { id, name, username, avatarUrl, targetType: 'page' as const };
-          })
-          .filter(Boolean);
-        setSuggestedPages(mapped.slice(0, 4));
-      })
-      .catch(() => setSuggestedPages([]));
-  }, [feedSettings.showSuggestedPages, user?.id]);
+    if (loading || error) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      RecoService.getAccounts({ surface: 'member_home', type: 'page', limit: 4 })
+        .then((items) => {
+          if (cancelled) return;
+          const mapped = (Array.isArray(items) ? items : [])
+            .map((p: any) => {
+              const account = p?.account || p;
+              const id = String(account?.id || p?.entityId || p?.id || p?.pageId || '').trim();
+              const name = String(account?.name || p?.name || 'Business page').trim();
+              const username = String(account?.slug || account?.handle || account?.username || p?.slug || '').trim();
+              const avatarUrl = account?.avatar || p?.avatar || null;
+              if (!id || !name) return null;
+              return { id, name, username, avatarUrl, targetType: 'page' as const };
+            })
+            .filter(Boolean);
+          setSuggestedPages(mapped.slice(0, 4));
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setSuggestedPages([]);
+        });
+    }, 1800);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [feedSettings.showSuggestedPages, user?.id, loading, error]);
 
   useEffect(() => {
     if (isConnected) return;
@@ -426,28 +490,34 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
   useEffect(() => {
     if (!user?.id || !posts.length) return;
+    if (loading || error) return;
 
     const pending = posts
       .map((p) => String(p?.id || '').trim())
       .filter(Boolean)
       .filter((id) => !viewTrackedRef.current.has(id))
-      .slice(0, 12);
+      .slice(0, 4);
 
     if (!pending.length) return;
 
     let cancelled = false;
+    const timers: number[] = [];
+    const baseDelay = 1500;
+    const spacing = 900;
     pending.forEach((postId, idx) => {
       viewTrackedRef.current.add(postId);
-      window.setTimeout(() => {
+      const timer = window.setTimeout(() => {
         if (cancelled) return;
         CommunityService.postView(postId).catch(() => {});
-      }, idx * 140);
+      }, baseDelay + idx * spacing);
+      timers.push(timer);
     });
 
     return () => {
       cancelled = true;
+      timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [posts, user?.id]);
+  }, [posts, user?.id, loading, error]);
 
   useEffect(() => {
     if (!sentinelRef.current) return;
