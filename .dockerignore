@@ -3,6 +3,8 @@
 .vscode
 node_modules
 tmp
+tmp-*
+tmp_*
 test-results
 **/node_modules
 **/dist
@@ -21,3 +23,5 @@ geezle/cypress/videos
 geezle/cypress/screenshots
 geezle-backend/data
 geezle-backend/uploads
+mobile/releases
+_release_backend_ready
