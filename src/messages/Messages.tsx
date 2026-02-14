@@ -1046,7 +1046,7 @@ const Messages = () => {
     <div className="max-w-6xl mx-auto px-4 py-8 h-[calc(100dvh-64px)] md:h-[calc(100vh-64px)]">
         <div className="bg-white shadow rounded-lg h-full flex overflow-hidden border border-gray-200">
             {/* Sidebar */}
-            <div className={`w-full md:w-1/3 border-r border-gray-200 flex flex-col ${activeConvo ? 'hidden md:flex' : 'flex'}`}>
+            <div className={`w-full md:w-1/3 min-w-0 border-r border-gray-200 flex flex-col ${activeConvo ? 'hidden md:flex' : 'flex'}`}>
                 <div className="p-4 border-b border-gray-200 bg-gray-50 space-y-3">
                     <div className="flex justify-between items-center">
                         <div className="flex items-center gap-2">
@@ -1097,11 +1097,11 @@ const Messages = () => {
                                 <li 
                                     key={convo.id} 
                                     onClick={() => handleConversationClick(convo.id)}
-                                    className={`p-4 border-b border-gray-100 cursor-pointer transition-colors ${
+                                    className={`w-full overflow-hidden p-4 border-b border-gray-100 cursor-pointer transition-colors ${
                                         activeConvoId === convo.id ? 'bg-blue-50 border-l-4 border-l-blue-600' : 'hover:bg-gray-50'
                                     }`}
                                 >
-                                    <div className="flex items-center">
+                                    <div className="flex w-full min-w-0 items-center">
                                         <div className="relative">
                                             <button
                                                 type="button"
@@ -1132,7 +1132,7 @@ const Messages = () => {
                                                             event.stopPropagation();
                                                             navigate(resolveParticipantProfileUrl(participant));
                                                         }}
-                                                        className="truncate text-left text-sm font-bold text-gray-900 hover:text-blue-600"
+                                                        className="min-w-0 flex-1 truncate text-left text-sm font-bold text-gray-900 hover:text-blue-600"
                                                     >
                                                         {participant?.name}
                                                     </button>
@@ -1156,7 +1156,7 @@ const Messages = () => {
                                                     </span>
                                                 )}
                                             </div>
-                                            <p className={`text-xs truncate ${convo.unreadCount > 0 ? 'font-bold text-gray-900' : 'text-gray-500'}`}>
+                                            <p className={`min-w-0 text-xs truncate ${convo.unreadCount > 0 ? 'font-bold text-gray-900' : 'text-gray-500'}`}>
                                                 {convo.lastMessage || <span className="italic text-gray-400">No messages</span>}
                                             </p>
                                         </div>
@@ -1188,7 +1188,7 @@ const Messages = () => {
             </div>
             
             {/* Chat Area */}
-            <div className={`flex-1 flex flex-col bg-gray-50 ${!activeConvo ? 'hidden md:flex' : 'flex'}`}>
+            <div className={`flex-1 min-w-0 flex flex-col bg-gray-50 ${!activeConvo ? 'hidden md:flex' : 'flex'}`}>
                 {activeConvo ? (
                     <>
                         {/* Chat Header */}
@@ -1378,7 +1378,11 @@ const Messages = () => {
                         </div>
 
                         {/* Messages List */}
-                        <div className="flex-1 overflow-y-auto p-6 space-y-4" ref={messagesContainerRef} onScroll={handleMessagesScroll}>
+                        <div
+                            className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto p-6 space-y-4"
+                            ref={messagesContainerRef}
+                            onScroll={handleMessagesScroll}
+                        >
                             {activeConvo.messages.map(msg => {
                                 const attachmentList = (Array.isArray(msg.attachments) ? msg.attachments : [])
                                     .map((attachment) => normalizeAttachmentForDisplay(attachment))
@@ -1401,10 +1405,10 @@ const Messages = () => {
                                     return acc;
                                 }, {});
                                 return (
-                                <div id={`message-${msg.id}`} key={msg.id} className={`flex ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
-                                    <div className="max-w-[70%]">
+                                <div id={`message-${msg.id}`} key={msg.id} className={`flex min-w-0 ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
+                                    <div className="min-w-0 max-w-[90%] md:max-w-[70%]">
                                     {/* Message Bubble */}
-                                    <div className={`rounded-2xl px-4 py-2 shadow-sm text-sm relative ${
+                                    <div className={`max-w-full min-w-0 rounded-2xl px-4 py-2 shadow-sm text-sm relative ${
                                         msg.senderId === user?.id
                                         ? 'bg-blue-600 text-white rounded-br-none'
                                         : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'
@@ -1449,7 +1453,15 @@ const Messages = () => {
                                                 </div>
                                             </div>
                                         ) : (
-                                            <p className={isDeleted ? 'italic opacity-80' : ''}>{msg.text || ''}</p>
+                                            <p
+                                                className={[
+                                                    isDeleted ? 'italic opacity-80' : '',
+                                                    // Keep the overall chat layout stable even for long URLs / unbroken text.
+                                                    'max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word]'
+                                                ].join(' ')}
+                                            >
+                                                {msg.text || ''}
+                                            </p>
                                         )}
                                         {attachmentList.length > 0 && (
                                             <div className="mt-2 space-y-2">
@@ -1460,9 +1472,14 @@ const Messages = () => {
                                                         ) : attachment.type === 'video' ? (
                                                             <video controls src={attachment.url} className="w-full max-h-48 rounded-md" />
                                                         ) : (
-                                                            <a href={attachment.url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-blue-600 hover:underline">
+                                                            <a
+                                                                href={attachment.url}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="flex max-w-full min-w-0 items-center gap-2 overflow-hidden text-blue-600 hover:underline"
+                                                            >
                                                                 <span className="font-semibold">Download</span>
-                                                                <span className="truncate">{attachment.name}</span>
+                                                                <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
                                                             </a>
                                                         )}
                                                     </div>
@@ -1638,7 +1655,7 @@ const Messages = () => {
                                 </div>
                             )}
 
-                            <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+                            <form onSubmit={handleSendMessage} className="flex min-w-0 items-center gap-2">
                                 <button
                                     type="button"
                                     className="text-gray-400 hover:text-blue-600 p-2"
@@ -1649,7 +1666,7 @@ const Messages = () => {
                                 </button>
                                 <input 
                                     type="text" 
-                                    className="flex-1 border border-gray-300 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                    className="flex-1 min-w-0 border border-gray-300 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                                     placeholder="Type a message..."
                                     value={messageInput}
                                     onChange={e => {
