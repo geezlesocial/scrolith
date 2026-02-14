@@ -1,12 +1,16 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import type { Conversation } from '../types';
 import { MessagingService } from '../services/messaging';
 import { useUser } from './UserContext';
 import { useSocket } from './SocketContext';
 
 interface MessageContextType {
   unreadCount: number;
-  refreshMessages: () => void;
+  conversations: Conversation[];
+  loading: boolean;
+  error: string | null;
+  refreshMessages: (options?: { force?: boolean }) => Promise<void>;
 }
 
 const MessageContext = createContext<MessageContextType | undefined>(undefined);
@@ -15,34 +19,50 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const { user } = useUser();
   const { socket, isConnected } = useSocket();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const refreshMessages = async () => {
-      if (user) {
-          const convos = await MessagingService.getAllConversations(user.id, user.role);
-          // Calculate total unread messages directed at user
-          let count = 0;
-          convos.forEach(c => {
-              // Simple logic: if conversation has unread count and last message wasn't from me
-              const lastMsg = c.messages[c.messages.length - 1];
-              if (lastMsg && lastMsg.senderId !== user.id && !lastMsg.isRead) {
-                  count += c.unreadCount || 0;
-              }
-          });
-          setUnreadCount(count);
-      }
+  const refreshMessages = async (options?: { force?: boolean }) => {
+    if (!user?.id) {
+      setUnreadCount(0);
+      setConversations([]);
+      setError(null);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const convos = await MessagingService.getAllConversations(user.id, user.role, {
+        force: Boolean(options?.force)
+      });
+      setConversations(convos);
+      const count = (Array.isArray(convos) ? convos : []).reduce((acc, c: any) => {
+        const v = Number(c?.unreadCount ?? c?.unread_count ?? 0);
+        return acc + (Number.isFinite(v) ? Math.max(0, Math.trunc(v)) : 0);
+      }, 0);
+      setUnreadCount(count);
+    } catch (e: any) {
+      setError(e?.response?.data?.error || e?.message || 'Failed to refresh messages');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
       if (!user) return;
-      refreshMessages();
+      void refreshMessages();
 
       if (!socket || !isConnected) {
-          const interval = setInterval(refreshMessages, 10000);
+          const interval = setInterval(() => {
+            void refreshMessages();
+          }, 10000);
           return () => clearInterval(interval);
       }
 
       const handleRefresh = () => {
-          refreshMessages();
+          void refreshMessages();
       };
 
       socket.on('messages:new', handleRefresh);
@@ -57,7 +77,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [user, socket, isConnected]);
 
   return (
-    <MessageContext.Provider value={{ unreadCount, refreshMessages }}>
+    <MessageContext.Provider value={{ unreadCount, conversations, loading, error, refreshMessages }}>
       {children}
     </MessageContext.Provider>
   );

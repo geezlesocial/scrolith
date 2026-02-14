@@ -74,6 +74,8 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadMoreArmedRef = useRef(false);
+  const cursorRef = useRef<string | null>(null);
+  const loadInFlightRef = useRef(false);
 
   const syncCommentCount = useCallback((postId: string, count: number) => {
     setPosts((prev) =>
@@ -86,35 +88,37 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
     );
   }, []);
 
-  const load = useCallback(
-    async (mode: 'initial' | 'more') => {
-      try {
-        if (mode === 'initial') {
-          setLoading(true);
-          setError(null);
-        } else {
-          setLoadingMore(true);
-        }
+  const load = useCallback(async (mode: 'initial' | 'more') => {
+    if (loadInFlightRef.current) return;
+    loadInFlightRef.current = true;
 
-        const resp = await CommunityService.getFeed({
-          cursor: mode === 'more' ? cursor : undefined,
-          limit: 12,
-          scope: 'discover'
-        });
-        const nextPosts = Array.isArray(resp?.items) ? resp.items : [];
-        const nextCursor = resp?.nextCursor ? String(resp.nextCursor) : null;
-
-        setCursor(nextCursor);
-        setPosts((prev) => (mode === 'more' ? [...prev, ...nextPosts] : nextPosts));
-      } catch (e: any) {
-        setError(e?.response?.data?.error ?? e?.message ?? 'Failed to load feed.');
-      } finally {
-        setLoading(false);
-        setLoadingMore(false);
+    try {
+      if (mode === 'initial') {
+        setLoading(true);
+        setError(null);
+      } else {
+        setLoadingMore(true);
       }
-    },
-    [cursor]
-  );
+
+      const resp = await CommunityService.getFeed({
+        cursor: mode === 'more' ? cursorRef.current || undefined : undefined,
+        limit: 12,
+        scope: 'discover'
+      });
+      const nextPosts = Array.isArray(resp?.items) ? resp.items : [];
+      const nextCursor = resp?.nextCursor ? String(resp.nextCursor) : null;
+
+      cursorRef.current = nextCursor;
+      setCursor(nextCursor);
+      setPosts((prev) => (mode === 'more' ? [...prev, ...nextPosts] : nextPosts));
+    } catch (e: any) {
+      setError(e?.response?.data?.error ?? e?.message ?? 'Failed to load feed.');
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+      loadInFlightRef.current = false;
+    }
+  }, []);
 
   useEffect(() => {
     void load('initial');
@@ -431,6 +435,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                   shareCount={post?.sharesCount ?? post?.interactions?.shares ?? 0}
                   viewCount={post?.interactions?.views ?? post?.viewsCount ?? 0}
                   initialReactionCounts={reactionCounts}
+                  initialUserReaction={post?.userState?.reaction}
                   onCommentCountChange={syncCommentCount}
                   features={{
                     reactions: postCardSettings.reactionsEnabled !== false,

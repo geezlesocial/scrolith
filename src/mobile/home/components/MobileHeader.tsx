@@ -1,5 +1,5 @@
 import React from 'react';
-import { MoreHorizontal, Search } from 'lucide-react';
+import { MessageCircle, MoreHorizontal, Search } from 'lucide-react';
 
 export type MobileHomeLayoutSettings = {
   search?: {
@@ -12,7 +12,11 @@ export default function MobileHeader({
   loading,
   socketConnected,
   settings,
+  messagesUnread,
+  showMessages = true,
+  showQuickMenu = true,
   onOpenSearch,
+  onOpenMessages,
   onOpenQuickMenu,
   onOpenProfile
 }: {
@@ -20,11 +24,16 @@ export default function MobileHeader({
   loading?: boolean;
   socketConnected?: boolean;
   settings?: MobileHomeLayoutSettings | null;
+  messagesUnread?: number;
+  showMessages?: boolean;
+  showQuickMenu?: boolean;
   onOpenSearch: () => void;
+  onOpenMessages: () => void;
   onOpenQuickMenu: () => void;
   onOpenProfile: () => void;
 }) {
   const searchEnabled = settings?.search?.enabled ?? true;
+  const unread = Number(messagesUnread || 0);
 
   return (
     <header className="fixed left-0 right-0 top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
@@ -70,16 +79,35 @@ export default function MobileHeader({
           </span>
         </button>
 
-        <button
-          type="button"
-          onClick={onOpenQuickMenu}
-          className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white"
-          aria-label="Open menu"
-        >
-          <MoreHorizontal className="h-5 w-5 text-slate-700" />
-        </button>
+        <div className="flex items-center gap-2">
+          {showMessages ? (
+            <button
+              type="button"
+              onClick={onOpenMessages}
+              className="relative flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white"
+              aria-label="Open messages"
+            >
+              <MessageCircle className="h-5 w-5 text-slate-700" />
+              {Number.isFinite(unread) && unread > 0 ? (
+                <span className="absolute -right-1 -top-1 min-w-[18px] rounded-full bg-red-600 px-1 text-[10px] font-semibold text-white">
+                  {unread > 99 ? '99+' : unread}
+                </span>
+              ) : null}
+            </button>
+          ) : null}
+
+          {showQuickMenu ? (
+            <button
+              type="button"
+              onClick={onOpenQuickMenu}
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white"
+              aria-label="Open menu"
+            >
+              <MoreHorizontal className="h-5 w-5 text-slate-700" />
+            </button>
+          ) : null}
+        </div>
       </div>
     </header>
   );
 }
-

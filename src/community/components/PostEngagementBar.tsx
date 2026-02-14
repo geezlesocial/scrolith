@@ -26,6 +26,7 @@ type Props = {
   shareCount?: number;
   viewCount?: number;
   initialReactionCounts?: Record<string, number>;
+  initialUserReaction?: string | null;
   focusCommentId?: string;
   focusMentionToken?: string;
   onCommentCountChange?: (postId: string, count: number) => void;
@@ -81,6 +82,7 @@ const PostEngagementBar: React.FC<Props> = ({
   shareCount = 0,
   viewCount = 0,
   initialReactionCounts,
+  initialUserReaction,
   focusCommentId,
   focusMentionToken,
   onCommentCountChange,
@@ -120,7 +122,9 @@ const PostEngagementBar: React.FC<Props> = ({
   }, [allowed]);
 
   const [counts, setCounts] = useState<Record<string, number>>(initialReactionCounts || {});
-  const [userReaction, setUserReaction] = useState<string | null>(null);
+  const [userReaction, setUserReaction] = useState<string | null>(
+    typeof initialUserReaction === 'undefined' ? null : (initialUserReaction || null)
+  );
   const [busy, setBusy] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(() => Boolean(focusCommentId));
@@ -138,7 +142,15 @@ const PostEngagementBar: React.FC<Props> = ({
   }, [postId, initialReactionCounts]);
 
   useEffect(() => {
+    if (typeof initialUserReaction === 'undefined') return;
+    setUserReaction(initialUserReaction || null);
+  }, [postId, initialUserReaction]);
+
+  useEffect(() => {
     if (!postId || !reactionsEnabled) return;
+    const hasInitialCounts = typeof initialReactionCounts !== 'undefined';
+    const hasInitialReaction = typeof initialUserReaction !== 'undefined';
+    if (hasInitialCounts && hasInitialReaction) return;
     let active = true;
     ReactionsService.getSummary('POST', postId)
       .then((summary) => {
@@ -155,7 +167,7 @@ const PostEngagementBar: React.FC<Props> = ({
     return () => {
       active = false;
     };
-  }, [postId, reactionsEnabled]);
+  }, [postId, reactionsEnabled, initialReactionCounts, initialUserReaction]);
 
   useEffect(() => {
     const onUpdated = (event: Event) => {

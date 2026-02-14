@@ -86,6 +86,7 @@ const MobileNetworkScreen = React.lazy(() => import('./mobile/home/screens/Mobil
 const MobilePostScreen = React.lazy(() => import('./mobile/home/screens/MobilePostScreen'));
 const MobileNotificationsScreen = React.lazy(() => import('./mobile/home/screens/MobileNotificationsScreen'));
 const MobileJobsScreen = React.lazy(() => import('./mobile/home/screens/MobileJobsScreen'));
+const MobileBriefsScreen = React.lazy(() => import('./mobile/home/screens/MobileBriefsScreen'));
 
 // Community Components
 const CommunityLayout = React.lazy(() => import('./community/CommunityLayout'));
@@ -510,6 +511,7 @@ const AppContent = () => {
                 <Route path="post" element={<MobilePostScreen />} />
                 <Route path="notifications" element={<MobileNotificationsScreen />} />
                 <Route path="jobs" element={<MobileJobsScreen />} />
+                <Route path="briefs" element={<MobileBriefsScreen />} />
               </Route>
               <Route
                 path="/auth/login"

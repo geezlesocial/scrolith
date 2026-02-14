@@ -44,10 +44,11 @@ import MonetizationManagement from './admin/MonetizationManagement';
 import RecommendationManagement from './admin/RecommendationManagement';
 import ScrolithaManagement from './admin/ScrolithaManagement';
 import AppManagement from './admin/AppManagement';
+import MobileHomepage from './admin/MobileHomepage';
 import { useT } from '../i18n/useT';
 
 // Define valid tab types
-type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'blog' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps';
+type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps';
 
 // Define navigation item interface
 interface NavItem {
@@ -85,7 +86,7 @@ const AdminDashboard: React.FC = () => {
     const isValidTab = (tab: string): tab is Tab => {
         const validTabs: Tab[] = [
             'overview', 'analytics', 'listings', 'engagement', 'finance', 'gateways', 'cms', 
-            'homepage', 'blog', 'marketing', 'users', 'monetization', 'files', 'staff', 'role-management', 'moderator-console', 'message-records', 'kyc', 
+            'homepage', 'mobile-homepage', 'blog', 'marketing', 'users', 'monetization', 'files', 'staff', 'role-management', 'moderator-console', 'message-records', 'kyc', 
             'support', 'system', 'profile', 'messages', 'ai', 'atm', 'community', 'recommendations', 'navigation', 'reviews', 'languages', 'forms', 'google-settings', 'scrolitha', 'apps'
         ];
         return validTabs.includes(tab as Tab);
@@ -235,6 +236,7 @@ const AdminDashboard: React.FC = () => {
             items: [
                 { id: 'cms', label: 'CMS & Pages', icon: LayoutTemplate }, 
                 { id: 'homepage', label: 'Homepage Settings', icon: LayoutTemplate },
+                { id: 'mobile-homepage', label: 'Mobile Homepage', icon: Smartphone },
                 { id: 'blog', label: 'Blog', icon: BookOpen }
             ] 
         },
@@ -311,6 +313,7 @@ const AdminDashboard: React.FC = () => {
             case 'gateways': return <GatewaysTab />;
             case 'cms': return <CMSPages />;
             case 'homepage': return <HomepageSettings />;
+            case 'mobile-homepage': return <MobileHomepage />;
             case 'blog': return <BlogManagement />;
             case 'community': return <CommunityManagement />;
             case 'recommendations': return <RecommendationManagement />;
