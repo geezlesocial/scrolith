@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Briefcase, Coins, CreditCard, Eye, FileText, LayoutDashboard, LogOut, Plus, Settings, Star, Users } from 'lucide-react';
+import { Briefcase, Coins, CreditCard, Eye, FileText, LayoutDashboard, LogOut, Plus, Repeat2, Settings, Star, Tag, Users } from 'lucide-react';
 
 import { useContent } from '../../context/ContentContext';
 import { useCurrency } from '../../context/CurrencyContext';
@@ -17,6 +17,10 @@ type MobileHomeLayoutConfig = {
   header?: {
     messagesEnabled?: boolean;
     quickMenuEnabled?: boolean;
+  };
+  stories?: {
+    enabled?: boolean;
+    maxItems?: number;
   };
   accountMenu?: {
     dashboard?: boolean;
@@ -35,7 +39,20 @@ type MobileHomeLayoutConfig = {
   };
   quickMenu?: {
     createPost?: boolean;
+    switchUser?: boolean;
+    browseJobs?: boolean;
+    browseGigs?: boolean;
+    projectBrief?: boolean;
+    gigCreation?: boolean;
     settings?: boolean;
+  };
+  postComposer?: {
+    visibilityEnabled?: boolean;
+    allowedVisibilities?: string[];
+    defaultVisibility?: string;
+    graphicWarningEnabled?: boolean;
+    graphicWarningLabel?: string;
+    graphicWarningBlurMedia?: boolean;
   };
   bottomTabs?: Partial<Record<MobileTabKey, boolean>>;
   feed?: {
@@ -67,6 +84,10 @@ const DEFAULT_LAYOUT: MobileHomeLayoutConfig = {
     messagesEnabled: true,
     quickMenuEnabled: true
   },
+  stories: {
+    enabled: true,
+    maxItems: 12
+  },
   accountMenu: {
     dashboard: true,
     viewAs: true,
@@ -84,6 +105,11 @@ const DEFAULT_LAYOUT: MobileHomeLayoutConfig = {
   },
   quickMenu: {
     createPost: true,
+    switchUser: true,
+    browseJobs: true,
+    browseGigs: true,
+    projectBrief: true,
+    gigCreation: true,
     settings: true
   },
   bottomTabs: {
@@ -100,7 +126,15 @@ const DEFAULT_LAYOUT: MobileHomeLayoutConfig = {
     showSuggestedPeople: true,
     showSuggestedPages: true,
     showTrendingTags: true,
-    showRecommendedGigsJobs: false
+    showRecommendedGigsJobs: true
+  },
+  postComposer: {
+    visibilityEnabled: true,
+    allowedVisibilities: ['public', 'network', 'friends', 'private'],
+    defaultVisibility: 'public',
+    graphicWarningEnabled: true,
+    graphicWarningLabel: 'Graphic warning',
+    graphicWarningBlurMedia: true
   },
   postCard: {
     reactionsEnabled: true,
@@ -232,7 +266,7 @@ const MobileHome = () => {
   const navigate = useNavigate();
   const isMobileViewport = useViewportIsMobile(900);
 
-  const { user, logout } = useUser();
+  const { user, logout, updateUser } = useUser();
   const { settings, loading } = useContent();
   const { isConnected } = useSocket();
   const { currency, availableCurrencies, setCurrency } = useCurrency();
@@ -243,7 +277,7 @@ const MobileHome = () => {
     error: messagesError,
     refreshMessages
   } = useMessages();
-  const { notifications } = useNotification();
+  const { notifications, showNotification } = useNotification();
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -290,22 +324,34 @@ const MobileHome = () => {
     navigate(`/m/${tab}`);
   };
 
-  const normalizedRole = String(user?.role || '').trim().toLowerCase();
+  const activeRoleOverride = useMemo(() => {
+    try {
+      return sessionStorage.getItem('activeRole');
+    } catch {
+      return null;
+    }
+  }, [user?.role]);
+
+  const effectiveRole = activeRoleOverride || user?.role || '';
+  const normalizedRole = String(effectiveRole || '').trim().toLowerCase();
+
+  const isFreelancerMode = normalizedRole.includes('freelancer') || normalizedRole.includes('seller');
+  const isClientMode = normalizedRole.includes('employer') || normalizedRole.includes('client') || normalizedRole.includes('buyer');
+
   const dashboardPath =
     normalizedRole.includes('admin')
       ? '/admin/dashboard'
-      : normalizedRole.includes('freelancer')
+      : isFreelancerMode
         ? '/freelancer/dashboard'
-        : normalizedRole.includes('employer') || normalizedRole.includes('client')
+        : isClientMode
           ? '/client/dashboard'
           : '/';
 
-  const postProjectPath =
-    normalizedRole.includes('employer') || normalizedRole.includes('client') ? '/create-job' : '/create-gig';
+  const postProjectPath = isClientMode ? '/create-job' : '/create-gig';
 
   const billingPath = normalizedRole.includes('admin')
     ? '/admin/dashboard?tab=finance'
-    : normalizedRole.includes('employer') || normalizedRole.includes('client')
+    : isClientMode
       ? '/client/dashboard?tab=wallet'
       : '/freelancer/dashboard?tab=wallet';
 
@@ -327,6 +373,22 @@ const MobileHome = () => {
     });
     return sorted.slice(0, messagesPreviewLimit);
   }, [messageConversations, messagesPreviewLimit]);
+
+  const switchUserInPlace = () => {
+    if (!user) return;
+    if (normalizedRole.includes('admin')) return;
+
+    const nextRole = isFreelancerMode ? 'EMPLOYER' : 'FREELANCER';
+    updateUser({ role: nextRole } as any);
+    try {
+      sessionStorage.setItem('activeRole', nextRole);
+    } catch {}
+    showNotification?.(
+      'success',
+      'Switch user',
+      nextRole === 'FREELANCER' ? 'Now in Freelancer mode.' : 'Now in Client mode.'
+    );
+  };
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -619,6 +681,18 @@ const MobileHome = () => {
 
       <Sheet open={quickMenuOpen} title="Quick menu" onClose={() => setQuickMenuOpen(false)}>
         <div className="space-y-1">
+          {quickMenu.switchUser !== false && !normalizedRole.includes('admin') ? (
+            <SheetItem
+              icon={<Repeat2 className="h-4 w-4" />}
+              label={isFreelancerMode ? 'Switch to Client mode' : 'Switch to Freelancer mode'}
+              onClick={() => {
+                setQuickMenuOpen(false);
+                switchUserInPlace();
+                navigate('/m/home');
+              }}
+            />
+          ) : null}
+
           {quickMenu.createPost !== false ? (
             <SheetItem
               icon={<Plus className="h-4 w-4" />}
@@ -626,6 +700,50 @@ const MobileHome = () => {
               onClick={() => {
                 setQuickMenuOpen(false);
                 navigate('/m/post');
+              }}
+            />
+          ) : null}
+
+          {quickMenu.browseJobs !== false ? (
+            <SheetItem
+              icon={<Briefcase className="h-4 w-4" />}
+              label="Browse jobs"
+              onClick={() => {
+                setQuickMenuOpen(false);
+                navigate('/browse-jobs');
+              }}
+            />
+          ) : null}
+
+          {quickMenu.browseGigs !== false ? (
+            <SheetItem
+              icon={<Tag className="h-4 w-4" />}
+              label="Browse gigs"
+              onClick={() => {
+                setQuickMenuOpen(false);
+                navigate('/browse');
+              }}
+            />
+          ) : null}
+
+          {quickMenu.projectBrief !== false ? (
+            <SheetItem
+              icon={<FileText className="h-4 w-4" />}
+              label="Scrolith Project Briefs"
+              onClick={() => {
+                setQuickMenuOpen(false);
+                navigate('/m/briefs');
+              }}
+            />
+          ) : null}
+
+          {quickMenu.gigCreation !== false && isFreelancerMode ? (
+            <SheetItem
+              icon={<Star className="h-4 w-4" />}
+              label="Scrolith Gig Creation"
+              onClick={() => {
+                setQuickMenuOpen(false);
+                navigate('/create-gig');
               }}
             />
           ) : null}

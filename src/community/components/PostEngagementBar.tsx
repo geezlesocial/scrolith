@@ -314,7 +314,7 @@ const PostEngagementBar: React.FC<Props> = ({
           <span>
             <span className="font-semibold text-slate-700">{shareCount}</span> shares
           </span>
-          <span className="hidden sm:inline">
+          <span>
             <span className="font-semibold text-slate-700">{viewCount}</span> views
           </span>
         </div>

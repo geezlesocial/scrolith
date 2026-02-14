@@ -12,6 +12,10 @@ type MobileHomeLayoutConfig = {
     messagesEnabled?: boolean;
     quickMenuEnabled?: boolean;
   };
+  stories?: {
+    enabled?: boolean;
+    maxItems?: number;
+  };
   accountMenu?: {
     dashboard?: boolean;
     viewAs?: boolean;
@@ -29,7 +33,20 @@ type MobileHomeLayoutConfig = {
   };
   quickMenu?: {
     createPost?: boolean;
+    switchUser?: boolean;
+    browseJobs?: boolean;
+    browseGigs?: boolean;
+    projectBrief?: boolean;
+    gigCreation?: boolean;
     settings?: boolean;
+  };
+  postComposer?: {
+    visibilityEnabled?: boolean;
+    allowedVisibilities?: string[];
+    defaultVisibility?: string;
+    graphicWarningEnabled?: boolean;
+    graphicWarningLabel?: string;
+    graphicWarningBlurMedia?: boolean;
   };
   bottomTabs?: Partial<Record<MobileTabKey, boolean>>;
   feed?: {
@@ -58,6 +75,7 @@ type MobileHomeLayoutConfig = {
 
 const DEFAULT_CONFIG: MobileHomeLayoutConfig = {
   header: { messagesEnabled: true, quickMenuEnabled: true },
+  stories: { enabled: true, maxItems: 12 },
   accountMenu: {
     dashboard: true,
     viewAs: true,
@@ -70,7 +88,15 @@ const DEFAULT_CONFIG: MobileHomeLayoutConfig = {
     logout: true
   },
   messagesPopup: { enabled: true, previewLimit: 6 },
-  quickMenu: { createPost: true, settings: true },
+  quickMenu: {
+    createPost: true,
+    switchUser: true,
+    browseJobs: true,
+    browseGigs: true,
+    projectBrief: true,
+    gigCreation: true,
+    settings: true
+  },
   bottomTabs: {
     home: true,
     network: true,
@@ -85,7 +111,15 @@ const DEFAULT_CONFIG: MobileHomeLayoutConfig = {
     showSuggestedPeople: true,
     showSuggestedPages: true,
     showTrendingTags: true,
-    showRecommendedGigsJobs: false
+    showRecommendedGigsJobs: true
+  },
+  postComposer: {
+    visibilityEnabled: true,
+    allowedVisibilities: ['public', 'network', 'friends', 'private'],
+    defaultVisibility: 'public',
+    graphicWarningEnabled: true,
+    graphicWarningLabel: 'Graphic warning',
+    graphicWarningBlurMedia: true
   },
   postCard: {
     reactionsEnabled: true,
@@ -249,6 +283,21 @@ const MobileHomepage: React.FC = () => {
             />
           </Section>
 
+          <Section title="Stories (Under Header)">
+            <Toggle
+              label="Stories strip enabled"
+              checked={merged.stories?.enabled !== false}
+              onChange={(v) => setConfig((p) => ({ ...p, stories: { ...p.stories, enabled: v } }))}
+            />
+            <NumberField
+              label="Max stories in strip"
+              value={Number(merged.stories?.maxItems ?? 12) || 12}
+              min={4}
+              max={40}
+              onChange={(n) => setConfig((p) => ({ ...p, stories: { ...p.stories, maxItems: clamp(n, 4, 40) } }))}
+            />
+          </Section>
+
           <Section title="Account Menu (Avatar)">
             <ToggleGrid
               items={[
@@ -279,9 +328,113 @@ const MobileHomepage: React.FC = () => {
               onChange={(v) => setConfig((p) => ({ ...p, quickMenu: { ...p.quickMenu, createPost: v } }))}
             />
             <Toggle
+              label="Switch user (Freelancer/Client)"
+              checked={merged.quickMenu?.switchUser !== false}
+              onChange={(v) => setConfig((p) => ({ ...p, quickMenu: { ...p.quickMenu, switchUser: v } }))}
+            />
+            <Toggle
+              label="Browse jobs"
+              checked={merged.quickMenu?.browseJobs !== false}
+              onChange={(v) => setConfig((p) => ({ ...p, quickMenu: { ...p.quickMenu, browseJobs: v } }))}
+            />
+            <Toggle
+              label="Browse gigs"
+              checked={merged.quickMenu?.browseGigs !== false}
+              onChange={(v) => setConfig((p) => ({ ...p, quickMenu: { ...p.quickMenu, browseGigs: v } }))}
+            />
+            <Toggle
+              label="Scrolith Project Briefs"
+              checked={merged.quickMenu?.projectBrief !== false}
+              onChange={(v) => setConfig((p) => ({ ...p, quickMenu: { ...p.quickMenu, projectBrief: v } }))}
+            />
+            <Toggle
+              label="Scrolith Gig Creation"
+              checked={merged.quickMenu?.gigCreation !== false}
+              onChange={(v) => setConfig((p) => ({ ...p, quickMenu: { ...p.quickMenu, gigCreation: v } }))}
+            />
+            <Toggle
               label="Settings shortcut"
               checked={merged.quickMenu?.settings !== false}
               onChange={(v) => setConfig((p) => ({ ...p, quickMenu: { ...p.quickMenu, settings: v } }))}
+            />
+          </Section>
+
+          <Section title="Post Composer (Create Post)">
+            <Toggle
+              label="Visibility selector enabled"
+              checked={merged.postComposer?.visibilityEnabled !== false}
+              onChange={(v) => setConfig((p) => ({ ...p, postComposer: { ...p.postComposer, visibilityEnabled: v } }))}
+            />
+
+            <div className="grid gap-3 md:grid-cols-2">
+              {(['public', 'network', 'friends', 'private'] as const).map((key) => {
+                const current = Array.isArray(merged.postComposer?.allowedVisibilities)
+                  ? merged.postComposer?.allowedVisibilities
+                  : DEFAULT_CONFIG.postComposer?.allowedVisibilities || [];
+                const set = new Set(current.map((v) => String(v || '').toLowerCase()));
+                const label =
+                  key === 'public'
+                    ? 'Allow Public'
+                    : key === 'network'
+                      ? 'Allow Network'
+                      : key === 'friends'
+                        ? 'Allow Friends'
+                        : 'Allow Only Me';
+                return (
+                  <Toggle
+                    key={key}
+                    label={label}
+                    checked={set.has(key)}
+                    onChange={(v) => {
+                      const next = new Set(current.map((vv) => String(vv || '').toLowerCase()));
+                      if (v) next.add(key);
+                      else next.delete(key);
+                      const list = Array.from(next);
+                      setConfig((p) => ({ ...p, postComposer: { ...p.postComposer, allowedVisibilities: list } }));
+                    }}
+                  />
+                );
+              })}
+            </div>
+
+            <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+              <div className="mb-1 text-xs font-semibold text-gray-500">Default visibility</div>
+              <select
+                className="w-full rounded border border-gray-200 px-2 py-1"
+                value={String(merged.postComposer?.defaultVisibility ?? 'public')}
+                onChange={(e) =>
+                  setConfig((p) => ({ ...p, postComposer: { ...p.postComposer, defaultVisibility: e.target.value } }))
+                }
+              >
+                {(Array.isArray(merged.postComposer?.allowedVisibilities) && merged.postComposer.allowedVisibilities.length
+                  ? merged.postComposer.allowedVisibilities
+                  : DEFAULT_CONFIG.postComposer?.allowedVisibilities || ['public']
+                ).map((v: any) => (
+                  <option key={String(v)} value={String(v)}>
+                    {String(v).toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <Toggle
+              label="Graphic warning toggle enabled"
+              checked={merged.postComposer?.graphicWarningEnabled !== false}
+              onChange={(v) => setConfig((p) => ({ ...p, postComposer: { ...p.postComposer, graphicWarningEnabled: v } }))}
+            />
+            <TextField
+              label="Graphic warning label"
+              value={String(merged.postComposer?.graphicWarningLabel ?? 'Graphic warning')}
+              onChange={(value) =>
+                setConfig((p) => ({ ...p, postComposer: { ...p.postComposer, graphicWarningLabel: value } }))
+              }
+            />
+            <Toggle
+              label="Blur media until user taps"
+              checked={merged.postComposer?.graphicWarningBlurMedia !== false}
+              onChange={(v) =>
+                setConfig((p) => ({ ...p, postComposer: { ...p.postComposer, graphicWarningBlurMedia: v } }))
+              }
             />
           </Section>
 
@@ -459,5 +612,24 @@ const NumberField = ({
   </label>
 );
 
-export default MobileHomepage;
+const TextField = ({
+  label,
+  value,
+  onChange
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) => (
+  <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+    <div className="mb-1 text-xs font-semibold text-gray-500">{label}</div>
+    <input
+      type="text"
+      className="w-full rounded border border-gray-200 px-2 py-1"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  </label>
+);
 
+export default MobileHomepage;

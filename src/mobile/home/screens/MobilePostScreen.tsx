@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Image as ImageIcon, Send, X } from 'lucide-react';
+import { useOutletContext } from 'react-router-dom';
 import { CommunityService } from '../../../services/community';
 import { useNotification } from '../../../context/NotificationContext';
 import { UploadedFile } from '../../../types';
@@ -9,11 +10,37 @@ const isVideo = (mime?: string | null) => String(mime || '').toLowerCase().start
 const isImage = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('image/');
 
 export default function MobilePostScreen() {
+  const ctx = useOutletContext<any>();
   const { showNotification } = useNotification();
   const [content, setContent] = useState('');
   const [attachments, setAttachments] = useState<UploadedFile[]>([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  const layout = ctx?.mobileLayout ?? null;
+  const composer = (layout?.postComposer || layout?.post_composer || {}) as Record<string, any>;
+  const visibilityEnabled = composer.visibilityEnabled !== false;
+  const allowedVisibilities = useMemo(() => {
+    const raw = composer.allowedVisibilities || composer.allowed_visibilities;
+    const list = Array.isArray(raw) ? raw.map((v: any) => String(v || '').trim().toLowerCase()).filter(Boolean) : [];
+    const fallback = ['public', 'network', 'friends', 'private'];
+    const merged = Array.from(new Set((list.length ? list : fallback).filter(Boolean)));
+    return merged;
+  }, [composer.allowedVisibilities, composer.allowed_visibilities]);
+  const defaultVisibility = String(composer.defaultVisibility || composer.default_visibility || 'public')
+    .trim()
+    .toLowerCase();
+  const graphicWarningEnabled = composer.graphicWarningEnabled !== false;
+  const graphicWarningLabel = String(composer.graphicWarningLabel || composer.graphic_warning_label || 'Graphic warning').trim();
+
+  const [visibility, setVisibility] = useState<string>(defaultVisibility);
+  const [graphicWarning, setGraphicWarning] = useState(false);
+
+  useEffect(() => {
+    // Keep composer defaults in sync if admin changes settings while user is on this screen.
+    setVisibility((prev) => (allowedVisibilities.includes(prev) ? prev : (allowedVisibilities[0] || defaultVisibility || 'public')));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowedVisibilities.join('|'), defaultVisibility]);
 
   const canPost = content.trim().length >= 1 || attachments.length > 0;
 
@@ -33,10 +60,13 @@ export default function MobilePostScreen() {
       await CommunityService.createPost({
         content: content.trim(),
         attachmentFileIds: attachmentIds,
-        attachments: attachmentIds
+        attachments: attachmentIds,
+        visibility: visibilityEnabled ? visibility : defaultVisibility,
+        graphicWarning: graphicWarningEnabled ? graphicWarning : false
       } as any);
       setContent('');
       setAttachments([]);
+      setGraphicWarning(false);
       showNotification('success', 'Posted', 'Your update is live.');
     } catch (e: any) {
       showNotification('error', 'Post failed', e?.response?.data?.error || e?.message || 'Unable to post right now.');
@@ -49,6 +79,47 @@ export default function MobilePostScreen() {
     <div className="mx-auto max-w-md px-3 py-4">
       <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="text-sm font-semibold text-slate-900">Create post</div>
+
+        {(visibilityEnabled || graphicWarningEnabled) ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            {visibilityEnabled ? (
+              <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+                <span className="text-slate-500">Visibility</span>
+                <select
+                  value={visibility}
+                  onChange={(e) => setVisibility(String(e.target.value || 'public'))}
+                  className="bg-transparent text-xs font-semibold text-slate-900 outline-none"
+                >
+                  {allowedVisibilities.map((v) => (
+                    <option key={v} value={v}>
+                      {v === 'public'
+                        ? 'Public'
+                        : v === 'network'
+                          ? 'Network'
+                          : v === 'friends'
+                            ? 'Friends'
+                            : v === 'private'
+                              ? 'Only me'
+                              : v.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
+            {graphicWarningEnabled ? (
+              <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={graphicWarning}
+                  onChange={(e) => setGraphicWarning(e.target.checked)}
+                />
+                <span>{graphicWarningLabel}</span>
+              </label>
+            ) : null}
+          </div>
+        ) : null}
+
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
@@ -134,4 +205,3 @@ export default function MobilePostScreen() {
     </div>
   );
 }
-

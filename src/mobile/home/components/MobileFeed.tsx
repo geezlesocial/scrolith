@@ -1,13 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, MoreVertical, UserPlus } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 import { useSocket } from '../../../context/SocketContext';
 import { useUser } from '../../../context/UserContext';
 import { CommunityService } from '../../../services/community';
+import { jobsApi, Job } from '../../../services/jobs';
+import { gigsApi, Gig } from '../../../services/gigs';
 import { RecoService } from '../../../services/reco';
 import MentionText from '../../../community/components/MentionText';
 import PostEngagementBar from '../../../community/components/PostEngagementBar';
 import FeedAdCard from './FeedAdCard';
+import RecommendedListingCard from './RecommendedListingCard';
 import SuggestedCard from './SuggestedCard';
 
 type MobileHomeLayoutSettings = {
@@ -19,6 +23,19 @@ type MobileHomeLayoutSettings = {
     showTrendingTags?: boolean;
     showRecommendedGigsJobs?: boolean;
   };
+  stories?: {
+    enabled?: boolean;
+    maxItems?: number;
+  };
+  postComposer?: {
+    visibilityEnabled?: boolean;
+    allowedVisibilities?: string[];
+    defaultVisibility?: string;
+    graphicWarningEnabled?: boolean;
+    graphicWarningLabel?: string;
+    graphicWarningBlurMedia?: boolean;
+  };
+  post_composer?: any;
   postCard?: {
     reactionsEnabled?: boolean;
     commentsEnabled?: boolean;
@@ -51,12 +68,60 @@ const relativeTime = (iso?: string | null) => {
 const isVideo = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('video/');
 const isImage = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('image/');
 
+const shuffle = <T,>(items: T[]) => {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = out[i];
+    out[i] = out[j];
+    out[j] = tmp;
+  }
+  return out;
+};
+
+const resolveProfileUrl = (
+  author: { id?: string | null; username?: string | null; type?: string | null; businessSlug?: string | null },
+  fallbackAuthorId?: string | null,
+  currentUserId?: string | null
+) => {
+  const type = String(author.type || 'user').toLowerCase();
+  const businessSlug = String(author.businessSlug || '').trim();
+  if (type === 'business' && businessSlug) return `/company/${encodeURIComponent(businessSlug)}`;
+
+  const handle = String(author.username || '').trim().replace(/^@+/, '');
+  if (handle) return `/u/${encodeURIComponent(handle)}`;
+
+  const id = String(author.id || fallbackAuthorId || '').trim();
+  if (id) return `/profile/${encodeURIComponent(id)}`;
+
+  if (currentUserId) return `/profile/${encodeURIComponent(currentUserId)}`;
+  return '/profile/edit';
+};
+
 export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSettings | null }) {
   const { user } = useUser();
   const { isConnected } = useSocket();
 
+  const activeRoleOverride = (() => {
+    try {
+      return sessionStorage.getItem('activeRole');
+    } catch {
+      return null;
+    }
+  })();
+  const effectiveRole = activeRoleOverride || user?.role || '';
+  const normalizedRole = String(effectiveRole || '').trim().toLowerCase();
+  const isFreelancerMode = normalizedRole.includes('freelancer') || normalizedRole.includes('seller');
+  const isClientMode = normalizedRole.includes('employer') || normalizedRole.includes('client') || normalizedRole.includes('buyer');
+
   const feedSettings = settings?.feed ?? {};
   const postCardSettings = settings?.postCard ?? {};
+  const composerSettings = ((settings as any)?.postComposer || (settings as any)?.post_composer || {}) as Record<string, any>;
+  const graphicWarningEnabled = composerSettings.graphicWarningEnabled !== false;
+  const graphicWarningLabel = String(composerSettings.graphicWarningLabel || composerSettings.graphic_warning_label || 'Graphic warning').trim() || 'Graphic warning';
+  const graphicWarningBlurMedia = composerSettings.graphicWarningBlurMedia !== false;
+  const showRecommendedGigsJobs = feedSettings.showRecommendedGigsJobs !== false;
+  const [recoInsertIndex] = useState(() => (Math.random() < 0.5 ? 2 : 4));
 
   const promotedFrequency = clamp(Number(feedSettings.promotedFrequency ?? 6) || 6, 2, 20);
 
@@ -66,11 +131,14 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [revealedGraphic, setRevealedGraphic] = useState<Record<string, boolean>>({});
 
   const [ads, setAds] = useState<any[]>([]);
   const [trendingTags, setTrendingTags] = useState<Array<{ slug: string; label: string; count?: number }>>([]);
   const [suggestedPeople, setSuggestedPeople] = useState<any[]>([]);
   const [suggestedPages, setSuggestedPages] = useState<any[]>([]);
+  const [recommendedJobs, setRecommendedJobs] = useState<Job[]>([]);
+  const [recommendedGigs, setRecommendedGigs] = useState<Gig[]>([]);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadMoreArmedRef = useRef(false);
@@ -78,6 +146,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const loadInFlightRef = useRef(false);
   const rateLimitUntilRef = useRef<number>(0);
   const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
+  const viewTrackedRef = useRef<Set<string>>(new Set());
 
   const syncCommentCount = useCallback((postId: string, count: number) => {
     setPosts((prev) =>
@@ -161,11 +230,46 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   }, [load]);
 
   useEffect(() => {
-    if (!feedSettings.showPromoted) return;
+    if (feedSettings.showPromoted === false) return;
     CommunityService.getPublicAds({ placement: 'feed', limit: 8 })
-      .then((items) => setAds(Array.isArray(items) ? items : []))
+      .then((items) => setAds(shuffle(Array.isArray(items) ? items : [])))
       .catch(() => setAds([]));
   }, [feedSettings.showPromoted]);
+
+  useEffect(() => {
+    if (!showRecommendedGigsJobs) return;
+
+    if (isFreelancerMode) {
+      jobsApi
+        .getJobs({ status: 'active', limit: 20 })
+        .then((data) => {
+          const list = Array.isArray(data?.jobs) ? data.jobs : [];
+          setRecommendedJobs(shuffle(list).slice(0, 8));
+          setRecommendedGigs([]);
+        })
+        .catch(() => {
+          setRecommendedJobs([]);
+        });
+      return;
+    }
+
+    if (isClientMode) {
+      gigsApi
+        .getGigs({ status: 'active', limit: 20 })
+        .then((data: any) => {
+          const list = Array.isArray(data?.gigs) ? data.gigs : [];
+          setRecommendedGigs(shuffle(list).slice(0, 8));
+          setRecommendedJobs([]);
+        })
+        .catch(() => {
+          setRecommendedGigs([]);
+        });
+      return;
+    }
+
+    setRecommendedJobs([]);
+    setRecommendedGigs([]);
+  }, [showRecommendedGigsJobs, isFreelancerMode, isClientMode]);
 
   useEffect(() => {
     if (feedSettings.showTrendingTags === false) return;
@@ -261,15 +365,89 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       setPosts((prev) => prev.filter((p) => String(p?.id) !== String(postId)));
     };
 
+    const onPostMetricsUpdated = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const postId = String(detail?.postId || detail?.id || '').trim();
+      if (!postId) return;
+
+      const metricsSource = detail?.interactions || detail?.counts || {};
+      const likes = metricsSource?.likes ?? detail?.likesCount ?? detail?.likes;
+      const comments = metricsSource?.comments ?? detail?.commentsCount ?? detail?.comments;
+      const shares = metricsSource?.shares ?? detail?.sharesCount ?? detail?.shares;
+      const reposts = metricsSource?.reposts ?? detail?.repostsCount ?? detail?.reposts;
+      const views = metricsSource?.views ?? detail?.viewsCount ?? detail?.views;
+
+      setPosts((prev) =>
+        prev.map((p) => {
+          if (String(p?.id) !== postId) return p;
+          const interactions = { ...(p?.interactions || {}) };
+          if (likes !== undefined) interactions.likes = Number(likes) || 0;
+          if (comments !== undefined) interactions.comments = Number(comments) || 0;
+          if (shares !== undefined) interactions.shares = Number(shares) || 0;
+          if (reposts !== undefined) interactions.reposts = Number(reposts) || 0;
+          if (views !== undefined) interactions.views = Number(views) || 0;
+          return { ...p, interactions, viewsCount: interactions.views ?? p?.viewsCount };
+        })
+      );
+    };
+
+    const onPostReactionUpdated = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const postId = String(detail?.postId || detail?.id || '').trim();
+      const reactions = detail?.reactions;
+      if (!postId || !reactions || typeof reactions !== 'object') return;
+      setPosts((prev) =>
+        prev.map((p) => {
+          if (String(p?.id) !== postId) return p;
+          const interactions = { ...(p?.interactions || {}) };
+          interactions.reactions = reactions as Record<string, number>;
+          return { ...p, interactions };
+        })
+      );
+    };
+
     window.addEventListener('community:post_created', onCreated as EventListener);
     window.addEventListener('community:post_updated', onUpdated as EventListener);
     window.addEventListener('community:post_deleted', onDeleted as EventListener);
+    window.addEventListener('community:post_metrics_updated', onPostMetricsUpdated as EventListener);
+    window.addEventListener('community:post_reaction_updated', onPostReactionUpdated as EventListener);
     return () => {
       window.removeEventListener('community:post_created', onCreated as EventListener);
       window.removeEventListener('community:post_updated', onUpdated as EventListener);
       window.removeEventListener('community:post_deleted', onDeleted as EventListener);
+      window.removeEventListener('community:post_metrics_updated', onPostMetricsUpdated as EventListener);
+      window.removeEventListener('community:post_reaction_updated', onPostReactionUpdated as EventListener);
     };
   }, []);
+
+  useEffect(() => {
+    viewTrackedRef.current.clear();
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || !posts.length) return;
+
+    const pending = posts
+      .map((p) => String(p?.id || '').trim())
+      .filter(Boolean)
+      .filter((id) => !viewTrackedRef.current.has(id))
+      .slice(0, 12);
+
+    if (!pending.length) return;
+
+    let cancelled = false;
+    pending.forEach((postId, idx) => {
+      viewTrackedRef.current.add(postId);
+      window.setTimeout(() => {
+        if (cancelled) return;
+        CommunityService.postView(postId).catch(() => {});
+      }, idx * 140);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [posts, user?.id]);
 
   useEffect(() => {
     if (!sentinelRef.current) return;
@@ -360,6 +538,17 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
           const authorId = post?.authorUserId || post?.authorId;
           const createdAt = post?.createdAt;
 
+          const profileUrl = resolveProfileUrl(
+            {
+              id: author.id || authorId || null,
+              username: author.username || post?.authorUsername || null,
+              type: author.type || post?.authorType || null,
+              businessSlug: author.businessSlug || post?.businessPage?.slug || post?.businessPage?.businessSlug || null
+            },
+            authorId || null,
+            user?.id || null
+          );
+
           const content = String(post?.content || '');
           const isLong = content.length > 240;
           const isExpanded = Boolean(expanded[postId]);
@@ -371,6 +560,9 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
           const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
           const showMedia = postCardSettings.mediaPreviewEnabled !== false;
 
+          const hasGraphicWarning = Boolean(post?.graphicWarning) && graphicWarningEnabled;
+          const shouldBlurMedia = hasGraphicWarning && graphicWarningBlurMedia && !revealedGraphic[postId];
+
           const showHashtags = postCardSettings.hashtagsEnabled !== false;
           const tags = Array.isArray(post?.tags) ? post.tags : [];
 
@@ -379,16 +571,30 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
               <article className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
+                    <Link
+                      to={profileUrl}
+                      className="h-11 w-11 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100"
+                      aria-label={`View ${authorName} profile`}
+                    >
                       {authorAvatar ? <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" /> : null}
-                    </div>
+                    </Link>
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-slate-900">{authorName}</div>
+                      <Link
+                        to={profileUrl}
+                        className="block truncate text-sm font-semibold text-slate-900 hover:text-slate-700"
+                      >
+                        {authorName}
+                      </Link>
                       <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
                         <span>{relativeTime(createdAt) || 'now'}</span>
                         {post?.visibility ? (
                           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-600">
                             {String(post.visibility).toUpperCase()}
+                          </span>
+                        ) : null}
+                        {hasGraphicWarning ? (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-800">
+                            {graphicWarningLabel}
                           </span>
                         ) : null}
                       </div>
@@ -449,20 +655,41 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                   ) : null}
 
                   {showMedia && attachments.length ? (
-                    <div className="grid gap-2">
-                      {attachments.slice(0, 3).map((file: any) => (
-                        <div key={`${postId}_att_${file.id || file.url}`} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                          {isVideo(file.mimeType) ? (
-                            <video src={file.url} className="h-56 w-full object-cover" controls preload="metadata" />
-                          ) : isImage(file.mimeType) ? (
-                            <img src={file.url} alt={file.name || 'Attachment'} className="h-56 w-full object-cover" />
-                          ) : (
-                            <a href={file.url} className="block p-4 text-sm font-semibold text-slate-700 hover:underline">
-                              {file.name || file.url}
-                            </a>
-                          )}
-                        </div>
-                      ))}
+                    <div className="relative grid gap-2">
+                      <div className={shouldBlurMedia ? 'pointer-events-none blur-sm' : ''}>
+                        {attachments.slice(0, 3).map((file: any) => (
+                          <div
+                            key={`${postId}_att_${file.id || file.url}`}
+                            className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
+                          >
+                            {isVideo(file.mimeType) ? (
+                              <video src={file.url} className="h-56 w-full object-cover" controls preload="metadata" />
+                            ) : isImage(file.mimeType) ? (
+                              <img src={file.url} alt={file.name || 'Attachment'} className="h-56 w-full object-cover" />
+                            ) : (
+                              <a
+                                href={file.url}
+                                className="block p-4 text-sm font-semibold text-slate-700 hover:underline"
+                              >
+                                {file.name || file.url}
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {shouldBlurMedia ? (
+                        <button
+                          type="button"
+                          onClick={() => setRevealedGraphic((prev) => ({ ...prev, [postId]: true }))}
+                          className="absolute inset-0 flex items-center justify-center rounded-2xl bg-slate-900/45 p-4 text-center"
+                          aria-label="Reveal media"
+                        >
+                          <div className="rounded-2xl bg-white/95 px-4 py-3 text-sm font-semibold text-slate-900 shadow-xl">
+                            {graphicWarningLabel}. Tap to view.
+                          </div>
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -486,6 +713,24 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                   }}
                 />
               </article>
+
+              {showRecommendedGigsJobs && idx === recoInsertIndex ? (
+                isFreelancerMode && recommendedJobs.length ? (
+                  <RecommendedListingCard
+                    kind="jobs"
+                    title="Recommended jobs"
+                    items={recommendedJobs as any}
+                    seeAllHref="/browse-jobs"
+                  />
+                ) : isClientMode && recommendedGigs.length ? (
+                  <RecommendedListingCard
+                    kind="gigs"
+                    title="Recommended gigs"
+                    items={recommendedGigs as any}
+                    seeAllHref="/browse"
+                  />
+                ) : null
+              ) : null}
 
               {feedSettings.showPromoted !== false && promotedFrequency > 0 && (idx + 1) % promotedFrequency === 0 ? (
                 (() => {

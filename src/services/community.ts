@@ -397,7 +397,7 @@ class CommunityService {
     return this.get(endpoint);
   }
 
-  static async createPost(data: { title?: string; content: string; attachments?: string[]; attachmentFileIds?: string[]; status?: string; tags?: string[]; mentions?: string[]; visibility?: string; businessPageId?: string; topic?: string; location?: string; commentPolicy?: string }): Promise<any> {
+  static async createPost(data: { title?: string; content: string; attachments?: string[]; attachmentFileIds?: string[]; status?: string; tags?: string[]; mentions?: string[]; visibility?: string; businessPageId?: string; topic?: string; location?: string; commentPolicy?: string; graphicWarning?: boolean }): Promise<any> {
     const attachmentFileIds = Array.from(
       new Set([...(data.attachmentFileIds || []), ...(data.attachments || [])].filter(Boolean))
     );
@@ -412,6 +412,7 @@ class CommunityService {
       topic: data.topic,
       location: data.location,
       visibility: data.visibility || 'public',
+      graphicWarning: data.graphicWarning === true,
       businessPageId: data.businessPageId,
       commentPolicy: data.commentPolicy
     };
