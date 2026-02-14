@@ -2371,13 +2371,12 @@ export const createPost = async (req: Request, res: Response) => {
       commentPolicy
     } = req.body;
 
+    const normalizedTitle = String(title || '').trim();
+    const normalizedContent = String(content || '').trim();
+
     const normalizedPolicy = normalizeCommentPolicy(commentPolicy);
     if (commentPolicy !== undefined && !normalizedPolicy) {
       return res.status(400).json({ error: 'Invalid comment policy' });
-    }
-
-    if (!content || content.trim().length === 0) {
-      return res.status(400).json({ error: 'Content is required' });
     }
 
     const explicitMentionUserIds = Array.isArray(mentions)
@@ -2389,7 +2388,7 @@ export const createPost = async (req: Request, res: Response) => {
           select: { id: true }
         })
       : [];
-    const mentionedUsersByUsername = await resolveMentionedUserIds(extractMentionUsernames(String(content || '')));
+    const mentionedUsersByUsername = await resolveMentionedUserIds(extractMentionUsernames(normalizedContent));
     const rawMentionUserIds = Array.from(
       new Set([...explicitMentionUsers.map((user) => user.id), ...mentionedUsersByUsername.map((user) => user.id)])
     ).filter((mentionedUserId) => mentionedUserId !== userId);
@@ -2413,11 +2412,15 @@ export const createPost = async (req: Request, res: Response) => {
       { userId, role: req.user?.role }
     );
 
+    if (!normalizedTitle && !normalizedContent && !normalizedAttachmentIds.length) {
+      return res.status(400).json({ error: 'Add text or at least one attachment' });
+    }
+
     const post = await prisma.communityPost.create({
       data: {
         authorId: userId,
-        title: title || null,
-        content: content.trim(),
+        title: normalizedTitle || null,
+        content: normalizedContent,
         attachments: normalizedAttachmentIds,
         tags: Array.isArray(tags) ? tags : [],
         mentions: normalizedMentionUserIds,
