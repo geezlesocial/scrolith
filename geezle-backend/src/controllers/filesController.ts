@@ -76,8 +76,10 @@ const ALLOWED_VIDEO_MIME_TYPES = new Set([
   'video/webm',
   'video/quicktime',
   'video/x-msvideo',
+  'video/x-ms-wmv',
   'video/x-matroska',
   'video/x-m4v',
+  'video/x-flv',
   'video/3gpp',
   'video/3gpp2',
   'video/mpeg'
@@ -112,12 +114,14 @@ const ALLOWED_VIDEO_EXTENSIONS = new Set([
   '.webm',
   '.mov',
   '.avi',
+  '.wmv',
   '.mkv',
   '.m4v',
   '.3gp',
   '.3g2',
   '.mpeg',
-  '.mpg'
+  '.mpg',
+  '.flv'
 ]);
 
 const ALLOWED_DOCUMENT_EXTENSIONS = new Set([
@@ -455,7 +459,9 @@ const getMimeTypeFromFilename = (filename: string) => {
     '.webm': 'video/webm',
     '.mov': 'video/quicktime',
     '.avi': 'video/x-msvideo',
+    '.wmv': 'video/x-ms-wmv',
     '.mkv': 'video/x-matroska',
+    '.flv': 'video/x-flv',
     '.mp3': 'audio/mpeg',
     '.wav': 'audio/wav',
     '.ogg': 'audio/ogg',

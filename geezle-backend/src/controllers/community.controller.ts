@@ -1704,6 +1704,7 @@ export const getPosts = async (req: Request, res: Response) => {
         topic: post.topic || null,
         location: post.location || null,
         visibility: post.visibility || 'public',
+        graphicWarning: Boolean(post.graphicWarning),
         commentPolicy: post.commentPolicy || 'everyone',
         businessPage: post.businessPage ? {
           id: post.businessPage.id,
@@ -1910,6 +1911,7 @@ export const getFeed = async (req: Request, res: Response) => {
         topic: post.topic || null,
         location: post.location || null,
         visibility: post.visibility || 'public',
+        graphicWarning: Boolean(post.graphicWarning),
         commentPolicy: post.commentPolicy || 'everyone',
         businessPage: post.businessPage ? {
           id: post.businessPage.id,
@@ -2105,6 +2107,7 @@ export const getPostById = async (req: Request, res: Response) => {
       topic: post.topic || null,
       location: post.location || null,
       visibility: post.visibility || 'public',
+      graphicWarning: Boolean(post.graphicWarning),
       commentPolicy: post.commentPolicy || 'everyone',
       businessPage: post.businessPage ? {
         id: post.businessPage.id,
@@ -2321,6 +2324,7 @@ export const getCommunityPostsByTag = async (req: Request, res: Response) => {
           topic: post.topic || null,
           location: post.location || null,
           visibility: post.visibility || 'public',
+          graphicWarning: Boolean(post.graphicWarning),
           commentPolicy: post.commentPolicy || 'everyone',
           viewsCount: post.viewsCount,
           likesCount: post.likesCount,
@@ -2359,6 +2363,7 @@ export const createPost = async (req: Request, res: Response) => {
       tags,
       mentions,
       visibility,
+      graphicWarning,
       businessPageId,
       originalPostId,
       topic,
@@ -2419,6 +2424,7 @@ export const createPost = async (req: Request, res: Response) => {
         topic: topic || null,
         location: location || null,
         visibility: visibility || 'public',
+        graphicWarning: Boolean(graphicWarning),
         commentPolicy: normalizedPolicy || 'everyone',
         businessPageId: resolvedBusinessPageId,
         originalPostId: originalPostId || null,
@@ -2495,6 +2501,7 @@ export const createPost = async (req: Request, res: Response) => {
       topic: post.topic || null,
       location: post.location || null,
       visibility: post.visibility || 'public',
+      graphicWarning: Boolean((post as any).graphicWarning),
       commentPolicy: post.commentPolicy || 'everyone',
       businessPage: post.businessPage ? {
         id: post.businessPage.id,
@@ -2633,6 +2640,7 @@ export const updatePost = async (req: Request, res: Response) => {
       tags,
       mentions,
       visibility,
+      graphicWarning,
       topic,
       location,
       commentPolicy,
@@ -2666,6 +2674,7 @@ export const updatePost = async (req: Request, res: Response) => {
     if (tags !== undefined) updateData.tags = Array.isArray(tags) ? tags : [];
     if (mentions !== undefined) updateData.mentions = Array.isArray(mentions) ? mentions : [];
     if (visibility !== undefined) updateData.visibility = visibility;
+    if (graphicWarning !== undefined) updateData.graphicWarning = Boolean(graphicWarning);
     if (topic !== undefined) updateData.topic = topic;
     if (location !== undefined) updateData.location = location;
     if (commentPolicy !== undefined) {
@@ -2787,6 +2796,7 @@ export const updatePost = async (req: Request, res: Response) => {
       topic: updated.topic || null,
       location: updated.location || null,
       visibility: updated.visibility || 'public',
+      graphicWarning: Boolean(updated.graphicWarning),
       commentPolicy: updated.commentPolicy || 'everyone',
       businessPage: updated.businessPage ? {
         id: updated.businessPage.id,

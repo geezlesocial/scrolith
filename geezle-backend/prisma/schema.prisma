@@ -1935,6 +1935,7 @@ model CommunityPost {
   topic        String?
   location     String?
   visibility   String   @default("public") // public, friends, network, private, custom
+  graphicWarning Boolean @default(false) // content warning flag (UI-only)
   commentPolicy String  @default("everyone") // everyone, followers, following, mutuals, none
   originalPostId String?
   businessPageId String?

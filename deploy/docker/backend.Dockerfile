@@ -17,4 +17,6 @@ ENV NODE_ENV=production
 
 EXPOSE 5000
 
-CMD ["node", "-r", "ts-node/register/transpile-only", "src/server.ts"]
+# Ensure DB schema is up-to-date in production before booting the server.
+# Safe for additive migrations; Prisma uses locking to avoid concurrent apply.
+CMD ["sh", "-c", "npm run migrate:apply && node -r ts-node/register/transpile-only src/server.ts"]

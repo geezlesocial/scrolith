@@ -114,6 +114,11 @@ const DEFAULT_MOBILE_HOME_LAYOUT = {
   },
   quickMenu: {
     createPost: true,
+    switchUser: true,
+    browseJobs: true,
+    browseGigs: true,
+    projectBrief: true,
+    gigCreation: true,
     settings: true
   },
   bottomTabs: {
@@ -130,7 +135,19 @@ const DEFAULT_MOBILE_HOME_LAYOUT = {
     showSuggestedPeople: true,
     showSuggestedPages: true,
     showTrendingTags: true,
-    showRecommendedGigsJobs: false
+    showRecommendedGigsJobs: true
+  },
+  stories: {
+    enabled: true,
+    maxItems: 12
+  },
+  postComposer: {
+    visibilityEnabled: true,
+    allowedVisibilities: ['public', 'network', 'friends', 'private'],
+    defaultVisibility: 'public',
+    graphicWarningEnabled: true,
+    graphicWarningLabel: 'Graphic warning',
+    graphicWarningBlurMedia: true
   },
   postCard: {
     reactionsEnabled: true,
