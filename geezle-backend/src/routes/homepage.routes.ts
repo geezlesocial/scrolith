@@ -22,6 +22,29 @@ const deepMerge = <T extends Record<string, any>>(base: T, patch: any): T => {
 };
 
 const DEFAULT_MOBILE_HOME_LAYOUT = {
+  header: {
+    messagesEnabled: true,
+    quickMenuEnabled: true
+  },
+  accountMenu: {
+    dashboard: true,
+    viewAs: true,
+    switchCurrency: true,
+    postProject: true,
+    yourBriefs: true,
+    referFriend: true,
+    billingPayments: true,
+    settings: true,
+    logout: true
+  },
+  messagesPopup: {
+    enabled: true,
+    previewLimit: 6
+  },
+  quickMenu: {
+    createPost: true,
+    settings: true
+  },
   bottomTabs: {
     home: true,
     network: true,
@@ -70,4 +93,3 @@ router.get('/mobile-settings', async (_req, res) => {
 });
 
 export default router;
-
