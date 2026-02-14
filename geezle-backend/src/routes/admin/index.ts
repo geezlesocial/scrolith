@@ -77,6 +77,54 @@ const writePersistedSettings = (payload: any) => {
 const isObjectLike = (value: any): value is Record<string, any> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
+const deepMerge = <T extends Record<string, any>>(base: T, patch: any): T => {
+  if (!isObjectLike(patch)) return base;
+  const out: any = { ...base };
+  Object.keys(patch).forEach((key) => {
+    const next = patch[key];
+    const prev = out[key];
+    if (isObjectLike(prev) && isObjectLike(next)) {
+      out[key] = deepMerge(prev, next);
+    } else if (next !== undefined) {
+      out[key] = next;
+    }
+  });
+  return out as T;
+};
+
+const DEFAULT_MOBILE_HOME_LAYOUT = {
+  bottomTabs: {
+    home: true,
+    network: true,
+    post: true,
+    notifications: true,
+    jobs: true,
+    messages: false
+  },
+  feed: {
+    showPromoted: true,
+    promotedFrequency: 6,
+    showSuggestedPeople: true,
+    showSuggestedPages: true,
+    showTrendingTags: true,
+    showRecommendedGigsJobs: false
+  },
+  postCard: {
+    reactionsEnabled: true,
+    commentsEnabled: true,
+    repostsEnabled: true,
+    sendEnabled: true,
+    linkPreviewEnabled: true,
+    mediaPreviewEnabled: true,
+    mentionsEnabled: true,
+    hashtagsEnabled: true
+  },
+  search: {
+    enabled: true,
+    categories: ['posts', 'people', 'pages', 'jobs', 'gigs']
+  }
+};
+
 // Apply auth and admin middleware to all admin routes
 router.use(authMiddleware);
 router.use(adminMiddleware);
@@ -292,6 +340,92 @@ router.get('/platform/settings', async (req, res) => {
     });
   }
   return res.json({ success: true, data: defaults });
+});
+
+// ============ MOBILE HOME SETTINGS (ADMIN) ============
+// GET /api/admin/homepage/mobile-settings
+router.get('/homepage/mobile-settings', async (_req, res) => {
+  try {
+    let platform: Record<string, any> | null = null;
+    try {
+      const record = await prisma.appSetting.findUnique({ where: { scope: 'platform' } });
+      if (isObjectLike(record?.data)) {
+        platform = record.data as Record<string, any>;
+      }
+    } catch (error) {
+      console.warn('[admin] Failed to read platform settings from DB for mobile homepage', error);
+    }
+
+    const persisted = readPersistedSettings();
+    if (!platform && isObjectLike(persisted?.platform)) {
+      platform = persisted.platform as Record<string, any>;
+    }
+
+    const raw = (platform as any)?.mobileHomeLayout || (platform as any)?.mobile_home_layout || {};
+    const merged = deepMerge(DEFAULT_MOBILE_HOME_LAYOUT, raw);
+    return res.json({ success: true, data: merged });
+  } catch (error: any) {
+    console.error('[admin] Failed to load mobile homepage settings', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to load mobile homepage settings' });
+  }
+});
+
+// PUT /api/admin/homepage/mobile-settings
+router.put('/homepage/mobile-settings', async (req, res) => {
+  try {
+    const io = req.app.get('io');
+
+    let platform: Record<string, any> = {};
+    try {
+      const record = await prisma.appSetting.findUnique({ where: { scope: 'platform' } });
+      if (isObjectLike(record?.data)) {
+        platform = record.data as Record<string, any>;
+      }
+    } catch (error) {
+      console.warn('[admin] Failed to read platform settings from DB for mobile homepage update', error);
+    }
+
+    const persisted = readPersistedSettings();
+    if (!Object.keys(platform).length && isObjectLike(persisted?.platform)) {
+      platform = persisted.platform as Record<string, any>;
+    }
+
+    const patch =
+      (isObjectLike((req.body as any)?.mobileHomeLayout) ? (req.body as any).mobileHomeLayout : null) ||
+      (isObjectLike(req.body) ? req.body : {});
+
+    const existingLayout = (platform as any)?.mobileHomeLayout || (platform as any)?.mobile_home_layout || {};
+    const nextLayout = deepMerge(deepMerge(DEFAULT_MOBILE_HOME_LAYOUT, existingLayout), patch);
+    const nextPlatform = {
+      ...(platform || {}),
+      mobileHomeLayout: nextLayout
+    };
+
+    io?.emit('settings:updated', { scope: 'platform', settings: nextPlatform });
+
+    try {
+      await prisma.appSetting.upsert({
+        where: { scope: 'platform' },
+        create: { scope: 'platform', data: nextPlatform },
+        update: { data: nextPlatform }
+      });
+    } catch (error) {
+      console.error('[admin] Failed to persist platform settings (mobile homepage) to DB', error);
+    }
+
+    try {
+      const nextPersisted = readPersistedSettings() || {};
+      nextPersisted.platform = nextPlatform;
+      writePersistedSettings(nextPersisted);
+    } catch (error) {
+      console.error('[admin] Failed to persist platform settings (mobile homepage) to file', error);
+    }
+
+    return res.json({ success: true, data: nextLayout, message: 'Mobile homepage settings saved' });
+  } catch (error: any) {
+    console.error('[admin] Failed to save mobile homepage settings', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to save mobile homepage settings' });
+  }
 });
 
 // Ads pricing and refund policy persisted endpoints

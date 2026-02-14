@@ -9,6 +9,142 @@ router.get('/health', (_req, res) => {
 });
 
 const normalizeId = (value: unknown) => String(value || '').trim();
+const normalizeQuery = (value: unknown) => String(value || '').trim();
+
+const clampInt = (value: unknown, fallback: number, min: number, max: number) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(n)));
+};
+
+// Enterprise-safe search endpoint for the mobile shell.
+// GET /api/search?q=...&type=posts|people|pages|jobs|gigs&limit=10
+router.get('/', async (req: Request, res: Response) => {
+  try {
+    const q = normalizeQuery(req.query.q).replace(/\s+/g, ' ').trim();
+    const type = normalizeQuery(req.query.type || 'posts').toLowerCase();
+    const limit = clampInt(req.query.limit, 10, 1, 25);
+
+    if (q.length < 2) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const contains = { contains: q, mode: 'insensitive' as const };
+
+    if (type === 'posts' || type === 'post') {
+      const rows = await prisma.communityPost.findMany({
+        where: {
+          status: { not: 'deleted' },
+          visibility: 'public',
+          OR: [{ title: contains }, { content: contains }]
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        select: { id: true, title: true, content: true, createdAt: true }
+      });
+
+      const data = rows.map((post) => {
+        const snippet = String(post.content || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+        return {
+          id: post.id,
+          title: post.title || snippet || 'Post',
+          subtitle: snippet,
+          url: `/community/posts/${post.id}`,
+          createdAt: post.createdAt
+        };
+      });
+      return res.json({ success: true, data });
+    }
+
+    if (type === 'people' || type === 'users' || type === 'user') {
+      const rows = await prisma.user.findMany({
+        where: {
+          isActive: true,
+          OR: [{ name: contains }, { username: contains }]
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: limit,
+        select: { id: true, name: true, username: true, avatar: true }
+      });
+
+      const data = rows.map((user) => ({
+        id: user.id,
+        name: user.name || user.username || 'User',
+        username: user.username || undefined,
+        subtitle: user.username ? `@${user.username}` : undefined,
+        url: `/profile/${user.id}`,
+        avatarUrl: user.avatar || null
+      }));
+      return res.json({ success: true, data });
+    }
+
+    if (type === 'pages' || type === 'page') {
+      const rows = await prisma.communityBusinessPage.findMany({
+        where: {
+          status: 'active',
+          OR: [{ name: contains }, { slug: contains }, { handle: contains }]
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: limit,
+        select: { id: true, name: true, slug: true, handle: true, tagline: true }
+      });
+
+      const data = rows.map((page) => ({
+        id: page.id,
+        name: page.name,
+        subtitle: page.tagline || (page.handle ? `@${page.handle}` : undefined),
+        url: `/company/${page.slug}`
+      }));
+      return res.json({ success: true, data });
+    }
+
+    if (type === 'jobs' || type === 'job') {
+      const rows = await prisma.job.findMany({
+        where: {
+          isActive: true,
+          isVisible: true,
+          OR: [{ title: contains }, { description: contains }]
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        select: { id: true, title: true, budget: true }
+      });
+
+      const data = rows.map((job) => ({
+        id: job.id,
+        title: job.title,
+        subtitle: job.budget ? `Budget: ${job.budget}` : undefined,
+        url: `/jobs/${job.id}`
+      }));
+      return res.json({ success: true, data });
+    }
+
+    if (type === 'gigs' || type === 'gig') {
+      const rows = await prisma.gig.findMany({
+        where: {
+          isActive: true,
+          OR: [{ title: contains }, { description: contains }]
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        select: { id: true, title: true, price: true }
+      });
+
+      const data = rows.map((gig) => ({
+        id: gig.id,
+        title: gig.title,
+        subtitle: Number.isFinite(Number(gig.price)) ? `From $${Number(gig.price).toFixed(0)}` : undefined,
+        url: `/gigs/${gig.id}`
+      }));
+      return res.json({ success: true, data });
+    }
+
+    return res.json({ success: true, data: [] });
+  } catch (error: any) {
+    console.error('[search] query error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to search' });
+  }
+});
 
 const resolveRecommendations = async (req: Request, res: Response) => {
   try {

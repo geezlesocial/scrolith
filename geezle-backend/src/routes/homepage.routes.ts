@@ -1,0 +1,73 @@
+import express from 'express';
+import prisma from '../utils/prismaClient';
+
+const router = express.Router();
+
+const isObjectLike = (value: any): value is Record<string, any> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const deepMerge = <T extends Record<string, any>>(base: T, patch: any): T => {
+  if (!isObjectLike(patch)) return base;
+  const out: any = { ...base };
+  Object.keys(patch).forEach((key) => {
+    const next = patch[key];
+    const prev = out[key];
+    if (isObjectLike(prev) && isObjectLike(next)) {
+      out[key] = deepMerge(prev, next);
+    } else if (next !== undefined) {
+      out[key] = next;
+    }
+  });
+  return out as T;
+};
+
+const DEFAULT_MOBILE_HOME_LAYOUT = {
+  bottomTabs: {
+    home: true,
+    network: true,
+    post: true,
+    notifications: true,
+    jobs: true,
+    messages: false
+  },
+  feed: {
+    showPromoted: true,
+    promotedFrequency: 6,
+    showSuggestedPeople: true,
+    showSuggestedPages: true,
+    showTrendingTags: true,
+    showRecommendedGigsJobs: false
+  },
+  postCard: {
+    reactionsEnabled: true,
+    commentsEnabled: true,
+    repostsEnabled: true,
+    sendEnabled: true,
+    linkPreviewEnabled: true,
+    mediaPreviewEnabled: true,
+    mentionsEnabled: true,
+    hashtagsEnabled: true
+  },
+  search: {
+    enabled: true,
+    categories: ['posts', 'people', 'pages', 'jobs', 'gigs']
+  }
+};
+
+// Public mobile settings endpoint:
+// GET /api/homepage/mobile-settings
+router.get('/mobile-settings', async (_req, res) => {
+  try {
+    const record = await prisma.appSetting.findUnique({ where: { scope: 'platform' } });
+    const platform = isObjectLike(record?.data) ? (record!.data as Record<string, any>) : {};
+    const raw = platform.mobileHomeLayout || platform.mobile_home_layout || {};
+    const merged = deepMerge(DEFAULT_MOBILE_HOME_LAYOUT, raw);
+    return res.json({ success: true, data: merged });
+  } catch (error: any) {
+    console.warn('[homepage] Failed to load mobile settings; falling back to defaults', error);
+    return res.json({ success: true, data: DEFAULT_MOBILE_HOME_LAYOUT });
+  }
+});
+
+export default router;
+
