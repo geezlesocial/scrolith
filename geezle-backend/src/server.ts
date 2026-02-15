@@ -112,7 +112,7 @@ const io = new Server(server, {
     cors: {
       origin: corsOrigin,
       credentials: true,
-      methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
     },
   path: '/socket.io',
   transports: ['websocket', 'polling'],
@@ -466,7 +466,7 @@ app.use(helmet({
 app.use(cors({
     origin: corsOrigin,
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
   }));
 
   // Rate limiting

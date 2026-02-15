@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
+import { notifyUser } from '../utils/notify';
 import { computeWalletFraudScore, recomputeAllWalletScores } from '../services/fraudDetector';
 import { getGcoinSettingsSafe, saveGcoinSettingsSafe } from '../utils/gcoinSettings';
 
@@ -826,6 +827,56 @@ export const donateGcoin = async (req: AuthRequest, res: Response) => {
     try { realtime.emitToUser(recipientUser.id, 'community:gcoin_transaction_created', { from: sender.id, to: recipientUser.id, amount: value, type: 'donation', postId }); } catch (e) {}
     try { realtime.emitToWallet(sender.id, 'community:gcoin_balance_updated', { userId: sender.id, balance: Number(senderW.balance) - totalDeduct }); } catch (e) {}
     try { realtime.emitToWallet(recipientUser.id, 'community:gcoin_balance_updated', { userId: recipientUser.id, balance: Number(recipientWallet.balance) + value }); } catch (e) {}
+
+    // Persist a notification so Dash appears in Notifications even after refresh.
+    // (Also emits realtime + push via notifyUser.)
+    try {
+      const donor = await prisma.user.findUnique({
+        where: { id: sender.id },
+        select: { id: true, name: true, username: true, avatar: true }
+      });
+      const donorName = String(donor?.name || donor?.username || 'Someone').trim() || 'Someone';
+      const actionUrl = `/post/${encodeURIComponent(postId)}`;
+
+      const meta = {
+        action_url: actionUrl,
+        actionUrl,
+        entityType: 'community_post',
+        entityId: postId,
+        postId,
+        amount: value,
+        fee: feeAmount,
+        donorId: sender.id,
+        recipientId: recipientUser.id,
+        actorId: sender.id,
+        actorName: donorName,
+        actorAvatar: donor?.avatar || null
+      };
+
+      const created = await prisma.notification.create({
+        data: {
+          userId: recipientUser.id,
+          actorId: sender.id,
+          type: 'gcoin_donation_received',
+          title: 'New Dash received',
+          body: `${donorName} sent you ${value} Gcoin on your post.`,
+          meta: meta as any,
+          isRead: false
+        }
+      });
+
+      notifyUser(recipientUser.id, {
+        id: created.id,
+        type: created.type,
+        title: created.title || 'Notification',
+        body: created.body || '',
+        action_url: actionUrl,
+        meta,
+        createdAt: created.createdAt.toISOString()
+      });
+    } catch (notifyErr) {
+      console.warn('Failed to create Dash notification:', notifyErr);
+    }
     
     return ok(res, { 
       success: true,
