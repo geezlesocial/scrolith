@@ -4,6 +4,8 @@ import {
   deleteAdminScrolithaSkillController,
   getAdminScrolithaAnalyticsController,
   getAdminScrolithaAuditController,
+  getAdminScrolithaHealthController,
+  getAdminScrolithaModelsController,
   getAdminScrolithaConfigController,
   getAdminScrolithaSkillsController,
   getAdminScrolithaToolsController,
@@ -18,6 +20,8 @@ const router = express.Router();
 
 router.get('/config', getAdminScrolithaConfigController);
 router.put('/config', putAdminScrolithaConfigController);
+router.get('/health', getAdminScrolithaHealthController);
+router.get('/models', getAdminScrolithaModelsController);
 router.post('/chat', postAdminScrolithaChatController);
 router.post('/execute', postAdminScrolithaExecuteController);
 router.get('/skills', getAdminScrolithaSkillsController);

@@ -1,5 +1,6 @@
 import prisma from '../../utils/prismaClient';
 import { listScrolithaAuditLogs, writeScrolithaAuditLog } from './scrolitha.audit';
+import { ollamaChat, resolveScrolithaLlmRuntime } from './scrolitha.ollama';
 import {
   canUseTool,
   detectPromptInjectionAttempt,
@@ -26,6 +27,91 @@ import type {
 } from './scrolitha.types';
 
 const text = (v: unknown) => String(v || '').trim();
+const truncate = (value: string, max = 1800) => {
+  const s = String(value || '');
+  if (s.length <= max) return s;
+  return `${s.slice(0, max)}…`;
+};
+
+const buildScrolithaSystemPrompt = (params: {
+  actor: ScrolithaActor;
+  safeMode: boolean;
+  plannedActions: Array<{ summary: string; toolKey: string; requiresConfirmation: boolean }>;
+}) => {
+  const role = String(params.actor.role || 'user');
+  const scope = String(params.actor.scope || 'user');
+  const actions = params.plannedActions
+    .slice(0, 12)
+    .map((a, idx) => `${idx + 1}. ${a.summary} (tool=${a.toolKey}${a.requiresConfirmation ? ', needs_confirmation' : ''})`)
+    .join('\n');
+
+  return [
+    `You are Scrolitha, the embedded assistant for the Scrolith platform.`,
+    `Rules:`,
+    `- Do NOT ask for secrets, API keys, passwords, or private tokens.`,
+    `- Do NOT claim to have executed an action unless a tool result explicitly confirms it.`,
+    `- Keep replies concise, professional, and actionable.`,
+    `- If user intent is unclear, ask a single clarifying question.`,
+    `- If there are planned actions, summarize them and ask the user which one to execute (or confirm).`,
+    `- Safety mode: ${params.safeMode ? 'ON (avoid risky guidance and do not suggest destructive actions).' : 'OFF'}`,
+    ``,
+    `Actor scope: ${scope}`,
+    `Actor role: ${role}`,
+    actions ? `Planned actions:\n${actions}` : `Planned actions: (none)`
+  ].join('\n');
+};
+
+const loadRecentConversationMessages = async (conversationId: string, take = 12) => {
+  const rows = await prisma.scrolithaMessage.findMany({
+    where: { conversationId },
+    orderBy: { createdAt: 'desc' },
+    take: Math.max(2, Math.min(40, Math.floor(take)))
+  });
+  return rows.reverse();
+};
+
+const buildLlmReply = async (input: {
+  actor: ScrolithaActor;
+  conversationId: string;
+  config: Awaited<ReturnType<typeof ensureScrolithaConfig>>;
+  actionPlans: Array<{ summary: string; toolKey: string; requiresConfirmation: boolean }>;
+}) => {
+  const runtime = await resolveScrolithaLlmRuntime(input.actor.scope);
+  if (!runtime.enabled) return null;
+
+  const history = await loadRecentConversationMessages(input.conversationId, 14);
+  const messages = [
+    {
+      role: 'system' as const,
+      content: buildScrolithaSystemPrompt({
+        actor: input.actor,
+        safeMode: Boolean(input.config.safeMode),
+        plannedActions: input.actionPlans
+      })
+    },
+    ...history.map((msg) => ({
+      role: msg.sender === 'assistant' ? ('assistant' as const) : ('user' as const),
+      content: truncate(String(msg.content || ''))
+    }))
+  ];
+
+  try {
+    const result = await ollamaChat({
+      host: runtime.host,
+      model: runtime.model,
+      messages,
+      maxTokens: runtime.maxTokens,
+      temperature: runtime.temperature,
+      topP: runtime.topP,
+      timeoutMs: runtime.timeoutMs
+    });
+    const out = String(result.text || '').trim();
+    return out || null;
+  } catch (error) {
+    console.warn('[scrolitha] ollama chat failed, falling back to heuristic reply:', error);
+    return null;
+  }
+};
 
 const classifyMessage = (message: string, actor: ScrolithaActor, skills: any[]) => {
   const m = message.toLowerCase();
@@ -211,10 +297,23 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
     config
   });
 
+  const plannedForPrompt = actionPlans.map((plan) => ({
+    summary: String(plan.summary || ''),
+    toolKey: String(plan.toolKey || ''),
+    requiresConfirmation: Boolean(plan.requiresConfirmation)
+  }));
+  const llmReply = await buildLlmReply({
+    actor,
+    conversationId: conversation.id,
+    config,
+    actionPlans: plannedForPrompt
+  });
+  const reply = llmReply || classified.reply;
+
   await appendConversationMessage({
     conversationId: conversation.id,
     sender: 'assistant',
-    content: classified.reply,
+    content: reply,
     metadata: {
       suggestedActionIds: actionPlans.map((entry) => entry.actionId),
       suggestedToolKeys: actionPlans.map((entry) => entry.toolKey)
@@ -234,7 +333,7 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
 
   return {
     conversationId: conversation.id,
-    reply: classified.reply,
+    reply,
     suggestedActions: actionPlans,
     needsConfirmation: actionPlans.some((entry) => entry.requiresConfirmation),
     draftChanges: actionPlans[0]?.paramsPreview || null

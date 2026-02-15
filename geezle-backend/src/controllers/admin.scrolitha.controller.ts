@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../services/scrolitha/scrolitha.audit';
+import { getScrolithaOllamaHealth, ollamaListModels, resolveScrolithaLlmRuntime } from '../services/scrolitha/scrolitha.ollama';
 import {
   createScrolithaSkill,
   deleteScrolithaSkill,
@@ -35,6 +36,45 @@ export const getAdminScrolithaConfigController = async (req: Request, res: Respo
     return res.status(500).json({
       success: false,
       message: 'Failed to load Scrolitha config',
+      error: String(error?.message || 'Unknown error')
+    });
+  }
+};
+
+export const getAdminScrolithaHealthController = async (req: Request, res: Response) => {
+  try {
+    const scope = String(req.query.scope || 'admin').trim().toLowerCase();
+    const data = await getScrolithaOllamaHealth(scope === 'user' ? 'user' : 'admin');
+    return res.json({ success: true, data, message: 'Scrolitha LLM health loaded' });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load Scrolitha LLM health',
+      error: String(error?.message || 'Unknown error')
+    });
+  }
+};
+
+export const getAdminScrolithaModelsController = async (req: Request, res: Response) => {
+  try {
+    const scope = String(req.query.scope || 'admin').trim().toLowerCase();
+    const runtime = await resolveScrolithaLlmRuntime(scope === 'user' ? 'user' : 'admin');
+    const models = runtime.host ? await ollamaListModels(runtime.host, Math.min(10_000, runtime.timeoutMs)) : [];
+    return res.json({
+      success: true,
+      data: {
+        provider: runtime.provider,
+        enabled: runtime.enabled,
+        host: runtime.host || null,
+        model: runtime.model || null,
+        models
+      },
+      message: 'Scrolitha model list loaded'
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load Scrolitha model list',
       error: String(error?.message || 'Unknown error')
     });
   }

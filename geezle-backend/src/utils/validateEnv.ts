@@ -19,6 +19,15 @@ const OPTIONAL_KEYS: EnvKey[] = [
   { key: 'EMAIL_PASS', description: 'SMTP password' },
   { key: 'GOOGLE_API_KEY', description: 'Google / Vertex AI key' },
   { key: 'OPENAI_API_KEY', description: 'OpenAI API key' },
+  { key: 'SCROLITHA_PROVIDER', description: 'Scrolitha provider: ollama | disabled' },
+  { key: 'SCROLITHA_OLLAMA_HOST', description: 'Ollama base URL (e.g. http://127.0.0.1:11434)' },
+  { key: 'SCROLITHA_OLLAMA_MODEL', description: 'Ollama model name (e.g. llama3.1)' },
+  { key: 'SCROLITHA_MAX_TOKENS', description: 'Scrolitha max tokens (num_predict)' },
+  { key: 'SCROLITHA_TEMPERATURE', description: 'Scrolitha temperature' },
+  { key: 'SCROLITHA_TOP_P', description: 'Scrolitha top_p' },
+  { key: 'SCROLITHA_TIMEOUT_MS', description: 'Scrolitha request timeout (ms)' },
+  { key: 'SCROLITHA_ENABLE_STREAMING', description: 'Enable streaming responses (future)' },
+  { key: 'SCROLITHA_GEMINI_FALLBACK', description: 'Allow legacy Gemini/OpenAI fallback when Ollama is unavailable' },
   { key: 'UPLOAD_DRIVER', description: 'Upload driver override: local | azure_blob | s3 | backblaze' },
   { key: 'STORAGE_DRIVER', description: 'Storage driver: local | s3 | backblaze' },
   { key: 'AZURE_STORAGE_CONNECTION_STRING', description: 'Azure Blob storage connection string' },
@@ -61,6 +70,15 @@ export function validateEnv() {
   }
 
   const storage = (process.env.UPLOAD_DRIVER || process.env.STORAGE_DRIVER || 'local').toLowerCase();
+
+  const scrolithaProvider = String(process.env.SCROLITHA_PROVIDER || 'ollama').trim().toLowerCase();
+  if (scrolithaProvider === 'ollama') {
+    const keys = ['SCROLITHA_OLLAMA_HOST', 'SCROLITHA_OLLAMA_MODEL'];
+    const missing = keys.filter((k) => !process.env[k] || process.env[k]!.trim() === '');
+    if (missing.length > 0) {
+      console.warn('Scrolitha provider is ollama but missing:', missing.join(', '));
+    }
+  }
 
   if (['azure_blob', 'azure', 'blob'].includes(storage)) {
     const keys = ['AZURE_STORAGE_CONNECTION_STRING', 'AZURE_STORAGE_CONTAINER'];

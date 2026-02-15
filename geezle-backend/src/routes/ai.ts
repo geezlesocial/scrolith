@@ -1,5 +1,5 @@
 import express from 'express';
-import { getAIConfig, answerQuestion, generateGuide } from '../controllers/aiController';
+import { getAIConfig, answerQuestion, generateGuide, supportChat } from '../controllers/aiController';
 
 const router = express.Router();
 
@@ -11,5 +11,6 @@ router.get('/health', (_req, res) => {
 router.get('/config', getAIConfig);
 router.post('/answer', answerQuestion);
 router.post('/guide', generateGuide);
+router.post('/support-chat', supportChat);
 
 export default router;
