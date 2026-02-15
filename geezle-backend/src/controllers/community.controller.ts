@@ -2259,6 +2259,49 @@ export const getCommunityTrendingTags = async (req: Request, res: Response) => {
   }
 };
 
+export const getUserMentions = async (req: Request, res: Response) => {
+  try {
+    const actorId = req.user?.id;
+    if (!actorId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const qRaw = String(req.query.q || '').trim();
+    const q = qRaw.replace(/^@+/, '');
+    if (!q) return res.json({ success: true, data: [] });
+
+    const blocked = await getBlockedAuthorIdsForViewer(actorId);
+    const excluded = Array.from(new Set([actorId, ...blocked]));
+
+    const users = await prisma.user.findMany({
+      where: {
+        id: excluded.length ? { notIn: excluded } : undefined,
+        OR: [
+          { username: { contains: q, mode: 'insensitive' } },
+          { name: { contains: q, mode: 'insensitive' } }
+        ]
+      },
+      take: 10,
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      select: { id: true, username: true, name: true, avatar: true, role: true, isVerified: true }
+    });
+
+    const data = users
+      .filter((u: any) => String(u?.username || '').trim())
+      .map((u: any) => ({
+        id: u.id,
+        username: u.username,
+        name: u.name,
+        avatar: u.avatar,
+        role: u.role,
+        isVerified: Boolean((u as any).isVerified)
+      }));
+
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    console.error('Get user mentions error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to search users' });
+  }
+};
+
 export const getCommunityPostsByTag = async (req: Request, res: Response) => {
   try {
     const slug = normalizeTag(req.params?.slug);
@@ -2389,6 +2432,12 @@ export const createPost = async (req: Request, res: Response) => {
 
     const normalizedTitle = String(title || '').trim();
     const normalizedContent = String(content || '').trim();
+    const normalizedTags = Array.from(
+      new Set([
+        ...(Array.isArray(tags) ? tags.map((tag: any) => normalizeTag(tag)).filter(Boolean) : []),
+        ...extractHashtags(normalizedContent)
+      ])
+    );
 
     const normalizedPolicy = normalizeCommentPolicy(commentPolicy);
     if (commentPolicy !== undefined && !normalizedPolicy) {
@@ -2438,7 +2487,7 @@ export const createPost = async (req: Request, res: Response) => {
         title: normalizedTitle || null,
         content: normalizedContent,
         attachments: normalizedAttachmentIds,
-        tags: Array.isArray(tags) ? tags : [],
+        tags: normalizedTags,
         mentions: normalizedMentionUserIds,
         topic: topic || null,
         location: location || null,
@@ -2750,8 +2799,44 @@ export const updatePost = async (req: Request, res: Response) => {
         { userId, role: req.user?.role }
       );
     }
-    if (tags !== undefined) updateData.tags = Array.isArray(tags) ? tags : [];
-    if (mentions !== undefined) updateData.mentions = Array.isArray(mentions) ? mentions : [];
+    const nextContent =
+      updateData.content !== undefined ? String(updateData.content || '') : String(post.content || '');
+
+    if (tags !== undefined || updateData.content !== undefined) {
+      const explicit = tags !== undefined
+        ? (Array.isArray(tags) ? tags : [])
+        : (Array.isArray(post.tags) ? post.tags : []);
+      updateData.tags = Array.from(
+        new Set([
+          ...explicit.map((tag: any) => normalizeTag(tag)).filter(Boolean),
+          ...extractHashtags(nextContent)
+        ])
+      );
+    }
+
+    if (mentions !== undefined || updateData.content !== undefined) {
+      const explicitMentionIds = Array.isArray(mentions)
+        ? mentions.map((value: any) => String(value || '').trim()).filter(Boolean)
+        : (Array.isArray(post.mentions) ? post.mentions.map((value) => String(value || '').trim()).filter(Boolean) : []);
+
+      const explicitMentionUsers = explicitMentionIds.length
+        ? await prisma.user.findMany({
+            where: { id: { in: explicitMentionIds } },
+            select: { id: true }
+          })
+        : [];
+
+      const mentionedUsersByUsername = await resolveMentionedUserIds(extractMentionUsernames(nextContent));
+
+      const rawMentionUserIds = Array.from(
+        new Set([
+          ...explicitMentionUsers.map((user) => user.id),
+          ...mentionedUsersByUsername.map((user) => user.id)
+        ])
+      ).filter((mentionedUserId) => mentionedUserId && mentionedUserId !== userId);
+
+      updateData.mentions = await filterMentionTargetsForActor(userId, rawMentionUserIds);
+    }
     if (visibility !== undefined) updateData.visibility = visibility;
     if (graphicWarning !== undefined) updateData.graphicWarning = Boolean(graphicWarning);
     if (topic !== undefined) updateData.topic = topic;

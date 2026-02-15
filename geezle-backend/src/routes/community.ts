@@ -25,7 +25,8 @@ import {
   togglePostCommentLike,
   getCommunityTags,
   getCommunityTrendingTags,
-  getCommunityPostsByTag
+  getCommunityPostsByTag,
+  getUserMentions
 } from '../controllers/community.controller';
 import {
   getCommunitySettings,
@@ -156,6 +157,7 @@ router.get('/stories/feed', authMiddleware, getStoriesFeed);
 router.get('/business-pages/recommendations', authMiddleware, getRecommendedBusinessPages);
 router.get('/business-pages/config', getBusinessPageFeatureConfig);
 router.get('/mentions/pages', getPageMentions);
+router.get('/mentions/users', authMiddleware, getUserMentions);
 
 // Protected routes (require auth)
 router.post('/threads', authMiddleware, createThread);

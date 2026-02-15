@@ -76,7 +76,9 @@ const DEFAULT_MOBILE_HOME_LAYOUT = {
     defaultVisibility: 'public',
     graphicWarningEnabled: true,
     graphicWarningLabel: 'Graphic warning',
-    graphicWarningBlurMedia: true
+    graphicWarningBlurMedia: true,
+    topics: [],
+    locations: []
   },
   postCard: {
     reactionsEnabled: true,
