@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, MoreVertical, UserPlus } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 import { useSocket } from '../../../context/SocketContext';
 import { useUser } from '../../../context/UserContext';
@@ -100,6 +100,7 @@ const resolveProfileUrl = (
 };
 
 export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSettings | null }) {
+  const navigate = useNavigate();
   const { user } = useUser();
   const { isConnected } = useSocket();
 
@@ -692,6 +693,11 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                       onHideFromFeed={(hiddenPostId) => {
                         setPosts((prev) => prev.filter((p) => String(p?.id) !== String(hiddenPostId)));
                       }}
+                      onEditPost={(targetPost) => {
+                        const id = String(targetPost?.id || '').trim();
+                        if (!id) return;
+                        navigate(`/m/post?edit=${encodeURIComponent(id)}`, { state: { post: targetPost } });
+                      }}
                       onDeletePost={(targetPost) => {
                         const id = String(targetPost?.id || '').trim();
                         if (!id) return;
@@ -730,6 +736,21 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                           #{tag}
                         </a>
                       ))}
+                    </div>
+                  ) : null}
+
+                  {(post?.topic || post?.location) ? (
+                    <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                      {post?.topic ? (
+                        <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">
+                          Topic: {String(post.topic)}
+                        </span>
+                      ) : null}
+                      {post?.location ? (
+                        <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">
+                          Location: {String(post.location)}
+                        </span>
+                      ) : null}
                     </div>
                   ) : null}
 

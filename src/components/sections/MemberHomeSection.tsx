@@ -474,6 +474,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const [storiesLoading, setStoriesLoading] = useState(false);
   const [activeStory, setActiveStory] = useState<any | null>(null);
   const [storyPickerOpen, setStoryPickerOpen] = useState(false);
+  const [storyMediaPreviewOpen, setStoryMediaPreviewOpen] = useState(false);
+  const [storyMediaDraftFile, setStoryMediaDraftFile] = useState<any | null>(null);
   const [storyTextOpen, setStoryTextOpen] = useState(false);
   const [storyEditOpen, setStoryEditOpen] = useState(false);
   const [editingStory, setEditingStory] = useState<any | null>(null);
@@ -1517,8 +1519,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
 
   const submitPostEdit = useCallback(async () => {
     if (!user || !editingPostId || !editingDraft) return;
-    if (!editingDraft.content.trim()) {
-      showNotification('warning', 'Posts', 'Please add content before saving.');
+    const attachmentFileIds = editingDraft.media.map((media) => media.id).filter(Boolean) as string[];
+    const hasText = Boolean(editingDraft.title.trim() || editingDraft.content.trim());
+    if (!hasText && attachmentFileIds.length === 0) {
+      showNotification('warning', 'Posts', 'Add text or keep at least one attachment.');
       return;
     }
     if (postActionBusy[editingPostId]) return;
@@ -1527,7 +1531,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       const updated = await CommunityService.updatePost(editingPostId, {
         title: editingDraft.title.trim(),
         content: editingDraft.content,
-        attachmentFileIds: editingDraft.media.map((media) => media.id).filter(Boolean) as string[],
+        attachmentFileIds,
         tags: parseList(editingDraft.tags),
         mentions: parseList(editingDraft.mentions),
         topic: editingDraft.topic || undefined,
@@ -1793,27 +1797,39 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     }
   }, [maxStories, showNotification, storyDraft.visibility, user]);
 
-  const handleStoryMediaSelected = useCallback(async (file: any) => {
+  const handleStoryMediaSelected = useCallback((file: any) => {
     if (!file?.id) return;
+    setStoryMediaDraftFile(file);
+    setStoryMediaPreviewOpen(true);
+    setStoryPickerOpen(false);
+  }, []);
+
+  const publishStorySelectedMedia = useCallback(async () => {
+    if (!user) return;
+    if (!storyMediaDraftFile?.id) return;
     setStoryPosting(true);
     try {
-      const type = file.type === 'video' ? 'video' : 'image';
+      const mime = String(storyMediaDraftFile?.mimeType || storyMediaDraftFile?.mime_type || '').toLowerCase();
+      const explicitType = String(storyMediaDraftFile?.type || '').toLowerCase();
+      const type = explicitType === 'video' || mime.startsWith('video/') ? 'video' : 'image';
       const created = await CommunityService.createStory({
         type,
-        mediaFileId: file.id,
+        mediaFileId: storyMediaDraftFile.id,
         caption: storyDraft.content?.trim() || undefined,
         visibility: storyDraft.visibility
       });
       setStories((prev) => filterActiveStories([created, ...prev]).slice(0, maxStories));
+      setStoryMediaPreviewOpen(false);
+      setStoryMediaDraftFile(null);
+      setStoryDraft((prev) => ({ ...prev, content: '' }));
       showNotification('success', 'Stories', 'Your story is live.');
     } catch (error: any) {
       console.error(error);
       showNotification('error', 'Stories', error?.message || 'Unable to post story.');
     } finally {
       setStoryPosting(false);
-      setStoryPickerOpen(false);
     }
-  }, [maxStories, showNotification, storyDraft.visibility]);
+  }, [maxStories, showNotification, storyDraft.content, storyDraft.visibility, storyMediaDraftFile, user]);
 
   const startStoryCamera = useCallback(() => {
     setStoryPickerOpen(true);
@@ -3018,25 +3034,31 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                         </select>
                       </div>
                       <div className="grid gap-3 md:grid-cols-2">
-                        <select
+                        <input
                           value={postDraft.topic}
                           onChange={(event) => setPostDraft((prev) => ({ ...prev, topic: event.target.value }))}
+                          list="member_home_topics"
+                          placeholder="Topic (optional)"
                           className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
-                        >
-                          <option value="">Topic (optional)</option>
-                          {topics.map((topic) => (
-                            <option key={topic} value={topic}>
-                              {topic}
-                            </option>
-                          ))}
-                        </select>
+                        />
                         <input
                           value={postDraft.location}
                           onChange={(event) => setPostDraft((prev) => ({ ...prev, location: event.target.value }))}
+                          list="member_home_locations"
                           placeholder={user?.location || user?.country || 'Location (optional)'}
                           className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
                         />
                       </div>
+                      <datalist id="member_home_topics">
+                        {topics.slice(0, 500).map((topic) => (
+                          <option key={topic} value={topic} />
+                        ))}
+                      </datalist>
+                      <datalist id="member_home_locations">
+                        {regions.slice(0, 500).map((region) => (
+                          <option key={region} value={region} />
+                        ))}
+                      </datalist>
                       <div className="grid gap-3 md:grid-cols-2">
                         <input
                           value={postDraft.tags}
@@ -3291,25 +3313,21 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                             </select>
                           </div>
                           <div className="grid gap-3 md:grid-cols-2">
-                            <select
+                            <input
                               value={editingDraft?.topic || ''}
                               onChange={(event) =>
                                 setEditingDraft((prev) => (prev ? { ...prev, topic: event.target.value } : prev))
                               }
+                              list="member_home_topics"
+                              placeholder="Topic (optional)"
                               className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
-                            >
-                              <option value="">Topic (optional)</option>
-                              {topics.map((topic) => (
-                                <option key={topic} value={topic}>
-                                  {topic}
-                                </option>
-                              ))}
-                            </select>
+                            />
                             <input
                               value={editingDraft?.location || ''}
                               onChange={(event) =>
                                 setEditingDraft((prev) => (prev ? { ...prev, location: event.target.value } : prev))
                               }
+                              list="member_home_locations"
                               placeholder="Location (optional)"
                               className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
                             />
@@ -3901,6 +3919,102 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         role={user?.role}
         visibility={isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public'}
       />
+
+      {storyMediaPreviewOpen && storyMediaDraftFile?.id && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6">
+          <div className="w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-2xl bg-white p-4 sm:p-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-900">Story preview</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  if (storyPosting) return;
+                  setStoryMediaPreviewOpen(false);
+                  setStoryMediaDraftFile(null);
+                }}
+                className="text-slate-500 hover:text-slate-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                {(() => {
+                  const url =
+                    storyMediaDraftFile?.url ||
+                    storyMediaDraftFile?.downloadUrl ||
+                    storyMediaDraftFile?.download_url ||
+                    '';
+                  const mime = String(storyMediaDraftFile?.mimeType || storyMediaDraftFile?.mime_type || '').toLowerCase();
+                  const explicitType = String(storyMediaDraftFile?.type || '').toLowerCase();
+                  const isVideo = explicitType === 'video' || mime.startsWith('video/');
+                  if (!url) {
+                    return <div className="flex h-48 w-full items-center justify-center text-sm text-slate-600">Media preview not available.</div>;
+                  }
+                  return isVideo ? (
+                    <video src={url} className="h-56 w-full object-cover" controls preload="metadata" />
+                  ) : (
+                    <img src={url} alt="Story preview" className="h-56 w-full object-cover" />
+                  );
+                })()}
+              </div>
+
+              <textarea
+                value={storyDraft.content}
+                onChange={(event) => setStoryDraft((prev) => ({ ...prev, content: event.target.value }))}
+                placeholder="Add a caption (optional)"
+                className="min-h-[120px] w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700"
+                disabled={storyPosting}
+              />
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+                  <span className="text-slate-500">Visibility</span>
+                  <select
+                    value={storyDraft.visibility}
+                    onChange={(event) =>
+                      setStoryDraft((prev) => ({ ...prev, visibility: event.target.value as StoryDraft['visibility'] }))
+                    }
+                    className="bg-transparent text-xs font-semibold text-slate-900 outline-none"
+                    disabled={storyPosting}
+                  >
+                    {storyVisibilityOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (storyPosting) return;
+                      setStoryMediaPreviewOpen(false);
+                      setStoryMediaDraftFile(null);
+                      setStoryPickerOpen(true);
+                    }}
+                    className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700"
+                    disabled={storyPosting}
+                  >
+                    Change media
+                  </button>
+                  <button
+                    type="button"
+                    onClick={publishStorySelectedMedia}
+                    className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-60"
+                    disabled={storyPosting}
+                  >
+                    {storyPosting ? 'Publishing...' : 'Publish story'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {projectBriefOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6">

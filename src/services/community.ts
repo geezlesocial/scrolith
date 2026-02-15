@@ -397,6 +397,12 @@ class CommunityService {
     return this.get(endpoint);
   }
 
+  static async getPostById(postId: string): Promise<any> {
+    const id = String(postId || '').trim();
+    if (!id) return null;
+    return this.get(`/community/posts/${encodeURIComponent(id)}`);
+  }
+
   static async createPost(data: { title?: string; content: string; attachments?: string[]; attachmentFileIds?: string[]; status?: string; tags?: string[]; mentions?: string[]; visibility?: string; businessPageId?: string; topic?: string; location?: string; commentPolicy?: string; graphicWarning?: boolean }): Promise<any> {
     const attachmentFileIds = Array.from(
       new Set([...(data.attachmentFileIds || []), ...(data.attachments || [])].filter(Boolean))

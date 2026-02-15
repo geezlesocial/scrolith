@@ -47,6 +47,8 @@ type MobileHomeLayoutConfig = {
     graphicWarningEnabled?: boolean;
     graphicWarningLabel?: string;
     graphicWarningBlurMedia?: boolean;
+    topics?: string[];
+    locations?: string[];
   };
   bottomTabs?: Partial<Record<MobileTabKey, boolean>>;
   feed?: {
@@ -119,7 +121,9 @@ const DEFAULT_CONFIG: MobileHomeLayoutConfig = {
     defaultVisibility: 'public',
     graphicWarningEnabled: true,
     graphicWarningLabel: 'Graphic warning',
-    graphicWarningBlurMedia: true
+    graphicWarningBlurMedia: true,
+    topics: ['Product', 'Design', 'Engineering', 'Marketing', 'Sales', 'Leadership'],
+    locations: ['Global', 'North America', 'Europe', 'Africa', 'Asia']
   },
   postCard: {
     reactionsEnabled: true,
@@ -434,6 +438,39 @@ const MobileHomepage: React.FC = () => {
               checked={merged.postComposer?.graphicWarningBlurMedia !== false}
               onChange={(v) =>
                 setConfig((p) => ({ ...p, postComposer: { ...p.postComposer, graphicWarningBlurMedia: v } }))
+              }
+            />
+
+            <TextField
+              label="Topics (comma separated)"
+              value={Array.isArray(merged.postComposer?.topics) ? merged.postComposer?.topics?.join(', ') : ''}
+              onChange={(value) =>
+                setConfig((p) => ({
+                  ...p,
+                  postComposer: {
+                    ...p.postComposer,
+                    topics: String(value || '')
+                      .split(',')
+                      .map((t) => t.trim())
+                      .filter(Boolean)
+                  }
+                }))
+              }
+            />
+            <TextField
+              label="Regions / Countries / Cities (comma separated)"
+              value={Array.isArray(merged.postComposer?.locations) ? merged.postComposer?.locations?.join(', ') : ''}
+              onChange={(value) =>
+                setConfig((p) => ({
+                  ...p,
+                  postComposer: {
+                    ...p.postComposer,
+                    locations: String(value || '')
+                      .split(',')
+                      .map((t) => t.trim())
+                      .filter(Boolean)
+                  }
+                }))
               }
             />
           </Section>

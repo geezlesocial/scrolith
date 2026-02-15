@@ -53,6 +53,8 @@ type MobileHomeLayoutConfig = {
     graphicWarningEnabled?: boolean;
     graphicWarningLabel?: string;
     graphicWarningBlurMedia?: boolean;
+    topics?: string[];
+    locations?: string[];
   };
   bottomTabs?: Partial<Record<MobileTabKey, boolean>>;
   feed?: {
@@ -134,7 +136,9 @@ const DEFAULT_LAYOUT: MobileHomeLayoutConfig = {
     defaultVisibility: 'public',
     graphicWarningEnabled: true,
     graphicWarningLabel: 'Graphic warning',
-    graphicWarningBlurMedia: true
+    graphicWarningBlurMedia: true,
+    topics: ['Product', 'Design', 'Engineering', 'Marketing', 'Sales', 'Leadership'],
+    locations: ['Global', 'North America', 'Europe', 'Africa', 'Asia']
   },
   postCard: {
     reactionsEnabled: true,
