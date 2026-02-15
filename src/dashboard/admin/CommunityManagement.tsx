@@ -955,6 +955,81 @@ const CommunityHomepageManager = () => {
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
     const [fileTarget, setFileTarget] = useState<{ scope: 'hero' | 'slide' | 'section'; id?: string; field: 'backgroundImage' | 'imageUrl' | 'videoUrl' } | null>(null);
     const { showNotification } = useNotification();
+    const deviceKeys = ['mobile', 'tablet', 'desktop'] as const;
+
+    const isVisibleOn = (visibility: any, device: (typeof deviceKeys)[number]) =>
+        (visibility?.[device] ?? true) !== false;
+
+    const renderDeviceVisibility = (
+        visibility: any,
+        onToggle: (device: (typeof deviceKeys)[number], enabled: boolean) => void
+    ) => (
+        <div className="flex flex-wrap gap-2">
+            {deviceKeys.map((device) => (
+                <label
+                    key={device}
+                    className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-700"
+                >
+                    <input
+                        type="checkbox"
+                        checked={isVisibleOn(visibility, device)}
+                        onChange={(e) => onToggle(device, e.target.checked)}
+                    />
+                    <span className="capitalize">{device}</span>
+                </label>
+            ))}
+        </div>
+    );
+
+    const setHeroVisibility = (device: (typeof deviceKeys)[number], enabled: boolean) => {
+        setConfig((prev: any) => ({
+            ...prev,
+            hero: {
+                ...(prev?.hero || {}),
+                visibility: { ...(prev?.hero?.visibility || {}), [device]: enabled }
+            }
+        }));
+    };
+
+    const setBannerVisibility = (device: (typeof deviceKeys)[number], enabled: boolean) => {
+        setConfig((prev: any) => ({
+            ...prev,
+            banner: {
+                ...(prev?.banner || {}),
+                visibility: { ...(prev?.banner?.visibility || {}), [device]: enabled }
+            }
+        }));
+    };
+
+    const setModulePatch = (key: string, patch: any) => {
+        setConfig((prev: any) => ({
+            ...prev,
+            modules: {
+                ...(prev?.modules || {}),
+                [key]: {
+                    ...((prev?.modules || {})[key] || {}),
+                    ...patch
+                }
+            }
+        }));
+    };
+
+    const setModuleVisibility = (key: string, device: (typeof deviceKeys)[number], enabled: boolean) => {
+        setConfig((prev: any) => {
+            const prevModules = prev?.modules || {};
+            const prevModule = prevModules[key] || {};
+            return {
+                ...prev,
+                modules: {
+                    ...prevModules,
+                    [key]: {
+                        ...prevModule,
+                        visibility: { ...(prevModule.visibility || {}), [device]: enabled }
+                    }
+                }
+            };
+        });
+    };
 
     useEffect(() => {
         CommunityService.getCommunityHomepage().then(setConfig).catch((e) => {
@@ -997,7 +1072,8 @@ const CommunityHomepageManager = () => {
             imageUrl: '',
             videoUrl: '',
             ctaLabel: '',
-            ctaUrl: ''
+            ctaUrl: '',
+            visibility: { mobile: true, tablet: true, desktop: true }
         };
         setConfig((prev: any) => ({ ...prev, sliders: [...(prev?.sliders || []), next] }));
     };
@@ -1020,7 +1096,8 @@ const CommunityHomepageManager = () => {
             title: type === 'text' ? 'Section Title' : '',
             body: '',
             imageUrl: '',
-            videoUrl: ''
+            videoUrl: '',
+            visibility: { mobile: true, tablet: true, desktop: true }
         };
         setConfig((prev: any) => ({ ...prev, sections: [...(prev?.sections || []), next] }));
     };
@@ -1093,6 +1170,10 @@ const CommunityHomepageManager = () => {
                             </button>
                         </div>
                     </div>
+                    <div className="col-span-2">
+                        <label className="block text-xs font-bold text-gray-500 mb-1">Hero Visibility</label>
+                        {renderDeviceVisibility(config.hero?.visibility, setHeroVisibility)}
+                    </div>
                 </div>
 
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded">
@@ -1105,6 +1186,75 @@ const CommunityHomepageManager = () => {
                 <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1">Banner Text</label>
                     <input className="w-full border rounded p-2" value={config.banner?.text || ''} onChange={(e) => setConfig({ ...config, banner: { ...(config.banner || {}), text: e.target.value } })} />
+                </div>
+                <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">Banner Visibility</label>
+                    {renderDeviceVisibility(config.banner?.visibility, setBannerVisibility)}
+                </div>
+
+                <div className="border-t pt-4 space-y-3">
+                    <div>
+                        <h4 className="font-bold text-gray-900">Community Mobile/Layout Modules</h4>
+                        <p className="text-xs text-gray-500">
+                            Toggle which blocks appear on mobile/tablet/desktop. Changes publish in real time.
+                        </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {[
+                            { key: 'sliders', label: 'Featured Slider', hasTitle: true },
+                            { key: 'stories', label: 'Stories', hasTitle: true },
+                            { key: 'customSections', label: 'Custom Sections', hasTitle: true },
+                            { key: 'searchBar', label: 'Search Bar', hasTitle: false },
+                            { key: 'feed', label: 'Community Feed', hasTitle: true },
+                            { key: 'discussions', label: 'Latest Discussions', hasTitle: true },
+                            { key: 'trendingTopics', label: 'Trending Topics', hasTitle: true },
+                            { key: 'upcomingEvents', label: 'Upcoming Events', hasTitle: true },
+                            { key: 'topContributors', label: 'Top Contributors', hasTitle: true },
+                            { key: 'quickActions', label: 'Quick Actions', hasTitle: true },
+                            { key: 'sponsored', label: 'Sponsored', hasTitle: true },
+                            { key: 'stats', label: 'Community Stats', hasTitle: true }
+                        ].map((mod) => {
+                            const current = (config?.modules || {})[mod.key] || {};
+                            return (
+                                <div key={mod.key} className="rounded-xl border border-gray-200 bg-white p-4 space-y-2">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <div className="font-semibold text-sm text-gray-900">{mod.label}</div>
+                                            <div className="text-xs text-gray-500">Enable/disable per device.</div>
+                                        </div>
+                                        <label className="inline-flex items-center gap-2 text-xs font-semibold text-gray-700">
+                                            <input
+                                                type="checkbox"
+                                                checked={current.enabled !== false}
+                                                onChange={(e) => setModulePatch(mod.key, { enabled: e.target.checked })}
+                                            />
+                                            Enabled
+                                        </label>
+                                    </div>
+
+                                    {mod.hasTitle ? (
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 mb-1">Title</label>
+                                            <input
+                                                className="w-full border rounded p-2 text-sm"
+                                                value={current.title || ''}
+                                                onChange={(e) => setModulePatch(mod.key, { title: e.target.value })}
+                                                placeholder={mod.label}
+                                            />
+                                        </div>
+                                    ) : null}
+
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 mb-1">Visibility</label>
+                                        {renderDeviceVisibility(current.visibility, (device, enabled) =>
+                                            setModuleVisibility(mod.key, device, enabled)
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             </div>
 
@@ -1120,6 +1270,12 @@ const CommunityHomepageManager = () => {
                             <div className="flex justify-between items-center">
                                 <div className="font-semibold text-sm">Slide</div>
                                 <button onClick={() => removeSlide(slide.id)} className="text-xs text-red-600">Remove</button>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 mb-1">Visibility</label>
+                                {renderDeviceVisibility(slide.visibility, (device, enabled) =>
+                                    updateSlide(slide.id, { visibility: { ...(slide.visibility || {}), [device]: enabled } })
+                                )}
                             </div>
                             <input className="w-full border rounded p-2 text-sm" placeholder="Title" value={slide.title || ''} onChange={(e) => updateSlide(slide.id, { title: e.target.value })} />
                             <input className="w-full border rounded p-2 text-sm" placeholder="Subtitle" value={slide.subtitle || ''} onChange={(e) => updateSlide(slide.id, { subtitle: e.target.value })} />
@@ -1174,6 +1330,12 @@ const CommunityHomepageManager = () => {
                             <div className="flex justify-between items-center">
                                 <div className="text-xs font-semibold uppercase text-gray-500">{section.type}</div>
                                 <button onClick={() => removeSection(section.id)} className="text-xs text-red-600">Remove</button>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 mb-1">Visibility</label>
+                                {renderDeviceVisibility(section.visibility, (device, enabled) =>
+                                    updateSection(section.id, { visibility: { ...(section.visibility || {}), [device]: enabled } })
+                                )}
                             </div>
                             <input className="w-full border rounded p-2 text-sm" placeholder="Title" value={section.title || ''} onChange={(e) => updateSection(section.id, { title: e.target.value })} />
                             <textarea className="w-full border rounded p-2 text-sm" placeholder="Body" value={section.body || ''} onChange={(e) => updateSection(section.id, { body: e.target.value })} />

@@ -31,6 +31,31 @@ const inferMediaType = (media: { url?: string; mimeType?: string; type?: string 
   return 'document';
 };
 
+type ViewportDevice = 'mobile' | 'tablet' | 'desktop';
+
+const getViewportDevice = (width: number): ViewportDevice => {
+  if (!Number.isFinite(width)) return 'desktop';
+  if (width < 640) return 'mobile';
+  if (width < 1024) return 'tablet';
+  return 'desktop';
+};
+
+const isVisibleForDevice = (visibility: any, device: ViewportDevice) => {
+  if (!visibility || typeof visibility !== 'object') return true;
+  return visibility?.[device] !== false;
+};
+
+const isModuleEnabled = (modules: any, key: string, device: ViewportDevice) => {
+  const mod = modules?.[key];
+  if (mod?.enabled === false) return false;
+  return isVisibleForDevice(mod?.visibility, device);
+};
+
+const getModuleTitle = (modules: any, key: string, fallback: string) => {
+  const raw = String(modules?.[key]?.title || '').trim();
+  return raw || fallback;
+};
+
 const commentPolicyOptions = [
   { value: 'everyone', label: 'Everyone can comment' },
   { value: 'followers', label: 'Followers can comment' },
@@ -185,6 +210,10 @@ const CommunityHome = () => {
   });
   const [homepage, setHomepage] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [viewportDevice, setViewportDevice] = useState<ViewportDevice>(() => {
+    if (typeof window === 'undefined') return 'desktop';
+    return getViewportDevice(window.innerWidth);
+  });
   const { user } = useUser();
   const { showNotification } = useNotification();
   const followStateMap = useFollowStateMap();
@@ -192,6 +221,13 @@ const CommunityHome = () => {
   const viewTracked = useRef<Set<string>>(new Set());
   const storyPreviewStyle = getStoryTextStyle(storyDraft);
   const storyEditPreviewStyle = getStoryTextStyle(storyEditDraft);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onResize = () => setViewportDevice(getViewportDevice(window.innerWidth));
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   useEffect(() => {
     if (!focusPostId || !posts.length) return;
@@ -1208,30 +1244,64 @@ const CommunityHome = () => {
   const heroBackgroundColor = homepage?.hero?.backgroundColor || '#4f46e5';
   const bannerEnabled = homepage?.banner?.enabled !== false;
   const bannerText = homepage?.banner?.text || 'Security Notice: Do not share sensitive personal information (Passwords, bank details, government IDs). AI Moderation is active in all chats.';
+  const modules = homepage?.modules || {};
+  const showHero = isVisibleForDevice(homepage?.hero?.visibility, viewportDevice);
+  const showBanner = bannerEnabled && isVisibleForDevice(homepage?.banner?.visibility, viewportDevice);
+  const showSliders = isModuleEnabled(modules, 'sliders', viewportDevice);
+  const showStories = isModuleEnabled(modules, 'stories', viewportDevice);
+  const showCustomSections = isModuleEnabled(modules, 'customSections', viewportDevice);
+  const showSearchBar = isModuleEnabled(modules, 'searchBar', viewportDevice);
+  const showFeed = isModuleEnabled(modules, 'feed', viewportDevice);
+  const showDiscussions = isModuleEnabled(modules, 'discussions', viewportDevice);
+  const showTrendingTopics = isModuleEnabled(modules, 'trendingTopics', viewportDevice);
+  const showUpcomingEvents = isModuleEnabled(modules, 'upcomingEvents', viewportDevice);
+  const showTopContributors = isModuleEnabled(modules, 'topContributors', viewportDevice);
+  const showQuickActions = isModuleEnabled(modules, 'quickActions', viewportDevice);
+  const showSponsored = isModuleEnabled(modules, 'sponsored', viewportDevice);
+  const showStats = isModuleEnabled(modules, 'stats', viewportDevice);
+
+  const showLeftSidebar = showTrendingTopics || showUpcomingEvents || showTopContributors;
+  const showRightSidebar = showQuickActions || showSponsored || showStats;
+
+  const mainColSpanClass =
+    showLeftSidebar && showRightSidebar
+      ? 'lg:col-span-2'
+      : showLeftSidebar || showRightSidebar
+        ? 'lg:col-span-3'
+        : 'lg:col-span-4';
+
+  const visibleSliders = (Array.isArray(homepage?.sliders) ? homepage.sliders : []).filter((slide: any) =>
+    isVisibleForDevice(slide?.visibility, viewportDevice)
+  );
+  const visibleSections = (Array.isArray(homepage?.sections) ? homepage.sections : []).filter((section: any) =>
+    isVisibleForDevice(section?.visibility, viewportDevice)
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero Section */}
-      <div
-        className="text-white py-16"
-        style={{
-          backgroundImage: heroBackgroundImage ? `url(${heroBackgroundImage})` : undefined,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundColor: heroBackgroundColor
-        }}
-      >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center">
-            <h1 className="text-4xl font-bold mb-4">{heroTitle}</h1>
-            <p className="text-xl text-blue-100 max-w-2xl mx-auto">
-              {heroSubtitle}
-            </p>
+      {showHero ? (
+        <div
+          className="text-white py-10 sm:py-16"
+          style={{
+            backgroundImage: heroBackgroundImage ? `url(${heroBackgroundImage})` : undefined,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundColor: heroBackgroundColor
+          }}
+        >
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center">
+              <h1 className="text-2xl sm:text-4xl font-bold mb-3 sm:mb-4">{heroTitle}</h1>
+              <p className="text-base sm:text-xl text-blue-100 max-w-2xl mx-auto">
+                {heroSubtitle}
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
-      {bannerEnabled && (
+      {showBanner && (
         <div className="bg-yellow-50 border-b border-yellow-100">
           <div className="max-w-7xl mx-auto px-4 py-3 flex items-start sm:items-center">
             <div className="text-sm text-yellow-800">{bannerText}</div>
@@ -1239,70 +1309,81 @@ const CommunityHome = () => {
         </div>
       )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
           {/* Left Sidebar */}
-          <div className="lg:col-span-1 space-y-6">
+          {showLeftSidebar ? (
+          <div className="lg:col-span-1 space-y-6 order-2 lg:order-none">
             {/* Trending Topics */}
-            <div className="bg-white rounded-xl shadow-sm p-6">
-              <div className="flex items-center mb-4">
-                <TrendingUp className="w-5 h-5 text-blue-600 mr-2" />
-                <h2 className="text-lg font-bold">Trending Topics</h2>
+            {showTrendingTopics && (
+              <div className="bg-white rounded-xl shadow-sm p-6">
+                <div className="flex items-center mb-4">
+                  <TrendingUp className="w-5 h-5 text-blue-600 mr-2" />
+                  <h2 className="text-lg font-bold">{getModuleTitle(modules, 'trendingTopics', 'Trending Topics')}</h2>
+                </div>
+                <div className="space-y-3">
+                  {trendingTopics.map((topic) => (
+                    <Link key={topic.id} to={`/community/topic/${topic.id}`} className="block p-3 hover:bg-gray-50 rounded-lg transition-colors">
+                      <div className="font-medium">{topic.title}</div>
+                      <div className="text-sm text-gray-500">{topic.count} posts</div>
+                    </Link>
+                  ))}
+                </div>
               </div>
-              <div className="space-y-3">
-                {trendingTopics.map((topic) => (
-                  <Link key={topic.id} to={`/community/topic/${topic.id}`} className="block p-3 hover:bg-gray-50 rounded-lg transition-colors">
-                    <div className="font-medium">{topic.title}</div>
-                    <div className="text-sm text-gray-500">{topic.count} posts</div>
-                  </Link>
-                ))}
-              </div>
-            </div>
+            )}
 
             {/* Upcoming Events */}
-            <div className="bg-white rounded-xl shadow-sm p-6">
-              <div className="flex items-center mb-4">
-                <Calendar className="w-5 h-5 text-green-600 mr-2" />
-                <h2 className="text-lg font-bold">Upcoming Events</h2>
+            {showUpcomingEvents && (
+              <div className="bg-white rounded-xl shadow-sm p-6">
+                <div className="flex items-center mb-4">
+                  <Calendar className="w-5 h-5 text-green-600 mr-2" />
+                  <h2 className="text-lg font-bold">{getModuleTitle(modules, 'upcomingEvents', 'Upcoming Events')}</h2>
+                </div>
+                <div className="space-y-3">
+                  {upcomingEvents.map((event) => (
+                    <div key={event.id} className="p-3 bg-gray-50 rounded-lg">
+                      <div className="font-medium">{event.title}</div>
+                      <div className="text-sm text-gray-500">{event.date}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="space-y-3">
-                {upcomingEvents.map((event) => (
-                  <div key={event.id} className="p-3 bg-gray-50 rounded-lg">
-                    <div className="font-medium">{event.title}</div>
-                    <div className="text-sm text-gray-500">{event.date}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            )}
 
             {/* Top Contributors */}
-            <div className="bg-white rounded-xl shadow-sm p-6">
-              <div className="flex items-center mb-4">
-                <Award className="w-5 h-5 text-yellow-600 mr-2" />
-                <h2 className="text-lg font-bold">Top Contributors</h2>
-              </div>
-              <div className="space-y-3">
-                {topContributors.map((contributor) => (
-                  <div key={contributor.id} className="flex items-center p-2 hover:bg-gray-50 rounded-lg">
-                    <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center mr-3">
-                      <span className="font-bold">{contributor.name.charAt(0)}</span>
+            {showTopContributors && (
+              <div className="bg-white rounded-xl shadow-sm p-6">
+                <div className="flex items-center mb-4">
+                  <Award className="w-5 h-5 text-yellow-600 mr-2" />
+                  <h2 className="text-lg font-bold">{getModuleTitle(modules, 'topContributors', 'Top Contributors')}</h2>
+                </div>
+                <div className="space-y-3">
+                  {topContributors.map((contributor) => (
+                    <div key={contributor.id} className="flex items-center p-2 hover:bg-gray-50 rounded-lg">
+                      <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center mr-3">
+                        <span className="font-bold">{contributor.name.charAt(0)}</span>
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-medium">{contributor.name}</div>
+                        <div className="text-sm text-gray-500">{contributor.reputation} rep</div>
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <div className="font-medium">{contributor.name}</div>
-                      <div className="text-sm text-gray-500">{contributor.reputation} rep</div>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
+          ) : null}
 
           {/* Main Content */}
-          <div className="lg:col-span-2 space-y-6">
-            {Array.isArray(homepage?.sliders) && homepage.sliders.length > 0 && (
+          <div className={`${mainColSpanClass} space-y-6 order-1 lg:order-none`}>
+            {showSliders && visibleSliders.length > 0 && (
               <div className="bg-white rounded-xl shadow-sm p-4">
+                <div className="mb-2 text-sm font-bold text-gray-900">
+                  {getModuleTitle(modules, 'sliders', 'Featured')}
+                </div>
                 <div className="flex gap-4 overflow-x-auto pb-2">
-                  {homepage.sliders.map((slide: any) => (
+                  {visibleSliders.map((slide: any) => (
                     <div key={slide.id} className="min-w-[260px] border rounded-lg overflow-hidden">
                       {slide.imageUrl && (
                         <img src={slide.imageUrl} alt={slide.title || 'Slide'} className="w-full h-32 object-cover" />
@@ -1324,10 +1405,11 @@ const CommunityHome = () => {
             )}
 
             {/* Stories Strip */}
-            <div className="bg-white rounded-xl shadow-sm p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-lg font-bold">Stories</h2>
-                <div className="flex items-center gap-2">
+            {showStories && (
+              <div className="bg-white rounded-xl shadow-sm p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-lg font-bold">{getModuleTitle(modules, 'stories', 'Stories')}</h2>
+                  <div className="flex items-center gap-2">
                   <select
                     value={storyDraft.visibility}
                     onChange={(event) =>
@@ -1356,17 +1438,17 @@ const CommunityHome = () => {
                     <Plus className="h-3 w-3" />
                     Upload
                   </button>
-                  <button
-                    onClick={startStoryCamera}
-                    className="inline-flex items-center gap-1 rounded-full bg-gray-900 px-3 py-1 text-xs font-semibold text-white"
-                    disabled={storyPosting}
-                  >
-                    <CameraIcon className="h-3 w-3" />
-                    Camera
-                  </button>
+                    <button
+                      onClick={startStoryCamera}
+                      className="inline-flex items-center gap-1 rounded-full bg-gray-900 px-3 py-1 text-xs font-semibold text-white"
+                      disabled={storyPosting}
+                    >
+                      <CameraIcon className="h-3 w-3" />
+                      Camera
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
                 <button
                   onClick={() => setStoryPickerOpen(true)}
                   className="min-w-[120px] h-44 rounded-2xl border border-dashed border-gray-300 flex flex-col items-center justify-center text-xs text-gray-500"
@@ -1421,12 +1503,13 @@ const CommunityHome = () => {
                     </button>
                   ))
                 )}
+                </div>
               </div>
-            </div>
+            )}
 
-            {Array.isArray(homepage?.sections) && homepage.sections.length > 0 && (
+            {showCustomSections && visibleSections.length > 0 && (
               <div className="space-y-4">
-                {homepage.sections.map((section: any) => (
+                {visibleSections.map((section: any) => (
                   <div key={section.id} className="bg-white rounded-xl shadow-sm p-4">
                     {section.title && <h3 className="text-lg font-semibold">{section.title}</h3>}
                     {section.body && <p className="text-sm text-gray-600 mt-2">{section.body}</p>}
@@ -1441,24 +1524,27 @@ const CommunityHome = () => {
               </div>
             )}
             {/* Search Bar */}
-            <div className="bg-white rounded-xl shadow-sm p-4">
-              <div className="flex items-center">
-                <Search className="w-5 h-5 text-gray-400 mr-3" />
-                <input
-                  type="text"
-                  placeholder="Search discussions, topics, or people..."
-                  className="w-full p-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <button className="ml-2 p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                  <Filter className="w-4 h-4" />
-                </button>
+            {showSearchBar && (
+              <div className="bg-white rounded-xl shadow-sm p-4">
+                <div className="flex items-center">
+                  <Search className="w-5 h-5 text-gray-400 mr-3" />
+                  <input
+                    type="text"
+                    placeholder="Search discussions, topics, or people..."
+                    className="w-full p-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button className="ml-2 p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    <Filter className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Community Feed */}
-            <div className="bg-white rounded-xl shadow-sm">
+            {showFeed && (
+              <div className="bg-white rounded-xl shadow-sm">
               <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-                <h2 className="text-lg font-bold">Community Feed</h2>
+                <h2 className="text-lg font-bold">{getModuleTitle(modules, 'feed', 'Community Feed')}</h2>
                 <Link to="/community/new-post" className="text-sm text-blue-600 hover:text-blue-800">Create Post</Link>
               </div>
               <div className="divide-y divide-gray-200">
@@ -1759,12 +1845,14 @@ const CommunityHome = () => {
                   );
                 })}
               </div>
-            </div>
+              </div>
+            )}
 
             {/* Discussions List */}
+            {showDiscussions && (
             <div className="bg-white rounded-xl shadow-sm">
               <div className="p-4 border-b border-gray-200">
-                <h2 className="text-lg font-bold">Latest Discussions</h2>
+                <h2 className="text-lg font-bold">{getModuleTitle(modules, 'discussions', 'Latest Discussions')}</h2>
               </div>
               <div className="divide-y divide-gray-200">
                 {discussions.map((discussion) => (
@@ -1787,13 +1875,16 @@ const CommunityHome = () => {
                 ))}
               </div>
             </div>
+            )}
           </div>
 
           {/* Right Sidebar */}
-          <div className="lg:col-span-1 space-y-6">
+          {showRightSidebar ? (
+          <div className="lg:col-span-1 space-y-6 order-3 lg:order-none">
             {/* Quick Actions */}
+            {showQuickActions && (
             <div className="bg-white rounded-xl shadow-sm p-6">
-              <h2 className="text-lg font-bold mb-4">Quick Actions</h2>
+              <h2 className="text-lg font-bold mb-4">{getModuleTitle(modules, 'quickActions', 'Quick Actions')}</h2>
               <div className="space-y-3">
                 <Link to="/community/new-topic" className="block w-full text-center bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700">
                   Start Discussion
@@ -1809,10 +1900,12 @@ const CommunityHome = () => {
                 </Link>
               </div>
             </div>
+            )}
 
             {/* Ads/Sponsored */}
+            {showSponsored && (
             <div className="bg-white rounded-xl shadow-sm p-6">
-              <h2 className="text-lg font-bold mb-4">Sponsored</h2>
+              <h2 className="text-lg font-bold mb-4">{getModuleTitle(modules, 'sponsored', 'Sponsored')}</h2>
               <div className="space-y-4">
                 {ads.map((ad) => {
                   const media =
@@ -1852,10 +1945,12 @@ const CommunityHome = () => {
                 })}
               </div>
             </div>
+            )}
 
             {/* Stats */}
+            {showStats && (
             <div className="bg-white rounded-xl shadow-sm p-6">
-              <h2 className="text-lg font-bold mb-4">Community Stats</h2>
+              <h2 className="text-lg font-bold mb-4">{getModuleTitle(modules, 'stats', 'Community Stats')}</h2>
               <div className="grid grid-cols-2 gap-4">
                 <div className="text-center">
                   <div className="text-2xl font-bold text-blue-600">10k+</div>
@@ -1875,7 +1970,9 @@ const CommunityHome = () => {
                 </div>
               </div>
             </div>
+            )}
           </div>
+          ) : null}
         </div>
       </div>
 
