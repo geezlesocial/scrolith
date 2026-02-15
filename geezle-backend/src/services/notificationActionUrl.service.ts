@@ -48,23 +48,23 @@ export const buildNotificationActionUrl = (
   }
 
   if (type === 'reaction_on_post' || type === 'repost' || type === 'followed_new_post') {
-    if (postId) return `/community/posts/${encodeURIComponent(postId)}`;
+    if (postId) return `/post/${encodeURIComponent(postId)}`;
     return '/community';
   }
 
   if (type === 'comment_on_post') {
     if (!postId) return '/community';
-    return `/community/posts/${encodeURIComponent(postId)}${toQuery({ comment: commentId })}`;
+    return `/post/${encodeURIComponent(postId)}${toQuery({ comment: commentId })}`;
   }
 
   if (type === 'mention_post') {
     if (!postId) return '/community';
-    return `/community/posts/${encodeURIComponent(postId)}${toQuery({ mention: mentionToken })}`;
+    return `/post/${encodeURIComponent(postId)}${toQuery({ mention: mentionToken })}`;
   }
 
   if (type === 'mention_comment') {
     if (!postId) return '/community';
-    return `/community/posts/${encodeURIComponent(postId)}${toQuery({
+    return `/post/${encodeURIComponent(postId)}${toQuery({
       comment: commentId,
       mention: mentionToken
     })}`;

@@ -1471,7 +1471,7 @@ export const postRepost = async (req: Request, res: Response) => {
           type: 'repost',
           title: 'Reposted',
           message: `${actorName} reposted your post.`,
-          actionUrl: `/community/posts/${postId}`,
+          actionUrl: `/post/${postId}`,
           metadata: {
             postId,
             actorId,
@@ -2582,7 +2582,7 @@ export const createPost = async (req: Request, res: Response) => {
             type: 'mention_post',
             title: 'You were mentioned',
             message: `${actorName} mentioned you in a post.`,
-            actionUrl: `/community/posts/${post.id}?mention=${encodeURIComponent(mentionedUserId)}`,
+            actionUrl: `/post/${post.id}?mention=${encodeURIComponent(mentionedUserId)}`,
             metadata: {
               postId: post.id,
               commentId: null,
@@ -2671,7 +2671,7 @@ export const createPost = async (req: Request, res: Response) => {
                 type: 'followed_new_post',
                 title: 'New post',
                 message,
-                actionUrl: `/community/posts/${post.id}`,
+                actionUrl: `/post/${post.id}`,
                 metadata: {
                   postId: post.id,
                   authorId: userId,
@@ -2944,7 +2944,7 @@ export const updatePost = async (req: Request, res: Response) => {
             type: 'mention_post',
             title: 'You were mentioned',
             message: `${author.displayName || 'Someone'} mentioned you in a post.`,
-            actionUrl: `/community/posts/${updated.id}?mention=${encodeURIComponent(recipientId)}`,
+            actionUrl: `/post/${updated.id}?mention=${encodeURIComponent(recipientId)}`,
             metadata: {
               postId: updated.id,
               commentId: null,
@@ -3097,15 +3097,15 @@ export const createPostReaction = async (req: Request, res: Response) => {
         const actorName = actor?.name || actor?.username || 'Someone';
         await createEngagementNotification({
           recipientId: post.authorId,
-          actorId: userId,
-          type: 'reaction_on_post',
-          title: 'New reaction',
-          message: `${actorName} reacted ${type} to your post.`,
-          actionUrl: `/community/posts/${postId}`,
-          metadata: {
-            postId,
-            actorId: userId,
-            postAuthorId: post.authorId,
+           actorId: userId,
+           type: 'reaction_on_post',
+           title: 'New reaction',
+           message: `${actorName} reacted ${type} to your post.`,
+           actionUrl: `/post/${postId}`,
+           metadata: {
+             postId,
+             actorId: userId,
+             postAuthorId: post.authorId,
             reactionType: type
           },
           dedupeWindowMinutes: 20,
@@ -3245,7 +3245,7 @@ export const createPostComment = async (req: Request, res: Response) => {
       });
       const actorName = actor?.name || actor?.username || 'Someone';
       const snippet = buildSnippet(comment.content || '', 100);
-      const actionUrl = `/community/posts/${postId}?comment=${comment.id}`;
+      const actionUrl = `/post/${postId}?comment=${comment.id}`;
 
       if (post.authorId && post.authorId !== userId) {
         await createEngagementNotification({
@@ -3518,7 +3518,7 @@ export const updatePostComment = async (req: Request, res: Response) => {
               type: 'mention_comment',
               title: 'You were mentioned',
               message: `${updated.author?.name || 'Someone'} mentioned you in a comment.`,
-              actionUrl: `/community/posts/${updated.postId}?comment=${updated.id}&mention=${encodeURIComponent(recipientId)}`,
+              actionUrl: `/post/${updated.postId}?comment=${updated.id}&mention=${encodeURIComponent(recipientId)}`,
               metadata: {
                 postId: updated.postId,
                 commentId: updated.id,

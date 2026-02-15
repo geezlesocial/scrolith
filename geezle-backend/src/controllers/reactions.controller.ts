@@ -457,14 +457,14 @@ export const upsertReaction = async (req: Request, res: Response) => {
           await createEngagementNotification({
             recipientId: post.authorId,
             actorId: userId,
-            type: 'reaction_on_post',
-            title: 'New reaction',
-            message: `${actorName} reacted ${reactionKey} to your post.`,
-            actionUrl: `/community/posts/${targetId}`,
-            metadata: {
-              postId: targetId,
-              actorId: userId,
-              postAuthorId: post.authorId,
+             type: 'reaction_on_post',
+             title: 'New reaction',
+             message: `${actorName} reacted ${reactionKey} to your post.`,
+            actionUrl: `/post/${targetId}`,
+             metadata: {
+               postId: targetId,
+               actorId: userId,
+               postAuthorId: post.authorId,
               reactionType: reactionKey
             },
             dedupeWindowMinutes: 20,
