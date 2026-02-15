@@ -403,6 +403,10 @@ const ReactionsEngagementManager = () => {
         showTrendingTags: true,
         showRecommendedGigsJobs: false,
       },
+      postComposer: {
+        topics: [],
+        locations: []
+      },
       postCard: {
         reactionsEnabled: true,
         commentsEnabled: true,
@@ -1233,6 +1237,74 @@ const ReactionsEngagementManager = () => {
                   />
                 </label>
               ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 text-sm font-semibold text-gray-800">Post Composer Lists (Topics / Locations)</div>
+            <p className="mb-3 text-xs text-gray-500">
+              These power the Topic and Location pickers in the create-post UI (mobile + desktop). Use comma-separated values.
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
+                <div className="mb-1 text-xs font-semibold text-gray-600">Topics</div>
+                <textarea
+                  value={
+                    Array.isArray((config.mobileHomeLayout?.postComposer || config.mobileHomeLayout?.post_composer || {})?.topics)
+                      ? (config.mobileHomeLayout?.postComposer || config.mobileHomeLayout?.post_composer || {})?.topics?.join(', ')
+                      : ''
+                  }
+                  onChange={(e) => {
+                    const list = String(e.target.value || '')
+                      .split(',')
+                      .map((v) => v.trim())
+                      .filter(Boolean)
+                      .slice(0, 1000);
+                    setConfig((p: any) => ({
+                      ...p,
+                      mobileHomeLayout: {
+                        ...p.mobileHomeLayout,
+                        postComposer: {
+                          ...(p.mobileHomeLayout?.postComposer || p.mobileHomeLayout?.post_composer || {}),
+                          topics: list
+                        }
+                      }
+                    }));
+                  }}
+                  className="mt-1 w-full rounded border border-gray-200 px-2 py-2 text-sm"
+                  rows={4}
+                />
+              </label>
+
+              <label className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm">
+                <div className="mb-1 text-xs font-semibold text-gray-600">Locations (region, country, city)</div>
+                <textarea
+                  value={
+                    Array.isArray((config.mobileHomeLayout?.postComposer || config.mobileHomeLayout?.post_composer || {})?.locations)
+                      ? (config.mobileHomeLayout?.postComposer || config.mobileHomeLayout?.post_composer || {})?.locations?.join(', ')
+                      : ''
+                  }
+                  onChange={(e) => {
+                    const list = String(e.target.value || '')
+                      .split(',')
+                      .map((v) => v.trim())
+                      .filter(Boolean)
+                      .slice(0, 1000);
+                    setConfig((p: any) => ({
+                      ...p,
+                      mobileHomeLayout: {
+                        ...p.mobileHomeLayout,
+                        postComposer: {
+                          ...(p.mobileHomeLayout?.postComposer || p.mobileHomeLayout?.post_composer || {}),
+                          locations: list
+                        }
+                      }
+                    }));
+                  }}
+                  className="mt-1 w-full rounded border border-gray-200 px-2 py-2 text-sm"
+                  rows={4}
+                />
+              </label>
             </div>
           </div>
 

@@ -680,6 +680,14 @@ class CommunityService {
     return Array.isArray(data) ? data : [];
   }
 
+  static async searchUserMentions(q: string): Promise<any[]> {
+    if (!q) return [];
+    const query = String(q || '').trim().replace(/^@+/, '');
+    if (!query) return [];
+    const data = await this.get(`/community/mentions/users?q=${encodeURIComponent(query)}`);
+    return Array.isArray(data) ? data : [];
+  }
+
   static async followTarget(payload: { targetType: 'user' | 'page'; targetId: string }): Promise<any> {
     return this.post('/community/follow', payload);
   }

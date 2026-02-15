@@ -9,6 +9,7 @@ import { AdService } from '../services/ads';
 import PostHeader from './components/PostHeader';
 import PostEngagementBar from './components/PostEngagementBar';
 import MentionText from './components/MentionText';
+import MentionHashtagTextarea from './components/MentionHashtagTextarea';
 import PostOptionsButton from './components/post-options/PostOptionsButton';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from './followState';
 import { useNotification } from '../context/NotificationContext';
@@ -1107,8 +1108,6 @@ const CommunityHome = () => {
         title: editingDraft.title.trim(),
         content: editingDraft.content,
         attachments: editingDraft.media.map((media) => media.id).filter(Boolean) as string[],
-        tags: parseList(editingDraft.tags),
-        mentions: parseList(editingDraft.mentions),
         topic: editingDraft.topic || undefined,
         location: editingDraft.location || undefined,
         visibility: editingDraft.visibility,
@@ -1644,13 +1643,14 @@ const CommunityHome = () => {
                             placeholder="Post title (optional)"
                             className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
                           />
-                          <textarea
+                          <MentionHashtagTextarea
                             value={editingDraft?.content || ''}
-                            onChange={(event) =>
-                              setEditingDraft((prev) => (prev ? { ...prev, content: event.target.value } : prev))
+                            onChange={(nextValue) =>
+                              setEditingDraft((prev) => (prev ? { ...prev, content: nextValue } : prev))
                             }
                             className="min-h-[120px] w-full rounded-xl border border-gray-200 p-3 text-sm text-gray-700"
                           />
+                          <div className="text-xs text-gray-500">Tip: type @ to mention people and # to add tags.</div>
                           <div className="grid gap-3 md:grid-cols-2">
                             <select
                               value={editingDraft?.visibility || 'public'}
@@ -1697,24 +1697,6 @@ const CommunityHome = () => {
                                 setEditingDraft((prev) => (prev ? { ...prev, location: event.target.value } : prev))
                               }
                               placeholder="Location (optional)"
-                              className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
-                            />
-                          </div>
-                          <div className="grid gap-3 md:grid-cols-2">
-                            <input
-                              value={editingDraft?.tags || ''}
-                              onChange={(event) =>
-                                setEditingDraft((prev) => (prev ? { ...prev, tags: event.target.value } : prev))
-                              }
-                              placeholder="Tags (comma separated)"
-                              className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
-                            />
-                            <input
-                              value={editingDraft?.mentions || ''}
-                              onChange={(event) =>
-                                setEditingDraft((prev) => (prev ? { ...prev, mentions: event.target.value } : prev))
-                              }
-                              placeholder="Mentions (comma separated)"
                               className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
                             />
                           </div>

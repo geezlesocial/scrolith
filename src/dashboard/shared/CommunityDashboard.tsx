@@ -28,6 +28,7 @@ import { useCurrency } from '../../context/CurrencyContext';
 import { AdCampaign, PaymentGateway, UploadedFile } from '../../types';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../community/storyStyles';
 import MentionText from '../../community/components/MentionText';
+import MentionHashtagTextarea from '../../community/components/MentionHashtagTextarea';
 import { resolveAssetUrl } from '../../utils/assetUrl';
 import FilePickerModal from './FilePickerModal';
 import MonetizationPanel from './MonetizationPanel';
@@ -1028,8 +1029,6 @@ const CommunityDashboard: React.FC = () => {
         title: postDraft.title.trim(),
         content: postDraft.content,
         attachmentFileIds,
-        tags: postDraft.tags.split(',').map((t) => t.trim()).filter(Boolean),
-        mentions: postDraft.mentions.split(',').map((m) => m.trim()).filter(Boolean),
         topic: postDraft.topic || undefined,
         location: postDraft.location || undefined,
         visibility: postDraft.visibility
@@ -1818,12 +1817,11 @@ const CommunityDashboard: React.FC = () => {
             placeholder="Optional headline"
             className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
           />
-          <textarea
+          <MentionHashtagTextarea
             value={postDraft.content}
-            onChange={(e) => setPostDraft((prev) => ({ ...prev, content: e.target.value }))}
+            onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, content: nextValue }))}
             placeholder="Share an update, ask a question, or celebrate success."
             className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
-            rows={4}
           />
           <div className="flex items-center gap-3 text-xs">
             <button
@@ -1890,19 +1888,7 @@ const CommunityDashboard: React.FC = () => {
               </div>
             ))}
           </div>
-          <div className="grid gap-3 md:grid-cols-3">
-            <input
-              value={postDraft.tags}
-              onChange={(e) => setPostDraft((prev) => ({ ...prev, tags: e.target.value }))}
-              placeholder="Tags (comma separated)"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
-            />
-            <input
-              value={postDraft.mentions}
-              onChange={(e) => setPostDraft((prev) => ({ ...prev, mentions: e.target.value }))}
-              placeholder="Mentions (@name, comma separated)"
-              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
-            />
+          <div className="grid gap-3 md:grid-cols-2">
             <select
               value={postDraft.visibility}
               onChange={(e) => setPostDraft((prev) => ({ ...prev, visibility: e.target.value as PostDraft['visibility'] }))}
@@ -1914,6 +1900,9 @@ const CommunityDashboard: React.FC = () => {
               <option value="private">Visibility: Private</option>
               <option value="custom">Visibility: Custom</option>
             </select>
+            <div className="flex items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+              #tags and @mentions supported
+            </div>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <select
@@ -1934,8 +1923,7 @@ const CommunityDashboard: React.FC = () => {
             />
           </div>
           <div className="flex flex-wrap gap-3 text-xs text-slate-500">
-            <span>{postDraft.tags ? `Tags: ${postDraft.tags}` : 'Add tags to surface this post in filters'}</span>
-            <span>{postDraft.mentions ? `Mentions: ${postDraft.mentions}` : 'Mention teammates with @'}</span>
+            <span>Tip: type @ to mention people and # to add tags to your post.</span>
           </div>
         </div>
         <div className="flex items-center justify-between">

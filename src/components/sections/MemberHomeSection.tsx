@@ -39,6 +39,7 @@ import PostHeader from '../../community/components/PostHeader';
 import PostOptionsButton from '../../community/components/post-options/PostOptionsButton';
 import PostEngagementBar from '../../community/components/PostEngagementBar';
 import MentionText from '../../community/components/MentionText';
+import MentionHashtagTextarea from '../../community/components/MentionHashtagTextarea';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from '../../community/followState';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../community/storyStyles';
 import { resolveAssetUrl } from '../../utils/assetUrl';
@@ -538,6 +539,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const memberHomeWidgets = memberHomeSettings.widgets || {};
   const memberHomeFeed = memberHomeSettings.feed || {};
   const memberHomeAds = memberHomeSettings.ads || {};
+  const mobileHomeLayout = (settings as any)?.mobileHomeLayout || (settings as any)?.mobile_home_layout || {};
+  const mobilePostComposer = mobileHomeLayout.postComposer || mobileHomeLayout.post_composer || {};
+  const mobilePostCard = mobileHomeLayout.postCard || mobileHomeLayout.post_card || {};
+  const mentionsEnabled = mobilePostCard.mentionsEnabled !== false;
+  const hashtagsEnabled = mobilePostCard.hashtagsEnabled !== false;
 
   const showDiscover = resolveToggle(content?.showDiscover, true, true);
   const showFollowing = resolveToggle(content?.showFollowing, true, true);
@@ -587,8 +593,29 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const maxJobs = content?.maxJobs ?? 5;
   const maxGigs = content?.maxGigs ?? 5;
 
-  const topics = dedupeLabels(content?.topics?.length ? content.topics : defaultTopics);
-  const regions = dedupeLabels(content?.regions?.length ? content.regions : defaultRegions);
+  const postComposerTopics = Array.isArray((mobilePostComposer as any)?.topics)
+    ? (mobilePostComposer as any).topics
+    : Array.isArray((mobilePostComposer as any)?.topicList)
+      ? (mobilePostComposer as any).topicList
+      : Array.isArray((mobilePostComposer as any)?.topic_list)
+        ? (mobilePostComposer as any).topic_list
+        : [];
+  const postComposerLocations = Array.isArray((mobilePostComposer as any)?.locations)
+    ? (mobilePostComposer as any).locations
+    : Array.isArray((mobilePostComposer as any)?.locationList)
+      ? (mobilePostComposer as any).locationList
+      : Array.isArray((mobilePostComposer as any)?.location_list)
+        ? (mobilePostComposer as any).location_list
+        : [];
+
+  const topics = dedupeLabels([
+    ...(content?.topics?.length ? content.topics : defaultTopics),
+    ...postComposerTopics
+  ]);
+  const regions = dedupeLabels([
+    ...(content?.regions?.length ? content.regions : defaultRegions),
+    ...postComposerLocations
+  ]);
   const isFreelancer = (user?.role || '').toLowerCase() === 'freelancer';
   const isEmployer = (user?.role || '').toLowerCase() === 'employer';
   const isGuest = !user || String(user?.role || '').toLowerCase() === 'guest';
@@ -1443,8 +1470,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         title: postDraft.title.trim(),
         content: postDraft.content,
         attachmentFileIds,
-        tags: postDraft.tags.split(',').map((t) => t.trim()).filter(Boolean),
-        mentions: postDraft.mentions.split(',').map((m) => m.trim()).filter(Boolean),
         topic: postDraft.topic || undefined,
         location: postDraft.location || undefined,
         visibility: postDraft.visibility,
@@ -1532,8 +1557,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         title: editingDraft.title.trim(),
         content: editingDraft.content,
         attachmentFileIds,
-        tags: parseList(editingDraft.tags),
-        mentions: parseList(editingDraft.mentions),
         topic: editingDraft.topic || undefined,
         location: editingDraft.location || undefined,
         visibility: editingDraft.visibility,
@@ -2991,13 +3014,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                     </div>
                     <div className="flex-1 space-y-3">
                       <p className="text-sm text-slate-600">{composerTitle}</p>
-                      <textarea
+                      <MentionHashtagTextarea
                         ref={composerInputRef}
                         value={postDraft.content}
-                        onChange={(event) => setPostDraft((prev) => ({ ...prev, content: event.target.value }))}
+                        onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, content: nextValue }))}
                         placeholder="Write your update, ask a question, or share what you are working on..."
+                        mentionsEnabled={mentionsEnabled}
+                        hashtagsEnabled={hashtagsEnabled}
                         className="min-h-[120px] w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700 focus:border-slate-400 focus:outline-none"
                       />
+                      <div className="text-xs text-slate-500">
+                        {hashtagsEnabled ? '#tags' : '#tags (disabled by admin)'} and{' '}
+                        {mentionsEnabled ? '@mentions' : '@mentions (disabled by admin)'} supported
+                      </div>
                       <div className="grid gap-3 md:grid-cols-2">
                         <input
                           value={postDraft.title}
@@ -3059,20 +3088,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           <option key={region} value={region} />
                         ))}
                       </datalist>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <input
-                          value={postDraft.tags}
-                          onChange={(event) => setPostDraft((prev) => ({ ...prev, tags: event.target.value }))}
-                          placeholder="Tags (comma separated)"
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
-                        />
-                        <input
-                          value={postDraft.mentions}
-                          onChange={(event) => setPostDraft((prev) => ({ ...prev, mentions: event.target.value }))}
-                          placeholder="Mentions (comma separated)"
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
-                        />
-                      </div>
 
                       {postDraft.media.length > 0 && (
                         <div className="grid gap-3 md:grid-cols-2">
@@ -3274,13 +3289,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                             placeholder="Post title (optional)"
                             className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
                           />
-                          <textarea
+                          <MentionHashtagTextarea
                             value={editingDraft?.content || ''}
-                            onChange={(event) =>
-                              setEditingDraft((prev) => (prev ? { ...prev, content: event.target.value } : prev))
+                            onChange={(nextValue) =>
+                              setEditingDraft((prev) => (prev ? { ...prev, content: nextValue } : prev))
                             }
+                            mentionsEnabled={mentionsEnabled}
+                            hashtagsEnabled={hashtagsEnabled}
                             className="min-h-[120px] w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700"
                           />
+                          <div className="text-xs text-slate-500">
+                            {hashtagsEnabled ? '#tags' : '#tags (disabled by admin)'} and{' '}
+                            {mentionsEnabled ? '@mentions' : '@mentions (disabled by admin)'} supported
+                          </div>
                           <div className="grid gap-3 md:grid-cols-2">
                             <select
                               value={editingDraft?.visibility || 'public'}
@@ -3329,24 +3350,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                               }
                               list="member_home_locations"
                               placeholder="Location (optional)"
-                              className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
-                            />
-                          </div>
-                          <div className="grid gap-3 md:grid-cols-2">
-                            <input
-                              value={editingDraft?.tags || ''}
-                              onChange={(event) =>
-                                setEditingDraft((prev) => (prev ? { ...prev, tags: event.target.value } : prev))
-                              }
-                              placeholder="Tags (comma separated)"
-                              className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
-                            />
-                            <input
-                              value={editingDraft?.mentions || ''}
-                              onChange={(event) =>
-                                setEditingDraft((prev) => (prev ? { ...prev, mentions: event.target.value } : prev))
-                              }
-                              placeholder="Mentions (comma separated)"
                               className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
                             />
                           </div>

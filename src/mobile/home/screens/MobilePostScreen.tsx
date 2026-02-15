@@ -5,6 +5,7 @@ import { CommunityService } from '../../../services/community';
 import { useNotification } from '../../../context/NotificationContext';
 import { UploadedFile } from '../../../types';
 import FilePickerModal from '../../../dashboard/shared/FilePickerModal';
+import MentionHashtagTextarea from '../../../community/components/MentionHashtagTextarea';
 
 const getMimeType = (file: any) =>
   String(file?.mime_type || file?.mimeType || file?.mimetype || file?.mime || '').toLowerCase();
@@ -26,6 +27,9 @@ export default function MobilePostScreen() {
 
   const layout = ctx?.mobileLayout ?? null;
   const composer = (layout?.postComposer || layout?.post_composer || {}) as Record<string, any>;
+  const postCard = (layout?.postCard || layout?.post_card || {}) as Record<string, any>;
+  const mentionsEnabled = postCard.mentionsEnabled !== false;
+  const hashtagsEnabled = postCard.hashtagsEnabled !== false;
   const visibilityEnabled = composer.visibilityEnabled !== false;
   const allowedVisibilities = useMemo(() => {
     const raw = composer.allowedVisibilities || composer.allowed_visibilities;
@@ -280,14 +284,20 @@ export default function MobilePostScreen() {
           </div>
         </div>
 
-        <textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder="Share an update with your network..."
-          className="mt-3 w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
-          rows={5}
-          disabled={busy || loadingPost}
-        />
+        <div className="mt-3">
+          <MentionHashtagTextarea
+            value={content}
+            onChange={(nextValue) => setContent(nextValue)}
+            placeholder="Share an update with your network..."
+            mentionsEnabled={mentionsEnabled}
+            hashtagsEnabled={hashtagsEnabled}
+            disabled={busy || loadingPost}
+            className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
+          />
+          <div className="mt-2 text-[11px] text-slate-500">
+            {hashtagsEnabled ? '#tags' : '#tags (disabled)'} and {mentionsEnabled ? '@mentions' : '@mentions (disabled)'} supported
+          </div>
+        </div>
 
         {attachments.length ? (
           <div className="mt-3 grid gap-2">
