@@ -36,6 +36,7 @@ import { SearchService } from '../../services/search';
 import FilePickerModal from '../../dashboard/shared/FilePickerModal';
 import ProBadge from '../ProBadge';
 import PostHeader from '../../community/components/PostHeader';
+import PostOptionsButton from '../../community/components/post-options/PostOptionsButton';
 import PostEngagementBar from '../../community/components/PostEngagementBar';
 import MentionText from '../../community/components/MentionText';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from '../../community/followState';
@@ -146,6 +147,7 @@ type FeedPost = {
   location?: string | null;
   visibility?: string;
   commentPolicy?: string | null;
+  repostsEnabled?: boolean;
   isPinned?: boolean;
   isHighlighted?: boolean;
   interactions?: {
@@ -446,7 +448,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const [feedLoading, setFeedLoading] = useState(false);
   const [feedItems, setFeedItems] = useState<FeedPost[]>([]);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
-  const [openPostActions, setOpenPostActions] = useState<string | null>(null);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<PostDraft | null>(null);
   const [postActionBusy, setPostActionBusy] = useState<Record<string, boolean>>({});
@@ -1500,7 +1501,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         type: inferMediaType(media)
       }))
     });
-    setOpenPostActions(null);
   }, []);
 
   const cancelEditPost = useCallback(() => {
@@ -1575,7 +1575,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       showNotification('error', 'Posts', message);
     } finally {
       setPostActionBusy((prev) => ({ ...prev, [post.id]: false }));
-      setOpenPostActions(null);
     }
   }, [cancelEditPost, editingPostId, showNotification, user]);
 
@@ -1611,7 +1610,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       showNotification('error', 'Pin', message);
     } finally {
       setPostActionBusy((prev) => ({ ...prev, [post.id]: false }));
-      setOpenPostActions(null);
     }
   }, [applyPostUpdate, feedItems, normalizePost, resolvePostOwnerUserId, showNotification, user]);
 
@@ -1647,7 +1645,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       showNotification('error', 'Highlight', message);
     } finally {
       setPostActionBusy((prev) => ({ ...prev, [post.id]: false }));
-      setOpenPostActions(null);
     }
   }, [applyPostUpdate, feedItems, normalizePost, resolvePostOwnerUserId, showNotification, user]);
 
@@ -1968,18 +1965,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       setFeedRegion(user.location || user.country || '');
     }
   }, [feedRegion, user]);
-
-  useEffect(() => {
-    if (!openPostActions) return;
-    const handler = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (!target?.closest(`[data-post-actions="${openPostActions}"]`)) {
-        setOpenPostActions(null);
-      }
-    };
-    window.addEventListener('click', handler);
-    return () => window.removeEventListener('click', handler);
-  }, [openPostActions]);
 
   useEffect(() => {
     viewTracked.current.clear();
@@ -3178,12 +3163,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                 </div>
               ) : (
                 feedItems.map((post) => {
-                  const authorId = resolvePostOwnerUserId(post);
-                  const isOwner = authorId && user ? String(user.id) === authorId : false;
-                  const canManage = isOwner || (user ? isPrivilegedRole(user.role) : false);
                   const isEditing = editingPostId === post.id && editingDraft;
-                  const actionsOpen = openPostActions === post.id;
-                  const actionBusy = postActionBusy[post.id];
                   const commentCount = commentCounts[post.id] ?? post.interactions?.comments ?? 0;
                   const resolvedAuthor = {
                     id: post.author?.id || post.authorId,
@@ -3242,64 +3222,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           </>
                         }
                         rightSlot={
-                          canManage ? (
-                            <div className="relative" data-post-actions={post.id}>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setOpenPostActions((prev) => (prev === post.id ? null : post.id));
-                              }}
-                              className="rounded-full border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
-                            >
-                              <MoreHorizontal className="h-4 w-4" />
-                            </button>
-                            {actionsOpen && (
-                              <div className="absolute right-0 z-10 mt-2 w-52 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
-                                <button
-                                  type="button"
-                                  onClick={() => beginEditPost(post)}
-                                  disabled={actionBusy}
-                                  className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-                                >
-                                  <Edit3 className="h-4 w-4" />
-                                  Edit post
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeletePost(post)}
-                                  disabled={actionBusy}
-                                  className="flex w-full items-center gap-2 px-4 py-2 text-sm text-rose-600 hover:bg-rose-50 disabled:opacity-60"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                  Delete post
-                                </button>
-                                {isOwner && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleTogglePin(post)}
-                                      disabled={actionBusy}
-                                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-                                    >
-                                      <Pin className="h-4 w-4" />
-                                      {post.isPinned ? 'Unpin from profile' : 'Pin to profile'}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleToggleHighlight(post)}
-                                      disabled={actionBusy}
-                                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-60"
-                                    >
-                                      <Star className="h-4 w-4" />
-                                      {post.isHighlighted ? 'Remove highlight' : 'Highlight on profile'}
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                          ) : null
+                          <PostOptionsButton
+                            post={post}
+                            icon={<MoreHorizontal className="h-4 w-4" />}
+                            buttonClassName="rounded-full border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50"
+                            onHideFromFeed={(hiddenPostId) => {
+                              setFeedItems((prev) => prev.filter((item) => item.id !== hiddenPostId));
+                              setCommentCounts((prev) => {
+                                const next = { ...prev };
+                                delete next[hiddenPostId];
+                                return next;
+                              });
+                              if (editingPostId === hiddenPostId) cancelEditPost();
+                            }}
+                            onEditPost={beginEditPost}
+                            onDeletePost={handleDeletePost}
+                            onTogglePin={handleTogglePin}
+                            onToggleHighlight={handleToggleHighlight}
+                          />
                         }
                       />
                       {isEditing ? (
@@ -3473,6 +3413,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                             postId={post.id}
                             authorId={post.authorUserId || post.authorId}
                             commentPolicy={post.commentPolicy}
+                            postRepostsEnabled={post.repostsEnabled}
                             commentCount={commentCount}
                             repostCount={post.repostsCount ?? post.interactions?.reposts ?? 0}
                             shareCount={post.sharesCount ?? post.interactions?.shares ?? 0}

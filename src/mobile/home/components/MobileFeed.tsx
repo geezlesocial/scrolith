@@ -10,6 +10,7 @@ import { gigsApi, Gig } from '../../../services/gigs';
 import { RecoService } from '../../../services/reco';
 import MentionText from '../../../community/components/MentionText';
 import PostEngagementBar from '../../../community/components/PostEngagementBar';
+import PostOptionsButton from '../../../community/components/post-options/PostOptionsButton';
 import FeedAdCard from './FeedAdCard';
 import RecommendedListingCard from './RecommendedListingCard';
 import SuggestedCard from './SuggestedCard';
@@ -684,14 +685,22 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                       </button>
                     ) : null}
 
-                    <button
-                      type="button"
-                      className="rounded-full border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50"
-                      aria-label="More"
-                      onClick={() => {}}
-                    >
-                      <MoreVertical className="h-4 w-4" />
-                    </button>
+                    <PostOptionsButton
+                      post={post}
+                      icon={<MoreVertical className="h-4 w-4" />}
+                      buttonClassName="rounded-full border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50"
+                      onHideFromFeed={(hiddenPostId) => {
+                        setPosts((prev) => prev.filter((p) => String(p?.id) !== String(hiddenPostId)));
+                      }}
+                      onDeletePost={(targetPost) => {
+                        const id = String(targetPost?.id || '').trim();
+                        if (!id) return;
+                        if (!confirm('Delete this post?')) return;
+                        void CommunityService.deletePost(id)
+                          .then(() => setPosts((prev) => prev.filter((p) => String(p?.id) !== id)))
+                          .catch(() => {});
+                      }}
+                    />
                   </div>
                 </div>
 
@@ -768,6 +777,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                   postId={postId}
                   authorId={authorId}
                   commentPolicy={post?.commentPolicy}
+                  postRepostsEnabled={post?.repostsEnabled}
                   commentCount={commentCount}
                   repostCount={post?.repostsCount ?? post?.interactions?.reposts ?? 0}
                   shareCount={post?.sharesCount ?? post?.interactions?.shares ?? 0}

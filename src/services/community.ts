@@ -470,7 +470,7 @@ class CommunityService {
     return response;
   }
 
-  static async updatePost(postId: string, payload: { title?: string; content?: string; attachments?: string[]; attachmentFileIds?: string[]; tags?: string[]; mentions?: string[]; visibility?: string; topic?: string; location?: string; status?: string; commentPolicy?: string; isPinned?: boolean; isHighlighted?: boolean }): Promise<any> {
+  static async updatePost(postId: string, payload: { title?: string; content?: string; attachments?: string[]; attachmentFileIds?: string[]; tags?: string[]; mentions?: string[]; visibility?: string; topic?: string; location?: string; status?: string; commentPolicy?: string; repostsEnabled?: boolean; isPinned?: boolean; isHighlighted?: boolean }): Promise<any> {
     const attachmentFileIds = Array.from(
       new Set([...(payload.attachmentFileIds || []), ...(payload.attachments || [])].filter(Boolean))
     );

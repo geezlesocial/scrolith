@@ -21,6 +21,7 @@ type Props = {
   postId: string;
   authorId?: string;
   commentPolicy?: string | null;
+  postRepostsEnabled?: boolean;
   commentCount: number;
   repostCount?: number;
   shareCount?: number;
@@ -77,6 +78,7 @@ const PostEngagementBar: React.FC<Props> = ({
   postId,
   authorId,
   commentPolicy,
+  postRepostsEnabled,
   commentCount,
   repostCount = 0,
   shareCount = 0,
@@ -106,7 +108,7 @@ const PostEngagementBar: React.FC<Props> = ({
   }, [features?.reactions, reactionsSettings]);
 
   const commentsEnabled = features?.comments !== false;
-  const repostsEnabled = features?.reposts !== false;
+  const repostsEnabled = features?.reposts !== false && postRepostsEnabled !== false;
   const sendEnabled = features?.send !== false;
   const actionCols = Math.max(1, [reactionsEnabled, commentsEnabled, repostsEnabled, sendEnabled].filter(Boolean).length);
 
