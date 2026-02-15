@@ -124,6 +124,9 @@ const PostEngagementBar: React.FC<Props> = ({
     1,
     [reactionsEnabled, commentsEnabled, repostsEnabled, sendEnabled, dashEnabledForPost].filter(Boolean).length
   );
+  // When Dash is enabled we can end up with 5 actions on mobile; switch to a compact layout
+  // to prevent labels overflowing into adjacent grid cells (e.g. "CommentRepost").
+  const compactActions = actionCols >= 5;
 
   const allowed = useMemo(
     () => normalizeAllowed(reactionsSettings?.allowed),
@@ -262,6 +265,10 @@ const PostEngagementBar: React.FC<Props> = ({
 
   const postUrl = buildPostUrl(postId);
 
+  const actionButtonBase = compactActions
+    ? 'flex w-full min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-[11px] font-semibold leading-tight transition'
+    : 'flex w-full min-w-0 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition';
+
   return (
     <div className={`mt-3 ${className}`}>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
@@ -318,7 +325,7 @@ const PostEngagementBar: React.FC<Props> = ({
       </div>
 
       <div
-        className="mt-3 grid gap-1 rounded-2xl border border-slate-100 bg-white p-1 shadow-sm"
+        className={`mt-3 grid rounded-2xl border border-slate-100 bg-white p-1 shadow-sm ${compactActions ? 'gap-1.5' : 'gap-1'}`}
         style={{ gridTemplateColumns: `repeat(${actionCols}, minmax(0, 1fr))` }}
       >
         {reactionsEnabled ? (
@@ -337,14 +344,14 @@ const PostEngagementBar: React.FC<Props> = ({
               }
               setPickerOpen((prev) => !prev);
             }}
-            className={`flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition ${
+            className={`${actionButtonBase} ${
               likeSelected ? 'text-blue-700 hover:bg-blue-50' : 'text-slate-700 hover:bg-slate-50'
             } disabled:opacity-60`}
             aria-haspopup="dialog"
             aria-expanded={pickerOpen}
           >
             <ThumbsUp className={`h-4 w-4 ${likeSelected ? 'fill-current' : ''}`} />
-            <span>{likeEmoji ? `${likeEmoji} ` : ''}{likeLabel}</span>
+            <span className="max-w-full truncate">{likeEmoji ? `${likeEmoji} ` : ''}{likeLabel}</span>
           </button>
 
           {pickerOpen ? (
@@ -393,10 +400,10 @@ const PostEngagementBar: React.FC<Props> = ({
                 commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
               }, 40);
             }}
-            className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className={`${actionButtonBase} text-slate-700 hover:bg-slate-50`}
           >
             <MessageCircle className="h-4 w-4" />
-            <span>Comment</span>
+            <span className="max-w-full truncate">Comment</span>
           </button>
         ) : null}
 
@@ -407,10 +414,10 @@ const PostEngagementBar: React.FC<Props> = ({
               if (!checkAuth()) return;
               setRepostOpen(true);
             }}
-            className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className={`${actionButtonBase} text-slate-700 hover:bg-slate-50`}
           >
             <Repeat2 className="h-4 w-4" />
-            <span>Repost</span>
+            <span className="max-w-full truncate">Repost</span>
           </button>
         ) : null}
 
@@ -421,10 +428,10 @@ const PostEngagementBar: React.FC<Props> = ({
               if (!checkAuth()) return;
               setDashOpen(true);
             }}
-            className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className={`${actionButtonBase} text-slate-700 hover:bg-slate-50`}
           >
             <Coins className="h-4 w-4" />
-            <span>Dash</span>
+            <span className="max-w-full truncate">Dash</span>
           </button>
         ) : null}
 
@@ -432,10 +439,10 @@ const PostEngagementBar: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => setShareOpen(true)}
-            className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className={`${actionButtonBase} text-slate-700 hover:bg-slate-50`}
           >
             <Send className="h-4 w-4" />
-            <span>Send</span>
+            <span className="max-w-full truncate">Send</span>
           </button>
         ) : null}
       </div>

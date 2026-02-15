@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, MoreVertical, UserPlus } from 'lucide-react';
+import { BadgeCheck, Loader2, MoreVertical, ShieldCheck, UserPlus } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { useSocket } from '../../../context/SocketContext';
@@ -609,6 +609,8 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
           const authorAvatar = author.avatarUrl || post?.authorAvatar || null;
           const authorId = post?.authorUserId || post?.authorId;
           const createdAt = post?.createdAt;
+          const isVerified = Boolean((author as any)?.isVerified || (post as any)?.authorIsVerified || (post as any)?.authorVerified);
+          const isPro = Boolean((author as any)?.isPro || (post as any)?.authorIsPro || (post as any)?.authorPro);
 
           const profileUrl = resolveProfileUrl(
             {
@@ -651,12 +653,32 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                       {authorAvatar ? <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" /> : null}
                     </Link>
                     <div className="min-w-0">
-                      <Link
-                        to={profileUrl}
-                        className="block truncate text-sm font-semibold text-slate-900 hover:text-slate-700"
-                      >
-                        {authorName}
-                      </Link>
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <Link
+                          to={profileUrl}
+                          className="min-w-0 truncate text-sm font-semibold text-slate-900 hover:text-slate-700"
+                        >
+                          {authorName}
+                        </Link>
+                        {isVerified ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700"
+                            title="Verified account"
+                          >
+                            <BadgeCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                            Verified
+                          </span>
+                        ) : null}
+                        {isPro ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700"
+                            title="Professional account"
+                          >
+                            <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                            Pro
+                          </span>
+                        ) : null}
+                      </div>
                       <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
                         <span>{relativeTime(createdAt) || 'now'}</span>
                         {post?.visibility ? (

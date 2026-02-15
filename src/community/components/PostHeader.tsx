@@ -78,8 +78,24 @@ const PostHeader: React.FC<PostHeaderProps> = ({
             <Link to={profileUrl} className="text-sm font-semibold text-slate-900 hover:text-slate-700">
               {authorName}
             </Link>
-            {author.isVerified ? <BadgeCheck className="h-4 w-4 text-blue-600" aria-label="Verified" /> : null}
-            {author.isPro ? <ShieldCheck className="h-4 w-4 text-emerald-600" aria-label="Pro" /> : null}
+            {author.isVerified ? (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700"
+                title="Verified account"
+              >
+                <BadgeCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                Verified
+              </span>
+            ) : null}
+            {author.isPro ? (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700"
+                title="Professional account"
+              >
+                <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                Pro
+              </span>
+            ) : null}
             {metaBadges}
           </div>
           <p className="text-xs text-slate-500">{createdAt ? new Date(createdAt).toLocaleString() : 'Just now'}</p>
