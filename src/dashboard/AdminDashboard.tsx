@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
     Home, ShoppingBag, DollarSign, CreditCard, LayoutTemplate, BookOpen, Megaphone, Users, HardDrive, Shield, FileText, LifeBuoy, Settings, Menu, X, Bell, LogOut, User, MessageSquare, Brain, PieChart, Clock, MessageCircle, Navigation, BarChart2, Globe, ExternalLink, RotateCcw, Sparkles, Bot, Smartphone
 } from 'lucide-react';
@@ -46,6 +46,7 @@ import ScrolithaManagement from './admin/ScrolithaManagement';
 import AppManagement from './admin/AppManagement';
 import MobileHomepage from './admin/MobileHomepage';
 import { useT } from '../i18n/useT';
+import { getNotificationActionUrl, getNotificationBucket } from '../utils/notificationRouting';
 
 // Define valid tab types
 type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps';
@@ -71,9 +72,30 @@ const AdminDashboard: React.FC = () => {
     const { user, logout } = useUser();
     const [searchParams] = useSearchParams();
     const [showAdminNotifications, setShowAdminNotifications] = useState(false);
+    const [adminNotificationTab, setAdminNotificationTab] = useState<'home' | 'community'>('home');
     const [isClearingCache, setIsClearingCache] = useState(false);
     const adminNotifRef = useRef<HTMLDivElement>(null);
     const unreadNotificationCount = notifications.filter(n => !n.isRead).length;
+
+    const adminNotificationBuckets = useMemo(() => {
+        const home: any[] = [];
+        const community: any[] = [];
+        (Array.isArray(notifications) ? notifications : []).forEach((n) => {
+            (getNotificationBucket(n) === 'community' ? community : home).push(n);
+        });
+        return { home, community };
+    }, [notifications]);
+
+    const adminUnreadCounts = useMemo(() => {
+        const countUnread = (rows: any[]) => rows.filter((n) => !Boolean(n?.isRead ?? n?.is_read)).length;
+        return {
+            home: countUnread(adminNotificationBuckets.home),
+            community: countUnread(adminNotificationBuckets.community)
+        };
+    }, [adminNotificationBuckets]);
+
+    const visibleAdminNotifications =
+        adminNotificationTab === 'community' ? adminNotificationBuckets.community : adminNotificationBuckets.home;
 
     useEffect(() => {
         const tabParam = searchParams.get('tab');
@@ -125,9 +147,11 @@ const AdminDashboard: React.FC = () => {
         showNotification('success', 'Logged Out', 'You have been successfully logged out');
     };
 
-    const handleNotificationClick = (id: string, actionUrl?: string) => {
-        markAsRead(id);
+    const handleNotificationClick = (notif: any) => {
+        const id = String(notif?.id || '');
+        if (id) markAsRead(id);
         setShowAdminNotifications(false);
+        const actionUrl = getNotificationActionUrl(notif);
         if (actionUrl) window.location.href = actionUrl;
     };
 
@@ -473,18 +497,57 @@ const AdminDashboard: React.FC = () => {
                                 </button>
                                 {showAdminNotifications && (
                                     <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 animate-fade-in-up">
-                                        <div className="px-4 py-3 border-b border-gray-50 bg-gray-50 flex justify-between items-center">
-                                            <h3 className="font-bold text-sm text-gray-700">Notifications</h3>
-                                            <span className="text-xs text-gray-500">{unreadNotificationCount} new</span>
+                                        <div className="px-4 py-3 border-b border-gray-50 bg-gray-50">
+                                            <div className="flex justify-between items-center">
+                                                <h3 className="font-bold text-sm text-gray-700">Notifications</h3>
+                                                <span className="text-xs text-gray-500">
+                                                    {(adminNotificationTab === 'community' ? adminUnreadCounts.community : adminUnreadCounts.home)} new{' '}
+                                                    {adminNotificationTab === 'community' ? 'Community' : 'Home'}
+                                                </span>
+                                            </div>
+                                            <div className="mt-2 flex gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        setAdminNotificationTab('home');
+                                                    }}
+                                                    className={[
+                                                        'rounded-full px-3 py-1 text-[11px] font-semibold',
+                                                        adminNotificationTab === 'home'
+                                                            ? 'bg-slate-900 text-white'
+                                                            : 'bg-white text-slate-700 border border-slate-200'
+                                                    ].join(' ')}
+                                                >
+                                                    Home{adminUnreadCounts.home ? ` (${adminUnreadCounts.home})` : ''}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        setAdminNotificationTab('community');
+                                                    }}
+                                                    className={[
+                                                        'rounded-full px-3 py-1 text-[11px] font-semibold',
+                                                        adminNotificationTab === 'community'
+                                                            ? 'bg-slate-900 text-white'
+                                                            : 'bg-white text-slate-700 border border-slate-200'
+                                                    ].join(' ')}
+                                                >
+                                                    Community{adminUnreadCounts.community ? ` (${adminUnreadCounts.community})` : ''}
+                                                </button>
+                                            </div>
                                         </div>
                                         <div className="max-h-96 overflow-y-auto">
-                                            {notifications.length === 0 ? (
+                                            {visibleAdminNotifications.length === 0 ? (
                                                 <div className="p-6 text-center text-gray-400 text-sm">No new notifications</div>
                                             ) : (
-                                                notifications.map((notif) => (
+                                                visibleAdminNotifications.map((notif) => (
                                                     <div
                                                         key={notif.id}
-                                                        onClick={() => handleNotificationClick(notif.id, (notif.actionUrl || (notif as any).action_url) ?? undefined)}
+                                                        onClick={() => handleNotificationClick(notif)}
                                                         className={`p-4 border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors relative ${
                                                             !notif.isRead ? "bg-blue-50/30" : ""
                                                         }`}

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { TrendingUp, Calendar, Award, MessageCircle, Zap, Users, Briefcase, Star, Filter, Search, Plus, Camera as CameraIcon, X, MoreHorizontal, Pin, Edit3, Trash2, Heart } from 'lucide-react';
+import { TrendingUp, Calendar, Award, MessageCircle, Zap, Users, Briefcase, Star, Filter, Search, Plus, Camera as CameraIcon, X, Heart } from 'lucide-react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { CMSService } from '../services/cms';
@@ -9,6 +9,7 @@ import { AdService } from '../services/ads';
 import PostHeader from './components/PostHeader';
 import PostEngagementBar from './components/PostEngagementBar';
 import MentionText from './components/MentionText';
+import PostOptionsButton from './components/post-options/PostOptionsButton';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from './followState';
 import { useNotification } from '../context/NotificationContext';
 import FilePickerModal from '../dashboard/shared/FilePickerModal';
@@ -143,13 +144,14 @@ const CommunityHome = () => {
   const focusQuery = new URLSearchParams(location.search);
   const focusCommentId = String(focusQuery.get('comment') || '').trim();
   const focusMentionToken = String(focusQuery.get('mention') || '').trim();
+  const focusEditRaw = String(focusQuery.get('edit') || '').trim().toLowerCase();
+  const shouldAutoEdit = ['1', 'true', 'yes', 'on'].includes(focusEditRaw);
   const [trendingTopics, setTrendingTopics] = useState<any[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
   const [topContributors, setTopContributors] = useState<any[]>([]);
   const [discussions, setDiscussions] = useState<any[]>([]);
   const [posts, setPosts] = useState<any[]>([]);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
-  const [openPostActions, setOpenPostActions] = useState<string | null>(null);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<PostDraft | null>(null);
   const [postActionBusy, setPostActionBusy] = useState<Record<string, boolean>>({});
@@ -531,9 +533,6 @@ const CommunityHome = () => {
         setEditingPostId(null);
         setEditingDraft(null);
       }
-      if (openPostActions === postId) {
-        setOpenPostActions(null);
-      }
     };
     const onPostMetricsUpdated = (event: Event) => {
       const detail = (event as CustomEvent).detail;
@@ -586,7 +585,7 @@ const CommunityHome = () => {
       window.removeEventListener('community:post_metrics_updated', onPostMetricsUpdated as EventListener);
       window.removeEventListener('community:post_reaction_updated', onPostReactionUpdated as EventListener);
     };
-  }, [applyPostUpdate, editingPostId, normalizePost, openPostActions]);
+  }, [applyPostUpdate, editingPostId, normalizePost]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -603,18 +602,6 @@ const CommunityHome = () => {
       resetFollowState();
     }
   }, [user?.id]);
-
-  useEffect(() => {
-    if (!openPostActions) return;
-    const handler = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (!target?.closest(`[data-post-actions="${openPostActions}"]`)) {
-        setOpenPostActions(null);
-      }
-    };
-    window.addEventListener('click', handler);
-    return () => window.removeEventListener('click', handler);
-  }, [openPostActions]);
 
   useEffect(() => {
     if (!ads || ads.length === 0) return;
@@ -1045,8 +1032,19 @@ const CommunityHome = () => {
         type: inferMediaType(media)
       }))
     });
-    setOpenPostActions(null);
   }, []);
+
+  useEffect(() => {
+    if (!shouldAutoEdit) return;
+    if (!focusPostId) return;
+    if (!user?.id) return;
+    if (editingPostId) return;
+    const target = posts.find((p) => String(p?.id || '') === String(focusPostId));
+    if (!target) return;
+    const ownerId = resolveAuthorOwnerUserId(target);
+    if (!ownerId || String(ownerId) !== String(user.id)) return;
+    beginEditPost(target);
+  }, [beginEditPost, editingPostId, focusPostId, posts, shouldAutoEdit, user?.id]);
 
   const cancelEditPost = useCallback(() => {
     setEditingPostId(null);
@@ -1120,7 +1118,6 @@ const CommunityHome = () => {
       showNotification('error', 'Posts', message);
     } finally {
       setPostActionBusy((prev) => ({ ...prev, [post.id]: false }));
-      setOpenPostActions(null);
     }
   }, [cancelEditPost, editingPostId, showNotification, user]);
 
@@ -1156,7 +1153,6 @@ const CommunityHome = () => {
       showNotification('error', 'Pin', message);
     } finally {
       setPostActionBusy((prev) => ({ ...prev, [post.id]: false }));
-      setOpenPostActions(null);
     }
   }, [applyPostUpdate, normalizePost, posts, showNotification, user]);
 
@@ -1192,7 +1188,6 @@ const CommunityHome = () => {
       showNotification('error', 'Highlight', message);
     } finally {
       setPostActionBusy((prev) => ({ ...prev, [post.id]: false }));
-      setOpenPostActions(null);
     }
   }, [applyPostUpdate, normalizePost, posts, showNotification, user]);
 
@@ -1475,7 +1470,6 @@ const CommunityHome = () => {
                   const isOwner = Boolean(ownerUserId) && String(user?.id || '') === ownerUserId;
                   const canManage = isOwner || isPrivilegedRole(user?.role);
                   const isEditing = editingPostId === post.id;
-                  const actionsOpen = openPostActions === post.id;
                   const actionBusy = Boolean(postActionBusy[post.id]);
                   const commentCount = commentCounts[post.id] ?? post.interactions?.comments ?? 0;
                   const resolvedAuthor = {
@@ -1531,67 +1525,25 @@ const CommunityHome = () => {
                         }
                         rightSlot={
                           <div className="flex items-center gap-2">
-                            <button onClick={() => promotePost(post)} className="text-xs px-2 py-1 border rounded text-indigo-600 border-indigo-200 hover:bg-indigo-50">
-                            Promote this post
-                            </button>
-                            {canManage && (
-                              <div className="relative" data-post-actions={post.id}>
+                            {canManage ? (
                               <button
+                                onClick={() => promotePost(post)}
+                                className="text-xs px-2 py-1 border rounded text-indigo-600 border-indigo-200 hover:bg-indigo-50"
                                 type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setOpenPostActions((prev) => (prev === post.id ? null : post.id));
-                                }}
-                                className="rounded-full border border-gray-200 p-2 text-gray-500 hover:bg-gray-50"
                               >
-                                <MoreHorizontal className="h-4 w-4" />
+                                Promote this post
                               </button>
-                              {actionsOpen && (
-                                <div className="absolute right-0 z-10 mt-2 w-52 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
-                                  <button
-                                    type="button"
-                                    onClick={() => beginEditPost(post)}
-                                    disabled={actionBusy}
-                                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                                  >
-                                    <Edit3 className="h-4 w-4" />
-                                    Edit post
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeletePost(post)}
-                                    disabled={actionBusy}
-                                    className="flex w-full items-center gap-2 px-4 py-2 text-sm text-rose-600 hover:bg-rose-50 disabled:opacity-60"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                    Delete post
-                                  </button>
-                                  {isOwner && (
-                                    <>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleTogglePin(post)}
-                                        disabled={actionBusy}
-                                        className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
-                                      >
-                                        <Pin className="h-4 w-4" />
-                                        {post.isPinned ? 'Unpin from profile' : 'Pin to profile'}
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleToggleHighlight(post)}
-                                        disabled={actionBusy}
-                                        className="flex w-full items-center gap-2 px-4 py-2 text-sm text-amber-700 hover:bg-amber-50 disabled:opacity-60"
-                                      >
-                                        <Star className="h-4 w-4" />
-                                        {post.isHighlighted ? 'Remove highlight' : 'Highlight on profile'}
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              )}
-                              </div>
-                            )}
+                            ) : null}
+                            <PostOptionsButton
+                              post={post}
+                              onHideFromFeed={(postId) => {
+                                setPosts((prev) => prev.filter((item) => item.id !== postId));
+                              }}
+                              onEditPost={() => beginEditPost(post)}
+                              onDeletePost={() => handleDeletePost(post)}
+                              onTogglePin={isOwner ? () => handleTogglePin(post) : undefined}
+                              onToggleHighlight={isOwner ? () => handleToggleHighlight(post) : undefined}
+                            />
                           </div>
                         }
                       />

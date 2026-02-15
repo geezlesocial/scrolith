@@ -78,6 +78,7 @@ const AffiliateProgram = React.lazy(() => import('./pages/AffiliateProgram'));
 const Favorites = React.lazy(() => import('./pages/Favorites'));
 const Cart = React.lazy(() => import('./pages/Cart'));
 const SettingsModule = React.lazy(() => import('./dashboard/shared/SettingsModule'));
+const PostPermalink = React.lazy(() => import('./pages/PostPermalink'));
 
 // Mobile (LinkedIn-style) logged-in home shell
 const MobileHome = React.lazy(() => import('./mobile/home/MobileHome'));
@@ -572,6 +573,14 @@ const AppContent = () => {
               <Route path="/affiliate-program" element={<AffiliateProgram />} />
               
               {/* Community Platform Routes (auth required) */}
+              <Route
+                path="/post/:id"
+                element={
+                  <ProtectedRoute>
+                    <PostPermalink />
+                  </ProtectedRoute>
+                }
+              />
               <Route
                 path="/community"
                 element={

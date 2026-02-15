@@ -13,6 +13,7 @@ import { useCart } from "../context/CartContext";
 import { CMSService } from "../services/cms";
 import { HeaderConfig, ActivityConfig, UserRole, HeroSearchConfig } from "../types";
 import SearchInput from "./SearchInput";
+import { getNotificationActionUrl, getNotificationBucket } from "../utils/notificationRouting";
 
 type LucideIconComponent = React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
 
@@ -67,6 +68,7 @@ const Navbar = () => {
   const [heroSearchConfig, setHeroSearchConfig] = useState<HeroSearchConfig | null>(null);
 
   const [showNotifications, setShowNotifications] = useState(false);
+  const [notificationTab, setNotificationTab] = useState<'home' | 'community'>('home');
   const [showMessagesDropdown, setShowMessagesDropdown] = useState(false);
   const [showHelpDropdown, setShowHelpDropdown] = useState(false);
   const [showCurrencyDropdown, setShowCurrencyDropdown] = useState(false);
@@ -257,14 +259,6 @@ const Navbar = () => {
     }
   };
 
-  const resolveNotificationActionUrl = (notification: any): string | undefined => {
-    const action =
-      (pick(notification as any, 'actionUrl', 'action_url') as string | undefined) ||
-      (pick(notification as any, 'metadata') as any)?.actionUrl ||
-      (pick(notification as any, 'metadata') as any)?.action_url;
-    return action || undefined;
-  };
-
   const resolveNotificationActorProfileUrl = (notification: any): string | undefined => {
     const metadata = (pick(notification as any, 'metadata') as any) || {};
     const actorUsername =
@@ -303,6 +297,29 @@ const Navbar = () => {
   const isHome = location.pathname === "/";
   const favoritesCount = favorites?.length || 0;
   const cartCount = cart?.totalItems || 0;
+
+  const notificationBuckets = useMemo(() => {
+    const home: any[] = [];
+    const community: any[] = [];
+    (Array.isArray(notifications) ? notifications : []).forEach((n) => {
+      (getNotificationBucket(n) === 'community' ? community : home).push(n);
+    });
+    return { home, community };
+  }, [notifications]);
+
+  const unreadNotificationCounts = useMemo(() => {
+    const countUnread = (rows: any[]) => rows.filter((n) => !Boolean(n?.isRead ?? n?.is_read)).length;
+    return {
+      home: countUnread(notificationBuckets.home),
+      community: countUnread(notificationBuckets.community),
+      total: countUnread(Array.isArray(notifications) ? notifications : [])
+    };
+  }, [notifications, notificationBuckets]);
+
+  const visibleNotifications = notificationTab === 'community' ? notificationBuckets.community : notificationBuckets.home;
+  const visibleUnreadCount =
+    notificationTab === 'community' ? unreadNotificationCounts.community : unreadNotificationCounts.home;
+  const notificationTabLabel = notificationTab === 'community' ? 'Community' : 'Home';
   const isPathActive = (path: string) => {
     if (!path) return false;
     if (location.pathname === path) return true;
@@ -903,12 +920,12 @@ const Navbar = () => {
                             {getDynamicIcon(icon.displayType || icon.type || icon.actionType, acIconSize, acIconStyle)}
                             {acShowBadges &&
                               (icon.actionType || icon.type) === "notifications" &&
-                              notifications.filter((n) => !n.isRead).length > 0 && (
+                              unreadNotificationCounts.total > 0 && (
                                 <span
                                   className="absolute top-1 right-1 h-4 min-w-[16px] px-1 rounded-full text-white text-[10px] flex items-center justify-center font-bold"
                                   style={{ backgroundColor: acBadgeColor }}
                                 >
-                                  {notifications.filter((n) => !n.isRead).length}
+                                  {unreadNotificationCounts.total}
                                 </span>
                               )}
                             {icon.showLabel && <span className="text-[10px] font-medium hidden lg:block">{icon.label}</span>}
@@ -917,15 +934,49 @@ const Navbar = () => {
                           {/* Notifications Dropdown */}
                           {(icon.actionType || icon.type) === "notifications" && showNotifications && (
                             <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 animate-fade-in-up">
-                              <div className="px-4 py-3 border-b border-gray-50 bg-gray-50 flex justify-between items-center">
-                                <h3 className="font-bold text-sm text-gray-700">Notifications</h3>
-                                <span className="text-xs text-gray-500">{notifications.filter((n) => !n.isRead).length} new</span>
+                              <div className="px-4 py-3 border-b border-gray-50 bg-gray-50">
+                                <div className="flex justify-between items-center">
+                                  <h3 className="font-bold text-sm text-gray-700">Notifications</h3>
+                                  <span className="text-xs text-gray-500">{visibleUnreadCount} new {notificationTabLabel}</span>
+                                </div>
+                                <div className="mt-2 flex gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setNotificationTab('home');
+                                    }}
+                                    className={[
+                                      'rounded-full px-3 py-1 text-[11px] font-semibold',
+                                      notificationTab === 'home' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 border border-slate-200'
+                                    ].join(' ')}
+                                  >
+                                    Home{unreadNotificationCounts.home ? ` (${unreadNotificationCounts.home})` : ''}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setNotificationTab('community');
+                                    }}
+                                    className={[
+                                      'rounded-full px-3 py-1 text-[11px] font-semibold',
+                                      notificationTab === 'community'
+                                        ? 'bg-slate-900 text-white'
+                                        : 'bg-white text-slate-700 border border-slate-200'
+                                    ].join(' ')}
+                                  >
+                                    Community{unreadNotificationCounts.community ? ` (${unreadNotificationCounts.community})` : ''}
+                                  </button>
+                                </div>
                               </div>
                               <div className="max-h-96 overflow-y-auto">
-                                {notifications.length === 0 ? (
+                                {visibleNotifications.length === 0 ? (
                                   <div className="p-6 text-center text-gray-400 text-sm">No new notifications</div>
                                 ) : (
-                                  notifications.map((notif) => {
+                                  visibleNotifications.map((notif) => {
                                     const actorName =
                                       (pick(notif as any, 'actorName', 'actor_name') as string | undefined) ||
                                       ((pick(notif as any, 'metadata') as any)?.actorName as string | undefined);
@@ -936,7 +987,7 @@ const Navbar = () => {
                                     return (
                                     <div
                                       key={notif.id}
-                                      onClick={() => handleNotificationClick(notif.id, resolveNotificationActionUrl(notif))}
+                                      onClick={() => handleNotificationClick(notif.id, getNotificationActionUrl(notif))}
                                       className={`p-4 border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors relative ${
                                         !notif.isRead ? "bg-blue-50/30" : ""
                                       }`}

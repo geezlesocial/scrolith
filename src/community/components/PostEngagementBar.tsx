@@ -72,7 +72,7 @@ const sumReactions = (counts?: Record<string, number>) =>
     return total + Math.max(0, Math.trunc(numeric));
   }, 0);
 
-const buildPostUrl = (postId: string) => `${window.location.origin}/community/posts/${encodeURIComponent(postId)}`;
+const buildPostUrl = (postId: string) => `${window.location.origin}/post/${encodeURIComponent(postId)}`;
 
 const PostEngagementBar: React.FC<Props> = ({
   postId,

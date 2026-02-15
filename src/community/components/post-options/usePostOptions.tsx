@@ -120,7 +120,7 @@ export function usePostOptions({
   }, [isAuthenticated, viewerId, showNotification]);
 
   const copyLink = useCallback(async () => {
-    const url = `${window.location.origin}/community/posts/${encodeURIComponent(postId)}`;
+    const url = `${window.location.origin}/post/${encodeURIComponent(postId)}`;
     try {
       await navigator.clipboard.writeText(url);
       showNotification('success', 'Copied', 'Post link copied to clipboard.');

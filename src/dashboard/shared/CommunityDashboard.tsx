@@ -1212,7 +1212,7 @@ const CommunityDashboard: React.FC = () => {
   };
 
   const sharePost = async (post: CommunityPost) => {
-    const postUrl = `${window.location.origin}/community/posts/${post.id}`;
+    const postUrl = `${window.location.origin}/post/${post.id}`;
     try {
       await CommunityService.postShare(post.id);
       if (navigator.clipboard?.writeText) {
@@ -2278,7 +2278,7 @@ const CommunityDashboard: React.FC = () => {
                   <Share2 className="h-3 w-3" />
                   Share
                 </button>
-                <button onClick={() => window.open(`/community/posts/${post.id}`, '_self')} className="flex items-center gap-1">
+                <button onClick={() => window.open(`/post/${post.id}`, '_self')} className="flex items-center gap-1">
                   <Eye className="h-3 w-3" />
                   View
                 </button>
