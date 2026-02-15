@@ -99,6 +99,18 @@ export class ScrolithaService {
     return extractData<any>(response);
   }
 
+  static async adminGetHealth(scope?: 'user' | 'admin'): Promise<any> {
+    const query = scope ? `?scope=${encodeURIComponent(scope)}` : '';
+    const response = await api.get(`/admin/scrolitha/health${query}`);
+    return extractData<any>(response);
+  }
+
+  static async adminGetModels(scope?: 'user' | 'admin'): Promise<any> {
+    const query = scope ? `?scope=${encodeURIComponent(scope)}` : '';
+    const response = await api.get(`/admin/scrolitha/models${query}`);
+    return extractData<any>(response);
+  }
+
   static async adminUpdateConfig(payload: any): Promise<any> {
     const response = await api.put('/admin/scrolitha/config', payload);
     return extractData<any>(response);

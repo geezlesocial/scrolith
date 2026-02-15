@@ -84,7 +84,19 @@ const GuidesPage = () => {
 
   const providerLabel = useMemo(() => {
     const routing = aiConfig?.routing || {};
-    const provider = routing?.seo_tags || (aiConfig?.providers?.google?.enabled ? 'google' : aiConfig?.providers?.openai?.enabled ? 'openai' : '');
+    const scrolitha = aiConfig?.providers?.scrolitha || aiConfig?.scrolitha || {};
+    if (scrolitha?.enabled) {
+      const model = scrolitha?.model ? String(scrolitha.model) : '';
+      return `SCROLITHA${model ? ` • ${model}` : ''}`;
+    }
+
+    const provider =
+      routing?.seo_tags ||
+      (aiConfig?.providers?.google?.enabled
+        ? 'google'
+        : aiConfig?.providers?.openai?.enabled
+          ? 'openai'
+          : '');
     if (!provider) return 'AI not configured';
     const model = provider === 'google' ? aiConfig?.providers?.google?.model : aiConfig?.providers?.openai?.model;
     return `${provider.toUpperCase()}${model ? ` • ${model}` : ''}`;

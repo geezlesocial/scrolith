@@ -68,6 +68,9 @@ const ScrolithaManagement: React.FC = () => {
   const [chatRecordUserId, setChatRecordUserId] = useState('');
   const [showLogoPicker, setShowLogoPicker] = useState(false);
 
+  const [llmHealth, setLlmHealth] = useState<any>(null);
+  const [llmModels, setLlmModels] = useState<string[]>([]);
+
   const [loading, setLoading] = useState(false);
   const [runningActionId, setRunningActionId] = useState<string | null>(null);
 
@@ -82,9 +85,46 @@ const ScrolithaManagement: React.FC = () => {
     const data = await ScrolithaService.adminGetConfig(configScope);
     const next = data && data.scope ? data : data?.[configScope] || null;
     setConfig(next);
+    setLlmHealth(null);
+    setLlmModels([]);
     const metadata = next?.metadata && typeof next.metadata === 'object' && !Array.isArray(next.metadata) ? next.metadata : {};
     const chatWidget = metadata?.chatWidget && typeof metadata.chatWidget === 'object' ? metadata.chatWidget : {};
     setWidgetSettings({ ...defaultWidgetSettings, ...(chatWidget as Partial<ScrolithaWidgetConfig>) });
+  };
+
+  const loadLlmHealth = async () => {
+    const data = await ScrolithaService.adminGetHealth(configScope);
+    setLlmHealth(data || null);
+    return data;
+  };
+
+  const loadLlmModels = async () => {
+    const data = await ScrolithaService.adminGetModels(configScope);
+    const models = Array.isArray(data?.models) ? data.models : [];
+    setLlmModels(models);
+    return models;
+  };
+
+  const llmMetadata = useMemo(() => {
+    const metadata = config?.metadata && typeof config.metadata === 'object' && !Array.isArray(config.metadata)
+      ? config.metadata
+      : {};
+    const llm = (metadata as any)?.llm;
+    if (!llm || typeof llm !== 'object' || Array.isArray(llm)) return {};
+    return llm as Record<string, any>;
+  }, [config]);
+
+  const updateLlmMetadata = (patch: Record<string, any>) => {
+    setConfig((prev: any) => {
+      const metadata = prev?.metadata && typeof prev.metadata === 'object' && !Array.isArray(prev.metadata)
+        ? { ...(prev.metadata as Record<string, any>) }
+        : {};
+      const llm = (metadata as any).llm && typeof (metadata as any).llm === 'object' && !Array.isArray((metadata as any).llm)
+        ? { ...((metadata as any).llm as Record<string, any>) }
+        : {};
+      (metadata as any).llm = { ...llm, ...patch };
+      return { ...prev, metadata };
+    });
   };
 
   const loadSkills = async () => {
@@ -408,39 +448,215 @@ const ScrolithaManagement: React.FC = () => {
             </select>
           </div>
           {config ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="text-sm text-slate-700">
-                <input type="checkbox" className="mr-2" checked={Boolean(config.enabled)} onChange={(event) => setConfig((prev: any) => ({ ...prev, enabled: event.target.checked }))} />
-                Enabled
-              </label>
-              <label className="text-sm text-slate-700">
-                <input type="checkbox" className="mr-2" checked={Boolean(config.safeMode)} onChange={(event) => setConfig((prev: any) => ({ ...prev, safeMode: event.target.checked }))} />
-                Safe mode
-              </label>
-              <label className="text-sm text-slate-700">
-                <input type="checkbox" className="mr-2" checked={Boolean(config.requireConfirmationByDefault)} onChange={(event) => setConfig((prev: any) => ({ ...prev, requireConfirmationByDefault: event.target.checked }))} />
-                Confirm by default
-              </label>
-              <label className="text-sm text-slate-700">
-                <input type="checkbox" className="mr-2" checked={Boolean(config.lowRiskAutoExecute)} onChange={(event) => setConfig((prev: any) => ({ ...prev, lowRiskAutoExecute: event.target.checked }))} />
-                Auto-execute low risk
-              </label>
-              <label className="text-xs font-medium uppercase text-slate-500">
-                Deny-listed tools (comma-separated)
-                <input className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm" value={Array.isArray(config.denyListedTools) ? config.denyListedTools.join(',') : String(config.denyListedTools || '')} onChange={(event) => setConfig((prev: any) => ({ ...prev, denyListedTools: event.target.value }))} />
-              </label>
-              <label className="text-xs font-medium uppercase text-slate-500">
-                Prompt blocklist (comma-separated)
-                <input className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm" value={Array.isArray(config.promptBlocklist) ? config.promptBlocklist.join(',') : String(config.promptBlocklist || '')} onChange={(event) => setConfig((prev: any) => ({ ...prev, promptBlocklist: event.target.value }))} />
-              </label>
-              <label className="text-xs font-medium uppercase text-slate-500">
-                User rate limit / min
-                <input type="number" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm" value={Number(config.userRateLimitPerMinute || 30)} onChange={(event) => setConfig((prev: any) => ({ ...prev, userRateLimitPerMinute: Number(event.target.value || 30) }))} />
-              </label>
-              <label className="text-xs font-medium uppercase text-slate-500">
-                Admin destructive cap / min
-                <input type="number" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm" value={Number(config.adminActionCapPerMinute || 10)} onChange={(event) => setConfig((prev: any) => ({ ...prev, adminActionCapPerMinute: Number(event.target.value || 10) }))} />
-              </label>
+            <div className="space-y-5">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="text-sm text-slate-700">
+                  <input type="checkbox" className="mr-2" checked={Boolean(config.enabled)} onChange={(event) => setConfig((prev: any) => ({ ...prev, enabled: event.target.checked }))} />
+                  Enabled
+                </label>
+                <label className="text-sm text-slate-700">
+                  <input type="checkbox" className="mr-2" checked={Boolean(config.safeMode)} onChange={(event) => setConfig((prev: any) => ({ ...prev, safeMode: event.target.checked }))} />
+                  Safe mode
+                </label>
+                <label className="text-sm text-slate-700">
+                  <input type="checkbox" className="mr-2" checked={Boolean(config.requireConfirmationByDefault)} onChange={(event) => setConfig((prev: any) => ({ ...prev, requireConfirmationByDefault: event.target.checked }))} />
+                  Confirm by default
+                </label>
+                <label className="text-sm text-slate-700">
+                  <input type="checkbox" className="mr-2" checked={Boolean(config.lowRiskAutoExecute)} onChange={(event) => setConfig((prev: any) => ({ ...prev, lowRiskAutoExecute: event.target.checked }))} />
+                  Auto-execute low risk
+                </label>
+                <label className="text-xs font-medium uppercase text-slate-500">
+                  Deny-listed tools (comma-separated)
+                  <input className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm" value={Array.isArray(config.denyListedTools) ? config.denyListedTools.join(',') : String(config.denyListedTools || '')} onChange={(event) => setConfig((prev: any) => ({ ...prev, denyListedTools: event.target.value }))} />
+                </label>
+                <label className="text-xs font-medium uppercase text-slate-500">
+                  Prompt blocklist (comma-separated)
+                  <input className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm" value={Array.isArray(config.promptBlocklist) ? config.promptBlocklist.join(',') : String(config.promptBlocklist || '')} onChange={(event) => setConfig((prev: any) => ({ ...prev, promptBlocklist: event.target.value }))} />
+                </label>
+                <label className="text-xs font-medium uppercase text-slate-500">
+                  User rate limit / min
+                  <input type="number" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm" value={Number(config.userRateLimitPerMinute || 30)} onChange={(event) => setConfig((prev: any) => ({ ...prev, userRateLimitPerMinute: Number(event.target.value || 30) }))} />
+                </label>
+                <label className="text-xs font-medium uppercase text-slate-500">
+                  Admin destructive cap / min
+                  <input type="number" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm" value={Number(config.adminActionCapPerMinute || 10)} onChange={(event) => setConfig((prev: any) => ({ ...prev, adminActionCapPerMinute: Number(event.target.value || 10) }))} />
+                </label>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900">LLM Settings (Ollama)</div>
+                    <div className="text-xs text-slate-500">Stored in config metadata and applied instantly without redeploy.</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={async () => {
+                        try {
+                          setLoading(true);
+                          await loadLlmHealth();
+                        } catch (error: any) {
+                          showNotification('error', 'Scrolitha LLM', error?.message || 'Health check failed.');
+                        } finally {
+                          setLoading(false);
+                        }
+                      }}
+                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 disabled:opacity-60"
+                    >
+                      Health
+                    </button>
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={async () => {
+                        try {
+                          setLoading(true);
+                          await loadLlmModels();
+                        } catch (error: any) {
+                          showNotification('error', 'Scrolitha LLM', error?.message || 'Failed to load models.');
+                        } finally {
+                          setLoading(false);
+                        }
+                      }}
+                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 disabled:opacity-60"
+                    >
+                      Load Models
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <label className="text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      className="mr-2"
+                      checked={llmMetadata.enabled !== false}
+                      onChange={(event) => updateLlmMetadata({ enabled: event.target.checked })}
+                    />
+                    Enabled
+                  </label>
+
+                  <label className="text-xs font-medium uppercase text-slate-500">
+                    Provider
+                    <select
+                      className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                      value={String(llmMetadata.provider || 'ollama')}
+                      onChange={(event) => updateLlmMetadata({ provider: event.target.value })}
+                    >
+                      <option value="ollama">ollama</option>
+                      <option value="disabled">disabled</option>
+                    </select>
+                  </label>
+
+                  <label className="text-xs font-medium uppercase text-slate-500">
+                    Ollama Host
+                    <input
+                      className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                      placeholder="http://127.0.0.1:11434"
+                      value={String(llmMetadata.ollamaHost || llmMetadata.host || '')}
+                      onChange={(event) => updateLlmMetadata({ ollamaHost: event.target.value, host: event.target.value })}
+                    />
+                  </label>
+
+                  <label className="text-xs font-medium uppercase text-slate-500">
+                    Model
+                    <input
+                      className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                      placeholder="llama3.1"
+                      value={String(llmMetadata.ollamaModel || llmMetadata.model || '')}
+                      onChange={(event) => updateLlmMetadata({ ollamaModel: event.target.value, model: event.target.value })}
+                    />
+                    {llmModels.length ? (
+                      <select
+                        className="mt-2 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                        value={String(llmMetadata.ollamaModel || llmMetadata.model || '')}
+                        onChange={(event) => updateLlmMetadata({ ollamaModel: event.target.value, model: event.target.value })}
+                      >
+                        <option value="">Select from server...</option>
+                        {llmModels.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    ) : null}
+                  </label>
+
+                  <label className="text-xs font-medium uppercase text-slate-500">
+                    Max Tokens
+                    <input
+                      type="number"
+                      className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                      value={Number(llmMetadata.maxTokens ?? 1024)}
+                      onChange={(event) => updateLlmMetadata({ maxTokens: Number(event.target.value || 1024) })}
+                    />
+                  </label>
+
+                  <label className="text-xs font-medium uppercase text-slate-500">
+                    Temperature
+                    <input
+                      type="number"
+                      step="0.05"
+                      className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                      value={Number(llmMetadata.temperature ?? 0.7)}
+                      onChange={(event) => updateLlmMetadata({ temperature: Number(event.target.value || 0.7) })}
+                    />
+                  </label>
+
+                  <label className="text-xs font-medium uppercase text-slate-500">
+                    Top P
+                    <input
+                      type="number"
+                      step="0.05"
+                      className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                      value={Number(llmMetadata.topP ?? 0.9)}
+                      onChange={(event) => updateLlmMetadata({ topP: Number(event.target.value || 0.9) })}
+                    />
+                  </label>
+
+                  <label className="text-xs font-medium uppercase text-slate-500">
+                    Timeout (ms)
+                    <input
+                      type="number"
+                      className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                      value={Number(llmMetadata.timeoutMs ?? 25000)}
+                      onChange={(event) => updateLlmMetadata({ timeoutMs: Number(event.target.value || 25000) })}
+                    />
+                  </label>
+
+                  <label className="text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      className="mr-2"
+                      checked={Boolean(llmMetadata.allowGeminiFallback)}
+                      onChange={(event) => updateLlmMetadata({ allowGeminiFallback: event.target.checked })}
+                    />
+                    Allow legacy fallback (Gemini/OpenAI)
+                  </label>
+
+                  <label className="text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      className="mr-2"
+                      checked={Boolean(llmMetadata.enableStreaming)}
+                      onChange={(event) => updateLlmMetadata({ enableStreaming: event.target.checked })}
+                    />
+                    Enable streaming (future)
+                  </label>
+                </div>
+
+                {llmHealth ? (
+                  <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                    <div className="font-semibold">
+                      Status: <span className={llmHealth.ok ? 'text-green-700' : 'text-red-700'}>{llmHealth.ok ? 'OK' : 'ERROR'}</span>
+                    </div>
+                    <div className="mt-1">Host: {llmHealth.host || '-'}</div>
+                    <div>Model: {llmHealth.model || '-'}</div>
+                    {llmHealth.error ? <div className="mt-1 text-red-700">Error: {String(llmHealth.error)}</div> : null}
+                  </div>
+                ) : null}
+              </div>
             </div>
           ) : (
             <p className="text-sm text-slate-500">Loading config...</p>
