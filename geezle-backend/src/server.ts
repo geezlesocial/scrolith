@@ -38,6 +38,7 @@ import walletRoutes from './routes/wallet.routes';
 import escrowRoutes from './routes/escrow.routes';
 import withdrawalRoutes from './routes/withdrawal.routes';
 import communityRoutes from './routes/community';
+import postsRoutes from './routes/posts.routes';
 import contractsRoutes from './routes/contracts.routes';
 import messagesRoutes from './routes/messages.routes';
 import moderationChatRoutes from './routes/moderation.chat.routes';
@@ -721,6 +722,7 @@ app.use('/api/wallet', walletRoutes);
 app.use('/api/escrow', escrowRoutes);
 app.use('/api/withdrawal', withdrawalRoutes);
 app.use('/api/community', communityRoutes);
+app.use('/api/posts', postsRoutes);
 
 // Explicit admin config endpoints (ensure runtime availability even when nested routers vary)
 app.get('/api/community/admin/config', (req: Request, res: Response, next) => {

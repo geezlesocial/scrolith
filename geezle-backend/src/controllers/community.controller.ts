@@ -1404,10 +1404,13 @@ export const postRepost = async (req: Request, res: Response) => {
     const sessionHash = req.body?.sessionHash || req.header('X-Session-Hash') || undefined;
     const originalPost = await prisma.communityPost.findUnique({
       where: { id: postId },
-      select: { id: true, authorId: true, title: true, content: true, status: true }
+      select: { id: true, authorId: true, title: true, content: true, status: true, repostsEnabled: true }
     });
     if (!originalPost || originalPost.status === 'deleted') {
       return res.status(404).json({ error: 'Post not found' });
+    }
+    if (originalPost.repostsEnabled === false) {
+      return res.status(403).json({ error: 'Reposts are disabled for this post' });
     }
     if (actorId && await hasUserBlockRelation(actorId, originalPost.authorId)) {
       return res.status(403).json({ error: 'Interaction is not allowed for this post' });
@@ -1585,6 +1588,11 @@ export const getPosts = async (req: Request, res: Response) => {
       where.authorId = { notIn: blockedAuthorIds };
     }
 
+    if (userId) {
+      // Per-viewer hide: excluded from list/feed responses, but still accessible directly by ID.
+      where.hiddenBy = { none: { userId } };
+    }
+
     const posts = await prisma.communityPost.findMany({
       where,
       include: {
@@ -1706,6 +1714,7 @@ export const getPosts = async (req: Request, res: Response) => {
         visibility: post.visibility || 'public',
         graphicWarning: Boolean(post.graphicWarning),
         commentPolicy: post.commentPolicy || 'everyone',
+        repostsEnabled: post.repostsEnabled !== false,
         businessPage: post.businessPage ? {
           id: post.businessPage.id,
           name: post.businessPage.name,
@@ -1808,6 +1817,11 @@ export const getFeed = async (req: Request, res: Response) => {
 
     if (cursor) {
       baseWhere.createdAt = { lt: new Date(cursor) };
+    }
+
+    if (userId) {
+      // Per-viewer hide: excluded from feed responses, but still accessible directly by ID.
+      baseWhere.hiddenBy = { none: { userId } };
     }
 
     const posts = await prisma.communityPost.findMany({
@@ -1913,6 +1927,7 @@ export const getFeed = async (req: Request, res: Response) => {
         visibility: post.visibility || 'public',
         graphicWarning: Boolean(post.graphicWarning),
         commentPolicy: post.commentPolicy || 'everyone',
+        repostsEnabled: post.repostsEnabled !== false,
         businessPage: post.businessPage ? {
           id: post.businessPage.id,
           name: post.businessPage.name,
@@ -2109,6 +2124,7 @@ export const getPostById = async (req: Request, res: Response) => {
       visibility: post.visibility || 'public',
       graphicWarning: Boolean(post.graphicWarning),
       commentPolicy: post.commentPolicy || 'everyone',
+      repostsEnabled: post.repostsEnabled !== false,
       businessPage: post.businessPage ? {
         id: post.businessPage.id,
         name: post.businessPage.name,
@@ -2506,6 +2522,7 @@ export const createPost = async (req: Request, res: Response) => {
       visibility: post.visibility || 'public',
       graphicWarning: Boolean((post as any).graphicWarning),
       commentPolicy: post.commentPolicy || 'everyone',
+      repostsEnabled: post.repostsEnabled !== false,
       businessPage: post.businessPage ? {
         id: post.businessPage.id,
         name: post.businessPage.name,
@@ -2579,14 +2596,69 @@ export const createPost = async (req: Request, res: Response) => {
       }
 
       if ((post.status || 'active') === 'active') {
-        const followers = await prisma.userFollow.findMany({
-          where: { followeeId: userId },
-          select: { followerId: true }
+        const targetType = post.businessPageId ? 'page' : 'user';
+        const targetId = post.businessPageId ? post.businessPageId : userId;
+
+        // Default: followers of the author/page receive post notifications unless they've explicitly muted.
+        const followerIds =
+          targetType === 'page'
+            ? (
+                await prisma.communityBusinessPageFollower.findMany({
+                  where: { pageId: targetId },
+                  select: { userId: true }
+                })
+              )
+                .map((row) => row.userId)
+                .filter((id): id is string => Boolean(id))
+            : (
+                await prisma.userFollow.findMany({
+                  where: { followeeId: userId },
+                  select: { followerId: true }
+                })
+              )
+                .map((follow) => follow.followerId)
+                .filter((id): id is string => Boolean(id));
+
+        const followerSet = new Set<string>(followerIds.filter((id) => id !== userId));
+
+        // Per-target overrides (enabled=true means explicit opt-in, enabled=false means explicit mute).
+        const prefs = await prisma.communityNotificationSubscription.findMany({
+          where: { targetType, targetId },
+          select: { userId: true, enabled: true }
         });
-        const followerIds = followers
-          .map((follow) => follow.followerId)
-          .filter((followerId) => followerId && followerId !== userId);
-        const recipientIds = await filterRecipientsForNotification('followed_new_post', followerIds);
+        const prefEnabledByUserId = new Map<string, boolean>(
+          prefs.map((row) => [row.userId, row.enabled !== false])
+        );
+
+        const recipientSet = new Set<string>();
+
+        // Followers default to enabled unless they explicitly muted.
+        followerSet.forEach((followerId) => {
+          const enabled = prefEnabledByUserId.get(followerId);
+          if (enabled === false) return;
+          recipientSet.add(followerId);
+        });
+
+        // Explicit opt-ins (even if not following).
+        prefs.forEach((row) => {
+          if (!row.userId || row.userId === userId) return;
+          if (row.enabled === false) return;
+          recipientSet.add(row.userId);
+        });
+
+        const visibility = String(post.visibility || 'public').toLowerCase();
+        const mentionSet = new Set((Array.isArray(post.mentions) ? post.mentions : []).map((id) => String(id)));
+        const canView = (recipientId: string) => {
+          if (!recipientId || recipientId === userId) return false;
+          if (visibility === 'public' || visibility === 'network') return true;
+          if (visibility === 'private') return false;
+          if (visibility === 'custom') return mentionSet.has(recipientId);
+          // Default fallback: followers-only visibility for all other values.
+          return followerSet.has(recipientId);
+        };
+
+        const candidateRecipientIds = Array.from(recipientSet).filter(canView);
+        const recipientIds = await filterRecipientsForNotification('followed_new_post', candidateRecipientIds);
         const message = postSnippet ? `${actorName} posted: "${postSnippet}"` : `${actorName} posted a new update.`;
 
         for (let i = 0; i < recipientIds.length; i += NOTIFICATION_BATCH_SIZE) {
@@ -2603,10 +2675,13 @@ export const createPost = async (req: Request, res: Response) => {
                 metadata: {
                   postId: post.id,
                   authorId: userId,
+                  businessPageId: post.businessPageId || null,
+                  targetType,
+                  targetId,
                   snippet: postSnippet
                 },
                 dedupeWindowMinutes: 30,
-                dedupeMetaKeys: ['authorId'],
+                dedupeMetaKeys: ['targetType', 'targetId'],
                 skipRecipientChecks: true
               })
             )
@@ -2647,6 +2722,7 @@ export const updatePost = async (req: Request, res: Response) => {
       topic,
       location,
       commentPolicy,
+      repostsEnabled,
       isPinned,
       isHighlighted
     } = req.body;
@@ -2686,6 +2762,9 @@ export const updatePost = async (req: Request, res: Response) => {
         return res.status(400).json({ error: 'Invalid comment policy' });
       }
       updateData.commentPolicy = normalizedPolicy;
+    }
+    if (repostsEnabled !== undefined) {
+      updateData.repostsEnabled = Boolean(repostsEnabled);
     }
     if (isPinned !== undefined) {
       const pinValue = Boolean(isPinned);
@@ -2801,6 +2880,7 @@ export const updatePost = async (req: Request, res: Response) => {
       visibility: updated.visibility || 'public',
       graphicWarning: Boolean(updated.graphicWarning),
       commentPolicy: updated.commentPolicy || 'everyone',
+      repostsEnabled: updated.repostsEnabled !== false,
       businessPage: updated.businessPage ? {
         id: updated.businessPage.id,
         name: updated.businessPage.name,

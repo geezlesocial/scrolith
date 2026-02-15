@@ -10,10 +10,17 @@ export const takeModerationAction = async (req: Request, res: Response) => {
     }
 
     if (targetType === 'post') {
-      await prisma.communityPost.update({ where: { id: targetId }, data: { status: 'deleted' } });
+      const normalizedAction = String(action || '').trim().toLowerCase();
+      const nextStatus = normalizedAction === 'hide' ? 'draft' : 'deleted';
+      await prisma.communityPost.update({ where: { id: targetId }, data: { status: nextStatus } });
       const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
-      try { io?.emit('community:post_deleted', { postId: targetId }); } catch (e) {}
-      try { realtime.emitToPost(targetId, 'community:post_deleted', { postId: targetId }); } catch (e) {}
+      if (nextStatus === 'deleted') {
+        try { io?.emit('community:post_deleted', { postId: targetId }); } catch (e) {}
+        try { realtime.emitToPost(targetId, 'community:post_deleted', { postId: targetId }); } catch (e) {}
+      } else {
+        try { io?.emit('community:post_updated', { postId: targetId, status: nextStatus }); } catch (e) {}
+        try { realtime.emitToPost(targetId, 'community:post_updated', { postId: targetId, status: nextStatus }); } catch (e) {}
+      }
     }
 
     if (targetType === 'comment') {
