@@ -1,4 +1,4 @@
-﻿-- AlterEnum
+-- AlterEnum
 DO $$ BEGIN
   ALTER TYPE "FavoriteEntityType" ADD VALUE 'POST';
 EXCEPTION
