@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { MessageCircle, Repeat2, Send, ThumbsUp } from 'lucide-react';
+import { Coins, MessageCircle, Repeat2, Send, ThumbsUp } from 'lucide-react';
 import { useUser } from '../../context/UserContext';
 import { useContent } from '../../context/ContentContext';
 import { useNotification } from '../../context/NotificationContext';
-import { ReactionsService, ReactionTargetType } from '../../services/reactions';
 import { CommunityService } from '../../services/community';
 import PostComments from '../../components/PostComments';
+import SendGcoinModal from '../../components/SendGcoinModal';
 import PostShareModal from './PostShareModal';
 import RepostModal from './RepostModal';
 import { useSocket } from '../../context/SocketContext';
@@ -36,6 +36,7 @@ type Props = {
     comments?: boolean;
     reposts?: boolean;
     send?: boolean;
+    dash?: boolean;
   };
   className?: string;
 };
@@ -110,7 +111,19 @@ const PostEngagementBar: React.FC<Props> = ({
   const commentsEnabled = features?.comments !== false;
   const repostsEnabled = features?.reposts !== false && postRepostsEnabled !== false;
   const sendEnabled = features?.send !== false;
-  const actionCols = Math.max(1, [reactionsEnabled, commentsEnabled, repostsEnabled, sendEnabled].filter(Boolean).length);
+  const dashEnabled =
+    features?.dash !== false &&
+    (memberHomeSettings?.feed?.dashEnabled ??
+      (memberHomeSettings as any)?.feed?.dash_enabled ??
+      (memberHomeSettings as any)?.feed?.gcoinDashEnabled ??
+      (memberHomeSettings as any)?.feed?.gcoin_dash_enabled ??
+      true) !== false;
+  const dashEnabledForPost = dashEnabled && !(authorId && user?.id && String(authorId) === String(user.id));
+
+  const actionCols = Math.max(
+    1,
+    [reactionsEnabled, commentsEnabled, repostsEnabled, sendEnabled, dashEnabledForPost].filter(Boolean).length
+  );
 
   const allowed = useMemo(
     () => normalizeAllowed(reactionsSettings?.allowed),
@@ -133,6 +146,7 @@ const PostEngagementBar: React.FC<Props> = ({
   const [focusInputKey, setFocusInputKey] = useState(0);
   const [shareOpen, setShareOpen] = useState(false);
   const [repostOpen, setRepostOpen] = useState(false);
+  const [dashOpen, setDashOpen] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
 
   const likeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -149,42 +163,19 @@ const PostEngagementBar: React.FC<Props> = ({
   }, [postId, initialUserReaction]);
 
   useEffect(() => {
-    if (!postId || !reactionsEnabled) return;
-    const hasInitialCounts = typeof initialReactionCounts !== 'undefined';
-    const hasInitialReaction = typeof initialUserReaction !== 'undefined';
-    if (hasInitialCounts && hasInitialReaction) return;
-    let active = true;
-    ReactionsService.getSummary('POST', postId)
-      .then((summary) => {
-        if (!active || !summary) return;
-        setCounts(summary.counts || {});
-        setUserReaction(summary.userReaction || null);
-      })
-      .catch((error) => {
-        const status = error?.response?.status;
-        if (status !== 404 && status !== 403 && status !== 401) {
-          console.warn('Failed to load post reaction summary', error);
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [postId, reactionsEnabled, initialReactionCounts, initialUserReaction]);
-
-  useEffect(() => {
     const onUpdated = (event: Event) => {
       const detail = (event as CustomEvent).detail;
       if (!detail) return;
-      if (String(detail.targetType || '').toUpperCase() !== ('POST' as ReactionTargetType)) return;
-      if (String(detail.targetId || '') !== String(postId)) return;
-      setCounts(detail.counts || {});
-      if (detail.actorUserId && user?.id && String(detail.actorUserId) === String(user.id)) {
-        setUserReaction(detail.userReaction || null);
-      }
+      const updatedPostId = String(detail.postId || detail.post_id || '').trim();
+      if (!updatedPostId || updatedPostId !== String(postId)) return;
+      const next = detail.reactions;
+      if (!next || typeof next !== 'object' || Array.isArray(next)) return;
+      setCounts(next as Record<string, number>);
     };
-    window.addEventListener('reactions:updated', onUpdated as EventListener);
-    return () => window.removeEventListener('reactions:updated', onUpdated as EventListener);
-  }, [postId, user?.id]);
+    window.addEventListener('community:post_reaction_updated', onUpdated as EventListener);
+    return () =>
+      window.removeEventListener('community:post_reaction_updated', onUpdated as EventListener);
+  }, [postId]);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -239,9 +230,13 @@ const PostEngagementBar: React.FC<Props> = ({
     setPickerOpen(false);
 
     try {
-      const summary = await ReactionsService.react('POST', postId, reactionKey);
-      setCounts(summary?.counts || {});
-      setUserReaction(summary?.userReaction || null);
+      const result = toggledOff
+        ? await CommunityService.removePostReaction(postId)
+        : await CommunityService.reactToPost(postId, reactionKey);
+      const serverCounts = result?.reactions;
+      if (serverCounts && typeof serverCounts === 'object' && !Array.isArray(serverCounts)) {
+        setCounts(serverCounts);
+      }
     } catch (error: any) {
       setCounts(previousCounts);
       setUserReaction(previousReaction);
@@ -419,6 +414,20 @@ const PostEngagementBar: React.FC<Props> = ({
           </button>
         ) : null}
 
+        {dashEnabledForPost ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (!checkAuth()) return;
+              setDashOpen(true);
+            }}
+            className="flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            <Coins className="h-4 w-4" />
+            <span>Dash</span>
+          </button>
+        ) : null}
+
         {sendEnabled ? (
           <button
             type="button"
@@ -443,6 +452,14 @@ const PostEngagementBar: React.FC<Props> = ({
           expanded={commentsOpen}
           focusInputKey={focusInputKey}
           onCountChange={onCommentCountChange}
+        />
+      ) : null}
+
+      {dashEnabledForPost ? (
+        <SendGcoinModal
+          isOpen={dashOpen}
+          onClose={() => setDashOpen(false)}
+          donatePostId={postId}
         />
       ) : null}
 

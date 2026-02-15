@@ -1835,6 +1835,7 @@ const CommunityHome = () => {
                             shareCount={post.sharesCount ?? post.interactions?.shares ?? 0}
                             viewCount={post.interactions?.views ?? post.viewsCount ?? 0}
                             initialReactionCounts={post.interactions?.reactions}
+                            initialUserReaction={post.userState?.reaction}
                             focusCommentId={focusPostId === post.id ? focusCommentId : undefined}
                             focusMentionToken={focusPostId === post.id ? focusMentionToken : undefined}
                             onCommentCountChange={syncCommentCount}

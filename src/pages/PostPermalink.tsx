@@ -345,6 +345,7 @@ export default function PostPermalink() {
             shareCount={post.sharesCount ?? post.interactions?.shares ?? 0}
             viewCount={post.interactions?.views ?? post.viewsCount ?? 0}
             initialReactionCounts={post.interactions?.reactions}
+            initialUserReaction={post.userState?.reaction}
             focusCommentId={focusCommentId || undefined}
             focusMentionToken={focusMentionToken || undefined}
             onCommentCountChange={(_id, count) => setCommentCount(count)}
@@ -354,4 +355,3 @@ export default function PostPermalink() {
     </div>
   );
 }
-

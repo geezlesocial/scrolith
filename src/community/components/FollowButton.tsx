@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CommunityService } from '../../services/community';
 import { setFollowStatus, useFollowStatus } from '../followState';
 
@@ -36,19 +36,41 @@ const FollowButton: React.FC<FollowButtonProps> = ({
   className = ''
 }) => {
   const [busy, setBusy] = useState(false);
-  const [hovering, setHovering] = useState(false);
   const id = String(targetUserId || '').trim();
   const selfId = String(currentUserId || '').trim();
   const followStatus = useFollowStatus(id, initialIsFollowing);
-  const isFollowing = Boolean(followStatus);
+  const isFollowing = followStatus === true;
   const isSelf = Boolean(id && selfId && id === selfId);
   const isDisabled = Boolean(disabled || busy || !id || isSelf);
+
+  // If the caller didn't provide an initial follow state, lazily resolve it
+  // once so "Follow" doesn't incorrectly show for already-followed authors.
+  useEffect(() => {
+    if (!id || !selfId) return;
+    if (followStatus !== undefined) return;
+
+    let active = true;
+    CommunityService.getFollowStatus([id])
+      .then((map) => {
+        if (!active) return;
+        const value = (map as any)?.[id];
+        if (typeof value === 'boolean') setFollowStatus(id, value);
+      })
+      .catch((error) => {
+        // Non-fatal: keep button usable even if status lookup fails.
+        if (isUnauthorizedError(error)) return;
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [id, selfId, followStatus]);
 
   const label = useMemo(() => {
     if (busy) return '...';
     if (!isFollowing) return 'Follow';
-    return hovering ? 'Unfollow' : 'Following';
-  }, [busy, hovering, isFollowing]);
+    return 'Following';
+  }, [busy, isFollowing]);
 
   if (!id || isSelf) return null;
 
@@ -65,6 +87,14 @@ const FollowButton: React.FC<FollowButtonProps> = ({
 
     const previous = isFollowing;
     const next = !previous;
+
+    if (!next) {
+      const ok = window.confirm(
+        'Are you sure you want to unfollow the account?\n\nPress OK to unfollow, or Cancel to keep following.'
+      );
+      if (!ok) return;
+    }
+
     setBusy(true);
     setFollowStatus(id, next);
 
@@ -89,15 +119,13 @@ const FollowButton: React.FC<FollowButtonProps> = ({
   };
 
   const stateClass = isFollowing
-    ? (hovering ? 'border-red-300 text-red-600 hover:bg-red-50' : 'border-slate-300 text-slate-600 hover:bg-slate-50')
+    ? 'border-slate-300 text-slate-700 hover:bg-slate-50'
     : 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700';
 
   return (
     <button
       type="button"
       onClick={handleClick}
-      onMouseEnter={() => setHovering(true)}
-      onMouseLeave={() => setHovering(false)}
       disabled={isDisabled}
       className={`inline-flex h-8 items-center rounded-full border px-3 text-xs font-semibold transition ${stateClass} disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
     >
