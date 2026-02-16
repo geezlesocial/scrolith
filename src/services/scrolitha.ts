@@ -25,6 +25,12 @@ export type ScrolithaChatResponse = {
   suggestedActions: ScrolithaSuggestedAction[];
   needsConfirmation: boolean;
   draftChanges?: Record<string, any> | null;
+  learning?: {
+    totalInteractions: number;
+    topTopics: Array<{ topic: string; count: number }>;
+    lastGoal?: string | null;
+    updatedAt?: string;
+  } | null;
 };
 
 export type ScrolithaWidgetConfig = {
@@ -82,6 +88,28 @@ export class ScrolithaService {
     const response = await api.get(`/scrolitha/history?limit=${Math.max(1, Math.floor(limit))}`);
     const data = extractData<any>(response);
     return Array.isArray(data) ? data : [];
+  }
+
+  static async records(payload?: {
+    limit?: number;
+    conversationId?: string;
+  }): Promise<{ total: number; items: any[] }> {
+    const params = new URLSearchParams();
+    if (typeof payload?.limit === 'number') params.set('limit', String(Math.max(1, Math.floor(payload.limit))));
+    if (payload?.conversationId) params.set('conversationId', payload.conversationId);
+    const query = params.toString();
+    const response = await api.get(`/scrolitha/records${query ? `?${query}` : ''}`);
+    const data = extractData<any>(response);
+    return {
+      total: Number(data?.total || 0),
+      items: Array.isArray(data?.items) ? data.items : []
+    };
+  }
+
+  static async knowledge(message?: string): Promise<any> {
+    const query = message ? `?message=${encodeURIComponent(message)}` : '';
+    const response = await api.get(`/scrolitha/knowledge${query}`);
+    return extractData<any>(response);
   }
 
   static async feedback(payload: {
@@ -190,6 +218,11 @@ export class ScrolithaService {
     return {
       items: Array.isArray(data?.items) ? data.items : []
     };
+  }
+
+  static async adminGetLearningInsights(limitUsers = 400): Promise<any> {
+    const response = await api.get(`/admin/scrolitha/learning-insights?limitUsers=${Math.max(1, Math.floor(limitUsers))}`);
+    return extractData<any>(response);
   }
 }
 

@@ -70,6 +70,7 @@ const ScrolithaManagement: React.FC = () => {
 
   const [llmHealth, setLlmHealth] = useState<any>(null);
   const [llmModels, setLlmModels] = useState<string[]>([]);
+  const [learningInsights, setLearningInsights] = useState<any>(null);
 
   const [loading, setLoading] = useState(false);
   const [runningActionId, setRunningActionId] = useState<string | null>(null);
@@ -114,6 +115,29 @@ const ScrolithaManagement: React.FC = () => {
     return llm as Record<string, any>;
   }, [config]);
 
+  const normalizedMetadata = useMemo(() => {
+    if (config?.metadata && typeof config.metadata === 'object' && !Array.isArray(config.metadata)) {
+      return { ...(config.metadata as Record<string, any>) };
+    }
+    return {} as Record<string, any>;
+  }, [config]);
+
+  const learningMetadata = useMemo(() => {
+    const learning = (normalizedMetadata as any).learning;
+    if (!learning || typeof learning !== 'object' || Array.isArray(learning)) {
+      return { enabled: true };
+    }
+    return learning as Record<string, any>;
+  }, [normalizedMetadata]);
+
+  const knowledgeMetadata = useMemo(() => {
+    const knowledge = (normalizedMetadata as any).knowledge;
+    if (!knowledge || typeof knowledge !== 'object' || Array.isArray(knowledge)) {
+      return {};
+    }
+    return knowledge as Record<string, any>;
+  }, [normalizedMetadata]);
+
   const updateLlmMetadata = (patch: Record<string, any>) => {
     setConfig((prev: any) => {
       const metadata = prev?.metadata && typeof prev.metadata === 'object' && !Array.isArray(prev.metadata)
@@ -123,6 +147,41 @@ const ScrolithaManagement: React.FC = () => {
         ? { ...((metadata as any).llm as Record<string, any>) }
         : {};
       (metadata as any).llm = { ...llm, ...patch };
+      return { ...prev, metadata };
+    });
+  };
+
+  const updateLearningMetadata = (patch: Record<string, any>) => {
+    setConfig((prev: any) => {
+      const metadata = prev?.metadata && typeof prev.metadata === 'object' && !Array.isArray(prev.metadata)
+        ? { ...(prev.metadata as Record<string, any>) }
+        : {};
+      const learning = (metadata as any).learning && typeof (metadata as any).learning === 'object' && !Array.isArray((metadata as any).learning)
+        ? { ...((metadata as any).learning as Record<string, any>) }
+        : {};
+      (metadata as any).learning = { ...learning, ...patch };
+      return { ...prev, metadata };
+    });
+  };
+
+  const parseLines = (value: string) =>
+    String(value || '')
+      .split('\n')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+
+  const formatLines = (value: unknown) =>
+    Array.isArray(value) ? value.map((entry) => String(entry || '').trim()).filter(Boolean).join('\n') : '';
+
+  const updateKnowledgeMetadata = (patch: Record<string, any>) => {
+    setConfig((prev: any) => {
+      const metadata = prev?.metadata && typeof prev.metadata === 'object' && !Array.isArray(prev.metadata)
+        ? { ...(prev.metadata as Record<string, any>) }
+        : {};
+      const knowledge = (metadata as any).knowledge && typeof (metadata as any).knowledge === 'object' && !Array.isArray((metadata as any).knowledge)
+        ? { ...((metadata as any).knowledge as Record<string, any>) }
+        : {};
+      (metadata as any).knowledge = { ...knowledge, ...patch };
       return { ...prev, metadata };
     });
   };
@@ -147,6 +206,11 @@ const ScrolithaManagement: React.FC = () => {
     setAnalytics(data || null);
   };
 
+  const loadLearningInsights = async () => {
+    const data = await ScrolithaService.adminGetLearningInsights(400);
+    setLearningInsights(data || null);
+  };
+
   const loadChatRecords = async () => {
     const data = await ScrolithaService.adminGetChatRecords({
       limit: 20,
@@ -161,7 +225,7 @@ const ScrolithaManagement: React.FC = () => {
     const run = async () => {
       setLoading(true);
       try {
-        await Promise.all([loadConfig(), loadSkills(), loadAudit(null), loadAnalytics(), loadChatRecords()]);
+        await Promise.all([loadConfig(), loadSkills(), loadAudit(null), loadAnalytics(), loadLearningInsights(), loadChatRecords()]);
       } catch (error: any) {
         if (!mounted) return;
         showNotification('error', 'Scrolitha', error?.message || 'Failed to load Scrolitha admin module.');
@@ -182,15 +246,18 @@ const ScrolithaManagement: React.FC = () => {
       void loadSkills();
       void loadAudit(null);
       void loadAnalytics();
+      void loadLearningInsights();
       void loadChatRecords();
     };
     socket.on('scrolitha:config_updated', refresh);
     socket.on('scrolitha:skills_updated', refresh);
     socket.on('scrolitha:action_completed', refresh);
+    socket.on('scrolitha:learning_updated', refresh);
     return () => {
       socket.off('scrolitha:config_updated', refresh);
       socket.off('scrolitha:skills_updated', refresh);
       socket.off('scrolitha:action_completed', refresh);
+      socket.off('scrolitha:learning_updated', refresh);
     };
   }, [socket, configScope, chatRecordScope, chatRecordUserId]);
 
@@ -201,6 +268,7 @@ const ScrolithaManagement: React.FC = () => {
       void loadSkills();
       void loadAudit(null);
       void loadAnalytics();
+      void loadLearningInsights();
       void loadChatRecords();
     }, 60_000);
     return () => window.clearInterval(timer);
@@ -657,6 +725,74 @@ const ScrolithaManagement: React.FC = () => {
                   </div>
                 ) : null}
               </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="text-sm font-semibold text-slate-900">Adaptive Learning</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  Enables Scrolitha to improve response relevance from user conversations while keeping communication records auditable.
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <label className="text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      className="mr-2"
+                      checked={learningMetadata.enabled !== false}
+                      onChange={(event) => updateLearningMetadata({ enabled: event.target.checked })}
+                    />
+                    Enable adaptive learning
+                  </label>
+                  <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                    Learning profiles are stored per user and surfaced in Admin records/analytics.
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="text-sm font-semibold text-slate-900">Scrolith Service Knowledge Base</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  Manage the baseline knowledge Scrolitha uses about Scrolith, employer/client capabilities, and freelancer capabilities.
+                </div>
+                <div className="mt-3 space-y-3">
+                  <label className="block text-xs font-medium uppercase text-slate-500">
+                    Overview
+                    <textarea
+                      rows={3}
+                      className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                      value={String(knowledgeMetadata.overview || '')}
+                      onChange={(event) => updateKnowledgeMetadata({ overview: event.target.value })}
+                    />
+                  </label>
+                  <label className="block text-xs font-medium uppercase text-slate-500">
+                    Core Services (one line per item)
+                    <textarea
+                      rows={4}
+                      className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                      value={formatLines(knowledgeMetadata.coreServices)}
+                      onChange={(event) => updateKnowledgeMetadata({ coreServices: parseLines(event.target.value) })}
+                    />
+                  </label>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="block text-xs font-medium uppercase text-slate-500">
+                      Employer/Client Capabilities
+                      <textarea
+                        rows={5}
+                        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                        value={formatLines(knowledgeMetadata.employerCapabilities)}
+                        onChange={(event) => updateKnowledgeMetadata({ employerCapabilities: parseLines(event.target.value) })}
+                      />
+                    </label>
+                    <label className="block text-xs font-medium uppercase text-slate-500">
+                      Freelancer Capabilities
+                      <textarea
+                        rows={5}
+                        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                        value={formatLines(knowledgeMetadata.freelancerCapabilities)}
+                        onChange={(event) => updateKnowledgeMetadata({ freelancerCapabilities: parseLines(event.target.value) })}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : (
             <p className="text-sm text-slate-500">Loading config...</p>
@@ -919,6 +1055,47 @@ const ScrolithaManagement: React.FC = () => {
                 <p key={entry.toolKey} className="text-sm text-slate-700">{entry.toolKey}: {entry.count}</p>
               ))}
               {!Array.isArray(analytics?.topTools) || analytics.topTools.length === 0 ? <p className="text-xs text-slate-500">No tool usage data yet.</p> : null}
+            </div>
+          </div>
+
+          <div className="mt-5 border-t border-slate-200 pt-4">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h4 className="text-xs font-semibold uppercase text-slate-500">Adaptive Learning Insights</h4>
+              <button
+                type="button"
+                onClick={() => void loadLearningInsights()}
+                className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-700"
+              >
+                Refresh
+              </button>
+            </div>
+            <div className="grid gap-2 md:grid-cols-3">
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                Users Scanned: {Number(learningInsights?.totals?.usersScanned || 0)}
+              </p>
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                Users With Learning Profile: {Number(learningInsights?.totals?.usersWithLearningProfile || 0)}
+              </p>
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                Recorded Interactions: {Number(learningInsights?.totals?.totalInteractions || 0)}
+              </p>
+            </div>
+
+            <div className="mt-3">
+              <div className="text-xs font-semibold uppercase text-slate-500">Top Learned Topics</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {(learningInsights?.topTopics || []).slice(0, 20).map((entry: any) => (
+                  <span
+                    key={`${entry.topic}_${entry.count}`}
+                    className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700"
+                  >
+                    {String(entry.topic)} ({Number(entry.count || 0)})
+                  </span>
+                ))}
+                {!Array.isArray(learningInsights?.topTopics) || learningInsights.topTopics.length === 0 ? (
+                  <p className="text-xs text-slate-500">No learning topics yet.</p>
+                ) : null}
+              </div>
             </div>
           </div>
         </section>
