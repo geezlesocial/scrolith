@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../services/scrolitha/scrolitha.audit';
 import {
+  getScrolithaCommunicationRecords,
+  getScrolithaKnowledgeForActor,
   getScrolithaWidgetConfigPublic,
   scrolithaChat,
   scrolithaExecute,
@@ -25,7 +27,8 @@ export const scrolithaChatController = async (req: Request, res: Response) => {
         context: req.body?.context,
         conversationId: req.body?.conversationId
       },
-      actor
+      actor,
+      req.app
     );
 
     return res.json({
@@ -91,6 +94,43 @@ export const scrolithaHistoryController = async (req: Request, res: Response) =>
     return res.status(500).json({
       success: false,
       message: 'Failed to load Scrolitha history',
+      error: String(error?.message || 'Unknown error')
+    });
+  }
+};
+
+export const scrolithaRecordsController = async (req: Request, res: Response) => {
+  try {
+    if (!req.user?.id) return unauthorized(res);
+    const actor = resolveActorFromRequest(req);
+    const data = await getScrolithaCommunicationRecords(actor, {
+      limit: req.query.limit,
+      conversationId: req.query.conversationId
+    });
+    return res.json({ success: true, data, message: 'Scrolitha communication records loaded' });
+  } catch (error: any) {
+    console.error('[scrolitha] records error', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load Scrolitha communication records',
+      error: String(error?.message || 'Unknown error')
+    });
+  }
+};
+
+export const scrolithaKnowledgeController = async (req: Request, res: Response) => {
+  try {
+    if (!req.user?.id) return unauthorized(res);
+    const actor = resolveActorFromRequest(req);
+    const data = await getScrolithaKnowledgeForActor(actor, {
+      message: req.query.message
+    });
+    return res.json({ success: true, data, message: 'Scrolitha knowledge context loaded' });
+  } catch (error: any) {
+    console.error('[scrolitha] knowledge error', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load Scrolitha knowledge context',
       error: String(error?.message || 'Unknown error')
     });
   }

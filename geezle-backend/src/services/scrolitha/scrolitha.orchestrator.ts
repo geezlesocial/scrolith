@@ -1,5 +1,11 @@
 import prisma from '../../utils/prismaClient';
 import { listScrolithaAuditLogs, writeScrolithaAuditLog } from './scrolitha.audit';
+import { buildScrolithaKnowledgeContext, getScrolithaKnowledgeBundle } from './scrolitha.knowledge';
+import {
+  buildScrolithaLearningContext,
+  getScrolithaLearningInsightsForAdmin,
+  persistScrolithaLearningSignal
+} from './scrolitha.learning';
 import { ollamaChat, resolveScrolithaLlmRuntime } from './scrolitha.ollama';
 import {
   canUseTool,
@@ -37,6 +43,8 @@ const buildScrolithaSystemPrompt = (params: {
   actor: ScrolithaActor;
   safeMode: boolean;
   plannedActions: Array<{ summary: string; toolKey: string; requiresConfirmation: boolean }>;
+  knowledgeContext?: string | null;
+  learningContext?: string | null;
 }) => {
   const role = String(params.actor.role || 'user');
   const scope = String(params.actor.scope || 'user');
@@ -57,7 +65,10 @@ const buildScrolithaSystemPrompt = (params: {
     ``,
     `Actor scope: ${scope}`,
     `Actor role: ${role}`,
-    actions ? `Planned actions:\n${actions}` : `Planned actions: (none)`
+    actions ? `Planned actions:\n${actions}` : `Planned actions: (none)`,
+    ``,
+    params.knowledgeContext ? `Scrolith platform knowledge:\n${params.knowledgeContext}` : '',
+    params.learningContext ? `Adaptive user learning context:\n${params.learningContext}` : ''
   ].join('\n');
 };
 
@@ -73,11 +84,22 @@ const loadRecentConversationMessages = async (conversationId: string, take = 12)
 const buildLlmReply = async (input: {
   actor: ScrolithaActor;
   conversationId: string;
+  userMessage: string;
   config: Awaited<ReturnType<typeof ensureScrolithaConfig>>;
   actionPlans: Array<{ summary: string; toolKey: string; requiresConfirmation: boolean }>;
 }) => {
   const runtime = await resolveScrolithaLlmRuntime(input.actor.scope);
   if (!runtime.enabled) return null;
+
+  const knowledgeContext = buildScrolithaKnowledgeContext({
+    actor: input.actor,
+    userMessage: input.userMessage,
+    metadata: input.config.metadata
+  });
+  const learningContext = await buildScrolithaLearningContext({
+    actor: input.actor,
+    conversationId: input.conversationId
+  });
 
   const history = await loadRecentConversationMessages(input.conversationId, 14);
   const messages = [
@@ -86,7 +108,9 @@ const buildLlmReply = async (input: {
       content: buildScrolithaSystemPrompt({
         actor: input.actor,
         safeMode: Boolean(input.config.safeMode),
-        plannedActions: input.actionPlans
+        plannedActions: input.actionPlans,
+        knowledgeContext,
+        learningContext
       })
     },
     ...history.map((msg) => ({
@@ -247,7 +271,7 @@ const createActionPlans = async (input: {
   return plans;
 };
 
-export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaActor) => {
+export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaActor, app?: any) => {
   const message = text(input.message);
   if (!message) throw new Error('message is required.');
 
@@ -305,6 +329,7 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
   const llmReply = await buildLlmReply({
     actor,
     conversationId: conversation.id,
+    userMessage: message,
     config,
     actionPlans: plannedForPrompt
   });
@@ -331,12 +356,46 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
     resultSummary: `Planned ${actionPlans.length} action(s).`
   });
 
+  const learningSnapshot = await persistScrolithaLearningSignal({
+    actor,
+    conversationId: conversation.id,
+    userMessage: message,
+    assistantReply: reply,
+    pageContext: input.context?.page || null,
+    scopeMetadata: config.metadata
+  });
+  if (learningSnapshot) {
+    await writeScrolithaAuditLog({
+      actor,
+      conversationId: conversation.id,
+      eventType: 'learning_profile_updated',
+      intent: 'adaptive_learning',
+      requestPayload: {
+        messageLength: message.length,
+        hasActions: actionPlans.length > 0
+      },
+      redactedPayload: {
+        messageLength: message.length,
+        hasActions: actionPlans.length > 0
+      },
+      resultStatus: 'ok',
+      resultSummary: `Learning profile updated with ${learningSnapshot.topTopics.length} topic hints.`
+    });
+    emitScrolithaEvents(app, 'scrolitha:learning_updated', {
+      actorId: actor.id,
+      conversationId: conversation.id,
+      updatedAt: learningSnapshot.updatedAt,
+      topTopics: learningSnapshot.topTopics
+    });
+  }
+
   return {
     conversationId: conversation.id,
     reply,
     suggestedActions: actionPlans,
     needsConfirmation: actionPlans.some((entry) => entry.requiresConfirmation),
-    draftChanges: actionPlans[0]?.paramsPreview || null
+    draftChanges: actionPlans[0]?.paramsPreview || null,
+    learning: learningSnapshot || null
   };
 };
 
@@ -737,6 +796,103 @@ export const getScrolithaToolRegistry = () => {
   return listScrolithaTools();
 };
 
+export const getScrolithaKnowledgeForActor = async (actor: ScrolithaActor, query?: { message?: unknown }) => {
+  const config = await ensureScrolithaConfig(actor.scope);
+  const userMessage = text(query?.message) || 'platform overview and capabilities';
+  const bundle = getScrolithaKnowledgeBundle(config.metadata);
+  const context = buildScrolithaKnowledgeContext({
+    actor,
+    userMessage,
+    metadata: config.metadata
+  });
+
+  return {
+    generatedAt: new Date().toISOString(),
+    role: actor.role,
+    scope: actor.scope,
+    knowledge: bundle,
+    context
+  };
+};
+
+export const getScrolithaCommunicationRecords = async (
+  actor: ScrolithaActor,
+  query?: { limit?: unknown; conversationId?: unknown }
+) => {
+  const limit = Math.max(1, Math.min(50, Math.floor(Number(query?.limit || 20))));
+  const conversationId = text(query?.conversationId);
+  const where: Record<string, any> = {
+    userId: actor.id,
+    scope: actor.scope
+  };
+  if (conversationId) where.id = conversationId;
+
+  const conversations = await prisma.scrolithaConversation.findMany({
+    where,
+    orderBy: { updatedAt: 'desc' },
+    take: limit,
+    include: {
+      messages: {
+        orderBy: { createdAt: 'asc' },
+        take: 120
+      },
+      actionPlans: {
+        orderBy: { createdAt: 'desc' },
+        take: 25
+      },
+      feedback: {
+        orderBy: { createdAt: 'desc' },
+        take: 5
+      }
+    }
+  });
+
+  return {
+    total: conversations.length,
+    items: conversations.map((entry) => ({
+      id: entry.id,
+      userId: entry.userId,
+      userRole: entry.userRole,
+      scope: entry.scope,
+      status: entry.status,
+      pageContext: entry.pageContext,
+      entityContextId: entry.entityContextId,
+      summary: entry.summary || null,
+      metadata: entry.metadata || null,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+      messageCount: entry.messages.length,
+      actionCount: entry.actionPlans.length,
+      feedbackCount: entry.feedback.length,
+      messages: entry.messages.map((msg) => ({
+        id: msg.id,
+        sender: msg.sender,
+        content: msg.content,
+        createdAt: msg.createdAt
+      })),
+      actions: entry.actionPlans.map((action) => ({
+        id: action.id,
+        actionKey: action.actionKey,
+        toolKey: action.toolKey,
+        status: action.status,
+        confirmationStatus: action.confirmationStatus,
+        createdAt: action.createdAt,
+        executedAt: action.executedAt
+      })),
+      feedback: entry.feedback.map((fb) => ({
+        id: fb.id,
+        rating: fb.rating,
+        note: fb.note,
+        createdAt: fb.createdAt
+      }))
+    }))
+  };
+};
+
+export const getScrolithaLearningInsightsForAdminReport = async (query?: { limitUsers?: unknown }) => {
+  return getScrolithaLearningInsightsForAdmin(query);
+};
+
 const DEFAULT_CHAT_WIDGET_CONFIG = {
   enabled: true,
   assistantName: 'Scrolitha',
@@ -811,6 +967,21 @@ export const getScrolithaChatRecordsForAdmin = async (query?: {
     }
   });
 
+  const userIds = Array.from(new Set(conversations.map((entry) => entry.userId).filter(Boolean)));
+  const preferenceRows = userIds.length
+    ? await prisma.scrolithaUserPreference.findMany({
+        where: { userId: { in: userIds } },
+        select: { userId: true, metadata: true }
+      })
+    : [];
+  const preferenceMap = new Map<string, any>();
+  for (const row of preferenceRows) {
+    const metadata = row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+      ? (row.metadata as Record<string, any>)
+      : {};
+    preferenceMap.set(row.userId, (metadata as any).learningProfile || null);
+  }
+
   return {
     items: conversations.map((entry) => {
       const messages = Array.isArray(entry.messages)
@@ -829,6 +1000,9 @@ export const getScrolithaChatRecordsForAdmin = async (query?: {
         status: entry.status,
         pageContext: entry.pageContext,
         entityContextId: entry.entityContextId,
+        summary: entry.summary || null,
+        metadata: entry.metadata || null,
+        learningProfile: preferenceMap.get(entry.userId) || null,
         createdAt: entry.createdAt,
         updatedAt: entry.updatedAt,
         messageCount: messages.length,

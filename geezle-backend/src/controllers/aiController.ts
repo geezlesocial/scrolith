@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from '../utils/prismaClient';
+import { getScrolithaKnowledgeBundle } from '../services/scrolitha/scrolitha.knowledge';
 import { ollamaChat, resolveScrolithaLlmRuntime } from '../services/scrolitha/scrolitha.ollama';
 
 type AiProvider = 'scrolitha' | 'google' | 'openai';
@@ -77,12 +78,38 @@ const askGoogle = async (apiKey: string, model: string, prompt: string, maxToken
   return result.response.text();
 };
 
+const buildKnowledgeBlock = (audience?: string) => {
+  const bundle = getScrolithaKnowledgeBundle();
+  const normalizedAudience = String(audience || '').toLowerCase();
+  const roleHints: string[] = [];
+
+  if (normalizedAudience.includes('freelancer')) {
+    roleHints.push(`Freelancer capabilities: ${bundle.freelancerCapabilities.join(' | ')}`);
+  }
+  if (normalizedAudience.includes('employer') || normalizedAudience.includes('client') || normalizedAudience.includes('hiring')) {
+    roleHints.push(`Employer/client capabilities: ${bundle.employerCapabilities.join(' | ')}`);
+  }
+  if (!roleHints.length) {
+    roleHints.push(`Freelancer capabilities: ${bundle.freelancerCapabilities.join(' | ')}`);
+    roleHints.push(`Employer/client capabilities: ${bundle.employerCapabilities.join(' | ')}`);
+  }
+
+  return [
+    `Scrolith knowledge baseline:`,
+    `- Overview: ${bundle.overview}`,
+    `- Core services: ${bundle.coreServices.join(' | ')}`,
+    ...roleHints,
+    `- Communication and collaboration: ${bundle.communicationAndCollaboration.join(' | ')}`,
+    `- Trust and safety: ${bundle.trustAndSafety.join(' | ')}`
+  ].join('\n');
+};
+
 const buildQaPrompt = (payload: any) => {
   const question = payload?.question || '';
   const context = payload?.context || '';
   const audience = payload?.audience || 'business professional';
   const format = payload?.format || 'concise, structured';
-  return `You are Scrolith Answers, a professional business advisor.\nAudience: ${audience}.\nResponse format: ${format}.\nQuestion: ${question}\nContext: ${context}\nProvide a clear, actionable answer with bullets and a short summary.`;
+  return `You are Scrolith Answers, a professional business advisor.\nAudience: ${audience}.\nResponse format: ${format}.\n${buildKnowledgeBlock(audience)}\nQuestion: ${question}\nContext: ${context}\nProvide a clear, actionable answer with bullets and a short summary.`;
 };
 
 const buildGuidePrompt = (payload: any) => {
@@ -90,7 +117,7 @@ const buildGuidePrompt = (payload: any) => {
   const audience = payload?.audience || 'founders and operators';
   const depth = payload?.depth || 'in-depth';
   const format = payload?.format || 'outline';
-  return `You are Scrolith Guides, a professional business strategist.\nAudience: ${audience}.\nDepth: ${depth}.\nOutput format: ${format}.\nTopic: ${topic}\nCreate a structured guide with headings, key steps, and best practices.`;
+  return `You are Scrolith Guides, a professional business strategist.\nAudience: ${audience}.\nDepth: ${depth}.\nOutput format: ${format}.\n${buildKnowledgeBlock(audience)}\nTopic: ${topic}\nCreate a structured guide with headings, key steps, and best practices.`;
 };
 
 export const getAIConfig = async (_req: Request, res: Response) => {
@@ -243,7 +270,8 @@ export const supportChat = async (req: Request, res: Response) => {
       `- Be concise and professional.`,
       `- Do not request secrets, passwords, or OTP codes.`,
       `- If you need account-specific details, ask the user to log in or contact support.`,
-      `User role: ${userRole}`
+      `User role: ${userRole}`,
+      buildKnowledgeBlock(userRole)
     ].join('\n');
 
     const prompt = contextLines

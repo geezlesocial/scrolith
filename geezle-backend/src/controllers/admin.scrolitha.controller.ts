@@ -8,6 +8,7 @@ import {
   getScrolithaAuditForAdmin,
   getScrolithaChatRecordsForAdmin,
   getScrolithaConfigForAdmin,
+  getScrolithaLearningInsightsForAdminReport,
   getScrolithaToolRegistry,
   listScrolithaSkillsForAdmin,
   saveScrolithaConfigForAdmin,
@@ -89,7 +90,8 @@ export const postAdminScrolithaChatController = async (req: Request, res: Respon
         context: req.body?.context,
         conversationId: req.body?.conversationId
       },
-      actor
+      actor,
+      req.app
     );
     return res.json({ success: true, data, message: 'Scrolitha admin response ready' });
   } catch (error: any) {
@@ -280,6 +282,21 @@ export const getAdminScrolithaToolsController = async (_req: Request, res: Respo
     return res.status(500).json({
       success: false,
       message: 'Failed to load Scrolitha tool registry',
+      error: String(error?.message || 'Unknown error')
+    });
+  }
+};
+
+export const getAdminScrolithaLearningInsightsController = async (req: Request, res: Response) => {
+  try {
+    const data = await getScrolithaLearningInsightsForAdminReport({
+      limitUsers: req.query.limitUsers
+    });
+    return res.json({ success: true, data, message: 'Scrolitha learning insights loaded' });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to load Scrolitha learning insights',
       error: String(error?.message || 'Unknown error')
     });
   }
