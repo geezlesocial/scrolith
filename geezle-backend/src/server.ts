@@ -1,12 +1,12 @@
 import 'dotenv/config';
 // C:\Projects\Scrolith-backend\src\server.ts
-import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import path from 'path';
 import cors from 'cors';
 import http from 'http';
 import { Server } from 'socket.io';
 import helmet from 'helmet';
+import { createHash } from 'crypto';
 import prisma from './utils/prismaClient';
 import fs from 'fs';
 import jwt from 'jsonwebtoken'; // Ensure jwt import exists
@@ -83,6 +83,21 @@ validateEnv();
 isPushEnabled();
 
 const isDevelopment = process.env.NODE_ENV !== 'production';
+const apiRequestLoggingEnabled = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.API_REQUEST_LOGGING ?? (isDevelopment ? 'true' : 'false')).toLowerCase()
+);
+const apiRateLimitWindowMs = Math.max(
+  60_000,
+  Number(process.env.API_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000)
+);
+const apiRateLimitMaxAnonymous = Math.max(
+  100,
+  Number(process.env.API_RATE_LIMIT_MAX_ANON || (isDevelopment ? 10_000 : 1_000))
+);
+const apiRateLimitMaxAuthenticated = Math.max(
+  apiRateLimitMaxAnonymous,
+  Number(process.env.API_RATE_LIMIT_MAX_AUTH || (isDevelopment ? 10_000 : 4_000))
+);
 const allowedOrigins = new Set<string>(
   [
     process.env.FRONTEND_URL,
@@ -106,6 +121,9 @@ const corsOrigin = (origin: string | undefined, callback: (err: Error | null, al
 
 const app = express();
 const server = http.createServer(app);
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
+app.set('etag', 'strong');
 
 // IMPORTANT: Enhanced Socket.io configuration
 const io = new Server(server, {
@@ -443,13 +461,21 @@ io.engine.on('connection_error', (err) => {
   });
 });
 
-io.engine.on('initial_headers', (headers) => {
-  headers['Access-Control-Allow-Origin'] = 'http://localhost:3000';
+io.engine.on('initial_headers', (headers, req) => {
+  const origin = String(req.headers.origin || '').trim();
+  if (!origin) return;
+  if (!isDevelopment && !allowedOrigins.has(origin)) return;
+  headers['Access-Control-Allow-Origin'] = origin;
+  headers['Vary'] = 'Origin';
   headers['Access-Control-Allow-Credentials'] = 'true';
 });
 
-io.engine.on('headers', (headers) => {
-  headers['Access-Control-Allow-Origin'] = 'http://localhost:3000';
+io.engine.on('headers', (headers, req) => {
+  const origin = String(req.headers.origin || '').trim();
+  if (!origin) return;
+  if (!isDevelopment && !allowedOrigins.has(origin)) return;
+  headers['Access-Control-Allow-Origin'] = origin;
+  headers['Vary'] = 'Origin';
   headers['Access-Control-Allow-Credentials'] = 'true';
 });
 
@@ -471,9 +497,24 @@ app.use(cors({
 
   // Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: isDevelopment ? 10000 : 1000,
+  windowMs: apiRateLimitWindowMs,
+  max: (req) => {
+    const auth = String(req.headers.authorization || '').trim();
+    return auth ? apiRateLimitMaxAuthenticated : apiRateLimitMaxAnonymous;
+  },
   message: { error: 'Too many requests from this IP, please try again later.' },
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const auth = String(req.headers.authorization || '').trim();
+    if (auth) {
+      const hash = createHash('sha256').update(auth).digest('hex').slice(0, 24);
+      return `auth:${hash}`;
+    }
+    const conn = req.connection as unknown as { remoteAddress?: string } | undefined;
+    const ip = (req.ip || (conn && conn.remoteAddress) || '').toString();
+    return ip || 'unknown';
+  },
   // Skip rate limiting for socket.io and local/dev requests to make local testing reliable.
   skip: (req) => {
     try {
@@ -499,6 +540,7 @@ app.use('/api/', limiter);
 app.use((req: Request, res: Response, next) => {
   const start = Date.now();
   res.on('finish', () => {
+    if (!apiRequestLoggingEnabled && res.statusCode < 400) return;
     const duration = Date.now() - start;
     const user = req.user;
     console.log(
@@ -518,31 +560,90 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Static uploads - allow cross-origin usage from frontend
-app.use('/uploads', (req, res, next) => {
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  next();
-});
-app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+app.use(
+  '/uploads',
+  express.static(path.join(__dirname, '..', 'uploads'), {
+    etag: true,
+    lastModified: true,
+    maxAge: '7d',
+    setHeaders: (res, filePath) => {
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      const lowerName = path.basename(filePath || '').toLowerCase();
+      if (lowerName.includes('favicon')) {
+        res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
+        return;
+      }
+      res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+    }
+  })
+);
 app.get('/uploads/*', serveLegacyUploadAsset);
 
-// Serve favicon from uploads if present so platform settings that point to
-// `/favicon.ico` resolve even when the file was uploaded to /uploads.
-app.get('/favicon.ico', (req: Request, res: Response) => {
+const getConfiguredFaviconUrl = async () => {
+  try {
+    const record = await prisma.appSetting.findUnique({ where: { scope: 'platform' } });
+    const data = (record?.data || {}) as Record<string, any>;
+    const header = (data?.header || {}) as Record<string, any>;
+    const homepage = (data?.homepage || {}) as Record<string, any>;
+    const homepageHeader = (homepage?.header || {}) as Record<string, any>;
+    const candidates = [
+      data?.faviconUrl,
+      data?.favicon_url,
+      header?.faviconUrl,
+      header?.favicon_url,
+      homepageHeader?.faviconUrl,
+      homepageHeader?.favicon_url
+    ];
+    const resolved = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
+    return resolved ? String(resolved).trim() : null;
+  } catch (error) {
+    console.warn('[favicon] failed to read platform settings:', error);
+    return null;
+  }
+};
+
+const serveFaviconFromUploads = (res: Response) => {
+  const uploadsDir = path.join(__dirname, '..', 'uploads');
+  if (!fs.existsSync(uploadsDir)) return false;
+  const files = fs.readdirSync(uploadsDir);
+  const candidate = files.find((f) => /(^favicon\.|favicon\.|favicon_)/i.test(f) || /favicon/i.test(f));
+  if (!candidate) return false;
+  const filePath = path.join(uploadsDir, candidate);
+  res.sendFile(filePath);
+  return true;
+};
+
+const faviconHandler = async (_req: Request, res: Response) => {
   try {
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    const uploadsDir = path.join(__dirname, '..', 'uploads');
-    if (!fs.existsSync(uploadsDir)) return res.status(404).end();
-    const files = fs.readdirSync(uploadsDir);
-    // Prefer common favicon filenames (ico, png) that include 'favicon' or start with 'favicon'
-    const candidate = files.find(f => /(^favicon\.|favicon\.|favicon_)/i.test(f) || /favicon/i.test(f));
-    if (!candidate) return res.status(404).end();
-    const filePath = path.join(uploadsDir, candidate);
-    return res.sendFile(filePath);
+    res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
+    const configured = await getConfiguredFaviconUrl();
+
+    if (configured) {
+      if (configured.startsWith('http://') || configured.startsWith('https://')) {
+        return res.redirect(302, configured);
+      }
+      if (configured.startsWith('/uploads/')) {
+        const localPath = path.join(__dirname, '..', configured.replace(/^\/+/, ''));
+        if (fs.existsSync(localPath)) return res.sendFile(localPath);
+      }
+      if (configured.startsWith('/')) {
+        return res.redirect(302, configured);
+      }
+    }
+
+    if (serveFaviconFromUploads(res)) return;
+    return res.status(404).end();
   } catch (e) {
-    console.error('Failed to serve favicon from uploads', e);
+    console.error('Failed to serve favicon', e);
     return res.status(500).end();
   }
-});
+};
+
+// Serve platform favicon aliases consistently across browser/icon rel variants.
+app.get('/favicon.ico', faviconHandler);
+app.get('/favicon.png', faviconHandler);
+app.get('/apple-touch-icon.png', faviconHandler);
 
 // Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {

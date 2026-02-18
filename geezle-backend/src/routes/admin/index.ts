@@ -28,6 +28,7 @@ import scrolithaAdminRoutes from './scrolitha.routes';
 import appsAdminRoutes from './apps.routes';
 import i18nAdminRoutes from './i18n.routes';
 import { clearPlatformRuntimeCache } from '../../controllers/admin.cache.controller';
+import { getScrolithaAnalyticsForAdmin } from '../../services/scrolitha/scrolitha.orchestrator';
 
 const router = express.Router();
 
@@ -195,6 +196,48 @@ router.use('/apps', appsAdminRoutes);
 router.use('/i18n', i18nAdminRoutes);
 // Mount admin community routes (Gcoin + Ads admin panels)
 router.use('/community', adminCommunityRoutes);
+
+// Legacy compatibility route used by existing admin bundles.
+// Keeps /api/admin/ai/analytics alive while the platform transitions to /admin/scrolitha/analytics.
+router.get('/ai/analytics', async (_req, res) => {
+  try {
+    const analytics = await getScrolithaAnalyticsForAdmin();
+    const totals: any = analytics?.totals || {};
+    return res.json({
+      success: true,
+      data: {
+        total_conversations: Number(totals.conversations || 0),
+        cost_estimate: Number(totals.estimatedCost || 0),
+        avg_response_time: Number(totals.avgDurationSeconds || 0) * 1000,
+        safety_stats: {
+          spam_triggers: Number(totals.failedActions || 0)
+        },
+        top_roles: Array.isArray(analytics?.topTools)
+          ? analytics.topTools.map((entry: any) => ({
+              role: entry?.toolKey || 'unknown',
+              count: Number(entry?.count || 0)
+            }))
+          : [],
+        conversion_impact: {
+          ai_gigs_created: Number(totals.completedActions || 0),
+          ai_hire_rate:
+            typeof totals.failureRate === 'number'
+              ? Math.max(0, Math.round(100 - Number(totals.failureRate) * 100))
+              : 0,
+          revenue_uplift: Number(totals.estimatedMinutesSaved || 0)
+        },
+        scrolitha: analytics
+      },
+      message: 'AI analytics loaded'
+    });
+  } catch (error: any) {
+    console.error('[admin] failed to load legacy AI analytics:', error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to load AI analytics'
+    });
+  }
+});
 
 // ============ PLATFORM SETTINGS ============
 router.get('/platform/settings', async (req, res) => {
