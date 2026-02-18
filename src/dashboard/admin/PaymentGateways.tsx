@@ -60,7 +60,11 @@ const GatewaysTab = () => {
 
     const openConfigure = (gw: PaymentGateway) => {
         setSelectedGateway(gw);
-        setConfigDraft({ ...(gw.config || {}), logo: gw.logo || gw.config?.logo });
+        const baseDraft = { ...(gw.config || {}), logo: gw.logo || gw.config?.logo } as Record<string, any>;
+        if (gw.id === 'stripe' && !baseDraft.environment) {
+            baseDraft.environment = gw.mode === 'live' ? 'live' : 'sandbox';
+        }
+        setConfigDraft(baseDraft);
     };
 
     const closeConfigure = () => {
@@ -98,6 +102,7 @@ const GatewaysTab = () => {
             { key: 'publishableKey', label: 'Publishable Key', placeholder: 'pk_live_...' },
             { key: 'secretKey', label: 'Secret Key', type: 'password', placeholder: 'sk_live_...', secret: true },
             { key: 'webhookSecret', label: 'Webhook Secret', type: 'password', placeholder: 'whsec_...', secret: true },
+            { key: 'environment', label: 'Environment', type: 'select', options: ['sandbox', 'live'] },
             { key: 'connectEnabled', label: 'Enable Stripe Connect Payouts', type: 'select', options: ['true', 'false'], asBoolean: true },
             { key: 'connectType', label: 'Connect Account Type', type: 'select', options: ['express', 'standard'] }
         ],
