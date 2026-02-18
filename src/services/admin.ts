@@ -750,7 +750,15 @@ export const AdminService = {
   },
 
   getAIAnalytics: async (): Promise<any> => {
-    return adminGet<any>('/ai/analytics');
+    try {
+      return await adminGet<any>('/ai/analytics');
+    } catch (legacyError) {
+      try {
+        return await adminGet<any>('/scrolitha/analytics');
+      } catch (scrolithaError) {
+        return await adminGet<any>('/analytics/activity');
+      }
+    }
   },
 
   getFraudAlerts: async (): Promise<FraudAlert[]> => {

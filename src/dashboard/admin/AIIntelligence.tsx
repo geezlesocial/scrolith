@@ -66,22 +66,43 @@ const AIOverview = () => {
             console.log('📊 Raw AI Analytics data:', data);
             
             // Transform snake_case to camelCase and ensure all properties exist
+            const totals = data?.totals || {};
             const transformedData = {
-                totalConversations: data?.total_conversations || data?.totalConversations || 0,
-                costEstimate: data?.cost_estimate || data?.costEstimate || 0,
-                avgResponseTime: data?.avg_response_time || data?.avgResponseTime || 0,
+                totalConversations:
+                  data?.total_conversations ||
+                  data?.totalConversations ||
+                  totals?.conversations ||
+                  0,
+                costEstimate:
+                  data?.cost_estimate ||
+                  data?.costEstimate ||
+                  totals?.estimatedCost ||
+                  0,
+                avgResponseTime:
+                  data?.avg_response_time ||
+                  data?.avgResponseTime ||
+                  (totals?.avgDurationSeconds ? Math.round(Number(totals.avgDurationSeconds) * 1000) : 0),
                 safetyStats: {
                     spamTriggers: data?.safety_stats?.spam_triggers || 
-                                 data?.safetyStats?.spamTriggers || 0
+                                 data?.safetyStats?.spamTriggers ||
+                                 totals?.failedActions ||
+                                 0
                 },
-                topRoles: data?.top_roles || data?.topRoles || [],
+                topRoles: (data?.top_roles || data?.topRoles || data?.topTools || []).map((entry: any) => ({
+                  role: entry?.role || entry?.toolKey || 'unknown',
+                  count: Number(entry?.count || 0)
+                })),
                 conversionImpact: {
                     aiGigsCreated: data?.conversion_impact?.ai_gigs_created || 
-                                  data?.conversionImpact?.aiGigsCreated || 0,
+                                  data?.conversionImpact?.aiGigsCreated ||
+                                  totals?.actions ||
+                                  0,
                     aiHireRate: data?.conversion_impact?.ai_hire_rate || 
-                               data?.conversionImpact?.aiHireRate || 0,
+                               data?.conversionImpact?.aiHireRate ||
+                               (typeof totals?.failureRate === 'number' ? Math.max(0, 100 - Number(totals.failureRate) * 100) : 0),
                     revenueUplift: data?.conversion_impact?.revenue_uplift || 
-                                  data?.conversionImpact?.revenueUplift || 0
+                                  data?.conversionImpact?.revenueUplift ||
+                                  (typeof totals?.estimatedMinutesSaved === 'number' ? Number(totals.estimatedMinutesSaved) : 0)
                 }
             };
             

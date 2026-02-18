@@ -5,7 +5,3 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
-
-self.addEventListener('fetch', () => {
-  // Use default network behavior to avoid stale caches.
-});

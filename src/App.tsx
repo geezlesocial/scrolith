@@ -40,9 +40,6 @@ import {
   setBiometricPreference
 } from './mobile/biometrics';
 
-// Eagerly loaded dashboard component (frequently used)
-import { DashboardRouter } from './dashboard/DashboardRouter';
-
 // Lazy Loaded Components
 const Landing = React.lazy(() => import('./main/Landing'));
 const Login = React.lazy(() => import('./auth/Login'));
@@ -79,6 +76,9 @@ const Favorites = React.lazy(() => import('./pages/Favorites'));
 const Cart = React.lazy(() => import('./pages/Cart'));
 const SettingsModule = React.lazy(() => import('./dashboard/shared/SettingsModule'));
 const PostPermalink = React.lazy(() => import('./pages/PostPermalink'));
+const DashboardRouter = React.lazy(() =>
+  import('./dashboard/DashboardRouter').then((module) => ({ default: module.DashboardRouter }))
+);
 
 // Mobile (LinkedIn-style) logged-in home shell
 const MobileHome = React.lazy(() => import('./mobile/home/MobileHome'));
@@ -212,11 +212,16 @@ const AppContent = () => {
   const [biometricPrefVersion, setBiometricPrefVersion] = useState(0);
   const biometricCheckingRef = useRef(false);
   const biometricVerifiedRef = useRef(false);
+  const appBackgroundAtRef = useRef<number | null>(null);
+  const appWasBackgroundedRef = useRef(false);
+  const lastBiometricSuccessAtRef = useRef(0);
+  const lastBiometricPromptAtRef = useRef(0);
   const isNative = isNativePlatform();
 
   // Dynamic Favicon Update
   useEffect(() => {
-    // Try multiple possible keys coming from platform or header config
+    const LAST_FAVICON_KEY = 'Scrolith.lastFaviconUrl';
+
     const candidateKeys = [
       (settings as any)?.favicon_url,
       (settings as any)?.faviconUrl,
@@ -226,101 +231,89 @@ const AppContent = () => {
       (settings as any)?.favicon_file_id
     ];
 
-    const faviconUrl = candidateKeys.find(Boolean) as string | undefined;
+    const configuredFavicon = candidateKeys.find(Boolean) as string | undefined;
+    const persistedFavicon = localStorage.getItem(LAST_FAVICON_KEY) || undefined;
+    const faviconUrl = configuredFavicon || persistedFavicon;
 
-    if (!faviconUrl) {
-      if (settingsLoading) return;
-      const fallbackFavicon = `${window.location.origin}/favicon.png`;
-      const existing = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
-      if (existing) {
-        existing.href = fallbackFavicon;
-      } else {
-        const link = document.createElement('link');
-        link.rel = 'icon';
-        link.href = fallbackFavicon;
-        document.head.appendChild(link);
-      }
-      return;
-    }
-
-    const updateLinks = (href: string, type?: string) => {
-      // Determine whether the favicon is cross-origin so we only set
-      // `crossOrigin` when necessary (avoids CORS failures for same-origin)
+    const ensureRelLinks = (href: string, type?: string) => {
+      const versionedHref = href.includes('?') ? `${href}&v=${Date.now()}` : `${href}?v=${Date.now()}`;
       const isCrossOrigin = (() => {
         try {
-          const resolved = new URL(href, window.location.origin);
+          const resolved = new URL(versionedHref, window.location.origin);
           return resolved.origin !== window.location.origin;
-        } catch (e) {
+        } catch {
           return false;
         }
       })();
 
-      const selectors = ["link[rel*='icon']", "link[rel='shortcut icon']"];
-      selectors.forEach(sel => {
-        const existing = Array.from(document.querySelectorAll(sel));
+      const targets = ['icon', 'shortcut icon', 'apple-touch-icon'];
+      targets.forEach((rel) => {
+        const selector = `link[rel='${rel}']`;
+        const existing = Array.from(document.querySelectorAll(selector)) as HTMLLinkElement[];
         if (existing.length) {
-          existing.forEach((el: Element) => {
-            const link = el as HTMLLinkElement;
-            link.href = href;
+          existing.forEach((link) => {
+            link.href = versionedHref;
             if (type) link.type = type;
-            if (isCrossOrigin) link.crossOrigin = 'anonymous'; else link.removeAttribute('crossorigin');
+            if (isCrossOrigin) link.crossOrigin = 'anonymous';
+            else link.removeAttribute('crossorigin');
           });
-        } else if (sel === "link[rel='shortcut icon']") {
-          const l = document.createElement('link');
-          l.rel = 'shortcut icon';
-          l.href = href;
-          if (type) l.type = type;
-          if (isCrossOrigin) l.crossOrigin = 'anonymous';
-          document.head.appendChild(l);
+          return;
         }
+        const link = document.createElement('link');
+        link.rel = rel;
+        link.href = versionedHref;
+        if (type) link.type = type;
+        if (isCrossOrigin) link.crossOrigin = 'anonymous';
+        document.head.appendChild(link);
       });
     };
 
+    if (!faviconUrl) {
+      if (settingsLoading) return;
+      ensureRelLinks(`${window.location.origin}/favicon.png`, 'image/png');
+      return;
+    }
+
     (async () => {
       try {
-        const resolved = faviconUrl && (faviconUrl.startsWith('http://') || faviconUrl.startsWith('https://'))
-          ? faviconUrl
-          : new URL(faviconUrl, window.location.origin).toString();
+        const resolved =
+          faviconUrl.startsWith('http://') || faviconUrl.startsWith('https://')
+            ? faviconUrl
+            : new URL(faviconUrl, window.location.origin).toString();
 
-        // Try to fetch to validate resource and determine content-type
         try {
           const resp = await fetch(resolved, { method: 'GET', cache: 'no-store' });
           if (resp.ok) {
             const contentType = resp.headers.get('content-type') || undefined;
             const isSvg = contentType?.includes('svg') || resolved.endsWith('.svg');
             const type = isSvg ? 'image/svg+xml' : contentType || undefined;
-            updateLinks(resolved, type);
-            console.log('✅ Favicon updated:', resolved, 'type=', type);
+            ensureRelLinks(resolved, type);
+            localStorage.setItem(LAST_FAVICON_KEY, resolved);
+            console.log('Favicon updated:', resolved, 'type=', type);
             return;
           }
-          // Throw so we handle non-OK statuses in the catch below
           throw new Error(`HTTP ${resp.status}`);
         } catch (fetchErr: any) {
-          // If the resource is a 404, prefer the inline SVG fallback instead of
-          // applying a raw URL which will cause the browser to request a missing
-          // file and spam the console with 404s. For other errors (403, network),
-          // we still attempt to apply the raw URL which may be behind auth/proxy.
-          const is404 = typeof fetchErr === 'string' ? fetchErr.includes('HTTP 404') : (fetchErr?.message || '').includes('HTTP 404') || fetchErr?.status === 404;
+          const is404 =
+            typeof fetchErr === 'string'
+              ? fetchErr.includes('HTTP 404')
+              : (fetchErr?.message || '').includes('HTTP 404') || fetchErr?.status === 404;
           if (!is404) {
-            try {
-              updateLinks(resolved);
-              console.warn('Favicon fetch failed but applied raw URL:', fetchErr);
-              return;
-            } catch (e) {
-              console.warn('Failed to apply raw favicon URL, will fallback to inline SVG', e);
-            }
-          } else {
-            console.warn('Favicon returned 404; skipping raw URL and using inline fallback', fetchErr);
+            ensureRelLinks(resolved);
+            localStorage.setItem(LAST_FAVICON_KEY, resolved);
+            console.warn('Favicon fetch failed but applied raw URL:', fetchErr);
+            return;
           }
+          console.warn('Favicon returned 404; using inline fallback', fetchErr);
         }
       } catch (e) {
-        console.warn('Could not resolve favicon URL, using raw value:', faviconUrl, e);
+        console.warn('Could not resolve favicon URL, falling back:', faviconUrl, e);
       }
 
-      // Final fallback: inline SVG data URL
       const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%230D8ABC'/><text x='50' y='55' font-size='55' text-anchor='middle' fill='white' font-family='Arial,Helvetica,sans-serif'>G</text></svg>`;
       const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-      updateLinks(dataUrl, 'image/svg+xml');
+      ensureRelLinks(dataUrl, 'image/svg+xml');
+      localStorage.setItem(LAST_FAVICON_KEY, dataUrl);
       console.warn('Favicon fetch failed, using inline fallback favicon');
     })();
   }, [settings, settingsLoading]);
@@ -381,6 +374,9 @@ const AppContent = () => {
       if (!isNative || !biometricEnabled || biometricCheckingRef.current) return;
       if (!isAuthenticated || !user) return;
       if (biometricVerifiedRef.current) return;
+      const now = Date.now();
+      if (now - lastBiometricPromptAtRef.current < 1200) return;
+      lastBiometricPromptAtRef.current = now;
 
       updateBiometricChecking(true);
       setBiometricError(null);
@@ -401,6 +397,7 @@ const AppContent = () => {
       const auth = await authenticateBiometrics(reason || `Unlock Scrolith with ${label}`);
       if (auth.ok) {
         updateBiometricVerified(true);
+        lastBiometricSuccessAtRef.current = Date.now();
         setBiometricError(null);
       } else {
         updateBiometricVerified(false);
@@ -439,13 +436,40 @@ const AppContent = () => {
 
   useEffect(() => {
     if (!isNative || !biometricEnabled) return;
-    const listener = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
-      if (!isActive) return;
+    let isMounted = true;
+    let listenerHandle: { remove: () => Promise<void> } | null = null;
+    void CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) {
+        appBackgroundAtRef.current = Date.now();
+        appWasBackgroundedRef.current = true;
+        updateBiometricVerified(false);
+        return;
+      }
+
+      const backgroundAt = appBackgroundAtRef.current;
+      const backgroundDurationMs = backgroundAt ? Date.now() - backgroundAt : 0;
+      const resumedFromBackground = appWasBackgroundedRef.current && backgroundDurationMs >= 1000;
+      appWasBackgroundedRef.current = false;
+      appBackgroundAtRef.current = null;
+
+      if (!resumedFromBackground) return;
+
+      // Avoid immediate re-prompts caused by OEM app-state callbacks around biometric dialogs.
+      if (Date.now() - lastBiometricSuccessAtRef.current < 15_000) return;
       updateBiometricVerified(false);
       void promptBiometrics(`Unlock Scrolith with ${biometryLabel}`);
+    }).then((handle) => {
+      if (!isMounted) {
+        void handle.remove();
+        return;
+      }
+      listenerHandle = handle;
     });
     return () => {
-      listener.remove();
+      isMounted = false;
+      if (listenerHandle) {
+        void listenerHandle.remove();
+      }
     };
   }, [isNative, biometricEnabled, promptBiometrics, biometryLabel]);
 
@@ -885,4 +909,7 @@ function App() {
 }
 
 export default App;
+
+
+
 

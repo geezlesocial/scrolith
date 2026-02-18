@@ -178,8 +178,21 @@ const MobileHomepage: React.FC = () => {
       const data = resp?.data?.data ?? resp?.data ?? null;
       setConfig(deepMerge(DEFAULT_CONFIG as any, data));
     } catch (e: any) {
-      setError(e?.response?.data?.error || e?.message || 'Failed to load mobile homepage settings');
-      setConfig(DEFAULT_CONFIG);
+      const status = Number(e?.response?.status || 0);
+      if (status === 404) {
+        try {
+          const fallbackResp = await api.get('/homepage/mobile-settings');
+          const fallbackData = fallbackResp?.data?.data ?? fallbackResp?.data ?? null;
+          setConfig(deepMerge(DEFAULT_CONFIG as any, fallbackData));
+          setError('Admin mobile settings endpoint unavailable. Showing public mobile layout snapshot.');
+        } catch {
+          setError(e?.response?.data?.error || e?.message || 'Failed to load mobile homepage settings');
+          setConfig(DEFAULT_CONFIG);
+        }
+      } else {
+        setError(e?.response?.data?.error || e?.message || 'Failed to load mobile homepage settings');
+        setConfig(DEFAULT_CONFIG);
+      }
     } finally {
       setLoading(false);
     }

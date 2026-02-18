@@ -57,7 +57,7 @@ import {
 
 import FilePickerModal from "../shared/FilePickerModal";
 
-// Apply favicon helper: updates <link rel="icon"> and <link rel="shortcut icon"> with cache-bust
+// Apply favicon helper: updates icon links with cache-bust
 function applyFaviconToDocument(url?: string | null) {
   try {
     if (!url) return;
@@ -73,6 +73,7 @@ function applyFaviconToDocument(url?: string | null) {
     };
     setLink('icon');
     setLink('shortcut icon');
+    setLink('apple-touch-icon');
   } catch (e) {
     // non-fatal
     // eslint-disable-next-line no-console
