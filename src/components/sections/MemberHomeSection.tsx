@@ -241,16 +241,37 @@ type StoryDraft = {
 
 type SearchResultItem = {
   id?: string;
+  type?: string;
   title?: string;
   name?: string;
+  username?: string;
+  subtitle?: string;
   description?: string;
   excerpt?: string;
   url?: string;
+  avatarUrl?: string | null;
   image?: string;
-  type?: string;
   category?: string;
   meta?: Record<string, any>;
 };
+
+type SearchGroupKey = 'people' | 'pages' | 'jobs' | 'gigs';
+type SearchGroupMap = Record<SearchGroupKey, SearchResultItem[]>;
+
+const SEARCH_GROUP_ORDER: SearchGroupKey[] = ['people', 'pages', 'jobs', 'gigs'];
+const SEARCH_GROUP_LABELS: Record<SearchGroupKey, string> = {
+  people: 'Users',
+  pages: 'Pages',
+  jobs: 'Jobs',
+  gigs: 'Gigs'
+};
+
+const emptySearchGroups = (): SearchGroupMap => ({
+  people: [],
+  pages: [],
+  jobs: [],
+  gigs: []
+});
 
 type FeedTab = 'latest' | 'following' | 'trending';
 
@@ -643,6 +664,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const [followBusy, setFollowBusy] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
+  const [searchGroups, setSearchGroups] = useState<SearchGroupMap>(() => emptySearchGroups());
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [stories, setStories] = useState<any[]>([]);
@@ -1482,39 +1504,97 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     }
   }, [showSlider, content?.sliderItems]);
 
-  const normalizeSearchItem = useCallback((item: any): SearchResultItem => ({
-    id: item.id || item._id,
-    title: item.title || item.name,
-    name: item.name,
-    description: item.description || item.excerpt || item.summary,
-    excerpt: item.excerpt,
-    url: item.url || item.link || item.href,
-    image: item.image || item.cover || item.thumbnail || item.avatar,
-    type: item.type || item.kind || item.category,
-    category: item.category,
-    meta: item.meta || {}
-  }), []);
+  const normalizeSearchType = useCallback((value: any): SearchGroupKey | undefined => {
+    const key = String(value || '').trim().toLowerCase();
+    if (!key) return undefined;
+    if (key === 'people' || key === 'person' || key === 'users' || key === 'user') return 'people';
+    if (key === 'pages' || key === 'page') return 'pages';
+    if (key === 'jobs' || key === 'job') return 'jobs';
+    if (key === 'gigs' || key === 'gig') return 'gigs';
+    return undefined;
+  }, []);
+
+  const normalizeSearchItem = useCallback((item: any): SearchResultItem => {
+    const normalizedType = normalizeSearchType(item.type || item.kind || item.entityType || item.category);
+    const title = item.title || item.name || item.username || 'Result';
+    const avatar = item.avatarUrl || item.avatar || item.image || item.cover || item.thumbnail || null;
+    return {
+      id: item.id || item._id,
+      type: normalizedType || item.type || item.kind || item.category,
+      title,
+      name: item.name || item.title || undefined,
+      username: item.username || item.handle || item.meta?.username || undefined,
+      subtitle: item.subtitle || undefined,
+      description: item.description || item.excerpt || item.summary || item.subtitle,
+      excerpt: item.excerpt,
+      url: item.url || item.link || item.href,
+      avatarUrl: avatar,
+      image: avatar || undefined,
+      category: item.category,
+      meta: item.meta || {}
+    };
+  }, [normalizeSearchType]);
+
+  const normalizeSearchGroups = useCallback((groups: any): SearchGroupMap => {
+    const next = emptySearchGroups();
+    SEARCH_GROUP_ORDER.forEach((key) => {
+      const list = Array.isArray(groups?.[key]) ? groups[key] : [];
+      next[key] = list.map(normalizeSearchItem).filter((entry) => Boolean(entry?.url));
+    });
+    return next;
+  }, [normalizeSearchItem]);
+
+  const searchSections = useMemo(
+    () =>
+      SEARCH_GROUP_ORDER.map((key) => ({
+        key,
+        label: SEARCH_GROUP_LABELS[key],
+        items: searchGroups[key] || []
+      })).filter((section) => section.items.length > 0),
+    [searchGroups]
+  );
 
   const performSearch = useCallback(async (term: string) => {
-    if (!term.trim()) {
+    const clean = term.trim();
+    if (!clean) {
       setSearchResults([]);
+      setSearchGroups(emptySearchGroups());
       return;
     }
     setSearchLoading(true);
     try {
-      const results = await SearchService.search(term.trim());
-      const list = Array.isArray(results) ? results.map(normalizeSearchItem) : [];
-      setSearchResults(list.slice(0, maxSearchResults));
+      const perType = Math.max(2, Math.min(6, Math.ceil(maxSearchResults / 2)));
+      const unified = await SearchService.searchUnified(clean, {
+        limit: Math.max(maxSearchResults, 12),
+        perType
+      });
+      const groups = normalizeSearchGroups(unified.groups);
+      const merged = Array.isArray(unified.results) && unified.results.length
+        ? unified.results.map(normalizeSearchItem)
+        : SEARCH_GROUP_ORDER.flatMap((key) => groups[key]);
+      const unique = Array.from(
+        new Map(
+          merged
+            .filter((item) => Boolean(item?.url))
+            .map((item, index) => [
+              item.id ? `${item.type || 'result'}:${item.id}` : `${item.type || 'result'}:${item.url || ''}:${index}`,
+              item
+            ])
+        ).values()
+      );
+      setSearchGroups(groups);
+      setSearchResults(unique.slice(0, maxSearchResults));
       if (user?.id) {
-        SearchService.saveSearchHistory(user.id, term.trim()).catch(() => {});
+        SearchService.saveSearchHistory(user.id, clean).catch(() => {});
       }
     } catch (error) {
       console.error('Search failed', error);
       setSearchResults([]);
+      setSearchGroups(emptySearchGroups());
     } finally {
       setSearchLoading(false);
     }
-  }, [maxSearchResults, normalizeSearchItem, user?.id]);
+  }, [maxSearchResults, normalizeSearchGroups, normalizeSearchItem, user?.id]);
 
   useEffect(() => {
     if (!currentUserId) {
@@ -1545,6 +1625,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     const term = searchQuery.trim();
     if (term.length < 2) {
       setSearchResults([]);
+      setSearchGroups(emptySearchGroups());
       setSearchLoading(false);
       return;
     }
@@ -3150,7 +3231,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
             </div>
             <div className="flex flex-wrap items-center gap-3">
               {showSearch && (
-                <div ref={searchRef} className="relative w-full max-w-full sm:max-w-md">
+                <div ref={searchRef} className="relative w-full max-w-full sm:w-[34rem]">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input
                     value={searchQuery}
@@ -3168,52 +3249,79 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                     className="h-10 w-full rounded-full border border-slate-200 bg-white pl-9 pr-4 text-sm sm:text-base text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
                   />
                   {searchOpen && (
-                    <div className="absolute left-0 right-0 top-12 z-20 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
-                      <div className="border-b border-slate-100 px-4 py-2 text-xs text-slate-500">{searchHint}</div>
-                      <div className="max-h-72 overflow-y-auto">
+                    <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[80] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                      <div className="border-b border-slate-100 px-4 py-2 text-xs text-slate-500">
+                        {searchHint}
+                        {searchQuery.trim().length >= 2 && !searchLoading ? ` • ${searchResults.length} result${searchResults.length === 1 ? '' : 's'}` : ''}
+                      </div>
+                      <div className="max-h-[min(65vh,32rem)] overflow-y-auto overscroll-contain pb-2">
                         {searchLoading ? (
-                          <div className="px-4 py-3 text-xs text-slate-500">Searching...</div>
-                        ) : searchResults.length === 0 ? (
-                          <div className="px-4 py-3 text-xs text-slate-500">No results yet.</div>
+                          <div className="px-4 py-3 text-sm text-slate-500">Searching...</div>
+                        ) : searchSections.length === 0 ? (
+                          <div className="px-4 py-3 text-sm text-slate-500">No results yet.</div>
                         ) : (
-                          searchResults.map((result, index) => {
-                            const href = result.url || '#';
-                            const content = (
-                              <div className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50">
-                                <div className="h-9 w-9 overflow-hidden rounded-full bg-slate-100">
-                                  {result.image ? (
-                                    <img src={result.image} alt={result.title || result.name} className="h-full w-full object-cover" />
-                                  ) : (
-                                    <Search className="mx-auto mt-2 h-4 w-4 text-slate-400" />
-                                  )}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="truncate text-sm font-semibold text-slate-800">{result.title || result.name}</p>
-                                  <p className="truncate text-xs text-slate-500">{result.description || result.excerpt || result.category || result.type}</p>
-                                </div>
-                                {result.type && (
-                                  <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase text-slate-500">
-                                    {result.type}
-                                  </span>
-                                )}
+                          searchSections.map((section) => (
+                            <div key={section.key} className="px-2 py-1">
+                              <div className="sticky top-0 z-[1] flex items-center justify-between rounded-md bg-white/95 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 backdrop-blur">
+                                <span>{section.label}</span>
+                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                                  {section.items.length}
+                                </span>
                               </div>
-                            );
 
-                            const key = result.id || `${result.type || 'result'}-${result.title || result.name || href}-${index}`;
-                            if (href.startsWith('/')) {
-                              return (
-                                <Link key={key} to={href} onClick={() => setSearchOpen(false)}>
-                                  {content}
-                                </Link>
-                              );
-                            }
+                              {section.items.map((result, index) => {
+                                const href = result.url || '#';
+                                const typeKey = normalizeSearchType(result.type) || section.key;
+                                const imageSrc = result.avatarUrl || result.image || null;
+                                const subtitle =
+                                  result.subtitle ||
+                                  result.description ||
+                                  result.excerpt ||
+                                  (result.username ? `@${result.username}` : '') ||
+                                  result.category ||
+                                  section.label;
+                                const itemNode = (
+                                  <div className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-50">
+                                    <div className="h-10 w-10 overflow-hidden rounded-full bg-slate-100">
+                                      {imageSrc ? (
+                                        <img src={imageSrc} alt={result.title || result.name || section.label} className="h-full w-full object-cover" />
+                                      ) : typeKey === 'people' ? (
+                                        <Users className="mx-auto mt-2.5 h-5 w-5 text-slate-500" />
+                                      ) : typeKey === 'pages' ? (
+                                        <Compass className="mx-auto mt-2.5 h-5 w-5 text-slate-500" />
+                                      ) : typeKey === 'jobs' ? (
+                                        <Briefcase className="mx-auto mt-2.5 h-5 w-5 text-slate-500" />
+                                      ) : (
+                                        <Sparkles className="mx-auto mt-2.5 h-5 w-5 text-slate-500" />
+                                      )}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="truncate text-sm font-semibold text-slate-800">{result.title || result.name}</p>
+                                      <p className="truncate text-xs text-slate-500">{subtitle}</p>
+                                    </div>
+                                    <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase text-slate-500">
+                                      {section.label.slice(0, -1)}
+                                    </span>
+                                  </div>
+                                );
 
-                            return (
-                              <a key={key} href={href} target="_blank" rel="noreferrer" onClick={() => setSearchOpen(false)}>
-                                {content}
-                              </a>
-                            );
-                          })
+                                const key = result.id || `${section.key}-${result.title || result.name || href}-${index}`;
+                                if (href.startsWith('/')) {
+                                  return (
+                                    <Link key={key} to={href} onClick={() => setSearchOpen(false)}>
+                                      {itemNode}
+                                    </Link>
+                                  );
+                                }
+
+                                return (
+                                  <a key={key} href={href} target="_blank" rel="noreferrer" onClick={() => setSearchOpen(false)}>
+                                    {itemNode}
+                                  </a>
+                                );
+                              })}
+                            </div>
+                          ))
                         )}
                       </div>
                     </div>

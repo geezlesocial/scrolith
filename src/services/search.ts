@@ -15,6 +15,39 @@ type ApiOk<T> = { success: true; data: T };
 type ApiFail = { success: false; error?: string; status?: number };
 type ApiResponse<T> = ApiOk<T> | ApiFail;
 
+export type SearchEntityType = "posts" | "people" | "pages" | "jobs" | "gigs";
+export type UnifiedSearchEntityType = Exclude<SearchEntityType, "posts">;
+
+export type UnifiedSearchItem = {
+  id: string;
+  type: UnifiedSearchEntityType;
+  title?: string;
+  name?: string;
+  username?: string;
+  subtitle?: string;
+  description?: string;
+  url?: string;
+  avatarUrl?: string | null;
+  image?: string | null;
+  meta?: Record<string, any>;
+};
+
+export type UnifiedSearchGroups = Record<UnifiedSearchEntityType, UnifiedSearchItem[]>;
+
+export type UnifiedSearchPayload = {
+  query: string;
+  groups: UnifiedSearchGroups;
+  results: UnifiedSearchItem[];
+  totals: Record<UnifiedSearchEntityType | "total", number>;
+};
+
+const DEFAULT_UNIFIED_GROUPS: UnifiedSearchGroups = {
+  people: [],
+  pages: [],
+  jobs: [],
+  gigs: []
+};
+
 class SearchService {
   // Rate limiting helper (GLOBAL)
   private static async delay(ms: number) {
@@ -107,6 +140,52 @@ class SearchService {
     return [];
   }
 
+  private static extractList<T = any>(payload: any): T[] {
+    if (Array.isArray(payload)) return payload as T[];
+    if (Array.isArray(payload?.data)) return payload.data as T[];
+    return [];
+  }
+
+  private static toUnifiedPayload(payload: any): UnifiedSearchPayload {
+    const source =
+      payload && typeof payload === "object" && !Array.isArray(payload) && payload.data && typeof payload.data === "object"
+        ? payload.data
+        : payload;
+
+    const groupsSource = source?.groups || {};
+    const groups: UnifiedSearchGroups = {
+      people: this.extractList<UnifiedSearchItem>(groupsSource?.people),
+      pages: this.extractList<UnifiedSearchItem>(groupsSource?.pages),
+      jobs: this.extractList<UnifiedSearchItem>(groupsSource?.jobs),
+      gigs: this.extractList<UnifiedSearchItem>(groupsSource?.gigs)
+    };
+
+    const interleavedFallback = [
+      ...groups.people,
+      ...groups.pages,
+      ...groups.jobs,
+      ...groups.gigs
+    ];
+
+    const results = this.extractList<UnifiedSearchItem>(source?.results);
+    const finalResults = results.length ? results : interleavedFallback;
+
+    const totals = {
+      people: Number(source?.totals?.people ?? groups.people.length) || 0,
+      pages: Number(source?.totals?.pages ?? groups.pages.length) || 0,
+      jobs: Number(source?.totals?.jobs ?? groups.jobs.length) || 0,
+      gigs: Number(source?.totals?.gigs ?? groups.gigs.length) || 0,
+      total: Number(source?.totals?.total ?? finalResults.length) || 0
+    };
+
+    return {
+      query: String(source?.query || "").trim(),
+      groups,
+      results: finalResults,
+      totals
+    };
+  }
+
   // ----------------------------
   // Public Methods
   // ----------------------------
@@ -123,7 +202,14 @@ class SearchService {
 
   static async search(
     query: string,
-    filters?: { category?: string; type?: "gigs" | "jobs"; minPrice?: number; maxPrice?: number }
+    filters?: {
+      category?: string;
+      type?: SearchEntityType | "all";
+      minPrice?: number;
+      maxPrice?: number;
+      limit?: number;
+      perType?: number;
+    }
   ): Promise<any[]> {
     const params = new URLSearchParams();
     params.append("q", query);
@@ -132,9 +218,37 @@ class SearchService {
     if (filters?.type) params.append("type", filters.type);
     if (filters?.minPrice != null) params.append("minPrice", String(filters.minPrice));
     if (filters?.maxPrice != null) params.append("maxPrice", String(filters.maxPrice));
+    if (filters?.limit != null) params.append("limit", String(filters.limit));
+    if (filters?.perType != null) params.append("perType", String(filters.perType));
 
     const data = await this.get<any>(`/search?${params.toString()}`);
-    return Array.isArray(data) ? data : [];
+    return this.extractList<any>(data);
+  }
+
+  static async searchUnified(
+    query: string,
+    options?: {
+      limit?: number;
+      perType?: number;
+    }
+  ): Promise<UnifiedSearchPayload> {
+    const clean = String(query || "").trim();
+    if (!clean) {
+      return {
+        query: "",
+        groups: { ...DEFAULT_UNIFIED_GROUPS },
+        results: [],
+        totals: { people: 0, pages: 0, jobs: 0, gigs: 0, total: 0 }
+      };
+    }
+
+    const params = new URLSearchParams();
+    params.append("q", clean);
+    if (options?.limit != null) params.append("limit", String(options.limit));
+    if (options?.perType != null) params.append("perType", String(options.perType));
+
+    const data = await this.get<any>(`/search/unified?${params.toString()}`);
+    return this.toUnifiedPayload(data);
   }
 
   static async getQuickTags(): Promise<any[]> {

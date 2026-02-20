@@ -1,8 +1,30 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ArrowLeftIcon as ArrowLeft, SearchIcon as Search } from '../../../components/icons/ShellIcons';
 import { mobileSearch } from '../../../services/mobileSearch';
 
 export type SearchCategory = 'posts' | 'people' | 'pages' | 'jobs' | 'gigs';
+type SearchScope = SearchCategory | 'all';
+
+const GROUP_LABELS: Record<SearchCategory, string> = {
+  posts: 'Posts',
+  people: 'Users',
+  pages: 'Pages',
+  jobs: 'Jobs',
+  gigs: 'Gigs'
+};
+
+const DEFAULT_ORDER: SearchCategory[] = ['people', 'pages', 'jobs', 'gigs', 'posts'];
+
+type SearchBuckets = Record<SearchCategory, any[]>;
+
+const EMPTY_BUCKETS: SearchBuckets = {
+  posts: [],
+  people: [],
+  pages: [],
+  jobs: [],
+  gigs: []
+};
 
 export default function SearchScreen({
   enabled,
@@ -14,29 +36,61 @@ export default function SearchScreen({
   onClose: () => void;
 }) {
   const [q, setQ] = useState('');
-  const [active, setActive] = useState<SearchCategory>(categories?.[0] ?? 'posts');
+  const [active, setActive] = useState<SearchScope>('all');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [results, setResults] = useState<Record<string, any[]>>({});
+  const [results, setResults] = useState<SearchBuckets>(EMPTY_BUCKETS);
 
   const canSearch = enabled && q.trim().length >= 2;
+  const available = useMemo(
+    () => (Array.isArray(categories) && categories.length ? categories : DEFAULT_ORDER),
+    [categories]
+  );
 
   const activeResults = useMemo(() => {
+    if (active === 'all') {
+      return DEFAULT_ORDER.filter((key) => key !== 'posts' && available.includes(key)).flatMap((key) =>
+        Array.isArray(results?.[key]) ? results[key] : []
+      );
+    }
     const list = results?.[active] ?? [];
     return Array.isArray(list) ? list : [];
-  }, [results, active]);
+  }, [results, active, available]);
+
+  const allSections = useMemo(
+    () =>
+      DEFAULT_ORDER.filter((key) => key !== 'posts' && available.includes(key))
+        .map((key) => ({
+          key,
+          label: GROUP_LABELS[key],
+          items: Array.isArray(results?.[key]) ? results[key] : []
+        }))
+        .filter((section) => section.items.length > 0),
+    [available, results]
+  );
 
   useEffect(() => {
-    setActive(categories?.[0] ?? 'posts');
-  }, [categories]);
+    setActive('all');
+  }, [categories, enabled]);
 
   const run = async () => {
     if (!canSearch) return;
     setLoading(true);
     setError(null);
     try {
-      const resp = await mobileSearch.search({ q: q.trim(), type: active });
-      setResults((prev) => ({ ...prev, [active]: Array.isArray(resp) ? resp : [] }));
+      if (active === 'all') {
+        const unified = await mobileSearch.searchUnified({ q: q.trim(), perType: 4, limit: 20 });
+        setResults((prev) => ({
+          ...prev,
+          people: Array.isArray(unified?.groups?.people) ? unified.groups.people : [],
+          pages: Array.isArray(unified?.groups?.pages) ? unified.groups.pages : [],
+          jobs: Array.isArray(unified?.groups?.jobs) ? unified.groups.jobs : [],
+          gigs: Array.isArray(unified?.groups?.gigs) ? unified.groups.gigs : []
+        }));
+      } else {
+        const resp = await mobileSearch.search({ q: q.trim(), type: active, limit: 12 });
+        setResults((prev) => ({ ...prev, [active]: Array.isArray(resp) ? resp : [] }));
+      }
     } catch (e: any) {
       setError(e?.response?.data?.error ?? e?.message ?? 'Search failed.');
     } finally {
@@ -47,7 +101,7 @@ export default function SearchScreen({
   useEffect(() => {
     const t = window.setTimeout(() => {
       void run();
-    }, 350);
+    }, 320);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, active, enabled]);
@@ -70,7 +124,7 @@ export default function SearchScreen({
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search posts, people, pages, jobs, gigs"
+              placeholder="Search users, pages, jobs and gigs"
               className="w-full bg-transparent text-sm outline-none"
               disabled={!enabled}
               autoFocus
@@ -79,19 +133,20 @@ export default function SearchScreen({
         </div>
 
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-          {categories.map((c) => {
-            const isActive = c === active;
+          {(['all', ...available] as SearchScope[]).map((scope) => {
+            const isActive = scope === active;
+            const label = scope === 'all' ? 'ALL' : GROUP_LABELS[scope].toUpperCase();
             return (
               <button
-                key={c}
+                key={scope}
                 type="button"
-                onClick={() => setActive(c)}
+                onClick={() => setActive(scope)}
                 className={[
                   'whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold',
                   isActive ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700'
                 ].join(' ')}
               >
-                {c.toUpperCase()}
+                {label}
               </button>
             );
           })}
@@ -109,7 +164,7 @@ export default function SearchScreen({
           </div>
         ) : loading ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-            Searching {active}...
+            Searching {active === 'all' ? 'users, pages, jobs and gigs' : GROUP_LABELS[active].toLowerCase()}...
           </div>
         ) : error ? (
           <div className="rounded-xl border border-red-200 bg-white p-4">
@@ -125,12 +180,38 @@ export default function SearchScreen({
           </div>
         ) : activeResults.length === 0 ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-            No results found for “{q.trim()}”.
+            No results found for "{q.trim()}".
+          </div>
+        ) : active === 'all' ? (
+          <div className="space-y-3">
+            {allSections.map((section) => (
+              <div key={section.key} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  <span>{section.label}</span>
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px]">{section.items.length}</span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {section.items.map((row: any, index: number) => (
+                    <SearchRow
+                      key={`${section.key}-${row?.id ?? row?.url ?? index}`}
+                      type={section.key}
+                      row={row}
+                      onNavigate={onClose}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
-          <div className="space-y-2">
-            {activeResults.map((row: any) => (
-              <SearchRow key={row?.id ?? row?.url ?? Math.random()} type={active} row={row} />
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+            {activeResults.map((row: any, index: number) => (
+              <SearchRow
+                key={`${active}-${row?.id ?? row?.url ?? index}`}
+                type={active}
+                row={row}
+                onNavigate={onClose}
+              />
             ))}
           </div>
         )}
@@ -139,7 +220,7 @@ export default function SearchScreen({
   );
 }
 
-function SearchRow({ type, row }: { type: string; row: any }) {
+function SearchRow({ type, row, onNavigate }: { type: string; row: any; onNavigate: () => void }) {
   const title =
     row?.title ??
     row?.name ??
@@ -150,25 +231,60 @@ function SearchRow({ type, row }: { type: string; row: any }) {
 
   const subtitle =
     row?.subtitle ??
+    row?.description ??
     row?.tagline ??
     row?.category ??
     row?.domain ??
-    row?.url ??
+    (row?.username ? `@${row.username}` : '') ??
     '';
 
   const url = row?.url ?? row?.actionUrl ?? row?.action_url ?? null;
+  const avatar = row?.avatarUrl ?? row?.image ?? row?.avatar ?? null;
 
-  return (
-    <a
-      href={url || undefined}
-      onClick={(e) => {
-        if (!url) e.preventDefault();
-      }}
-      className="block rounded-xl border border-slate-200 bg-white p-3 hover:bg-slate-50"
-    >
-      <div className="text-sm font-semibold text-slate-900">{title}</div>
-      {subtitle ? <div className="mt-1 text-xs text-slate-600 line-clamp-2">{subtitle}</div> : null}
-      <div className="mt-2 text-[10px] font-semibold text-slate-500">{type.toUpperCase()}</div>
-    </a>
+  const initials = String(title || 'R')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0] || '')
+    .join('')
+    .toUpperCase();
+
+  const card = (
+    <div className="flex items-center gap-3 p-3 hover:bg-slate-50">
+      <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
+        {avatar ? (
+          <img src={avatar} alt={title} className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-[11px] font-semibold text-slate-600">
+            {initials || 'R'}
+          </div>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-semibold text-slate-900">{title}</div>
+        {subtitle ? <div className="mt-0.5 truncate text-xs text-slate-600">{subtitle}</div> : null}
+      </div>
+      <div className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase text-slate-500">
+        {String(type || 'result').replace(/s$/, '')}
+      </div>
+    </div>
   );
+
+  if (typeof url === 'string' && url.startsWith('/')) {
+    return (
+      <Link to={url} onClick={onNavigate}>
+        {card}
+      </Link>
+    );
+  }
+
+  if (typeof url === 'string' && url.trim()) {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" onClick={onNavigate} className="block">
+        {card}
+      </a>
+    );
+  }
+
+  return <div className="block">{card}</div>;
 }
