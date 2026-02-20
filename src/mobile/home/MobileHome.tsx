@@ -62,6 +62,8 @@ type MobileHomeLayoutConfig = {
   feed?: {
     showPromoted?: boolean;
     promotedFrequency?: number;
+    listingCardEveryPosts?: number;
+    maxListingCardsPerFeed?: number;
     showSuggestedPeople?: boolean;
     showSuggestedPages?: boolean;
     showTrendingTags?: boolean;
@@ -235,7 +237,47 @@ const MobileHome = () => {
   }
 
   const rawLayout = (settings as any)?.mobileHomeLayout ?? (settings as any)?.mobile_home_layout ?? null;
-  const layout = useMemo(() => deepMerge(DEFAULT_LAYOUT, rawLayout), [rawLayout]);
+  const layout = useMemo(() => {
+    const merged = deepMerge(DEFAULT_LAYOUT, rawLayout);
+    const next = deepMerge(DEFAULT_LAYOUT, merged);
+    const rawFeed = isObjectLike((rawLayout as any)?.feed) ? (rawLayout as any).feed : {};
+    const memberHome = isObjectLike((settings as any)?.memberHome) ? (settings as any).memberHome : {};
+    const memberHomeAds = isObjectLike((memberHome as any)?.ads) ? (memberHome as any).ads : {};
+    const listingPolicy = isObjectLike((settings as any)?.system?.listings?.featurePolicy)
+      ? (settings as any).system.listings.featurePolicy
+      : {};
+
+    if (rawFeed.showPromoted === undefined && memberHomeAds.enabled !== undefined) {
+      next.feed = { ...(next.feed || {}), showPromoted: Boolean(memberHomeAds.enabled) };
+    }
+
+    if (rawFeed.promotedFrequency === undefined) {
+      const inlineFrequency = Number(memberHomeAds.inlineFrequency);
+      if (Number.isFinite(inlineFrequency) && inlineFrequency >= 2) {
+        next.feed = { ...(next.feed || {}), promotedFrequency: inlineFrequency };
+      }
+    }
+
+    if ((rawFeed as any).listingCardEveryPosts === undefined) {
+      const everyPosts = Number(
+        (listingPolicy as any)?.feedCardEveryPosts ?? (settings as any)?.feedCardEveryPosts
+      );
+      if (Number.isFinite(everyPosts) && everyPosts >= 1) {
+        next.feed = { ...(next.feed || {}), listingCardEveryPosts: Math.floor(everyPosts) };
+      }
+    }
+
+    if ((rawFeed as any).maxListingCardsPerFeed === undefined) {
+      const maxListingCards = Number(
+        (listingPolicy as any)?.maxListingCardsPerFeed ?? (settings as any)?.maxListingCardsPerFeed
+      );
+      if (Number.isFinite(maxListingCards) && maxListingCards >= 1) {
+        next.feed = { ...(next.feed || {}), maxListingCardsPerFeed: Math.floor(maxListingCards) };
+      }
+    }
+
+    return next;
+  }, [rawLayout, settings]);
 
   const notificationsUnread = useMemo(() => {
     const list = Array.isArray(notifications) ? notifications : [];

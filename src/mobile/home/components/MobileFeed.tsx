@@ -27,6 +27,8 @@ type MobileHomeLayoutSettings = {
   feed?: {
     showPromoted?: boolean;
     promotedFrequency?: number;
+    listingCardEveryPosts?: number;
+    maxListingCardsPerFeed?: number;
     showSuggestedPeople?: boolean;
     showSuggestedPages?: boolean;
     showTrendingTags?: boolean;
@@ -122,6 +124,29 @@ const dedupeById = <T extends { id?: string | null }>(items: T[]) => {
   return out;
 };
 
+const hashString = (input: string) => {
+  let hash = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash * 31 + input.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+};
+
+const pickSlotIndexes = (count: number, slots: number, seed: string) => {
+  if (count <= 0 || slots <= 0) return [] as number[];
+  const maxSlots = Math.min(count, slots);
+  const base = hashString(seed) || 1;
+  const scored = Array.from({ length: count }, (_, idx) => ({
+    idx,
+    score: hashString(`${base}:${idx}:${count}`)
+  }));
+  scored.sort((a, b) => a.score - b.score);
+  return scored
+    .slice(0, maxSlots)
+    .map((row) => row.idx)
+    .sort((a, b) => a - b);
+};
+
 const extractJobsFromPayload = (payload: any): Job[] => {
   if (Array.isArray(payload?.jobs)) return payload.jobs as Job[];
   if (Array.isArray(payload)) return payload as Job[];
@@ -166,10 +191,10 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const graphicWarningBlurMedia = composerSettings.graphicWarningBlurMedia !== false;
   const showRecommendedGigsJobs = feedSettings.showRecommendedGigsJobs !== false;
   const [isConstrainedConnection, setIsConstrainedConnection] = useState<boolean>(() => isConstrainedNetwork());
-  const listingCardEveryPosts = 2;
+  const listingCardEveryPosts = clamp(Number((feedSettings as any).listingCardEveryPosts ?? 2) || 2, 1, 6);
   const maxListingCardsPerFeed = clamp(Number((feedSettings as any).maxListingCardsPerFeed ?? 8) || 8, 1, 16);
   const listingPoolLimit = Math.max(
-    isConstrainedConnection ? 6 : 8,
+    isConstrainedConnection ? 4 : 8,
     maxListingCardsPerFeed * (isConstrainedConnection ? 2 : 3)
   );
 
@@ -190,17 +215,24 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const [suggestedPages, setSuggestedPages] = useState<any[]>([]);
   const [recommendedJobs, setRecommendedJobs] = useState<Job[]>([]);
   const [recommendedGigs, setRecommendedGigs] = useState<Gig[]>([]);
-  const listingCardEntries = useMemo(() => {
-    if (!showRecommendedGigsJobs || !user?.id || !posts.length) return [] as Array<{ kind: 'job' | 'gig'; item: any }>;
-    const slots = Math.min(maxListingCardsPerFeed, Math.floor(posts.length / listingCardEveryPosts));
-    if (slots <= 0) return [] as Array<{ kind: 'job' | 'gig'; item: any }>;
+  const listingSlots = useMemo(() => {
+    if (!showRecommendedGigsJobs || !user?.id || !posts.length) return 0;
+    const baseSlots = Math.floor(posts.length / listingCardEveryPosts);
+    const sparseSlots = posts.length > 0 ? 1 : 0;
+    return Math.min(maxListingCardsPerFeed, Math.max(baseSlots, sparseSlots));
+  }, [showRecommendedGigsJobs, user?.id, posts.length, listingCardEveryPosts, maxListingCardsPerFeed]);
 
-    const jobPool = shuffle(dedupeById((recommendedJobs || []) as Array<Job & { id: string }>)).slice(0, slots * 2);
-    const gigPool = shuffle(dedupeById((recommendedGigs || []) as Array<Gig & { id: string }>)).slice(0, slots * 2);
+  const listingCardEntries = useMemo(() => {
+    if (!showRecommendedGigsJobs || !user?.id || !posts.length || listingSlots <= 0) {
+      return [] as Array<{ kind: 'job' | 'gig'; item: any }>;
+    }
+
+    const jobPool = shuffle(dedupeById((recommendedJobs || []) as Array<Job & { id: string }>)).slice(0, listingSlots * 3);
+    const gigPool = shuffle(dedupeById((recommendedGigs || []) as Array<Gig & { id: string }>)).slice(0, listingSlots * 3);
     const entries: Array<{ kind: 'job' | 'gig'; item: any }> = [];
     let preferJob = ((String(user.id || '').length + posts.length) % 2) === 0;
 
-    while (entries.length < slots && (jobPool.length || gigPool.length)) {
+    while (entries.length < listingSlots && (jobPool.length || gigPool.length)) {
       if (preferJob && jobPool.length) {
         entries.push({ kind: 'job', item: jobPool.shift() });
       } else if (!preferJob && gigPool.length) {
@@ -218,11 +250,52 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
     showRecommendedGigsJobs,
     user?.id,
     posts.length,
+    listingSlots,
     recommendedJobs,
     recommendedGigs,
-    maxListingCardsPerFeed,
-    listingCardEveryPosts
+    listingCardEveryPosts,
+    maxListingCardsPerFeed
   ]);
+
+  const listingSlotIndexes = useMemo(() => {
+    if (!listingCardEntries.length || !posts.length) return [] as number[];
+    const seed = `${String(user?.id || '')}:${posts.length}:${String(posts?.[0]?.id || '')}:${String(posts?.[posts.length - 1]?.id || '')}`;
+    return pickSlotIndexes(posts.length, listingCardEntries.length, seed);
+  }, [listingCardEntries.length, posts, user?.id]);
+
+  const listingByPostIndex = useMemo(() => {
+    if (!listingCardEntries.length || !listingSlotIndexes.length) return new Map<number, { kind: 'job' | 'gig'; item: any }>();
+    const map = new Map<number, { kind: 'job' | 'gig'; item: any }>();
+    listingSlotIndexes.forEach((postIndex, idx) => {
+      const entry = listingCardEntries[idx];
+      if (entry && !map.has(postIndex)) map.set(postIndex, entry);
+    });
+    return map;
+  }, [listingCardEntries, listingSlotIndexes]);
+
+  const adSlotIndexes = useMemo(() => {
+    if (feedSettings.showPromoted === false || !ads.length || !posts.length || promotedFrequency <= 0) return [] as number[];
+    const approxSlots = Math.max(1, Math.floor(posts.length / promotedFrequency));
+    const seed = `${String(user?.id || '')}:${posts.length}:${promotedFrequency}:${String(ads[0]?.id || '')}`;
+    const availablePostIndexes = Array.from({ length: posts.length }, (_, idx) => idx).filter(
+      (idx) => !listingByPostIndex.has(idx)
+    );
+    if (!availablePostIndexes.length) {
+      return pickSlotIndexes(posts.length, approxSlots, seed);
+    }
+    const availablePicks = pickSlotIndexes(availablePostIndexes.length, approxSlots, seed);
+    return availablePicks.map((pick) => availablePostIndexes[pick]).sort((a, b) => a - b);
+  }, [feedSettings.showPromoted, ads, posts.length, promotedFrequency, user?.id, listingByPostIndex]);
+
+  const adByPostIndex = useMemo(() => {
+    const map = new Map<number, any>();
+    if (!adSlotIndexes.length || !ads.length) return map;
+    adSlotIndexes.forEach((postIndex, idx) => {
+      const ad = ads[idx % ads.length];
+      if (ad && !map.has(postIndex)) map.set(postIndex, ad);
+    });
+    return map;
+  }, [adSlotIndexes, ads]);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadMoreArmedRef = useRef(false);
@@ -399,23 +472,28 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       setRecommendedGigs([]);
       return;
     }
-    if (isConstrainedConnection) {
-      setRecommendedJobs([]);
-      setRecommendedGigs([]);
-      return;
-    }
     if (loading || error) return;
     let cancelled = false;
+    const requestLimit = Math.max(4, Math.min(24, listingPoolLimit));
     const timer = window.setTimeout(() => {
+      const jobRequests: Array<Promise<any>> = [
+        jobsApi.getJobs({ status: 'active', limit: requestLimit, featuredOnly: true }),
+        jobsApi.getJobs({ status: 'active', limit: requestLimit, recommended: true }),
+        jobsApi.getJobs({ status: 'active', limit: requestLimit })
+      ];
+      const gigRequests: Array<Promise<any>> = [
+        gigsApi.getGigs({ status: 'active', limit: requestLimit, featuredOnly: true }),
+        gigsApi.getGigs({ status: 'active', limit: requestLimit, recommended: true }),
+        gigsApi.getGigs({ status: 'active', limit: requestLimit })
+      ];
+      if (!isConstrainedConnection) {
+        jobRequests.push(jobsApi.getJobs({ status: 'active', limit: requestLimit, random: true }));
+        gigRequests.push(gigsApi.getGigs({ status: 'active', limit: requestLimit, random: true }));
+      }
+
       Promise.all([
-        Promise.allSettled([
-          jobsApi.getJobs({ status: 'active', limit: listingPoolLimit, featuredOnly: true }),
-          jobsApi.getJobs({ status: 'active', limit: listingPoolLimit, recommended: true })
-        ]),
-        Promise.allSettled([
-          gigsApi.getGigs({ status: 'active', limit: listingPoolLimit, featuredOnly: true }),
-          gigsApi.getGigs({ status: 'active', limit: listingPoolLimit, recommended: true })
-        ])
+        Promise.allSettled(jobRequests),
+        Promise.allSettled(gigRequests)
       ])
         .then(([jobsResults, gigsResults]) => {
           if (cancelled) return;
@@ -425,14 +503,14 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                 result.status === 'fulfilled' ? extractJobsFromPayload(result.value) : []
               )
             ) as Array<Job & { id: string }>
-          ).slice(0, listingPoolLimit);
+          ).slice(0, requestLimit);
           const gigsList = dedupeById(
             shuffle(
               gigsResults.flatMap((result) =>
                 result.status === 'fulfilled' ? extractGigsFromPayload(result.value) : []
               )
             ) as Array<Gig & { id: string }>
-          ).slice(0, listingPoolLimit);
+          ).slice(0, requestLimit);
 
           setRecommendedJobs(jobsList);
           setRecommendedGigs(gigsList);
@@ -728,15 +806,6 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
     obs.observe(node);
     return () => obs.disconnect();
   }, [cursor, loading, loadingMore, load]);
-
-  const adForIndex = useCallback(
-    (index: number) => {
-      if (!ads.length) return null;
-      const idx = index % ads.length;
-      return ads[idx];
-    },
-    [ads]
-  );
 
   const showTagsCard = feedSettings.showTrendingTags !== false && trendingTags.length > 0;
   const showPeopleCard = feedSettings.showSuggestedPeople !== false && suggestedPeople.length > 0;
@@ -1094,10 +1163,9 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                 />
               </article>
 
-              {showRecommendedGigsJobs && user?.id && (idx + 1) % listingCardEveryPosts === 0 ? (
+              {showRecommendedGigsJobs && user?.id ? (
                 (() => {
-                  const slotIndex = Math.floor((idx + 1) / listingCardEveryPosts) - 1;
-                  const entry = listingCardEntries[slotIndex];
+                  const entry = listingByPostIndex.get(idx);
                   if (!entry) return null;
                   return (
                     <RecommendedListingCard
@@ -1113,9 +1181,9 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                 })()
               ) : null}
 
-              {feedSettings.showPromoted !== false && promotedFrequency > 0 && (idx + 1) % promotedFrequency === 0 ? (
+              {feedSettings.showPromoted !== false ? (
                 (() => {
-                  const ad = adForIndex(idx + 1);
+                  const ad = adByPostIndex.get(idx);
                   return ad ? <FeedAdCard ad={ad} /> : null;
                 })()
               ) : null}

@@ -402,7 +402,7 @@ const ReactionsEngagementManager = () => {
         showSuggestedPeople: true,
         showSuggestedPages: true,
         showTrendingTags: true,
-        showRecommendedGigsJobs: false,
+        showRecommendedGigsJobs: true,
       },
       postComposer: {
         topics: [],
