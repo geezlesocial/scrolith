@@ -241,6 +241,41 @@ export const createContract = async (req: Request, res: Response) => {
     });
 
     const payload = await serializeContract(created);
+    try {
+      const clientLink = `/client/dashboard?tab=contracts&contract=${created.id}&contract_id=${created.id}`;
+      const freelancerLink = `/freelancer/dashboard?tab=contracts&contract=${created.id}&contract_id=${created.id}`;
+
+      void sendSystemMessage({
+        templateKey: "contract_update",
+        userId: created.clientId,
+        context: {
+          contract: {
+            title: created.title,
+            status: created.status,
+            link: clientLink
+          }
+        },
+        actionUrl: clientLink,
+        typeOverride: "contract"
+      });
+
+      void sendSystemMessage({
+        templateKey: "contract_update",
+        userId: created.freelancerId,
+        context: {
+          contract: {
+            title: created.title,
+            status: created.status,
+            link: freelancerLink
+          }
+        },
+        actionUrl: freelancerLink,
+        typeOverride: "contract"
+      });
+    } catch (notifyError) {
+      console.warn("Contract create notification failed", notifyError);
+    }
+
     return res.json({ success: true, data: payload });
   } catch (err: any) {
     console.error("createContract error:", err);
