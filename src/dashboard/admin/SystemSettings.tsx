@@ -3,9 +3,9 @@ import { useContent } from '../../context/ContentContext';
 import { AdminService } from '../../services/admin';
 import { useNotification } from '../../context/NotificationContext';
 import { useCurrency } from '../../context/CurrencyContext';
-import { Save, Settings, Mail, HardDrive, DollarSign, Cpu, CheckCircle, ShieldCheck, Globe, FileText, Database, Server, RefreshCw, Plus, Trash2, X, Network, Send, Loader2, AlertTriangle, Image as ImageIcon } from 'lucide-react';
+import { Save, Settings, Mail, HardDrive, DollarSign, Cpu, CheckCircle, ShieldCheck, Globe, FileText, Database, Server, RefreshCw, Plus, Trash2, X, Network, Send, Loader2, AlertTriangle, Image as ImageIcon, Gauge } from 'lucide-react';
 import { AIConfigManager } from '../../services/ai/ai.config';
-import { AIConfig, ComplianceConfig, Currency, PlatformSettings, EmailProviderConfig, UploadedFile, SystemConfig } from '../../types';
+import { AIConfig, ComplianceConfig, Currency, PlatformSettings, EmailProviderConfig, UploadedFile, SystemConfig, OptimizationConfig } from '../../types';
 import { INITIAL_CURRENCIES } from '../../constants';
 import { CMSService } from '../../services/cms';
 import FilePickerModal from '../shared/FilePickerModal';
@@ -268,6 +268,180 @@ const normalizeCacheConfig = (raw: any) => {
     };
 };
 
+const DEFAULT_OPTIMIZATION_CONFIG: OptimizationConfig = {
+    enabled: false,
+    compressionEnabled: false,
+    compressionLevel: 6,
+    compressionThresholdKb: 1,
+    apiResponseCachingEnabled: false,
+    apiResponseCacheSeconds: 45,
+    apiResponseCacheMaxEntries: 500,
+    staticAssetCachingEnabled: true,
+    staticAssetCacheSeconds: 604800,
+    htmlMinifyEnabled: false,
+    htmlCollapseWhitespace: true,
+    htmlRemoveComments: true,
+    jsonMinifyEnabled: false,
+    speedHintsEnabled: false,
+    preconnectOrigins: [],
+    apiCacheExcludePaths: [
+        '/api/auth',
+        '/api/admin',
+        '/api/messages',
+        '/api/contracts',
+        '/api/wallet',
+        '/api/notifications'
+    ]
+};
+
+const normalizeOptimizationArray = (value: any, fallback: string[] = []) => {
+    const source = Array.isArray(value)
+        ? value
+        : String(value || '')
+            .split(/[,\n]/g)
+            .map((entry) => entry.trim())
+            .filter(Boolean);
+
+    const deduped: string[] = [];
+    source.forEach((entry: any) => {
+        const normalized = String(entry || '').trim();
+        if (!normalized) return;
+        if (deduped.includes(normalized)) return;
+        deduped.push(normalized);
+    });
+
+    return deduped.length ? deduped : fallback;
+};
+
+const normalizeOptimizationConfig = (raw: any): OptimizationConfig => {
+    const source = raw || {};
+    return {
+        enabled: normalizeBoolean(source.enabled, DEFAULT_OPTIMIZATION_CONFIG.enabled || false),
+        compressionEnabled: normalizeBoolean(
+            source.compressionEnabled ?? source.compression_enabled,
+            DEFAULT_OPTIMIZATION_CONFIG.compressionEnabled || false
+        ),
+        compressionLevel: Math.max(
+            1,
+            Math.min(
+                9,
+                Math.round(
+                    normalizeNumber(
+                        source.compressionLevel ?? source.compression_level,
+                        DEFAULT_OPTIMIZATION_CONFIG.compressionLevel || 6
+                    )
+                )
+            )
+        ),
+        compressionThresholdKb: Math.max(
+            0,
+            Math.min(
+                2048,
+                Math.round(
+                    normalizeNumber(
+                        source.compressionThresholdKb ?? source.compression_threshold_kb,
+                        DEFAULT_OPTIMIZATION_CONFIG.compressionThresholdKb || 1
+                    )
+                )
+            )
+        ),
+        apiResponseCachingEnabled: normalizeBoolean(
+            source.apiResponseCachingEnabled ?? source.api_response_caching_enabled,
+            DEFAULT_OPTIMIZATION_CONFIG.apiResponseCachingEnabled || false
+        ),
+        apiResponseCacheSeconds: Math.max(
+            5,
+            Math.min(
+                3600,
+                Math.round(
+                    normalizeNumber(
+                        source.apiResponseCacheSeconds ?? source.api_response_cache_seconds,
+                        DEFAULT_OPTIMIZATION_CONFIG.apiResponseCacheSeconds || 45
+                    )
+                )
+            )
+        ),
+        apiResponseCacheMaxEntries: Math.max(
+            50,
+            Math.min(
+                5000,
+                Math.round(
+                    normalizeNumber(
+                        source.apiResponseCacheMaxEntries ?? source.api_response_cache_max_entries,
+                        DEFAULT_OPTIMIZATION_CONFIG.apiResponseCacheMaxEntries || 500
+                    )
+                )
+            )
+        ),
+        staticAssetCachingEnabled: normalizeBoolean(
+            source.staticAssetCachingEnabled ?? source.static_asset_caching_enabled,
+            DEFAULT_OPTIMIZATION_CONFIG.staticAssetCachingEnabled || true
+        ),
+        staticAssetCacheSeconds: Math.max(
+            60,
+            Math.min(
+                31536000,
+                Math.round(
+                    normalizeNumber(
+                        source.staticAssetCacheSeconds ?? source.static_asset_cache_seconds,
+                        DEFAULT_OPTIMIZATION_CONFIG.staticAssetCacheSeconds || 604800
+                    )
+                )
+            )
+        ),
+        htmlMinifyEnabled: normalizeBoolean(
+            source.htmlMinifyEnabled ?? source.html_minify_enabled,
+            DEFAULT_OPTIMIZATION_CONFIG.htmlMinifyEnabled || false
+        ),
+        htmlCollapseWhitespace: normalizeBoolean(
+            source.htmlCollapseWhitespace ?? source.html_collapse_whitespace,
+            DEFAULT_OPTIMIZATION_CONFIG.htmlCollapseWhitespace || true
+        ),
+        htmlRemoveComments: normalizeBoolean(
+            source.htmlRemoveComments ?? source.html_remove_comments,
+            DEFAULT_OPTIMIZATION_CONFIG.htmlRemoveComments || true
+        ),
+        jsonMinifyEnabled: normalizeBoolean(
+            source.jsonMinifyEnabled ?? source.json_minify_enabled,
+            DEFAULT_OPTIMIZATION_CONFIG.jsonMinifyEnabled || false
+        ),
+        speedHintsEnabled: normalizeBoolean(
+            source.speedHintsEnabled ?? source.speed_hints_enabled,
+            DEFAULT_OPTIMIZATION_CONFIG.speedHintsEnabled || false
+        ),
+        preconnectOrigins: normalizeOptimizationArray(
+            source.preconnectOrigins ?? source.preconnect_origins,
+            DEFAULT_OPTIMIZATION_CONFIG.preconnectOrigins
+        ),
+        apiCacheExcludePaths: normalizeOptimizationArray(
+            source.apiCacheExcludePaths ?? source.api_cache_exclude_paths,
+            DEFAULT_OPTIMIZATION_CONFIG.apiCacheExcludePaths
+        )
+    };
+};
+
+const serializeOptimizationConfig = (raw: OptimizationConfig) => {
+    const config = normalizeOptimizationConfig(raw);
+    return {
+        ...config,
+        compression_enabled: config.compressionEnabled,
+        compression_level: config.compressionLevel,
+        compression_threshold_kb: config.compressionThresholdKb,
+        api_response_caching_enabled: config.apiResponseCachingEnabled,
+        api_response_cache_seconds: config.apiResponseCacheSeconds,
+        api_response_cache_max_entries: config.apiResponseCacheMaxEntries,
+        static_asset_caching_enabled: config.staticAssetCachingEnabled,
+        static_asset_cache_seconds: config.staticAssetCacheSeconds,
+        html_minify_enabled: config.htmlMinifyEnabled,
+        html_collapse_whitespace: config.htmlCollapseWhitespace,
+        html_remove_comments: config.htmlRemoveComments,
+        json_minify_enabled: config.jsonMinifyEnabled,
+        speed_hints_enabled: config.speedHintsEnabled,
+        preconnect_origins: config.preconnectOrigins,
+        api_cache_exclude_paths: config.apiCacheExcludePaths
+    };
+};
+
 const SystemSettings = () => {
     // 1. Hooks (Unconditional)
     const { settings, updateSettings } = useContent();
@@ -294,6 +468,9 @@ const SystemSettings = () => {
         })
     );
     const [cacheConfig, setCacheConfig] = useState<any>(normalizeCacheConfig({ driver: 'local' }));
+    const [optimizationConfig, setOptimizationConfig] = useState<OptimizationConfig>(
+        normalizeOptimizationConfig(DEFAULT_OPTIMIZATION_CONFIG)
+    );
     
     // Currency State
     const [currencies, setCurrencies] = useState<Currency[]>(INITIAL_CURRENCIES);
@@ -344,6 +521,7 @@ const SystemSettings = () => {
             const systemSource = s?.system ?? s;
             if (systemSource?.storage) setStorageConfig(normalizeStorageConfig(systemSource.storage));
             if (systemSource?.cache) setCacheConfig(normalizeCacheConfig(systemSource.cache));
+            setOptimizationConfig(normalizeOptimizationConfig(systemSource?.optimization || DEFAULT_OPTIMIZATION_CONFIG));
             if (systemSource?.email) setEmailConfig(normalizeEmailConfig(systemSource.email));
             if (systemSource?.currency) setCurrencyConfig(normalizeCurrencyConfig(systemSource.currency));
 
@@ -399,6 +577,7 @@ const SystemSettings = () => {
                 if (systemSource?.cache) {
                     setCacheConfig(normalizeCacheConfig(systemSource.cache));
                 }
+                setOptimizationConfig(normalizeOptimizationConfig(systemSource?.optimization || DEFAULT_OPTIMIZATION_CONFIG));
                 if (systemSource?.email) {
                     setEmailConfig(normalizeEmailConfig(systemSource.email));
                 }
@@ -543,6 +722,7 @@ const SystemSettings = () => {
                 })),
                 storage: safeStorage,
                 cache: cacheConfig,
+                optimization: serializeOptimizationConfig(optimizationConfig),
                 email: safeEmail,
                 currency: normalizedCurrencyConfig,
                 currencies: persistedCurrencies,
@@ -964,6 +1144,7 @@ const SystemSettings = () => {
             <div className="w-full md:w-64 bg-gray-50 border-r border-gray-200 p-4 space-y-1 flex-shrink-0">
                 <TabButton id="general" label="General Settings" icon={Settings} activeTab={activeTab} setActiveTab={setActiveTab} />
                 <TabButton id="filesystem" label="File System & Cache" icon={HardDrive} activeTab={activeTab} setActiveTab={setActiveTab} />
+                <TabButton id="optimization" label="Optimization" icon={Gauge} activeTab={activeTab} setActiveTab={setActiveTab} />
                 <TabButton id="currencies" label="Currencies" icon={DollarSign} activeTab={activeTab} setActiveTab={setActiveTab} />
                 <TabButton id="email" label="Email SMTP" icon={Mail} activeTab={activeTab} setActiveTab={setActiveTab} />
                 <TabButton id="ai" label="AI Engine" icon={Cpu} activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -1360,6 +1541,258 @@ const SystemSettings = () => {
                                 )}
                                 <p className="text-xs text-gray-500">
                                     Cache settings control response speed for frequently accessed data. Use Redis for production workloads.
+                                </p>
+                            </div>
+                        </div>
+                     </div>
+                 )}
+
+                {activeTab === 'optimization' && (
+                    <div className="space-y-6 animate-fade-in max-w-3xl">
+                        <div className="bg-white p-6 rounded-xl border border-gray-200">
+                            <div className="flex items-start justify-between gap-4">
+                                <div>
+                                    <h3 className="text-lg font-bold text-gray-900">Runtime Optimization Engine</h3>
+                                    <p className="text-sm text-gray-500 mt-1">
+                                        Configure platform-wide caching, compression, minification, and speed delivery controls in real time.
+                                    </p>
+                                </div>
+                                <label className="inline-flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200">
+                                    <input
+                                        type="checkbox"
+                                        className="rounded text-blue-600"
+                                        checked={Boolean(optimizationConfig.enabled)}
+                                        onChange={(e) => setOptimizationConfig((prev) => ({ ...prev, enabled: e.target.checked }))}
+                                    />
+                                    <span className="text-sm font-semibold text-gray-700">Enable Optimization Module</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div className="bg-white p-6 rounded-xl border border-gray-200 space-y-4">
+                                <h4 className="font-semibold text-gray-900">Compression & Minification</h4>
+
+                                <label className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                                    <span className="text-sm text-gray-700">Compress API responses (gzip/brotli)</span>
+                                    <input
+                                        type="checkbox"
+                                        className="rounded text-blue-600"
+                                        checked={Boolean(optimizationConfig.compressionEnabled)}
+                                        onChange={(e) => setOptimizationConfig((prev) => ({ ...prev, compressionEnabled: e.target.checked }))}
+                                    />
+                                </label>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Compression Level (1-9)</label>
+                                        <input
+                                            type="number"
+                                            min={1}
+                                            max={9}
+                                            className="w-full border-gray-300 rounded-md p-2"
+                                            value={optimizationConfig.compressionLevel || 6}
+                                            onChange={(e) =>
+                                                setOptimizationConfig((prev) => ({
+                                                    ...prev,
+                                                    compressionLevel: Math.max(1, Math.min(9, Number.parseInt(e.target.value, 10) || 6))
+                                                }))
+                                            }
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Compression Threshold (KB)</label>
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            max={2048}
+                                            className="w-full border-gray-300 rounded-md p-2"
+                                            value={optimizationConfig.compressionThresholdKb || 1}
+                                            onChange={(e) =>
+                                                setOptimizationConfig((prev) => ({
+                                                    ...prev,
+                                                    compressionThresholdKb: Math.max(0, Math.min(2048, Number.parseInt(e.target.value, 10) || 1))
+                                                }))
+                                            }
+                                        />
+                                    </div>
+                                </div>
+
+                                <label className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                                    <span className="text-sm text-gray-700">Minify JSON responses</span>
+                                    <input
+                                        type="checkbox"
+                                        className="rounded text-blue-600"
+                                        checked={Boolean(optimizationConfig.jsonMinifyEnabled)}
+                                        onChange={(e) => setOptimizationConfig((prev) => ({ ...prev, jsonMinifyEnabled: e.target.checked }))}
+                                    />
+                                </label>
+
+                                <label className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                                    <span className="text-sm text-gray-700">Minify HTML responses</span>
+                                    <input
+                                        type="checkbox"
+                                        className="rounded text-blue-600"
+                                        checked={Boolean(optimizationConfig.htmlMinifyEnabled)}
+                                        onChange={(e) => setOptimizationConfig((prev) => ({ ...prev, htmlMinifyEnabled: e.target.checked }))}
+                                    />
+                                </label>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                                        <input
+                                            type="checkbox"
+                                            className="rounded text-blue-600"
+                                            checked={Boolean(optimizationConfig.htmlCollapseWhitespace)}
+                                            onChange={(e) =>
+                                                setOptimizationConfig((prev) => ({ ...prev, htmlCollapseWhitespace: e.target.checked }))
+                                            }
+                                        />
+                                        Collapse whitespace
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                                        <input
+                                            type="checkbox"
+                                            className="rounded text-blue-600"
+                                            checked={Boolean(optimizationConfig.htmlRemoveComments)}
+                                            onChange={(e) =>
+                                                setOptimizationConfig((prev) => ({ ...prev, htmlRemoveComments: e.target.checked }))
+                                            }
+                                        />
+                                        Remove comments
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div className="bg-white p-6 rounded-xl border border-gray-200 space-y-4">
+                                <h4 className="font-semibold text-gray-900">Caching & Speed Hints</h4>
+
+                                <label className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                                    <span className="text-sm text-gray-700">Cache public API GET responses</span>
+                                    <input
+                                        type="checkbox"
+                                        className="rounded text-blue-600"
+                                        checked={Boolean(optimizationConfig.apiResponseCachingEnabled)}
+                                        onChange={(e) =>
+                                            setOptimizationConfig((prev) => ({ ...prev, apiResponseCachingEnabled: e.target.checked }))
+                                        }
+                                    />
+                                </label>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">API Cache TTL (Seconds)</label>
+                                        <input
+                                            type="number"
+                                            min={5}
+                                            max={3600}
+                                            className="w-full border-gray-300 rounded-md p-2"
+                                            value={optimizationConfig.apiResponseCacheSeconds || 45}
+                                            onChange={(e) =>
+                                                setOptimizationConfig((prev) => ({
+                                                    ...prev,
+                                                    apiResponseCacheSeconds: Math.max(5, Math.min(3600, Number.parseInt(e.target.value, 10) || 45))
+                                                }))
+                                            }
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Max Cache Entries</label>
+                                        <input
+                                            type="number"
+                                            min={50}
+                                            max={5000}
+                                            className="w-full border-gray-300 rounded-md p-2"
+                                            value={optimizationConfig.apiResponseCacheMaxEntries || 500}
+                                            onChange={(e) =>
+                                                setOptimizationConfig((prev) => ({
+                                                    ...prev,
+                                                    apiResponseCacheMaxEntries: Math.max(50, Math.min(5000, Number.parseInt(e.target.value, 10) || 500))
+                                                }))
+                                            }
+                                        />
+                                    </div>
+                                </div>
+
+                                <label className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                                    <span className="text-sm text-gray-700">Cache static assets aggressively</span>
+                                    <input
+                                        type="checkbox"
+                                        className="rounded text-blue-600"
+                                        checked={Boolean(optimizationConfig.staticAssetCachingEnabled)}
+                                        onChange={(e) =>
+                                            setOptimizationConfig((prev) => ({ ...prev, staticAssetCachingEnabled: e.target.checked }))
+                                        }
+                                    />
+                                </label>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Static Cache TTL (Seconds)</label>
+                                    <input
+                                        type="number"
+                                        min={60}
+                                        max={31536000}
+                                        className="w-full border-gray-300 rounded-md p-2"
+                                        value={optimizationConfig.staticAssetCacheSeconds || 604800}
+                                        onChange={(e) =>
+                                            setOptimizationConfig((prev) => ({
+                                                ...prev,
+                                                staticAssetCacheSeconds: Math.max(60, Math.min(31536000, Number.parseInt(e.target.value, 10) || 604800))
+                                            }))
+                                        }
+                                    />
+                                </div>
+
+                                <label className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                                    <span className="text-sm text-gray-700">Enable speed hints (preconnect headers)</span>
+                                    <input
+                                        type="checkbox"
+                                        className="rounded text-blue-600"
+                                        checked={Boolean(optimizationConfig.speedHintsEnabled)}
+                                        onChange={(e) => setOptimizationConfig((prev) => ({ ...prev, speedHintsEnabled: e.target.checked }))}
+                                    />
+                                </label>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div className="bg-white p-6 rounded-xl border border-gray-200">
+                                <label className="block text-sm font-semibold text-gray-800 mb-2">
+                                    Preconnect Origins (one per line)
+                                </label>
+                                <textarea
+                                    rows={6}
+                                    className="w-full border-gray-300 rounded-lg p-3 text-sm"
+                                    value={normalizeOptimizationArray(optimizationConfig.preconnectOrigins).join('\n')}
+                                    onChange={(e) =>
+                                        setOptimizationConfig((prev) => ({
+                                            ...prev,
+                                            preconnectOrigins: normalizeOptimizationArray(e.target.value, [])
+                                        }))
+                                    }
+                                    placeholder={'https://api.scrolith.com\nhttps://cdn.scrolith.com'}
+                                />
+                                <p className="text-xs text-gray-500 mt-2">Used when speed hints are enabled.</p>
+                            </div>
+
+                            <div className="bg-white p-6 rounded-xl border border-gray-200">
+                                <label className="block text-sm font-semibold text-gray-800 mb-2">
+                                    API Cache Exclusions (prefix per line)
+                                </label>
+                                <textarea
+                                    rows={6}
+                                    className="w-full border-gray-300 rounded-lg p-3 text-sm"
+                                    value={normalizeOptimizationArray(optimizationConfig.apiCacheExcludePaths).join('\n')}
+                                    onChange={(e) =>
+                                        setOptimizationConfig((prev) => ({
+                                            ...prev,
+                                            apiCacheExcludePaths: normalizeOptimizationArray(e.target.value, DEFAULT_OPTIMIZATION_CONFIG.apiCacheExcludePaths)
+                                        }))
+                                    }
+                                    placeholder={'/api/auth\n/api/admin\n/api/messages'}
+                                />
+                                <p className="text-xs text-gray-500 mt-2">
+                                    Sensitive and personalized routes should remain excluded from public response caching.
                                 </p>
                             </div>
                         </div>

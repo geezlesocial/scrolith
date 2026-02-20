@@ -85,5 +85,6 @@ declare module '@/types' {
 
   interface SystemConfig {
     system?: any;
+    optimization?: any;
   }
 }

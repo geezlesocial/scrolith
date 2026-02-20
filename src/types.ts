@@ -1223,6 +1223,40 @@ export interface PlatformSettingsExtended extends PlatformSettings {
   enable_events?: boolean;
 }
 
+export interface OptimizationConfig {
+  enabled?: boolean;
+  compressionEnabled?: boolean;
+  compression_enabled?: boolean;
+  compressionLevel?: number;
+  compression_level?: number;
+  compressionThresholdKb?: number;
+  compression_threshold_kb?: number;
+  apiResponseCachingEnabled?: boolean;
+  api_response_caching_enabled?: boolean;
+  apiResponseCacheSeconds?: number;
+  api_response_cache_seconds?: number;
+  apiResponseCacheMaxEntries?: number;
+  api_response_cache_max_entries?: number;
+  staticAssetCachingEnabled?: boolean;
+  static_asset_caching_enabled?: boolean;
+  staticAssetCacheSeconds?: number;
+  static_asset_cache_seconds?: number;
+  htmlMinifyEnabled?: boolean;
+  html_minify_enabled?: boolean;
+  htmlCollapseWhitespace?: boolean;
+  html_collapse_whitespace?: boolean;
+  htmlRemoveComments?: boolean;
+  html_remove_comments?: boolean;
+  jsonMinifyEnabled?: boolean;
+  json_minify_enabled?: boolean;
+  speedHintsEnabled?: boolean;
+  speed_hints_enabled?: boolean;
+  preconnectOrigins?: string[];
+  preconnect_origins?: string[];
+  apiCacheExcludePaths?: string[];
+  api_cache_exclude_paths?: string[];
+}
+
 export interface SystemConfig {
   maintenance_mode: boolean;
   registrations_enabled: boolean;
@@ -1246,6 +1280,7 @@ export interface SystemConfig {
   };
   email?: EmailProviderConfig;
   regional_compliance?: ComplianceConfig[];
+  optimization?: OptimizationConfig;
   // Backward-compatible wrapper used by some UI modules
   system?: any;
 }
