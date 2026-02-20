@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useCurrency } from '../context/CurrencyContext';
-import { Star, Check, Clock, Heart, Share2, Flag, ChevronRight, Zap, RefreshCw, ArrowRight, ShieldAlert, ChevronDown, CheckCircle, Sparkles, Loader2, PlayCircle, FileText, Download } from 'lucide-react';
+import { Star, Check, Clock, Heart, Share2, Flag, ChevronRight, Zap, RefreshCw, ArrowRight, ShieldAlert, ChevronDown, CheckCircle, Sparkles, Loader2, PlayCircle, FileText, Download, MessageCircle } from 'lucide-react';
 import ProBadge from '../components/ProBadge';
 import { useNotification } from '../context/NotificationContext';
 import { ContractService } from '../services/contract';
@@ -501,6 +501,11 @@ const GigDetail = () => {
       setGigChatWidgetDismissed(true);
   };
 
+  const restoreGigChatWidget = () => {
+      setGigChatWidgetDismissed(false);
+      setGigChatOpen(true);
+  };
+
   const handleQuickPrompt = (value: string) => {
       setGigChatDraft((prev) => {
           if (!prev.trim()) return value;
@@ -864,18 +869,21 @@ const GigDetail = () => {
   const quickPrompts = Array.isArray(gigExperience?.quickPrompts) ? gigExperience.quickPrompts : [];
   const sellerId = gig?.freelancerId || gig?.user?.id;
   const isOwnGig = Boolean(user?.id && sellerId && user.id === sellerId);
-  const showGigChatBar =
+  const gigChatFeatureEnabled =
       gigExperience?.enabled !== false &&
       gigExperience?.chatBarEnabled !== false &&
-      !isOwnGig &&
-      !gigChatWidgetDismissed;
+      !isOwnGig;
+  const showGigChatBar = gigChatFeatureEnabled && !gigChatWidgetDismissed;
+  const showGigChatRestore = gigChatFeatureEnabled && gigChatWidgetDismissed;
   const showSellerMeta = gigExperience?.showSellerMeta !== false;
-  const gigChatDockClass = isCompactViewport
-      ? 'fixed bottom-[calc(env(safe-area-inset-bottom,0px)+5rem)] left-3 right-3 z-[72]'
-      : 'fixed bottom-6 left-6 z-[61]';
+  const gigChatDockClass = 'fixed bottom-6 left-6 z-[61]';
+  const gigChatCompactDockClass = 'fixed bottom-[calc(env(safe-area-inset-bottom,0px)+4.5rem)] right-3 z-[95]';
+  const gigChatRestoreClass = isCompactViewport
+      ? 'fixed bottom-[calc(env(safe-area-inset-bottom,0px)+4.5rem)] right-3 z-[95]'
+      : 'fixed bottom-6 left-6 z-[63]';
   const gigChatPanelClass = isCompactViewport
-      ? 'fixed bottom-[calc(env(safe-area-inset-bottom,0px)+5rem)] left-3 right-3 z-[73] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl'
-      : 'fixed bottom-4 left-4 z-[62] w-[92vw] max-w-md overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl';
+      ? 'fixed bottom-[calc(env(safe-area-inset-bottom,0px)+4.5rem)] left-3 right-3 z-[96] flex max-h-[calc(100vh-7rem)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl'
+      : 'fixed bottom-4 left-4 z-[62] flex w-[92vw] max-h-[calc(100vh-6rem)] max-w-md flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl';
   const contractStatus = String((hourlyContract as any)?.status || '').toLowerCase();
   const contractHours = contractNumber((hourlyContract as any)?.totalHoursLogged ?? (hourlyContract as any)?.total_hours_logged, 0);
   const contractPending = contractNumber((hourlyContract as any)?.earningsPending ?? (hourlyContract as any)?.earnings_pending, 0);
@@ -1587,43 +1595,67 @@ const GigDetail = () => {
     {showGigChatBar && (
         <>
             {!gigChatOpen && (
-                <div className={gigChatDockClass}>
-                    <button
-                        type="button"
-                        onClick={dismissGigChatWidget}
-                        aria-label="Close message widget"
-                        className="absolute -right-2 -top-2 rounded-full border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-500 shadow-sm hover:bg-gray-50"
-                    >
-                        x
-                    </button>
-                    <button
-                        type="button"
-                        onClick={handleContact}
-                        className={`flex items-center gap-3 rounded-full border border-gray-200 bg-white px-3 py-2 shadow-xl hover:shadow-2xl ${isCompactViewport ? 'w-full pr-4' : 'pr-5'}`}
-                    >
-                    {gig.freelancerAvatar ? (
-                        <img
-                            src={gig.freelancerAvatar}
-                            alt={gig.freelancerName}
-                            className="h-11 w-11 rounded-full border border-gray-100 object-cover"
-                        />
-                    ) : (
-                        <div className="h-11 w-11 rounded-full bg-gray-200" />
+                <>
+                    {!isCompactViewport && (
+                        <div className={gigChatDockClass}>
+                            <button
+                                type="button"
+                                onClick={dismissGigChatWidget}
+                                aria-label="Close message widget"
+                                className="absolute -right-2 -top-2 rounded-full border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-500 shadow-sm hover:bg-gray-50"
+                            >
+                                x
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleContact}
+                                className="flex items-center gap-3 rounded-full border border-gray-200 bg-white px-3 py-2 pr-5 shadow-xl hover:shadow-2xl"
+                            >
+                            {gig.freelancerAvatar ? (
+                                <img
+                                    src={gig.freelancerAvatar}
+                                    alt={gig.freelancerName}
+                                    className="h-11 w-11 rounded-full border border-gray-100 object-cover"
+                                />
+                            ) : (
+                                <div className="h-11 w-11 rounded-full bg-gray-200" />
+                            )}
+                            <div className="min-w-0 text-left">
+                                <p className="text-2xs text-gray-500">Message</p>
+                                <p className="truncate text-sm font-semibold text-gray-900">{gig.freelancerName}</p>
+                                {showSellerMeta ? (
+                                    <p className="truncate text-xs text-gray-500">{sellerStatus} - Avg. response: {sellerResponseTime}</p>
+                                ) : null}
+                            </div>
+                            </button>
+                        </div>
                     )}
-                    <div className="min-w-0 text-left">
-                        <p className="text-2xs text-gray-500">Message</p>
-                        <p className="truncate text-sm font-semibold text-gray-900">{gig.freelancerName}</p>
-                        {showSellerMeta ? (
-                            <p className="truncate text-xs text-gray-500">{sellerStatus} - Avg. response: {sellerResponseTime}</p>
-                        ) : null}
-                    </div>
-                    </button>
-                </div>
+                    {isCompactViewport && (
+                        <div className={gigChatCompactDockClass}>
+                            <button
+                                type="button"
+                                onClick={dismissGigChatWidget}
+                                aria-label="Close message widget"
+                                className="absolute -left-2 -top-2 rounded-full border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-500 shadow-sm hover:bg-gray-50"
+                            >
+                                x
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleContact}
+                                className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-2xl hover:bg-blue-700"
+                                aria-label={`Message ${gig.freelancerName || 'seller'}`}
+                            >
+                                <MessageCircle className="h-6 w-6" />
+                            </button>
+                        </div>
+                    )}
+                </>
             )}
 
             {gigChatOpen && (
                 <div className={gigChatPanelClass}>
-                    <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+                    <div className="shrink-0 flex items-center justify-between border-b border-gray-100 px-4 py-3">
                         <div className="flex min-w-0 items-center gap-3">
                             {gig.freelancerAvatar ? (
                                 <img
@@ -1637,7 +1669,7 @@ const GigDetail = () => {
                             <div className="min-w-0">
                                 <p className="truncate text-base font-semibold text-gray-900">{gig.freelancerName}</p>
                                 {showSellerMeta ? (
-                                    <p className="truncate text-xs text-gray-500">{sellerStatus} â€¢ Avg. response time: {sellerResponseTime}</p>
+                                    <p className="truncate text-xs text-gray-500">{sellerStatus} - Avg. response time: {sellerResponseTime}</p>
                                 ) : null}
                             </div>
                         </div>
@@ -1664,7 +1696,7 @@ const GigDetail = () => {
                         </div>
                     </div>
 
-                    <div className="space-y-3 px-4 py-4">
+                    <div className="shrink-0 space-y-3 px-4 py-4">
                         <p className="text-sm text-gray-600">
                             Ask a question or share your requirements, timeline, and budget.
                         </p>
@@ -1684,8 +1716,8 @@ const GigDetail = () => {
                         ) : null}
                     </div>
 
-                    <div className="border-y border-gray-100 bg-gray-50/60 px-4 py-3">
-                        <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border border-gray-100 bg-white p-3">
+                    <div className="grow min-h-0 border-y border-gray-100 bg-gray-50/60 px-4 py-3">
+                        <div className="h-full min-h-[11rem] space-y-2 overflow-y-auto rounded-xl border border-gray-100 bg-white p-3">
                             {!user ? (
                                 <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
                                     Login to send and receive messages with this freelancer.
@@ -1754,7 +1786,7 @@ const GigDetail = () => {
                         </div>
                     </div>
 
-                    <div className="border-t border-gray-100 p-4">
+                    <div className="shrink-0 border-t border-gray-100 p-4">
                         {gigChatReplyTo ? (
                             <div className="mb-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700">
                                 <div className="flex items-center justify-between gap-2">
@@ -1789,19 +1821,40 @@ const GigDetail = () => {
                             >
                                 Open full inbox
                             </button>
-                            <button
-                                type="button"
-                                onClick={handleSendGigChat}
-                                disabled={gigChatSending || !gigChatDraft.trim()}
-                                className="rounded-lg bg-gray-900 px-4 py-2 text-xs font-semibold text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                {gigChatSending ? 'Sending...' : 'Send message'}
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={dismissGigChatWidget}
+                                    className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                                >
+                                    Close widget
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSendGigChat}
+                                    disabled={gigChatSending || !gigChatDraft.trim()}
+                                    className="rounded-lg bg-gray-900 px-4 py-2 text-xs font-semibold text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {gigChatSending ? 'Sending...' : 'Send message'}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
         </>
+    )}
+    {showGigChatRestore && (
+        <div className={gigChatRestoreClass}>
+            <button
+                type="button"
+                onClick={restoreGigChatWidget}
+                className="inline-flex h-12 items-center gap-2 rounded-full bg-blue-600 px-4 text-sm font-semibold text-white shadow-xl hover:bg-blue-700"
+            >
+                <MessageCircle className="h-5 w-5" />
+                {isCompactViewport ? 'Message' : 'Reopen message bar'}
+            </button>
+        </div>
     )}
 
     {showCheckout && (
