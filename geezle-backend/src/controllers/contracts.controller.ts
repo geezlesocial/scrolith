@@ -18,9 +18,28 @@ const normalizeRole = (role?: string): RoleNorm => {
 
 const isAdminRole = (role: RoleNorm) => role === "admin" || role === "superadmin";
 
+const resolveEffectiveRole = (userRole: RoleNorm, queryRole: RoleNorm): RoleNorm => {
+  if (!queryRole) return userRole;
+  if (!userRole) return queryRole;
+
+  // Never allow query params to escalate into admin privileges.
+  if (queryRole === "admin" || queryRole === "superadmin") {
+    return isAdminRole(userRole) ? userRole : userRole;
+  }
+
+  // Allow explicit client/freelancer view filters for users who can switch dashboards.
+  if (queryRole === "freelancer" || queryRole === "client" || queryRole === "employer") {
+    return queryRole;
+  }
+
+  return userRole;
+};
+
 const getAuth = (req: Request) => {
   const user = (req.user as { id: string; email?: string; role?: string } | undefined) || null;
-  const role = normalizeRole(user?.role || (req.query.role as string));
+  const userRole = normalizeRole(user?.role);
+  const queryRole = normalizeRole(req.query.role as string);
+  const role = resolveEffectiveRole(userRole, queryRole);
   const userId = user?.id || (req.query.userId as string) || "";
   return { user, role, userId };
 };
@@ -121,32 +140,33 @@ const serializeContract = async (c: any) => {
 
 const ensureContractAccess = (role: RoleNorm, userId: string, contract: any) => {
   if (isAdminRole(role)) return true;
-
-  if (role === "freelancer") return contract.freelancerId === userId;
-  if (role === "client" || role === "employer") return contract.clientId === userId;
-
-  return false;
+  if (!userId) return false;
+  return contract.freelancerId === userId || contract.clientId === userId;
 };
 
 export const listContracts = async (req: Request, res: Response) => {
   try {
     const { role, userId } = getAuth(req);
 
-    if (!role) return res.json({ success: true, data: [] });
-
     let where: any = {};
 
-    if (!isAdminRole(role)) {
-      if (!userId) return res.json({ success: true, data: [] });
-
-      if (role === "freelancer") where.freelancerId = userId;
-      else if (role === "client" || role === "employer") where.clientId = userId;
-      else return res.json({ success: true, data: [] });
-    } else {
+    if (isAdminRole(role)) {
       const qUserId = (req.query.userId as string) || "";
       const qRole = normalizeRole(req.query.role as string);
       if (qUserId && qRole === "freelancer") where.freelancerId = qUserId;
       if (qUserId && (qRole === "client" || qRole === "employer")) where.clientId = qUserId;
+    } else {
+      if (!userId) return res.json({ success: true, data: [] });
+
+      // For non-admin users, always scope to "my contracts", then narrow by requested view role.
+      const qRole = normalizeRole(req.query.role as string);
+      if (qRole === "freelancer") {
+        where.freelancerId = userId;
+      } else if (qRole === "client" || qRole === "employer") {
+        where.clientId = userId;
+      } else {
+        where.OR = [{ freelancerId: userId }, { clientId: userId }];
+      }
     }
 
     const contracts = await prisma.contract.findMany({
@@ -183,17 +203,22 @@ export const getContract = async (req: Request, res: Response) => {
 
 export const createContract = async (req: Request, res: Response) => {
   try {
-    const { role } = getAuth(req);
-
-    if (!(isAdminRole(role) || role === "client" || role === "employer")) {
-      return res.status(403).json({ success: false, error: "Not authorized" });
-    }
+    const { role, userId } = getAuth(req);
 
     const title = req.body?.title;
     const clientId = req.body?.clientId;
     const freelancerId = req.body?.freelancerId;
     if (!title || !clientId || !freelancerId) {
       return res.status(400).json({ success: false, error: "title, clientId, freelancerId are required" });
+    }
+    if (!isAdminRole(role)) {
+      if (!userId) return res.status(401).json({ success: false, error: "Unauthorized" });
+      if (clientId !== userId) {
+        return res.status(403).json({ success: false, error: "clientId must match authenticated user" });
+      }
+    }
+    if (clientId === freelancerId) {
+      return res.status(400).json({ success: false, error: "Client and freelancer cannot be the same user" });
     }
 
     const created = await prisma.contract.create({
@@ -230,9 +255,6 @@ export const updateContractStatus = async (req: Request, res: Response) => {
     const contract = await prisma.contract.findUnique({ where: { id: req.params.id } });
     if (!contract) return res.status(404).json({ success: false, error: "Contract not found" });
 
-    if (!(isAdminRole(role) || role === "client" || role === "employer")) {
-      return res.status(403).json({ success: false, error: "Not authorized" });
-    }
     if (!isAdminRole(role) && contract.clientId !== userId) {
       return res.status(403).json({ success: false, error: "Not authorized" });
     }
@@ -276,11 +298,7 @@ export const updateContractStatus = async (req: Request, res: Response) => {
 
 export const startTracking = async (req: Request, res: Response) => {
   try {
-    const { role, userId } = getAuth(req);
-
-    if (role !== "freelancer") {
-      return res.status(403).json({ success: false, error: "Freelancer access required" });
-    }
+    const { userId } = getAuth(req);
 
     const contract = await prisma.contract.findUnique({ where: { id: req.params.id } });
     if (!contract) return res.status(404).json({ success: false, error: "Contract not found" });
@@ -343,11 +361,7 @@ export const startTracking = async (req: Request, res: Response) => {
 
 export const stopTracking = async (req: Request, res: Response) => {
   try {
-    const { role, userId } = getAuth(req);
-
-    if (role !== "freelancer") {
-      return res.status(403).json({ success: false, error: "Freelancer access required" });
-    }
+    const { userId } = getAuth(req);
 
     const contract = await prisma.contract.findUnique({ where: { id: req.params.id } });
     if (!contract) return res.status(404).json({ success: false, error: "Contract not found" });
@@ -648,13 +662,13 @@ export const listTimeEntriesForContract = async (req: Request, res: Response) =>
 
 export const logTimeEntry = async (req: Request, res: Response) => {
   try {
-    const { role, userId } = getAuth(req);
+    const { userId } = getAuth(req);
     const contractId = req.params.id;
 
     const contract = await prisma.contract.findUnique({ where: { id: contractId } });
     if (!contract) return res.status(404).json({ success: false, error: "Contract not found" });
 
-    if (role !== "freelancer" || contract.freelancerId !== userId) {
+    if (contract.freelancerId !== userId) {
       return res.status(403).json({ success: false, error: "Not authorized" });
     }
 
@@ -714,9 +728,6 @@ export const approveTimeEntry = async (req: Request, res: Response) => {
     const contract = await prisma.contract.findUnique({ where: { id: entry.contractId } });
     if (!contract) return res.status(404).json({ success: false, error: "Contract not found" });
 
-    if (!(isAdminRole(role) || role === "client" || role === "employer")) {
-      return res.status(403).json({ success: false, error: "Not authorized" });
-    }
     if (!isAdminRole(role) && contract.clientId !== userId) {
       return res.status(403).json({ success: false, error: "Not authorized" });
     }
@@ -741,9 +752,6 @@ export const payContractDue = async (req: Request, res: Response) => {
     const contract = await prisma.contract.findUnique({ where: { id: contractId } });
     if (!contract) return res.status(404).json({ success: false, error: "Contract not found" });
 
-    if (!(isAdminRole(role) || role === "client" || role === "employer")) {
-      return res.status(403).json({ success: false, error: "Not authorized" });
-    }
     if (!isAdminRole(role) && contract.clientId !== userId) {
       return res.status(403).json({ success: false, error: "Not authorized" });
     }
