@@ -477,6 +477,7 @@ const AppContent = () => {
   const isAdminRoute = location.pathname.startsWith('/admin') || location.pathname.startsWith('/dev-docs');
   const isMessagesRoute = /^\/messages(\/|$)/.test(location.pathname);
   const isMobileShellRoute = /^\/m(\/|$)/.test(location.pathname);
+  const isGigDetailRoute = /^\/gigs\/[^/]+/.test(location.pathname);
   const activeTab = new URLSearchParams(location.search).get('tab')?.toLowerCase();
   const isMessagesTabRoute = activeTab === 'messages';
   const uiVisibility = ((settings as any)?.uiVisibility || (settings as any)?.ui_visibility || {}) as Record<string, any>;
@@ -499,7 +500,12 @@ const AppContent = () => {
 
   const isFooterSuppressedByRule = matchesAnyRouteRule(location.pathname, footerHiddenRoutes);
   const isSupportWidgetSuppressedByRule = matchesAnyRouteRule(location.pathname, supportWidgetHiddenRoutes);
-  const shouldHideSupportWidget = isMobileShellRoute || isMessagesRoute || isMessagesTabRoute || isSupportWidgetSuppressedByRule;
+  const shouldHideSupportWidget =
+    isMobileShellRoute ||
+    isMessagesRoute ||
+    isMessagesTabRoute ||
+    isGigDetailRoute ||
+    isSupportWidgetSuppressedByRule;
   const shouldHideFooter = isMobileShellRoute || isAdminRoute || isMessagesRoute || isFooterSuppressedByRule;
   
   return (

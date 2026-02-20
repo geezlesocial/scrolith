@@ -28,8 +28,17 @@ class SocketService {
 
     this.disconnect()
 
-    const namespace = options.namespace ? (options.namespace.startsWith('/') ? options.namespace : `/${options.namespace}`) : ''
-    const socketUrl = `${options.url}${namespace}`
+    const namespace = options.namespace
+      ? (options.namespace.startsWith('/') ? options.namespace : `/${options.namespace}`)
+      : ''
+    const rawBaseUrl = String(options.url || '').trim()
+    // Avoid building URLs like "//community" when base is "/".
+    const normalizedBaseUrl =
+      rawBaseUrl && rawBaseUrl !== '/' ? rawBaseUrl.replace(/\/+$/, '') : ''
+    const socketUrl = normalizedBaseUrl
+      ? `${normalizedBaseUrl}${namespace}`
+      : (namespace || undefined)
+
     this.socket = io(socketUrl, {
       path: '/socket.io',
       transports: ['websocket', 'polling'],

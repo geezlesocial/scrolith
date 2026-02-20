@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useCurrency } from '../context/CurrencyContext';
-import { Star, Check, Clock, Heart, Share2, Flag, ChevronRight, Zap, RefreshCw, ArrowRight, ShieldAlert, ChevronDown, CheckCircle, Sparkles, Loader2, PlayCircle, FileText, Download, MessageCircle } from 'lucide-react';
+import { Star, Check, Clock, Heart, Share2, Flag, ChevronRight, Zap, RefreshCw, ArrowRight, ShieldAlert, ChevronDown, CheckCircle, Sparkles, Loader2, PlayCircle, FileText, Download, MessageCircle, X, Minus, Wifi, WifiOff } from 'lucide-react';
 import ProBadge from '../components/ProBadge';
 import { useNotification } from '../context/NotificationContext';
 import { ContractService } from '../services/contract';
@@ -79,7 +79,7 @@ const GigDetail = () => {
   const [hourlyContractLoading, setHourlyContractLoading] = useState(false);
   const [hourlyActionLoading, setHourlyActionLoading] = useState<'start' | 'pause' | 'pay' | null>(null);
   const gigChatMessagesEndRef = useRef<HTMLDivElement | null>(null);
-  const { socket } = useSocket();
+  const { socket, isConnected } = useSocket();
 
   const normalizeViewerRole = (rawRole?: string) => {
       const normalized = String(rawRole || '').toLowerCase();
@@ -332,6 +332,7 @@ const GigDetail = () => {
                   : [];
               setGigChatMessages(messages);
               await MessagingService.markAsRead(conversationId, user.id).catch(() => null);
+              setGigChatError(null);
           } catch (error: any) {
               if (!active) return;
               setGigChatError(error?.message || 'Unable to load conversation.');
@@ -399,6 +400,61 @@ const GigDetail = () => {
           socket.off('messages:updated', handleMessageUpdated);
       };
   }, [socket, gigChatOpen, gigChatConversationId, user?.id]);
+
+  useEffect(() => {
+      if (!gigChatOpen || !user?.id || !gigChatConversationId) return;
+
+      let cancelled = false;
+      const syncMessages = async () => {
+          try {
+              const conversation = await MessagingService.getConversationById(gigChatConversationId);
+              if (cancelled) return;
+              const nextMessages = Array.isArray(conversation?.messages)
+                  ? conversation!.messages.map((entry: Message) => normalizeGigChatMessage(entry))
+                  : [];
+              setGigChatMessages((prev) => {
+                  if (prev.length === nextMessages.length) {
+                      const prevLast = prev[prev.length - 1];
+                      const nextLast = nextMessages[nextMessages.length - 1];
+                      if (
+                          (prevLast?.id || '') === (nextLast?.id || '') &&
+                          (prevLast?.timestamp || '') === (nextLast?.timestamp || '')
+                      ) {
+                          return prev;
+                      }
+                  }
+                  return nextMessages;
+              });
+              await MessagingService.markAsRead(gigChatConversationId, user.id).catch(() => null);
+          } catch {
+              // Keep polling silent to avoid chat flicker if backend is briefly unavailable.
+          }
+      };
+
+      void syncMessages();
+      const intervalMs = isConnected ? 10000 : 4500;
+      const timer = window.setInterval(() => {
+          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+          void syncMessages();
+      }, intervalMs);
+
+      return () => {
+          cancelled = true;
+          window.clearInterval(timer);
+      };
+  }, [gigChatOpen, gigChatConversationId, user?.id, isConnected]);
+
+  useEffect(() => {
+      if (!gigChatOpen) return;
+      const handleEscape = (event: KeyboardEvent) => {
+          if (event.key !== 'Escape') return;
+          event.preventDefault();
+          setGigChatOpen(false);
+          setGigChatReplyTo(null);
+      };
+      window.addEventListener('keydown', handleEscape);
+      return () => window.removeEventListener('keydown', handleEscape);
+  }, [gigChatOpen]);
 
   const handlePriceAnalysis = async () => {
       setAnalyzingPrice(true);
@@ -871,19 +927,25 @@ const GigDetail = () => {
   const isOwnGig = Boolean(user?.id && sellerId && user.id === sellerId);
   const gigChatFeatureEnabled =
       gigExperience?.enabled !== false &&
-      gigExperience?.chatBarEnabled !== false &&
+      (gigExperience?.chatBarEnabled !== false || gigExperience?.inlineChatEnabled !== false) &&
       !isOwnGig;
   const showGigChatBar = gigChatFeatureEnabled && !gigChatWidgetDismissed;
   const showGigChatRestore = gigChatFeatureEnabled && gigChatWidgetDismissed;
+  const showGigChatQuickPrompts =
+      quickPrompts.length > 0 && !gigChatLoading && !gigChatError && gigChatMessages.length === 0;
   const showSellerMeta = gigExperience?.showSellerMeta !== false;
-  const gigChatDockClass = 'fixed bottom-6 left-6 z-[61]';
-  const gigChatCompactDockClass = 'fixed bottom-[calc(env(safe-area-inset-bottom,0px)+4.5rem)] right-3 z-[95]';
+  const gigChatDockClass = 'fixed bottom-6 left-6 z-[111]';
+  const gigChatCompactDockClass = 'fixed bottom-[calc(env(safe-area-inset-bottom,0px)+4.75rem)] right-3 z-[122]';
   const gigChatRestoreClass = isCompactViewport
-      ? 'fixed bottom-[calc(env(safe-area-inset-bottom,0px)+4.5rem)] right-3 z-[95]'
-      : 'fixed bottom-6 left-6 z-[63]';
+      ? 'fixed bottom-[calc(env(safe-area-inset-bottom,0px)+4.75rem)] right-3 z-[122]'
+      : 'fixed bottom-6 left-6 z-[113]';
   const gigChatPanelClass = isCompactViewport
-      ? 'fixed bottom-[calc(env(safe-area-inset-bottom,0px)+4.5rem)] left-3 right-3 z-[96] flex max-h-[calc(100vh-7rem)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl'
-      : 'fixed bottom-4 left-4 z-[62] flex w-[92vw] max-h-[calc(100vh-6rem)] max-w-md flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl';
+      ? 'fixed bottom-[calc(env(safe-area-inset-bottom,0px)+4.75rem)] left-3 right-3 z-[123] flex flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl'
+      : 'fixed bottom-4 left-4 z-[112] flex w-[92vw] max-w-md flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl';
+  const gigChatPanelStyle = isCompactViewport
+      ? { height: 'calc(100vh - 7.25rem)', maxHeight: '38rem', minHeight: '22rem' }
+      : { height: 'calc(100vh - 6rem)', maxHeight: '40rem', minHeight: '24rem' };
+  const gigChatSyncLabel = isConnected ? 'Live sync active' : 'Live sync reconnecting...';
   const contractStatus = String((hourlyContract as any)?.status || '').toLowerCase();
   const contractHours = contractNumber((hourlyContract as any)?.totalHoursLogged ?? (hourlyContract as any)?.total_hours_logged, 0);
   const contractPending = contractNumber((hourlyContract as any)?.earningsPending ?? (hourlyContract as any)?.earnings_pending, 0);
@@ -1623,9 +1685,9 @@ const GigDetail = () => {
                                 type="button"
                                 onClick={dismissGigChatWidget}
                                 aria-label="Close message widget"
-                                className="absolute -right-2 -top-2 rounded-full border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-500 shadow-sm hover:bg-gray-50"
+                                className="absolute -right-2 -top-2 inline-flex h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm hover:bg-gray-50"
                             >
-                                x
+                                <X className="h-3.5 w-3.5" />
                             </button>
                             <button
                                 type="button"
@@ -1657,9 +1719,9 @@ const GigDetail = () => {
                                 type="button"
                                 onClick={dismissGigChatWidget}
                                 aria-label="Close message widget"
-                                className="absolute -left-2 -top-2 rounded-full border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-500 shadow-sm hover:bg-gray-50"
+                                className="absolute -left-2 -top-2 inline-flex h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm hover:bg-gray-50"
                             >
-                                x
+                                <X className="h-3.5 w-3.5" />
                             </button>
                             <button
                                 type="button"
@@ -1674,8 +1736,20 @@ const GigDetail = () => {
                 </>
             )}
 
+            {gigChatOpen && isCompactViewport ? (
+                <button
+                    type="button"
+                    aria-label="Close message panel backdrop"
+                    onClick={() => {
+                        setGigChatOpen(false);
+                        setGigChatReplyTo(null);
+                    }}
+                    className="fixed inset-0 z-[120] bg-black/35 backdrop-blur-[1px]"
+                />
+            ) : null}
+
             {gigChatOpen && (
-                <div className={gigChatPanelClass}>
+                <div className={gigChatPanelClass} style={gigChatPanelStyle}>
                     <div className="shrink-0 flex items-center justify-between border-b border-gray-100 px-4 py-3">
                         <div className="flex min-w-0 items-center gap-3">
                             {gig.freelancerAvatar ? (
@@ -1702,17 +1776,17 @@ const GigDetail = () => {
                                     setGigChatReplyTo(null);
                                 }}
                                 aria-label="Minimize message widget"
-                                className="rounded-full px-2 py-1 text-sm font-semibold text-gray-500 hover:bg-gray-100"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100"
                             >
-                                -
+                                <Minus className="h-4 w-4" />
                             </button>
                             <button
                                 type="button"
                                 onClick={dismissGigChatWidget}
                                 aria-label="Close message widget"
-                                className="rounded-full p-2 text-gray-400 hover:bg-gray-100"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100"
                             >
-                                x
+                                <X className="h-4 w-4" />
                             </button>
                         </div>
                     </div>
@@ -1721,8 +1795,8 @@ const GigDetail = () => {
                         <p className="text-sm text-gray-600">
                             Ask a question or share your requirements, timeline, and budget.
                         </p>
-                        {quickPrompts.length > 0 ? (
-                            <div className="space-y-2">
+                        {showGigChatQuickPrompts ? (
+                            <div className="max-h-40 space-y-2 overflow-y-auto pr-1">
                                 {quickPrompts.slice(0, 3).map((prompt: string, index: number) => (
                                     <button
                                         key={`prompt-${index}`}
@@ -1738,7 +1812,7 @@ const GigDetail = () => {
                     </div>
 
                     <div className="grow min-h-0 border-y border-gray-100 bg-gray-50/60 px-4 py-3">
-                        <div className="h-full min-h-[11rem] space-y-2 overflow-y-auto rounded-xl border border-gray-100 bg-white p-3">
+                        <div className="h-full min-h-0 space-y-2 overflow-y-auto rounded-xl border border-gray-100 bg-white p-3">
                             {!user ? (
                                 <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
                                     Login to send and receive messages with this freelancer.
@@ -1830,18 +1904,24 @@ const GigDetail = () => {
                         <textarea
                             value={gigChatDraft}
                             onChange={(e) => setGigChatDraft(e.target.value)}
-                            rows={4}
+                            rows={isCompactViewport ? 3 : 4}
                             placeholder="Write a message..."
                             className="w-full resize-none rounded-xl border border-gray-200 p-3 text-sm outline-none focus:border-blue-500"
                         />
-                        <div className="mt-3 flex items-center justify-between gap-2">
+                        <div className="mt-2 flex items-center justify-between">
+                            <p className="inline-flex items-center gap-1 text-[11px] text-gray-500">
+                                {isConnected ? <Wifi className="h-3.5 w-3.5 text-emerald-500" /> : <WifiOff className="h-3.5 w-3.5 text-amber-500" />}
+                                {gigChatSyncLabel}
+                            </p>
                             <button
                                 type="button"
                                 onClick={handleOpenFullInbox}
-                                className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                                className="rounded-lg border border-gray-200 px-3 py-1.5 text-[11px] font-semibold text-gray-600 hover:bg-gray-50"
                             >
                                 Open full inbox
                             </button>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
                                 <button
                                     type="button"

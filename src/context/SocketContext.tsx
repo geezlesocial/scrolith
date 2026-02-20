@@ -138,7 +138,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const connectSocket = async () => {
       // Keep socket origin aligned with the canonical API base resolver so
       // accidental placeholder domains (e.g. api.example.com) are ignored.
-      const socketUrl = getBackendOrigin() || '/'
+      const socketUrl = getBackendOrigin() || ''
 
       const token = (await tokenStore.get()) || ''
 
