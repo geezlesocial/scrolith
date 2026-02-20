@@ -98,12 +98,16 @@ export default defineConfig({
     postcss: './postcss.config.cjs',
   },
   build: {
+    modulePreload: false,
     cssCodeSplit: true,
     reportCompressedSize: false,
     chunkSizeWarningLimit: 1200,
     rollupOptions: {
       output: {
         manualChunks(id) {
+          // Disable custom chunk partitioning for now; the previous graph created
+          // circular imports that broke React initialization in production.
+          return undefined;
           const normalizedId = id.replace(/\\/g, '/');
           if (normalizedId.includes('/node_modules/')) {
             if (
