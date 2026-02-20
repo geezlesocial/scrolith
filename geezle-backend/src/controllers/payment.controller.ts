@@ -24,17 +24,40 @@ export const createPaymentIntent = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Order ID and amount are required' });
     }
 
+    const requestedAmount = Number(amount);
+    if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+      return res.status(400).json({ error: 'Amount must be a valid positive number' });
+    }
+
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    const baseAmount = Number(order?.amount ?? requestedAmount);
+    const settings = await getOrCreateSettings();
+    const commissionBreakdown = computeCommissionBreakdown(baseAmount, settings);
+    const employerFee = commissionBreakdown.employerFee;
+    const freelancerCommission = commissionBreakdown.freelancerFee;
+    const totalCharged = Number((baseAmount + employerFee).toFixed(2));
+
     // Create Stripe payment intent
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100),
+      amount: Math.round(totalCharged * 100),
       currency,
-      metadata: { orderId },
+      metadata: {
+        orderId: String(orderId),
+        baseAmount: String(baseAmount),
+        employerFee: String(employerFee),
+        freelancerCommission: String(freelancerCommission),
+        totalCharged: String(totalCharged)
+      },
       automatic_payment_methods: { enabled: true },
     });
 
     return res.json({
       clientSecret: paymentIntent.client_secret,
-      paymentIntentId: paymentIntent.id
+      paymentIntentId: paymentIntent.id,
+      baseAmount,
+      employerFee,
+      freelancerCommission,
+      totalCharged
     });
   } catch (error: any) {
     console.error('Payment intent error:', error);
@@ -113,12 +136,17 @@ export const handleWebhook = async (req: Request, res: Response) => {
             const order = await prisma.order.findUnique({ where: { id: orderId } });
             const baseAmount = Number(order?.amount ?? 0);
             const commissionBreakdown = computeCommissionBreakdown(baseAmount, settings);
+            const commissionFromMetadata = Number(paymentIntent?.metadata?.freelancerCommission);
+            const freelancerCommission =
+              Number.isFinite(commissionFromMetadata) && commissionFromMetadata >= 0
+                ? commissionFromMetadata
+                : commissionBreakdown.freelancerFee;
             await prisma.escrow.update({
               where: { orderId },
               data: {
                 status: 'FUNDED',
                 fundedAt: new Date(),
-                commission: commissionBreakdown.freelancerFee
+                commission: freelancerCommission
               }
             });
 

@@ -14,9 +14,24 @@ const REQUIRED_KEYS: EnvKey[] = [
 ];
 
 const OPTIONAL_KEYS: EnvKey[] = [
+  { key: 'EMAIL_PROVIDER', description: 'Email provider: smtp | ses | sendgrid | mailgun' },
   { key: 'EMAIL_HOST', description: 'SMTP host' },
+  { key: 'EMAIL_PORT', description: 'SMTP port' },
   { key: 'EMAIL_USER', description: 'SMTP username' },
   { key: 'EMAIL_PASS', description: 'SMTP password' },
+  { key: 'EMAIL_FROM_NAME', description: 'Email sender display name' },
+  { key: 'EMAIL_FROM_EMAIL', description: 'Email sender address' },
+  { key: 'EMAIL_ENCRYPTION', description: 'Email transport encryption: tls | ssl | none' },
+  { key: 'SES_REGION', description: 'Amazon SES region (for SMTP host defaults)' },
+  { key: 'SES_SMTP_USERNAME', description: 'Amazon SES SMTP username' },
+  { key: 'SES_SMTP_PASSWORD', description: 'Amazon SES SMTP password' },
+  { key: 'SENDGRID_API_KEY', description: 'SendGrid API key' },
+  { key: 'SENDGRID_SMTP_USERNAME', description: 'SendGrid SMTP username (often apikey)' },
+  { key: 'SENDGRID_SMTP_PASSWORD', description: 'SendGrid SMTP password (or API key)' },
+  { key: 'MAILGUN_DOMAIN', description: 'Mailgun domain (for inferred SMTP username)' },
+  { key: 'MAILGUN_API_KEY', description: 'Mailgun API key' },
+  { key: 'MAILGUN_SMTP_USERNAME', description: 'Mailgun SMTP username' },
+  { key: 'MAILGUN_SMTP_PASSWORD', description: 'Mailgun SMTP password' },
   { key: 'GOOGLE_API_KEY', description: 'Google / Vertex AI key' },
   { key: 'OPENAI_API_KEY', description: 'OpenAI API key' },
   { key: 'SCROLITHA_PROVIDER', description: 'Scrolitha provider: ollama | disabled' },
@@ -33,6 +48,10 @@ const OPTIONAL_KEYS: EnvKey[] = [
   { key: 'AZURE_STORAGE_CONNECTION_STRING', description: 'Azure Blob storage connection string' },
   { key: 'AZURE_STORAGE_CONTAINER', description: 'Azure Blob storage container name' },
   { key: 'AZURE_BLOB_BASE_URL', description: 'Azure Blob base URL for public files' },
+  { key: 'API_REQUEST_LOGGING', description: 'Enable verbose API request logs in production' },
+  { key: 'API_RATE_LIMIT_WINDOW_MS', description: 'API rate-limit rolling window in ms' },
+  { key: 'API_RATE_LIMIT_MAX_ANON', description: 'API rate-limit max requests for anonymous traffic per window' },
+  { key: 'API_RATE_LIMIT_MAX_AUTH', description: 'API rate-limit max requests for authenticated traffic per window' },
   { key: 'FCM_SERVICE_ACCOUNT_JSON', description: 'Firebase service account JSON (inline)' },
   { key: 'FCM_SERVICE_ACCOUNT_B64', description: 'Firebase service account JSON (base64)' },
   { key: 'FCM_SERVICE_ACCOUNT_PATH', description: 'Firebase service account JSON path' },
@@ -45,7 +64,11 @@ export function validateEnv() {
 
   for (const k of REQUIRED_KEYS) {
     if (!process.env[k.key] || process.env[k.key]!.trim() === '') {
-      missingCritical.push(`${k.key} - ${k.description || ''}`.trim());
+      if (k.requiredInProd === false) {
+        missingOptional.push(`${k.key} - ${k.description || ''}`.trim());
+      } else {
+        missingCritical.push(`${k.key} - ${k.description || ''}`.trim());
+      }
     }
   }
 

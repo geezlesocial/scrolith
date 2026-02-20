@@ -83,23 +83,44 @@ const normalizeProvidersConfig = (settings: any) => {
   return {};
 };
 
+const toBoolean = (value: unknown, fallback = false) => {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+  }
+  return Boolean(value);
+};
+
 const getProviderConfig = (provider: string, settings: any) => {
   const config = normalizeProvidersConfig(settings);
   const entry = config?.[provider] || {};
 
   if (provider === 'stripe') {
-    const rawConnectEnabled = entry?.connectEnabled;
-    const connectEnabled =
-      rawConnectEnabled === true ||
-      rawConnectEnabled === 1 ||
-      String(rawConnectEnabled || '').toLowerCase() === 'true' ||
-      String(rawConnectEnabled || '').toLowerCase() === '1';
+    const connectEnabled = toBoolean(
+      entry?.connectEnabled ??
+        entry?.connect_enabled ??
+        (settings as any)?.stripeConnectEnabled ??
+        process.env.STRIPE_CONNECT_ENABLED ??
+        process.env.STRIPE_CONNECT_PAYOUTS_ENABLED,
+      false
+    );
     return {
       enabled: entry?.enabled ?? true,
       secretKey: maybeDecryptSecret(entry?.secretKey || process.env.STRIPE_SECRET_KEY),
       webhookSecret: maybeDecryptSecret(entry?.webhookSecret || process.env.STRIPE_WEBHOOK_SECRET),
       connectEnabled,
-      connectType: String(entry?.connectType || 'express').toLowerCase() === 'standard' ? 'standard' : 'express'
+      connectType:
+        String(
+          entry?.connectType ||
+            entry?.accountType ||
+            (settings as any)?.stripeConnectType ||
+            process.env.STRIPE_CONNECT_TYPE ||
+            'express'
+        ).toLowerCase() === 'standard'
+          ? 'standard'
+          : 'express'
     };
   }
 
@@ -331,13 +352,32 @@ const mapGateway = (gateway: any, settings: any) => {
   const enabled = entry?.enabled ?? false;
   const explicitEnv = entry?.environment || entry?.mode;
   const resolvedMode = explicitEnv ? (explicitEnv === 'live' ? 'live' : 'test') : (settings?.paymentTestMode ? 'test' : 'live');
+  const sanitizedConfig = sanitizeConfigForAdmin(gateway.id, entry);
+
+  if (gateway.id === 'stripe') {
+    const rawConnectEnabled = sanitizedConfig.connectEnabled ?? sanitizedConfig.connect_enabled;
+    sanitizedConfig.environment =
+      sanitizedConfig.environment || sanitizedConfig.mode || (resolvedMode === 'live' ? 'live' : 'sandbox');
+    sanitizedConfig.connectEnabled = toBoolean(rawConnectEnabled, false);
+    sanitizedConfig.connectType =
+      String(
+        sanitizedConfig.connectType ||
+          sanitizedConfig.accountType ||
+          (settings as any)?.stripeConnectType ||
+          process.env.STRIPE_CONNECT_TYPE ||
+          'express'
+      ).toLowerCase() === 'standard'
+        ? 'standard'
+        : 'express';
+  }
+
   return {
     ...gateway,
     logo: entry?.logo || gateway.logo,
     is_enabled: Boolean(enabled),
     isEnabled: Boolean(enabled),
     mode: resolvedMode,
-    config: sanitizeConfigForAdmin(gateway.id, entry)
+    config: sanitizedConfig
   };
 };
 

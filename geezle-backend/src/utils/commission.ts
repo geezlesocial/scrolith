@@ -6,23 +6,60 @@ type CommissionSettingsNormalized = {
   minimum_fee: number;
 };
 
+const DEFAULT_COMMISSION_SETTINGS: CommissionSettingsNormalized = {
+  freelancer_fee_type: 'percentage',
+  freelancer_fee_value: 20,
+  employer_fee_type: 'percentage',
+  employer_fee_value: 0,
+  minimum_fee: 2
+};
+
 const toNumber = (value: any, fallback = 0) => {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 };
 
+const normalizeFeeType = (value: unknown, fallback: 'percentage' | 'fixed') => {
+  const raw = String(value || '').trim().toLowerCase();
+  return raw === 'fixed' ? 'fixed' : raw === 'percentage' ? 'percentage' : fallback;
+};
+
 export const normalizeCommissionSettings = (settings: any): CommissionSettingsNormalized => {
+  const maybeObject = settings && typeof settings === 'object' ? settings : {};
   const limits =
-    settings?.walletFundingLimits && typeof settings.walletFundingLimits === 'object'
-      ? (settings.walletFundingLimits as Record<string, any>)
-      : {};
-  const stored = limits.commissionSettings || limits.commission_settings || {};
+    maybeObject?.walletFundingLimits && typeof maybeObject.walletFundingLimits === 'object'
+      ? (maybeObject.walletFundingLimits as Record<string, any>)
+      : maybeObject;
+  const stored =
+    limits?.commissionSettings ||
+    limits?.commission_settings ||
+    maybeObject?.commissionSettings ||
+    maybeObject?.commission_settings ||
+    {};
   return {
-    freelancer_fee_type: (stored.freelancer_fee_type ?? stored.freelancerFeeType ?? 'percentage') as 'percentage' | 'fixed',
-    freelancer_fee_value: toNumber(stored.freelancer_fee_value ?? stored.freelancerFeeValue ?? 0),
-    employer_fee_type: (stored.employer_fee_type ?? stored.employerFeeType ?? 'percentage') as 'percentage' | 'fixed',
-    employer_fee_value: toNumber(stored.employer_fee_value ?? stored.employerFeeValue ?? 0),
-    minimum_fee: toNumber(stored.minimum_fee ?? stored.minimumFee ?? 0)
+    freelancer_fee_type: normalizeFeeType(
+      stored.freelancer_fee_type ?? stored.freelancerFeeType,
+      DEFAULT_COMMISSION_SETTINGS.freelancer_fee_type
+    ),
+    freelancer_fee_value: Math.max(
+      0,
+      toNumber(
+        stored.freelancer_fee_value ?? stored.freelancerFeeValue,
+        DEFAULT_COMMISSION_SETTINGS.freelancer_fee_value
+      )
+    ),
+    employer_fee_type: normalizeFeeType(
+      stored.employer_fee_type ?? stored.employerFeeType,
+      DEFAULT_COMMISSION_SETTINGS.employer_fee_type
+    ),
+    employer_fee_value: Math.max(
+      0,
+      toNumber(stored.employer_fee_value ?? stored.employerFeeValue, DEFAULT_COMMISSION_SETTINGS.employer_fee_value)
+    ),
+    minimum_fee: Math.max(
+      0,
+      toNumber(stored.minimum_fee ?? stored.minimumFee, DEFAULT_COMMISSION_SETTINGS.minimum_fee)
+    )
   };
 };
 

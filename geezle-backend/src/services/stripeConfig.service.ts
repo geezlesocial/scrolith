@@ -45,6 +45,8 @@ const loadFromSettings = async (): Promise<StripeGatewayConfig> => {
   const settings = await prisma.settings.findFirst({ orderBy: { updatedAt: 'desc' } });
   const providers = toObject(settings?.walletFundingProviders);
   const stripeProvider = toObject(providers.stripe);
+  const legacyStripeConnectEnabled = (settings as any)?.stripeConnectEnabled;
+  const legacyStripeConnectType = (settings as any)?.stripeConnectType;
 
   const mode = normalizeMode(
     stripeProvider.environment || stripeProvider.mode || (settings?.paymentTestMode ? 'test' : 'live')
@@ -53,8 +55,21 @@ const loadFromSettings = async (): Promise<StripeGatewayConfig> => {
   const webhookSecret = maybeDecryptSecret(stripeProvider.webhookSecret || '');
   const publishableKey = String(stripeProvider.publishableKey || settings?.paymentStripeKey || '');
   const enabled = toBoolean(stripeProvider.enabled, Boolean(secretKey));
-  const connectEnabled = toBoolean(stripeProvider.connectEnabled, false);
-  const connectType = normalizeConnectType(stripeProvider.connectType || stripeProvider.accountType || 'express');
+  const connectEnabledEnvFallback = toBoolean(
+    process.env.STRIPE_CONNECT_ENABLED ?? process.env.STRIPE_CONNECT_PAYOUTS_ENABLED,
+    false
+  );
+  const connectEnabled = toBoolean(
+    stripeProvider.connectEnabled ?? stripeProvider.connect_enabled ?? legacyStripeConnectEnabled,
+    connectEnabledEnvFallback
+  );
+  const connectType = normalizeConnectType(
+    stripeProvider.connectType ||
+      stripeProvider.accountType ||
+      legacyStripeConnectType ||
+      process.env.STRIPE_CONNECT_TYPE ||
+      'express'
+  );
 
   return {
     enabled,
@@ -91,4 +106,3 @@ export const requireStripeClient = async (): Promise<Stripe> => {
   }
   return client;
 };
-

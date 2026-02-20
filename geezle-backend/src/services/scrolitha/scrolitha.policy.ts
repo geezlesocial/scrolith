@@ -44,6 +44,25 @@ const DEFAULT_CONFIG = {
   }
 } as const;
 
+const isPlainObject = (value: unknown): value is Record<string, any> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const mergeMetadataObjects = (
+  base: Record<string, any>,
+  patch: Record<string, any>
+): Record<string, any> => {
+  const out: Record<string, any> = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    const current = out[key];
+    if (isPlainObject(current) && isPlainObject(value)) {
+      out[key] = mergeMetadataObjects(current, value);
+      continue;
+    }
+    out[key] = value;
+  }
+  return out;
+};
+
 export const normalizeRole = (role: unknown) => String(role || '').trim().toLowerCase();
 
 export const resolveScrolithaScope = (role: unknown): ScrolithaScope => {
@@ -159,10 +178,11 @@ export const updateScrolithaConfig = async (input: {
     adminActionCapPerMinute: Number.isFinite(Number(input.adminActionCapPerMinute))
       ? Math.max(1, Math.min(100, Math.floor(Number(input.adminActionCapPerMinute))))
       : existing.adminActionCapPerMinute,
-    metadata:
-      input.metadata && typeof input.metadata === 'object' && !Array.isArray(input.metadata)
-        ? (input.metadata as Record<string, any>)
-        : existing.metadata,
+    metadata: (() => {
+      if (!isPlainObject(input.metadata)) return existing.metadata;
+      const base = isPlainObject(existing.metadata) ? (existing.metadata as Record<string, any>) : {};
+      return mergeMetadataObjects(base, input.metadata);
+    })(),
     updatedBy: input.updatedBy || null
   };
 

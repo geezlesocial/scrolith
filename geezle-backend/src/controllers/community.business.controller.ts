@@ -110,6 +110,10 @@ const normalizeStatus = (value: unknown, fallback = 'active') => {
   if (!normalized) return fallback;
   return PAGE_STATUS_ALIASES[normalized] || '';
 };
+const isKycVerifiedStatus = (status?: string | null) => {
+  const normalized = String(status || '').trim().toLowerCase();
+  return normalized === 'verified' || normalized === 'approved';
+};
 
 const slugify = (value: unknown) =>
   String(value || '')
@@ -861,6 +865,7 @@ export const createBusinessPagePost = async (req: Request, res: Response) => {
             avatar: true,
             role: true,
             isVerified: true,
+            kycStatus: true,
             freelancerPlanActive: true,
             employerPlanActive: true
           }
@@ -894,7 +899,7 @@ export const createBusinessPagePost = async (req: Request, res: Response) => {
         `https://ui-avatars.com/api/?name=${encodeURIComponent(post.businessPage?.name || post.author?.name || 'Business')}`,
       type: post.businessPage ? 'business' : 'user',
       businessSlug: post.businessPage?.slug || null,
-      isVerified: Boolean(post.author?.isVerified),
+      isVerified: Boolean(post.author?.isVerified || isKycVerifiedStatus((post.author as any)?.kycStatus)),
       isPro: Boolean(post.author?.freelancerPlanActive || post.author?.employerPlanActive)
     };
     const authorIdentity = resolvePostAuthorIdentity(
@@ -1020,6 +1025,7 @@ export const getBusinessPageFeed = async (req: Request, res: Response) => {
             role: true,
             username: true,
             isVerified: true,
+            kycStatus: true,
             freelancerPlanActive: true,
             employerPlanActive: true
           }
@@ -1089,7 +1095,7 @@ export const getBusinessPageFeed = async (req: Request, res: Response) => {
             `https://ui-avatars.com/api/?name=${encodeURIComponent(post.businessPage?.name || post.author?.name || 'Business')}`,
           type: post.businessPage ? 'business' : 'user',
           businessSlug: post.businessPage?.slug || null,
-          isVerified: Boolean(post.author?.isVerified),
+          isVerified: Boolean(post.author?.isVerified || isKycVerifiedStatus((post.author as any)?.kycStatus)),
           isPro: Boolean(post.author?.freelancerPlanActive || post.author?.employerPlanActive)
         };
         const authorIdentity = resolvePostAuthorIdentity(

@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import { resolveUserProStatus } from '../utils/proStatus';
+import { notifyFollowersAboutPublication } from '../services/followPublicationNotifications.service';
+import { resolveFeaturedListingEligibility } from '../services/listingFeaturePolicy.service';
 
 const getAutoApproveGigs = async () => {
   try {
@@ -13,9 +15,48 @@ const getAutoApproveGigs = async () => {
 };
 
 const normalizeStatus = (status?: string) => (status || '').toString().toLowerCase();
+const parseBooleanQuery = (value: unknown) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+};
+const parseLimitQuery = (value: unknown, max = 100) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  return Math.max(1, Math.min(max, Math.floor(numeric)));
+};
+const isKycVerifiedStatus = (status?: string | null) => {
+  const normalized = String(status || '').trim().toLowerCase();
+  return normalized === 'verified' || normalized === 'approved';
+};
+const resolveUserVerified = (user?: { isVerified?: boolean | null; kycStatus?: string | null } | null) => {
+  return Boolean(user?.isVerified || isKycVerifiedStatus(user?.kycStatus));
+};
+const shuffleItems = <T>(items: T[]) => {
+  const next = [...items];
+  for (let i = next.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [next[i], next[j]] = [next[j], next[i]];
+  }
+  return next;
+};
 const safeArray = <T>(value: unknown): T[] => (Array.isArray(value) ? value : []);
 const resolvePricingMode = (payload: any, existing?: any) =>
   payload?.pricingMode ?? payload?.pricing_mode ?? existing?.pricingMode ?? 'packages';
+const toBoolFromPayload = (value: unknown) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value > 0;
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return false;
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+};
+const rankRecommendedGig = (gig: any) => {
+  const recommendedBoost = gig?.isRecommended ? 8 : 0;
+  const topSelectedBoost = gig?.isTopSelected ? 5 : 0;
+  const featuredBoost = gig?.isFeatured ? 3 : 0;
+  const reviewBoost = Math.min(4, Math.floor(Number(gig?.reviewCount || 0) / 5));
+  const ratingBoost = Math.min(4, Math.floor(Number(gig?.rating || 0)));
+  return recommendedBoost + topSelectedBoost + featuredBoost + reviewBoost + ratingBoost;
+};
 
 const resolveGigCategoryId = async (payload: any) => {
   if (payload?.categoryId) return payload.categoryId;
@@ -53,6 +94,7 @@ export const serializeGig = (gig: any) => {
   const images = safeArray<string>(gig.images);
   const tags = safeArray<string>(gig.tags);
   const pro = gig.user ? resolveUserProStatus(gig.user) : { freelancerIsPro: false };
+  const freelancerIsVerified = resolveUserVerified(gig.user);
   return {
     id: gig.id,
     title: gig.title,
@@ -98,16 +140,50 @@ export const serializeGig = (gig: any) => {
     freelancerAvatar: gig.user?.avatar || null,
     freelancerProfilePhotoFileId: gig.user?.profilePhotoFileId || null,
     freelancerIsPro: Boolean((pro as any).freelancerIsPro),
+    freelancerIsVerified,
+    freelancer_is_verified: freelancerIsVerified,
+    freelancerVerified: freelancerIsVerified,
     media: images,
     createdAt: gig.createdAt?.toISOString(),
     updatedAt: gig.updatedAt?.toISOString()
   };
 };
 
+const emitGigPublished = (req: Request, gig: any) => {
+  const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
+  const payload = { gig: serializeGig(gig) };
+  try { io?.emit('community:gig_published', payload); } catch {}
+};
+
+const notifyFollowersAboutGigPublication = async (req: Request, gig: any) => {
+  try {
+    await notifyFollowersAboutPublication({
+      actorUserId: String(gig?.userId || ''),
+      publicationType: 'gig',
+      publicationId: String(gig?.id || ''),
+      publicationTitle: String(gig?.title || '')
+    });
+  } catch (error) {
+    console.warn('[gigs] follower notification fanout failed', error);
+  }
+  emitGigPublished(req, gig);
+};
+
 export const listGigs = async (req: Request, res: Response) => {
   try {
     const { ownerId, status, search, category } = req.query as Record<string, string | undefined>;
     const userId = req.user?.id as string | undefined;
+    const recommendedOnly = parseBooleanQuery(req.query.recommended);
+    const featuredOnly = parseBooleanQuery(req.query.featuredOnly);
+    const explicitRandomize = parseBooleanQuery(req.query.random);
+    const hasRandomParam = req.query.random !== undefined;
+    const limit = parseLimitQuery(req.query.limit, 100);
+    const shouldDefaultRandomize =
+      !hasRandomParam &&
+      ownerId !== 'me' &&
+      String(status || '').toLowerCase() === 'active' &&
+      limit !== null;
+    const randomize = explicitRandomize || shouldDefaultRandomize;
 
     const where: any = {};
 
@@ -134,18 +210,45 @@ export const listGigs = async (req: Request, res: Response) => {
       where.category = { name: category };
     }
 
+    const andFilters: any[] = [];
     if (search) {
-      where.OR = [
+      andFilters.push({
+        OR: [
         { title: { contains: search, mode: 'insensitive' } },
         { description: { contains: search, mode: 'insensitive' } }
-      ];
+        ]
+      });
+    }
+    if (featuredOnly) {
+      andFilters.push({ isFeatured: true });
+    }
+    if (recommendedOnly) {
+      andFilters.push({
+        OR: [{ isRecommended: true }, { isTopSelected: true }, { isFeatured: true }]
+      });
+    }
+    if (andFilters.length) {
+      where.AND = andFilters;
     }
 
-    const gigs = await prisma.gig.findMany({
+    let gigs = await prisma.gig.findMany({
       where,
       orderBy: { updatedAt: 'desc' },
       include: { category: true, user: true }
     });
+    if (recommendedOnly && !randomize) {
+      gigs = [...gigs].sort((a, b) => {
+        const scoreDiff = rankRecommendedGig(b) - rankRecommendedGig(a);
+        if (scoreDiff !== 0) return scoreDiff;
+        return new Date(String(b.updatedAt || 0)).getTime() - new Date(String(a.updatedAt || 0)).getTime();
+      });
+    }
+    if (randomize) {
+      gigs = shuffleItems(gigs);
+    }
+    if (limit !== null) {
+      gigs = gigs.slice(0, limit);
+    }
 
     return res.json({ success: true, data: gigs.map(serializeGig) });
   } catch (error: any) {
@@ -174,6 +277,21 @@ export const createGig = async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
     const payload = req.body || {};
+    const requestedFeatured = toBoolFromPayload(payload.is_featured ?? payload.isFeatured);
+    if (requestedFeatured) {
+      const eligibility = await resolveFeaturedListingEligibility({
+        listingType: 'gig',
+        userId
+      });
+      if (!eligibility.allowed) {
+        return res.status(403).json({
+          success: false,
+          code: 'FEATURED_GIG_LIMIT_REACHED',
+          error: eligibility.reason || 'Featured gig quota reached for this month',
+          data: eligibility
+        });
+      }
+    }
     const categoryId = await resolveGigCategoryId(payload);
     const deliveryTime = Number(
       payload.deliveryTime ?? payload.delivery_days ?? payload.deliveryDays ?? 1
@@ -203,6 +321,7 @@ export const createGig = async (req: Request, res: Response) => {
         deliveryTime: Number.isFinite(deliveryTime) ? deliveryTime : 1,
         revisions: Number.isFinite(revisions) ? revisions : 1,
         isActive: false,
+        isFeatured: requestedFeatured,
         status: 'DRAFT',
         adminStatus: 'PENDING',
         adminReason: null
@@ -229,6 +348,27 @@ export const updateGig = async (req: Request, res: Response) => {
     }
 
     const payload = req.body || {};
+    const requestedFeaturedRaw = payload.is_featured ?? payload.isFeatured;
+    let nextIsFeatured = existing.isFeatured;
+    if (requestedFeaturedRaw !== undefined) {
+      const requestedFeatured = toBoolFromPayload(requestedFeaturedRaw);
+      if (requestedFeatured && !existing.isFeatured) {
+        const eligibility = await resolveFeaturedListingEligibility({
+          listingType: 'gig',
+          userId,
+          excludeListingId: existing.id
+        });
+        if (!eligibility.allowed) {
+          return res.status(403).json({
+            success: false,
+            code: 'FEATURED_GIG_LIMIT_REACHED',
+            error: eligibility.reason || 'Featured gig quota reached for this month',
+            data: eligibility
+          });
+        }
+      }
+      nextIsFeatured = requestedFeatured;
+    }
     const categoryId = await resolveGigCategoryId(payload);
     const deliveryTime =
       payload.deliveryTime ?? payload.delivery_days ?? payload.deliveryDays;
@@ -262,7 +402,8 @@ export const updateGig = async (req: Request, res: Response) => {
         image: payload.image ?? (resolvedImages[0] || existing.image || null),
         meta: payload.meta ?? existing.meta,
         deliveryTime: deliveryTime !== undefined ? Number(deliveryTime) : existing.deliveryTime,
-        revisions: revisions !== undefined ? Number(revisions) : existing.revisions
+        revisions: revisions !== undefined ? Number(revisions) : existing.revisions,
+        isFeatured: nextIsFeatured
       } as any),
       include: { category: true, user: true }
     });
@@ -310,6 +451,9 @@ export const submitGig = async (req: Request, res: Response) => {
         : { status: 'PENDING', adminStatus: 'PENDING', isActive: false, adminReason: null },
       include: { category: true, user: true }
     });
+    if (updated.status === 'ACTIVE' && gig.status !== 'ACTIVE') {
+      await notifyFollowersAboutGigPublication(req, updated);
+    }
 
     return res.json({ success: true, data: serializeGig(updated) });
   } catch (error: any) {
@@ -357,6 +501,9 @@ export const activateGig = async (req: Request, res: Response) => {
       data: { status: 'ACTIVE', isActive: true },
       include: { category: true, user: true }
     });
+    if (gig.status !== 'ACTIVE') {
+      await notifyFollowersAboutGigPublication(req, updated);
+    }
 
     return res.json({ success: true, data: serializeGig(updated) });
   } catch (error: any) {

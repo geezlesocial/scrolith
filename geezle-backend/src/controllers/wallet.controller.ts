@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import { loadCurrencyConfig, getDefaultCurrencyForCountry, convertAmount } from '../utils/currency';
+import { normalizeCommissionSettings } from '../utils/commission';
 
 interface AuthRequest extends Request {
   user?: {
@@ -32,6 +33,17 @@ const getOrCreateSettings = async () => {
     settings = await prisma.settings.create({ data: {} });
   }
   return settings;
+};
+
+const getCommissionMaxAdjustment = (settings: any, fallback = 100000) => {
+  const limits =
+    settings?.walletFundingLimits && typeof settings.walletFundingLimits === 'object'
+      ? (settings.walletFundingLimits as Record<string, any>)
+      : {};
+  const stored = limits.commissionSettings || limits.commission_settings || {};
+  const raw = stored.max_adjustment ?? stored.maxAdjustment;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 };
 
 const ensureUserExists = async (userId: string) => {
@@ -293,18 +305,16 @@ export const getEscrows = async (req: AuthRequest, res: Response) => {
 export const getCommissionSettings = async (_req: AuthRequest, res: Response) => {
   try {
     const settings = await getOrCreateSettings();
-    const limits = settings?.walletFundingLimits && typeof settings.walletFundingLimits === 'object'
-      ? (settings.walletFundingLimits as Record<string, any>)
-      : {};
-    const stored = limits.commissionSettings || limits.commission_settings || {};
+    const normalized = normalizeCommissionSettings(settings);
+    const maxAdjustment = getCommissionMaxAdjustment(settings);
 
     return ok(res, {
-      freelancer_fee_type: stored.freelancer_fee_type ?? stored.freelancerFeeType ?? 'percentage',
-      freelancer_fee_value: stored.freelancer_fee_value ?? stored.freelancerFeeValue ?? 20,
-      employer_fee_type: stored.employer_fee_type ?? stored.employerFeeType ?? 'percentage',
-      employer_fee_value: stored.employer_fee_value ?? stored.employerFeeValue ?? 0,
-      minimum_fee: stored.minimum_fee ?? stored.minimumFee ?? 2,
-      max_adjustment: stored.max_adjustment ?? stored.maxAdjustment ?? 100000
+      freelancer_fee_type: normalized.freelancer_fee_type,
+      freelancer_fee_value: normalized.freelancer_fee_value,
+      employer_fee_type: normalized.employer_fee_type,
+      employer_fee_value: normalized.employer_fee_value,
+      minimum_fee: normalized.minimum_fee,
+      max_adjustment: maxAdjustment
     });
   } catch (error: any) {
     console.error('Get commission settings error:', error);
@@ -319,13 +329,39 @@ export const saveCommissionSettings = async (req: AuthRequest, res: Response) =>
     }
 
     const payload = req.body || {};
+    const freelancerFeeType =
+      String(payload.freelancer_fee_type ?? payload.freelancerFeeType ?? 'percentage').toLowerCase() === 'fixed'
+        ? 'fixed'
+        : 'percentage';
+    const employerFeeType =
+      String(payload.employer_fee_type ?? payload.employerFeeType ?? 'percentage').toLowerCase() === 'fixed'
+        ? 'fixed'
+        : 'percentage';
+    const freelancerFeeValue = Number(payload.freelancer_fee_value ?? payload.freelancerFeeValue ?? 0);
+    const employerFeeValue = Number(payload.employer_fee_value ?? payload.employerFeeValue ?? 0);
+    const minimumFee = Number(payload.minimum_fee ?? payload.minimumFee ?? 0);
+    const maxAdjustment = Number(payload.max_adjustment ?? payload.maxAdjustment ?? 100000);
+
+    if (!Number.isFinite(freelancerFeeValue) || freelancerFeeValue < 0) {
+      return fail(res, 400, 'Freelancer fee value must be a non-negative number', 'ERR_BAD_REQUEST');
+    }
+    if (!Number.isFinite(employerFeeValue) || employerFeeValue < 0) {
+      return fail(res, 400, 'Employer fee value must be a non-negative number', 'ERR_BAD_REQUEST');
+    }
+    if (!Number.isFinite(minimumFee) || minimumFee < 0) {
+      return fail(res, 400, 'Minimum fee must be a non-negative number', 'ERR_BAD_REQUEST');
+    }
+    if (!Number.isFinite(maxAdjustment) || maxAdjustment < 0) {
+      return fail(res, 400, 'Max adjustment must be a non-negative number', 'ERR_BAD_REQUEST');
+    }
+
     const normalized = {
-      freelancer_fee_type: payload.freelancer_fee_type ?? payload.freelancerFeeType ?? 'percentage',
-      freelancer_fee_value: Number(payload.freelancer_fee_value ?? payload.freelancerFeeValue ?? 0),
-      employer_fee_type: payload.employer_fee_type ?? payload.employerFeeType ?? 'percentage',
-      employer_fee_value: Number(payload.employer_fee_value ?? payload.employerFeeValue ?? 0),
-      minimum_fee: Number(payload.minimum_fee ?? payload.minimumFee ?? 0),
-      max_adjustment: Number(payload.max_adjustment ?? payload.maxAdjustment ?? 100000)
+      freelancer_fee_type: freelancerFeeType,
+      freelancer_fee_value: freelancerFeeValue,
+      employer_fee_type: employerFeeType,
+      employer_fee_value: employerFeeValue,
+      minimum_fee: minimumFee,
+      max_adjustment: maxAdjustment
     };
 
     const settings = await getOrCreateSettings();
@@ -430,6 +466,17 @@ export const adjustWalletBalance = async (req: AuthRequest, res: Response) => {
     if (!userId) return fail(res, 400, 'Missing userId', 'ERR_BAD_REQUEST');
     if (!Number.isFinite(amount) || amount === 0) {
       return fail(res, 400, 'Amount must be a non-zero number', 'ERR_BAD_REQUEST');
+    }
+
+    const settings = await getOrCreateSettings();
+    const maxAdjustment = getCommissionMaxAdjustment(settings);
+    if (Math.abs(amount) > maxAdjustment) {
+      return fail(
+        res,
+        400,
+        `Amount exceeds max adjustment limit of ${maxAdjustment}`,
+        'ERR_MAX_ADJUSTMENT_EXCEEDED'
+      );
     }
 
     const wallet = await getOrCreateWallet(userId);

@@ -5,6 +5,12 @@ node_modules
 tmp
 tmp-*
 tmp_*
+/smoke_*.xml
+/ui_*.xml
+/window_dump.xml
+/biometric_*.xml
+/geezle_admin_dashboard*.html
+/geezle_admin_dashboard*.png
 test-results
 **/node_modules
 **/dist

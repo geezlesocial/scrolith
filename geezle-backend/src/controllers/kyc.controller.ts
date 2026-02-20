@@ -4,6 +4,167 @@ import { sendSystemMessage } from '../services/systemMessaging';
 import realtime from '../utils/realtime';
 import EVENTS from '../realtime/events';
 
+const KYC_FORM_SCOPE = 'kyc_form';
+
+const DEFAULT_KYC_FORM_CONFIG = {
+  version: 1,
+  copy: {
+    title: 'KYC Verification',
+    subtitle: 'Verify your identity to access all platform features.',
+    introMessage: 'Please provide your personal information and upload required documents.',
+    personalSectionTitle: 'Personal Information',
+    addressSectionTitle: 'Address Information',
+    documentsSectionTitle: 'Document Upload',
+    submitLabel: 'Submit for Verification',
+    updateLabel: 'Update Submission'
+  },
+  personalFields: [
+    { key: 'firstName', section: 'personal', label: 'First Name', type: 'text', required: true, enabled: true, order: 10 },
+    { key: 'lastName', section: 'personal', label: 'Last Name', type: 'text', required: true, enabled: true, order: 20 },
+    { key: 'dateOfBirth', section: 'personal', label: 'Date of Birth', type: 'date', required: true, enabled: true, order: 30 },
+    { key: 'nationality', section: 'personal', label: 'Nationality', type: 'text', required: false, enabled: true, order: 40 },
+    { key: 'phoneNumber', section: 'contact', label: 'Phone Number', type: 'tel', required: false, enabled: true, order: 50 },
+    { key: 'email', section: 'contact', label: 'Email', type: 'email', required: false, enabled: true, order: 60 },
+    { key: 'address.street', section: 'address', label: 'Street Address', type: 'text', required: false, enabled: true, order: 70 },
+    { key: 'address.city', section: 'address', label: 'City', type: 'text', required: false, enabled: true, order: 80 },
+    { key: 'address.state', section: 'address', label: 'State/Province', type: 'text', required: false, enabled: true, order: 90 },
+    { key: 'address.postalCode', section: 'address', label: 'Postal Code', type: 'text', required: false, enabled: true, order: 100 },
+    { key: 'address.country', section: 'address', label: 'Country', type: 'text', required: false, enabled: true, order: 110 }
+  ],
+  documentGroups: [
+    {
+      key: 'identity',
+      label: 'Identity Documents',
+      description: 'Choose one government-issued identity document.',
+      required: true,
+      minRequired: 1,
+      options: [
+        { key: 'passport', label: 'Passport', required: false, cameraOnly: false, accept: 'image/*,application/pdf' },
+        { key: 'drivers_license', label: "Driver's License", required: false, cameraOnly: false, accept: 'image/*,application/pdf' },
+        { key: 'national_id', label: 'National ID', required: false, cameraOnly: false, accept: 'image/*,application/pdf' }
+      ]
+    },
+    {
+      key: 'address',
+      label: 'Address Proof',
+      description: 'Provide one document that proves your current address.',
+      required: true,
+      minRequired: 1,
+      options: [
+        { key: 'utility_bill', label: 'Utility Bill', required: false, cameraOnly: false, accept: 'image/*,application/pdf' },
+        { key: 'bank_statement', label: 'Bank Statement', required: false, cameraOnly: false, accept: 'image/*,application/pdf' },
+        { key: 'address_proof', label: 'Address Proof', required: false, cameraOnly: false, accept: 'image/*,application/pdf' }
+      ]
+    },
+    {
+      key: 'selfie',
+      label: 'Selfie Holding ID',
+      description: 'Capture a live selfie while holding your ID. Gallery upload is disabled.',
+      required: true,
+      minRequired: 1,
+      options: [
+        { key: 'selfie_with_id', label: 'Selfie Holding ID', required: true, cameraOnly: true, accept: 'image/*' }
+      ]
+    }
+  ]
+};
+
+const isPlainObject = (value: unknown): value is Record<string, any> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const toNonEmptyString = (value: unknown, fallback: string) => {
+  const normalized = String(value ?? '').trim();
+  return normalized || fallback;
+};
+
+const deepMergeReplaceArrays = (existing: any, incoming: any): any => {
+  if (incoming === undefined) return existing;
+  if (Array.isArray(incoming)) return incoming;
+  if (!isPlainObject(incoming)) return incoming;
+  const out: any = { ...(isPlainObject(existing) ? existing : {}) };
+  for (const key of Object.keys(incoming)) {
+    out[key] = deepMergeReplaceArrays(existing ? existing[key] : undefined, incoming[key]);
+  }
+  return out;
+};
+
+const normalizeKycFieldConfig = (field: any, fallback: any) => {
+  const source = isPlainObject(field) ? field : {};
+  const base = isPlainObject(fallback) ? fallback : {};
+  return {
+    key: toNonEmptyString(source.key, String(base.key || '')),
+    section: toNonEmptyString(source.section, String(base.section || 'personal')),
+    label: toNonEmptyString(source.label, String(base.label || 'Field')),
+    type: toNonEmptyString(source.type, String(base.type || 'text')),
+    placeholder: String(source.placeholder ?? base.placeholder ?? '').trim(),
+    required: source.required === undefined ? Boolean(base.required) : Boolean(source.required),
+    enabled: source.enabled === undefined ? Boolean(base.enabled ?? true) : Boolean(source.enabled),
+    order: Number(source.order ?? base.order ?? 0)
+  };
+};
+
+const normalizeKycDocumentOption = (option: any, fallback: any) => {
+  const source = isPlainObject(option) ? option : {};
+  const base = isPlainObject(fallback) ? fallback : {};
+  return {
+    key: toNonEmptyString(source.key, String(base.key || 'document')),
+    label: toNonEmptyString(source.label, String(base.label || 'Document')),
+    description: String(source.description ?? base.description ?? '').trim(),
+    required: source.required === undefined ? Boolean(base.required) : Boolean(source.required),
+    cameraOnly: source.cameraOnly === undefined ? Boolean(base.cameraOnly) : Boolean(source.cameraOnly),
+    accept: toNonEmptyString(source.accept, String(base.accept || 'image/*,application/pdf'))
+  };
+};
+
+const normalizeKycDocumentGroup = (group: any, fallback: any) => {
+  const source = isPlainObject(group) ? group : {};
+  const base = isPlainObject(fallback) ? fallback : {};
+  const fallbackOptions = Array.isArray(base.options) ? base.options : [];
+  const mergedOptions = Array.isArray(source.options) ? source.options : fallbackOptions;
+  return {
+    key: toNonEmptyString(source.key, String(base.key || 'group')),
+    label: toNonEmptyString(source.label, String(base.label || 'Document Group')),
+    description: String(source.description ?? base.description ?? '').trim(),
+    required: source.required === undefined ? Boolean(base.required) : Boolean(source.required),
+    minRequired: Math.max(0, Number(source.minRequired ?? base.minRequired ?? 0)),
+    options: mergedOptions
+      .map((item: any, index: number) => normalizeKycDocumentOption(item, fallbackOptions[index] || {}))
+      .filter((item: any) => item.key)
+  };
+};
+
+const normalizeKycFormConfig = (raw: any) => {
+  const merged = deepMergeReplaceArrays(DEFAULT_KYC_FORM_CONFIG, isPlainObject(raw) ? raw : {});
+  const copy = isPlainObject(merged.copy) ? merged.copy : {};
+  const defaultFields = Array.isArray(DEFAULT_KYC_FORM_CONFIG.personalFields)
+    ? DEFAULT_KYC_FORM_CONFIG.personalFields
+    : [];
+  const defaultGroups = Array.isArray(DEFAULT_KYC_FORM_CONFIG.documentGroups)
+    ? DEFAULT_KYC_FORM_CONFIG.documentGroups
+    : [];
+  const personalFields = (Array.isArray(merged.personalFields) ? merged.personalFields : defaultFields)
+    .map((field: any, index: number) => normalizeKycFieldConfig(field, defaultFields[index] || {}))
+    .filter((field: any) => field.key);
+  const documentGroups = (Array.isArray(merged.documentGroups) ? merged.documentGroups : defaultGroups)
+    .map((group: any, index: number) => normalizeKycDocumentGroup(group, defaultGroups[index] || {}))
+    .filter((group: any) => group.key && Array.isArray(group.options) && group.options.length > 0);
+  return {
+    version: Number(merged.version || 1),
+    copy: {
+      title: toNonEmptyString(copy.title, DEFAULT_KYC_FORM_CONFIG.copy.title),
+      subtitle: toNonEmptyString(copy.subtitle, DEFAULT_KYC_FORM_CONFIG.copy.subtitle),
+      introMessage: toNonEmptyString(copy.introMessage, DEFAULT_KYC_FORM_CONFIG.copy.introMessage),
+      personalSectionTitle: toNonEmptyString(copy.personalSectionTitle, DEFAULT_KYC_FORM_CONFIG.copy.personalSectionTitle),
+      addressSectionTitle: toNonEmptyString(copy.addressSectionTitle, DEFAULT_KYC_FORM_CONFIG.copy.addressSectionTitle),
+      documentsSectionTitle: toNonEmptyString(copy.documentsSectionTitle, DEFAULT_KYC_FORM_CONFIG.copy.documentsSectionTitle),
+      submitLabel: toNonEmptyString(copy.submitLabel, DEFAULT_KYC_FORM_CONFIG.copy.submitLabel),
+      updateLabel: toNonEmptyString(copy.updateLabel, DEFAULT_KYC_FORM_CONFIG.copy.updateLabel)
+    },
+    personalFields,
+    documentGroups
+  };
+};
+
 const apiStatusFromDb = (status: string) => {
   const value = status.toUpperCase();
   if (value === 'APPROVED') return 'approved';
@@ -225,13 +386,73 @@ export const uploadKycDocument = async (req: Request, res: Response) => {
 };
 
 export const getKycDocumentTypes = async (_req: Request, res: Response) => {
-  return res.json({
-    success: true,
-    data: {
-      identity: ['passport', 'drivers_license', 'national_id'],
-      address: ['utility_bill', 'bank_statement', 'address_proof']
-    }
-  });
+  try {
+    const record = await prisma.appSetting.findUnique({ where: { scope: KYC_FORM_SCOPE } });
+    const config = normalizeKycFormConfig(record?.data);
+    const identityGroup = config.documentGroups.find((group: any) => String(group.key).toLowerCase() === 'identity');
+    const addressGroup = config.documentGroups.find((group: any) => String(group.key).toLowerCase() === 'address');
+    const selfieGroup = config.documentGroups.find((group: any) => String(group.key).toLowerCase() === 'selfie');
+    return res.json({
+      success: true,
+      data: {
+        identity: Array.isArray(identityGroup?.options)
+          ? identityGroup.options.map((item: any) => item.key)
+          : ['passport', 'drivers_license', 'national_id'],
+        address: Array.isArray(addressGroup?.options)
+          ? addressGroup.options.map((item: any) => item.key)
+          : ['utility_bill', 'bank_statement', 'address_proof'],
+        selfie: Array.isArray(selfieGroup?.options)
+          ? selfieGroup.options.map((item: any) => item.key)
+          : ['selfie_with_id']
+      }
+    });
+  } catch {
+    return res.json({
+      success: true,
+      data: {
+        identity: ['passport', 'drivers_license', 'national_id'],
+        address: ['utility_bill', 'bank_statement', 'address_proof'],
+        selfie: ['selfie_with_id']
+      }
+    });
+  }
+};
+
+export const getKycFormConfig = async (_req: Request, res: Response) => {
+  try {
+    const record = await prisma.appSetting.findUnique({ where: { scope: KYC_FORM_SCOPE } });
+    const data = normalizeKycFormConfig(record?.data);
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    console.error('Get KYC form config error:', error);
+    return res.json({ success: true, data: normalizeKycFormConfig(DEFAULT_KYC_FORM_CONFIG) });
+  }
+};
+
+export const getKycFormConfigAdmin = async (req: Request, res: Response) => {
+  return getKycFormConfig(req, res);
+};
+
+export const updateKycFormConfig = async (req: Request, res: Response) => {
+  try {
+    const payload = isPlainObject(req.body) ? req.body : {};
+    const existing = await prisma.appSetting.findUnique({ where: { scope: KYC_FORM_SCOPE } });
+    const merged = deepMergeReplaceArrays(normalizeKycFormConfig(existing?.data), payload);
+    const normalized = normalizeKycFormConfig(merged);
+    await prisma.appSetting.upsert({
+      where: { scope: KYC_FORM_SCOPE },
+      create: { scope: KYC_FORM_SCOPE, data: normalized },
+      update: { data: normalized }
+    });
+    const io = (req.app as unknown as { get?: (k: string) => unknown }).get?.('io') as
+      | { emit?: (ev: string, payload: unknown) => void }
+      | undefined;
+    io?.emit?.('kyc:form_config_updated', { settings: normalized, timestamp: Date.now() });
+    return res.json({ success: true, data: normalized });
+  } catch (error: any) {
+    console.error('Update KYC form config error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to update KYC form config' });
+  }
 };
 
 export const listKycRequests = async (req: Request, res: Response) => {

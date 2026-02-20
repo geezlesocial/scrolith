@@ -2,8 +2,11 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import fs from 'fs';
 import path from 'path';
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const nodemailer = require('nodemailer');
+import {
+  createEmailTransporter,
+  normalizeEmailSettings,
+  validateEmailSettings
+} from '../services/email.service';
 
 const DEFAULT_SYSTEM = {
   maintenanceMode: false,
@@ -12,7 +15,14 @@ const DEFAULT_SYSTEM = {
   admin2FA: false,
   listings: {
     autoApproveGigs: false,
-    autoApproveJobs: false
+    autoApproveJobs: false,
+    featurePolicy: {
+      freeFeaturedGigsPerMonth: 1,
+      freeFeaturedJobsPerMonth: 1,
+      feedCardEveryPosts: 2,
+      maxListingCardsPerFeed: 8,
+      recommendedPoolLimit: 20
+    }
   },
   currency: {
     autoExchangeRate: true,
@@ -42,6 +52,27 @@ export const validateSystem = (obj: any) => {
   if (obj.registrationsEnabled !== undefined && typeof obj.registrationsEnabled !== 'boolean') errors.push('registrationsEnabled must be boolean');
   if (obj.kycEnforced !== undefined && typeof obj.kycEnforced !== 'boolean') errors.push('kycEnforced must be boolean');
   if (obj.admin2FA !== undefined && typeof obj.admin2FA !== 'boolean') errors.push('admin2FA must be boolean');
+  if (obj.listings?.featurePolicy) {
+    const policy = obj.listings.featurePolicy;
+    const numericRules: Array<{ key: string; min?: number; max?: number }> = [
+      { key: 'freeFeaturedGigsPerMonth', min: 0, max: 500 },
+      { key: 'freeFeaturedJobsPerMonth', min: 0, max: 500 },
+      { key: 'feedCardEveryPosts', min: 2, max: 20 },
+      { key: 'maxListingCardsPerFeed', min: 1, max: 50 },
+      { key: 'recommendedPoolLimit', min: 4, max: 200 }
+    ];
+    numericRules.forEach(({ key, min = Number.MIN_SAFE_INTEGER, max = Number.MAX_SAFE_INTEGER }) => {
+      if (policy[key] === undefined) return;
+      const numeric = Number(policy[key]);
+      if (!Number.isFinite(numeric)) {
+        errors.push(`listings.featurePolicy.${key} must be a number`);
+        return;
+      }
+      if (numeric < min || numeric > max) {
+        errors.push(`listings.featurePolicy.${key} must be between ${min} and ${max}`);
+      }
+    });
+  }
 
   // currency checks
   const currency = obj.currency;
@@ -61,6 +92,18 @@ export const validateSystem = (obj: any) => {
 
   // email.port if present
   if (obj.email && obj.email.port !== undefined && typeof obj.email.port !== 'number') errors.push('email.port must be a number');
+  if (obj.email && obj.email.provider !== undefined) {
+    const provider = String(obj.email.provider).trim().toLowerCase();
+    if (!['smtp', 'ses', 'sendgrid', 'mailgun'].includes(provider)) {
+      errors.push('email.provider must be one of smtp, ses, sendgrid, mailgun');
+    }
+  }
+  if (obj.email && obj.email.encryption !== undefined) {
+    const encryption = String(obj.email.encryption).trim().toLowerCase();
+    if (!['tls', 'ssl', 'none'].includes(encryption)) {
+      errors.push('email.encryption must be one of tls, ssl, none');
+    }
+  }
 
   // aiConfig.safety.maxTokens
   if (obj.aiConfig && obj.aiConfig.safety && obj.aiConfig.safety.maxTokens !== undefined && typeof obj.aiConfig.safety.maxTokens !== 'number') errors.push('aiConfig.safety.maxTokens must be a number');
@@ -172,32 +215,25 @@ export const testEmailSettings = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Email configuration not found' });
     }
 
-    const host = config.host || '';
-    const port = Number(config.port) || 0;
-    const username = config.username || '';
-    const password = config.password || '';
-    const fromName = config.fromName || config.from_name || 'Scrolith';
-    const fromEmail = config.fromEmail || config.from_email || 'noreply@Scrolith.com';
-
-    if (!host || !port) {
-      return res.status(400).json({ success: false, error: 'SMTP host and port are required' });
+    const normalized = normalizeEmailSettings(config);
+    const validationErrors = validateEmailSettings(normalized);
+    if (validationErrors.length || !normalized) {
+      return res.status(400).json({ success: false, error: validationErrors[0] || 'Invalid email configuration' });
     }
 
-    const transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      auth: username ? { user: username, pass: password } : undefined
-    });
+    const transporter = createEmailTransporter(normalized);
+    if (typeof transporter.verify === 'function') {
+      await transporter.verify();
+    }
 
     await transporter.sendMail({
-      from: `${fromName} <${fromEmail}>`,
+      from: `${normalized.fromName} <${normalized.fromEmail}>`,
       to,
-      subject: 'Scrolith SMTP Test',
-      text: 'This is a test email from Scrolith System Settings. If you received this, your SMTP configuration is working.'
+      subject: `Scrolith Email Test (${normalized.provider.toUpperCase()})`,
+      text: `This is a test email from Scrolith System Settings using ${normalized.provider.toUpperCase()}. If you received this, your email provider configuration is working.`
     });
 
-    return res.json({ success: true, message: `Test email sent to ${to}` });
+    return res.json({ success: true, message: `Test email sent to ${to}`, provider: normalized.provider });
   } catch (error: any) {
     console.error('SMTP test failed', error);
     return res.status(500).json({ success: false, error: error?.message || 'Failed to send test email' });

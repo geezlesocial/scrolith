@@ -2,14 +2,24 @@ import prisma from '../utils/prismaClient';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const nodemailer = require('nodemailer');
 
+export type EmailProvider = 'smtp' | 'ses' | 'sendgrid' | 'mailgun';
+export type EmailEncryption = 'tls' | 'ssl' | 'none';
+
 export type EmailSettings = {
+  provider: EmailProvider;
   host: string;
   port: number;
   username?: string;
   password?: string;
   secure?: boolean;
+  encryption: EmailEncryption;
   fromName: string;
   fromEmail: string;
+  apiKey?: string;
+  domain?: string;
+  region?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
 };
 
 export type EmailSendInput = {
@@ -27,28 +37,242 @@ export const invalidateEmailTransportCache = () => {
   cachedSignature = null;
 };
 
-const normalizeEmailSettings = (raw: any): EmailSettings | null => {
-  const host = raw?.host || process.env.EMAIL_HOST || '';
-  const port = Number(raw?.port || process.env.EMAIL_PORT || 0);
-  const username = raw?.username || raw?.user || process.env.EMAIL_USER || '';
-  const password = raw?.password || raw?.pass || process.env.EMAIL_PASS || '';
-  const fromName = raw?.fromName || raw?.from_name || process.env.EMAIL_FROM_NAME || 'Scrolith';
-  const fromEmail = raw?.fromEmail || raw?.from_email || process.env.EMAIL_FROM_EMAIL || 'noreply@Scrolith.com';
-  const secure = raw?.secure ?? (port === 465);
+const pickFirstString = (...values: any[]): string => {
+  for (const value of values) {
+    if (value === undefined || value === null) continue;
+    const normalized = String(value).trim();
+    if (normalized) return normalized;
+  }
+  return '';
+};
+
+const parseProvider = (value: any): EmailProvider => {
+  const normalized = String(value || 'smtp').trim().toLowerCase();
+  if (normalized === 'ses' || normalized === 'sendgrid' || normalized === 'mailgun') return normalized;
+  return 'smtp';
+};
+
+const parseEncryption = (value: any): EmailEncryption => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'ssl') return 'ssl';
+  if (normalized === 'none') return 'none';
+  return 'tls';
+};
+
+const defaultHostByProvider = (provider: EmailProvider, region: string): string => {
+  switch (provider) {
+    case 'ses':
+      return region ? `email-smtp.${region}.amazonaws.com` : '';
+    case 'sendgrid':
+      return 'smtp.sendgrid.net';
+    case 'mailgun':
+      return 'smtp.mailgun.org';
+    default:
+      return '';
+  }
+};
+
+const defaultPortByProvider = (_provider: EmailProvider): number => 587;
+
+export const normalizeEmailSettings = (raw: any): EmailSettings | null => {
+  const source = raw || {};
+  const provider = parseProvider(source.provider || process.env.EMAIL_PROVIDER);
+
+  const region = pickFirstString(
+    source.region,
+    source.sesRegion,
+    source.ses_region,
+    process.env.SES_REGION,
+    process.env.AWS_REGION,
+    process.env.AWS_DEFAULT_REGION
+  );
+  const domain = pickFirstString(
+    source.domain,
+    source.mailgunDomain,
+    source.mailgun_domain,
+    process.env.MAILGUN_DOMAIN
+  );
+  const apiKey = pickFirstString(
+    source.apiKey,
+    source.api_key,
+    source.sendgridApiKey,
+    source.sendgrid_api_key,
+    source.mailgunApiKey,
+    source.mailgun_api_key,
+    process.env.SENDGRID_API_KEY,
+    process.env.MAILGUN_API_KEY
+  );
+  const accessKeyId = pickFirstString(
+    source.accessKeyId,
+    source.access_key_id,
+    source.sesAccessKeyId,
+    source.ses_access_key_id,
+    process.env.AWS_ACCESS_KEY_ID
+  );
+  const secretAccessKey = pickFirstString(
+    source.secretAccessKey,
+    source.secret_access_key,
+    source.sesSecretAccessKey,
+    source.ses_secret_access_key,
+    process.env.AWS_SECRET_ACCESS_KEY
+  );
+
+  const defaultHost = defaultHostByProvider(provider, region);
+  const host = pickFirstString(source.host, process.env.EMAIL_HOST, defaultHost);
+  const defaultPort = defaultPortByProvider(provider);
+  const parsedPort = Number(source.port ?? process.env.EMAIL_PORT ?? defaultPort);
+  const port = Number.isFinite(parsedPort) && parsedPort > 0 ? Math.floor(parsedPort) : defaultPort;
+
+  let username = pickFirstString(source.username, source.user, process.env.EMAIL_USER);
+  let password = pickFirstString(source.password, source.pass, process.env.EMAIL_PASS);
+
+  if (provider === 'ses') {
+    username = pickFirstString(
+      source.username,
+      source.user,
+      source.sesSmtpUsername,
+      source.ses_smtp_username,
+      process.env.SES_SMTP_USERNAME,
+      process.env.EMAIL_USER
+    );
+    password = pickFirstString(
+      source.password,
+      source.pass,
+      source.sesSmtpPassword,
+      source.ses_smtp_password,
+      process.env.SES_SMTP_PASSWORD,
+      process.env.EMAIL_PASS
+    );
+  } else if (provider === 'sendgrid') {
+    username = pickFirstString(
+      source.username,
+      source.user,
+      process.env.SENDGRID_SMTP_USERNAME,
+      process.env.EMAIL_USER,
+      apiKey ? 'apikey' : ''
+    );
+    password = pickFirstString(
+      source.password,
+      source.pass,
+      process.env.SENDGRID_SMTP_PASSWORD,
+      process.env.EMAIL_PASS,
+      apiKey
+    );
+  } else if (provider === 'mailgun') {
+    const inferredUser = domain ? `postmaster@${domain}` : '';
+    username = pickFirstString(
+      source.username,
+      source.user,
+      source.mailgunSmtpUsername,
+      source.mailgun_smtp_username,
+      process.env.MAILGUN_SMTP_USERNAME,
+      process.env.EMAIL_USER,
+      inferredUser
+    );
+    password = pickFirstString(
+      source.password,
+      source.pass,
+      source.mailgunSmtpPassword,
+      source.mailgun_smtp_password,
+      process.env.MAILGUN_SMTP_PASSWORD,
+      process.env.EMAIL_PASS,
+      apiKey
+    );
+  }
+
+  const encryption = parseEncryption(source.encryption ?? source.smtpEncryption ?? source.smtp_encryption);
+  const secure = source.secure !== undefined ? Boolean(source.secure) : encryption === 'ssl' || port === 465;
+  const fromName = pickFirstString(source.fromName, source.from_name, process.env.EMAIL_FROM_NAME, 'Scrolith');
+  const fromEmail = pickFirstString(
+    source.fromEmail,
+    source.from_email,
+    process.env.EMAIL_FROM_EMAIL,
+    'noreply@Scrolith.com'
+  );
 
   if (!host || !port) {
     return null;
   }
 
   return {
+    provider,
     host,
     port,
     username: username || undefined,
     password: password || undefined,
     secure: Boolean(secure),
+    encryption,
     fromName,
-    fromEmail
+    fromEmail,
+    apiKey: apiKey || undefined,
+    domain: domain || undefined,
+    region: region || undefined,
+    accessKeyId: accessKeyId || undefined,
+    secretAccessKey: secretAccessKey || undefined
   };
+};
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export const validateEmailSettings = (settings: EmailSettings | null): string[] => {
+  if (!settings) return ['Email host and port are required'];
+
+  const errors: string[] = [];
+  if (!settings.host) errors.push('Email host is required');
+  if (!settings.port || Number(settings.port) <= 0) errors.push('A valid email port is required');
+  if (!settings.fromName) errors.push('From name is required');
+  if (!settings.fromEmail || !EMAIL_REGEX.test(settings.fromEmail)) {
+    errors.push('A valid from email address is required');
+  }
+
+  if (settings.provider === 'smtp' || settings.provider === 'ses') {
+    if (!settings.username) errors.push(`${settings.provider.toUpperCase()} username is required`);
+    if (!settings.password) errors.push(`${settings.provider.toUpperCase()} password is required`);
+  }
+
+  if (settings.provider === 'sendgrid') {
+    if (!settings.password && !settings.apiKey) {
+      errors.push('SendGrid API key or SMTP password is required');
+    }
+    if (!settings.username && !settings.apiKey) {
+      errors.push('SendGrid SMTP username is required when API key is not provided');
+    }
+  }
+
+  if (settings.provider === 'mailgun') {
+    if (!settings.username && !settings.domain) {
+      errors.push('Mailgun SMTP username or domain is required');
+    }
+    if (!settings.password && !settings.apiKey) {
+      errors.push('Mailgun API key or SMTP password is required');
+    }
+  }
+
+  return errors;
+};
+
+export const buildEmailTransportOptions = (settings: EmailSettings) => {
+  const secure = Boolean(settings.secure ?? (settings.encryption === 'ssl' || settings.port === 465));
+  const authUser =
+    settings.username ||
+    (settings.provider === 'sendgrid' && (settings.apiKey || settings.password) ? 'apikey' : undefined);
+  const authPass = settings.password || settings.apiKey || undefined;
+
+  const transport: Record<string, any> = {
+    host: settings.host,
+    port: settings.port,
+    secure
+  };
+
+  if (settings.encryption === 'tls') transport.requireTLS = true;
+  if (settings.encryption === 'none') transport.ignoreTLS = true;
+  if (authUser && authPass) transport.auth = { user: authUser, pass: authPass };
+
+  return transport;
+};
+
+export const createEmailTransporter = (settings: EmailSettings) => {
+  return nodemailer.createTransport(buildEmailTransportOptions(settings));
 };
 
 export const getEmailSettings = async (): Promise<EmailSettings | null> => {
@@ -69,32 +293,37 @@ export const getEmailSettings = async (): Promise<EmailSettings | null> => {
 const getTransporter = async (): Promise<any | null> => {
   const settings = await getEmailSettings();
   if (!settings) return null;
+  const validationErrors = validateEmailSettings(settings);
+  if (validationErrors.length) {
+    console.warn('[email] Invalid email settings:', validationErrors.join('; '));
+    return null;
+  }
 
   const signature = JSON.stringify({
+    provider: settings.provider,
     host: settings.host,
     port: settings.port,
     secure: settings.secure,
-    username: settings.username
+    encryption: settings.encryption,
+    username: settings.username,
+    password: settings.password,
+    apiKey: settings.apiKey
   });
 
   if (cachedTransporter && cachedSignature === signature) {
     return cachedTransporter;
   }
 
-  cachedTransporter = nodemailer.createTransport({
-    host: settings.host,
-    port: settings.port,
-    secure: settings.secure,
-    auth: settings.username ? { user: settings.username, pass: settings.password } : undefined
-  });
+  cachedTransporter = createEmailTransporter(settings);
   cachedSignature = signature;
   return cachedTransporter;
 };
 
 export const sendSystemEmail = async (payload: EmailSendInput): Promise<{ success: boolean; error?: string }> => {
   const settings = await getEmailSettings();
-  if (!settings) {
-    return { success: false, error: 'Email settings not configured' };
+  const validationErrors = validateEmailSettings(settings);
+  if (validationErrors.length) {
+    return { success: false, error: validationErrors[0] };
   }
 
   const transporter = await getTransporter();

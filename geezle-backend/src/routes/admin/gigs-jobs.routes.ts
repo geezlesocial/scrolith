@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import prisma from '../../utils/prismaClient';
 import { listPlans, savePlan, togglePlanActive } from '../../services/planStore';
+import { notifyFollowersAboutPublication } from '../../services/followPublicationNotifications.service';
 
 const router = express.Router();
 
@@ -126,6 +127,30 @@ const mapAdminStatusInput = (value: unknown, fallback: string) => {
   const v = toUpper(value);
   if (v === 'APPROVED' || v === 'REJECTED' || v === 'PENDING') return v;
   return fallback;
+};
+
+const emitCommunityEvent = (req: Request, eventName: string, payload: any) => {
+  const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
+  try { io?.emit(eventName, payload); } catch {}
+};
+
+const notifyFollowersAfterAdminPublish = async (params: {
+  req: Request;
+  publicationType: 'job' | 'gig';
+  publicationId: string;
+  publicationTitle?: string | null;
+  actorUserId?: string | null;
+}) => {
+  try {
+    await notifyFollowersAboutPublication({
+      actorUserId: String(params.actorUserId || ''),
+      publicationType: params.publicationType,
+      publicationId: params.publicationId,
+      publicationTitle: params.publicationTitle || ''
+    });
+  } catch (error) {
+    console.warn('[admin.gigs-jobs] follower notification fanout failed', error);
+  }
 };
 
 const resolveCategoryId = async (value: unknown, type: 'GIG' | 'JOB') => {
@@ -911,6 +936,16 @@ router.post('/gigs/:id/approve', async (req: Request, res: Response) => {
           : { status: 'REJECTED', adminStatus: 'REJECTED', isActive: false, adminReason: notes || null },
       include: { category: true, user: true }
     });
+    if (normalizedAction === 'approve' && existing.status !== 'ACTIVE') {
+      await notifyFollowersAfterAdminPublish({
+        req,
+        publicationType: 'gig',
+        publicationId: updated.id,
+        publicationTitle: updated.title,
+        actorUserId: updated.userId
+      });
+      emitCommunityEvent(req, 'community:gig_published', { gig: toAdminGig(updated) });
+    }
 
     return res.json({
       success: true,
@@ -1189,6 +1224,16 @@ router.post('/jobs/:id/approve', async (req: Request, res: Response) => {
           : { status: 'REJECTED', adminStatus: 'REJECTED', isActive: false, isVisible: false, adminReason: notes || null },
       include: { category: true, client: true }
     });
+    if (normalizedAction === 'approve' && existing.status !== 'ACTIVE') {
+      await notifyFollowersAfterAdminPublish({
+        req,
+        publicationType: 'job',
+        publicationId: updated.id,
+        publicationTitle: updated.title,
+        actorUserId: updated.clientId
+      });
+      emitCommunityEvent(req, 'community:job_published', { job: toAdminJob(updated) });
+    }
 
     return res.json({
       success: true,

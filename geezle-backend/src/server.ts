@@ -10,7 +10,7 @@ import { createHash } from 'crypto';
 import prisma from './utils/prismaClient';
 import fs from 'fs';
 import jwt from 'jsonwebtoken'; // Ensure jwt import exists
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import validateEnv from './utils/validateEnv';
 
 // Import routes
@@ -512,8 +512,9 @@ const limiter = rateLimit({
       return `auth:${hash}`;
     }
     const conn = req.connection as unknown as { remoteAddress?: string } | undefined;
-    const ip = (req.ip || (conn && conn.remoteAddress) || '').toString();
-    return ip || 'unknown';
+    const rawIp = (req.ip || (conn && conn.remoteAddress) || '').toString();
+    if (!rawIp) return 'unknown';
+    return ipKeyGenerator(rawIp);
   },
   // Skip rate limiting for socket.io and local/dev requests to make local testing reliable.
   skip: (req) => {

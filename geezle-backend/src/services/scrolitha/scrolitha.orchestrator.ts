@@ -356,31 +356,40 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
     resultSummary: `Planned ${actionPlans.length} action(s).`
   });
 
-  const learningSnapshot = await persistScrolithaLearningSignal({
-    actor,
-    conversationId: conversation.id,
-    userMessage: message,
-    assistantReply: reply,
-    pageContext: input.context?.page || null,
-    scopeMetadata: config.metadata
-  });
-  if (learningSnapshot) {
-    await writeScrolithaAuditLog({
+  let learningSnapshot: Awaited<ReturnType<typeof persistScrolithaLearningSignal>> = null;
+  try {
+    learningSnapshot = await persistScrolithaLearningSignal({
       actor,
       conversationId: conversation.id,
-      eventType: 'learning_profile_updated',
-      intent: 'adaptive_learning',
-      requestPayload: {
-        messageLength: message.length,
-        hasActions: actionPlans.length > 0
-      },
-      redactedPayload: {
-        messageLength: message.length,
-        hasActions: actionPlans.length > 0
-      },
-      resultStatus: 'ok',
-      resultSummary: `Learning profile updated with ${learningSnapshot.topTopics.length} topic hints.`
+      userMessage: message,
+      assistantReply: reply,
+      pageContext: input.context?.page || null,
+      scopeMetadata: config.metadata
     });
+  } catch (error) {
+    console.warn('[scrolitha] adaptive learning persistence failed (continuing chat response):', error);
+  }
+  if (learningSnapshot) {
+    try {
+      await writeScrolithaAuditLog({
+        actor,
+        conversationId: conversation.id,
+        eventType: 'learning_profile_updated',
+        intent: 'adaptive_learning',
+        requestPayload: {
+          messageLength: message.length,
+          hasActions: actionPlans.length > 0
+        },
+        redactedPayload: {
+          messageLength: message.length,
+          hasActions: actionPlans.length > 0
+        },
+        resultStatus: 'ok',
+        resultSummary: `Learning profile updated with ${learningSnapshot.topTopics.length} topic hints.`
+      });
+    } catch (error) {
+      console.warn('[scrolitha] learning audit write failed:', error);
+    }
     emitScrolithaEvents(app, 'scrolitha:learning_updated', {
       actorId: actor.id,
       conversationId: conversation.id,
@@ -909,9 +918,18 @@ const DEFAULT_CHAT_WIDGET_CONFIG = {
 
 const sanitizeWidgetConfig = (input: any) => {
   const src = input && typeof input === 'object' ? input : {};
-  const readString = (key: string, fallback = '') => String(src?.[key] || fallback).trim();
-  const readColor = (key: string, fallback: string) => {
-    const value = readString(key, fallback);
+  const readString = (keyOrKeys: string | string[], fallback = '') => {
+    const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
+    for (const key of keys) {
+      const raw = src?.[key];
+      if (raw === undefined || raw === null) continue;
+      const value = String(raw).trim();
+      if (value || value === '') return value;
+    }
+    return String(fallback || '').trim();
+  };
+  const readColor = (keyOrKeys: string | string[], fallback: string) => {
+    const value = readString(keyOrKeys, fallback);
     if (!value) return fallback;
     const hex = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
     const rgb = /^rgba?\([\d\s.,%]+\)$/i;
@@ -920,23 +938,34 @@ const sanitizeWidgetConfig = (input: any) => {
 
   return {
     enabled: src?.enabled !== false,
-    assistantName: readString('assistantName', DEFAULT_CHAT_WIDGET_CONFIG.assistantName),
-    assistantRoleLabel: readString('assistantRoleLabel', DEFAULT_CHAT_WIDGET_CONFIG.assistantRoleLabel),
-    textColor: readColor('textColor', DEFAULT_CHAT_WIDGET_CONFIG.textColor),
-    accentColor: readColor('accentColor', DEFAULT_CHAT_WIDGET_CONFIG.accentColor),
-    agentBubbleColor: readColor('agentBubbleColor', DEFAULT_CHAT_WIDGET_CONFIG.agentBubbleColor),
-    userBubbleColor: readColor('userBubbleColor', DEFAULT_CHAT_WIDGET_CONFIG.userBubbleColor),
-    logoUrl: readString('logoUrl'),
-    logoFileId: readString('logoFileId'),
-    welcomeText: readString('welcomeText', DEFAULT_CHAT_WIDGET_CONFIG.welcomeText),
-    typingText: readString('typingText', DEFAULT_CHAT_WIDGET_CONFIG.typingText)
+    assistantName: readString(['assistantName', 'assistant_name'], DEFAULT_CHAT_WIDGET_CONFIG.assistantName),
+    assistantRoleLabel: readString(
+      ['assistantRoleLabel', 'roleLabel', 'assistant_role_label'],
+      DEFAULT_CHAT_WIDGET_CONFIG.assistantRoleLabel
+    ),
+    textColor: readColor(['textColor', 'text_color'], DEFAULT_CHAT_WIDGET_CONFIG.textColor),
+    accentColor: readColor(['accentColor', 'accent_color'], DEFAULT_CHAT_WIDGET_CONFIG.accentColor),
+    agentBubbleColor: readColor(
+      ['agentBubbleColor', 'botBubbleColor', 'agent_bubble_color'],
+      DEFAULT_CHAT_WIDGET_CONFIG.agentBubbleColor
+    ),
+    userBubbleColor: readColor(['userBubbleColor', 'user_bubble_color'], DEFAULT_CHAT_WIDGET_CONFIG.userBubbleColor),
+    logoUrl: readString(['logoUrl', 'chatLogoUrl', 'chat_logo_url', 'logo_url', 'chatLogo']),
+    logoFileId: readString(['logoFileId', 'chatLogoFileId', 'chat_logo_file_id', 'logo_file_id']),
+    welcomeText: readString(['welcomeText', 'welcomeMessage', 'welcome_message'], DEFAULT_CHAT_WIDGET_CONFIG.welcomeText),
+    typingText: readString(['typingText', 'typingMessage', 'typing_message'], DEFAULT_CHAT_WIDGET_CONFIG.typingText)
   };
 };
 
 export const getScrolithaWidgetConfigPublic = async () => {
   const adminConfig = await ensureScrolithaConfig('admin');
   const metadata = adminConfig?.metadata && typeof adminConfig.metadata === 'object' ? adminConfig.metadata : {};
-  return sanitizeWidgetConfig((metadata as any).chatWidget || {});
+  const source =
+    (metadata as any).chatWidget ||
+    (metadata as any).chat_widget ||
+    (metadata as any).widget ||
+    {};
+  return sanitizeWidgetConfig(source);
 };
 
 export const getScrolithaChatRecordsForAdmin = async (query?: {

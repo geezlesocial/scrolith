@@ -5,7 +5,8 @@ import {
   submitKyc,
   updateKyc,
   uploadKycDocument,
-  getKycDocumentTypes
+  getKycDocumentTypes,
+  getKycFormConfig
 } from '../controllers/kyc.controller';
 
 const router = express.Router();
@@ -17,5 +18,6 @@ router.post('/submit', submitKyc);
 router.put('/:id', updateKyc);
 router.post('/documents', uploadKycDocument);
 router.get('/document-types', getKycDocumentTypes);
+router.get('/form-config', getKycFormConfig);
 
 export default router;

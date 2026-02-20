@@ -1952,6 +1952,10 @@ model CommunityPost {
   status         String   @default("active") // active, draft, deleted
   isPinned       Boolean  @default(false)
   isHighlighted  Boolean  @default(false)
+  aiInsightEnabled   Boolean @default(false)
+  aiInsightGenerated Boolean @default(false)
+  aiInsightText      String? @db.Text
+  aiScore            Float?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

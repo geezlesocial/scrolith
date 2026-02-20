@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../services/scrolitha/scrolitha.audit';
 import { getScrolithaOllamaHealth, ollamaListModels, resolveScrolithaLlmRuntime } from '../services/scrolitha/scrolitha.ollama';
+import { clearPostInsights, regeneratePostInsightsBatch } from '../services/postAi.service';
 import {
   createScrolithaSkill,
   deleteScrolithaSkill,
@@ -315,6 +316,74 @@ export const getAdminScrolithaChatRecordsController = async (req: Request, res: 
     return res.status(500).json({
       success: false,
       message: 'Failed to load Scrolitha chat records',
+      error: String(error?.message || 'Unknown error')
+    });
+  }
+};
+
+export const postAdminScrolithaRegenerateInsightsController = async (req: Request, res: Response) => {
+  try {
+    const actor = resolveActorFromRequest(req);
+    const bodyPostId = String(req.body?.postId || '').trim();
+    const bodyPostIds = Array.isArray(req.body?.postIds)
+      ? req.body.postIds.map((value: any) => String(value || '').trim()).filter(Boolean)
+      : [];
+    const postIds = bodyPostId ? [bodyPostId] : bodyPostIds;
+
+    const data = await regeneratePostInsightsBatch({
+      postIds,
+      limit: req.body?.limit,
+      app: req.app,
+      actor
+    });
+
+    emit(req, 'scrolitha:post_ai_updated', {
+      action: 'regenerate_insights',
+      updatedAt: new Date().toISOString(),
+      updatedBy: actor.id,
+      generated: data.generated
+    });
+
+    return res.json({
+      success: true,
+      data,
+      message: 'Post AI insights regenerated'
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to regenerate post AI insights',
+      error: String(error?.message || 'Unknown error')
+    });
+  }
+};
+
+export const deleteAdminScrolithaPostInsightsController = async (req: Request, res: Response) => {
+  try {
+    const actor = resolveActorFromRequest(req);
+    const bodyPostIds = Array.isArray(req.body?.postIds)
+      ? req.body.postIds.map((value: any) => String(value || '').trim()).filter(Boolean)
+      : [];
+    const data = await clearPostInsights({
+      postIds: bodyPostIds
+    });
+
+    emit(req, 'scrolitha:post_ai_updated', {
+      action: 'clear_insights',
+      updatedAt: new Date().toISOString(),
+      updatedBy: actor.id,
+      cleared: data.updatedCount
+    });
+
+    return res.json({
+      success: true,
+      data,
+      message: 'Post AI insights cleared'
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to clear post AI insights',
       error: String(error?.message || 'Unknown error')
     });
   }

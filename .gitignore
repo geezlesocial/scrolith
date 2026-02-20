@@ -35,4 +35,12 @@ tests/*.png
 
 # temp build outputs
 tmp/
+/tmp_*
+/tmp-*
+/smoke_*.xml
+/ui_*.xml
+/window_dump.xml
+/biometric_*.xml
+/geezle_admin_dashboard*.html
+/geezle_admin_dashboard*.png
 

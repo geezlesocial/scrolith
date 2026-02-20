@@ -315,6 +315,10 @@ const resolveUploadKind = (
   const normalizedMime = String(mimeType || '').toLowerCase();
   const ext = path.extname(String(originalName || '')).toLowerCase();
 
+  // Accept the full image/video MIME families so new browser/device formats
+  // can be uploaded without backend patching.
+  if (normalizedMime.startsWith('image/')) return 'image';
+  if (normalizedMime.startsWith('video/')) return 'video';
   if (ALLOWED_IMAGE_MIME_TYPES.has(normalizedMime)) return 'image';
   if (ALLOWED_VIDEO_MIME_TYPES.has(normalizedMime)) return 'video';
   if (ALLOWED_DOCUMENT_MIME_TYPES.has(normalizedMime)) return 'document';

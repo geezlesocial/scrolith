@@ -15,6 +15,11 @@ import {
   filterRecipientsForNotification,
   resolveMentionedUserIds
 } from '../services/engagementNotifications.service';
+import {
+  decidePostInsightEnabled,
+  queuePostInsightGeneration,
+  resolvePostAiSettings
+} from '../services/postAi.service';
 
 // Safe helper to retrieve the `io` instance from `req.app` without broad `as any` casts
 const getAppIo = (req: Request) => {
@@ -176,6 +181,43 @@ const buildReactionSummary = (reactions: Array<{ postId: string; type: string; _
     map.set(r.postId, entry);
   });
   return map;
+};
+
+const normalizeReactionCounts = (raw: Record<string, number> | null | undefined) => {
+  const normalized: Record<string, number> = {};
+  Object.entries(raw || {}).forEach(([key, value]) => {
+    const reactionKey = String(key || '').trim().toLowerCase();
+    const count = Number(value || 0);
+    if (!reactionKey || !Number.isFinite(count) || count <= 0) return;
+    normalized[reactionKey] = Math.trunc(count);
+  });
+  return normalized;
+};
+
+const buildPostReactionPayload = (args: {
+  postId: string;
+  reactions: Record<string, number> | null | undefined;
+  actorId?: string | null;
+  reactionType?: string | null;
+  userReaction?: string | null;
+}) => {
+  const reactions = normalizeReactionCounts(args.reactions);
+  const totals = Object.values(reactions).reduce((sum, count) => sum + Math.max(0, Number(count || 0)), 0);
+  const topReactions = Object.entries(reactions)
+    .map(([type, count]) => ({ type, count: Number(count || 0) }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3);
+
+  return {
+    postId: args.postId,
+    reactions,
+    totalReactions: totals,
+    topReactions,
+    actorId: args.actorId || null,
+    reactionType: args.reactionType || null,
+    userReaction: args.userReaction || null,
+    updatedAt: new Date().toISOString()
+  };
 };
 
 const buildCommentCounts = (counts: Array<{ postId: string; _count: { _all: number } }>) => {
@@ -414,12 +456,18 @@ const resolveBusinessAvatarUrl = (logoFileId?: string | null, displayName?: stri
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName || 'Business')}`;
 };
 
+const isKycVerifiedStatus = (status?: string | null) => {
+  const normalized = String(status || '').trim().toLowerCase();
+  return normalized === 'verified' || normalized === 'approved';
+};
+
 const buildPostAuthorPayload = (author: {
   id: string;
   name: string | null;
   username?: string | null;
   avatar: string | null;
   isVerified?: boolean | null;
+  kycStatus?: string | null;
   freelancerPlanActive?: boolean | null;
   employerPlanActive?: boolean | null;
 }, businessPage?: {
@@ -450,7 +498,7 @@ const buildPostAuthorPayload = (author: {
     avatarUrl: author.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}`,
     type: 'user' as const,
     businessSlug: null,
-    isVerified: Boolean(author.isVerified),
+    isVerified: Boolean(author.isVerified || isKycVerifiedStatus(author.kycStatus)),
     isPro: Boolean(author.freelancerPlanActive || author.employerPlanActive)
   };
 };
@@ -1604,6 +1652,7 @@ export const getPosts = async (req: Request, res: Response) => {
             role: true,
             username: true,
             isVerified: true,
+            kycStatus: true,
             freelancerPlanActive: true,
             employerPlanActive: true
           }
@@ -1729,6 +1778,10 @@ export const getPosts = async (req: Request, res: Response) => {
         status: post.status,
         isPinned: post.isPinned,
         isHighlighted: post.isHighlighted,
+        aiInsightEnabled: Boolean(post.aiInsightEnabled),
+        aiInsightGenerated: Boolean(post.aiInsightGenerated),
+        aiInsightText: post.aiInsightText || null,
+        aiScore: post.aiScore ?? null,
         originalPostId: post.originalPostId || null,
         originalPost: post.originalPost
           ? {
@@ -1835,6 +1888,7 @@ export const getFeed = async (req: Request, res: Response) => {
             role: true,
             username: true,
             isVerified: true,
+            kycStatus: true,
             freelancerPlanActive: true,
             employerPlanActive: true
           }
@@ -1942,6 +1996,10 @@ export const getFeed = async (req: Request, res: Response) => {
         status: post.status,
         isPinned: post.isPinned,
         isHighlighted: post.isHighlighted,
+        aiInsightEnabled: Boolean(post.aiInsightEnabled),
+        aiInsightGenerated: Boolean(post.aiInsightGenerated),
+        aiInsightText: post.aiInsightText || null,
+        aiScore: post.aiScore ?? null,
         originalPostId: post.originalPostId || null,
         originalPost: post.originalPost
           ? {
@@ -1993,6 +2051,7 @@ export const getPostById = async (req: Request, res: Response) => {
             role: true,
             username: true,
             isVerified: true,
+            kycStatus: true,
             freelancerPlanActive: true,
             employerPlanActive: true,
             gcoinWallet: {
@@ -2139,6 +2198,10 @@ export const getPostById = async (req: Request, res: Response) => {
       status: post.status,
       isPinned: post.isPinned,
       isHighlighted: post.isHighlighted,
+      aiInsightEnabled: Boolean(post.aiInsightEnabled),
+      aiInsightGenerated: Boolean(post.aiInsightGenerated),
+      aiInsightText: post.aiInsightText || null,
+      aiScore: post.aiScore ?? null,
       originalPostId: post.originalPostId || null,
       originalPost: post.originalPost
         ? {
@@ -2281,7 +2344,7 @@ export const getUserMentions = async (req: Request, res: Response) => {
       },
       take: 10,
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-      select: { id: true, username: true, name: true, avatar: true, role: true, isVerified: true }
+      select: { id: true, username: true, name: true, avatar: true, role: true, isVerified: true, kycStatus: true }
     });
 
     const data = users
@@ -2292,7 +2355,7 @@ export const getUserMentions = async (req: Request, res: Response) => {
         name: u.name,
         avatar: u.avatar,
         role: u.role,
-        isVerified: Boolean((u as any).isVerified)
+        isVerified: Boolean((u as any).isVerified || isKycVerifiedStatus((u as any).kycStatus))
       }));
 
     return res.json({ success: true, data });
@@ -2328,6 +2391,7 @@ export const getCommunityPostsByTag = async (req: Request, res: Response) => {
             role: true,
             username: true,
             isVerified: true,
+            kycStatus: true,
             freelancerPlanActive: true,
             employerPlanActive: true
           }
@@ -2392,6 +2456,10 @@ export const getCommunityPostsByTag = async (req: Request, res: Response) => {
           status: post.status,
           isPinned: post.isPinned,
           isHighlighted: post.isHighlighted,
+          aiInsightEnabled: Boolean(post.aiInsightEnabled),
+          aiInsightGenerated: Boolean(post.aiInsightGenerated),
+          aiInsightText: post.aiInsightText || null,
+          aiScore: post.aiScore ?? null,
           createdAt: post.createdAt.toISOString(),
           updatedAt: post.updatedAt.toISOString()
         };
@@ -2427,7 +2495,8 @@ export const createPost = async (req: Request, res: Response) => {
       originalPostId,
       topic,
       location,
-      commentPolicy
+      commentPolicy,
+      aiInsightEnabled
     } = req.body;
 
     const normalizedTitle = String(title || '').trim();
@@ -2477,6 +2546,15 @@ export const createPost = async (req: Request, res: Response) => {
       { userId, role: req.user?.role }
     );
 
+    const postAiSettings = await resolvePostAiSettings();
+    const canControlInsight = req.user?.role === 'ADMIN' || req.user?.role === 'MODERATOR';
+    const explicitInsightPreference =
+      canControlInsight && typeof aiInsightEnabled === 'boolean' ? aiInsightEnabled : undefined;
+    const shouldEnableAiInsight = decidePostInsightEnabled({
+      explicitEnabled: explicitInsightPreference,
+      settings: postAiSettings
+    });
+
     if (!normalizedTitle && !normalizedContent && !normalizedAttachmentIds.length) {
       return res.status(400).json({ error: 'Add text or at least one attachment' });
     }
@@ -2494,6 +2572,9 @@ export const createPost = async (req: Request, res: Response) => {
         visibility: visibility || 'public',
         graphicWarning: Boolean(graphicWarning),
         commentPolicy: normalizedPolicy || 'everyone',
+        aiInsightEnabled: shouldEnableAiInsight,
+        aiInsightGenerated: false,
+        aiInsightText: null,
         businessPageId: resolvedBusinessPageId,
         originalPostId: originalPostId || null,
         status: status
@@ -2507,6 +2588,7 @@ export const createPost = async (req: Request, res: Response) => {
             role: true,
             username: true,
             isVerified: true,
+            kycStatus: true,
             freelancerPlanActive: true,
             employerPlanActive: true,
             gcoinWallet: {
@@ -2572,13 +2654,15 @@ export const createPost = async (req: Request, res: Response) => {
       graphicWarning: Boolean((post as any).graphicWarning),
       commentPolicy: post.commentPolicy || 'everyone',
       repostsEnabled: post.repostsEnabled !== false,
-      businessPage: post.businessPage ? {
-        id: post.businessPage.id,
-        name: post.businessPage.name,
-        handle: post.businessPage.handle,
-        slug: post.businessPage.slug,
-        logoFileId: post.businessPage.logoFileId || null
-      } : null,
+      businessPage: post.businessPage
+        ? {
+            id: post.businessPage.id,
+            name: post.businessPage.name,
+            handle: post.businessPage.handle,
+            slug: post.businessPage.slug,
+            logoFileId: post.businessPage.logoFileId || null
+          }
+        : null,
       viewsCount: 0,
       likesCount: 0,
       sharesCount: 0,
@@ -2586,6 +2670,10 @@ export const createPost = async (req: Request, res: Response) => {
       status: post.status,
       isPinned: post.isPinned,
       isHighlighted: post.isHighlighted,
+      aiInsightEnabled: Boolean(post.aiInsightEnabled),
+      aiInsightGenerated: Boolean(post.aiInsightGenerated),
+      aiInsightText: post.aiInsightText || null,
+      aiScore: post.aiScore ?? null,
       originalPostId: post.originalPostId || null,
       createdAt: post.createdAt.toISOString(),
       updatedAt: post.updatedAt.toISOString(),
@@ -2607,6 +2695,24 @@ export const createPost = async (req: Request, res: Response) => {
       console.error('Socket emit error (post_created):', e);
     }
     try { realtime.emitToPost(post.id, 'community:post_created', { post: payload }); } catch (e) {}
+
+    if (shouldEnableAiInsight) {
+      queuePostInsightGeneration({
+        postId: post.id,
+        app: req.app,
+        actor: {
+          id: userId,
+          role: req.user?.role || 'user',
+          scope:
+            req.user?.role === 'ADMIN' || req.user?.role === 'MODERATOR'
+              ? 'admin'
+              : 'user',
+          isAdmin: req.user?.role === 'ADMIN',
+          ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')?.[0]?.trim() || req.ip || null,
+          userAgent: req.headers['user-agent']?.toString() || null
+        }
+      });
+    }
 
     try {
       const actorName = author.displayName || 'Someone';
@@ -2773,7 +2879,9 @@ export const updatePost = async (req: Request, res: Response) => {
       commentPolicy,
       repostsEnabled,
       isPinned,
-      isHighlighted
+      isHighlighted,
+      aiInsightEnabled,
+      regenerateAiInsight
     } = req.body;
 
     const post = await prisma.communityPost.findUnique({
@@ -2889,6 +2997,18 @@ export const updatePost = async (req: Request, res: Response) => {
       updateData.status = status;
     }
 
+    const isPrivileged = req.user?.role === 'ADMIN' || req.user?.role === 'MODERATOR';
+    let shouldQueueAiInsight = false;
+    if (aiInsightEnabled !== undefined && isPrivileged) {
+      updateData.aiInsightEnabled = Boolean(aiInsightEnabled);
+      if (Boolean(aiInsightEnabled)) {
+        shouldQueueAiInsight = true;
+      }
+    }
+    if (Boolean(regenerateAiInsight) && isPrivileged) {
+      shouldQueueAiInsight = true;
+    }
+
     const updated = await prisma.communityPost.update({
       where: { id },
       data: updateData,
@@ -2901,6 +3021,7 @@ export const updatePost = async (req: Request, res: Response) => {
             role: true,
             username: true,
             isVerified: true,
+            kycStatus: true,
             freelancerPlanActive: true,
             employerPlanActive: true,
             gcoinWallet: {
@@ -2980,6 +3101,10 @@ export const updatePost = async (req: Request, res: Response) => {
       status: updated.status,
       isPinned: updated.isPinned,
       isHighlighted: updated.isHighlighted,
+      aiInsightEnabled: Boolean(updated.aiInsightEnabled),
+      aiInsightGenerated: Boolean(updated.aiInsightGenerated),
+      aiInsightText: updated.aiInsightText || null,
+      aiScore: updated.aiScore ?? null,
       originalPostId: updated.originalPostId || null,
       createdAt: updated.createdAt.toISOString(),
       updatedAt: updated.updatedAt.toISOString(),
@@ -3053,6 +3178,22 @@ export const updatePost = async (req: Request, res: Response) => {
     }
     try { realtime.emitToPost(updated.id, 'community:post_updated', { post: payload }); } catch (e) {}
 
+    if (updated.aiInsightEnabled && (shouldQueueAiInsight || !updated.aiInsightGenerated)) {
+      queuePostInsightGeneration({
+        postId: updated.id,
+        app: req.app,
+        force: Boolean(regenerateAiInsight),
+        actor: {
+          id: userId,
+          role: req.user?.role || 'user',
+          scope: isPrivileged ? 'admin' : 'user',
+          isAdmin: req.user?.role === 'ADMIN',
+          ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')?.[0]?.trim() || req.ip || null,
+          userAgent: req.headers['user-agent']?.toString() || null
+        }
+      });
+    }
+
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Update post error:', error);
@@ -3113,13 +3254,17 @@ export const createPostReaction = async (req: Request, res: Response) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
     const postId = req.params.id;
-    const type = (req.body?.type || '').toString().trim();
+    const type = (req.body?.type || '').toString().trim().toLowerCase();
     if (!postId || !type) return res.status(400).json({ success: false, error: 'Missing reaction type' });
     try {
       const cfg = await prisma.appSetting.findUnique({ where: { scope: 'community_reactions' } });
-      const reactions = (cfg?.data as any)?.reactions || [];
+      const data = (cfg?.data as any) || {};
+      const reactions = data?.reactions || data?.allowed || [];
       if (Array.isArray(reactions) && reactions.length) {
-        const enabled = reactions.find((r: any) => r.id === type && r.enabled !== false);
+        const enabled = reactions.find((r: any) => {
+          const key = String(r?.key || r?.id || r?.type || '').trim().toLowerCase();
+          return key === type && r?.enabled !== false;
+        });
         if (!enabled) return res.status(400).json({ success: false, error: 'Reaction type not allowed' });
       }
     } catch (e) {}
@@ -3168,10 +3313,17 @@ export const createPostReaction = async (req: Request, res: Response) => {
     });
 
     const reactions = buildReactionSummary(reactionRows as any).get(postId) || {};
+    const payload = buildPostReactionPayload({
+      postId,
+      reactions,
+      actorId: userId,
+      reactionType: isSameReaction ? null : type,
+      userReaction: type
+    });
 
     const io = getAppIo(req);
-    try { io?.emit('community:post_reaction_updated', { postId, reactions }); } catch (e) {}
-    try { realtime.emitToPost(postId, 'community:post_reaction_updated', { postId, reactions }); } catch (e) {}
+    try { io?.emit('community:post_reaction_updated', payload); } catch (e) {}
+    try { realtime.emitToPost(postId, 'community:post_reaction_updated', payload); } catch (e) {}
 
     if (!isSameReaction && post.authorId !== userId) {
       try {
@@ -3201,7 +3353,7 @@ export const createPostReaction = async (req: Request, res: Response) => {
       }
     }
 
-    return res.json({ success: true, data: { postId, reactions } });
+    return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Create post reaction error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to react' });
@@ -3220,10 +3372,17 @@ export const deletePostReaction = async (req: Request, res: Response) => {
       _count: { _all: true }
     });
     const reactions = buildReactionSummary(reactionRows as any).get(postId) || {};
+    const payload = buildPostReactionPayload({
+      postId,
+      reactions,
+      actorId: userId,
+      reactionType: null,
+      userReaction: null
+    });
     const io = getAppIo(req);
-    try { io?.emit('community:post_reaction_updated', { postId, reactions }); } catch (e) {}
-    try { realtime.emitToPost(postId, 'community:post_reaction_updated', { postId, reactions }); } catch (e) {}
-    return res.json({ success: true, data: { postId, reactions } });
+    try { io?.emit('community:post_reaction_updated', payload); } catch (e) {}
+    try { realtime.emitToPost(postId, 'community:post_reaction_updated', payload); } catch (e) {}
+    return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Delete post reaction error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to remove reaction' });

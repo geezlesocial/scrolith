@@ -4,6 +4,16 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from '../utils/prismaClient';
 import { getScrolithaKnowledgeBundle } from '../services/scrolitha/scrolitha.knowledge';
 import { ollamaChat, resolveScrolithaLlmRuntime } from '../services/scrolitha/scrolitha.ollama';
+import { resolveActorFromRequest, writeScrolithaAuditLog } from '../services/scrolitha/scrolitha.audit';
+import { ensureScrolithaConfig } from '../services/scrolitha/scrolitha.policy';
+import {
+  enhancePostDraftWithAi,
+  enforcePostEnhanceRateLimit,
+  generateAndPersistPostInsight,
+  generatePostInsightText,
+  isValidPostEnhanceMode,
+  resolvePostAiSettings
+} from '../services/postAi.service';
 
 type AiProvider = 'scrolitha' | 'google' | 'openai';
 
@@ -289,6 +299,188 @@ export const supportChat = async (req: Request, res: Response) => {
     const lower = msg.toLowerCase();
     const status = lower.includes('not configured') ? 503 : 500;
     return res.status(status).json({ success: false, error: msg });
+  }
+};
+
+const safePreview = (value: unknown, max = 220) => {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.length <= max ? text : `${text.slice(0, max - 1)}...`;
+};
+
+export const postEnhance = async (req: Request, res: Response) => {
+  const actor = resolveActorFromRequest(req);
+  const text = String(req.body?.text || '').trim();
+  const modeRaw = String(req.body?.mode || '').trim().toLowerCase();
+
+  if (!actor.id) {
+    return res.status(401).json({ success: false, error: 'Unauthorized' });
+  }
+  if (!text) {
+    return res.status(400).json({ success: false, error: 'text is required' });
+  }
+  if (!isValidPostEnhanceMode(modeRaw)) {
+    return res.status(400).json({ success: false, error: 'mode must be one of: grammar, rephrase, professional, shorten, expand' });
+  }
+
+  const postAiSettings = await resolvePostAiSettings();
+  if (!postAiSettings.assistantEnabled) {
+    return res.status(403).json({ success: false, error: 'AI post assistant is disabled by admin' });
+  }
+
+  const limit = enforcePostEnhanceRateLimit(actor.id, 10);
+  if (!limit.allowed) {
+    return res.status(429).json({ success: false, error: limit.reason || 'Rate limit exceeded' });
+  }
+
+  try {
+    const config = await ensureScrolithaConfig('user');
+    const result = await enhancePostDraftWithAi({
+      text,
+      mode: modeRaw,
+      safeMode: Boolean(config.safeMode),
+      scope: 'user'
+    });
+
+    await writeScrolithaAuditLog({
+      actor,
+      eventType: 'POST_AI_ENHANCE',
+      intent: `post_enhance_${modeRaw}`,
+      toolKey: 'POST_AI_ENHANCE',
+      requestPayload: { mode: modeRaw, textLength: text.length },
+      redactedPayload: { mode: modeRaw, textPreview: safePreview(text, 100) },
+      resultStatus: 'ok',
+      resultSummary: safePreview(result.enhancedText, 180)
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        enhancedText: result.enhancedText
+      }
+    });
+  } catch (error: any) {
+    const message = String(error?.message || 'AI enhancement failed');
+    await writeScrolithaAuditLog({
+      actor,
+      eventType: 'POST_AI_ENHANCE',
+      intent: `post_enhance_${modeRaw}`,
+      toolKey: 'POST_AI_ENHANCE',
+      requestPayload: { mode: modeRaw, textLength: text.length },
+      redactedPayload: { mode: modeRaw, textPreview: safePreview(text, 100) },
+      resultStatus: 'failed',
+      resultSummary: safePreview(message, 180)
+    });
+    const lower = message.toLowerCase();
+    const status = lower.includes('not configured') ? 503 : lower.includes('rate limit') ? 429 : 500;
+    return res.status(status).json({ success: false, error: message });
+  }
+};
+
+export const postInsight = async (req: Request, res: Response) => {
+  const actor = resolveActorFromRequest(req);
+  const postId = String(req.body?.postId || '').trim();
+  const text = String(req.body?.text || '').trim();
+  const force = Boolean(req.body?.force);
+
+  if (!actor.id) {
+    return res.status(401).json({ success: false, error: 'Unauthorized' });
+  }
+
+  const settings = await resolvePostAiSettings();
+  if (!settings.insightEnabled) {
+    return res.status(403).json({ success: false, error: 'AI insight system is disabled by admin' });
+  }
+
+  try {
+    if (postId) {
+      const post = await prisma.communityPost.findUnique({
+        where: { id: postId },
+        select: { id: true, authorId: true }
+      });
+      if (!post) return res.status(404).json({ success: false, error: 'Post not found' });
+
+      const isPrivileged = actor.isAdmin || String(actor.role || '').toLowerCase() === 'moderator';
+      if (!isPrivileged && post.authorId !== actor.id) {
+        return res.status(403).json({ success: false, error: 'Not allowed to generate insight for this post' });
+      }
+
+      const result = await generateAndPersistPostInsight({
+        postId,
+        app: req.app,
+        force,
+        actor
+      });
+
+      await writeScrolithaAuditLog({
+        actor,
+        eventType: 'POST_AI_INSIGHT_REQUEST',
+        intent: 'post_insight_generate',
+        toolKey: 'POST_AI_INSIGHT',
+        requestPayload: { postId, force },
+        redactedPayload: { postId, force },
+        resultStatus: result.generated ? 'ok' : 'skipped',
+        resultSummary: result.generated
+          ? safePreview((result as any)?.post?.aiInsightText || '', 180)
+          : safePreview((result as any)?.reason || 'not_generated', 120)
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          postId,
+          generated: Boolean(result.generated),
+          reason: (result as any)?.reason || null,
+          aiInsightText: (result as any)?.post?.aiInsightText || null
+        }
+      });
+    }
+
+    if (!text) {
+      return res.status(400).json({ success: false, error: 'Provide postId or text' });
+    }
+
+    const config = await ensureScrolithaConfig('admin');
+    const generated = await generatePostInsightText({
+      text,
+      tone: settings.insightTone,
+      maxLength: settings.maxInsightLength,
+      safeMode: Boolean(settings.insightSafeMode || config.safeMode),
+      scope: 'user'
+    });
+
+    await writeScrolithaAuditLog({
+      actor,
+      eventType: 'POST_AI_INSIGHT_REQUEST',
+      intent: 'post_insight_preview',
+      toolKey: 'POST_AI_INSIGHT',
+      requestPayload: { textLength: text.length },
+      redactedPayload: { textPreview: safePreview(text, 100) },
+      resultStatus: 'ok',
+      resultSummary: safePreview(generated.insightText, 180)
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        insightText: generated.insightText
+      }
+    });
+  } catch (error: any) {
+    const message = String(error?.message || 'AI insight generation failed');
+    await writeScrolithaAuditLog({
+      actor,
+      eventType: 'POST_AI_INSIGHT_REQUEST',
+      intent: 'post_insight_error',
+      toolKey: 'POST_AI_INSIGHT',
+      requestPayload: { postId: postId || null, textLength: text.length || 0 },
+      redactedPayload: { postId: postId || null, textPreview: safePreview(text, 100) },
+      resultStatus: 'failed',
+      resultSummary: safePreview(message, 180)
+    });
+    const lower = message.toLowerCase();
+    const status = lower.includes('not configured') ? 503 : 500;
+    return res.status(status).json({ success: false, error: message });
   }
 };
 

@@ -2,6 +2,7 @@ import express from 'express';
 import {
   getAdminScrolithaChatRecordsController,
   getAdminScrolithaLearningInsightsController,
+  deleteAdminScrolithaPostInsightsController,
   deleteAdminScrolithaSkillController,
   getAdminScrolithaAnalyticsController,
   getAdminScrolithaAuditController,
@@ -10,6 +11,7 @@ import {
   getAdminScrolithaConfigController,
   getAdminScrolithaSkillsController,
   getAdminScrolithaToolsController,
+  postAdminScrolithaRegenerateInsightsController,
   postAdminScrolithaChatController,
   postAdminScrolithaExecuteController,
   postAdminScrolithaSkillController,
@@ -34,5 +36,7 @@ router.get('/analytics', getAdminScrolithaAnalyticsController);
 router.get('/tools', getAdminScrolithaToolsController);
 router.get('/chat-records', getAdminScrolithaChatRecordsController);
 router.get('/learning-insights', getAdminScrolithaLearningInsightsController);
+router.post('/post-ai/regenerate-insights', postAdminScrolithaRegenerateInsightsController);
+router.delete('/post-ai/insights', deleteAdminScrolithaPostInsightsController);
 
 export default router;

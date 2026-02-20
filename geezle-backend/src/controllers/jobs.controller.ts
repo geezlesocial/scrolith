@@ -2,8 +2,34 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import { resolveUserProStatus } from '../utils/proStatus';
 import { JobStatus } from '@prisma/client';
+import { notifyFollowersAboutPublication } from '../services/followPublicationNotifications.service';
+import { resolveFeaturedListingEligibility } from '../services/listingFeaturePolicy.service';
 
 const normalizeStatus = (status?: string) => (status || '').toString().toLowerCase();
+const parseBooleanQuery = (value: unknown) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+};
+const parseLimitQuery = (value: unknown, max = 100) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  return Math.max(1, Math.min(max, Math.floor(numeric)));
+};
+const isKycVerifiedStatus = (status?: string | null) => {
+  const normalized = String(status || '').trim().toLowerCase();
+  return normalized === 'verified' || normalized === 'approved';
+};
+const resolveUserVerified = (user?: { isVerified?: boolean | null; kycStatus?: string | null } | null) => {
+  return Boolean(user?.isVerified || isKycVerifiedStatus(user?.kycStatus));
+};
+const shuffleItems = <T>(items: T[]) => {
+  const next = [...items];
+  for (let i = next.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [next[i], next[j]] = [next[j], next[i]];
+  }
+  return next;
+};
 const normalizeJobType = (value: unknown, fallback: string = 'FIXED_PRICE') => {
   if (!value) return fallback as string;
   const raw = String(value).trim().toLowerCase();
@@ -39,6 +65,7 @@ const safeUserSelect = {
   avatar: true,
   profilePhotoFileId: true,
   role: true,
+  isVerified: true,
   kycStatus: true
 };
 
@@ -52,8 +79,25 @@ const getAutoApproveJobs = async () => {
   }
 };
 
+const toBoolFromPayload = (value: unknown) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value > 0;
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return false;
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+};
+
+const rankRecommendedJob = (job: any) => {
+  const recommendedBoost = job?.isRecommended ? 8 : 0;
+  const topSelectedBoost = job?.isTopSelected ? 5 : 0;
+  const featuredBoost = job?.isFeatured ? 3 : 0;
+  const proposalsBoost = Math.min(4, Math.floor(Number(job?.proposalsCount || 0) / 5));
+  return recommendedBoost + topSelectedBoost + featuredBoost + proposalsBoost;
+};
+
 const serializeJob = (job: any) => {
   const pro = job.client ? resolveUserProStatus(job.client) : { employerIsPro: false };
+  const clientIsVerified = resolveUserVerified(job.client);
   return ({
   id: job.id,
   title: job.title,
@@ -81,15 +125,49 @@ const serializeJob = (job: any) => {
   clientAvatar: job.client?.avatar || null,
   clientProfilePhotoFileId: job.client?.profilePhotoFileId || null,
   clientIsPro: Boolean((pro as any).employerIsPro),
+  clientIsVerified,
+  client_is_verified: clientIsVerified,
+  clientVerified: clientIsVerified,
   adminStatus: job.adminStatus ? job.adminStatus.toLowerCase() : undefined,
   adminReason: job.adminReason || undefined
 });
+};
+
+const emitJobPublished = (req: Request, job: any) => {
+  const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
+  const payload = { job: serializeJob(job) };
+  try { io?.emit('community:job_published', payload); } catch {}
+};
+
+const notifyFollowersAboutJobPublication = async (req: Request, job: any) => {
+  try {
+    await notifyFollowersAboutPublication({
+      actorUserId: String(job?.clientId || ''),
+      publicationType: 'job',
+      publicationId: String(job?.id || ''),
+      publicationTitle: String(job?.title || '')
+    });
+  } catch (error) {
+    console.warn('[jobs] follower notification fanout failed', error);
+  }
+  emitJobPublished(req, job);
 };
 
 export const listJobs = async (req: Request, res: Response) => {
   try {
     const { ownerId, status, search } = req.query as Record<string, string | undefined>;
     const userId = req.user?.id as string | undefined;
+    const recommendedOnly = parseBooleanQuery(req.query.recommended);
+    const featuredOnly = parseBooleanQuery(req.query.featuredOnly);
+    const explicitRandomize = parseBooleanQuery(req.query.random);
+    const hasRandomParam = req.query.random !== undefined;
+    const limit = parseLimitQuery(req.query.limit, 100);
+    const shouldDefaultRandomize =
+      !hasRandomParam &&
+      ownerId !== 'me' &&
+      String(status || '').toLowerCase() === 'active' &&
+      limit !== null;
+    const randomize = explicitRandomize || shouldDefaultRandomize;
 
     const where: any = {};
     if (ownerId === 'me') {
@@ -101,18 +179,45 @@ export const listJobs = async (req: Request, res: Response) => {
       where.status = status.toUpperCase();
     }
 
+    const andFilters: any[] = [];
     if (search) {
-      where.OR = [
+      andFilters.push({
+        OR: [
         { title: { contains: search, mode: 'insensitive' } },
         { description: { contains: search, mode: 'insensitive' } }
-      ];
+        ]
+      });
+    }
+    if (featuredOnly) {
+      andFilters.push({ isFeatured: true });
+    }
+    if (recommendedOnly) {
+      andFilters.push({
+        OR: [{ isRecommended: true }, { isTopSelected: true }, { isFeatured: true }]
+      });
+    }
+    if (andFilters.length) {
+      where.AND = andFilters;
     }
 
-    const jobs = await prisma.job.findMany({
+    let jobs = await prisma.job.findMany({
       where,
       orderBy: { updatedAt: 'desc' },
       include: { category: true, client: { select: safeUserSelect } }
     });
+    if (recommendedOnly && !randomize) {
+      jobs = [...jobs].sort((a, b) => {
+        const scoreDiff = rankRecommendedJob(b) - rankRecommendedJob(a);
+        if (scoreDiff !== 0) return scoreDiff;
+        return new Date(String(b.updatedAt || 0)).getTime() - new Date(String(a.updatedAt || 0)).getTime();
+      });
+    }
+    if (randomize) {
+      jobs = shuffleItems(jobs);
+    }
+    if (limit !== null) {
+      jobs = jobs.slice(0, limit);
+    }
 
     return res.json({ success: true, data: jobs.map(serializeJob) });
   } catch (error: any) {
@@ -141,6 +246,21 @@ export const createJob = async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
     const payload = req.body || {};
+    const requestedFeatured = toBoolFromPayload(payload.is_featured ?? payload.isFeatured);
+    if (requestedFeatured) {
+      const eligibility = await resolveFeaturedListingEligibility({
+        listingType: 'job',
+        userId
+      });
+      if (!eligibility.allowed) {
+        return res.status(403).json({
+          success: false,
+          code: 'FEATURED_JOB_LIMIT_REACHED',
+          error: eligibility.reason || 'Featured job quota reached for this month',
+          data: eligibility
+        });
+      }
+    }
     const created = await prisma.job.create({
       data: {
         title: payload.title,
@@ -157,6 +277,7 @@ export const createJob = async (req: Request, res: Response) => {
         visibility: payload.visibility ? payload.visibility.toUpperCase() : 'PUBLIC',
         duration: payload.duration || null,
         attachments: payload.attachments || [],
+        isFeatured: requestedFeatured,
         clientId: userId,
         adminStatus: 'PENDING',
         adminReason: null
@@ -183,6 +304,27 @@ export const updateJob = async (req: Request, res: Response) => {
     }
 
     const payload = req.body || {};
+    const requestedFeaturedRaw = payload.is_featured ?? payload.isFeatured;
+    let nextIsFeatured = existing.isFeatured;
+    if (requestedFeaturedRaw !== undefined) {
+      const requestedFeatured = toBoolFromPayload(requestedFeaturedRaw);
+      if (requestedFeatured && !existing.isFeatured) {
+        const eligibility = await resolveFeaturedListingEligibility({
+          listingType: 'job',
+          userId,
+          excludeListingId: existing.id
+        });
+        if (!eligibility.allowed) {
+          return res.status(403).json({
+            success: false,
+            code: 'FEATURED_JOB_LIMIT_REACHED',
+            error: eligibility.reason || 'Featured job quota reached for this month',
+            data: eligibility
+          });
+        }
+      }
+      nextIsFeatured = requestedFeatured;
+    }
     const budgetValue = normalizeBudget(payload.budget);
     const updated = await prisma.job.update({
       where: { id: req.params.id },
@@ -197,7 +339,8 @@ export const updateJob = async (req: Request, res: Response) => {
         experienceLevel: payload.experienceLevel ? payload.experienceLevel.toUpperCase() : existing.experienceLevel,
         visibility: payload.visibility ? payload.visibility.toUpperCase() : existing.visibility,
         duration: payload.duration ?? existing.duration,
-        attachments: payload.attachments ?? existing.attachments
+        attachments: payload.attachments ?? existing.attachments,
+        isFeatured: nextIsFeatured
       },
       include: { category: true, client: { select: safeUserSelect } }
     });
@@ -247,6 +390,9 @@ export const submitJob = async (req: Request, res: Response) => {
         : { status: 'SUBMITTED', adminStatus: 'PENDING', isActive: false, isVisible: false, adminReason: null },
       include: { category: true, client: { select: safeUserSelect } }
     });
+    if (updated.status === 'ACTIVE' && existing.status !== 'ACTIVE') {
+      await notifyFollowersAboutJobPublication(req, updated);
+    }
 
     return res.json({ success: true, data: serializeJob(updated) });
   } catch (error: any) {
@@ -296,6 +442,9 @@ const updateJobStatus = async (req: Request, res: Response, status: JobStatus) =
       data: statusData,
       include: { category: true, client: { select: safeUserSelect } }
     });
+    if (status === 'ACTIVE' && existing.status !== 'ACTIVE') {
+      await notifyFollowersAboutJobPublication(req, updated);
+    }
 
     return res.json({ success: true, data: serializeJob(updated) });
   } catch (error: any) {
