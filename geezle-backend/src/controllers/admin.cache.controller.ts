@@ -39,6 +39,15 @@ export const clearPlatformRuntimeCache = async (req: Request, res: Response) => 
     invalidateEmailTransportCache();
   });
 
+  await run('optimization_runtime', async () => {
+    const clearOptimizationCaches = req.app.get('runtime:clearOptimizationCaches');
+    if (typeof clearOptimizationCaches === 'function') {
+      clearOptimizationCaches();
+      return;
+    }
+    throw new Error('Optimization runtime cache hook not configured');
+  });
+
   await run('redis_global', async () => {
     const redisClient: any = (global as any).redisClient;
     if (!redisClient) throw new Error('Redis client not configured');
@@ -75,4 +84,3 @@ export const clearPlatformRuntimeCache = async (req: Request, res: Response) => 
     message
   });
 };
-

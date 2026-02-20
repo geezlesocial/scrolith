@@ -7,6 +7,11 @@ import {
   normalizeEmailSettings,
   validateEmailSettings
 } from '../services/email.service';
+import {
+  DEFAULT_RUNTIME_OPTIMIZATION_CONFIG,
+  normalizeRuntimeOptimizationConfig,
+  serializeRuntimeOptimizationConfig
+} from '../services/runtimeOptimization.service';
 
 const DEFAULT_SYSTEM = {
   maintenanceMode: false,
@@ -29,6 +34,7 @@ const DEFAULT_SYSTEM = {
     baseCurrency: 'USD',
     provider: 'openexchangerates'
   },
+  optimization: serializeRuntimeOptimizationConfig(DEFAULT_RUNTIME_OPTIMIZATION_CONFIG),
   currencies: []
 };
 
@@ -44,6 +50,20 @@ export const deepMergeReplaceArrays = (existing: any, incoming: any): any => {
     out[key] = deepMergeReplaceArrays(existing ? existing[key] : undefined, incoming[key]);
   }
   return out;
+};
+
+const hydrateSystemSettings = (raw: any) => {
+  const merged = deepMergeReplaceArrays(DEFAULT_SYSTEM, raw || {});
+  const normalizedOptimization = normalizeRuntimeOptimizationConfig(merged?.optimization);
+  merged.optimization = serializeRuntimeOptimizationConfig(normalizedOptimization);
+  return merged;
+};
+
+const pickFirstDefined = (source: Record<string, any>, keys: string[]) => {
+  for (const key of keys) {
+    if (source[key] !== undefined) return source[key];
+  }
+  return undefined;
 };
 
 export const validateSystem = (obj: any) => {
@@ -108,6 +128,82 @@ export const validateSystem = (obj: any) => {
   // aiConfig.safety.maxTokens
   if (obj.aiConfig && obj.aiConfig.safety && obj.aiConfig.safety.maxTokens !== undefined && typeof obj.aiConfig.safety.maxTokens !== 'number') errors.push('aiConfig.safety.maxTokens must be a number');
 
+  if (obj.optimization !== undefined) {
+    if (!isPlainObject(obj.optimization)) {
+      errors.push('optimization must be an object');
+    } else {
+      const optimization = obj.optimization as Record<string, any>;
+      const booleanRules: Array<{ key: string; aliases?: string[] }> = [
+        { key: 'enabled' },
+        { key: 'compressionEnabled', aliases: ['compression_enabled'] },
+        { key: 'apiResponseCachingEnabled', aliases: ['api_response_caching_enabled'] },
+        { key: 'staticAssetCachingEnabled', aliases: ['static_asset_caching_enabled'] },
+        { key: 'htmlMinifyEnabled', aliases: ['html_minify_enabled'] },
+        { key: 'htmlCollapseWhitespace', aliases: ['html_collapse_whitespace'] },
+        { key: 'htmlRemoveComments', aliases: ['html_remove_comments'] },
+        { key: 'jsonMinifyEnabled', aliases: ['json_minify_enabled'] },
+        { key: 'speedHintsEnabled', aliases: ['speed_hints_enabled'] }
+      ];
+      for (const rule of booleanRules) {
+        const value = pickFirstDefined(optimization, [rule.key, ...(rule.aliases || [])]);
+        if (value === undefined) continue;
+        if (typeof value !== 'boolean') {
+          errors.push(`optimization.${rule.key} must be boolean`);
+        }
+      }
+
+      const numericRules: Array<{ key: string; aliases?: string[]; min: number; max: number }> = [
+        { key: 'compressionLevel', aliases: ['compression_level'], min: 1, max: 9 },
+        { key: 'compressionThresholdKb', aliases: ['compression_threshold_kb'], min: 0, max: 2048 },
+        { key: 'apiResponseCacheSeconds', aliases: ['api_response_cache_seconds'], min: 5, max: 3600 },
+        { key: 'apiResponseCacheMaxEntries', aliases: ['api_response_cache_max_entries'], min: 50, max: 5000 },
+        { key: 'staticAssetCacheSeconds', aliases: ['static_asset_cache_seconds'], min: 60, max: 31536000 }
+      ];
+      for (const rule of numericRules) {
+        const value = pickFirstDefined(optimization, [rule.key, ...(rule.aliases || [])]);
+        if (value === undefined) continue;
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+          errors.push(`optimization.${rule.key} must be a number`);
+          continue;
+        }
+        if (numeric < rule.min || numeric > rule.max) {
+          errors.push(`optimization.${rule.key} must be between ${rule.min} and ${rule.max}`);
+        }
+      }
+
+      const preconnect = pickFirstDefined(optimization, ['preconnectOrigins', 'preconnect_origins']);
+      if (preconnect !== undefined) {
+        const origins = Array.isArray(preconnect)
+          ? preconnect
+          : String(preconnect || '')
+              .split(/[,\n]/g)
+              .map((entry) => String(entry || '').trim())
+              .filter(Boolean);
+        if (origins.length > 20) {
+          errors.push('optimization.preconnectOrigins supports at most 20 entries');
+        }
+        const invalidOrigin = origins.find((origin) => !/^https?:\/\//i.test(String(origin || '').trim()));
+        if (invalidOrigin) {
+          errors.push('optimization.preconnectOrigins must contain valid http(s) URLs');
+        }
+      }
+
+      const apiCacheExcludePaths = pickFirstDefined(optimization, ['apiCacheExcludePaths', 'api_cache_exclude_paths']);
+      if (apiCacheExcludePaths !== undefined) {
+        const paths = Array.isArray(apiCacheExcludePaths)
+          ? apiCacheExcludePaths
+          : String(apiCacheExcludePaths || '')
+              .split(/[,\n]/g)
+              .map((entry) => String(entry || '').trim())
+              .filter(Boolean);
+        if (paths.length > 100) {
+          errors.push('optimization.apiCacheExcludePaths supports at most 100 entries');
+        }
+      }
+    }
+  }
+
   return errors;
 };
 
@@ -118,7 +214,10 @@ export const getSystemSettings = async (req: Request, res: Response) => {
 
   try {
     const record = await prisma.appSetting.findUnique({ where: { scope: 'system' } });
-    const data = record?.data ?? DEFAULT_SYSTEM;
+    const data = hydrateSystemSettings(record?.data ?? DEFAULT_SYSTEM);
+    (req.app as any)?.set?.('runtime:systemSettings', data);
+    (req.app as any)?.set?.('runtime:systemSettingsVersion', Date.now());
+    (req.app as any)?.set?.('runtime:optimizationConfig', normalizeRuntimeOptimizationConfig((data as any)?.optimization));
     return res.json({ success: true, data });
   } catch (error) {
     console.warn('getSystemSettings DB error, attempting file fallback', error);
@@ -127,11 +226,19 @@ export const getSystemSettings = async (req: Request, res: Response) => {
         const raw = fs.readFileSync(SETTINGS_FILE, 'utf-8');
         const parsed = JSON.parse(raw);
         if (parsed && parsed.system) {
-          return res.json({ success: true, data: parsed.system });
+          const data = hydrateSystemSettings(parsed.system);
+          (req.app as any)?.set?.('runtime:systemSettings', data);
+          (req.app as any)?.set?.('runtime:systemSettingsVersion', Date.now());
+          (req.app as any)?.set?.('runtime:optimizationConfig', normalizeRuntimeOptimizationConfig((data as any)?.optimization));
+          return res.json({ success: true, data });
         }
         if (parsed && parsed.platform) {
           // older platform-only file; return defaults merged
-          return res.json({ success: true, data: DEFAULT_SYSTEM });
+          const data = hydrateSystemSettings(DEFAULT_SYSTEM);
+          (req.app as any)?.set?.('runtime:systemSettings', data);
+          (req.app as any)?.set?.('runtime:systemSettingsVersion', Date.now());
+          (req.app as any)?.set?.('runtime:optimizationConfig', normalizeRuntimeOptimizationConfig((data as any)?.optimization));
+          return res.json({ success: true, data });
         }
       }
     } catch (fsErr) {
@@ -148,10 +255,11 @@ export const updateSystemSettings = async (req: Request, res: Response) => {
 
     // Load existing
     const record = await prisma.appSetting.findUnique({ where: { scope: 'system' } });
-    const existing = record?.data ?? DEFAULT_SYSTEM;
+    const existing = hydrateSystemSettings(record?.data ?? DEFAULT_SYSTEM);
 
     // Merge safely
     merged = deepMergeReplaceArrays(existing, payload);
+    merged = hydrateSystemSettings(merged);
 
     // Validation
     const errors = validateSystem(merged);
@@ -169,6 +277,9 @@ export const updateSystemSettings = async (req: Request, res: Response) => {
     // Emit socket event
     const io = (req.app as unknown as { get?: (k: string) => unknown }).get?.('io') as { emit?: (ev: string, payload: unknown) => void } | undefined;
     io?.emit?.('settings:updated', { scope: 'system', settings: merged });
+    (req.app as any)?.set?.('runtime:systemSettings', merged);
+    (req.app as any)?.set?.('runtime:systemSettingsVersion', Date.now());
+    (req.app as any)?.set?.('runtime:optimizationConfig', normalizeRuntimeOptimizationConfig((merged as any)?.optimization));
 
     return res.json({ success: true, data: merged });
   } catch (error) {
@@ -185,6 +296,9 @@ export const updateSystemSettings = async (req: Request, res: Response) => {
       fs.writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2), 'utf-8');
       const io = (req.app as unknown as { get?: (k: string) => unknown }).get?.('io') as { emit?: (ev: string, payload: unknown) => void } | undefined;
       io?.emit?.('settings:updated', { scope: 'system', settings: merged });
+      (req.app as any)?.set?.('runtime:systemSettings', merged);
+      (req.app as any)?.set?.('runtime:systemSettingsVersion', Date.now());
+      (req.app as any)?.set?.('runtime:optimizationConfig', normalizeRuntimeOptimizationConfig((merged as any)?.optimization));
       console.log('[admin] Persisted system settings to', SETTINGS_FILE);
       return res.json({ success: true, data: merged, fallback: 'file' });
     } catch (fsErr) {

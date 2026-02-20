@@ -69,6 +69,15 @@ import recoRoutes from './routes/reco.routes';
 import scrolithaRoutes from './routes/scrolitha.routes';
 import { authMiddleware } from './middleware/auth.middleware';
 import { maintenanceModeMiddleware } from './middleware/maintenance.middleware';
+import {
+  createRuntimeOptimizationMiddlewareBundle,
+  resolveStaticAssetCacheControl
+} from './middleware/runtimeOptimization.middleware';
+import {
+  DEFAULT_RUNTIME_OPTIMIZATION_CONFIG,
+  normalizeRuntimeOptimizationConfig,
+  RuntimeOptimizationConfig
+} from './services/runtimeOptimization.service';
 // Import community admin controllers so we can mount explicit admin config endpoints
 import { getAdminConfig, updateAdminConfig } from './controllers/community.admin.controller';
 import { handleStripeWalletWebhook } from './controllers/walletFunding.controller';
@@ -137,6 +146,69 @@ const server = http.createServer(app);
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.set('etag', 'strong');
+
+const OPTIMIZATION_CONFIG_REFRESH_MS = 15_000;
+let runtimeOptimizationConfig: RuntimeOptimizationConfig = {
+  ...DEFAULT_RUNTIME_OPTIMIZATION_CONFIG
+};
+let optimizationConfigLoadedAt = 0;
+let optimizationConfigLoadPromise: Promise<void> | null = null;
+let lastRuntimeSystemSettingsVersion = 0;
+
+const applyOptimizationFromSystemSettings = (systemSettings: Record<string, any> | null | undefined) => {
+  const normalized = normalizeRuntimeOptimizationConfig(systemSettings?.optimization);
+  runtimeOptimizationConfig = normalized;
+  optimizationConfigLoadedAt = Date.now();
+  app.set('runtime:optimizationConfig', normalized);
+};
+
+const syncOptimizationFromRuntimeSettings = () => {
+  const versionRaw = app.get('runtime:systemSettingsVersion');
+  const version = Number(versionRaw || 0);
+  if (!Number.isFinite(version) || version <= 0 || version === lastRuntimeSystemSettingsVersion) return false;
+  lastRuntimeSystemSettingsVersion = version;
+  const runtimeSystem = app.get('runtime:systemSettings') as Record<string, any> | undefined;
+  if (runtimeSystem && typeof runtimeSystem === 'object') {
+    applyOptimizationFromSystemSettings(runtimeSystem);
+    return true;
+  }
+  return false;
+};
+
+const loadOptimizationConfigFromDatabase = async () => {
+  try {
+    const row = await prisma.appSetting.findUnique({ where: { scope: 'system' } });
+    const data = (row?.data || {}) as Record<string, any>;
+    applyOptimizationFromSystemSettings(data);
+    if (row?.data) {
+      app.set('runtime:systemSettings', data);
+      app.set('runtime:systemSettingsVersion', Date.now());
+    }
+  } catch (error) {
+    console.warn('[optimization] Failed to load optimization config from DB:', error);
+  }
+};
+
+const refreshOptimizationConfigIfNeeded = (force = false) => {
+  if (!force && syncOptimizationFromRuntimeSettings()) return;
+  if (!force && Date.now() - optimizationConfigLoadedAt < OPTIMIZATION_CONFIG_REFRESH_MS) return;
+  if (optimizationConfigLoadPromise) return;
+  optimizationConfigLoadPromise = loadOptimizationConfigFromDatabase()
+    .catch((error) => {
+      console.warn('[optimization] refresh failed:', error);
+    })
+    .finally(() => {
+      optimizationConfigLoadPromise = null;
+    });
+};
+
+const getRuntimeOptimizationConfig = (): RuntimeOptimizationConfig => {
+  syncOptimizationFromRuntimeSettings();
+  refreshOptimizationConfigIfNeeded(false);
+  return runtimeOptimizationConfig;
+};
+
+refreshOptimizationConfigIfNeeded(true);
 
 // IMPORTANT: Enhanced Socket.io configuration
 const io = new Server(server, {
@@ -492,6 +564,16 @@ io.engine.on('headers', (headers, req) => {
   headers['Access-Control-Allow-Credentials'] = 'true';
 });
 
+const runtimeOptimizationBundle = createRuntimeOptimizationMiddlewareBundle(getRuntimeOptimizationConfig);
+app.set('runtime:clearOptimizationCaches', runtimeOptimizationBundle.clearRuntimeCaches);
+
+io.on('settings:updated', (payload: any) => {
+  if (!payload || payload.scope !== 'system' || !payload.settings) return;
+  app.set('runtime:systemSettings', payload.settings);
+  app.set('runtime:systemSettingsVersion', Date.now());
+  applyOptimizationFromSystemSettings(payload.settings as Record<string, any>);
+});
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: {
@@ -572,6 +654,7 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), hand
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+runtimeOptimizationBundle.middlewares.forEach((middleware) => app.use(middleware));
 
 // Static uploads - allow cross-origin usage from frontend
 app.use(
@@ -583,11 +666,13 @@ app.use(
     setHeaders: (res, filePath) => {
       res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
       const lowerName = path.basename(filePath || '').toLowerCase();
-      if (lowerName.includes('favicon')) {
-        res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
-        return;
-      }
-      res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+      const fallbackSeconds = lowerName.includes('favicon') ? 300 : 604800;
+      const cacheControl = resolveStaticAssetCacheControl(
+        getRuntimeOptimizationConfig(),
+        fallbackSeconds,
+        lowerName
+      );
+      res.setHeader('Cache-Control', cacheControl);
     }
   })
 );
@@ -630,7 +715,10 @@ const serveFaviconFromUploads = (res: Response) => {
 const faviconHandler = async (_req: Request, res: Response) => {
   try {
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
+    res.setHeader(
+      'Cache-Control',
+      resolveStaticAssetCacheControl(getRuntimeOptimizationConfig(), 300, 'favicon.ico')
+    );
     const configured = await getConfiguredFaviconUrl();
 
     if (configured) {
