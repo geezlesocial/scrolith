@@ -192,9 +192,18 @@ export const reportPost = async (req: Request, res: Response) => {
 
     const report = await prisma.communityPostReport.upsert({
       where: { postId_reporterId: { postId: post.id, reporterId: userId } },
-      update: { reason, details, status: 'open' },
-      create: { postId: post.id, reporterId: userId, reason, details, status: 'open' }
+      update: { reason, details, status: 'pending' },
+      create: { postId: post.id, reporterId: userId, reason, details, status: 'pending' }
     });
+
+    const payload = {
+      reportId: report.id,
+      postId: post.id,
+      reporterId: userId,
+      status: 'pending'
+    };
+    try { realtime.emitToRoom('community:admin', 'community:post_report_submitted', payload); } catch {}
+    try { realtime.emitToRoom('community:global', 'community:post_report_submitted', payload); } catch {}
 
     return ok(res, 'Report submitted', { reportId: report.id, status: report.status });
   } catch (error: any) {

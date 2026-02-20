@@ -98,10 +98,18 @@ const apiRateLimitMaxAuthenticated = Math.max(
   apiRateLimitMaxAnonymous,
   Number(process.env.API_RATE_LIMIT_MAX_AUTH || (isDevelopment ? 10_000 : 4_000))
 );
+const normalizeOrigin = (value: string | undefined | null): string => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return raw.replace(/\/+$/, '').toLowerCase();
+};
 const allowedOrigins = new Set<string>(
   [
     process.env.FRONTEND_URL,
     process.env.PUBLIC_APP_URL,
+    'https://scrolith.com',
+    'https://www.scrolith.com',
+    'https://m.scrolith.com',
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'http://localhost',
@@ -110,12 +118,17 @@ const allowedOrigins = new Set<string>(
     'https://127.0.0.1',
     'capacitor://localhost',
     'ionic://localhost'
-  ].filter(Boolean) as string[]
+  ]
+    .map((origin) => normalizeOrigin(origin))
+    .filter(Boolean)
 );
+const isAllowedOrigin = (origin: string | undefined): boolean => {
+  if (!origin) return true;
+  if (isDevelopment) return true;
+  return allowedOrigins.has(normalizeOrigin(origin));
+};
 const corsOrigin = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-  if (!origin) return callback(null, true);
-  if (isDevelopment) return callback(null, true);
-  if (allowedOrigins.has(origin)) return callback(null, true);
+  if (isAllowedOrigin(origin)) return callback(null, true);
   return callback(new Error('Not allowed by CORS'));
 };
 
@@ -464,7 +477,7 @@ io.engine.on('connection_error', (err) => {
 io.engine.on('initial_headers', (headers, req) => {
   const origin = String(req.headers.origin || '').trim();
   if (!origin) return;
-  if (!isDevelopment && !allowedOrigins.has(origin)) return;
+  if (!isAllowedOrigin(origin)) return;
   headers['Access-Control-Allow-Origin'] = origin;
   headers['Vary'] = 'Origin';
   headers['Access-Control-Allow-Credentials'] = 'true';
@@ -473,7 +486,7 @@ io.engine.on('initial_headers', (headers, req) => {
 io.engine.on('headers', (headers, req) => {
   const origin = String(req.headers.origin || '').trim();
   if (!origin) return;
-  if (!isDevelopment && !allowedOrigins.has(origin)) return;
+  if (!isAllowedOrigin(origin)) return;
   headers['Access-Control-Allow-Origin'] = origin;
   headers['Vary'] = 'Origin';
   headers['Access-Control-Allow-Credentials'] = 'true';

@@ -126,6 +126,12 @@ import {
 } from '../controllers/community.reactions.controller';
 import { takeModerationAction } from '../controllers/community.moderation.controller';
 import {
+  getPostReportsAdmin,
+  getPostReportByIdAdmin,
+  replyToPostReportAdmin,
+  actionPostReportAdmin
+} from '../controllers/community.reports.controller';
+import {
   getAdminConfig,
   updateAdminConfig
 } from '../controllers/community.admin.controller';
@@ -278,6 +284,10 @@ router.delete('/admin/business-pages/:id', authMiddleware, adminMiddleware, admi
 // Admin moderation
 router.get('/admin/moderation/flags', authMiddleware, adminMiddleware, getModerationLogs);
 router.post('/admin/moderation/action', authMiddleware, adminMiddleware, takeModerationAction);
+router.get('/admin/reports/posts', authMiddleware, adminMiddleware, getPostReportsAdmin);
+router.get('/admin/reports/posts/:reportId', authMiddleware, adminMiddleware, getPostReportByIdAdmin);
+router.post('/admin/reports/posts/:reportId/reply', authMiddleware, adminMiddleware, replyToPostReportAdmin);
+router.post('/admin/reports/posts/:reportId/action', authMiddleware, adminMiddleware, actionPostReportAdmin);
 
 // Admin community homepage config
 router.get('/admin/homepage', authMiddleware, adminMiddleware, getCommunityHomepage);
