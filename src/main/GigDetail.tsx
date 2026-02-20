@@ -897,6 +897,27 @@ const GigDetail = () => {
   const viewerRole = normalizeViewerRole(user?.role);
   const canStartOrPauseTracking = Boolean(hourlyContract?.id && user?.id && ((hourlyContract as any)?.freelancerId || (hourlyContract as any)?.freelancer_id) === user.id && contractStatus === 'active');
   const canPayDue = Boolean(hourlyContract?.id && user?.id && ((hourlyContract as any)?.clientId || (hourlyContract as any)?.client_id) === user.id && contractPending > 0);
+  const buildContractDashboardLink = (contract: Contract | null) => {
+      const contractId = (contract as any)?.id;
+      if (!contractId) return '/dashboard?tab=contracts';
+
+      const freelancerId = (contract as any)?.freelancerId || (contract as any)?.freelancer_id;
+      const clientId = (contract as any)?.clientId || (contract as any)?.client_id;
+      const targetBasePath =
+          user?.id && freelancerId && user.id === freelancerId
+              ? '/freelancer/dashboard'
+              : user?.id && clientId && user.id === clientId
+                  ? '/client/dashboard'
+                  : viewerRole === 'freelancer'
+                      ? '/freelancer/dashboard'
+                      : '/client/dashboard';
+
+      const params = new URLSearchParams();
+      params.set('tab', 'contracts');
+      params.set('contract', String(contractId));
+      params.set('contract_id', String(contractId));
+      return `${targetBasePath}?${params.toString()}`;
+  };
 
   useEffect(() => {
       if (!gig?.id) return;
@@ -1424,7 +1445,7 @@ const GigDetail = () => {
                                    ) : null}
                                    <button
                                        type="button"
-                                       onClick={() => navigate(`/dashboard?tab=contracts&contract_id=${hourlyContract.id}`)}
+                                       onClick={() => navigate(buildContractDashboardLink(hourlyContract))}
                                        className="rounded-lg border border-white/30 px-3 py-1.5 text-[11px] font-semibold text-indigo-50 hover:bg-white/10"
                                    >
                                        Open contract

@@ -699,6 +699,15 @@ const AppContent = () => {
                   </ProtectedRoute>
                 }
               />
+
+              <Route
+                path="/dashboard/*"
+                element={
+                  <ProtectedRoute>
+                    <DashboardAliasRedirect />
+                  </ProtectedRoute>
+                }
+              />
               
               {/* Freelancer Routes (allow any authenticated user to view; dashboard will respect `as` query) */}
               <Route
@@ -818,6 +827,32 @@ const resolveDashboardPath = (role?: UserRole | string) => {
     default:
       return '/';
   }
+};
+
+const DashboardAliasRedirect: React.FC = () => {
+  const { user } = useUser();
+  const location = useLocation();
+
+  if (!user) {
+    return <Navigate to="/auth/login" state={{ from: location }} replace />;
+  }
+
+  const params = new URLSearchParams(location.search);
+  const overrideRaw =
+    (params.get('as') || params.get('view') || sessionStorage.getItem('activeRole') || '')
+      .toString()
+      .toLowerCase();
+
+  let overrideRole: UserRole | undefined;
+  if (overrideRaw.startsWith('f')) overrideRole = UserRole.FREELANCER;
+  if (overrideRaw.startsWith('e') || overrideRaw.startsWith('c')) overrideRole = UserRole.EMPLOYER;
+  if (overrideRaw.startsWith('a')) overrideRole = UserRole.ADMIN;
+
+  const effectiveRole = user.role === UserRole.ADMIN ? overrideRole || user.role : user.role;
+  const targetPath = resolveDashboardPath(effectiveRole);
+  const targetUrl = `${targetPath}${location.search || ''}`;
+
+  return <Navigate to={targetUrl} replace />;
 };
 
 const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {

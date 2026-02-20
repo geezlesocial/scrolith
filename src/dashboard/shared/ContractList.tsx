@@ -18,7 +18,7 @@ const ContractList: React.FC<ContractListProps> = ({ role, userId }) => {
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
     const [logs, setLogs] = useState<TimeEntry[]>([]);
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
     const { formatPrice } = useCurrency();
     const { showNotification } = useNotification();
     const [confirmState, setConfirmState] = useState<{
@@ -30,30 +30,65 @@ const ContractList: React.FC<ContractListProps> = ({ role, userId }) => {
 
     useEffect(() => {
         loadContracts();
-    }, [role, userId]);
+    }, [role, userId, searchParams.toString()]);
 
-    const loadContracts = async () => {
-        const data = await ContractService.getContracts(userId, role);
-        setContracts(data);
-
-        const preselectId = searchParams.get('contract');
-        if (preselectId) {
-            const found = data.find(c => c.id === preselectId);
-            if (found) {
-                setSelectedContract(found);
-                refreshLogs(found.id);
+    useEffect(() => {
+        const intervalId = window.setInterval(() => {
+            if (document.visibilityState === 'hidden') return;
+            void loadContracts(true);
+            if (selectedContract?.id) {
+                void refreshLogs(selectedContract.id);
             }
-        }
-        
-        // Ensure selectedContract data stays fresh if it's currently selected
-        if (selectedContract) {
-            const updated = data.find(c => c.id === selectedContract.id);
-            if (updated) setSelectedContract(updated);
+        }, 15000);
+
+        return () => {
+            window.clearInterval(intervalId);
+        };
+    }, [selectedContract?.id, role, userId, searchParams.toString()]);
+
+    const getContractFromQuery = () =>
+        searchParams.get('contract') || searchParams.get('contract_id') || searchParams.get('contractId');
+
+    const loadContracts = async (silent = false) => {
+        try {
+            const data = await ContractService.getContracts(userId, role);
+            setContracts(data);
+
+            const preselectId = getContractFromQuery();
+            if (preselectId) {
+                const found = data.find(c => c.id === preselectId);
+                if (found) {
+                    setSelectedContract(found);
+                    if (selectedContract?.id !== found.id) {
+                        await refreshLogs(found.id);
+                    }
+                    return;
+                }
+            }
+
+            if (selectedContract) {
+                const updated = data.find(c => c.id === selectedContract.id);
+                if (updated) {
+                    setSelectedContract(updated);
+                } else {
+                    setSelectedContract(null);
+                    setLogs([]);
+                }
+            }
+        } catch (error: any) {
+            if (!silent) {
+                showNotification('error', 'Contract error', error?.message || 'Failed to load contracts.');
+            }
         }
     };
 
     const handleSelect = async (contract: Contract) => {
         setSelectedContract(contract);
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.set('tab', 'contracts');
+        nextParams.set('contract', contract.id);
+        nextParams.set('contract_id', contract.id);
+        setSearchParams(nextParams, { replace: true });
         refreshLogs(contract.id);
     };
 

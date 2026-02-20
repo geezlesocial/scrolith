@@ -38,6 +38,64 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ tab, label, isActive, badgeCo
   );
 };
 
+const getDashboardTabFromPath = (pathname: string): string | null => {
+  const parts = String(pathname || '')
+    .split('/')
+    .filter(Boolean)
+    .map((part) => part.toLowerCase());
+  const dashboardIndex = parts.lastIndexOf('dashboard');
+  if (dashboardIndex < 0) return null;
+  return parts[dashboardIndex + 1] || null;
+};
+
+const normalizeDashboardTab = (value: string, role: UserRole): string => {
+  const tab = String(value || 'overview').toLowerCase().trim();
+  if (!tab) return 'overview';
+
+  const commonMap: Record<string, string> = {
+    contract: 'contracts',
+    contracts: 'contracts',
+    wallets: 'wallet',
+    billing: 'wallet',
+    withdrawal: 'wallet',
+    withdrawals: 'wallet',
+    message: 'messages',
+    messages: 'messages',
+    notification: 'messages',
+    notifications: 'messages',
+    inbox: 'messages',
+    kycverification: 'kyc',
+    'kyc-verification': 'kyc',
+    uploadedfiles: 'uploaded-files',
+    uploaded_files: 'uploaded-files'
+  };
+
+  if (commonMap[tab]) return commonMap[tab];
+
+  if (role === UserRole.EMPLOYER) {
+    const employerMap: Record<string, string> = {
+      jobs: 'my-jobs',
+      job: 'my-jobs',
+      proposals: 'proposals-offers',
+      proposal: 'proposals-offers',
+      offers: 'proposals-offers'
+    };
+    return employerMap[tab] || tab;
+  }
+
+  if (role === UserRole.FREELANCER) {
+    const freelancerMap: Record<string, string> = {
+      gigs: 'my-gigs',
+      gig: 'my-gigs',
+      proposals: 'my-proposals',
+      proposal: 'my-proposals'
+    };
+    return freelancerMap[tab] || tab;
+  }
+
+  return tab;
+};
+
 export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, switchRole } = useUser();
   const navigate = useNavigate();
@@ -73,9 +131,11 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     // Set initial tab from URL
     const searchParams = new URLSearchParams(location.search);
-    const tab = searchParams.get('tab') || 'overview';
+    const searchTab = searchParams.get('tab');
+    const pathTab = getDashboardTabFromPath(location.pathname);
+    const tab = normalizeDashboardTab(searchTab || pathTab || 'overview', effectiveRole);
     setActiveTab(tab);
-  }, [location]);
+  }, [location.pathname, location.search, effectiveRole]);
 
   useEffect(() => {
     setIsSidebarOpen(false);

@@ -81,7 +81,7 @@ export default function MyProposals() {
 
       {proposal.status === 'accepted' && proposal.contractId && (
         <Link
-          to={`/freelancer/dashboard/contracts?contract=${proposal.contractId}`}
+          to={`/freelancer/dashboard?tab=contracts&contract=${proposal.contractId}&contract_id=${proposal.contractId}`}
           className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700"
           title="View contract"
         >

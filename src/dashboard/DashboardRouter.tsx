@@ -46,6 +46,69 @@ const DashboardSectionLoader = () => (
   </div>
 );
 
+const getDashboardTabFromPath = (pathname: string): string | null => {
+  const parts = String(pathname || '')
+    .split('/')
+    .filter(Boolean)
+    .map((part) => part.toLowerCase());
+  const dashboardIndex = parts.lastIndexOf('dashboard');
+  if (dashboardIndex < 0) return null;
+  const tabCandidate = parts[dashboardIndex + 1];
+  return tabCandidate || null;
+};
+
+const normalizeDashboardTab = (value: string, role: UserRole): string => {
+  const tab = String(value || 'overview').toLowerCase().trim();
+  if (!tab) return 'overview';
+
+  const commonMap: Record<string, string> = {
+    contract: 'contracts',
+    contracts: 'contracts',
+    wallets: 'wallet',
+    billing: 'wallet',
+    withdrawal: 'wallet',
+    withdrawals: 'wallet',
+    message: 'messages',
+    messages: 'messages',
+    notification: 'messages',
+    notifications: 'messages',
+    inbox: 'messages',
+    kycverification: 'kyc',
+    'kyc-verification': 'kyc',
+    uploadedfiles: 'uploaded-files',
+    uploaded_files: 'uploaded-files'
+  };
+
+  if (commonMap[tab]) return commonMap[tab];
+
+  if (role === UserRole.EMPLOYER) {
+    const employerMap: Record<string, string> = {
+      jobs: 'my-jobs',
+      job: 'my-jobs',
+      'my-jobs': 'my-jobs',
+      proposals: 'proposals-offers',
+      proposal: 'proposals-offers',
+      offers: 'proposals-offers',
+      'proposals-offers': 'proposals-offers'
+    };
+    return employerMap[tab] || tab;
+  }
+
+  if (role === UserRole.FREELANCER) {
+    const freelancerMap: Record<string, string> = {
+      gigs: 'my-gigs',
+      gig: 'my-gigs',
+      'my-gigs': 'my-gigs',
+      proposals: 'my-proposals',
+      proposal: 'my-proposals',
+      'my-proposals': 'my-proposals'
+    };
+    return freelancerMap[tab] || tab;
+  }
+
+  return tab;
+};
+
 export const DashboardRouter: React.FC = () => {
   const { user } = useUser();
   const [currentTab, setCurrentTab] = useState('overview');
@@ -73,7 +136,7 @@ export const DashboardRouter: React.FC = () => {
 
   useEffect(() => {
     const handleNavigation = (event: CustomEvent) => {
-      setCurrentTab(event.detail.tab);
+      setCurrentTab(normalizeDashboardTab(event.detail.tab, effectiveRole));
     };
 
     // Listen for navigation events from the sidebar
@@ -82,13 +145,15 @@ export const DashboardRouter: React.FC = () => {
     return () => {
       window.removeEventListener('dashboard-navigation', handleNavigation as EventListener);
     };
-  }, []);
+  }, [effectiveRole]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
-    const tab = searchParams.get('tab') || 'overview';
+    const searchTab = searchParams.get('tab');
+    const pathTab = getDashboardTabFromPath(location.pathname);
+    const tab = normalizeDashboardTab(searchTab || pathTab || 'overview', effectiveRole);
     setCurrentTab(tab);
-  }, [location.search]);
+  }, [location.search, location.pathname, effectiveRole]);
 
   if (!user) return null;
 
