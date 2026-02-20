@@ -244,7 +244,7 @@ export const updateContractStatus = async (req: Request, res: Response) => {
     });
 
     try {
-      const contractLink = `/dashboard?tab=contracts&contract_id=${contract.id}`;
+      const contractLink = `/dashboard?tab=contracts&contract=${contract.id}&contract_id=${contract.id}`;
       void sendSystemMessage({
         templateKey: "contract_update",
         userId: contract.clientId,
