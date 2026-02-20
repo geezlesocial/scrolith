@@ -1,8 +1,29 @@
 // src/components/Navbar.tsx
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import * as LucideIcons from "lucide-react";
-import { ChevronDown, Heart, ShoppingCart } from "lucide-react";
+import {
+  BellIcon as Bell,
+  BriefcaseIcon as Briefcase,
+  ChevronDownIcon as ChevronDown,
+  CreditCardIcon as CreditCard,
+  FileTextIcon as FileText,
+  FolderIcon as Folder,
+  GlobeIcon as Globe,
+  HeartIcon as Heart,
+  HelpCircleIcon as HelpCircle,
+  HomeIcon as Home,
+  LayoutDashboardIcon as LayoutDashboard,
+  LogOutIcon as LogOut,
+  MailIcon as Mail,
+  MessageSquareIcon as MessageSquare,
+  SearchIcon as Search,
+  SettingsIcon as Settings,
+  ShieldIcon as Shield,
+  ShoppingCartIcon as ShoppingCart,
+  StarIcon as Star,
+  UserIcon as User,
+  UserPlusIcon as UserPlus
+} from "./icons/ShellIcons";
 import { useUser } from "../context/UserContext";
 import { useContent } from "../context/ContentContext";
 import { useNotification } from "../context/NotificationContext";
@@ -14,8 +35,61 @@ import { CMSService } from "../services/cms";
 import { HeaderConfig, ActivityConfig, UserRole, HeroSearchConfig } from "../types";
 import SearchInput from "./SearchInput";
 import { getNotificationActionUrl, getNotificationBucket } from "../utils/notificationRouting";
+import { resolveAssetUrl } from "../utils/assetUrl";
 
 type LucideIconComponent = React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
+
+const toPascalCase = (value: string) =>
+  value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join("");
+
+const NAVBAR_ICON_REGISTRY: Record<string, LucideIconComponent> = {
+  Bell,
+  Briefcase,
+  CreditCard,
+  FileText,
+  Folder,
+  Globe,
+  Heart,
+  HelpCircle,
+  Home,
+  LayoutDashboard,
+  LogOut,
+  Mail,
+  MessageSquare,
+  Search,
+  Settings,
+  Shield,
+  Star,
+  User,
+  UserPlus
+};
+
+const NAVBAR_ICON_ALIAS: Record<string, string> = {
+  message: "MessageSquare",
+  messages: "MessageSquare",
+  "message-square": "MessageSquare",
+  chat: "MessageSquare",
+  notification: "Bell",
+  notifications: "Bell",
+  bell: "Bell",
+  help: "HelpCircle",
+  support: "HelpCircle",
+  favorites: "Heart",
+  favorite: "Heart",
+  heart: "Heart",
+  profile: "User",
+  user: "User",
+  dashboard: "LayoutDashboard",
+  currency: "Globe",
+  settings: "Settings",
+  signout: "LogOut",
+  "sign-out": "LogOut"
+};
 
 const normalizeBoolean = (value: any, fallback: boolean) => {
   if (value === undefined || value === null) return fallback;
@@ -548,44 +622,15 @@ const Navbar = () => {
   };
 
   const getDynamicIcon = (type: string, size: number, style: "outline" | "filled") => {
-    const raw = String(type || "").trim().toLowerCase();
-    const aliasMap: Record<string, string> = {
-      message: "MessageSquare",
-      messages: "MessageSquare",
-      "message-square": "MessageSquare",
-      "messageSquare": "MessageSquare",
-      chat: "MessageSquare",
-      notification: "Bell",
-      notifications: "Bell",
-      bell: "Bell",
-      help: "HelpCircle",
-      support: "HelpCircle",
-      favorites: "Heart",
-      favorite: "Heart",
-      heart: "Heart",
-      profile: "User",
-      user: "User",
-    };
-
-    const alias = aliasMap[raw];
-    if (alias) {
-      const AliasIcon = (LucideIcons as Record<string, LucideIconComponent>)[alias];
-      if (AliasIcon) {
-        return <AliasIcon size={size} className={`${style === "filled" ? "fill-current" : ""}`} />;
-      }
-    }
-
-    const pascalCaseType = raw
-      .split(/[-_\s]/)
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join("");
-
-    const IconComponent = (LucideIcons as Record<string, LucideIconComponent>)[pascalCaseType];
+    const raw = String(type || "").trim();
+    const normalized = raw.toLowerCase();
+    const mappedName = NAVBAR_ICON_ALIAS[normalized] || toPascalCase(raw);
+    const IconComponent = NAVBAR_ICON_REGISTRY[mappedName];
 
     if (IconComponent) {
       return <IconComponent size={size} className={`${style === "filled" ? "fill-current" : ""}`} />;
     }
-    return <LucideIcons.Star size={size} className={`${style === "filled" ? "fill-current" : ""}`} />;
+    return <Star size={size} className={`${style === "filled" ? "fill-current" : ""}`} />;
   };
 
   const isActionEnabled = (type: string) => {
@@ -620,6 +665,9 @@ const Navbar = () => {
 
   const headerWrapperClass = `${isHome ? "relative" : "sticky top-0"} z-40 bg-white border-b border-gray-200`;
   const brandName = String(pick(hc, 'title') ?? settings?.siteName ?? '');
+  const brandLogoSrc = resolveAssetUrl(
+    String((headerConfig as any)?.logoUrl || (headerConfig as any)?.logo_url || settings?.logoUrl || '')
+  );
   const avatarName = String(pick(uobj, 'name', 'username', 'email') ?? '');
   const avatarUrl = String(pick(uobj, 'avatar') ?? (avatarName ? `https://ui-avatars.com/api/?name=${encodeURIComponent(avatarName)}&background=0D8ABC&color=fff` : ''));
 
@@ -827,13 +875,13 @@ const Navbar = () => {
           <div className="flex justify-between h-16 items-center">
             {/* Left: Logo */}
             <div className="flex items-center">
-              <Link
-                to={(headerConfig as any)?.homeUrl || (headerConfig as any)?.home_url || "/"}
-                className="flex-shrink-0 flex items-center mr-8"
-              >
-                {(headerConfig as any)?.logoUrl || (headerConfig as any)?.logo_url || settings?.logoUrl ? (
+                <Link
+                  to={(headerConfig as any)?.homeUrl || (headerConfig as any)?.home_url || "/"}
+                  className="flex-shrink-0 flex items-center mr-8"
+                >
+                {brandLogoSrc ? (
                   <img
-                    src={(headerConfig as any)?.logoUrl || (headerConfig as any)?.logo_url || settings?.logoUrl}
+                    src={brandLogoSrc}
                     alt={brandName || ""}
                     className="h-8 w-auto object-contain"
                   />

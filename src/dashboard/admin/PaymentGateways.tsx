@@ -61,8 +61,26 @@ const GatewaysTab = () => {
     const openConfigure = (gw: PaymentGateway) => {
         setSelectedGateway(gw);
         const baseDraft = { ...(gw.config || {}), logo: gw.logo || gw.config?.logo } as Record<string, any>;
-        if (gw.id === 'stripe' && !baseDraft.environment) {
-            baseDraft.environment = gw.mode === 'live' ? 'live' : 'sandbox';
+        if (gw.id === 'stripe') {
+            const rawEnvironment = String(baseDraft.environment || '').toLowerCase();
+            if (!baseDraft.environment) {
+                baseDraft.environment = gw.mode === 'live' ? 'live' : 'sandbox';
+            } else if (rawEnvironment === 'test') {
+                baseDraft.environment = 'sandbox';
+            } else if (rawEnvironment !== 'live') {
+                baseDraft.environment = 'sandbox';
+            }
+
+            const rawConnectEnabled = baseDraft.connectEnabled ?? baseDraft.connect_enabled;
+            baseDraft.connectEnabled =
+                rawConnectEnabled === true ||
+                rawConnectEnabled === 1 ||
+                String(rawConnectEnabled || '').toLowerCase() === 'true' ||
+                String(rawConnectEnabled || '').toLowerCase() === '1';
+
+            if (!baseDraft.connectType) {
+                baseDraft.connectType = 'express';
+            }
         }
         setConfigDraft(baseDraft);
     };
@@ -76,13 +94,26 @@ const GatewaysTab = () => {
         if (!selectedGateway) return;
         setIsSaving(true);
         try {
+            const mergedConfig: Record<string, any> = {
+                ...(selectedGateway.config || {}),
+                ...configDraft
+            };
+
+            if (selectedGateway.id === 'stripe') {
+                mergedConfig.environment = String(mergedConfig.environment || '').toLowerCase() === 'live' ? 'live' : 'sandbox';
+                const rawConnectEnabled = mergedConfig.connectEnabled ?? mergedConfig.connect_enabled;
+                mergedConfig.connectEnabled =
+                    rawConnectEnabled === true ||
+                    rawConnectEnabled === 1 ||
+                    String(rawConnectEnabled || '').toLowerCase() === 'true' ||
+                    String(rawConnectEnabled || '').toLowerCase() === '1';
+                mergedConfig.connectType = String(mergedConfig.connectType || 'express').toLowerCase() === 'standard' ? 'standard' : 'express';
+            }
+
             const payload: PaymentGateway = {
                 ...selectedGateway,
                 isEnabled: (selectedGateway as any).isEnabled ?? (selectedGateway as any).is_enabled ?? false,
-                config: {
-                    ...(selectedGateway.config || {}),
-                    ...configDraft
-                }
+                config: mergedConfig
             } as PaymentGateway;
 
             await PaymentService.updateGateway(payload);

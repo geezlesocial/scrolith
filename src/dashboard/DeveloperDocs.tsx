@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Database, Server, Component, Layers, BookOpen, Shield, FileJson } from 'lucide-react';
+import { Database, Server, Component, Layers, BookOpen } from 'lucide-react';
 
 const DeveloperDocs = () => {
   const [activeTab, setActiveTab] = useState<'schema' | 'api' | 'components' | 'flows'>('schema');

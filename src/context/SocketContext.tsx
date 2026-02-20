@@ -7,6 +7,7 @@ import { tokenStore } from '../services/tokenStore'
 import { getBackendOrigin } from '../utils/apiBase'
 import { App } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
+import type { PluginListenerHandle } from '@capacitor/core'
 
 export interface SocketContextType {
   socket: Socket | null
@@ -14,6 +15,10 @@ export interface SocketContextType {
 }
 
 export const SocketContext = createContext<SocketContextType | undefined>(undefined)
+const isSocketTraceEnabled = () => {
+  const raw = String(import.meta.env.VITE_SOCKET_TRACE || '').toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
 
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [socket, setSocket] = useState<Socket | null>(null)
@@ -28,7 +33,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const forward = (eventName: string) => (payload: any) => {
       try {
         window.dispatchEvent(new CustomEvent(eventName, { detail: payload }));
-        console.log(`Forwarded socket event -> ${eventName}`, payload);
+        if (isSocketTraceEnabled()) {
+          console.log(`Forwarded socket event -> ${eventName}`, payload);
+        }
       } catch (e) {
         console.error(`Failed to forward socket event ${eventName}:`, e);
       }
@@ -46,6 +53,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       { ev: 'community:comment_created', fn: forward('community:comment_created') },
       { ev: 'community:like_toggled', fn: forward('community:like_toggled') },
       { ev: 'community:post_reaction_updated', fn: forward('community:post_reaction_updated') },
+      { ev: 'community:post_ai_insight_ready', fn: forward('community:post_ai_insight_ready') },
+      { ev: 'post:aiInsightReady', fn: forward('post:aiInsightReady') },
       { ev: 'community:follow_updated', fn: forward('community:follow_updated') },
       { ev: 'community:story_created', fn: forward('community:story_created') },
       { ev: 'community:story_deleted', fn: forward('community:story_deleted') },
@@ -72,6 +81,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'community:admin_config_updated', fn: forward('community:admin_config_updated') }
       ,{ ev: 'community:reactions_updated', fn: forward('community:reactions_updated') }
       ,{ ev: 'community:profile_view_logged', fn: forward('community:profile_view_logged') }
+      ,{ ev: 'community:job_published', fn: forward('community:job_published') }
+      ,{ ev: 'community:gig_published', fn: forward('community:gig_published') }
       ,{ ev: 'apps:event_tracked', fn: forward('apps:event_tracked') }
       ,{ ev: 'apps:metrics_updated', fn: forward('apps:metrics_updated') }
       ,{ ev: 'apps:campaign_sent', fn: forward('apps:campaign_sent') }
@@ -83,6 +94,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'cart:updated', fn: forward('cart:updated') }
       ,{ ev: 'favorites:updated', fn: forward('favorites:updated') }
       ,{ ev: 'notifications:new', fn: forward('notifications:new') }
+      ,{ ev: 'community:post_report_submitted', fn: forward('community:post_report_submitted') }
+      ,{ ev: 'community:post_report_updated', fn: forward('community:post_report_updated') }
       ,{ ev: 'kyc.updated', fn: forward('kyc.updated') }
       ,{ ev: 'kyc.submitted', fn: forward('kyc.submitted') }
     ];
@@ -123,17 +136,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.error('VITE_BACKEND_URL (or VITE_API_URL) must be set in production to enable sockets')
     }
     const connectSocket = async () => {
-      // Prefer explicit backend origin when provided, otherwise use same-origin proxy.
-      // Be tolerant: if backendEnv is a relative path like '/api' (dev proxy), do not call new URL() on it.
-      let socketUrl = getBackendOrigin() || '/'
-      try {
-        const be = String(backendEnv || '')
-        if (/^https?:\/\//i.test(be)) {
-          socketUrl = new URL(be).origin
-        }
-      } catch (e) {
-        socketUrl = getBackendOrigin() || '/'
-      }
+      // Keep socket origin aligned with the canonical API base resolver so
+      // accidental placeholder domains (e.g. api.example.com) are ignored.
+      const socketUrl = getBackendOrigin() || '/'
 
       const token = (await tokenStore.get()) || ''
 
@@ -167,20 +172,30 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           setSocket(null)
         },
         onConnectError: (error) => {
-          console.error('Socket connect error:', error.message)
+          if (isSocketTraceEnabled()) {
+            console.error('Socket connect error:', error.message)
+          }
           setIsConnected(false)
         },
         onError: (error) => {
-          console.error('Socket error:', error)
+          if (isSocketTraceEnabled()) {
+            console.error('Socket error:', error)
+          }
         },
         onConnectedEvent: (data) => {
-          console.log('Server connected event:', data)
+          if (isSocketTraceEnabled()) {
+            console.log('Server connected event:', data)
+          }
         },
         onHeartbeat: (data) => {
-          console.log('Heartbeat received:', data)
+          if (isSocketTraceEnabled()) {
+            console.log('Heartbeat received:', data)
+          }
         },
         onHandshakeAck: (data) => {
-          console.log('Handshake ack:', data)
+          if (isSocketTraceEnabled()) {
+            console.log('Handshake ack:', data)
+          }
         }
       }
       lastOptionsRef.current = options
@@ -196,7 +211,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
-    const handler = App.addListener('appStateChange', (state) => {
+    let listenerHandle: PluginListenerHandle | null = null;
+    let cancelled = false;
+    const handlePromise = App.addListener('appStateChange', (state) => {
       if (state.isActive) {
         const last = lastOptionsRef.current;
         if (last) socketService.connect(last);
@@ -204,8 +221,22 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         socketService.disconnect();
       }
     });
+
+    void handlePromise.then((handle) => {
+      if (cancelled) {
+        void handle.remove();
+        return;
+      }
+      listenerHandle = handle;
+    }).catch(() => {
+      listenerHandle = null;
+    });
+
     return () => {
-      handler.remove();
+      cancelled = true;
+      if (listenerHandle) {
+        void listenerHandle.remove();
+      }
     };
   }, []);
 

@@ -75,6 +75,8 @@ const mapProfile = (p: any): UserProfile => {
 const mapUser = (u: any): User => {
   const rawAvatar = u.avatar ?? u.avatar_url ?? u.avatarUrl ?? undefined;
   const resolvedAvatar = rawAvatar ? resolveAssetUrl(String(rawAvatar)) : undefined;
+  const normalizedKyc = String(u.kyc_status ?? u.kycStatus ?? '').toLowerCase();
+  const isVerified = Boolean(u.isVerified ?? u.is_verified ?? normalizedKyc === 'verified');
   return {
     id: u.id,
     name: u.name,
@@ -84,6 +86,8 @@ const mapUser = (u: any): User => {
     avatar: resolvedAvatar,
   profilePhotoFileId: u.profile_photo_file_id ?? u.profilePhotoFileId,
   profile_photo_file_id: u.profile_photo_file_id ?? u.profilePhotoFileId,
+  isVerified,
+  is_verified: isVerified,
   kycStatus: (u.kyc_status ?? u.kycStatus) as any,
   kyc_status: (u.kyc_status ?? u.kycStatus) as any,
   isProFreelancer: Boolean(u.isProFreelancer ?? u.is_pro_freelancer),

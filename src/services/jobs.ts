@@ -41,6 +41,9 @@ export interface Job {
   clientAvatar?: string | null;
   clientProfilePhotoFileId?: string | null;
   clientIsPro?: boolean;
+  clientIsVerified?: boolean;
+  client_is_verified?: boolean;
+  clientVerified?: boolean;
 }
 
 export interface CreateJobData {
@@ -66,6 +69,39 @@ export interface JobsResponse {
   };
 }
 
+const normalizeJobsResponse = (payload: any): JobsResponse => {
+  if (Array.isArray(payload)) {
+    return {
+      jobs: payload,
+      pagination: {
+        page: 1,
+        limit: payload.length || 0,
+        total: payload.length || 0,
+        pages: 1
+      }
+    };
+  }
+
+  const jobs = Array.isArray(payload?.jobs)
+    ? payload.jobs
+    : Array.isArray(payload?.items)
+      ? payload.items
+      : Array.isArray(payload?.data)
+        ? payload.data
+        : [];
+
+  const page = Number(payload?.pagination?.page ?? payload?.page ?? 1);
+  const limitBase = payload?.pagination?.limit ?? payload?.limit ?? jobs.length;
+  const limit = Number(limitBase || 20);
+  const total = Number(payload?.pagination?.total ?? payload?.total ?? jobs.length);
+  const pages = Number(payload?.pagination?.pages ?? (limit > 0 ? Math.max(1, Math.ceil(total / limit)) : 1));
+
+  return {
+    jobs,
+    pagination: { page, limit, total, pages }
+  };
+};
+
 export const jobsApi = {
   getJobs: async (params: {
     ownerId?: string;
@@ -74,9 +110,12 @@ export const jobsApi = {
     page?: number;
     limit?: number;
     search?: string;
+    random?: boolean;
+    recommended?: boolean;
+    featuredOnly?: boolean;
   } = {}): Promise<JobsResponse> => {
     const response = await api.get<ApiResponse<JobsResponse>>('/jobs', { params });
-    return handleApiResponse(response);
+    return normalizeJobsResponse(handleApiResponse<any>(response));
   },
 
   createJob: async (data: CreateJobData): Promise<Job> => {

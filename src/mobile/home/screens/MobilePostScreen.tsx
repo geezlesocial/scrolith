@@ -1,17 +1,26 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image as ImageIcon, Send, X } from 'lucide-react';
+import { ImageIcon, SendIcon as Send, XIcon as X } from '../../../components/icons/ShellIcons';
 import { useLocation, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom';
 import { CommunityService } from '../../../services/community';
 import { useNotification } from '../../../context/NotificationContext';
 import { UploadedFile } from '../../../types';
 import FilePickerModal from '../../../dashboard/shared/FilePickerModal';
 import MentionHashtagTextarea from '../../../community/components/MentionHashtagTextarea';
+import { AIService, type PostEnhanceMode } from '../../../services/ai/ai.service';
 
 const getMimeType = (file: any) =>
   String(file?.mime_type || file?.mimeType || file?.mimetype || file?.mime || '').toLowerCase();
 const getFileType = (file: any) => String(file?.type || '').toLowerCase();
 const isVideo = (file: any) => getFileType(file) === 'video' || getMimeType(file).startsWith('video/');
 const isImage = (file: any) => getFileType(file) === 'image' || getMimeType(file).startsWith('image/');
+
+const postAiActions: Array<{ mode: PostEnhanceMode; label: string }> = [
+  { mode: 'grammar', label: 'Improve Grammar' },
+  { mode: 'rephrase', label: 'Rephrase' },
+  { mode: 'professional', label: 'Make Professional' },
+  { mode: 'shorten', label: 'Shorten' },
+  { mode: 'expand', label: 'Expand' }
+];
 
 export default function MobilePostScreen() {
   const ctx = useOutletContext<any>();
@@ -24,6 +33,13 @@ export default function MobilePostScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loadingPost, setLoadingPost] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiRunningMode, setAiRunningMode] = useState<PostEnhanceMode | null>(null);
+  const [aiSuggestion, setAiSuggestion] = useState('');
+  const [aiSuggestionMode, setAiSuggestionMode] = useState<PostEnhanceMode | null>(null);
+  const [aiSuggestionOpen, setAiSuggestionOpen] = useState(false);
+  const [aiOriginalText, setAiOriginalText] = useState('');
+  const [aiCompareView, setAiCompareView] = useState<'compare' | 'ai'>('compare');
 
   const layout = ctx?.mobileLayout ?? null;
   const composer = (layout?.postComposer || layout?.post_composer || {}) as Record<string, any>;
@@ -153,6 +169,61 @@ export default function MobilePostScreen() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editId, isEditing]);
+
+  const closeAiSuggestionModal = () => {
+    setAiSuggestionOpen(false);
+    setAiSuggestion('');
+    setAiSuggestionMode(null);
+    setAiOriginalText('');
+    setAiCompareView('compare');
+  };
+
+  const runPostAi = async (mode: PostEnhanceMode) => {
+    const text = String(content || '').trim();
+    if (!text) {
+      showNotification('warning', 'AI Assistant', 'Write some text first, then run AI enhancement.');
+      return;
+    }
+    if (aiLoading || busy) return;
+
+    setAiLoading(true);
+    setAiRunningMode(mode);
+    try {
+      const result = await AIService.enhancePostDraft({ text, mode });
+      const enhancedText = String(result?.enhancedText || '').trim();
+      if (!enhancedText) {
+        showNotification('warning', 'AI Assistant', 'No suggestion was returned. Please try again.');
+        return;
+      }
+      setAiOriginalText(content);
+      setAiSuggestion(enhancedText);
+      setAiSuggestionMode(mode);
+      setAiCompareView('compare');
+      setAiSuggestionOpen(true);
+    } catch (error: any) {
+      showNotification(
+        'error',
+        'AI Assistant',
+        error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Unable to enhance text right now.'
+      );
+    } finally {
+      setAiLoading(false);
+      setAiRunningMode(null);
+    }
+  };
+
+  const applyAiSuggestionReplace = () => {
+    if (!aiSuggestion) return;
+    setContent(aiSuggestion);
+    closeAiSuggestionModal();
+  };
+
+  const applyAiSuggestionInsert = () => {
+    if (!aiSuggestion) return;
+    const base = String(content || '').trim();
+    setContent(base ? `${base}\n\n${aiSuggestion}` : aiSuggestion);
+    closeAiSuggestionModal();
+  };
 
   const submit = async () => {
     if (!canPost || busy) return;
@@ -297,6 +368,22 @@ export default function MobilePostScreen() {
           <div className="mt-2 text-[11px] text-slate-500">
             {hashtagsEnabled ? '#tags' : '#tags (disabled)'} and {mentionsEnabled ? '@mentions' : '@mentions (disabled)'} supported
           </div>
+          <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex flex-wrap gap-2">
+              {postAiActions.map((action) => (
+                <button
+                  key={action.mode}
+                  type="button"
+                  onClick={() => void runPostAi(action.mode)}
+                  disabled={aiLoading || busy || loadingPost}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 disabled:opacity-60"
+                >
+                  {aiRunningMode === action.mode && aiLoading ? 'Working...' : action.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] text-slate-500">When AI is used, content remains user-authored.</p>
+          </div>
         </div>
 
         {attachments.length ? (
@@ -347,6 +434,92 @@ export default function MobilePostScreen() {
           </button>
         </div>
       </div>
+
+      {aiSuggestionOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3">
+          <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold text-slate-900">AI Draft Suggestion</h3>
+                <p className="text-[11px] text-slate-500">
+                  {aiSuggestionMode
+                    ? `Mode: ${postAiActions.find((entry) => entry.mode === aiSuggestionMode)?.label || aiSuggestionMode}`
+                    : 'Review before applying'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeAiSuggestionModal}
+                className="rounded-full border border-slate-200 p-1 text-slate-500"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAiCompareView('compare')}
+                className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                  aiCompareView === 'compare' ? 'bg-slate-900 text-white' : 'border border-slate-200 text-slate-700'
+                }`}
+              >
+                Compare version
+              </button>
+              <button
+                type="button"
+                onClick={() => setAiCompareView('ai')}
+                className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                  aiCompareView === 'ai' ? 'bg-slate-900 text-white' : 'border border-slate-200 text-slate-700'
+                }`}
+              >
+                AI only
+              </button>
+            </div>
+
+            {aiCompareView === 'compare' ? (
+              <div className="mt-3 grid gap-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Original</div>
+                  <pre className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{aiOriginalText || '(empty)'}</pre>
+                </div>
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">AI Version</div>
+                  <pre className="mt-1 whitespace-pre-wrap text-sm text-emerald-900">{aiSuggestion || '(empty)'}</pre>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                <pre className="whitespace-pre-wrap text-sm text-emerald-900">{aiSuggestion || '(empty)'}</pre>
+              </div>
+            )}
+
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeAiSuggestionModal}
+                className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={applyAiSuggestionInsert}
+                className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700"
+              >
+                Insert Below
+              </button>
+              <button
+                type="button"
+                onClick={applyAiSuggestionReplace}
+                className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase text-white"
+              >
+                Replace
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <datalist id="mobile_post_topics">
         {suggestedTopics.slice(0, 500).map((t) => (

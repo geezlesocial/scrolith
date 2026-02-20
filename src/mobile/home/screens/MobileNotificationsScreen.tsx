@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bell, Check } from 'lucide-react';
+import { BellIcon as Bell, CheckIcon as Check } from '../../../components/icons/ShellIcons';
 import { useNavigate } from 'react-router-dom';
 import { useNotification } from '../../../context/NotificationContext';
 import { getNotificationActionUrl, getNotificationBucket } from '../../../utils/notificationRouting';

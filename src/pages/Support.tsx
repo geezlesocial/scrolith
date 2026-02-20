@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { SupportService } from '../services/support';
 import { useContent } from '../context/ContentContext';
 import { useNotification } from '../context/NotificationContext';
-import { Ticket, Search, CheckCircle, Upload, ArrowRight, User, Mail, Phone, FileText, Clock, RefreshCw, MessageSquare } from 'lucide-react';
+import { Ticket, CheckCircle, Upload, ArrowRight, User, Mail, Phone, RefreshCw, MessageSquare } from 'lucide-react';
 import { TicketCategory, SupportTicket, TicketStatus } from '../types';
 import { executeRecaptcha } from '../services/recaptcha';
 

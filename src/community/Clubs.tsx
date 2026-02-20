@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { CommunityService } from '../services/community';
 import { CommunityClub, UserRole } from '../types';
-import { Users, Lock, Globe, Plus, ArrowRight, Trash2 } from 'lucide-react';
+import { Users, Lock, Globe, Plus, Trash2 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 import { useUser } from '../context/UserContext';
 

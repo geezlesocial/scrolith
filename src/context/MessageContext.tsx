@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { Conversation } from '../types';
 import { MessagingService } from '../services/messaging';
 import { useUser } from './UserContext';
@@ -22,8 +22,11 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const inFlightRefreshRef = useRef<Promise<void> | null>(null);
+  const lastRefreshAtRef = useRef(0);
+  const REFRESH_MIN_INTERVAL_MS = 15_000;
 
-  const refreshMessages = async (options?: { force?: boolean }) => {
+  const refreshMessages = useCallback(async (options?: { force?: boolean }) => {
     if (!user?.id) {
       setUnreadCount(0);
       setConversations([]);
@@ -31,50 +34,72 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
 
-    setLoading(true);
-    setError(null);
-    try {
-      const convos = await MessagingService.getAllConversations(user.id, user.role, {
-        force: Boolean(options?.force)
-      });
-      setConversations(convos);
-      const count = (Array.isArray(convos) ? convos : []).reduce((acc, c: any) => {
-        const v = Number(c?.unreadCount ?? c?.unread_count ?? 0);
-        return acc + (Number.isFinite(v) ? Math.max(0, Math.trunc(v)) : 0);
-      }, 0);
-      setUnreadCount(count);
-    } catch (e: any) {
-      setError(e?.response?.data?.error || e?.message || 'Failed to refresh messages');
-    } finally {
-      setLoading(false);
+    if (!options?.force && Date.now() - lastRefreshAtRef.current < REFRESH_MIN_INTERVAL_MS) {
+      return;
     }
-  };
+
+    if (inFlightRefreshRef.current) {
+      return inFlightRefreshRef.current;
+    }
+
+    const request = (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const convos = await MessagingService.getAllConversations(user.id, user.role, {
+          force: Boolean(options?.force)
+        });
+        setConversations(convos);
+        const count = (Array.isArray(convos) ? convos : []).reduce((acc, c: any) => {
+          const v = Number(c?.unreadCount ?? c?.unread_count ?? 0);
+          return acc + (Number.isFinite(v) ? Math.max(0, Math.trunc(v)) : 0);
+        }, 0);
+        setUnreadCount(count);
+        lastRefreshAtRef.current = Date.now();
+      } catch (e: any) {
+        setError(e?.response?.data?.error || e?.message || 'Failed to refresh messages');
+      } finally {
+        setLoading(false);
+      }
+    })();
+
+    inFlightRefreshRef.current = request.finally(() => {
+      inFlightRefreshRef.current = null;
+    });
+
+    return inFlightRefreshRef.current;
+  }, [user?.id, user?.role]);
 
   useEffect(() => {
-      if (!user) return;
-      void refreshMessages();
+    if (!user?.id) {
+      setUnreadCount(0);
+      setConversations([]);
+      setError(null);
+      return;
+    }
+    void refreshMessages();
 
-      if (!socket || !isConnected) {
-          const interval = setInterval(() => {
-            void refreshMessages();
-          }, 10000);
-          return () => clearInterval(interval);
-      }
+    if (!socket || !isConnected) {
+      const interval = window.setInterval(() => {
+        void refreshMessages();
+      }, 30_000);
+      return () => window.clearInterval(interval);
+    }
 
-      const handleRefresh = () => {
-          void refreshMessages();
-      };
+    const handleRefresh = () => {
+      void refreshMessages({ force: true });
+    };
 
-      socket.on('messages:new', handleRefresh);
-      socket.on('messages:sent', handleRefresh);
-      socket.on('messages:read', handleRefresh);
+    socket.on('messages:new', handleRefresh);
+    socket.on('messages:sent', handleRefresh);
+    socket.on('messages:read', handleRefresh);
 
-      return () => {
-          socket.off('messages:new', handleRefresh);
-          socket.off('messages:sent', handleRefresh);
-          socket.off('messages:read', handleRefresh);
-      };
-  }, [user, socket, isConnected]);
+    return () => {
+      socket.off('messages:new', handleRefresh);
+      socket.off('messages:sent', handleRefresh);
+      socket.off('messages:read', handleRefresh);
+    };
+  }, [user?.id, socket, isConnected, refreshMessages]);
 
   return (
     <MessageContext.Provider value={{ unreadCount, conversations, loading, error, refreshMessages }}>

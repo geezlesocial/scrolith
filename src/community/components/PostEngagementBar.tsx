@@ -1,5 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Coins, MessageCircle, Repeat2, Send, ThumbsUp } from 'lucide-react';
+import {
+  ChevronDownIcon as ChevronDown,
+  CoinsIcon as Coins,
+  MessageCircleIcon as MessageCircle,
+  Repeat2Icon as Repeat2,
+  SendIcon as Send
+} from '../../components/icons/ShellIcons';
 import { useUser } from '../../context/UserContext';
 import { useContent } from '../../context/ContentContext';
 import { useNotification } from '../../context/NotificationContext';
@@ -41,39 +47,98 @@ type Props = {
   className?: string;
 };
 
-const DEFAULT_ALLOWED: AllowedReaction[] = [
-  { key: 'like', label: 'Like', emoji: '👍', enabled: true },
-  { key: 'love', label: 'Love', emoji: '❤️', enabled: true },
-  { key: 'good', label: 'Good', emoji: '✅', enabled: true },
-  { key: 'happy', label: 'Happy', emoji: '😄', enabled: true },
-  { key: 'handwave', label: 'Handwave', emoji: '👋', enabled: true },
-  { key: 'angry', label: 'Angry', emoji: '😡', enabled: true },
-  { key: 'cry', label: 'Cry', emoji: '😢', enabled: true },
-  { key: 'mad', label: 'Mad', emoji: '🤬', enabled: true },
-  { key: 'sorry', label: 'Sorry', emoji: '🙏', enabled: true }
-];
+type FloatingPosition = {
+  left: number;
+  top: number;
+  width: number;
+  placement: 'top' | 'bottom';
+};
 
-const normalizeAllowed = (value: any): AllowedReaction[] => {
-  if (!Array.isArray(value)) return DEFAULT_ALLOWED;
-  const items = value
-    .map((entry) => ({
-      key: String(entry?.key || '').trim().toLowerCase(),
-      label: String(entry?.label || '').trim() || 'Reaction',
-      emoji: String(entry?.emoji || '').trim(),
-      enabled: entry?.enabled !== false
-    }))
-    .filter((entry) => entry.key && entry.emoji && entry.enabled !== false);
-  return items.length ? items : DEFAULT_ALLOWED;
+const DEFAULT_META: Record<string, { label: string; emoji: string; color: string }> = {
+  like: { label: 'Like', emoji: '\u{1F44D}', color: '#2563eb' },
+  love: { label: 'Love', emoji: '\u{2764}\u{FE0F}', color: '#ef4444' },
+  good: { label: 'Good', emoji: '\u{2705}', color: '#16a34a' },
+  happy: { label: 'Happy', emoji: '\u{1F604}', color: '#f59e0b' },
+  handwave: { label: 'Handwave', emoji: '\u{1F44B}', color: '#0ea5e9' },
+  angry: { label: 'Angry', emoji: '\u{1F621}', color: '#f97316' },
+  cry: { label: 'Cry', emoji: '\u{1F622}', color: '#6366f1' },
+  mad: { label: 'Mad', emoji: '\u{1F92C}', color: '#7c3aed' },
+  sorry: { label: 'Sorry', emoji: '\u{1F64F}', color: '#64748b' }
+};
+
+const DEFAULT_ALLOWED: AllowedReaction[] = Object.entries(DEFAULT_META).map(([key, meta]) => ({
+  key,
+  label: meta.label,
+  emoji: meta.emoji,
+  enabled: true
+}));
+
+const toSafeCount = (value: unknown) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.trunc(numeric));
 };
 
 const sumReactions = (counts?: Record<string, number>) =>
-  Object.values(counts || {}).reduce((total, value) => {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) return total;
-    return total + Math.max(0, Math.trunc(numeric));
-  }, 0);
+  Object.values(counts || {}).reduce((total, value) => total + toSafeCount(value), 0);
 
-const buildPostUrl = (postId: string) => `${window.location.origin}/post/${encodeURIComponent(postId)}`;
+const normalizeAllowed = (value: any): AllowedReaction[] => {
+  if (!Array.isArray(value)) return DEFAULT_ALLOWED;
+  const list = value
+    .map((item) => {
+      const key = String(item?.key || item?.id || item?.type || '').trim().toLowerCase();
+      if (!key || item?.enabled === false) return null;
+      const fallback = DEFAULT_META[key] || DEFAULT_META.like;
+      return {
+        key,
+        label: String(item?.label || fallback.label).trim() || fallback.label,
+        emoji: String(item?.emoji || fallback.emoji).trim() || fallback.emoji,
+        enabled: true
+      } as AllowedReaction;
+    })
+    .filter(Boolean) as AllowedReaction[];
+  return list.length ? list : DEFAULT_ALLOWED;
+};
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const computeFloatingPosition = (rect: DOMRect, panelWidth: number, panelHeight: number): FloatingPosition => {
+  const viewportW = window.innerWidth || 0;
+  const viewportH = window.innerHeight || 0;
+  const padding = 10;
+  const width = Math.min(Math.max(280, panelWidth), Math.max(280, viewportW - padding * 2));
+  const left = clamp(rect.left + rect.width / 2 - width / 2, padding, Math.max(padding, viewportW - width - padding));
+  const canTop = rect.top >= panelHeight + 24;
+  const canBottom = viewportH - rect.bottom >= panelHeight + 24;
+  const placement: 'top' | 'bottom' = canTop || !canBottom ? 'top' : 'bottom';
+  const top = placement === 'top' ? rect.top - 10 : rect.bottom + 10;
+  return { left, top, width, placement };
+};
+
+const useIsCoarsePointer = () => {
+  const [coarse, setCoarse] = useState(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+    return window.matchMedia('(hover: none), (pointer: coarse)').matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const media = window.matchMedia('(hover: none), (pointer: coarse)');
+    const update = () => setCoarse(media.matches);
+    update();
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', update);
+      return () => media.removeEventListener('change', update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
+
+  return coarse;
+};
+
+const buildPostUrl = (postId: string) =>
+  typeof window === 'undefined' ? `/post/${encodeURIComponent(postId)}` : `${window.location.origin}/post/${encodeURIComponent(postId)}`;
 
 const PostEngagementBar: React.FC<Props> = ({
   postId,
@@ -96,55 +161,34 @@ const PostEngagementBar: React.FC<Props> = ({
   const { settings } = useContent();
   const { showNotification } = useNotification();
   const { isConnected } = useSocket();
+  const isCoarsePointer = useIsCoarsePointer();
 
   const reactionsSettings = (settings as any)?.reactions || {};
   const memberHomeSettings = (settings as any)?.memberHome || {};
   const showCounts = memberHomeSettings?.feed?.showReactionCounts !== false;
-
-  const reactionsEnabled = useMemo(() => {
-    const master = reactionsSettings?.enabled ?? true;
-    if (!master) return false;
-    if (features?.reactions === false) return false;
-    return reactionsSettings?.postsEnabled ?? reactionsSettings?.posts_enabled ?? true;
-  }, [features?.reactions, reactionsSettings]);
-
+  const reactionsEnabled = (reactionsSettings?.enabled ?? true) && (features?.reactions !== false) && (reactionsSettings?.postsEnabled ?? reactionsSettings?.posts_enabled ?? true);
   const commentsEnabled = features?.comments !== false;
   const repostsEnabled = features?.reposts !== false && postRepostsEnabled !== false;
   const sendEnabled = features?.send !== false;
-  const dashEnabled =
-    features?.dash !== false &&
-    (memberHomeSettings?.feed?.dashEnabled ??
-      (memberHomeSettings as any)?.feed?.dash_enabled ??
-      (memberHomeSettings as any)?.feed?.gcoinDashEnabled ??
-      (memberHomeSettings as any)?.feed?.gcoin_dash_enabled ??
-      true) !== false;
+  const dashEnabled = features?.dash !== false && (memberHomeSettings?.feed?.dashEnabled ?? (memberHomeSettings as any)?.feed?.dash_enabled ?? true) !== false;
   const dashEnabledForPost = dashEnabled && !(authorId && user?.id && String(authorId) === String(user.id));
-
-  const actionCols = Math.max(
-    1,
-    [reactionsEnabled, commentsEnabled, repostsEnabled, sendEnabled, dashEnabledForPost].filter(Boolean).length
-  );
-  // When Dash is enabled we can end up with 5 actions on mobile; switch to a compact layout
-  // to prevent labels overflowing into adjacent grid cells (e.g. "CommentRepost").
+  const actionCols = Math.max(1, [reactionsEnabled, commentsEnabled, repostsEnabled, sendEnabled, dashEnabledForPost].filter(Boolean).length);
   const compactActions = actionCols >= 5;
 
-  const allowed = useMemo(
-    () => normalizeAllowed(reactionsSettings?.allowed),
-    [reactionsSettings?.allowed]
-  );
-
+  const allowed = useMemo(() => normalizeAllowed(reactionsSettings?.allowed), [reactionsSettings?.allowed]);
   const allowedMap = useMemo(() => {
     const map = new Map<string, AllowedReaction>();
     allowed.forEach((item) => map.set(item.key, item));
     return map;
   }, [allowed]);
+  const defaultReactionKey = allowed[0]?.key || 'like';
 
   const [counts, setCounts] = useState<Record<string, number>>(initialReactionCounts || {});
-  const [userReaction, setUserReaction] = useState<string | null>(
-    typeof initialUserReaction === 'undefined' ? null : (initialUserReaction || null)
-  );
+  const [userReaction, setUserReaction] = useState<string | null>(typeof initialUserReaction === 'undefined' ? null : (initialUserReaction || null));
   const [busy, setBusy] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerAnchor, setPickerAnchor] = useState<'summary' | 'button'>('button');
+  const [pickerPosition, setPickerPosition] = useState<FloatingPosition | null>(null);
   const [commentsOpen, setCommentsOpen] = useState(() => Boolean(focusCommentId));
   const [focusInputKey, setFocusInputKey] = useState(0);
   const [shareOpen, setShareOpen] = useState(false);
@@ -152,14 +196,26 @@ const PostEngagementBar: React.FC<Props> = ({
   const [dashOpen, setDashOpen] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
 
-  const likeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const summaryRef = useRef<HTMLButtonElement | null>(null);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const commentsAnchorRef = useRef<HTMLDivElement | null>(null);
+  const hoverOpenTimerRef = useRef<number | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
 
-  useEffect(() => {
-    setCounts(initialReactionCounts || {});
-  }, [postId, initialReactionCounts]);
+  const clearTimers = () => {
+    if (hoverOpenTimerRef.current !== null) {
+      window.clearTimeout(hoverOpenTimerRef.current);
+      hoverOpenTimerRef.current = null;
+    }
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
 
+  useEffect(() => setCounts(initialReactionCounts || {}), [postId, initialReactionCounts]);
   useEffect(() => {
     if (typeof initialUserReaction === 'undefined') return;
     setUserReaction(initialUserReaction || null);
@@ -167,131 +223,179 @@ const PostEngagementBar: React.FC<Props> = ({
 
   useEffect(() => {
     const onUpdated = (event: Event) => {
-      const detail = (event as CustomEvent).detail;
+      const raw = (event as CustomEvent).detail;
+      const detail = raw?.data && typeof raw.data === 'object' ? raw.data : raw;
       if (!detail) return;
-      const updatedPostId = String(detail.postId || detail.post_id || '').trim();
-      if (!updatedPostId || updatedPostId !== String(postId)) return;
-      const next = detail.reactions;
-      if (!next || typeof next !== 'object' || Array.isArray(next)) return;
-      setCounts(next as Record<string, number>);
+      const eventPostId = String(detail.postId || detail.post_id || '').trim();
+      if (!eventPostId || eventPostId !== String(postId)) return;
+      if (detail.reactions && typeof detail.reactions === 'object' && !Array.isArray(detail.reactions)) {
+        setCounts(detail.reactions as Record<string, number>);
+      }
+      const actorId = String(detail.actorId || detail.userId || '').trim();
+      if (actorId && user?.id && actorId === String(user.id) && Object.prototype.hasOwnProperty.call(detail, 'userReaction')) {
+        const mine = String(detail.userReaction || '').trim().toLowerCase();
+        setUserReaction(mine || null);
+      }
     };
     window.addEventListener('community:post_reaction_updated', onUpdated as EventListener);
-    return () =>
-      window.removeEventListener('community:post_reaction_updated', onUpdated as EventListener);
-  }, [postId]);
+    return () => window.removeEventListener('community:post_reaction_updated', onUpdated as EventListener);
+  }, [postId, user?.id]);
+
+  useEffect(() => {
+    if (!pickerOpen || isCoarsePointer) return;
+    const anchorEl = pickerAnchor === 'summary' ? summaryRef.current : buttonRef.current;
+    if (!anchorEl) return;
+    const reposition = () => setPickerPosition(computeFloatingPosition(anchorEl.getBoundingClientRect(), 380, 260));
+    reposition();
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+    };
+  }, [pickerOpen, pickerAnchor, isCoarsePointer]);
 
   useEffect(() => {
     if (!pickerOpen) return;
-    const onMouseDown = (event: MouseEvent) => {
+    const onPointerDown = (event: MouseEvent | TouchEvent) => {
       const target = event.target as HTMLElement | null;
       if (!target) return;
-      if (pickerRef.current?.contains(target)) return;
-      if (likeButtonRef.current?.contains(target)) return;
+      if (buttonRef.current?.contains(target) || summaryRef.current?.contains(target) || pickerRef.current?.contains(target)) return;
       setPickerOpen(false);
     };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setPickerOpen(false);
-    };
-    document.addEventListener('mousedown', onMouseDown);
-    document.addEventListener('keydown', onKeyDown);
+    const onEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setPickerOpen(false); };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown, { passive: true });
+    document.addEventListener('keydown', onEscape);
     return () => {
-      document.removeEventListener('mousedown', onMouseDown);
-      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+      document.removeEventListener('keydown', onEscape);
     };
   }, [pickerOpen]);
 
-  const checkAuth = () => {
-    if (!user?.id) {
-      if (confirm('Log in to interact with Scrolith posts. Go to login?')) {
-        window.location.href = '/auth/login';
-      }
-      return false;
-    }
-    return true;
+  const ensureAuth = () => {
+    if (user?.id) return true;
+    if (window.confirm('Log in to interact with Scrolith posts. Go to login?')) window.location.href = '/auth/login';
+    return false;
   };
 
-  const react = async (reactionKey: string) => {
-    if (!reactionsEnabled) return;
-    if (busy) return;
-    if (!checkAuth()) return;
-
-    const previousCounts = counts;
-    const previousReaction = userReaction;
-    const nextCounts = { ...previousCounts };
-    if (previousReaction) {
-      nextCounts[previousReaction] = Math.max(0, (nextCounts[previousReaction] || 0) - 1);
-      if (nextCounts[previousReaction] === 0) delete nextCounts[previousReaction];
-    }
-    const toggledOff = previousReaction === reactionKey;
-    if (!toggledOff) {
-      nextCounts[reactionKey] = (nextCounts[reactionKey] || 0) + 1;
-    }
-
+  const react = async (key: string) => {
+    if (!reactionsEnabled || busy) return;
+    if (!ensureAuth()) return;
+    const normalized = String(key || '').trim().toLowerCase();
+    if (!normalized) return;
+    const prevCounts = counts;
+    const prevReaction = userReaction;
+    const nextCounts = { ...prevCounts };
+    if (prevReaction) nextCounts[prevReaction] = Math.max(0, toSafeCount(nextCounts[prevReaction]) - 1);
+    if (prevReaction && nextCounts[prevReaction] === 0) delete nextCounts[prevReaction];
+    const toggledOff = prevReaction === normalized;
+    if (!toggledOff) nextCounts[normalized] = toSafeCount(nextCounts[normalized]) + 1;
     setBusy(true);
     setCounts(nextCounts);
-    setUserReaction(toggledOff ? null : reactionKey);
+    setUserReaction(toggledOff ? null : normalized);
     setPickerOpen(false);
-
     try {
-      const result = toggledOff
-        ? await CommunityService.removePostReaction(postId)
-        : await CommunityService.reactToPost(postId, reactionKey);
-      const serverCounts = result?.reactions;
-      if (serverCounts && typeof serverCounts === 'object' && !Array.isArray(serverCounts)) {
-        setCounts(serverCounts);
+      const result = toggledOff ? await CommunityService.removePostReaction(postId) : await CommunityService.reactToPost(postId, normalized);
+      if (result?.reactions && typeof result.reactions === 'object' && !Array.isArray(result.reactions)) setCounts(result.reactions);
+      if (Object.prototype.hasOwnProperty.call(result || {}, 'userReaction')) {
+        const mine = String(result?.userReaction || '').trim().toLowerCase();
+        setUserReaction(mine || null);
       }
     } catch (error: any) {
-      setCounts(previousCounts);
-      setUserReaction(previousReaction);
-      const message = error?.response?.data?.error || error?.message || 'Unable to update reaction.';
-      showNotification('error', 'Reactions', message);
+      setCounts(prevCounts);
+      setUserReaction(prevReaction);
+      showNotification('error', 'Reactions', error?.response?.data?.error || error?.message || 'Unable to update reaction.');
     } finally {
       setBusy(false);
     }
   };
 
   const totalReactions = sumReactions(counts);
-  const top = useMemo(() => {
-    const entries = Object.entries(counts || {})
-      .map(([key, value]) => ({ key, count: Number(value) || 0 }))
-      .filter((row) => row.key && row.count > 0)
-      .sort((a, b) => b.count - a.count);
-    return entries.slice(0, 3);
-  }, [counts]);
+  const topReactions = Object.entries(counts || {}).map(([key, value]) => ({ key, count: toSafeCount(value), meta: allowedMap.get(key) || DEFAULT_META[key] || DEFAULT_META.like })).filter((item) => item.count > 0).sort((a, b) => b.count - a.count).slice(0, 3);
+  const breakdown = Object.entries(counts || {}).map(([key, value]) => {
+    const count = toSafeCount(value);
+    const allowedItem = allowedMap.get(key);
+    const meta = DEFAULT_META[key] || DEFAULT_META.like;
+    return { key, count, label: allowedItem?.label || meta.label, emoji: allowedItem?.emoji || meta.emoji, color: meta.color, pct: totalReactions ? Math.round((count / totalReactions) * 100) : 0 };
+  }).filter((item) => item.count > 0).sort((a, b) => b.count - a.count);
 
-  const likeLabel = userReaction ? allowedMap.get(userReaction)?.label || 'Like' : 'Like';
-  const likeEmoji = userReaction ? allowedMap.get(userReaction)?.emoji : null;
-  const likeSelected = !!userReaction;
-
+  const likeLabel = userReaction ? (allowedMap.get(userReaction)?.label || DEFAULT_META[userReaction]?.label || 'Like') : 'Like';
+  const likeEmoji = userReaction ? (allowedMap.get(userReaction)?.emoji || DEFAULT_META[userReaction]?.emoji || DEFAULT_META.like.emoji) : '';
+  const actionButtonBase = compactActions ? 'flex w-full min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-[11px] font-semibold leading-tight transition' : 'flex w-full min-w-0 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition';
   const postUrl = buildPostUrl(postId);
 
-  const actionButtonBase = compactActions
-    ? 'flex w-full min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-[11px] font-semibold leading-tight transition'
-    : 'flex w-full min-w-0 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition';
+  const onReactionButtonHover = () => {
+    if (isCoarsePointer) return;
+    clearTimers();
+    hoverOpenTimerRef.current = window.setTimeout(() => {
+      setPickerAnchor('button');
+      setPickerOpen(true);
+      hoverOpenTimerRef.current = null;
+    }, 220);
+  };
+
+  const onReactionButtonTouchStart = () => {
+    if (!isCoarsePointer) return;
+    clearTimers();
+    longPressTriggeredRef.current = false;
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      setPickerAnchor('button');
+      setPickerOpen(true);
+      longPressTimerRef.current = null;
+    }, 360);
+  };
+
+  const onReactionButtonTouchEnd = () => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const onPrimaryReactionClick = () => {
+    if (longPressTriggeredRef.current) {
+      longPressTriggeredRef.current = false;
+      return;
+    }
+    void react(userReaction || defaultReactionKey);
+  };
 
   return (
     <div className={`mt-3 ${className}`}>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-        <div className="flex items-center gap-2">
-          {showCounts && reactionsEnabled && totalReactions > 0 ? (
-            <div className="inline-flex items-center gap-1">
-              <div className="inline-flex -space-x-1">
-                {top.map((row) => (
-                  <span
-                    key={row.key}
-                    className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white bg-slate-50 text-[11px]"
-                    title={allowedMap.get(row.key)?.label || row.key}
-                  >
-                    {allowedMap.get(row.key)?.emoji || '👍'}
-                  </span>
-                ))}
-              </div>
-              <span className="font-semibold text-slate-700">{totalReactions}</span>
-            </div>
+        <div className="min-w-0">
+          {showCounts && reactionsEnabled ? (
+            totalReactions > 0 ? (
+              <button
+                ref={summaryRef}
+                type="button"
+                onClick={() => {
+                  setPickerAnchor('summary');
+                  setPickerOpen(true);
+                }}
+                className="inline-flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-white px-2.5 py-1 hover:bg-slate-50"
+              >
+                <span className="inline-flex -space-x-1">
+                  {topReactions.map((item) => (
+                    <span key={item.key} className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white bg-slate-100 text-[11px]">
+                      {item.meta.emoji}
+                    </span>
+                  ))}
+                </span>
+                <span className="font-semibold text-slate-700">{totalReactions}</span>
+                <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+              </button>
+            ) : (
+              <span className="text-slate-400">0 reactions</span>
+            )
           ) : (
-            <span className="text-slate-400"> </span>
+            <span className="text-slate-400">&nbsp;</span>
           )}
         </div>
+
         <div className="flex flex-wrap items-center gap-3">
           {commentsEnabled ? (
             <button
@@ -299,28 +403,18 @@ const PostEngagementBar: React.FC<Props> = ({
               onClick={() => {
                 setCommentsOpen(true);
                 setFocusInputKey((prev) => prev + 1);
-                window.setTimeout(() => {
-                  commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }, 40);
+                window.setTimeout(() => commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
               }}
               className="hover:text-slate-700"
             >
               <span className="font-semibold text-slate-700">{commentCount}</span> comments
             </button>
           ) : (
-            <span>
-              <span className="font-semibold text-slate-700">{commentCount}</span> comments
-            </span>
+            <span><span className="font-semibold text-slate-700">{commentCount}</span> comments</span>
           )}
-          <span>
-            <span className="font-semibold text-slate-700">{repostCount}</span> reposts
-          </span>
-          <span>
-            <span className="font-semibold text-slate-700">{shareCount}</span> shares
-          </span>
-          <span>
-            <span className="font-semibold text-slate-700">{viewCount}</span> views
-          </span>
+          <span><span className="font-semibold text-slate-700">{repostCount}</span> reposts</span>
+          <span><span className="font-semibold text-slate-700">{shareCount}</span> shares</span>
+          <span><span className="font-semibold text-slate-700">{viewCount}</span> views</span>
         </div>
       </div>
 
@@ -329,76 +423,37 @@ const PostEngagementBar: React.FC<Props> = ({
         style={{ gridTemplateColumns: `repeat(${actionCols}, minmax(0, 1fr))` }}
       >
         {reactionsEnabled ? (
-        <div className="relative">
           <button
-            ref={likeButtonRef}
+            ref={buttonRef}
             type="button"
             disabled={busy}
-            onClick={(event) => {
+            onClick={onPrimaryReactionClick}
+            onMouseEnter={onReactionButtonHover}
+            onContextMenu={(event) => {
               event.preventDefault();
-              event.stopPropagation();
-              if (!reactionsEnabled) {
-                if (!checkAuth()) return;
-                showNotification('info', 'Reactions', 'Reactions are disabled for posts.');
-                return;
-              }
-              setPickerOpen((prev) => !prev);
+              setPickerAnchor('button');
+              setPickerOpen(true);
             }}
-            className={`${actionButtonBase} ${
-              likeSelected ? 'text-blue-700 hover:bg-blue-50' : 'text-slate-700 hover:bg-slate-50'
-            } disabled:opacity-60`}
-            aria-haspopup="dialog"
-            aria-expanded={pickerOpen}
+            onTouchStart={onReactionButtonTouchStart}
+            onTouchMove={onReactionButtonTouchEnd}
+            onTouchEnd={onReactionButtonTouchEnd}
+            onTouchCancel={onReactionButtonTouchEnd}
+            className={`${actionButtonBase} ${userReaction ? 'text-blue-700 hover:bg-blue-50' : 'text-slate-700 hover:bg-slate-50'} disabled:opacity-60`}
           >
-            <ThumbsUp className={`h-4 w-4 ${likeSelected ? 'fill-current' : ''}`} />
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-[13px] leading-none">{DEFAULT_META.like.emoji}</span>
             <span className="max-w-full truncate">{likeEmoji ? `${likeEmoji} ` : ''}{likeLabel}</span>
+            <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition ${pickerOpen ? 'rotate-180' : ''}`} />
           </button>
-
-          {pickerOpen ? (
-            <div
-              ref={pickerRef}
-              className="absolute left-1/2 top-[-10px] z-20 w-[320px] -translate-x-1/2 -translate-y-full rounded-2xl border border-slate-200 bg-white p-2 shadow-xl"
-            >
-              <div className="flex flex-wrap items-center justify-center gap-1.5">
-                {allowed.map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      void react(item.key);
-                    }}
-                    className={`group inline-flex items-center gap-2 rounded-xl px-2.5 py-2 text-sm transition hover:bg-slate-50 ${
-                      userReaction === item.key ? 'bg-blue-50' : ''
-                    }`}
-                    title={item.label}
-                  >
-                    <span className="text-xl leading-none">{item.emoji}</span>
-                    <span className="hidden text-xs font-semibold text-slate-700 group-hover:inline">{item.label}</span>
-                  </button>
-                ))}
-              </div>
-              {!isConnected ? (
-                <div className="mt-2 text-center text-[11px] text-slate-400">
-                  Realtime is offline; counts may update with a delay.
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
         ) : null}
 
         {commentsEnabled ? (
           <button
             type="button"
             onClick={() => {
-              if (!checkAuth()) return;
+              if (!ensureAuth()) return;
               setCommentsOpen((prev) => !prev);
               setFocusInputKey((prev) => prev + 1);
-              window.setTimeout(() => {
-                commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }, 40);
+              window.setTimeout(() => commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
             }}
             className={`${actionButtonBase} text-slate-700 hover:bg-slate-50`}
           >
@@ -411,7 +466,7 @@ const PostEngagementBar: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => {
-              if (!checkAuth()) return;
+              if (!ensureAuth()) return;
               setRepostOpen(true);
             }}
             className={`${actionButtonBase} text-slate-700 hover:bg-slate-50`}
@@ -425,7 +480,7 @@ const PostEngagementBar: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => {
-              if (!checkAuth()) return;
+              if (!ensureAuth()) return;
               setDashOpen(true);
             }}
             className={`${actionButtonBase} text-slate-700 hover:bg-slate-50`}
@@ -436,16 +491,102 @@ const PostEngagementBar: React.FC<Props> = ({
         ) : null}
 
         {sendEnabled ? (
-          <button
-            type="button"
-            onClick={() => setShareOpen(true)}
-            className={`${actionButtonBase} text-slate-700 hover:bg-slate-50`}
-          >
+          <button type="button" onClick={() => setShareOpen(true)} className={`${actionButtonBase} text-slate-700 hover:bg-slate-50`}>
             <Send className="h-4 w-4" />
             <span className="max-w-full truncate">Send</span>
           </button>
         ) : null}
       </div>
+
+      {pickerOpen && isCoarsePointer ? (
+        <div className="fixed inset-0 z-[1200] bg-slate-900/45" onClick={() => setPickerOpen(false)} role="presentation">
+          <div
+            ref={pickerRef}
+            className="absolute inset-x-0 bottom-0 rounded-t-3xl bg-white p-4 shadow-2xl"
+            style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Choose a reaction"
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">React to this post</p>
+                <p className="text-xs text-slate-500">{isConnected ? 'Realtime sync active' : 'Realtime reconnecting'}</p>
+              </div>
+              <button type="button" onClick={() => setPickerOpen(false)} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600">
+                Close
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              {allowed.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => void react(item.key)}
+                  className={[
+                    'inline-flex min-h-14 flex-col items-center justify-center gap-1 rounded-2xl border px-2 py-2',
+                    userReaction === item.key ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                  ].join(' ')}
+                >
+                  <span className="text-xl leading-none">{item.emoji}</span>
+                  <span className="text-[11px] font-semibold">{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pickerOpen && !isCoarsePointer && pickerPosition ? (
+        <div
+          ref={pickerRef}
+          style={{ left: pickerPosition.left, top: pickerPosition.top, width: pickerPosition.width, transform: pickerPosition.placement === 'top' ? 'translateY(-100%)' : undefined }}
+          className="fixed z-[1200] rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl"
+          onMouseEnter={() => {
+            if (hoverOpenTimerRef.current !== null) {
+              window.clearTimeout(hoverOpenTimerRef.current);
+              hoverOpenTimerRef.current = null;
+            }
+          }}
+        >
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Reactions</p>
+            <span className={`text-[11px] font-semibold ${isConnected ? 'text-emerald-600' : 'text-amber-600'}`}>{isConnected ? 'Live' : 'Syncing'}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+            {allowed.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => void react(item.key)}
+                className={[
+                  'group inline-flex items-center gap-2 rounded-xl border px-2 py-2 text-left transition',
+                  userReaction === item.key ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                ].join(' ')}
+              >
+                <span className="text-xl leading-none transition group-hover:scale-110">{item.emoji}</span>
+                <span className="text-xs font-semibold">{item.label}</span>
+              </button>
+            ))}
+          </div>
+          {breakdown.length ? (
+            <div className="mt-3 space-y-1.5 border-t border-slate-100 pt-2">
+              {breakdown.slice(0, 5).map((item) => (
+                <div key={`summary_${item.key}`} className="rounded-lg bg-slate-50 px-2 py-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-semibold text-slate-700">{item.emoji} {item.label}</span>
+                    <span className="text-slate-500">{item.count} ({item.pct}%)</span>
+                  </div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                    <div className="h-full rounded-full" style={{ width: `${Math.max(4, item.pct)}%`, backgroundColor: item.color }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div ref={commentsAnchorRef} />
       {commentsEnabled ? (
@@ -462,13 +603,7 @@ const PostEngagementBar: React.FC<Props> = ({
         />
       ) : null}
 
-      {dashEnabledForPost ? (
-        <SendGcoinModal
-          isOpen={dashOpen}
-          onClose={() => setDashOpen(false)}
-          donatePostId={postId}
-        />
-      ) : null}
+      {dashEnabledForPost ? <SendGcoinModal isOpen={dashOpen} onClose={() => setDashOpen(false)} donatePostId={postId} /> : null}
 
       {repostsEnabled ? (
         <RepostModal
@@ -476,33 +611,27 @@ const PostEngagementBar: React.FC<Props> = ({
           onClose={() => setRepostOpen(false)}
           busy={actionBusy}
           onRepostNow={async () => {
-            if (actionBusy) return;
-            if (!checkAuth()) return;
+            if (actionBusy || !ensureAuth()) return;
             setActionBusy(true);
             try {
               const ok = await CommunityService.postRepost(postId, { createWrapper: true });
               if (ok) {
                 showNotification('success', 'Repost', 'Shared to your feed.');
                 setRepostOpen(false);
-              } else {
-                showNotification('error', 'Repost', 'Unable to repost right now.');
-              }
+              } else showNotification('error', 'Repost', 'Unable to repost right now.');
             } finally {
               setActionBusy(false);
             }
           }}
           onRepostWithComment={async (comment) => {
-            if (actionBusy) return;
-            if (!checkAuth()) return;
+            if (actionBusy || !ensureAuth()) return;
             setActionBusy(true);
             try {
               const ok = await CommunityService.postRepost(postId, { createWrapper: true, content: comment });
               if (ok) {
                 showNotification('success', 'Repost', 'Shared to your feed.');
                 setRepostOpen(false);
-              } else {
-                showNotification('error', 'Repost', 'Unable to repost right now.');
-              }
+              } else showNotification('error', 'Repost', 'Unable to repost right now.');
             } finally {
               setActionBusy(false);
             }

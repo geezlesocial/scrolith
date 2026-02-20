@@ -7,7 +7,7 @@ import { AdminService } from '../services/admin';
 import { categoriesApi } from '../services/categories';
 import { jobsApi } from '../services/jobs';
 import { Job, ListingCategory, UploadedFile, BudgetAdvice, Plan, PaymentGateway } from '../types';
-import { Briefcase, DollarSign, FileText, CheckCircle, Upload, X, Crown, Sparkles, ChevronRight, ChevronLeft, Loader2, ArrowUpRight } from 'lucide-react';
+import { Briefcase, DollarSign, FileText, CheckCircle, Upload, X, Crown, Sparkles, ChevronRight, ChevronLeft, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import { AdvisorService } from '../services/ai/advisor.service';
@@ -696,7 +696,18 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
                     plan_name: selectedPlan?.name,
                     plan_price: selectedPlan?.price,
                     plan_interval: selectedPlan?.interval,
-                    isFeatured: Boolean(selectedPlan?.isPopular)
+                    isFeatured: Boolean(
+                      (selectedPlan?.features || []).some((feature: any) => {
+                        if (!feature?.included) return false;
+                        const code = String(feature?.code || '').trim().toLowerCase();
+                        const name = String(feature?.name || '').trim().toLowerCase();
+                        return (
+                          code === 'featured_jobs' ||
+                          code === 'featured_job_cards' ||
+                          name.includes('featured job')
+                        );
+                      })
+                    )
                 };
                 if (!isEditMode) {
                     payload.status = 'draft';

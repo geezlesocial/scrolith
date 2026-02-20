@@ -4,7 +4,7 @@ import { StaffMember, StaffRole, StaffStatus } from '../../types';
 import { AdminService } from '../../services/admin';
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
-import { UserPlus, Edit2, Trash2, Shield, X, Lock, CheckCircle, AlertOctagon, User, Key, Mail, ShieldAlert } from 'lucide-react';
+import { UserPlus, Edit2, Trash2, Shield, X, Lock, CheckCircle, AlertOctagon, User, Key, Mail } from 'lucide-react';
 
 const StaffManagementTab = () => {
     const { user: currentUser } = useUser();

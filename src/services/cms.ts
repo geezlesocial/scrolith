@@ -206,10 +206,32 @@ const normalizeRoleList = (value: any): string[] => {
 
 const backendOrigin = getBackendOrigin();
 const localAssetHosts = new Set(['localhost', '127.0.0.1', '0.0.0.0', '10.0.2.2']);
+const isLocalAssetHost = (host: string) => {
+    const normalized = String(host || '').trim().toLowerCase();
+    if (!normalized) return false;
+    if (localAssetHosts.has(normalized)) return true;
+    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(normalized)) return false;
+    if (normalized.startsWith('192.168.') || normalized.startsWith('10.')) return true;
+    if (normalized.startsWith('172.')) {
+        const second = Number(normalized.split('.')[1] || '0');
+        return second >= 16 && second <= 31;
+    }
+    return false;
+};
 
 const isAssetPath = (value: string) => {
     const v = value.toLowerCase();
-    return v.startsWith('/uploads') || v.startsWith('uploads/') || v.includes('/uploads/');
+    return (
+        v.startsWith('/uploads') ||
+        v.startsWith('uploads/') ||
+        v.includes('/uploads/') ||
+        v.startsWith('/api/files/') ||
+        v.startsWith('api/files/') ||
+        v.includes('/api/files/') ||
+        v.startsWith('/files/content/') ||
+        v.startsWith('files/content/') ||
+        v.includes('/files/content/')
+    );
 };
 
 const normalizeAssetUrl = (value: string) => {
@@ -225,7 +247,7 @@ const normalizeAssetUrl = (value: string) => {
         if (!isAssetPath(lower)) return value;
         try {
             const url = new URL(trimmed);
-            if (!localAssetHosts.has(url.hostname.toLowerCase())) return value;
+            if (!isLocalAssetHost(url.hostname.toLowerCase())) return value;
             return `${backendOrigin}${url.pathname}${url.search}${url.hash}`;
         } catch {
             return value;
@@ -234,6 +256,8 @@ const normalizeAssetUrl = (value: string) => {
 
     if (isAssetPath(lower)) {
         if (lower.startsWith('uploads/')) return `${backendOrigin}/${trimmed}`;
+        if (lower.startsWith('api/files/')) return `${backendOrigin}/${trimmed}`;
+        if (lower.startsWith('files/content/')) return `${backendOrigin}/${trimmed}`;
         return `${backendOrigin}${trimmed}`;
     }
 

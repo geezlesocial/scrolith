@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Search } from 'lucide-react';
+import { ArrowLeftIcon as ArrowLeft, SearchIcon as Search } from '../../../components/icons/ShellIcons';
 import { mobileSearch } from '../../../services/mobileSearch';
 
 export type SearchCategory = 'posts' | 'people' | 'pages' | 'jobs' | 'gigs';
@@ -172,4 +172,3 @@ function SearchRow({ type, row }: { type: string; row: any }) {
     </a>
   );
 }
-

@@ -3,6 +3,8 @@ import apiClient from '../api';
 import { getApiBaseUrl } from '../../utils/apiBase';
 import type { AITagInput, AIProjectBriefInput, AIProjectBriefResponse, AIReplyInput, AISkillMatchInput } from './ai.types';
 
+export type PostEnhanceMode = 'grammar' | 'rephrase' | 'professional' | 'shorten' | 'expand';
+
 const hasBackendEnv = Boolean(
   import.meta.env.VITE_BACKEND_URL ||
     import.meta.env.VITE_API_URL ||
@@ -210,6 +212,31 @@ export const AIService = {
         return { categoryIds: [] };
       }
     }
+  },
+
+  enhancePostDraft: async (payload: { text: string; mode: PostEnhanceMode }): Promise<{ enhancedText: string }> => {
+    const text = String(payload?.text || '').trim();
+    if (!text) throw new Error('Text is required');
+
+    const res = await apiClient.post('/ai/post-enhance', {
+      text,
+      mode: payload.mode
+    });
+    const data = unwrap(res);
+    return {
+      enhancedText: String(data?.enhancedText || '').trim()
+    };
+  },
+
+  generatePostInsight: async (payload: { postId?: string; text?: string; force?: boolean }): Promise<{ insightText?: string; aiInsightText?: string; generated?: boolean; reason?: string | null }> => {
+    const res = await apiClient.post('/ai/post-insight', payload || {});
+    const data = unwrap(res);
+    return {
+      insightText: data?.insightText,
+      aiInsightText: data?.aiInsightText,
+      generated: data?.generated,
+      reason: data?.reason ?? null
+    };
   }
 };
 

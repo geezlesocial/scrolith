@@ -1,5 +1,10 @@
 import { Capacitor } from '@capacitor/core';
-import { BiometricAuth, BiometryType } from '@aparajita/capacitor-biometric-auth';
+import {
+  AndroidBiometryStrength,
+  BiometricAuth,
+  BiometryError,
+  BiometryType
+} from '@aparajita/capacitor-biometric-auth';
 
 export const BIOMETRIC_PREF_KEY = 'Scrolith.pref.biometric.enabled';
 
@@ -58,9 +63,31 @@ export const authenticateBiometrics = async (reason = 'Unlock Scrolith') => {
     return { ok: false, error: 'Not running on a native platform.' };
   }
   try {
-    await BiometricAuth.authenticate({ reason });
+    // Guard against plugin calls hanging indefinitely on some Android OEM builds.
+    const timeoutMs = 30_000;
+    await Promise.race([
+      BiometricAuth.authenticate({
+        reason,
+        cancelTitle: 'Cancel',
+        allowDeviceCredential: true,
+        androidTitle: 'Fingerprint Authentication',
+        androidSubtitle: reason,
+        androidConfirmationRequired: false,
+        androidBiometryStrength: AndroidBiometryStrength.weak
+      }),
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('Biometric request timed out. Please try again.')), timeoutMs)
+      )
+    ]);
     return { ok: true };
   } catch (error: any) {
+    if (error instanceof BiometryError) {
+      return {
+        ok: false,
+        error: error?.message || 'Authentication failed.',
+        code: error?.code
+      };
+    }
     return { ok: false, error: error?.message || 'Authentication failed.' };
   }
 };

@@ -161,10 +161,25 @@ export interface ComplianceConfig {
 
 export interface EmailProviderConfig {
   provider: 'smtp' | 'ses' | 'sendgrid' | 'mailgun';
-  host: string;
-  port: number;
-  username: string;
-  password: string;
-  from_name: string;
-  from_email: string;
+  host?: string;
+  port?: number;
+  username?: string;
+  password?: string;
+  secure?: boolean;
+  encryption?: 'tls' | 'ssl' | 'none';
+  smtp_encryption?: 'tls' | 'ssl' | 'none';
+  from_name?: string;
+  fromName?: string;
+  from_email?: string;
+  fromEmail?: string;
+  api_key?: string;
+  apiKey?: string;
+  domain?: string;
+  mailgun_domain?: string;
+  region?: string;
+  ses_region?: string;
+  access_key_id?: string;
+  accessKeyId?: string;
+  secret_access_key?: string;
+  secretAccessKey?: string;
 }

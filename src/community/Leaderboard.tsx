@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { CommunityService } from '../services/community';
 import { LeaderboardEntry } from '../types';
-import { Trophy, TrendingUp, TrendingDown, Minus, Medal, Filter, Search } from 'lucide-react';
+import { Trophy, TrendingUp, TrendingDown, Minus, Medal, Filter } from 'lucide-react';
 import ReputationBadge from '../components/ReputationBadge';
 
 const Leaderboard = () => {

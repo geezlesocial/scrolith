@@ -1,6 +1,6 @@
 import api from './api';
 import { AuthService } from './authService';
-import {
+import type {
   User,
   UserRole,
   Subscriber,

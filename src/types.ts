@@ -358,6 +358,9 @@ export interface Gig {
   freelancerAvatar: string; // camelCase
   freelancerProfilePhotoFileId?: string; // camelCase
   freelancerIsPro?: boolean;
+  freelancerIsVerified?: boolean;
+  freelancer_is_verified?: boolean;
+  freelancerVerified?: boolean;
   price: number;
   rating: number;
   reviews: number;
@@ -432,6 +435,9 @@ export interface Job {
   clientAvatar?: string | null; // camelCase
   clientProfilePhotoFileId?: string | null; // camelCase
   clientIsPro?: boolean;
+  clientIsVerified?: boolean;
+  client_is_verified?: boolean;
+  clientVerified?: boolean;
   budget: string;
   type: JobType;
   postedTime: string; // camelCase
@@ -1256,14 +1262,27 @@ export interface ComplianceConfig {
 
 export interface EmailProviderConfig {
   provider: 'smtp' | 'ses' | 'sendgrid' | 'mailgun';
-  host: string;
-  port: number;
-  username: string;
-  password: string;
+  host?: string;
+  port?: number;
+  username?: string;
+  password?: string;
+  secure?: boolean;
+  encryption?: 'tls' | 'ssl' | 'none';
+  smtp_encryption?: 'tls' | 'ssl' | 'none';
   from_name?: string;
   fromName?: string;
   from_email?: string;
   fromEmail?: string;
+  api_key?: string;
+  apiKey?: string;
+  domain?: string;
+  mailgun_domain?: string;
+  region?: string;
+  ses_region?: string;
+  access_key_id?: string;
+  accessKeyId?: string;
+  secret_access_key?: string;
+  secretAccessKey?: string;
 }
 
 // ==================== CMS & CONTENT ====================
@@ -2899,6 +2918,48 @@ export interface ModerationLog {
   riskLevel?: RiskLevel;
   actionTaken?: string;
   moderatorName?: string;
+}
+
+export interface CommunityPostReportUserSummary {
+  id: string;
+  name?: string | null;
+  username?: string | null;
+  email?: string | null;
+  avatar?: string | null;
+  role?: string | null;
+}
+
+export interface CommunityPostReport {
+  id: string;
+  postId: string;
+  reporterId: string;
+  postOwnerId: string;
+  reason?: string;
+  details?: string;
+  status: string;
+  severity?: string;
+  reporterReply?: string;
+  adminDecision?: string | null;
+  actionType?: string | null;
+  actionSummary?: string;
+  actionMetadata?: Record<string, any> | null;
+  reviewedById?: string | null;
+  reviewedAt?: string | Date | null;
+  resolvedAt?: string | Date | null;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
+  snippet?: string;
+  reporter?: CommunityPostReportUserSummary | null;
+  postOwner?: CommunityPostReportUserSummary | null;
+  reviewer?: CommunityPostReportUserSummary | null;
+  post?: {
+    id: string;
+    title?: string;
+    contentSnippet?: string;
+    status?: string;
+    authorId?: string;
+    createdAt?: string | Date | null;
+  } | null;
 }
 
 // ==================== NOTIFICATIONS ====================

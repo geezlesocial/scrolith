@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { Suspense, useMemo, useState, useEffect, useRef } from 'react';
 import {
     Home, ShoppingBag, DollarSign, CreditCard, LayoutTemplate, BookOpen, Megaphone, Users, HardDrive, Shield, FileText, LifeBuoy, Settings, Menu, X, Bell, LogOut, User, MessageSquare, Brain, PieChart, Clock, MessageCircle, Navigation, BarChart2, Globe, ExternalLink, RotateCcw, Sparkles, Bot, Smartphone
 } from 'lucide-react';
@@ -9,44 +9,44 @@ import { useSearchParams } from 'react-router-dom';
 import { SupportService } from '../services/support'; 
 import { AdminService } from '../services/admin';
 
-// Import New Modules
-import Overview from './admin/Overview';
-import ListingsManagementTab from './admin/GigsJobs'; 
-import FinancialsTab from './admin/FinancePayouts';
-import GatewaysTab from './admin/PaymentGateways';
-import CMSPages from './admin/CMSPages';
-import HomepageSettings from './admin/HomepageSettings';
-import BlogManagement from './admin/Blog';
-import MarketingTab from './admin/Marketing';
-import UsersManagementTab from './admin/Users';
-import UploadedFilesTab from './admin/UploadedFiles';
-import StaffManagementTab from './admin/StaffManagement';
-import RoleManagementTab from './admin/RoleManagement';
-import ModeratorConsole from './admin/ModeratorConsole';
-import MessageRecords from './admin/MessageRecords';
-import KYCTab from './admin/KYCVerification';
-import SupportDisputes from './admin/SupportDisputes';
-import SystemSettings from './admin/SystemSettings';
-import Profile from './admin/Profile';
-import Languages from './admin/Languages';
-import AdminMessages from './admin/Messages';
-import AIIntelligence from './admin/AIIntelligence';
-import MarketplaceAnalytics from './admin/MarketplaceAnalytics';
-import ATMTrackerModule from './admin/ATMTrackerModule';
-import CommunityManagement from './admin/CommunityManagement'; 
-import NavigationManager from './admin/NavigationManager'; 
-import MarketIntelligence from './admin/MarketIntelligence';
-import AdminReviews from './admin/Reviews';
-import CommerceEngagement from './admin/CommerceEngagement';
-import FormBuilder from './admin/FormBuilder';
-import GoogleSettings from './admin/GoogleSettings';
-import MonetizationManagement from './admin/MonetizationManagement';
-import RecommendationManagement from './admin/RecommendationManagement';
-import ScrolithaManagement from './admin/ScrolithaManagement';
-import AppManagement from './admin/AppManagement';
-import MobileHomepage from './admin/MobileHomepage';
 import { useT } from '../i18n/useT';
 import { getNotificationActionUrl, getNotificationBucket } from '../utils/notificationRouting';
+
+const Overview = React.lazy(() => import('./admin/Overview'));
+const ListingsManagementTab = React.lazy(() => import('./admin/GigsJobs'));
+const FinancialsTab = React.lazy(() => import('./admin/FinancePayouts'));
+const GatewaysTab = React.lazy(() => import('./admin/PaymentGateways'));
+const CMSPages = React.lazy(() => import('./admin/CMSPages'));
+const HomepageSettings = React.lazy(() => import('./admin/HomepageSettings'));
+const BlogManagement = React.lazy(() => import('./admin/Blog'));
+const MarketingTab = React.lazy(() => import('./admin/Marketing'));
+const UsersManagementTab = React.lazy(() => import('./admin/Users'));
+const UploadedFilesTab = React.lazy(() => import('./admin/UploadedFiles'));
+const StaffManagementTab = React.lazy(() => import('./admin/StaffManagement'));
+const RoleManagementTab = React.lazy(() => import('./admin/RoleManagement'));
+const ModeratorConsole = React.lazy(() => import('./admin/ModeratorConsole'));
+const MessageRecords = React.lazy(() => import('./admin/MessageRecords'));
+const KYCTab = React.lazy(() => import('./admin/KYCVerification'));
+const SupportDisputes = React.lazy(() => import('./admin/SupportDisputes'));
+const SystemSettings = React.lazy(() => import('./admin/SystemSettings'));
+const Profile = React.lazy(() => import('./admin/Profile'));
+const Languages = React.lazy(() => import('./admin/Languages'));
+const AdminMessages = React.lazy(() => import('./admin/Messages'));
+const AIIntelligence = React.lazy(() => import('./admin/AIIntelligence'));
+const MarketplaceAnalytics = React.lazy(() => import('./admin/MarketplaceAnalytics'));
+const ATMTrackerModule = React.lazy(() => import('./admin/ATMTrackerModule'));
+const CommunityManagement = React.lazy(() => import('./admin/CommunityManagement'));
+const NavigationManager = React.lazy(() => import('./admin/NavigationManager'));
+const MarketIntelligence = React.lazy(() => import('./admin/MarketIntelligence'));
+const AdminReviews = React.lazy(() => import('./admin/Reviews'));
+const CommerceEngagement = React.lazy(() => import('./admin/CommerceEngagement'));
+const FormBuilder = React.lazy(() => import('./admin/FormBuilder'));
+const GoogleSettings = React.lazy(() => import('./admin/GoogleSettings'));
+const MonetizationManagement = React.lazy(() => import('./admin/MonetizationManagement'));
+const RecommendationManagement = React.lazy(() => import('./admin/RecommendationManagement'));
+const ScrolithaManagement = React.lazy(() => import('./admin/ScrolithaManagement'));
+const AppManagement = React.lazy(() => import('./admin/AppManagement'));
+const MobileHomepage = React.lazy(() => import('./admin/MobileHomepage'));
 
 // Define valid tab types
 type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps';
@@ -62,6 +62,12 @@ interface NavGroup {
     title: string;
     items: NavItem[];
 }
+
+const AdminTabLoader = () => (
+    <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
+        Loading module...
+    </div>
+);
 
 const AdminDashboard: React.FC = () => {
     const t = useT();
@@ -593,7 +599,7 @@ const AdminDashboard: React.FC = () => {
 
                 <main className="flex-1 overflow-y-auto p-6 md:p-8 bg-gray-50">
                     <div className="max-w-7xl mx-auto">
-                        {renderContent()}
+                        <Suspense fallback={<AdminTabLoader />}>{renderContent()}</Suspense>
                     </div>
                 </main>
             </div>

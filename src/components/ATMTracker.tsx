@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Square, Pause, Clock, AlertCircle, Activity, DollarSign } from 'lucide-react';
+import { Play, Square, Pause, Activity } from 'lucide-react';
 import { Contract } from '../types';
 import { ContractService } from '../services/contract';
 import { useNotification } from '../context/NotificationContext';

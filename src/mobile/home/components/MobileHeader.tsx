@@ -1,5 +1,9 @@
 import React from 'react';
-import { MessageCircle, MoreHorizontal, Search } from 'lucide-react';
+import {
+  MessageCircleIcon as MessageCircle,
+  MoreHorizontalIcon as MoreHorizontal,
+  SearchIcon as Search
+} from '../../../components/icons/ShellIcons';
 
 export type MobileHomeLayoutSettings = {
   search?: {

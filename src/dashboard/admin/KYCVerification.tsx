@@ -1,9 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CMSService } from '../../services/cms';
 import { useNotification } from '../../context/NotificationContext';
-import type { KYCSubmission, KYCStatus, KYCDocument } from '../../services/kyc';
+import { kycApi } from '../../services/kyc';
+import type {
+  KYCSubmission,
+  KYCStatus,
+  KYCDocument,
+  KYCFormConfig,
+  KYCPersonalFieldConfig,
+  KYCDocumentGroupConfig,
+  KYCDocumentOptionConfig
+} from '../../services/kyc';
 import { ConfirmModal } from '../shared/ConfirmModal';
-import { Eye, RefreshCw } from 'lucide-react';
+import { Eye, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 
 type KYCRequest = KYCSubmission & {
   user?: { id?: string; name?: string; email?: string };
@@ -49,6 +58,24 @@ const prettifyType = (value?: string) =>
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
 
+const createEmptyDocumentOption = (): KYCDocumentOptionConfig => ({
+  key: `custom_doc_${Date.now()}`,
+  label: 'Custom Document',
+  description: '',
+  required: false,
+  cameraOnly: false,
+  accept: 'image/*,application/pdf'
+});
+
+const createEmptyDocumentGroup = (): KYCDocumentGroupConfig => ({
+  key: `custom_group_${Date.now()}`,
+  label: 'Custom Group',
+  description: '',
+  required: false,
+  minRequired: 0,
+  options: [createEmptyDocumentOption()]
+});
+
 const KYCTab = () => {
   const { showNotification } = useNotification();
   const [requests, setRequests] = useState<KYCRequest[]>([]);
@@ -57,6 +84,9 @@ const KYCTab = () => {
   const [rejecting, setRejecting] = useState<KYCRequest | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [formConfig, setFormConfig] = useState<KYCFormConfig | null>(null);
+  const [configLoading, setConfigLoading] = useState(false);
+  const [configSaving, setConfigSaving] = useState(false);
 
   const loadRequests = async () => {
     setLoading(true);
@@ -71,13 +101,27 @@ const KYCTab = () => {
     }
   };
 
+  const loadFormConfig = async () => {
+    setConfigLoading(true);
+    try {
+      const config = await kycApi.getKYCFormConfigAdmin();
+      setFormConfig(config);
+    } catch (error: any) {
+      showNotification('error', 'Load Failed', error?.message || 'Failed to load KYC form config.');
+    } finally {
+      setConfigLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadRequests();
+    loadFormConfig();
   }, []);
 
   useEffect(() => {
     const handler = () => {
       loadRequests();
+      loadFormConfig();
     };
     window.addEventListener('kyc.submitted', handler as EventListener);
     window.addEventListener('kyc.updated', handler as EventListener);
@@ -86,6 +130,114 @@ const KYCTab = () => {
       window.removeEventListener('kyc.updated', handler as EventListener);
     };
   }, []);
+
+  const updateCopyField = (key: keyof KYCFormConfig['copy'], value: string) => {
+    setFormConfig((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        copy: {
+          ...prev.copy,
+          [key]: value
+        }
+      };
+    });
+  };
+
+  const updatePersonalField = (index: number, patch: Partial<KYCPersonalFieldConfig>) => {
+    setFormConfig((prev) => {
+      if (!prev) return prev;
+      const next = [...(prev.personalFields || [])];
+      next[index] = { ...next[index], ...patch };
+      return { ...prev, personalFields: next };
+    });
+  };
+
+  const updateDocumentGroup = (index: number, patch: Partial<KYCDocumentGroupConfig>) => {
+    setFormConfig((prev) => {
+      if (!prev) return prev;
+      const next = [...(prev.documentGroups || [])];
+      next[index] = { ...next[index], ...patch };
+      return { ...prev, documentGroups: next };
+    });
+  };
+
+  const updateDocumentOption = (
+    groupIndex: number,
+    optionIndex: number,
+    patch: Partial<KYCDocumentOptionConfig>
+  ) => {
+    setFormConfig((prev) => {
+      if (!prev) return prev;
+      const groups = [...(prev.documentGroups || [])];
+      const group = groups[groupIndex];
+      if (!group) return prev;
+      const options = [...(group.options || [])];
+      options[optionIndex] = { ...options[optionIndex], ...patch };
+      groups[groupIndex] = { ...group, options };
+      return { ...prev, documentGroups: groups };
+    });
+  };
+
+  const addDocumentOption = (groupIndex: number) => {
+    setFormConfig((prev) => {
+      if (!prev) return prev;
+      const groups = [...(prev.documentGroups || [])];
+      const group = groups[groupIndex];
+      if (!group) return prev;
+      groups[groupIndex] = { ...group, options: [...(group.options || []), createEmptyDocumentOption()] };
+      return { ...prev, documentGroups: groups };
+    });
+  };
+
+  const removeDocumentOption = (groupIndex: number, optionIndex: number) => {
+    setFormConfig((prev) => {
+      if (!prev) return prev;
+      const groups = [...(prev.documentGroups || [])];
+      const group = groups[groupIndex];
+      if (!group || !Array.isArray(group.options) || group.options.length <= 1) return prev;
+      groups[groupIndex] = {
+        ...group,
+        options: group.options.filter((_, idx) => idx !== optionIndex)
+      };
+      return { ...prev, documentGroups: groups };
+    });
+  };
+
+  const addDocumentGroup = () => {
+    setFormConfig((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        documentGroups: [...(prev.documentGroups || []), createEmptyDocumentGroup()]
+      };
+    });
+  };
+
+  const removeDocumentGroup = (groupIndex: number) => {
+    setFormConfig((prev) => {
+      if (!prev) return prev;
+      if ((prev.documentGroups || []).length <= 1) return prev;
+      return {
+        ...prev,
+        documentGroups: (prev.documentGroups || []).filter((_, idx) => idx !== groupIndex)
+      };
+    });
+  };
+
+  const saveFormConfig = async () => {
+    if (!formConfig) return;
+    setConfigSaving(true);
+    try {
+      const saved = await kycApi.updateKYCFormConfigAdmin(formConfig);
+      setFormConfig(saved);
+      showNotification('success', 'Saved', 'KYC form configuration updated successfully.');
+    } catch (error: any) {
+      showNotification('error', 'Save Failed', error?.message || 'Failed to save KYC form configuration.');
+    } finally {
+      setConfigSaving(false);
+    }
+  };
 
   const handleApprove = async (submission: KYCRequest) => {
     setActionLoading(true);
@@ -159,7 +311,10 @@ const KYCTab = () => {
           <p className="text-xs text-gray-500">Review KYC submissions and approve or reject them.</p>
         </div>
         <button
-          onClick={loadRequests}
+          onClick={() => {
+            loadRequests();
+            loadFormConfig();
+          }}
           className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50"
         >
           <RefreshCw className="w-4 h-4 mr-2" />
@@ -246,6 +401,348 @@ const KYCTab = () => {
           )}
         </tbody>
       </table>
+
+      <div className="border-t border-gray-200 bg-gray-50 p-6 space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">KYC Form Management</h3>
+            <p className="text-xs text-gray-500">
+              Configure KYC form copy, field requirements, document options, and camera-only capture rules.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={loadFormConfig}
+              className="inline-flex items-center px-3 py-2 text-xs font-semibold text-gray-700 border border-gray-200 rounded-lg hover:bg-white"
+              disabled={configLoading || configSaving}
+            >
+              <RefreshCw className="w-4 h-4 mr-1" />
+              Reload Form
+            </button>
+            <button
+              type="button"
+              onClick={saveFormConfig}
+              className="inline-flex items-center px-3 py-2 text-xs font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-60"
+              disabled={!formConfig || configLoading || configSaving}
+            >
+              <Save className="w-4 h-4 mr-1" />
+              {configSaving ? 'Saving...' : 'Save Form Config'}
+            </button>
+          </div>
+        </div>
+
+        {configLoading && !formConfig ? (
+          <div className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">
+            Loading KYC form configuration...
+          </div>
+        ) : formConfig ? (
+          <div className="space-y-6">
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <h4 className="text-sm font-semibold text-gray-900 mb-3">General Copy</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <label className="text-xs text-gray-600">
+                  Form Title
+                  <input
+                    className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                    value={formConfig.copy.title}
+                    onChange={(event) => updateCopyField('title', event.target.value)}
+                  />
+                </label>
+                <label className="text-xs text-gray-600">
+                  Form Subtitle
+                  <input
+                    className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                    value={formConfig.copy.subtitle}
+                    onChange={(event) => updateCopyField('subtitle', event.target.value)}
+                  />
+                </label>
+                <label className="text-xs text-gray-600 md:col-span-2">
+                  Intro Message
+                  <textarea
+                    className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                    rows={2}
+                    value={formConfig.copy.introMessage}
+                    onChange={(event) => updateCopyField('introMessage', event.target.value)}
+                  />
+                </label>
+                <label className="text-xs text-gray-600">
+                  Personal Section Title
+                  <input
+                    className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                    value={formConfig.copy.personalSectionTitle}
+                    onChange={(event) => updateCopyField('personalSectionTitle', event.target.value)}
+                  />
+                </label>
+                <label className="text-xs text-gray-600">
+                  Address Section Title
+                  <input
+                    className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                    value={formConfig.copy.addressSectionTitle}
+                    onChange={(event) => updateCopyField('addressSectionTitle', event.target.value)}
+                  />
+                </label>
+                <label className="text-xs text-gray-600">
+                  Documents Section Title
+                  <input
+                    className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                    value={formConfig.copy.documentsSectionTitle}
+                    onChange={(event) => updateCopyField('documentsSectionTitle', event.target.value)}
+                  />
+                </label>
+                <label className="text-xs text-gray-600">
+                  Submit Button Label
+                  <input
+                    className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                    value={formConfig.copy.submitLabel}
+                    onChange={(event) => updateCopyField('submitLabel', event.target.value)}
+                  />
+                </label>
+                <label className="text-xs text-gray-600">
+                  Update Button Label
+                  <input
+                    className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                    value={formConfig.copy.updateLabel}
+                    onChange={(event) => updateCopyField('updateLabel', event.target.value)}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-gray-200 bg-white p-4">
+              <h4 className="text-sm font-semibold text-gray-900 mb-3">Personal Fields</h4>
+              <div className="space-y-3">
+                {(formConfig.personalFields || []).map((field, index) => (
+                  <div key={`${field.key}-${index}`} className="grid grid-cols-1 md:grid-cols-6 gap-2 rounded-lg border border-gray-100 p-3">
+                    <label className="text-xs text-gray-600 md:col-span-2">
+                      Label
+                      <input
+                        className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                        value={field.label}
+                        onChange={(event) => updatePersonalField(index, { label: event.target.value })}
+                      />
+                    </label>
+                    <label className="text-xs text-gray-600">
+                      Key
+                      <input
+                        className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                        value={String(field.key)}
+                        onChange={(event) => updatePersonalField(index, { key: event.target.value })}
+                      />
+                    </label>
+                    <label className="text-xs text-gray-600">
+                      Type
+                      <input
+                        className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                        value={String(field.type || 'text')}
+                        onChange={(event) => updatePersonalField(index, { type: event.target.value })}
+                      />
+                    </label>
+                    <label className="text-xs text-gray-600">
+                      Section
+                      <input
+                        className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                        value={String(field.section || 'personal')}
+                        onChange={(event) => updatePersonalField(index, { section: event.target.value })}
+                      />
+                    </label>
+                    <label className="text-xs text-gray-600">
+                      Order
+                      <input
+                        type="number"
+                        className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                        value={Number(field.order || 0)}
+                        onChange={(event) => updatePersonalField(index, { order: Number(event.target.value || 0) })}
+                      />
+                    </label>
+                    <label className="text-xs text-gray-600 md:col-span-3">
+                      Placeholder
+                      <input
+                        className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                        value={field.placeholder || ''}
+                        onChange={(event) => updatePersonalField(index, { placeholder: event.target.value })}
+                      />
+                    </label>
+                    <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(field.enabled)}
+                        onChange={(event) => updatePersonalField(index, { enabled: event.target.checked })}
+                      />
+                      Enabled
+                    </label>
+                    <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(field.required)}
+                        onChange={(event) => updatePersonalField(index, { required: event.target.checked })}
+                      />
+                      Required
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-gray-900">Document Groups</h4>
+                <button
+                  type="button"
+                  onClick={addDocumentGroup}
+                  className="inline-flex items-center rounded-md border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1" />
+                  Add Group
+                </button>
+              </div>
+              {(formConfig.documentGroups || []).map((group, groupIndex) => (
+                <div key={`${group.key}-${groupIndex}`} className="rounded-lg border border-gray-100 p-3 space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
+                    <label className="text-xs text-gray-600 md:col-span-2">
+                      Group Label
+                      <input
+                        className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                        value={group.label}
+                        onChange={(event) => updateDocumentGroup(groupIndex, { label: event.target.value })}
+                      />
+                    </label>
+                    <label className="text-xs text-gray-600">
+                      Group Key
+                      <input
+                        className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                        value={group.key}
+                        onChange={(event) => updateDocumentGroup(groupIndex, { key: event.target.value })}
+                      />
+                    </label>
+                    <label className="text-xs text-gray-600">
+                      Min Required
+                      <input
+                        type="number"
+                        min={0}
+                        className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                        value={Number(group.minRequired || 0)}
+                        onChange={(event) => updateDocumentGroup(groupIndex, { minRequired: Number(event.target.value || 0) })}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => removeDocumentGroup(groupIndex)}
+                      className="inline-flex items-center justify-center rounded-md border border-red-200 px-2 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 mr-1" />
+                      Remove
+                    </button>
+                    <label className="inline-flex items-center gap-2 text-xs text-gray-700 md:col-span-2">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(group.required)}
+                        onChange={(event) => updateDocumentGroup(groupIndex, { required: event.target.checked })}
+                      />
+                      Required Group
+                    </label>
+                  </div>
+                  <label className="text-xs text-gray-600 block">
+                    Description
+                    <input
+                      className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                      value={group.description || ''}
+                      onChange={(event) => updateDocumentGroup(groupIndex, { description: event.target.value })}
+                    />
+                  </label>
+
+                  <div className="space-y-2">
+                    {(group.options || []).map((option, optionIndex) => (
+                      <div key={`${option.key}-${optionIndex}`} className="grid grid-cols-1 md:grid-cols-7 gap-2 rounded-md border border-gray-100 p-2">
+                        <label className="text-xs text-gray-600 md:col-span-2">
+                          Label
+                          <input
+                            className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                            value={option.label}
+                            onChange={(event) =>
+                              updateDocumentOption(groupIndex, optionIndex, { label: event.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="text-xs text-gray-600">
+                          Key
+                          <input
+                            className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                            value={String(option.key)}
+                            onChange={(event) =>
+                              updateDocumentOption(groupIndex, optionIndex, { key: event.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="text-xs text-gray-600 md:col-span-2">
+                          Accept
+                          <input
+                            className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                            value={option.accept}
+                            onChange={(event) =>
+                              updateDocumentOption(groupIndex, optionIndex, { accept: event.target.value })
+                            }
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => removeDocumentOption(groupIndex, optionIndex)}
+                          className="inline-flex items-center justify-center rounded-md border border-red-200 px-2 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 mr-1" />
+                          Remove
+                        </button>
+                        <label className="text-xs text-gray-600 md:col-span-3">
+                          Description
+                          <input
+                            className="mt-1 w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm"
+                            value={option.description || ''}
+                            onChange={(event) =>
+                              updateDocumentOption(groupIndex, optionIndex, { description: event.target.value })
+                            }
+                          />
+                        </label>
+                        <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(option.required)}
+                            onChange={(event) =>
+                              updateDocumentOption(groupIndex, optionIndex, { required: event.target.checked })
+                            }
+                          />
+                          Required
+                        </label>
+                        <label className="inline-flex items-center gap-2 text-xs text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(option.cameraOnly)}
+                            onChange={(event) =>
+                              updateDocumentOption(groupIndex, optionIndex, { cameraOnly: event.target.checked })
+                            }
+                          />
+                          Camera only
+                        </label>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => addDocumentOption(groupIndex)}
+                      className="inline-flex items-center rounded-md border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                    >
+                      <Plus className="w-3.5 h-3.5 mr-1" />
+                      Add Option
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            Unable to load KYC form configuration.
+          </div>
+        )}
+      </div>
 
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

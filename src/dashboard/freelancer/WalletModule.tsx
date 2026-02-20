@@ -434,6 +434,15 @@ const WalletModule = () => {
                 stripeAccount.status === 'restricted' ||
                 !stripeAccount.payoutsEnabled)
     );
+    const freelancerFeeType =
+        String(commissionSettings?.freelancerFeeType ?? commissionSettings?.freelancer_fee_type ?? 'percentage').toLowerCase() === 'fixed'
+            ? 'fixed'
+            : 'percentage';
+    const freelancerFeeValue = Number(commissionSettings?.freelancerFeeValue ?? commissionSettings?.freelancer_fee_value ?? 0);
+    const freelancerCommissionLabel =
+        freelancerFeeType === 'percentage'
+            ? `${Number.isFinite(freelancerFeeValue) ? freelancerFeeValue : 0}%`
+            : formatPayout(Number.isFinite(freelancerFeeValue) ? freelancerFeeValue : 0);
 
     const runStripeAction = async (action: () => Promise<void>) => {
         setStripeActionLoading(true);
@@ -1081,8 +1090,11 @@ const WalletModule = () => {
                                         value={withdrawAmount}
                                         onChange={e => setWithdrawAmount(e.target.value)}
                                         max={walletDisplayAvailable}
-                                        min={commissionSettings?.minimumFee || 1}
+                                        min={1}
                                     />
+                                    <p className="text-xs text-gray-500">
+                                        Freelancer commission applied on clearance: {freelancerCommissionLabel}
+                                    </p>
                                     <select 
                                         className="w-full border rounded-lg p-2.5"
                                         value={withdrawMethod}

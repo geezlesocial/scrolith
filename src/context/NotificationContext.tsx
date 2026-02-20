@@ -26,7 +26,7 @@ interface NotificationContextType {
   removeNotification: (id: string) => void;
   markAsRead: (id: string) => void;
   clearNotifications: () => void;
-  refreshNotifications: () => Promise<void>;
+  refreshNotifications: (options?: { force?: boolean }) => Promise<void>;
   showNotification: (type: 'success' | 'error' | 'warning' | 'info' | 'alert', title: string, message: string, actionUrl?: string, durationMs?: number) => void;
 }
 
@@ -38,7 +38,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [toasts, setToasts] = useState<NotificationItem[]>([]);
   const pollRef = useRef<number | null>(null);
+  const inFlightRefreshRef = useRef<Promise<void> | null>(null);
+  const lastRefreshAtRef = useRef(0);
   const recentSocketNotificationRef = useRef<Map<string, number>>(new Map());
+  const REFRESH_MIN_INTERVAL_MS = 20_000;
 
   const getRoleBasePath = useCallback((role?: string) => {
     const r = String(role || '').toLowerCase();
@@ -51,7 +54,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const normalizeNotification = useCallback((raw: any, overrides: Partial<NotificationItem> = {}): NotificationItem => {
     const id = String(raw?.id ?? overrides.id ?? `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
     const title = String(raw?.title ?? raw?.subject ?? overrides.title ?? 'Notification');
-    const message = String(raw?.message ?? raw?.body ?? raw?.text ?? overrides.message ?? '');
+    const message = String(raw?.message ?? raw?.body ?? raw?.text ?? overrides.message ?? title ?? 'Tap to view details.');
     const type = (raw?.type ?? overrides.type ?? 'info') as Notification['type'];
     const metadata = (raw?.metadata && typeof raw.metadata === 'object' ? raw.metadata : raw?.meta && typeof raw.meta === 'object' ? raw.meta : {}) as Record<string, any>;
     const actionUrl = (raw?.actionUrl ?? raw?.action_url ?? raw?.link ?? raw?.url ?? overrides.actionUrl) as string | undefined;
@@ -132,23 +135,39 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     setNotifications([]);
   }, []);
 
-  const refreshNotifications = useCallback(async () => {
+  const refreshNotifications = useCallback(async (options?: { force?: boolean }) => {
     if (!isAuthenticated) return;
-    try {
-      const raw = await NotificationService.getAll();
-      const serverList = Array.isArray(raw) ? raw.map((n: any) => normalizeNotification(n)) : [];
-      setNotifications(prev => {
-        const locals = prev.filter(n => n.localOnly);
-        const merged = [...serverList];
-        const seen = new Set(merged.map(n => n.id));
-        locals.forEach(n => {
-          if (!seen.has(n.id)) merged.push(n);
-        });
-        return merged.slice(0, 100);
-      });
-    } catch {
-      // ignore
+    if (!options?.force && Date.now() - lastRefreshAtRef.current < REFRESH_MIN_INTERVAL_MS) {
+      return;
     }
+    if (inFlightRefreshRef.current) {
+      return inFlightRefreshRef.current;
+    }
+
+    const request = (async () => {
+      try {
+        const raw = await NotificationService.getAll();
+        const serverList = Array.isArray(raw) ? raw.map((n: any) => normalizeNotification(n)) : [];
+        setNotifications(prev => {
+          const locals = prev.filter(n => n.localOnly);
+          const merged = [...serverList];
+          const seen = new Set(merged.map(n => n.id));
+          locals.forEach(n => {
+            if (!seen.has(n.id)) merged.push(n);
+          });
+          return merged.slice(0, 100);
+        });
+        lastRefreshAtRef.current = Date.now();
+      } catch {
+        // ignore
+      }
+    })();
+
+    inFlightRefreshRef.current = request.finally(() => {
+      inFlightRefreshRef.current = null;
+    });
+
+    return inFlightRefreshRef.current;
   }, [isAuthenticated, normalizeNotification]);
 
   const showNotification = useCallback((
@@ -163,10 +182,14 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   useEffect(() => {
     if (!isAuthenticated || !user?.id) {
+      if (pollRef.current) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
       setNotifications([]);
       return;
     }
-    refreshNotifications();
+    void refreshNotifications({ force: true });
   }, [isAuthenticated, user?.id, refreshNotifications]);
 
   useEffect(() => {
@@ -182,7 +205,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         window.clearInterval(pollRef.current);
         pollRef.current = null;
       }
-      refreshNotifications();
+      void refreshNotifications({ force: true });
     };
 
     const handleDisconnect = () => {
@@ -198,6 +221,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     return () => {
       socket.off('connect', handleConnect);
       socket.off('disconnect', handleDisconnect);
+      if (pollRef.current) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
     };
   }, [socket, isAuthenticated, user?.id, refreshNotifications]);
 

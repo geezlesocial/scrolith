@@ -1,5 +1,5 @@
 import React, { useEffect, useState, Suspense, useMemo, useCallback } from 'react';
-import { Loader } from 'lucide-react';
+import { LoaderIcon } from '../components/icons/ShellIcons';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { useContent } from '../context/ContentContext';
@@ -376,7 +376,7 @@ const Landing = () => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
-          <Loader className="animate-spin text-blue-600 w-10 h-10 mx-auto mb-4" />
+          <LoaderIcon className="animate-spin text-blue-600 w-10 h-10 mx-auto mb-4" />
           <p className="text-gray-500 font-medium">Loading Marketplace...</p>
         </div>
       </div>
@@ -410,7 +410,7 @@ const Landing = () => {
         </>
       ) : null}
 
-      <Suspense fallback={<div className="py-24 text-center"><Loader className="animate-spin mx-auto w-8 h-8 text-gray-400" /></div>}>
+      <Suspense fallback={<div className="py-24 text-center"><LoaderIcon className="animate-spin mx-auto w-8 h-8 text-gray-400" /></div>}>
         {renderSections.filter(s => s.isActive).map((section) => (
           <React.Fragment key={section.id}>
             <SectionRenderer section={section} userId={user?.id} />

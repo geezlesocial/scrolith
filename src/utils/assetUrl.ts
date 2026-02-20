@@ -4,7 +4,17 @@ const localAssetHosts = new Set(['localhost', '127.0.0.1', '0.0.0.0', '10.0.2.2'
 
 const isAssetPath = (value: string) => {
   const v = value.toLowerCase();
-  return v.startsWith('/uploads') || v.startsWith('uploads/') || v.includes('/uploads/');
+  return (
+    v.startsWith('/uploads') ||
+    v.startsWith('uploads/') ||
+    v.includes('/uploads/') ||
+    v.startsWith('/api/files/') ||
+    v.startsWith('api/files/') ||
+    v.includes('/api/files/') ||
+    v.startsWith('/files/content/') ||
+    v.startsWith('files/content/') ||
+    v.includes('/files/content/')
+  );
 };
 
 export const resolveAssetUrl = (value?: string | null) => {
@@ -38,6 +48,8 @@ export const resolveAssetUrl = (value?: string | null) => {
 
   if (isAssetPath(lower)) {
     if (lower.startsWith('uploads/')) return `${backendOrigin}/${trimmed}`;
+    if (lower.startsWith('api/files/')) return `${backendOrigin}/${trimmed}`;
+    if (lower.startsWith('files/content/')) return `${backendOrigin}/${trimmed}`;
     return `${backendOrigin}${trimmed}`;
   }
 

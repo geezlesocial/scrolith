@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Clock, Heart, ShoppingCart, Tag } from 'lucide-react';
 import ProBadge from '../components/ProBadge';
+import VerifiedBadge from '../components/common/VerifiedBadge';
+import { resolveVerificationLevel } from '../utils/verification';
 import { Link } from 'react-router-dom';
 import { jobsApi } from '../services/jobs';
 import { Job } from '../types';
@@ -94,7 +96,21 @@ const BrowseJobs = () => {
           {!loading && !error && jobs.length === 0 && (
             <div className="bg-white shadow rounded-lg p-6 text-gray-500">No jobs available right now.</div>
           )}
-          {jobs.map((job) => (
+          {jobs.map((job) => {
+            const isClientVerified = Boolean(
+              (job as any)?.clientIsVerified ?? (job as any)?.client_is_verified ?? (job as any)?.clientVerified
+            );
+            const clientVerificationLevel = resolveVerificationLevel({
+              verificationLevel:
+                (job as any)?.clientVerificationLevel ||
+                (job as any)?.client_verification_level ||
+                (job as any)?.clientBadgeType ||
+                (job as any)?.client_badge_type,
+              isVerified: isClientVerified,
+              isPro: (job as any)?.clientIsPro,
+              type: (job as any)?.clientType || 'business'
+            });
+            return (
             <article key={job.id} className="bg-white shadow rounded-lg p-6 hover:shadow-md transition">
               <div className="flex justify-between items-start">
                 <div>
@@ -108,6 +124,7 @@ const BrowseJobs = () => {
                      <span>-</span>
                      <span className="inline-flex items-center gap-2">
                        <span>{job.clientName}</span>
+                       {clientVerificationLevel ? <VerifiedBadge size={16} level={clientVerificationLevel} className="ml-1" /> : null}
                        <ProBadge role="employer" isPro={(job as any)?.clientIsPro} />
                      </span>
                   </div>
@@ -165,7 +182,8 @@ const BrowseJobs = () => {
                 </Link>
               </div>
             </article>
-          ))}
+          );
+          })}
         </div>
       </div>
     </div>

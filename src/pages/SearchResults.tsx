@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { SearchService } from '../services/search';
 import { SearchResult } from '../types';
-import { Loader, Filter, Briefcase, User, FileText, Star, Clock, Search } from 'lucide-react';
+import { Loader, User, Star, Clock, Search } from 'lucide-react';
 import SearchInput from '../components/SearchInput';
 import { useCurrency } from '../context/CurrencyContext';
 

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { adminMarketIntelligence, DemandForecastPayload, KpiPayload, LtvPayload, RadarSummary } from '@/services/adminMarketIntelligence';
 import { useCurrency } from '@/context/CurrencyContext';
-import { Loader2, Shield, PieChart, TrendingUp, Zap, ChartBar } from 'lucide-react';
+import { Loader2, PieChart, Zap, ChartBar } from 'lucide-react';
 
 const formatPercent = (value: number | null | undefined) =>
   value === null || value === undefined ? 'N/A' : `${value.toFixed(1)}%`;

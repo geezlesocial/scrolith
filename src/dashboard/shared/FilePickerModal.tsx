@@ -26,8 +26,10 @@ type FilePickerModalProps = {
   onClose: () => void;
   onSelect: (file: UploadedFile) => void;
   onSelectMultiple?: (files: UploadedFile[]) => void;
+  confirmLabel?: string;
   allowUpload?: boolean;
   allowCamera?: boolean;
+  allowLibrarySelection?: boolean;
   cameraCapture?: 'user' | 'environment';
   multiple?: boolean;
   filterType?: 'image' | 'video' | 'document' | 'all';
@@ -117,8 +119,10 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
   onClose,
   onSelect,
   onSelectMultiple,
+  confirmLabel,
   allowUpload = true,
   allowCamera = false,
+  allowLibrarySelection = true,
   cameraCapture = 'environment',
   multiple = false,
   filterType = 'all',
@@ -161,6 +165,11 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
   const apiType = tabToApiType(tab);
 
   const loadFiles = async () => {
+    if (!allowLibrarySelection) {
+      setFiles([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setErrorMessage('');
     try {
@@ -187,8 +196,12 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
   useEffect(() => {
     if (!isVisible) return;
     setSelected({});
+    if (!allowLibrarySelection) {
+      setFiles([]);
+      return;
+    }
     void loadFiles();
-  }, [isVisible, apiType, search, role, visibility]);
+  }, [isVisible, apiType, search, role, visibility, allowLibrarySelection]);
 
   const visibleFiles = useMemo(() => {
     let list = files.filter((file) => filterFileByTab(file, tab));
@@ -274,6 +287,7 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
   };
 
   const handlePick = (file: UploadedFile) => {
+    if (!allowLibrarySelection) return;
     if (!multiple) {
       onSelect(file);
       onClose();
@@ -301,8 +315,8 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
     : acceptedStringForArray(allowedTypes);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
-      <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+    <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/55 p-3 pt-4 sm:items-center sm:p-4">
+      <div className="flex max-h-[calc(100dvh-5.5rem)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[92vh]">
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div>
             <h3 className="text-lg font-semibold text-slate-900">{title || 'Select from Uploaded Files'}</h3>
@@ -318,7 +332,8 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
         </div>
 
         <div className="space-y-3 border-b border-slate-200 px-4 py-3">
-          <div className="flex flex-wrap items-center gap-2">
+          {allowLibrarySelection ? (
+            <div className="flex flex-wrap items-center gap-2">
             {([
               { id: 'all', label: 'All' },
               { id: 'image', label: 'Images' },
@@ -338,9 +353,15 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
                 {item.label}
               </button>
             ))}
-          </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Camera capture is required for this document type. Gallery/library selection is disabled.
+            </div>
+          )}
 
           <div className="flex flex-col gap-2 md:flex-row md:items-center">
+            {allowLibrarySelection ? (
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
@@ -350,6 +371,9 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
                 className="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-sm text-slate-700 focus:border-slate-400 focus:outline-none"
               />
             </div>
+            ) : (
+              <div className="flex-1" />
+            )}
 
             <div className="flex flex-wrap items-center gap-2">
               {allowUpload && (
@@ -403,86 +427,97 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
           ) : null}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5">
-          {loading ? (
-            <div className="flex h-44 items-center justify-center">
-              <Loader2 className="h-7 w-7 animate-spin text-slate-500" />
-            </div>
-          ) : visibleFiles.length === 0 ? (
-            <div className="flex h-44 flex-col items-center justify-center text-slate-500">
-              <FileText className="mb-2 h-8 w-8" />
-              <p className="text-sm">No files found.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {visibleFiles.map((file) => {
-                const kind = inferPickerType(file);
-                const isSelected = Boolean(selected[file.id]);
-                const durationLabel = formatDuration(file.duration);
-                return (
-                  <button
-                    key={file.id}
-                    type="button"
-                    onClick={() => handlePick(file)}
-                    className={`group relative overflow-hidden rounded-2xl border text-left transition ${
-                      isSelected ? 'border-slate-900 ring-2 ring-slate-200' : 'border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="absolute right-2 top-2 z-10 rounded-full bg-white/90 p-1 text-slate-700">
-                      {isSelected ? <Check className="h-3.5 w-3.5" /> : <span className="block h-3.5 w-3.5" />}
-                    </div>
+        {allowLibrarySelection ? (
+          <div className="flex-1 overflow-y-auto p-5">
+            {loading ? (
+              <div className="flex h-44 items-center justify-center">
+                <Loader2 className="h-7 w-7 animate-spin text-slate-500" />
+              </div>
+            ) : visibleFiles.length === 0 ? (
+              <div className="flex h-44 flex-col items-center justify-center text-slate-500">
+                <FileText className="mb-2 h-8 w-8" />
+                <p className="text-sm">No files found.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {visibleFiles.map((file) => {
+                  const kind = inferPickerType(file);
+                  const isSelected = Boolean(selected[file.id]);
+                  const durationLabel = formatDuration(file.duration);
+                  return (
+                    <button
+                      key={file.id}
+                      type="button"
+                      onClick={() => handlePick(file)}
+                      className={`group relative overflow-hidden rounded-2xl border text-left transition ${
+                        isSelected ? 'border-slate-900 ring-2 ring-slate-200' : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="absolute right-2 top-2 z-10 rounded-full bg-white/90 p-1 text-slate-700">
+                        {isSelected ? <Check className="h-3.5 w-3.5" /> : <span className="block h-3.5 w-3.5" />}
+                      </div>
 
-                    {kind === 'image' ? (
-                      <img src={file.url} alt={file.name} className="h-36 w-full object-cover" />
-                    ) : kind === 'video' ? (
-                      <div className="relative h-36 w-full bg-slate-100">
-                        {file.thumbnail_url || file.thumbnailUrl ? (
-                          <img
-                            src={file.thumbnail_url || file.thumbnailUrl || ''}
-                            alt={file.name}
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-full items-center justify-center">
-                            <FileVideo className="h-8 w-8 text-slate-400" />
+                      {kind === 'image' ? (
+                        <img src={file.url} alt={file.name} className="h-36 w-full object-cover" />
+                      ) : kind === 'video' ? (
+                        <div className="relative h-36 w-full bg-slate-100">
+                          {file.thumbnail_url || file.thumbnailUrl ? (
+                            <img
+                              src={file.thumbnail_url || file.thumbnailUrl || ''}
+                              alt={file.name}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full items-center justify-center">
+                              <FileVideo className="h-8 w-8 text-slate-400" />
+                            </div>
+                          )}
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                            <FileVideo className="h-8 w-8 text-white" />
                           </div>
-                        )}
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                          <FileVideo className="h-8 w-8 text-white" />
+                          {durationLabel && (
+                            <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                              {durationLabel}
+                            </span>
+                          )}
                         </div>
-                        {durationLabel && (
-                          <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                            {durationLabel}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="flex h-36 w-full items-center justify-center bg-slate-100">
-                        {isPdfFile(file) ? <FileText className="h-8 w-8 text-rose-500" /> : <FileText className="h-8 w-8 text-slate-400" />}
-                      </div>
-                    )}
+                      ) : (
+                        <div className="flex h-36 w-full items-center justify-center bg-slate-100">
+                          {isPdfFile(file) ? <FileText className="h-8 w-8 text-rose-500" /> : <FileText className="h-8 w-8 text-slate-400" />}
+                        </div>
+                      )}
 
-                    <div className="space-y-1 px-3 py-2">
-                      <p className="truncate text-xs font-semibold text-slate-800">{file.name}</p>
-                      <div className="flex items-center justify-between text-[10px] text-slate-500">
-                        <span className="inline-flex items-center gap-1">
-                          {kind === 'image' && <FileImage className="h-3 w-3" />}
-                          {kind === 'video' && <FileVideo className="h-3 w-3" />}
-                          {kind === 'document' && <FileText className="h-3 w-3" />}
-                          {isPdfFile(file) ? 'pdf' : kind}
-                        </span>
-                        <span>{((Number(file.size) || 0) / (1024 * 1024)).toFixed(2)} MB</span>
+                      <div className="space-y-1 px-3 py-2">
+                        <p className="truncate text-xs font-semibold text-slate-800">{file.name}</p>
+                        <div className="flex items-center justify-between text-[10px] text-slate-500">
+                          <span className="inline-flex items-center gap-1">
+                            {kind === 'image' && <FileImage className="h-3 w-3" />}
+                            {kind === 'video' && <FileVideo className="h-3 w-3" />}
+                            {kind === 'document' && <FileText className="h-3 w-3" />}
+                            {isPdfFile(file) ? 'pdf' : kind}
+                          </span>
+                          <span>{((Number(file.size) || 0) / (1024 * 1024)).toFixed(2)} MB</span>
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                );
-              })}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex-1 p-5">
+            <div className="flex h-full min-h-40 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
+              Capture a live photo with your camera to continue.
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {multiple && (
-          <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-6 py-3">
+          <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-10 flex flex-col gap-2 border-t border-slate-200 bg-white px-4 py-3 sm:bottom-0 sm:flex-row sm:items-center sm:justify-end sm:px-6 sm:pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+            <p className="text-[11px] font-medium text-slate-500 sm:mr-auto">
+              {selectionCount > 0 ? `${selectionCount} file${selectionCount > 1 ? 's' : ''} selected` : 'Select file(s) to attach'}
+            </p>
             <button
               type="button"
               onClick={onClose}
@@ -496,7 +531,7 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
               disabled={selectionCount === 0}
               className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
             >
-              Use Selected ({selectionCount})
+              {(confirmLabel || 'Use Selected')} ({selectionCount})
             </button>
           </div>
         )}

@@ -870,19 +870,30 @@ const PlanManager = () => {
     const { showNotification } = useNotification();
     const { formatPrice } = useCurrency();
     const [loading, setLoading] = useState(true);
+    const [policyLoading, setPolicyLoading] = useState(true);
+    const [policySaving, setPolicySaving] = useState(false);
+    const [featurePolicy, setFeaturePolicy] = useState({
+        freeFeaturedGigsPerMonth: 1,
+        freeFeaturedJobsPerMonth: 1,
+        feedCardEveryPosts: 2,
+        maxListingCardsPerFeed: 8,
+        recommendedPoolLimit: 20
+    });
     const makeFeatureId = () => `ft-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const getPromotionFeatures = (type: Plan['type']) => {
         if (type === 'employer') {
             return [
-                { id: makeFeatureId(), name: 'Featured jobs', included: true },
-                { id: makeFeatureId(), name: 'Top selected jobs', included: true },
-                { id: makeFeatureId(), name: 'Recommended jobs', included: true }
+                { id: makeFeatureId(), name: 'Featured jobs', included: true, code: 'featured_jobs' },
+                { id: makeFeatureId(), name: 'Top selected jobs', included: true, code: 'top_selected_jobs' },
+                { id: makeFeatureId(), name: 'Recommended jobs', included: true, code: 'recommended_jobs' },
+                { id: makeFeatureId(), name: 'Listing promo', included: true, code: 'listing_promo' }
             ];
         }
         return [
-            { id: makeFeatureId(), name: 'Featured gigs', included: true },
-            { id: makeFeatureId(), name: 'Top selected gigs', included: true },
-            { id: makeFeatureId(), name: 'Recommended gigs', included: true }
+            { id: makeFeatureId(), name: 'Featured gigs', included: true, code: 'featured_gigs' },
+            { id: makeFeatureId(), name: 'Top selected gigs', included: true, code: 'top_selected_gigs' },
+            { id: makeFeatureId(), name: 'Recommended gigs', included: true, code: 'recommended_gigs' },
+            { id: makeFeatureId(), name: 'Listing promo', included: true, code: 'listing_promo' }
         ];
     };
     const getProVerifiedFeature = (type: Plan['type']) => ({
@@ -891,10 +902,23 @@ const PlanManager = () => {
         included: true,
         code: type === 'employer' ? 'pro_verified_employer' : 'pro_verified_freelancer'
     });
-    const featureCodeOptions = ['pro_verified_freelancer', 'pro_verified_employer'];
+    const featureCodeOptions = [
+        'active_gigs_limit',
+        'active_jobs_limit',
+        'featured_gigs',
+        'featured_jobs',
+        'top_selected_gigs',
+        'top_selected_jobs',
+        'recommended_gigs',
+        'recommended_jobs',
+        'listing_promo',
+        'pro_verified_freelancer',
+        'pro_verified_employer'
+    ];
 
     useEffect(() => {
         loadPlans();
+        loadFeaturePolicy();
     }, []);
 
     const loadPlans = async () => {
@@ -907,6 +931,47 @@ const PlanManager = () => {
             setPlans([]);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadFeaturePolicy = async () => {
+        setPolicyLoading(true);
+        try {
+            const settings = await AdminService.getSystemSettings();
+            const policy = (settings as any)?.listings?.featurePolicy || {};
+            setFeaturePolicy((prev) => ({
+                freeFeaturedGigsPerMonth: Number(policy.freeFeaturedGigsPerMonth ?? prev.freeFeaturedGigsPerMonth) || prev.freeFeaturedGigsPerMonth,
+                freeFeaturedJobsPerMonth: Number(policy.freeFeaturedJobsPerMonth ?? prev.freeFeaturedJobsPerMonth) || prev.freeFeaturedJobsPerMonth,
+                feedCardEveryPosts: Number(policy.feedCardEveryPosts ?? prev.feedCardEveryPosts) || prev.feedCardEveryPosts,
+                maxListingCardsPerFeed: Number(policy.maxListingCardsPerFeed ?? prev.maxListingCardsPerFeed) || prev.maxListingCardsPerFeed,
+                recommendedPoolLimit: Number(policy.recommendedPoolLimit ?? prev.recommendedPoolLimit) || prev.recommendedPoolLimit
+            }));
+        } catch {
+            // keep defaults when unavailable
+        } finally {
+            setPolicyLoading(false);
+        }
+    };
+
+    const clampInt = (value: number, min: number, max: number) => Math.max(min, Math.min(max, Math.floor(value || 0)));
+
+    const saveFeaturePolicy = async () => {
+        setPolicySaving(true);
+        try {
+            const payload = {
+                freeFeaturedGigsPerMonth: clampInt(Number(featurePolicy.freeFeaturedGigsPerMonth), 0, 500),
+                freeFeaturedJobsPerMonth: clampInt(Number(featurePolicy.freeFeaturedJobsPerMonth), 0, 500),
+                feedCardEveryPosts: clampInt(Number(featurePolicy.feedCardEveryPosts), 2, 20),
+                maxListingCardsPerFeed: clampInt(Number(featurePolicy.maxListingCardsPerFeed), 1, 50),
+                recommendedPoolLimit: clampInt(Number(featurePolicy.recommendedPoolLimit), 4, 200)
+            };
+            await AdminService.saveSystemSettings({ listings: { featurePolicy: payload } } as any);
+            setFeaturePolicy(payload);
+            showNotification('success', 'Saved', 'Featured listing free limits updated.');
+        } catch {
+            showNotification('error', 'Error', 'Failed to save featured listing limits.');
+        } finally {
+            setPolicySaving(false);
         }
     };
 
@@ -1181,6 +1246,86 @@ const PlanManager = () => {
                     >
                         <Plus className="w-4 h-4 mr-2" /> New Plan
                     </button>
+                </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <h4 className="font-semibold text-gray-900">Featured Listing Free Limits (Monthly)</h4>
+                        <p className="text-xs text-gray-500">
+                            Control how many featured jobs/gigs users get for free each month before requiring a plan.
+                        </p>
+                    </div>
+                    <button
+                        onClick={saveFeaturePolicy}
+                        disabled={policySaving || policyLoading}
+                        className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold disabled:opacity-60"
+                    >
+                        {policySaving ? 'Saving...' : 'Save Limits'}
+                    </button>
+                </div>
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-3">
+                    <label className="text-xs font-semibold text-gray-600">
+                        Free Featured Gigs / Month
+                        <input
+                            type="number"
+                            min={0}
+                            max={500}
+                            value={featurePolicy.freeFeaturedGigsPerMonth}
+                            disabled={policyLoading}
+                            onChange={(e) => setFeaturePolicy((prev) => ({ ...prev, freeFeaturedGigsPerMonth: Number(e.target.value) || 0 }))}
+                            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        />
+                    </label>
+                    <label className="text-xs font-semibold text-gray-600">
+                        Free Featured Jobs / Month
+                        <input
+                            type="number"
+                            min={0}
+                            max={500}
+                            value={featurePolicy.freeFeaturedJobsPerMonth}
+                            disabled={policyLoading}
+                            onChange={(e) => setFeaturePolicy((prev) => ({ ...prev, freeFeaturedJobsPerMonth: Number(e.target.value) || 0 }))}
+                            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        />
+                    </label>
+                    <label className="text-xs font-semibold text-gray-600">
+                        Insert Card Every X Posts
+                        <input
+                            type="number"
+                            min={2}
+                            max={20}
+                            value={featurePolicy.feedCardEveryPosts}
+                            disabled={policyLoading}
+                            onChange={(e) => setFeaturePolicy((prev) => ({ ...prev, feedCardEveryPosts: Number(e.target.value) || 2 }))}
+                            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        />
+                    </label>
+                    <label className="text-xs font-semibold text-gray-600">
+                        Max Listing Cards / Feed
+                        <input
+                            type="number"
+                            min={1}
+                            max={50}
+                            value={featurePolicy.maxListingCardsPerFeed}
+                            disabled={policyLoading}
+                            onChange={(e) => setFeaturePolicy((prev) => ({ ...prev, maxListingCardsPerFeed: Number(e.target.value) || 1 }))}
+                            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        />
+                    </label>
+                    <label className="text-xs font-semibold text-gray-600">
+                        Recommended Pool Limit
+                        <input
+                            type="number"
+                            min={4}
+                            max={200}
+                            value={featurePolicy.recommendedPoolLimit}
+                            disabled={policyLoading}
+                            onChange={(e) => setFeaturePolicy((prev) => ({ ...prev, recommendedPoolLimit: Number(e.target.value) || 4 }))}
+                            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        />
+                    </label>
                 </div>
             </div>
 

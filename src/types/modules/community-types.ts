@@ -251,6 +251,48 @@ export interface ModerationLog {
   severity?: string;
 }
 
+export interface CommunityPostReportUserSummary {
+  id: string;
+  name?: string | null;
+  username?: string | null;
+  email?: string | null;
+  avatar?: string | null;
+  role?: string | null;
+}
+
+export interface CommunityPostReport {
+  id: string;
+  postId: string;
+  reporterId: string;
+  postOwnerId: string;
+  reason?: string;
+  details?: string;
+  status: string;
+  severity?: string;
+  reporterReply?: string;
+  adminDecision?: string | null;
+  actionType?: string | null;
+  actionSummary?: string;
+  actionMetadata?: Record<string, any> | null;
+  reviewedById?: string | null;
+  reviewedAt?: string | Date | null;
+  resolvedAt?: string | Date | null;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
+  snippet?: string;
+  reporter?: CommunityPostReportUserSummary | null;
+  postOwner?: CommunityPostReportUserSummary | null;
+  reviewer?: CommunityPostReportUserSummary | null;
+  post?: {
+    id: string;
+    title?: string;
+    contentSnippet?: string;
+    status?: string;
+    authorId?: string;
+    createdAt?: string | Date | null;
+  } | null;
+}
+
 export interface CommunityHomepageSlide {
   id: string;
   title?: string;

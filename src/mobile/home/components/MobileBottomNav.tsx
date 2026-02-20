@@ -1,5 +1,12 @@
 import React from 'react';
-import { Bell, Briefcase, Home, MessageCircle, PlusSquare, Users } from 'lucide-react';
+import {
+  BellIcon as Bell,
+  BriefcaseIcon as Briefcase,
+  HomeIcon as Home,
+  MessageCircleIcon as MessageCircle,
+  PlusSquareIcon as PlusSquare,
+  UsersIcon as Users
+} from '../../../components/icons/ShellIcons';
 
 export type MobileTabKey = 'home' | 'network' | 'post' | 'notifications' | 'jobs' | 'messages';
 

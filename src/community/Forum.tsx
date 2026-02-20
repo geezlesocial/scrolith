@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { CommunityService } from '../services/community';
 import { AdService } from '../services/ads';
 import { ForumThread, UserRole, AdCampaign } from '../types';
-import { MessageSquare, Plus, Filter, ThumbsUp, Eye, MessageCircle, AlertCircle, Loader2, Search, Share2, MoreVertical, Lock, Pin, Trash2, Flag } from 'lucide-react';
+import { Plus, ThumbsUp, AlertCircle, Loader2, Search, Lock, Pin, Trash2 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 import { useUser } from '../context/UserContext';
 import RichTextEditor from '../components/RichTextEditor';

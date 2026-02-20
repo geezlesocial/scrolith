@@ -1,6 +1,6 @@
 
 import api from "../api";
-import { DisputePrediction, EscrowAdvice, ContractClauseSuggestion, EnterpriseHiringInsight } from "../../types";
+import type { DisputePrediction, EscrowAdvice, ContractClauseSuggestion, EnterpriseHiringInsight } from "../../types";
 
 const extractData = <T>(response: any): T => {
     if (response?.data?.data !== undefined) return response.data.data as T;

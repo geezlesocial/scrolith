@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Briefcase, Search } from 'lucide-react';
+import { BriefcaseIcon as Briefcase, SearchIcon as Search } from '../../../components/icons/ShellIcons';
 import { jobsApi, Job } from '../../../services/jobs';
 
 const formatBudget = (budget: Job['budget']) => {
@@ -95,4 +95,3 @@ export default function MobileJobsScreen() {
     </div>
   );
 }
-

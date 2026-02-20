@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { CommunityService } from '../services/community';
 import { CommunityEvent, UserRole } from '../types';
-import { Calendar, Clock, MapPin, Video, CheckCircle, ExternalLink, Trash2 } from 'lucide-react';
+import { Clock, Video, CheckCircle, Trash2 } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 import { useUser } from '../context/UserContext';
 

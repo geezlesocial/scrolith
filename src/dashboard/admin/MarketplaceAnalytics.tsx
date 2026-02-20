@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { BarChart2, TrendingUp, Users, AlertTriangle, DollarSign, Activity, Download, Radar, UserCheck } from 'lucide-react';
+import { TrendingUp, AlertTriangle, DollarSign, Activity, Radar, UserCheck } from 'lucide-react';
 import { useCurrency } from '../../context/CurrencyContext';
 import { MarketService } from '../../services/ai/market.service';
 import { LTVMetric, DemandForecast } from '../../types';

@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { useContent } from '../context/ContentContext';
 import { AuthPagesConfig, UserRole } from '../types';
-import { Briefcase, User, Shield, Mail, Lock, UserPlus, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { Briefcase, User, Mail, Lock, UserPlus, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { CMSService } from '../services/cms';
 import AuthSocialButtons from './AuthSocialButtons';
 import { executeRecaptcha } from '../services/recaptcha';

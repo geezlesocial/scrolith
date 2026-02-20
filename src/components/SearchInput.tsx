@@ -1,6 +1,12 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, Sparkles, History, Briefcase } from 'lucide-react';
+import {
+  BriefcaseIcon as Briefcase,
+  HistoryIcon as History,
+  SearchIcon as Search,
+  SparklesIcon as Sparkles,
+  XIcon as X
+} from './icons/ShellIcons';
 import { useNavigate } from 'react-router-dom';
 import { SearchService } from '../services/search';
 import { SearchSuggestion } from '../types';

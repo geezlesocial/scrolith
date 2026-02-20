@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   BarChart3,
   Building2,
@@ -142,6 +142,7 @@ const normalizePost = (post: any): PostState => ({
 });
 
 const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
+  const navigate = useNavigate();
   const { slug: routeSlug = '' } = useParams<{ slug: string }>();
   const slug = String(slugOverride || routeSlug || '').trim();
   const { user } = useUser();
@@ -195,6 +196,24 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
     const role = String(user.role || '').toLowerCase();
     return String(user.id) === String(page.ownerId) || role.includes('admin');
   }, [page?.ownerId, user?.id, user?.role]);
+
+  const openPostDetail = useCallback(
+    (postId: string) => {
+      const id = String(postId || '').trim();
+      if (!id) return;
+      navigate(`/post/${encodeURIComponent(id)}`);
+    },
+    [navigate]
+  );
+
+  const openPostFromText = useCallback(
+    (event: React.MouseEvent<HTMLElement>, postId: string) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('a, button, input, textarea, select, label, video, audio')) return;
+      openPostDetail(postId);
+    },
+    [openPostDetail]
+  );
 
   const loadPageFollowing = useCallback(async (pageId: string) => {
     if (!isOwner) return;
@@ -1115,19 +1134,40 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
                   </div>
                 ) : (
                   <>
-                    {post.content ? <MentionText text={post.content} className="whitespace-pre-wrap" /> : null}
+                    {post.content ? (
+                      <div
+                        className="block w-full cursor-pointer text-left"
+                        role="button"
+                        tabIndex={0}
+                        onClick={(event) => openPostFromText(event, post.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            openPostDetail(post.id);
+                          }
+                        }}
+                      >
+                        <MentionText text={post.content} className="whitespace-pre-wrap" />
+                      </div>
+                    ) : null}
                     {post.attachments?.length ? (
                       <div className="space-y-2">
                         {post.attachments.map((file) => {
                           const mediaType = inferMediaType(file);
                           if (mediaType === 'image') {
                             return (
-                              <img
+                              <button
                                 key={file.id || file.url}
-                                src={file.url}
-                                alt={file.name || 'Post attachment'}
-                                className="max-h-[420px] w-full rounded-xl object-cover"
-                              />
+                                type="button"
+                                onClick={() => openPostDetail(post.id)}
+                                className="block w-full text-left"
+                              >
+                                <img
+                                  src={file.url}
+                                  alt={file.name || 'Post attachment'}
+                                  className="max-h-[420px] w-full rounded-xl object-cover"
+                                />
+                              </button>
                             );
                           }
                           if (mediaType === 'video') {

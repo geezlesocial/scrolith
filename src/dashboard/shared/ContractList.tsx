@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Contract, TimeEntry } from '../../types';
 import { ContractService } from '../../services/contract';
 import { useCurrency } from '../../context/CurrencyContext';
-import { Clock, CheckCircle, Play, PauseCircle, DollarSign, FileText, Download, Ban } from 'lucide-react';
+import { Clock, CheckCircle, Play, PauseCircle, DollarSign, Download, Ban } from 'lucide-react';
 import ATMTracker from '../../components/ATMTracker';
 import { useNotification } from '../../context/NotificationContext';
 import ConfirmModal from './ConfirmModal';

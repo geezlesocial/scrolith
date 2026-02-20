@@ -25,6 +25,11 @@ const isLocalHostLike = (host: string) => {
   }
   return false;
 };
+const isReservedPlaceholderHost = (host: string) => {
+  const normalized = String(host || '').trim().toLowerCase().replace(/^www\./, '');
+  if (!normalized) return false;
+  return normalized === 'example.com' || normalized.endsWith('.example.com');
+};
 const parseHost = (value: string) => {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -62,14 +67,26 @@ const resolveEnvBase = () => {
     import.meta.env.VITE_API_BASE_URL ||
     (import.meta.env.VITE_BACKEND_URL ? normalizeBase(String(import.meta.env.VITE_BACKEND_URL)) : '');
   if (!envBase) return '';
-  return ensureApiSuffix(envBase);
+  const normalized = ensureApiSuffix(envBase);
+  const host = parseHost(normalized);
+  if (import.meta.env.PROD && isReservedPlaceholderHost(host)) {
+    return resolveNativeProdFallbackBase();
+  }
+  return normalized;
 };
 
 const resolveMobileBase = () => {
   const mobileBase =
     import.meta.env.VITE_MOBILE_API_URL ||
     import.meta.env.VITE_MOBILE_API_BASE_URL;
-  if (mobileBase) return ensureApiSuffix(normalizeBase(String(mobileBase)));
+  if (mobileBase) {
+    const normalized = ensureApiSuffix(normalizeBase(String(mobileBase)));
+    const host = parseHost(normalized);
+    if (import.meta.env.PROD && isReservedPlaceholderHost(host)) {
+      return resolveNativeProdFallbackBase();
+    }
+    return normalized;
+  }
   return '';
 };
 
@@ -93,8 +110,37 @@ const isNativePlatform = () => {
   }
 };
 
+const isCapacitorRuntime = () => {
+  if (typeof window === 'undefined') return false;
+  try {
+    const protocol = String(window.location?.protocol || '').toLowerCase();
+    const host = String(window.location?.hostname || '').toLowerCase();
+    // Capacitor Android WebView commonly runs the bundle from https://localhost.
+    // Treat this as native in production to avoid web-only fallbacks (/api, service worker assumptions).
+    if (import.meta.env.PROD && protocol === 'https:' && host === 'localhost') {
+      return true;
+    }
+    if (protocol === 'capacitor:' || protocol === 'ionic:' || protocol === 'file:') {
+      return true;
+    }
+  } catch {
+    // ignore protocol parsing errors
+  }
+
+  try {
+    const runtime = (window as any)?.Capacitor;
+    if (runtime && typeof runtime.isNativePlatform === 'function') {
+      return Boolean(runtime.isNativePlatform());
+    }
+  } catch {
+    // ignore runtime checks
+  }
+
+  return false;
+};
+
 export const getApiBaseUrl = () => {
-  const native = isNativePlatform();
+  const native = isNativePlatform() || isCapacitorRuntime();
   const allowLocalApiInProd = parseBool(import.meta.env.VITE_ALLOW_LOCAL_API_IN_PROD, false);
   if (native) {
     // Safety: avoid accidentally shipping local/LAN mobile API overrides to production bundles.
@@ -110,7 +156,7 @@ export const getApiBaseUrl = () => {
 
   const envBase = resolveEnvBase();
   if (envBase) {
-    if (native && import.meta.env.PROD) {
+    if (import.meta.env.PROD) {
       const absolute = isAbsoluteUrl(envBase);
       if (!absolute) {
         return resolveNativeProdFallbackBase();

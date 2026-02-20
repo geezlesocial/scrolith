@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useContent } from '../../context/ContentContext';
 import { useNotification } from '../../context/NotificationContext';
 import { useCurrency } from '../../context/CurrencyContext';
-import { Save, Settings, Mail, HardDrive, DollarSign, Cpu, CheckCircle, ShieldCheck, Globe, FileText, Lock, Database, Server, RefreshCw, Plus, Trash2, Zap, X, Network, Send, Upload, Image as ImageIcon, Eye } from 'lucide-react';
+import { Save, Settings, Mail, HardDrive, DollarSign, Cpu, CheckCircle, ShieldCheck, Globe, FileText, Database, RefreshCw, Plus, Trash2, X, Network, Send, Upload, Image as ImageIcon } from 'lucide-react';
 import { AIConfigManager } from '../../services/ai/ai.config';
 import { AIConfig, ComplianceConfig, Currency, PlatformSettings, EmailProviderConfig, UploadedFile } from '../../types';
 import { INITIAL_CURRENCIES } from '../../constants';

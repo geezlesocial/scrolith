@@ -83,6 +83,9 @@ export interface Gig {
   freelancerAvatar?: string | null;
   freelancerProfilePhotoFileId?: string | null;
   freelancerIsPro?: boolean;
+  freelancerIsVerified?: boolean;
+  freelancer_is_verified?: boolean;
+  freelancerVerified?: boolean;
   media: string[];
   tags: string[];
   createdAt: string;
@@ -112,6 +115,39 @@ export interface GigsResponse {
   };
 }
 
+const normalizeGigsResponse = (payload: any): GigsResponse => {
+  if (Array.isArray(payload)) {
+    return {
+      gigs: payload,
+      pagination: {
+        page: 1,
+        limit: payload.length || 0,
+        total: payload.length || 0,
+        pages: 1
+      }
+    };
+  }
+
+  const gigs = Array.isArray(payload?.gigs)
+    ? payload.gigs
+    : Array.isArray(payload?.items)
+      ? payload.items
+      : Array.isArray(payload?.data)
+        ? payload.data
+        : [];
+
+  const page = Number(payload?.pagination?.page ?? payload?.page ?? 1);
+  const limitBase = payload?.pagination?.limit ?? payload?.limit ?? gigs.length;
+  const limit = Number(limitBase || 20);
+  const total = Number(payload?.pagination?.total ?? payload?.total ?? gigs.length);
+  const pages = Number(payload?.pagination?.pages ?? (limit > 0 ? Math.max(1, Math.ceil(total / limit)) : 1));
+
+  return {
+    gigs,
+    pagination: { page, limit, total, pages }
+  };
+};
+
 export const gigsApi = {
   getGigs: async (params: {
     ownerId?: string;
@@ -120,9 +156,12 @@ export const gigsApi = {
     page?: number;
     limit?: number;
     search?: string;
+    random?: boolean;
+    recommended?: boolean;
+    featuredOnly?: boolean;
   } = {}): Promise<GigsResponse> => {
     const response = await api.get<ApiResponse<GigsResponse>>('/gigs', { params });
-    return handleApiResponse(response);
+    return normalizeGigsResponse(handleApiResponse<any>(response));
   },
 
   createGig: async (data: CreateGigData): Promise<Gig> => {

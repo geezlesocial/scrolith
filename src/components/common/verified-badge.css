@@ -1,0 +1,106 @@
+.verified-badge-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.verified-badge {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1px solid var(--badge-ring, rgba(2, 119, 189, 0.65));
+  box-shadow: 0 6px 18px rgba(2, 136, 209, 0.28);
+  color: #fff;
+  overflow: hidden;
+  transform-origin: center;
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+
+.verified-badge::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: var(--badge-glow, rgba(129, 212, 250, 0.28));
+  filter: blur(6px);
+  z-index: -1;
+  opacity: 0.65;
+}
+
+.verified-badge::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  pointer-events: none;
+}
+
+.verified-badge:hover {
+  transform: scale(1.05);
+  filter: brightness(1.04);
+}
+
+.verified-badge[data-animate='true'] {
+  animation: scrolithBadgePulse 3.2s ease-in-out infinite;
+}
+
+.verified-badge__watermark {
+  position: absolute;
+  top: 52%;
+  left: 52%;
+  transform: translate(-50%, -50%);
+  font-size: calc(var(--badge-size, 16px) * 0.5);
+  font-weight: 800;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  color: rgba(255, 255, 255, 0.2);
+  letter-spacing: -0.03em;
+  pointer-events: none;
+  user-select: none;
+}
+
+.verified-badge__check {
+  position: relative;
+  z-index: 2;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.15));
+}
+
+.verified-badge__tooltip {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+  z-index: 30;
+  min-width: 180px;
+  max-width: 260px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #0f172a;
+  color: #f8fafc;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.25);
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.35;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.verified-badge-wrap:hover .verified-badge__tooltip,
+.verified-badge-wrap:focus-within .verified-badge__tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
+@keyframes scrolithBadgePulse {
+  0%,
+  100% {
+    box-shadow: 0 6px 18px rgba(2, 136, 209, 0.24);
+  }
+  50% {
+    box-shadow: 0 8px 20px rgba(2, 136, 209, 0.42);
+  }
+}

@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Shield, UserMinus, UserPlus } from 'lucide-react';
+import {
+  ShieldIcon as Shield,
+  UserMinusIcon as UserMinus,
+  UserPlusIcon as UserPlus
+} from '../../../components/icons/ShellIcons';
 import { CommunityService } from '../../../services/community';
 import { useUser } from '../../../context/UserContext';
 
@@ -198,4 +202,3 @@ export default function MobileNetworkScreen() {
     </div>
   );
 }
-

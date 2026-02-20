@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Edit3, Heart, MessageCircle, Send, Trash2 } from 'lucide-react';
+import { Edit3, Heart, MessageCircle, Paperclip, Send, Trash2, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
@@ -7,6 +7,8 @@ import { CommunityService } from '../services/community';
 import { ReactionsService } from '../services/reactions';
 import ReactionBar from '../community/components/ReactionBar';
 import MentionText from '../community/components/MentionText';
+import FilePickerModal from '../dashboard/shared/FilePickerModal';
+import { UploadedFile } from '../types';
 
 type CommentAuthor = {
   id?: string;
@@ -35,6 +37,14 @@ type PostComment = {
   canEdit?: boolean;
   canDelete?: boolean;
   replies?: PostComment[];
+};
+
+type PendingAttachment = {
+  id: string;
+  url: string;
+  name?: string;
+  type?: string;
+  mimeType?: string;
 };
 
 type CommentPolicy = 'everyone' | 'followers' | 'following' | 'mutuals' | 'none';
@@ -188,9 +198,13 @@ const PostComments: React.FC<PostCommentsProps> = ({
   const [draft, setDraft] = useState('');
   const [replyToId, setReplyToId] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState('');
+  const [draftAttachments, setDraftAttachments] = useState<PendingAttachment[]>([]);
+  const [replyAttachments, setReplyAttachments] = useState<PendingAttachment[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerTarget, setPickerTarget] = useState<'draft' | 'reply'>('draft');
   const [count, setCount] = useState(() => normalizeCount(initialCount));
   const [commentReactionSummary, setCommentReactionSummary] = useState<
     Record<string, { counts: Record<string, number>; userReaction: string | null }>
@@ -362,14 +376,20 @@ const PostComments: React.FC<PostCommentsProps> = ({
       return;
     }
     const text = (parentId ? replyDraft : draft).trim();
-    if (!text) {
-      showNotification('warning', 'Comments', 'Please enter a comment.');
+    const selectedAttachments = parentId ? replyAttachments : draftAttachments;
+    const attachmentFileIds = selectedAttachments.map((attachment) => attachment.id).filter(Boolean);
+    if (!text && !attachmentFileIds.length) {
+      showNotification('warning', 'Comments', 'Please enter a comment or attach media.');
       return;
     }
     submitLockRef.current = true;
     setSubmitting(true);
     try {
-      const created = await CommunityService.commentOnPost(postId, { content: text, parentId: parentId || null });
+      const created = await CommunityService.commentOnPost(postId, {
+        content: text,
+        parentId: parentId || null,
+        attachmentFileIds
+      });
       if (created?.id) {
         const prepared = { ...created, replies: created.replies || [] };
         const shouldIncrease = created.status !== 'deleted' && !commentExists(commentsRef.current, created.id);
@@ -386,9 +406,11 @@ const PostComments: React.FC<PostCommentsProps> = ({
       }
       if (parentId) {
         setReplyDraft('');
+        setReplyAttachments([]);
         setReplyToId(null);
       } else {
         setDraft('');
+        setDraftAttachments([]);
       }
     } catch (error: any) {
       const message = error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Unable to comment.';
@@ -397,6 +419,40 @@ const PostComments: React.FC<PostCommentsProps> = ({
       submitLockRef.current = false;
       setSubmitting(false);
     }
+  };
+
+  const toPendingAttachment = (file: UploadedFile): PendingAttachment => ({
+    id: String(file.id || file.fileId || '').trim(),
+    url: String(file.url || '').trim(),
+    name: file.name,
+    type: file.type,
+    mimeType: file.mimeType || file.mime_type
+  });
+
+  const addAttachments = (target: 'draft' | 'reply', files: UploadedFile[]) => {
+    const mapped = files.map(toPendingAttachment).filter((item) => item.id && item.url);
+    if (!mapped.length) return;
+    const setter = target === 'draft' ? setDraftAttachments : setReplyAttachments;
+    setter((prev) => {
+      const map = new Map<string, PendingAttachment>();
+      [...prev, ...mapped].forEach((item) => map.set(item.id, item));
+      return Array.from(map.values());
+    });
+  };
+
+  const removeAttachment = (target: 'draft' | 'reply', id: string) => {
+    const setter = target === 'draft' ? setDraftAttachments : setReplyAttachments;
+    setter((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const openPicker = (target: 'draft' | 'reply') => {
+    if (!checkAuth()) return;
+    if (commentsDisabled) {
+      showNotification('warning', 'Comments', 'Comments are disabled for this post.');
+      return;
+    }
+    setPickerTarget(target);
+    setPickerOpen(true);
   };
 
   const handleEditSave = async () => {
@@ -601,6 +657,65 @@ const PostComments: React.FC<PostCommentsProps> = ({
     );
   };
 
+  const renderPendingAttachments = (attachments: PendingAttachment[], target: 'draft' | 'reply') => {
+    if (!attachments.length) return null;
+    return (
+      <div className="mt-2 grid gap-2 md:grid-cols-2">
+        {attachments.map((media) => {
+          const type = inferMediaType(media || {});
+          const key = `${target}-${media.id}`;
+          const removeButton = (
+            <button
+              type="button"
+              onClick={() => removeAttachment(target, media.id)}
+              className="rounded-full bg-white/90 p-1 text-slate-600 shadow hover:text-rose-600"
+              title="Remove attachment"
+              aria-label="Remove attachment"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          );
+
+          if (type === 'video') {
+            return (
+              <div key={key} className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                <div className="flex items-center justify-between border-b border-slate-200 bg-white/80 px-2 py-1">
+                  <p className="truncate text-[11px] text-slate-500">{media.name || 'Video'}</p>
+                  {removeButton}
+                </div>
+                <video src={media.url} controls className="h-36 w-full object-cover" />
+              </div>
+            );
+          }
+
+          if (type === 'image') {
+            return (
+              <div key={key} className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                <div className="flex items-center justify-between border-b border-slate-200 bg-white/80 px-2 py-1">
+                  <p className="truncate text-[11px] text-slate-500">{media.name || 'Image'}</p>
+                  {removeButton}
+                </div>
+                <img src={media.url} alt={media.name || 'Attachment'} className="h-36 w-full object-cover" />
+              </div>
+            );
+          }
+
+          return (
+            <div key={key} className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="truncate">{media.name || 'Attachment'}</p>
+                {removeButton}
+              </div>
+              <a href={media.url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+                View attachment
+              </a>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   const renderComment = (comment: PostComment, depth = 0) => {
     const isDeleted = comment.status === 'deleted';
     const canEdit = comment.canEdit && !isDeleted;
@@ -703,6 +818,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
                       if (!checkAuth()) return;
                       setReplyToId(comment.id);
                       setReplyDraft('');
+                      setReplyAttachments([]);
                     }}
                     className="inline-flex items-center gap-1 hover:text-blue-500"
                   >
@@ -766,12 +882,22 @@ const PostComments: React.FC<PostCommentsProps> = ({
                   placeholder="Write a reply..."
                   className="w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700"
                 />
+                {renderPendingAttachments(replyAttachments, 'reply')}
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openPicker('reply')}
+                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    <Paperclip className="h-3.5 w-3.5" />
+                    Upload Files
+                  </button>
                   <button
                     type="button"
                     onClick={() => {
                       setReplyToId(null);
                       setReplyDraft('');
+                      setReplyAttachments([]);
                     }}
                     className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-600"
                   >
@@ -822,17 +948,31 @@ const PostComments: React.FC<PostCommentsProps> = ({
             disabled={commentsDisabled || submitting}
             className="w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700 disabled:bg-slate-100"
           />
+          {renderPendingAttachments(draftAttachments, 'draft')}
           <div className="flex items-center justify-between">
-            <p className="text-xs text-slate-400">{commentsDisabled ? 'Only the post author can comment.' : 'Be respectful and keep it constructive.'}</p>
-            <button
-              type="button"
-              onClick={() => handleSubmit(null)}
-              disabled={commentsDisabled || submitting}
-              className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-4 py-2 text-[11px] font-semibold uppercase text-white disabled:opacity-60"
-            >
-              <Send className="h-4 w-4" />
-              Comment
-            </button>
+            <p className="text-xs text-slate-400">
+              {commentsDisabled ? 'Only the post author can comment.' : 'Be respectful and keep it constructive.'}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => openPicker('draft')}
+                disabled={commentsDisabled || submitting}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-700 disabled:opacity-60"
+              >
+                <Paperclip className="h-4 w-4" />
+                Upload Files
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSubmit(null)}
+                disabled={commentsDisabled || submitting}
+                className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-4 py-2 text-[11px] font-semibold uppercase text-white disabled:opacity-60"
+              >
+                <Send className="h-4 w-4" />
+                Comment
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -856,6 +996,21 @@ const PostComments: React.FC<PostCommentsProps> = ({
           Load more comments
         </button>
       )}
+
+      <FilePickerModal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(file) => addAttachments(pickerTarget, [file])}
+        onSelectMultiple={(files) => addAttachments(pickerTarget, files)}
+        confirmLabel="Add Selected Files"
+        allowUpload
+        multiple
+        filterType="all"
+        acceptedTypes={['image', 'video']}
+        title="Attach media from Uploaded Files"
+        role={user?.role}
+        visibility="public"
+      />
     </div>
   );
 };

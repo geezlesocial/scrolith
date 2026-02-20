@@ -8,7 +8,7 @@ import { CommunityService } from '../../services/community';
 import { GcoinService } from '../../services/gcoin';
 import { AdService } from '../../services/ads';
 import { FileService } from '../../services/files';
-import { CommunitySettings, ModerationLog, ForumThread, CommunityChannel, GcoinWallet, AdCampaign, UserRole, UploadedFile, GcoinSettings, GcoinConversionRequest } from '../../types';
+import { CommunitySettings, ModerationLog, ForumThread, CommunityChannel, GcoinWallet, AdCampaign, UserRole, UploadedFile, GcoinSettings, GcoinConversionRequest, CommunityPostReport } from '../../types';
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
 import CommunityAnalytics from './CommunityAnalytics';
@@ -1968,35 +1968,429 @@ const ChannelManager = () => {
 
 // --- MODERATION QUEUE ---
 
-const ModerationQueue = ({ logs, refresh }: { logs: ModerationLog[], refresh: () => void }) => (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-             <h3 className="font-bold text-gray-800">Flagged Content Queue</h3>
-             <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded font-bold">{logs.length} Pending</span>
-        </div>
-        <table className="w-full text-sm text-left">
-            <thead className="bg-gray-50 text-gray-500"><tr><th>User</th><th>Reason</th><th>Snippet</th><th>Risk</th><th>Action</th></tr></thead>
-            <tbody className="divide-y">
-                {logs.length === 0 ? (
-                    <tr><td colSpan={5} className="p-8 text-center text-gray-500">Queue is empty. Good job!</td></tr>
-                ) : logs.map(log => (
-                    <tr key={log.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 font-medium">{log.userName}</td>
-                        <td className="px-6 py-4">{log.reason}</td>
-                        <td className="px-6 py-4 text-gray-500 truncate max-w-xs">"{log.snippet}"</td>
-                        <td className="px-6 py-4"><span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${log.riskLevel === 'High' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'}`}>{log.riskLevel}</span></td>
-                        <td className="px-6 py-4">
-                            <div className="flex gap-2">
-                                <button className="text-green-600 text-xs border border-green-200 px-2 py-1 rounded hover:bg-green-50">Approve</button>
-                                <button className="text-red-600 text-xs border border-red-200 px-2 py-1 rounded hover:bg-red-50">Ban</button>
+const ModerationQueue = ({ logs, refresh }: { logs: ModerationLog[], refresh: () => void }) => {
+    const { showNotification } = useNotification();
+    const [loading, setLoading] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [statusFilter, setStatusFilter] = useState<'pending' | 'under_review' | 'action_taken' | 'no_violation' | 'all'>('pending');
+    const [search, setSearch] = useState('');
+    const [reports, setReports] = useState<CommunityPostReport[]>([]);
+    const [pendingCount, setPendingCount] = useState(0);
+    const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [selectedReport, setSelectedReport] = useState<CommunityPostReport | null>(null);
+    const [replyMessage, setReplyMessage] = useState('');
+    const [decision, setDecision] = useState<'violation' | 'no_violation'>('violation');
+    const [decisionReason, setDecisionReason] = useState('');
+    const [complainantMessage, setComplainantMessage] = useState('');
+    const [ownerMessage, setOwnerMessage] = useState('');
+    const [severity, setSeverity] = useState('medium');
+    const [flagPost, setFlagPost] = useState(true);
+    const [removePost, setRemovePost] = useState(false);
+    const [sanctionAccount, setSanctionAccount] = useState(true);
+    const [banAccount, setBanAccount] = useState(false);
+    const [restrictPostingHours, setRestrictPostingHours] = useState(0);
+    const [restrictedFeaturesInput, setRestrictedFeaturesInput] = useState('');
+    const [restrictFeaturesHours, setRestrictFeaturesHours] = useState(0);
+
+    const loadReports = useCallback(async () => {
+        setLoading(true);
+        try {
+            const response = await CommunityService.getPostReports({
+                status: statusFilter,
+                search: search || undefined,
+                limit: 50
+            });
+            const items = Array.isArray(response?.items) ? (response.items as CommunityPostReport[]) : [];
+            setReports(items);
+            setPendingCount(Number(response?.pendingCount || 0));
+            if (items.length === 0) {
+                setSelectedId(null);
+                setSelectedReport(null);
+                return;
+            }
+            if (!selectedId || !items.some((entry) => entry.id === selectedId)) {
+                setSelectedId(items[0].id);
+            }
+        } catch (error) {
+            console.error('Failed to load post reports:', error);
+            showNotification('error', 'Moderation', 'Failed to load post reports.');
+        } finally {
+            setLoading(false);
+        }
+    }, [search, selectedId, showNotification, statusFilter]);
+
+    const loadReportDetail = useCallback(async (reportId: string) => {
+        try {
+            const data = await CommunityService.getPostReportById(reportId);
+            const resolved = (data || null) as CommunityPostReport | null;
+            setSelectedReport(resolved);
+            if (resolved) {
+                const normalizedStatus = String(resolved.status || '').toLowerCase();
+                const nextDecision =
+                    resolved.adminDecision === 'violation'
+                        ? 'violation'
+                        : resolved.adminDecision === 'no_violation'
+                            ? 'no_violation'
+                            : normalizedStatus === 'no_violation'
+                                ? 'no_violation'
+                                : 'violation';
+                setDecision(nextDecision);
+                setDecisionReason(resolved.actionSummary || '');
+                setComplainantMessage(resolved.reporterReply || '');
+                setSeverity(resolved.severity || 'medium');
+            }
+        } catch (error) {
+            console.error('Failed to load post report detail:', error);
+            showNotification('error', 'Moderation', 'Failed to load report detail.');
+        }
+    }, [showNotification]);
+
+    useEffect(() => {
+        void loadReports();
+    }, [loadReports]);
+
+    useEffect(() => {
+        if (!selectedId) {
+            setSelectedReport(null);
+            return;
+        }
+        void loadReportDetail(selectedId);
+    }, [loadReportDetail, selectedId]);
+
+    useEffect(() => {
+        const onRealtimeUpdate = () => {
+            void loadReports();
+            if (selectedId) void loadReportDetail(selectedId);
+        };
+        window.addEventListener('community:post_report_submitted', onRealtimeUpdate as EventListener);
+        window.addEventListener('community:post_report_updated', onRealtimeUpdate as EventListener);
+        return () => {
+            window.removeEventListener('community:post_report_submitted', onRealtimeUpdate as EventListener);
+            window.removeEventListener('community:post_report_updated', onRealtimeUpdate as EventListener);
+        };
+    }, [loadReportDetail, loadReports, selectedId]);
+
+    const handleReply = async () => {
+        if (!selectedId || !replyMessage.trim()) return;
+        setSaving(true);
+        try {
+            await CommunityService.replyToPostReport(selectedId, replyMessage.trim());
+            showNotification('success', 'Moderation', 'Reply sent to complainant.');
+            setReplyMessage('');
+            await Promise.all([loadReports(), loadReportDetail(selectedId)]);
+            refresh();
+        } catch (error) {
+            console.error('Failed to reply to post report:', error);
+            showNotification('error', 'Moderation', 'Failed to send reply.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleResolve = async () => {
+        if (!selectedId) return;
+        setSaving(true);
+        try {
+            const restrictedFeatures = restrictedFeaturesInput
+                .split(',')
+                .map((entry) => entry.trim())
+                .filter(Boolean);
+
+            await CommunityService.resolvePostReport(selectedId, {
+                decision,
+                reason: decisionReason || undefined,
+                complainantMessage: complainantMessage || undefined,
+                ownerMessage: ownerMessage || undefined,
+                severity,
+                actions: decision === 'violation'
+                    ? {
+                        flagPost,
+                        removePost,
+                        sanctionAccount,
+                        banAccount,
+                        restrictPostingHours: Math.max(0, Number(restrictPostingHours || 0)),
+                        restrictedFeatures,
+                        restrictFeaturesHours: Math.max(0, Number(restrictFeaturesHours || 0))
+                    }
+                    : {}
+            });
+
+            showNotification('success', 'Moderation', decision === 'violation' ? 'Action applied successfully.' : 'Report closed as no violation.');
+            await Promise.all([loadReports(), loadReportDetail(selectedId)]);
+            refresh();
+        } catch (error) {
+            console.error('Failed to resolve post report:', error);
+            showNotification('error', 'Moderation', 'Failed to apply moderation decision.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="space-y-4">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+                <div className="flex flex-wrap gap-3 items-center justify-between">
+                    <div>
+                        <h3 className="font-bold text-gray-800">Report Post Management</h3>
+                        <p className="text-xs text-gray-500">Review reports, respond to complainants, and enforce moderation actions.</p>
+                    </div>
+                    <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded font-bold">{pendingCount} Pending</span>
+                </div>
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <select
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value as any)}
+                        className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    >
+                        <option value="pending">Pending</option>
+                        <option value="under_review">Under Review</option>
+                        <option value="action_taken">Action Taken</option>
+                        <option value="no_violation">No Violation</option>
+                        <option value="all">All</option>
+                    </select>
+                    <input
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Search reason/user/post..."
+                        className="rounded-lg border border-gray-300 px-3 py-2 text-sm md:col-span-2"
+                    />
+                    <button
+                        onClick={() => void loadReports()}
+                        className="rounded-lg border border-gray-300 px-3 py-2 text-sm hover:bg-gray-50"
+                    >
+                        Refresh Queue
+                    </button>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 text-sm font-semibold text-gray-700">Reported Posts</div>
+                    <div className="max-h-[560px] overflow-auto divide-y">
+                        {loading ? (
+                            <div className="p-6 text-center text-gray-500 text-sm">Loading reports...</div>
+                        ) : reports.length === 0 ? (
+                            <div className="p-6 text-center text-gray-500 text-sm">No post reports found for the selected filter.</div>
+                        ) : reports.map((report) => {
+                            const active = selectedId === report.id;
+                            const level = String(report.severity || 'medium').toLowerCase();
+                            const levelClass =
+                                level === 'critical' || level === 'high'
+                                    ? 'bg-red-100 text-red-700'
+                                    : level === 'low'
+                                        ? 'bg-emerald-100 text-emerald-700'
+                                        : 'bg-yellow-100 text-yellow-700';
+                            return (
+                                <button
+                                    key={report.id}
+                                    onClick={() => setSelectedId(report.id)}
+                                    className={`w-full text-left p-4 hover:bg-gray-50 ${active ? 'bg-blue-50/60' : ''}`}
+                                >
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="font-semibold text-gray-900 text-sm truncate">
+                                            {report.reason || 'Post report'}
+                                        </div>
+                                        <span className={`text-[11px] px-2 py-0.5 rounded font-semibold uppercase ${levelClass}`}>
+                                            {report.severity || 'medium'}
+                                        </span>
+                                    </div>
+                                    <div className="text-xs text-gray-500 mt-1">
+                                        Reporter: {report.reporter?.name || report.reporter?.username || report.reporter?.email || report.reporterId}
+                                    </div>
+                                    <div className="text-xs text-gray-500 mt-1 truncate">{report.snippet || report.post?.contentSnippet || '-'}</div>
+                                    <div className="text-[11px] text-gray-400 mt-2">
+                                        Status: {report.status} • {report.createdAt ? new Date(report.createdAt as any).toLocaleString() : 'N/A'}
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 space-y-4">
+                    {!selectedReport ? (
+                        <div className="p-10 text-center text-gray-500 text-sm">Select a report to review details and apply moderation actions.</div>
+                    ) : (
+                        <>
+                            <div>
+                                <h4 className="font-semibold text-gray-900">Report Detail</h4>
+                                <p className="text-xs text-gray-500 mt-1">ID: {selectedReport.id}</p>
                             </div>
-                        </td>
-                    </tr>
-                ))}
-            </tbody>
-        </table>
-    </div>
-);
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                <div className="rounded-lg border border-gray-200 p-3">
+                                    <div className="text-xs uppercase tracking-wide text-gray-500">Complainant</div>
+                                    <div className="font-medium text-gray-900">{selectedReport.reporter?.name || selectedReport.reporter?.username || selectedReport.reporter?.email || selectedReport.reporterId}</div>
+                                </div>
+                                <div className="rounded-lg border border-gray-200 p-3">
+                                    <div className="text-xs uppercase tracking-wide text-gray-500">Post Owner</div>
+                                    <div className="font-medium text-gray-900">{selectedReport.postOwner?.name || selectedReport.postOwner?.username || selectedReport.postOwner?.email || selectedReport.postOwnerId}</div>
+                                </div>
+                            </div>
+
+                            <div className="rounded-lg border border-gray-200 p-3 text-sm">
+                                <div className="text-xs uppercase tracking-wide text-gray-500 mb-1">Reported Reason</div>
+                                <p className="text-gray-900">{selectedReport.reason || 'No explicit reason provided.'}</p>
+                                {selectedReport.details ? <p className="text-gray-600 mt-2 whitespace-pre-wrap">{selectedReport.details}</p> : null}
+                            </div>
+
+                            <div className="rounded-lg border border-gray-200 p-3 text-sm">
+                                <div className="text-xs uppercase tracking-wide text-gray-500 mb-1">Post Snippet</div>
+                                <p className="text-gray-700">{selectedReport.post?.title || selectedReport.snippet || selectedReport.post?.contentSnippet || '-'}</p>
+                            </div>
+
+                            <div className="rounded-lg border border-gray-200 p-3 space-y-2">
+                                <label className="text-xs uppercase tracking-wide text-gray-500">Reply to Complainant</label>
+                                <textarea
+                                    value={replyMessage}
+                                    onChange={(e) => setReplyMessage(e.target.value)}
+                                    rows={3}
+                                    placeholder="Send update to the user who reported..."
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                                />
+                                <button
+                                    onClick={() => void handleReply()}
+                                    disabled={saving || !replyMessage.trim()}
+                                    className="rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+                                >
+                                    Send Reply
+                                </button>
+                            </div>
+
+                            <div className="rounded-lg border border-gray-200 p-3 space-y-3">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                    <div>
+                                        <label className="text-xs uppercase tracking-wide text-gray-500">Decision</label>
+                                        <select
+                                            value={decision}
+                                            onChange={(e) => setDecision(e.target.value as any)}
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mt-1"
+                                        >
+                                            <option value="violation">Violation Confirmed</option>
+                                            <option value="no_violation">No Violation</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs uppercase tracking-wide text-gray-500">Severity</label>
+                                        <select
+                                            value={severity}
+                                            onChange={(e) => setSeverity(e.target.value)}
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mt-1"
+                                        >
+                                            <option value="low">Low</option>
+                                            <option value="medium">Medium</option>
+                                            <option value="high">High</option>
+                                            <option value="critical">Critical</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs uppercase tracking-wide text-gray-500">Restrict Posting (hours)</label>
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            value={restrictPostingHours}
+                                            onChange={(e) => setRestrictPostingHours(Number(e.target.value || 0))}
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mt-1"
+                                        />
+                                    </div>
+                                </div>
+
+                                {decision === 'violation' ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                                        <label className="flex items-center gap-2"><input type="checkbox" checked={flagPost} onChange={(e) => setFlagPost(e.target.checked)} /> Flag Post</label>
+                                        <label className="flex items-center gap-2"><input type="checkbox" checked={removePost} onChange={(e) => setRemovePost(e.target.checked)} /> Remove Post</label>
+                                        <label className="flex items-center gap-2"><input type="checkbox" checked={sanctionAccount} onChange={(e) => setSanctionAccount(e.target.checked)} /> Sanction Account</label>
+                                        <label className="flex items-center gap-2"><input type="checkbox" checked={banAccount} onChange={(e) => setBanAccount(e.target.checked)} /> Ban Account</label>
+                                    </div>
+                                ) : null}
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-xs uppercase tracking-wide text-gray-500">Restricted Features (comma separated)</label>
+                                        <input
+                                            value={restrictedFeaturesInput}
+                                            onChange={(e) => setRestrictedFeaturesInput(e.target.value)}
+                                            placeholder="posting, commenting, messaging"
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mt-1"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs uppercase tracking-wide text-gray-500">Feature Restriction (hours)</label>
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            value={restrictFeaturesHours}
+                                            onChange={(e) => setRestrictFeaturesHours(Number(e.target.value || 0))}
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mt-1"
+                                        />
+                                    </div>
+                                </div>
+
+                                <textarea
+                                    value={decisionReason}
+                                    onChange={(e) => setDecisionReason(e.target.value)}
+                                    rows={2}
+                                    placeholder="Decision reason (internal + user-facing context)"
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                                />
+                                <textarea
+                                    value={complainantMessage}
+                                    onChange={(e) => setComplainantMessage(e.target.value)}
+                                    rows={2}
+                                    placeholder="Message to complainant (optional override)"
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                                />
+                                <textarea
+                                    value={ownerMessage}
+                                    onChange={(e) => setOwnerMessage(e.target.value)}
+                                    rows={2}
+                                    placeholder="Message to post owner (sent only when violation action is taken)"
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                                />
+
+                                <button
+                                    onClick={() => void handleResolve()}
+                                    disabled={saving}
+                                    className="w-full rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm font-semibold disabled:opacity-50"
+                                >
+                                    {saving ? 'Applying...' : 'Apply Decision'}
+                                </button>
+                            </div>
+                        </>
+                    )}
+                </div>
+            </div>
+
+            {reports.length === 0 && logs.length > 0 ? (
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="p-4 border-b border-gray-200 bg-gray-50">
+                        <h4 className="font-semibold text-gray-800 text-sm">Legacy Moderation Feed</h4>
+                    </div>
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-gray-50 text-gray-500">
+                            <tr>
+                                <th className="px-4 py-2">User</th>
+                                <th className="px-4 py-2">Reason</th>
+                                <th className="px-4 py-2">Snippet</th>
+                                <th className="px-4 py-2">Risk</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                            {logs.map((log) => (
+                                <tr key={log.id}>
+                                    <td className="px-4 py-2">{log.userName || (log as any).user_name}</td>
+                                    <td className="px-4 py-2">{log.reason}</td>
+                                    <td className="px-4 py-2 text-gray-500">{log.snippet}</td>
+                                    <td className="px-4 py-2">{log.riskLevel || (log as any).risk_level}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            ) : null}
+        </div>
+    );
+};
 
 // --- SOCIAL GRAPH ---
 

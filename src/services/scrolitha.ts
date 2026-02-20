@@ -1,5 +1,8 @@
 import api from './api';
 
+const SCROLITHA_CHAT_TIMEOUT_MS = 65_000;
+const SCROLITHA_EXECUTE_TIMEOUT_MS = 45_000;
+
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
   if (response?.data !== undefined) return response.data as T;
@@ -53,7 +56,7 @@ export class ScrolithaService {
     context?: { page?: string; entityId?: string };
     conversationId?: string;
   }): Promise<ScrolithaChatResponse> {
-    const response = await api.post('/scrolitha/chat', payload);
+    const response = await api.post('/scrolitha/chat', payload, { timeout: SCROLITHA_CHAT_TIMEOUT_MS });
     return extractData<ScrolithaChatResponse>(response);
   }
 
@@ -62,7 +65,7 @@ export class ScrolithaService {
     confirmed: boolean;
     params?: Record<string, any>;
   }): Promise<any> {
-    const response = await api.post('/scrolitha/execute', payload);
+    const response = await api.post('/scrolitha/execute', payload, { timeout: SCROLITHA_EXECUTE_TIMEOUT_MS });
     return extractData<any>(response);
   }
 
@@ -71,7 +74,7 @@ export class ScrolithaService {
     context?: { page?: string; entityId?: string };
     conversationId?: string;
   }): Promise<ScrolithaChatResponse> {
-    const response = await api.post('/admin/scrolitha/chat', payload);
+    const response = await api.post('/admin/scrolitha/chat', payload, { timeout: SCROLITHA_CHAT_TIMEOUT_MS });
     return extractData<ScrolithaChatResponse>(response);
   }
 
@@ -80,7 +83,7 @@ export class ScrolithaService {
     confirmed: boolean;
     params?: Record<string, any>;
   }): Promise<any> {
-    const response = await api.post('/admin/scrolitha/execute', payload);
+    const response = await api.post('/admin/scrolitha/execute', payload, { timeout: SCROLITHA_EXECUTE_TIMEOUT_MS });
     return extractData<any>(response);
   }
 
@@ -222,6 +225,20 @@ export class ScrolithaService {
 
   static async adminGetLearningInsights(limitUsers = 400): Promise<any> {
     const response = await api.get(`/admin/scrolitha/learning-insights?limitUsers=${Math.max(1, Math.floor(limitUsers))}`);
+    return extractData<any>(response);
+  }
+
+  static async adminRegeneratePostInsights(payload?: {
+    postId?: string;
+    postIds?: string[];
+    limit?: number;
+  }): Promise<any> {
+    const response = await api.post('/admin/scrolitha/post-ai/regenerate-insights', payload || {});
+    return extractData<any>(response);
+  }
+
+  static async adminClearPostInsights(payload?: { postIds?: string[] }): Promise<any> {
+    const response = await api.delete('/admin/scrolitha/post-ai/insights', { data: payload || {} });
     return extractData<any>(response);
   }
 }

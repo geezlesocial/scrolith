@@ -7,7 +7,7 @@ import { gigsApi } from '../services/gigs';
 import api from '../services/api';
 import { categoriesApi } from '../services/categories';
 import { Gig, ListingCategory, GigPackage, GigExtra, UploadedFile, GigFAQ, GigRequirement } from '../types';
-import { Briefcase, CheckCircle, X, Trash2, Plus, Sparkles, ChevronRight, ChevronLeft, Image as ImageIcon, Video, HelpCircle, Loader2, Save, FileText } from 'lucide-react';
+import { CheckCircle, X, Trash2, Plus, Sparkles, ChevronRight, ChevronLeft, Image as ImageIcon, Video, HelpCircle, Loader2, Save, FileText } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import RichTextEditor from '../components/RichTextEditor';

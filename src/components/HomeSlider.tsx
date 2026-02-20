@@ -5,6 +5,7 @@ import { UserRole } from "../types";
 import { useUser } from "../context/UserContext";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import SearchInput from "./SearchInput";
+import { resolveAssetUrl } from "../utils/assetUrl";
 
 interface HomeSliderProps {
   slides: HomeSlide[];
@@ -86,14 +87,20 @@ const HomeSlider: React.FC<HomeSliderProps> = ({ slides, heroConfig, searchMode 
 
   const role = useMemo(() => normalizeRole((user as any)?.role || UserRole.GUEST), [user]);
 
-  const headline = (heroConfig as any)?.headline || (heroConfig as any)?.title || "";
-  const subheadline = (heroConfig as any)?.subheadline || (heroConfig as any)?.subtitle || "";
+  const headline =
+    (heroConfig as any)?.headline ||
+    (heroConfig as any)?.title ||
+    "Find top talent and opportunities on Scrolith";
+  const subheadline =
+    (heroConfig as any)?.subheadline ||
+    (heroConfig as any)?.subtitle ||
+    "Hire experts, discover gigs, and grow faster with AI-powered matching.";
   const searchPlaceholder =
-    (heroConfig as any)?.searchPlaceholder || (heroConfig as any)?.search_placeholder || "";
+    (heroConfig as any)?.searchPlaceholder || (heroConfig as any)?.search_placeholder || "Search gigs, jobs, or talent";
   const searchButtonLabel =
-    (heroConfig as any)?.searchButtonLabel || (heroConfig as any)?.search_button_label || "";
+    (heroConfig as any)?.searchButtonLabel || (heroConfig as any)?.search_button_label || "Search";
   const searchButtonAriaLabel =
-    (heroConfig as any)?.searchButtonAriaLabel || (heroConfig as any)?.search_button_aria_label || "";
+    (heroConfig as any)?.searchButtonAriaLabel || (heroConfig as any)?.search_button_aria_label || "Search";
   const searchResultsUrl =
     (heroConfig as any)?.searchResultsUrl || (heroConfig as any)?.search_results_url || "";
   const aiBadgeLabel =
@@ -150,7 +157,7 @@ const HomeSlider: React.FC<HomeSliderProps> = ({ slides, heroConfig, searchMode 
       .map((s: any) => ({
         ...s,
         mediaType: s.mediaType || s.media_type || "image",
-        mediaUrl: s.mediaUrl || s.media_url || s.image_url || s.video_url || "",
+        mediaUrl: resolveAssetUrl(s.mediaUrl || s.media_url || s.image_url || s.video_url || ""),
         redirectUrl: s.redirectUrl || s.redirect_url || s.link || s.url || "",
         sortOrder: s.sortOrder ?? s.sort_order ?? 0,
         backgroundColor: s.backgroundColor || s.background_color || s.bgColor || "#000000",
@@ -264,7 +271,7 @@ const HomeSlider: React.FC<HomeSliderProps> = ({ slides, heroConfig, searchMode 
           style={{ backgroundColor: (slide as any).backgroundColor || "#000" }}
         >
           <div className="absolute inset-0 w-full h-full">
-            {(slide as any).mediaType === "video" ? (
+            {(slide as any).mediaType === "video" && (slide as any).mediaUrl ? (
               <video
                 src={(slide as any).mediaUrl}
                 autoPlay
@@ -273,12 +280,14 @@ const HomeSlider: React.FC<HomeSliderProps> = ({ slides, heroConfig, searchMode 
                 playsInline
                 className="w-full h-full object-cover object-center brightness-75"
               />
-            ) : (
+            ) : (slide as any).mediaUrl ? (
               <img
                 src={(slide as any).mediaUrl || ""}
                 alt={(slide as any).title || "Slide"}
                 className="w-full h-full object-cover object-center brightness-75"
               />
+            ) : (
+              <div className="h-full w-full bg-[radial-gradient(circle_at_18%_22%,#1e40af_0%,#0f172a_48%,#020617_100%)]" />
             )}
 
             <div
@@ -380,7 +389,7 @@ const HomeSlider: React.FC<HomeSliderProps> = ({ slides, heroConfig, searchMode 
                           aria-label={logo.alt || ""}
                         >
                           <img
-                            src={logo.src || logo.image}
+                            src={resolveAssetUrl(logo.src || logo.image)}
                             alt={logo.alt || ""}
                             className="h-6 w-auto object-contain"
                           />
@@ -404,7 +413,7 @@ const HomeSlider: React.FC<HomeSliderProps> = ({ slides, heroConfig, searchMode 
                             className="flex items-center gap-2 rounded-full border border-white/15 px-3 py-1 text-[11px] text-white/85"
                           >
                             {badge.icon ? (
-                              <img src={badge.icon} alt="" className="h-3.5 w-3.5 object-contain" />
+                              <img src={resolveAssetUrl(badge.icon)} alt="" className="h-3.5 w-3.5 object-contain" />
                             ) : null}
                             <span>{badge.label}</span>
                           </div>

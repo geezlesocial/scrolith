@@ -1,25 +1,26 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  Briefcase,
-  Camera,
-  Compass,
-  Edit3,
-  FileText,
-  Heart,
-  MapPin,
-  MessageCircle,
-  MoreHorizontal,
-  Pin,
-  Plus,
-  Search,
-  Sparkles,
-  Star,
-  Trash2,
-  Users,
-  Video,
-  X
-} from 'lucide-react';
+  BriefcaseIcon as Briefcase,
+  CameraIcon as Camera,
+  CompassIcon as Compass,
+  Edit3Icon as Edit3,
+  FileTextIcon as FileText,
+  HeartIcon as Heart,
+  ImageIcon,
+  MapPinIcon as MapPin,
+  MessageCircleIcon as MessageCircle,
+  MoreHorizontalIcon as MoreHorizontal,
+  PinIcon as Pin,
+  PlusIcon as Plus,
+  SearchIcon as Search,
+  SparklesIcon as Sparkles,
+  StarIcon as Star,
+  Trash2Icon as Trash2,
+  UsersIcon as Users,
+  VideoIcon as Video,
+  XIcon as X
+} from '../icons/ShellIcons';
 import { useUser } from '../../context/UserContext';
 import { useContent } from '../../context/ContentContext';
 import { useSocket } from '../../context/SocketContext';
@@ -27,7 +28,7 @@ import { useNotification } from '../../context/NotificationContext';
 import { CommunityService } from '../../services/community';
 import { FileService } from '../../services/files';
 import { UserService } from '../../services/user';
-import { AIService } from '../../services/ai/ai.service';
+import { AIService, type PostEnhanceMode } from '../../services/ai/ai.service';
 import { jobsApi, Job } from '../../services/jobs';
 import { gigsApi, Gig } from '../../services/gigs';
 import { RecoService } from '../../services/reco';
@@ -35,6 +36,7 @@ import { MessagingService } from '../../services/messaging';
 import { SearchService } from '../../services/search';
 import FilePickerModal from '../../dashboard/shared/FilePickerModal';
 import ProBadge from '../ProBadge';
+import VerifiedBadge from '../common/VerifiedBadge';
 import PostHeader from '../../community/components/PostHeader';
 import PostOptionsButton from '../../community/components/post-options/PostOptionsButton';
 import PostEngagementBar from '../../community/components/PostEngagementBar';
@@ -43,6 +45,7 @@ import MentionHashtagTextarea from '../../community/components/MentionHashtagTex
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from '../../community/followState';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../community/storyStyles';
 import { resolveAssetUrl } from '../../utils/assetUrl';
+import { resolveVerificationLevel } from '../../utils/verification';
 import MediaPreviewModal, { PreviewMedia } from '../media/MediaPreviewModal';
 
 type MemberHomeContent = {
@@ -151,6 +154,10 @@ type FeedPost = {
   repostsEnabled?: boolean;
   isPinned?: boolean;
   isHighlighted?: boolean;
+  aiInsightEnabled?: boolean;
+  aiInsightGenerated?: boolean;
+  aiInsightText?: string | null;
+  aiScore?: number | null;
   interactions?: {
     likes?: number;
     comments?: number;
@@ -278,6 +285,14 @@ const commentPolicyOptions = [
   { value: 'following', label: 'People you follow can comment' },
   { value: 'mutuals', label: 'Mutual followers can comment' },
   { value: 'none', label: 'Disable comments' }
+];
+
+const postAiActions: Array<{ mode: PostEnhanceMode; label: string }> = [
+  { mode: 'grammar', label: 'Improve Grammar' },
+  { mode: 'rephrase', label: 'Rephrase' },
+  { mode: 'professional', label: 'Make Professional' },
+  { mode: 'shorten', label: 'Shorten' },
+  { mode: 'expand', label: 'Expand' }
 ];
 
 const storyVisibilityOptions: Array<{ value: StoryVisibility; label: string }> = [
@@ -413,6 +428,162 @@ const toPreviewMedia = (media: any): PreviewMedia | null => {
   };
 };
 
+const shuffleArray = <T,>(items: T[]) => {
+  const next = [...items];
+  for (let i = next.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [next[i], next[j]] = [next[j], next[i]];
+  }
+  return next;
+};
+
+const dedupeById = <T extends { id?: string | null }>(items: T[]) => {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  items.forEach((item) => {
+    const id = String(item?.id || '').trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push(item);
+  });
+  return out;
+};
+
+const formatListingAmount = (value: any, fallback = 'Flexible') => {
+  const raw =
+    typeof value === 'number'
+      ? value
+      : value?.amount ?? value?.minAmount ?? value?.maxAmount ?? null;
+  if (raw === null || raw === undefined || Number.isNaN(Number(raw))) return fallback;
+  try {
+    return `$${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(Number(raw))}`;
+  } catch {
+    return `$${Number(raw)}`;
+  }
+};
+
+const isClientVerified = (job: any) =>
+  Boolean(job?.clientIsVerified ?? job?.client_is_verified ?? job?.clientVerified);
+
+const isFreelancerVerified = (gig: any) =>
+  Boolean(gig?.freelancerIsVerified ?? gig?.freelancer_is_verified ?? gig?.freelancerVerified);
+
+const getClientVerificationLevel = (job: any) =>
+  resolveVerificationLevel({
+    verificationLevel:
+      job?.clientVerificationLevel ||
+      job?.client_verification_level ||
+      job?.clientBadgeType ||
+      job?.client_badge_type,
+    isVerified: isClientVerified(job),
+    isPro: job?.clientIsPro,
+    type: job?.clientType || 'business'
+  });
+
+const getFreelancerVerificationLevel = (gig: any) =>
+  resolveVerificationLevel({
+    verificationLevel:
+      gig?.freelancerVerificationLevel ||
+      gig?.freelancer_verification_level ||
+      gig?.freelancerBadgeType ||
+      gig?.freelancer_badge_type,
+    isVerified: isFreelancerVerified(gig),
+    isPro: gig?.freelancerIsPro,
+    type: gig?.freelancerType || 'user'
+  });
+
+const firstNonEmptyString = (values: unknown[]): string => {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+};
+
+const firstStringFromArray = (value: unknown): string => {
+  if (!Array.isArray(value)) return '';
+  for (const item of value) {
+    if (typeof item === 'string' && item.trim()) return item.trim();
+  }
+  return '';
+};
+
+const firstUrlFromObjectArray = (value: unknown): string => {
+  if (!Array.isArray(value)) return '';
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const url = firstNonEmptyString([
+      (item as any).url,
+      (item as any).thumbnailUrl,
+      (item as any).thumbnail_url,
+      (item as any).previewUrl,
+      (item as any).preview_url
+    ]);
+    if (url) return url;
+  }
+  return '';
+};
+
+const resolveListingImageUrl = (listing: any): string => {
+  const raw = firstNonEmptyString([
+    listing?.image,
+    listing?.coverImage,
+    listing?.cover_image,
+    listing?.cover,
+    listing?.thumbnailUrl,
+    listing?.thumbnail_url,
+    listing?.previewImage,
+    listing?.preview_image,
+    firstStringFromArray(listing?.images),
+    firstStringFromArray(listing?.media),
+    firstStringFromArray(listing?.attachments),
+    firstUrlFromObjectArray(listing?.mediaObjects),
+    firstUrlFromObjectArray(listing?.media_objects),
+    firstUrlFromObjectArray(listing?.mediaFiles),
+    firstUrlFromObjectArray(listing?.media_files),
+    listing?.clientAvatar,
+    listing?.freelancerAvatar
+  ]);
+  return raw ? resolveAssetUrl(raw) : '';
+};
+
+const extractJobsFromPayload = (payload: any): Job[] => {
+  if (Array.isArray(payload?.jobs)) return payload.jobs as Job[];
+  if (Array.isArray(payload)) {
+    const looksLikeJobList = payload.every((entry) => !entry || typeof entry !== 'object' || Object.prototype.hasOwnProperty.call(entry, 'id'));
+    if (looksLikeJobList) return payload as Job[];
+  }
+  return [];
+};
+
+const extractGigsFromPayload = (payload: any): Gig[] => {
+  if (Array.isArray(payload?.gigs)) return payload.gigs as Gig[];
+  if (Array.isArray(payload)) {
+    const looksLikeGigList = payload.every((entry) => !entry || typeof entry !== 'object' || Object.prototype.hasOwnProperty.call(entry, 'id'));
+    if (looksLikeGigList) return payload as Gig[];
+  }
+  return [];
+};
+
+const isSettledResultArray = (value: any): value is Array<{ status: 'fulfilled' | 'rejected'; value?: any }> =>
+  Array.isArray(value) &&
+  value.length > 0 &&
+  value.every((entry) => entry && typeof entry === 'object' && typeof entry.status === 'string');
+
+const mergeSettledResponses = <T extends { id?: string | null }>(
+  payload: any,
+  extractor: (value: any) => T[]
+): T[] => {
+  if (!isSettledResultArray(payload)) {
+    return extractor(payload);
+  }
+  const merged: T[] = [];
+  payload.forEach((entry) => {
+    if (entry.status !== 'fulfilled') return;
+    merged.push(...extractor(entry.value));
+  });
+  return merged;
+};
+
 const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content }) => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -462,6 +633,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const [viewersLoading, setViewersLoading] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [gigs, setGigs] = useState<Gig[]>([]);
+  const [listingJobsPool, setListingJobsPool] = useState<Job[]>([]);
+  const [listingGigsPool, setListingGigsPool] = useState<Gig[]>([]);
+  const [listingImageErrors, setListingImageErrors] = useState<Record<string, boolean>>({});
   const [employers, setEmployers] = useState<ProfileCard[]>([]);
   const [freelancers, setFreelancers] = useState<ProfileCard[]>([]);
   const [followingIds, setFollowingIds] = useState<Set<string>>(new Set());
@@ -512,6 +686,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     media: []
   });
   const [posting, setPosting] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiRunningMode, setAiRunningMode] = useState<PostEnhanceMode | null>(null);
+  const [aiSuggestion, setAiSuggestion] = useState('');
+  const [aiSuggestionMode, setAiSuggestionMode] = useState<PostEnhanceMode | null>(null);
+  const [aiSuggestionOpen, setAiSuggestionOpen] = useState(false);
+  const [aiOriginalText, setAiOriginalText] = useState('');
+  const [aiCompareView, setAiCompareView] = useState<'compare' | 'ai'>('compare');
+  const [insightCollapsedByPost, setInsightCollapsedByPost] = useState<Record<string, boolean>>({});
   const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
   const postMediaInputRef = useRef<HTMLInputElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -534,6 +716,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const sidebarRefreshTimeoutRef = useRef<number | null>(null);
   const adImpressionsRef = useRef<Set<string>>(new Set());
   const [selfProfileCover, setSelfProfileCover] = useState('');
+
+  const openPostDetail = useCallback(
+    (postId: string) => {
+      const id = String(postId || '').trim();
+      if (!id) return;
+      navigate(`/post/${encodeURIComponent(id)}`);
+    },
+    [navigate]
+  );
+
+  const openPostFromText = useCallback(
+    (event: React.MouseEvent<HTMLElement>, postId: string) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('a, button, input, textarea, select, label, video, audio')) return;
+      openPostDetail(postId);
+    },
+    [openPostDetail]
+  );
 
   const memberHomeSettings = (settings as any)?.memberHome || {};
   const memberHomeWidgets = memberHomeSettings.widgets || {};
@@ -592,6 +792,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const maxProfileViewing = content?.maxProfileViewing ?? 5;
   const maxJobs = content?.maxJobs ?? 5;
   const maxGigs = content?.maxGigs ?? 5;
+  const showListingCards = (content as any)?.showListingCards !== false;
+  const listingCardEveryPosts = 2;
+  const maxListingCardsPerFeed = Math.max(
+    1,
+    Math.min(12, Number((content as any)?.maxListingCardsPerFeed ?? 8) || 8)
+  );
 
   const postComposerTopics = Array.isArray((mobilePostComposer as any)?.topics)
     ? (mobilePostComposer as any).topics
@@ -619,6 +825,40 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const isFreelancer = (user?.role || '').toLowerCase() === 'freelancer';
   const isEmployer = (user?.role || '').toLowerCase() === 'employer';
   const isGuest = !user || String(user?.role || '').toLowerCase() === 'guest';
+  const listingPoolLimit = Math.max(maxListingCardsPerFeed * 4, maxJobs * 2, maxGigs * 2, 12);
+  const listingCardEntries = useMemo(() => {
+    if (!showListingCards || !user || !feedItems.length) return [];
+    const slots = Math.min(maxListingCardsPerFeed, Math.floor(feedItems.length / listingCardEveryPosts));
+    if (slots <= 0) return [];
+
+    const jobPool = shuffleArray(dedupeById((listingJobsPool || []) as Array<Job & { id: string }>)).slice(0, slots * 2);
+    const gigPool = shuffleArray(dedupeById((listingGigsPool || []) as Array<Gig & { id: string }>)).slice(0, slots * 2);
+    const entries: Array<{ kind: 'job' | 'gig'; item: any }> = [];
+    let preferJob = ((String(user.id || '').length + feedItems.length) % 2) === 0;
+
+    while (entries.length < slots && (jobPool.length || gigPool.length)) {
+      if (preferJob && jobPool.length) {
+        entries.push({ kind: 'job', item: jobPool.shift() });
+      } else if (!preferJob && gigPool.length) {
+        entries.push({ kind: 'gig', item: gigPool.shift() });
+      } else if (jobPool.length) {
+        entries.push({ kind: 'job', item: jobPool.shift() });
+      } else if (gigPool.length) {
+        entries.push({ kind: 'gig', item: gigPool.shift() });
+      }
+      preferJob = !preferJob;
+    }
+
+    return entries.filter((entry) => Boolean(entry.item?.id));
+  }, [
+    showListingCards,
+    user,
+    feedItems.length,
+    maxListingCardsPerFeed,
+    listingCardEveryPosts,
+    listingJobsPool,
+    listingGigsPool
+  ]);
   const currentUserId = String((user as any)?.id || (user as any)?.user_id || '').trim();
   const feedTabStorageKey = `member_home_feed_tab:${currentUserId || 'guest'}`;
   const feedTabInitializedRef = useRef(false);
@@ -752,6 +992,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       post.author?.userId ||
       post.author?.user_id ||
       (authorType === 'user' ? authorId : null);
+    const aiInsightTextRaw = post.aiInsightText ?? post.ai_insight_text ?? null;
+    const aiInsightText =
+      aiInsightTextRaw === null || aiInsightTextRaw === undefined
+        ? null
+        : String(aiInsightTextRaw).trim() || null;
 
     return {
       id: post.id || `${authorId}-${Date.now()}`,
@@ -801,6 +1046,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       commentPolicy: post.commentPolicy || post.comment_policy || 'everyone',
       isPinned: post.isPinned ?? post.is_pinned ?? false,
       isHighlighted: post.isHighlighted ?? post.is_highlighted ?? false,
+      aiInsightEnabled: Boolean(post.aiInsightEnabled ?? post.ai_insight_enabled ?? false),
+      aiInsightGenerated: Boolean(
+        post.aiInsightGenerated ??
+          post.ai_insight_generated ??
+          (aiInsightText ? true : false)
+      ),
+      aiInsightText,
+      aiScore:
+        post.aiScore !== undefined && post.aiScore !== null
+          ? Number(post.aiScore)
+          : post.ai_score !== undefined && post.ai_score !== null
+            ? Number(post.ai_score)
+            : null,
       interactions,
       userState: post.userState || post.user_state || {}
     };
@@ -941,8 +1199,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
             })
           : Promise.resolve([])
       );
-      tasks.push((showJobs || showEmployers) ? jobsApi.getJobs({ status: 'active', limit: maxJobs }) : Promise.resolve(null));
-      tasks.push((showGigs || showFreelancers) ? gigsApi.getGigs({ status: 'active', limit: maxGigs }) : Promise.resolve(null));
+      tasks.push(
+        (showJobs || showEmployers)
+          ? Promise.allSettled([
+              jobsApi.getJobs({ status: 'active', limit: listingPoolLimit, featuredOnly: true }),
+              jobsApi.getJobs({ status: 'active', limit: listingPoolLimit, recommended: true }),
+              jobsApi.getJobs({ status: 'active', limit: listingPoolLimit, random: true })
+            ])
+          : Promise.resolve([])
+      );
+      tasks.push(
+        (showGigs || showFreelancers)
+          ? Promise.allSettled([
+              gigsApi.getGigs({ status: 'active', limit: listingPoolLimit, featuredOnly: true }),
+              gigsApi.getGigs({ status: 'active', limit: listingPoolLimit, recommended: true }),
+              gigsApi.getGigs({ status: 'active', limit: listingPoolLimit, random: true })
+            ])
+          : Promise.resolve([])
+      );
       tasks.push(showProfileViewers ? UserService.getProfileViewers(user.id, maxProfileViewers) : Promise.resolve({ viewers: [] }));
       tasks.push(showProfileViewing ? UserService.getProfilesViewed(user.id, maxProfileViewing) : Promise.resolve({ viewed: [] }));
       tasks.push(
@@ -1009,22 +1283,22 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         }))
       );
 
-      const jobsList = jobsRes.status === 'fulfilled'
-        ? Array.isArray((jobsRes.value as any)?.jobs)
-          ? (jobsRes.value as any).jobs
-          : Array.isArray(jobsRes.value)
-            ? jobsRes.value as Job[]
-            : []
+      const rawJobsList = jobsRes.status === 'fulfilled'
+        ? mergeSettledResponses<Job & { id?: string | null }>(jobsRes.value, extractJobsFromPayload)
         : [];
+      const jobsList = shuffleArray(
+        dedupeById((rawJobsList || []) as Array<Job & { id: string }>)
+      );
+      setListingJobsPool(jobsList.slice(0, listingPoolLimit));
       setJobs(jobsList.slice(0, maxJobs));
 
-      const gigsList = gigsRes.status === 'fulfilled'
-        ? Array.isArray((gigsRes.value as any)?.gigs)
-          ? (gigsRes.value as any).gigs
-          : Array.isArray(gigsRes.value)
-            ? gigsRes.value as Gig[]
-            : []
+      const rawGigsList = gigsRes.status === 'fulfilled'
+        ? mergeSettledResponses<Gig & { id?: string | null }>(gigsRes.value, extractGigsFromPayload)
         : [];
+      const gigsList = shuffleArray(
+        dedupeById((rawGigsList || []) as Array<Gig & { id: string }>)
+      );
+      setListingGigsPool(gigsList.slice(0, listingPoolLimit));
       setGigs(gigsList.slice(0, maxGigs));
 
       const employerMap = new Map<string, ProfileCard>();
@@ -1103,6 +1377,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     maxProfileViewing,
     maxJobs,
     maxGigs,
+    listingPoolLimit,
     showSidebarAds,
     showTopSidebarAd,
     showMiddleSidebarAd,
@@ -1447,6 +1722,69 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       console.error(e);
     }
   }, []);
+
+  const closeAiSuggestionModal = useCallback(() => {
+    setAiSuggestionOpen(false);
+    setAiSuggestion('');
+    setAiSuggestionMode(null);
+    setAiOriginalText('');
+    setAiCompareView('compare');
+  }, []);
+
+  const runPostAi = useCallback(
+    async (mode: PostEnhanceMode) => {
+      const text = String(postDraft.content || '').trim();
+      if (!text) {
+        showNotification('warning', 'AI Assistant', 'Write some text first, then run AI enhancement.');
+        return;
+      }
+      if (aiLoading) return;
+
+      setAiLoading(true);
+      setAiRunningMode(mode);
+      try {
+        const result = await AIService.enhancePostDraft({ text, mode });
+        const enhancedText = String(result?.enhancedText || '').trim();
+        if (!enhancedText) {
+          showNotification('warning', 'AI Assistant', 'No suggestion was returned. Please try again.');
+          return;
+        }
+
+        setAiOriginalText(postDraft.content);
+        setAiSuggestion(enhancedText);
+        setAiSuggestionMode(mode);
+        setAiCompareView('compare');
+        setAiSuggestionOpen(true);
+      } catch (error: any) {
+        const message =
+          error?.response?.data?.error ||
+          error?.response?.data?.message ||
+          error?.message ||
+          'Unable to process AI enhancement right now.';
+        showNotification('error', 'AI Assistant', message);
+      } finally {
+        setAiLoading(false);
+        setAiRunningMode(null);
+      }
+    },
+    [aiLoading, postDraft.content, showNotification]
+  );
+
+  const applyAiSuggestionReplace = useCallback(() => {
+    if (!aiSuggestion) return;
+    setPostDraft((prev) => ({ ...prev, content: aiSuggestion }));
+    closeAiSuggestionModal();
+  }, [aiSuggestion, closeAiSuggestionModal]);
+
+  const applyAiSuggestionInsert = useCallback(() => {
+    if (!aiSuggestion) return;
+    setPostDraft((prev) => {
+      const base = String(prev.content || '').trim();
+      const merged = base ? `${base}\n\n${aiSuggestion}` : aiSuggestion;
+      return { ...prev, content: merged };
+    });
+    closeAiSuggestionModal();
+  }, [aiSuggestion, closeAiSuggestionModal]);
 
   const handlePostSubmit = useCallback(async () => {
     if (!user) return;
@@ -2037,6 +2375,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       });
       syncCommentCount(normalized.id, normalized.interactions?.comments ?? 0);
     };
+    const handlePostAiInsightReady = (payload: any) => {
+      const detail = payload?.post || payload || {};
+      const postId = String(detail?.postId || detail?.id || '').trim();
+      if (!postId) return;
+      const insightTextRaw = detail?.aiInsightText ?? detail?.ai_insight_text ?? null;
+      const insightText =
+        insightTextRaw === null || insightTextRaw === undefined
+          ? null
+          : String(insightTextRaw).trim() || null;
+      applyPostUpdate({
+        id: postId,
+        aiInsightEnabled: Boolean(detail?.aiInsightEnabled ?? detail?.ai_insight_enabled ?? true),
+        aiInsightGenerated: Boolean(
+          detail?.aiInsightGenerated ?? detail?.ai_insight_generated ?? (insightText ? true : false)
+        ),
+        aiInsightText: insightText
+      } as FeedPost);
+    };
     const handleStoryCreated = (payload: any) => {
       const created = payload?.story || payload;
       if (!created?.id) {
@@ -2092,8 +2448,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     socket.on('community:story_deleted', refreshStories);
     socket.on('community:story_updated', handleStoryUpdated);
     socket.on('community:story_liked', handleStoryLiked);
+    socket.on('community:post_ai_insight_ready', handlePostAiInsightReady);
+    socket.on('post:aiInsightReady', handlePostAiInsightReady);
     socket.on('community:homepage_updated', refreshSlider);
     socket.on('community:profile_view_logged', refreshSidebar);
+    socket.on('community:job_published', refreshSidebar);
+    socket.on('community:gig_published', refreshSidebar);
     socket.on('reco:config_updated', refreshSidebar);
     socket.on('reco:rules_updated', refreshSidebar);
     return () => {
@@ -2104,12 +2464,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       socket.off('community:story_deleted', refreshStories);
       socket.off('community:story_updated', handleStoryUpdated);
       socket.off('community:story_liked', handleStoryLiked);
+      socket.off('community:post_ai_insight_ready', handlePostAiInsightReady);
+      socket.off('post:aiInsightReady', handlePostAiInsightReady);
       socket.off('community:homepage_updated', refreshSlider);
       socket.off('community:profile_view_logged', refreshSidebar);
+      socket.off('community:job_published', refreshSidebar);
+      socket.off('community:gig_published', refreshSidebar);
       socket.off('reco:config_updated', refreshSidebar);
       socket.off('reco:rules_updated', refreshSidebar);
     };
-  }, [socket, user, loadFeed, loadStories, loadSlider, scheduleSidebarRefresh, applyStoryUpdate, normalizePost, syncCommentCount, filterActiveStories]);
+  }, [socket, user, loadFeed, loadStories, loadSlider, scheduleSidebarRefresh, applyPostUpdate, applyStoryUpdate, normalizePost, syncCommentCount, filterActiveStories]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -2157,11 +2521,34 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       } as FeedPost);
     };
 
+    const onPostAiInsightReady = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const postId = String(detail?.postId || detail?.id || '').trim();
+      if (!postId) return;
+      const insightTextRaw = detail?.aiInsightText ?? detail?.ai_insight_text ?? null;
+      const insightText =
+        insightTextRaw === null || insightTextRaw === undefined
+          ? null
+          : String(insightTextRaw).trim() || null;
+      applyPostUpdate({
+        id: postId,
+        aiInsightEnabled: Boolean(detail?.aiInsightEnabled ?? detail?.ai_insight_enabled ?? true),
+        aiInsightGenerated: Boolean(
+          detail?.aiInsightGenerated ?? detail?.ai_insight_generated ?? (insightText ? true : false)
+        ),
+        aiInsightText: insightText
+      } as FeedPost);
+    };
+
     window.addEventListener('community:post_metrics_updated', onPostMetricsUpdated as EventListener);
     window.addEventListener('community:post_reaction_updated', onPostReactionUpdated as EventListener);
+    window.addEventListener('community:post_ai_insight_ready', onPostAiInsightReady as EventListener);
+    window.addEventListener('post:aiInsightReady', onPostAiInsightReady as EventListener);
     return () => {
       window.removeEventListener('community:post_metrics_updated', onPostMetricsUpdated as EventListener);
       window.removeEventListener('community:post_reaction_updated', onPostReactionUpdated as EventListener);
+      window.removeEventListener('community:post_ai_insight_ready', onPostAiInsightReady as EventListener);
+      window.removeEventListener('post:aiInsightReady', onPostAiInsightReady as EventListener);
     };
   }, [applyPostUpdate]);
 
@@ -2450,31 +2837,206 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     }
   };
 
-  const renderAttachments = (attachments?: FeedPost['attachments']) => {
+  const markListingImageError = useCallback((imageKey: string) => {
+    setListingImageErrors((prev) => (prev[imageKey] ? prev : { ...prev, [imageKey]: true }));
+  }, []);
+
+  const renderInlineListingCard = useCallback(
+    (entry: { kind: 'job' | 'gig'; item: any }, slotIndex: number) => {
+      const listingId = String(entry?.item?.id || '').trim();
+      if (!listingId) return null;
+
+      if (entry.kind === 'job') {
+        const job = entry.item as any;
+        const contactId = String(job?.clientId || '').trim();
+        const contactName = String(job?.clientName || 'Employer').trim() || 'Employer';
+        const canContact = Boolean(contactId);
+        const listingImageKey = `job:${listingId}`;
+        const listingImageUrl = resolveListingImageUrl(job);
+        const hasListingImage = Boolean(listingImageUrl) && !listingImageErrors[listingImageKey];
+        return (
+          <article
+            key={`feed_listing_job_${slotIndex}_${listingId}`}
+            className="rounded-3xl border border-indigo-200/80 bg-gradient-to-br from-indigo-50 via-white to-white p-4 shadow-sm"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo-600">Featured Job</p>
+              {job?.isFeatured ? (
+                <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">Promoted</span>
+              ) : null}
+            </div>
+            <Link to={`/jobs/${encodeURIComponent(listingId)}`} className="mt-2 block">
+              <p className="text-base font-semibold text-slate-900 line-clamp-2">{job?.title || 'Job opportunity'}</p>
+              <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                <span>{contactName}</span>
+                {isClientVerified(job) ? <VerifiedBadge size={16} level={getClientVerificationLevel(job)} className="ml-1" /> : null}
+                <ProBadge role="employer" isPro={job?.clientIsPro} />
+                {job?.category ? <span>- {job.category}</span> : null}
+              </p>
+              <p className="mt-2 text-sm text-slate-600">Budget: {formatListingAmount(job?.budget)}</p>
+            </Link>
+            <Link to={`/jobs/${encodeURIComponent(listingId)}`} className="mt-3 block overflow-hidden rounded-2xl border border-indigo-100 bg-white">
+              {hasListingImage ? (
+                <img
+                  src={listingImageUrl}
+                  alt={job?.title || 'Featured job'}
+                  className="h-40 w-full object-cover"
+                  loading="lazy"
+                  onError={() => markListingImageError(listingImageKey)}
+                />
+              ) : (
+                <div className="flex h-40 w-full items-center justify-center gap-2 bg-gradient-to-br from-indigo-100 via-white to-slate-50 text-indigo-500">
+                  <ImageIcon className="h-5 w-5" />
+                  <span className="text-xs font-semibold uppercase tracking-wide">Job image</span>
+                </div>
+              )}
+            </Link>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <Link
+                to={`/jobs/${encodeURIComponent(listingId)}`}
+                className="rounded-full border border-slate-200 px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-700"
+              >
+                View
+              </Link>
+              <Link
+                to={`/jobs/${encodeURIComponent(listingId)}?intent=apply`}
+                className="rounded-full bg-slate-900 px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-white"
+              >
+                Apply
+              </Link>
+              <button
+                type="button"
+                disabled={!canContact}
+                onClick={() =>
+                  canContact
+                    ? handleMessage({
+                        id: contactId,
+                        name: contactName,
+                        avatar: job?.clientAvatar || null,
+                        subtitle: 'Employer'
+                      })
+                    : undefined
+                }
+                className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Contact
+              </button>
+            </div>
+          </article>
+        );
+      }
+
+      const gig = entry.item as any;
+      const contactId = String(gig?.freelancerId || '').trim();
+      const contactName = String(gig?.freelancerName || 'Freelancer').trim() || 'Freelancer';
+      const canContact = Boolean(contactId);
+      const listingImageKey = `gig:${listingId}`;
+      const listingImageUrl = resolveListingImageUrl(gig);
+      const hasListingImage = Boolean(listingImageUrl) && !listingImageErrors[listingImageKey];
+      return (
+        <article
+          key={`feed_listing_gig_${slotIndex}_${listingId}`}
+          className="rounded-3xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-white p-4 shadow-sm"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-600">Featured Gig</p>
+            {gig?.isFeatured ? (
+              <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Promoted</span>
+            ) : null}
+          </div>
+          <Link to={`/gigs/${encodeURIComponent(listingId)}`} className="mt-2 block">
+            <p className="text-base font-semibold text-slate-900 line-clamp-2">{gig?.title || 'Service offer'}</p>
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+              <span>{contactName}</span>
+              {isFreelancerVerified(gig) ? <VerifiedBadge size={16} level={getFreelancerVerificationLevel(gig)} className="ml-1" /> : null}
+              <ProBadge role="freelancer" isPro={gig?.freelancerIsPro} />
+              {gig?.category ? <span>- {gig.category}</span> : null}
+            </p>
+            <p className="mt-2 text-sm text-slate-600">From {formatListingAmount(gig?.price, '$0')}</p>
+          </Link>
+          <Link to={`/gigs/${encodeURIComponent(listingId)}`} className="mt-3 block overflow-hidden rounded-2xl border border-emerald-100 bg-white">
+            {hasListingImage ? (
+              <img
+                src={listingImageUrl}
+                alt={gig?.title || 'Featured gig'}
+                className="h-40 w-full object-cover"
+                loading="lazy"
+                onError={() => markListingImageError(listingImageKey)}
+              />
+            ) : (
+              <div className="flex h-40 w-full items-center justify-center gap-2 bg-gradient-to-br from-emerald-100 via-white to-slate-50 text-emerald-600">
+                <ImageIcon className="h-5 w-5" />
+                <span className="text-xs font-semibold uppercase tracking-wide">Gig image</span>
+              </div>
+            )}
+          </Link>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <Link
+              to={`/gigs/${encodeURIComponent(listingId)}`}
+              className="rounded-full border border-slate-200 px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-700"
+            >
+              View
+            </Link>
+            <Link
+              to={`/gigs/${encodeURIComponent(listingId)}?intent=buy`}
+              className="rounded-full bg-slate-900 px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-white"
+            >
+              Buy
+            </Link>
+            <button
+              type="button"
+              disabled={!canContact}
+              onClick={() =>
+                canContact
+                  ? handleMessage({
+                      id: contactId,
+                      name: contactName,
+                      avatar: gig?.freelancerAvatar || null,
+                      subtitle: 'Freelancer'
+                    })
+                  : undefined
+              }
+              className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Contact
+            </button>
+          </div>
+        </article>
+      );
+    },
+    [handleMessage, listingImageErrors, markListingImageError]
+  );
+
+  const renderAttachments = (postId: string, attachments?: FeedPost['attachments']) => {
     if (!attachments?.length) return null;
+    const isSingleAttachment = attachments.length === 1;
+    const mediaPreviewHeightClass = isSingleAttachment ? 'h-56 md:h-64' : 'h-44';
     return (
-      <div className="mt-3 grid gap-3 md:grid-cols-2">
+      <div className={`mt-3 grid gap-3 ${isSingleAttachment ? 'grid-cols-1' : 'md:grid-cols-2'}`}>
         {attachments.map((media) => {
           const type = inferMediaType(media || {});
-          const preview = toPreviewMedia(media);
           const durationLabel = formatMediaDuration((media as any)?.duration);
           if (type === 'video') {
             return (
               <button
                 key={media.id || media.url}
                 type="button"
-                onClick={() => preview && setPreviewMedia(preview)}
-                className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
+                onClick={() => openPostDetail(postId)}
+                className="group relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
               >
                 {(media as any)?.thumbnailUrl ? (
-                  <img src={(media as any).thumbnailUrl} alt={media.name || 'Video preview'} className="h-44 w-full object-cover" />
+                  <img
+                    src={(media as any).thumbnailUrl}
+                    alt={media.name || 'Video preview'}
+                    className={`${mediaPreviewHeightClass} w-full object-cover`}
+                  />
                 ) : (
-                  <div className="flex h-44 w-full items-center justify-center bg-slate-200">
+                  <div className={`flex ${mediaPreviewHeightClass} w-full items-center justify-center bg-slate-200`}>
                     <Video className="h-10 w-10 text-slate-500" />
                   </div>
                 )}
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20">
-                  <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-slate-800">Play</div>
+                  <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-slate-800">Open Post</div>
                 </div>
                 {durationLabel && (
                   <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
@@ -2489,10 +3051,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
               <button
                 key={media.id || media.url}
                 type="button"
-                onClick={() => preview && setPreviewMedia(preview)}
-                className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
+                onClick={() => openPostDetail(postId)}
+                className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
               >
-                <img src={media.url} alt={media.name || 'Post media'} className="h-44 w-full object-cover" />
+                <img src={media.url} alt={media.name || 'Post media'} className={`${mediaPreviewHeightClass} w-full object-cover`} />
               </button>
             );
           }
@@ -2501,7 +3063,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
             <button
               key={media.id || media.url}
               type="button"
-              onClick={() => preview && setPreviewMedia(preview)}
+              onClick={() => openPostDetail(postId)}
               className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-left text-xs text-slate-600 hover:bg-slate-100"
             >
               <p className="truncate font-semibold text-slate-700">{media.name || media.url?.split('/').pop() || 'Attachment'}</p>
@@ -3027,6 +3589,25 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                         {hashtagsEnabled ? '#tags' : '#tags (disabled by admin)'} and{' '}
                         {mentionsEnabled ? '@mentions' : '@mentions (disabled by admin)'} supported
                       </div>
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                        <div className="flex flex-wrap gap-2">
+                          {postAiActions.map((action) => (
+                            <button
+                              key={action.mode}
+                              type="button"
+                              onClick={() => void runPostAi(action.mode)}
+                              disabled={aiLoading || posting}
+                              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              <Sparkles className="h-3.5 w-3.5" />
+                              {aiRunningMode === action.mode && aiLoading ? 'Working...' : action.label}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-[11px] text-slate-500">
+                          When AI is used, content remains user-authored.
+                        </p>
+                      </div>
                       <div className="grid gap-3 md:grid-cols-2">
                         <input
                           value={postDraft.title}
@@ -3199,7 +3780,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   No posts found. Follow creators or switch to Discover to explore.
                 </div>
               ) : (
-                feedItems.map((post) => {
+                feedItems.map((post, postIndex) => {
                   const isEditing = editingPostId === post.id && editingDraft;
                   const commentCount = commentCounts[post.id] ?? post.interactions?.comments ?? 0;
                   const resolvedAuthor = {
@@ -3219,10 +3800,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   const initialIsFollowing =
                     followTargetId ? (followStateMap[followTargetId] ?? post.viewer?.isFollowingAuthor) : undefined;
                   return (
-                    <article
-                      key={post.id}
-                      className={`rounded-3xl border border-white/70 bg-white shadow-sm rise-fade ${postDensity === 'compact' ? 'p-4' : 'p-6'}`}
-                    >
+                    <React.Fragment key={post.id}>
+                      <article
+                        className={`rounded-3xl border border-white/70 bg-white shadow-sm rise-fade ${postDensity === 'compact' ? 'p-4' : 'p-6'}`}
+                      >
                       <PostHeader
                         author={resolvedAuthor}
                         createdAt={post.createdAt}
@@ -3401,20 +3982,39 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                       ) : (
                         <>
                           <div className="mt-3 space-y-2">
-                            {post.title && <h3 className="text-lg font-semibold text-slate-900">{post.title}</h3>}
+                            {post.title ? (
+                              <button
+                                type="button"
+                                onClick={() => openPostDetail(post.id)}
+                                className="text-left text-lg font-semibold text-slate-900 hover:text-blue-700 hover:underline"
+                              >
+                                {post.title}
+                              </button>
+                            ) : null}
                             {focusPostId === post.id && focusMentionToken ? (
                               <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
                                 You were mentioned in this post.
                               </div>
                             ) : null}
-                            <p className="text-sm text-slate-700">
+                            <div
+                              className="cursor-pointer text-sm text-slate-700"
+                              role="button"
+                              tabIndex={0}
+                              onClick={(event) => openPostFromText(event, post.id)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  openPostDetail(post.id);
+                                }
+                              }}
+                            >
                               <MentionText
                                 text={post.content}
                                 mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
                                 viewerId={user?.id}
                                 viewerUsername={user?.username}
                               />
-                            </p>
+                            </div>
                             {post.tags?.length ? (
                               <div className="flex flex-wrap gap-2">
                                 {post.tags.map((tag) => (
@@ -3424,7 +4024,34 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                                 ))}
                               </div>
                             ) : null}
-                            {renderAttachments(post.attachments)}
+                            {post.aiInsightGenerated && post.aiInsightText ? (
+                              <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                                    <Sparkles className="h-3.5 w-3.5" />
+                                    AI Insight
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setInsightCollapsedByPost((prev) => ({
+                                        ...prev,
+                                        [post.id]: !(prev[post.id] ?? true)
+                                      }))
+                                    }
+                                    className="text-[11px] font-semibold text-emerald-700 hover:underline"
+                                  >
+                                    {(insightCollapsedByPost[post.id] ?? true) ? 'Show' : 'Hide'}
+                                  </button>
+                                </div>
+                                {!(insightCollapsedByPost[post.id] ?? true) ? (
+                                  <p className="mt-2 text-sm text-emerald-900">
+                                    {post.aiInsightText}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            {renderAttachments(post.id, post.attachments)}
                             <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                               {post.topic ? <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">Topic: {post.topic}</span> : null}
                               {post.location ? <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">Location: {post.location}</span> : null}
@@ -3447,7 +4074,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           />
                         </>
                       )}
-                    </article>
+                      </article>
+                      {showListingCards && (postIndex + 1) % listingCardEveryPosts === 0 ? (
+                        (() => {
+                          const slotIndex = Math.floor((postIndex + 1) / listingCardEveryPosts) - 1;
+                          const entry = listingCardEntries[slotIndex];
+                          if (!entry) return null;
+                          return renderInlineListingCard(entry, slotIndex);
+                        })()
+                      ) : null}
+                    </React.Fragment>
                   );
                 })
               )}
@@ -3753,9 +4389,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   ) : (
                     jobs.map((job) => (
                       <Link key={job.id} to={`/jobs/${job.id}`} className="block rounded-2xl border border-slate-200 p-3 hover:border-slate-300">
-                        <p className="text-sm font-semibold text-slate-800">{job.title}</p>
+                        <p className="text-sm font-semibold text-slate-800 break-words [overflow-wrap:anywhere]">{job.title}</p>
                         <p className="text-sm text-slate-500 flex items-center gap-2 flex-wrap">
-                          <span>{job.clientName || 'Employer'}</span>
+                          <span className="break-words [overflow-wrap:anywhere]">{job.clientName || 'Employer'}</span>
+                          {isClientVerified(job) ? <VerifiedBadge size={16} level={getClientVerificationLevel(job)} className="ml-1" /> : null}
                           <ProBadge role="employer" isPro={(job as any)?.clientIsPro} />
                           <span>· {job.category}</span>
                         </p>
@@ -3832,9 +4469,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   ) : (
                     gigs.map((gig: any) => (
                       <Link key={gig.id} to={`/gigs/${gig.id}`} className="block rounded-2xl border border-slate-200 p-3 hover:border-slate-300">
-                        <p className="text-sm font-semibold text-slate-800">{gig.title}</p>
+                        <p className="text-sm font-semibold text-slate-800 break-words [overflow-wrap:anywhere]">{gig.title}</p>
                         <p className="text-sm text-slate-500 flex items-center gap-2 flex-wrap">
-                          <span>{gig.freelancerName || 'Freelancer'}</span>
+                          <span className="break-words [overflow-wrap:anywhere]">{gig.freelancerName || 'Freelancer'}</span>
+                          {isFreelancerVerified(gig) ? <VerifiedBadge size={16} level={getFreelancerVerificationLevel(gig)} className="ml-1" /> : null}
                           <ProBadge role="freelancer" isPro={(gig as any)?.freelancerIsPro} />
                           <span>· {gig.category}</span>
                         </p>
@@ -3894,6 +4532,96 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
           </aside>
         </div>
       </div>
+
+      {aiSuggestionOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-6">
+          <div className="w-full max-w-4xl max-h-[92dvh] overflow-y-auto rounded-2xl bg-white p-4 sm:p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">AI Draft Suggestion</h3>
+                <p className="text-xs text-slate-500">
+                  {aiSuggestionMode
+                    ? `Mode: ${postAiActions.find((entry) => entry.mode === aiSuggestionMode)?.label || aiSuggestionMode}`
+                    : 'Review before applying'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeAiSuggestionModal}
+                className="rounded-full border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAiCompareView('compare')}
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  aiCompareView === 'compare'
+                    ? 'bg-slate-900 text-white'
+                    : 'border border-slate-200 text-slate-700'
+                }`}
+              >
+                Compare version
+              </button>
+              <button
+                type="button"
+                onClick={() => setAiCompareView('ai')}
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  aiCompareView === 'ai'
+                    ? 'bg-slate-900 text-white'
+                    : 'border border-slate-200 text-slate-700'
+                }`}
+              >
+                AI only
+              </button>
+            </div>
+
+            {aiCompareView === 'compare' ? (
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Original</div>
+                  <pre className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{aiOriginalText || '(empty)'}</pre>
+                </div>
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">AI Version</div>
+                  <pre className="mt-2 whitespace-pre-wrap text-sm text-emerald-900">{aiSuggestion || '(empty)'}</pre>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
+                <pre className="whitespace-pre-wrap text-sm text-emerald-900">{aiSuggestion || '(empty)'}</pre>
+              </div>
+            )}
+
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeAiSuggestionModal}
+                className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={applyAiSuggestionInsert}
+                className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700"
+              >
+                Insert Below
+              </button>
+              <button
+                type="button"
+                onClick={applyAiSuggestionReplace}
+                className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white"
+              >
+                Replace
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <FilePickerModal
         open={postPickerOpen}
@@ -4507,3 +5235,4 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
 };
 
 export default MemberHomeSection;
+

@@ -8,6 +8,8 @@ import { useCart } from '../context/CartContext';
 import { useNotification } from '../context/NotificationContext';
 import { Gig } from '../types';
 import ProBadge from './ProBadge';
+import VerifiedBadge from './common/VerifiedBadge';
+import { resolveVerificationLevel } from '../utils/verification';
 import { resolveAssetUrl } from '../utils/assetUrl';
 
 interface GigCardProps {
@@ -29,6 +31,19 @@ const GigCard: React.FC<GigCardProps> = ({ gig }) => {
     gig.image || (Array.isArray(gig.images) ? gig.images[0] : '') || ''
   );
   const freelancerAvatar = resolveAssetUrl(gig.freelancerAvatar || '');
+  const isFreelancerVerified = Boolean(
+    (gig as any)?.freelancerIsVerified ?? (gig as any)?.freelancer_is_verified ?? (gig as any)?.freelancerVerified
+  );
+  const freelancerVerificationLevel = resolveVerificationLevel({
+    verificationLevel:
+      (gig as any)?.freelancerVerificationLevel ||
+      (gig as any)?.freelancer_verification_level ||
+      (gig as any)?.freelancerBadgeType ||
+      (gig as any)?.freelancer_badge_type,
+    isVerified: isFreelancerVerified,
+    isPro: (gig as any)?.freelancerIsPro,
+    type: (gig as any)?.freelancerType || 'user'
+  });
   const liked = isFavorite('gig', gig.id);
   const inCart = isInCart(gig.id);
 
@@ -106,6 +121,7 @@ const GigCard: React.FC<GigCardProps> = ({ gig }) => {
             )}
             <div className="flex items-center gap-2 min-w-0">
               <span className="text-xs font-medium text-gray-700 truncate">{gig.freelancerName}</span>
+              {freelancerVerificationLevel ? <VerifiedBadge size={16} level={freelancerVerificationLevel} className="ml-1" /> : null}
               <ProBadge role="freelancer" isPro={(gig as any)?.freelancerIsPro} />
             </div>
           </div>

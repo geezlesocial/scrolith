@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useCurrency } from '../context/CurrencyContext';
-import { Star, Check, Clock, User, Heart, Share2, Flag, MessageCircle, Info, ChevronRight, Zap, RefreshCw, ArrowRight, ShieldAlert, ChevronDown, CheckCircle, HelpCircle, Sparkles, Loader2, PlayCircle, FileText, Download } from 'lucide-react';
+import { Star, Check, Clock, Heart, Share2, Flag, ChevronRight, Zap, RefreshCw, ArrowRight, ShieldAlert, ChevronDown, CheckCircle, Sparkles, Loader2, PlayCircle, FileText, Download } from 'lucide-react';
 import ProBadge from '../components/ProBadge';
 import { useNotification } from '../context/NotificationContext';
 import { ContractService } from '../services/contract';
@@ -58,6 +58,7 @@ const GigDetail = () => {
   const [gigExperience, setGigExperience] = useState<any>(defaultGigExperience);
   const [showShareModal, setShowShareModal] = useState(false);
   const [gigChatOpen, setGigChatOpen] = useState(false);
+  const [gigChatWidgetDismissed, setGigChatWidgetDismissed] = useState(false);
   const [gigChatDraft, setGigChatDraft] = useState('');
   const [gigChatSending, setGigChatSending] = useState(false);
   const [gigChatConversationId, setGigChatConversationId] = useState<string | null>(null);
@@ -65,6 +66,9 @@ const GigDetail = () => {
   const [gigChatLoading, setGigChatLoading] = useState(false);
   const [gigChatError, setGigChatError] = useState<string | null>(null);
   const [gigChatReplyTo, setGigChatReplyTo] = useState<Message | null>(null);
+  const [isCompactViewport, setIsCompactViewport] = useState(() =>
+      typeof window !== 'undefined' ? window.matchMedia('(max-width: 768px)').matches : false
+  );
   const [showHourlyRequestModal, setShowHourlyRequestModal] = useState(false);
   const [hourlyRequestDraft, setHourlyRequestDraft] = useState('');
   const [hourlyRateDraft, setHourlyRateDraft] = useState(25);
@@ -290,9 +294,23 @@ const GigDetail = () => {
   }, []);
 
   useEffect(() => {
+      if (typeof window === 'undefined') return;
+      const media = window.matchMedia('(max-width: 768px)');
+      const syncViewport = () => setIsCompactViewport(media.matches);
+      syncViewport();
+      if (typeof media.addEventListener === 'function') {
+          media.addEventListener('change', syncViewport);
+          return () => media.removeEventListener('change', syncViewport);
+      }
+      media.addListener(syncViewport);
+      return () => media.removeListener(syncViewport);
+  }, []);
+
+  useEffect(() => {
       setGigChatConversationId(null);
       setGigChatDraft('');
       setGigChatOpen(false);
+      setGigChatWidgetDismissed(false);
       setGigChatMessages([]);
       setGigChatError(null);
       setGigChatReplyTo(null);
@@ -456,6 +474,7 @@ const GigDetail = () => {
           showNotification('info', 'Unavailable', 'You cannot open buyer chat on your own gig.');
           return;
       }
+      setGigChatWidgetDismissed(false);
       if (gigExperience?.inlineChatEnabled !== false) {
           if (!user && gigExperience?.allowGuestOpenChat === false) {
               navigate('/auth/login');
@@ -474,6 +493,12 @@ const GigDetail = () => {
       } catch (error: any) {
           showNotification('error', 'Message failed', error?.message || 'Unable to start conversation.');
       }
+  };
+
+  const dismissGigChatWidget = () => {
+      setGigChatOpen(false);
+      setGigChatReplyTo(null);
+      setGigChatWidgetDismissed(true);
   };
 
   const handleQuickPrompt = (value: string) => {
@@ -839,8 +864,18 @@ const GigDetail = () => {
   const quickPrompts = Array.isArray(gigExperience?.quickPrompts) ? gigExperience.quickPrompts : [];
   const sellerId = gig?.freelancerId || gig?.user?.id;
   const isOwnGig = Boolean(user?.id && sellerId && user.id === sellerId);
-  const showGigChatBar = gigExperience?.enabled !== false && gigExperience?.chatBarEnabled !== false && !isOwnGig;
+  const showGigChatBar =
+      gigExperience?.enabled !== false &&
+      gigExperience?.chatBarEnabled !== false &&
+      !isOwnGig &&
+      !gigChatWidgetDismissed;
   const showSellerMeta = gigExperience?.showSellerMeta !== false;
+  const gigChatDockClass = isCompactViewport
+      ? 'fixed bottom-[calc(env(safe-area-inset-bottom,0px)+5rem)] left-3 right-3 z-[72]'
+      : 'fixed bottom-6 left-6 z-[61]';
+  const gigChatPanelClass = isCompactViewport
+      ? 'fixed bottom-[calc(env(safe-area-inset-bottom,0px)+5rem)] left-3 right-3 z-[73] overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl'
+      : 'fixed bottom-4 left-4 z-[62] w-[92vw] max-w-md overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl';
   const contractStatus = String((hourlyContract as any)?.status || '').toLowerCase();
   const contractHours = contractNumber((hourlyContract as any)?.totalHoursLogged ?? (hourlyContract as any)?.total_hours_logged, 0);
   const contractPending = contractNumber((hourlyContract as any)?.earningsPending ?? (hourlyContract as any)?.earnings_pending, 0);
@@ -1038,7 +1073,7 @@ const GigDetail = () => {
                                        </div>
                                        <div className="flex-1 min-w-0">
                                            <p className="text-sm font-medium text-gray-900 truncate">Document {i + 1}</p>
-                                           <p className="text-xs text-gray-500">PDF • Click to view</p>
+                                           <p className="text-xs text-gray-500">PDF â€¢ Click to view</p>
                                        </div>
                                        <Download className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
                                    </a>
@@ -1070,7 +1105,7 @@ const GigDetail = () => {
                                        <div>
                                            <p className="font-semibold text-gray-900">{req.question || `Requirement ${i + 1}`}</p>
                                            <p className="text-xs text-gray-500 mt-1">
-                                               {req.type === 'file' ? 'File upload' : 'Text response'} • {req.required ? 'Required' : 'Optional'}
+                                               {req.type === 'file' ? 'File upload' : 'Text response'} â€¢ {req.required ? 'Required' : 'Optional'}
                                            </p>
                                        </div>
                                        {req.type === 'file' && (
@@ -1081,7 +1116,7 @@ const GigDetail = () => {
                                        <div className="mt-3 text-xs text-gray-500">
                                            <span className="font-semibold text-gray-600">Accepted:</span>{' '}
                                            {(Array.isArray(req.fileTypes) ? req.fileTypes : []).join(', ') || 'Any'}
-                                           {req.maxFiles ? ` • Max files: ${req.maxFiles}` : ''}
+                                           {req.maxFiles ? ` â€¢ Max files: ${req.maxFiles}` : ''}
                                        </div>
                                    )}
                                </div>
@@ -1102,7 +1137,7 @@ const GigDetail = () => {
                                        <p className="text-sm text-gray-500 mt-1">{extra.description || ''}</p>
                                        <p className="text-xs text-gray-400 mt-2">
                                            Applies to: {extra.applies_to || extra.appliesTo || 'all'}
-                                           {extra.additional_days || extra.additionalDays ? ` • +${extra.additional_days ?? extra.additionalDays} day(s)` : ''}
+                                           {extra.additional_days || extra.additionalDays ? ` â€¢ +${extra.additional_days ?? extra.additionalDays} day(s)` : ''}
                                        </p>
                                    </div>
                                    <div className="text-sm font-bold text-gray-900">
@@ -1552,11 +1587,20 @@ const GigDetail = () => {
     {showGigChatBar && (
         <>
             {!gigChatOpen && (
-                <button
-                    type="button"
-                    onClick={handleContact}
-                    className="fixed bottom-6 left-6 z-[61] flex items-center gap-3 rounded-full border border-gray-200 bg-white px-3 py-2 pr-5 shadow-xl hover:shadow-2xl"
-                >
+                <div className={gigChatDockClass}>
+                    <button
+                        type="button"
+                        onClick={dismissGigChatWidget}
+                        aria-label="Close message widget"
+                        className="absolute -right-2 -top-2 rounded-full border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-500 shadow-sm hover:bg-gray-50"
+                    >
+                        x
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleContact}
+                        className={`flex items-center gap-3 rounded-full border border-gray-200 bg-white px-3 py-2 shadow-xl hover:shadow-2xl ${isCompactViewport ? 'w-full pr-4' : 'pr-5'}`}
+                    >
                     {gig.freelancerAvatar ? (
                         <img
                             src={gig.freelancerAvatar}
@@ -1566,20 +1610,21 @@ const GigDetail = () => {
                     ) : (
                         <div className="h-11 w-11 rounded-full bg-gray-200" />
                     )}
-                    <div className="text-left">
+                    <div className="min-w-0 text-left">
                         <p className="text-2xs text-gray-500">Message</p>
-                        <p className="text-sm font-semibold text-gray-900">{gig.freelancerName}</p>
+                        <p className="truncate text-sm font-semibold text-gray-900">{gig.freelancerName}</p>
                         {showSellerMeta ? (
-                            <p className="text-xs text-gray-500">{sellerStatus} • Avg. response: {sellerResponseTime}</p>
+                            <p className="truncate text-xs text-gray-500">{sellerStatus} - Avg. response: {sellerResponseTime}</p>
                         ) : null}
                     </div>
-                </button>
+                    </button>
+                </div>
             )}
 
             {gigChatOpen && (
-                <div className="fixed bottom-4 left-4 z-[62] w-[92vw] max-w-md overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+                <div className={gigChatPanelClass}>
                     <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-                        <div className="flex items-center gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
                             {gig.freelancerAvatar ? (
                                 <img
                                     src={gig.freelancerAvatar}
@@ -1589,23 +1634,34 @@ const GigDetail = () => {
                             ) : (
                                 <div className="h-10 w-10 rounded-full bg-gray-200" />
                             )}
-                            <div>
-                                <p className="text-base font-semibold text-gray-900">{gig.freelancerName}</p>
+                            <div className="min-w-0">
+                                <p className="truncate text-base font-semibold text-gray-900">{gig.freelancerName}</p>
                                 {showSellerMeta ? (
-                                    <p className="text-xs text-gray-500">{sellerStatus} • Avg. response time: {sellerResponseTime}</p>
+                                    <p className="truncate text-xs text-gray-500">{sellerStatus} â€¢ Avg. response time: {sellerResponseTime}</p>
                                 ) : null}
                             </div>
                         </div>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setGigChatOpen(false);
-                                setGigChatReplyTo(null);
-                            }}
-                            className="rounded-full p-2 text-gray-400 hover:bg-gray-100"
-                        >
-                            x
-                        </button>
+                        <div className="flex items-center gap-1">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setGigChatOpen(false);
+                                    setGigChatReplyTo(null);
+                                }}
+                                aria-label="Minimize message widget"
+                                className="rounded-full px-2 py-1 text-sm font-semibold text-gray-500 hover:bg-gray-100"
+                            >
+                                -
+                            </button>
+                            <button
+                                type="button"
+                                onClick={dismissGigChatWidget}
+                                aria-label="Close message widget"
+                                className="rounded-full p-2 text-gray-400 hover:bg-gray-100"
+                            >
+                                x
+                            </button>
+                        </div>
                     </div>
 
                     <div className="space-y-3 px-4 py-4">
@@ -1854,4 +1910,5 @@ const GigDetail = () => {
 };
 
 export default GigDetail;
+
 

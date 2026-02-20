@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { walletApi, WalletInfo, TransactionsResponse } from '../../services/wallet';
+import { walletApi, WalletInfo, TransactionsResponse, WalletService } from '../../services/wallet';
 import { withdrawalsApi, WithdrawalRequest, CreateWithdrawalData, PayoutAccountDetails, PayoutMethodOption } from '../../services/withdrawals';
 import { getDefaultCurrencyForCountry, normalizeCountry } from '../../utils/countryCurrency';
 import { useNotification } from '../../context/NotificationContext';
@@ -85,6 +85,7 @@ export const Wallet: React.FC<WalletProps> = ({ role = 'freelancer' }) => {
   const [walletInfo, setWalletInfo] = useState<WalletInfo | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([]);
+  const [commissionSettings, setCommissionSettings] = useState<any | null>(null);
   const [stripePayoutStatus, setStripePayoutStatus] = useState<StripePayoutStatusResponse | null>(null);
   const [autoPayoutSettings, setAutoPayoutSettings] = useState<StripeAutoPayoutSettingsResponse | null>(null);
   const [payoutMethods, setPayoutMethods] = useState<PayoutMethodOption[]>([]);
@@ -199,6 +200,15 @@ export const Wallet: React.FC<WalletProps> = ({ role = 'freelancer' }) => {
     }
   };
 
+  const loadCommissionSettings = async () => {
+    try {
+      const data = await WalletService.getCommissionSettings();
+      setCommissionSettings(data || null);
+    } catch {
+      setCommissionSettings(null);
+    }
+  };
+
   const loadStripePayoutStatus = async () => {
     setStripeLoading(true);
     try {
@@ -274,6 +284,7 @@ export const Wallet: React.FC<WalletProps> = ({ role = 'freelancer' }) => {
         loadWithdrawals(),
         loadPayoutAccount(),
         loadPayoutMethods(),
+        loadCommissionSettings(),
         loadStripePayoutStatus(),
         loadAutoPayoutSettings()
       ]);
@@ -441,6 +452,15 @@ export const Wallet: React.FC<WalletProps> = ({ role = 'freelancer' }) => {
     : walletBaseAvailable * payoutRate;
   const formatPayout = (amount: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: defaultCurrencyCode }).format(Number.isFinite(amount) ? amount : 0);
+  const freelancerFeeType =
+    String(commissionSettings?.freelancerFeeType ?? commissionSettings?.freelancer_fee_type ?? 'percentage').toLowerCase() === 'fixed'
+      ? 'fixed'
+      : 'percentage';
+  const freelancerFeeValue = Number(commissionSettings?.freelancerFeeValue ?? commissionSettings?.freelancer_fee_value ?? 0);
+  const freelancerFeeLabel =
+    freelancerFeeType === 'percentage'
+      ? `${Number.isFinite(freelancerFeeValue) ? freelancerFeeValue : 0}%`
+      : formatPayout(Number.isFinite(freelancerFeeValue) ? freelancerFeeValue : 0);
 
   const handleWithdrawalRequest = async () => {
     const amount = parseFloat(withdrawAmount);
@@ -1382,7 +1402,7 @@ export const Wallet: React.FC<WalletProps> = ({ role = 'freelancer' }) => {
             <div className="flex items-start space-x-2">
               <AlertTriangle className="w-4 h-4 text-blue-600 mt-0.5" />
               <div className="text-sm text-blue-700">
-                <p className="font-medium">Withdrawal Fee: 2.5%</p>
+                <p className="font-medium">Freelancer Commission (on clearance): {freelancerFeeLabel}</p>
                 <p>Processing time: 3-5 business days</p>
               </div>
             </div>

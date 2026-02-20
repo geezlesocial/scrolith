@@ -1,13 +1,10 @@
 // src/dashboard/admin/Overview.tsx
 import React, { useCallback, useEffect, useState } from 'react';
-// Import the whole library instead of individual icons to avoid long static imports and conflicts
-import * as LucideIcons from 'lucide-react';
+import { Activity, Clock, DollarSign, Lock, PieChart, Users } from 'lucide-react';
 import { useCurrency } from '../../context/CurrencyContext';
 import { WalletService } from '../../services/wallet';
 import { PlatformFinancials } from '../../types';
 import { useSocket } from '../../context/SocketContext';
-// Type the imported icons
-type LucideIconComponent = React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
 
 interface StatsCardProps {
   title: string;
@@ -45,46 +42,12 @@ const StatsCard: React.FC<StatsCardProps> = ({ title, value, change, icon: Icon,
   );
 };
 
-// Create a factory function that returns icon components
-const createIconComponent = (type: string, style: 'outline' | 'filled' = 'outline') => {
-  // Convert kebab-case or camelCase type to PascalCase for Lucide icon names
-  const pascalCaseType = type
-    .split(/[-_\s]/)
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join('');
-
-  // Try to find the icon component in the imported library
-  const IconComponent = (LucideIcons as Record<string, LucideIconComponent>)[pascalCaseType];
-
-  if (IconComponent) {
-    // Return a component that wraps the icon
-    const DynamicIcon: React.FC<{ size?: number; className?: string }> = ({ size = 24, className = '' }) => (
-      <IconComponent
-        size={size}
-        className={`${style === 'filled' ? 'fill-current' : ''} ${className}`}
-      />
-    );
-    return DynamicIcon;
-  } else {
-    console.warn(`Icon '${type}' (converted to '${pascalCaseType}') not found in lucide-react, using default.`);
-    
-    const FallbackIcon: React.FC<{ size?: number; className?: string }> = ({ size = 24, className = '' }) => (
-      <LucideIcons.Star 
-        size={size} 
-        className={`${style === 'filled' ? 'fill-current' : ''} ${className}`} 
-      />
-    );
-    return FallbackIcon;
-  }
-};
-
-// Pre-create icon components to avoid recreating them on every render
-const DollarSignIcon = createIconComponent('dollar-sign', 'outline');
-const LockIcon = createIconComponent('lock', 'outline');
-const ClockIcon = createIconComponent('clock', 'outline');
-const UsersIcon = createIconComponent('users', 'outline');
-const ActivityIcon = createIconComponent('activity', 'outline');
-const PieChartIcon = createIconComponent('pie-chart', 'outline');
+const DollarSignIcon = DollarSign;
+const LockIcon = Lock;
+const ClockIcon = Clock;
+const UsersIcon = Users;
+const ActivityIcon = Activity;
+const PieChartIcon = PieChart;
 
 type ActivityRecord = {
   date: string;

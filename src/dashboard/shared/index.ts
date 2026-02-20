@@ -9,4 +9,3 @@ export { RealtimeProvider, useRealtime } from './RealtimeProvider';
 export { UploadedFilesView } from './UploadedFilesView';
 export { default as UnreadCounter } from './UnreadCounter';
 export { Wallet } from './Wallet';
-export { KYCVerification } from './KYCVerification';

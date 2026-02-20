@@ -1,5 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlignCenter, AlignLeft, AlignRight, Edit3, Eye, Image as ImageIcon, Loader2, MoreVertical, Plus, Trash2, Type, Video, X } from 'lucide-react';
+import {
+  AlignCenterIcon as AlignCenter,
+  AlignLeftIcon as AlignLeft,
+  AlignRightIcon as AlignRight,
+  Edit3Icon as Edit3,
+  EyeIcon as Eye,
+  ImageIcon,
+  Loader2Icon as Loader2,
+  MoreVerticalIcon as MoreVertical,
+  PlusIcon as Plus,
+  Trash2Icon as Trash2,
+  TypeIcon as Type,
+  VideoIcon as Video,
+  XIcon as X
+} from '../../../components/icons/ShellIcons';
 import { useNavigate } from 'react-router-dom';
 
 import { useUser } from '../../../context/UserContext';

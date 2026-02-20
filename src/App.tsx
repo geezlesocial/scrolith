@@ -26,7 +26,7 @@ import { SocketProvider } from './context/SocketContext';
 import { PreloaderProvider } from './context/PreloaderContext';
 import { I18nProvider } from './i18n/I18nProvider';
 import GlobalPreloader from './components/GlobalPreloader';
-import { Loader, AlertTriangle } from 'lucide-react';
+import { AlertTriangleIcon, LoaderIcon } from './components/icons/ShellIcons';
 import IntegrationsManager from './components/IntegrationsManager';
 import { registerDeepLinks } from './mobile/deeplinks';
 import { initPushNotifications } from './mobile/push';
@@ -75,7 +75,7 @@ const AffiliateProgram = React.lazy(() => import('./pages/AffiliateProgram'));
 const Favorites = React.lazy(() => import('./pages/Favorites'));
 const Cart = React.lazy(() => import('./pages/Cart'));
 const SettingsModule = React.lazy(() => import('./dashboard/shared/SettingsModule'));
-const PostPermalink = React.lazy(() => import('./pages/PostPermalink'));
+const PostDetailView = React.lazy(() => import('./pages/PostDetailView'));
 const DashboardRouter = React.lazy(() =>
   import('./dashboard/DashboardRouter').then((module) => ({ default: module.DashboardRouter }))
 );
@@ -513,7 +513,7 @@ const AppContent = () => {
           <Suspense fallback={
             <div className="h-screen flex items-center justify-center bg-white">
               <div className="text-center">
-                <Loader className="w-10 h-10 animate-spin text-blue-600 mx-auto mb-4" />
+                <LoaderIcon className="w-10 h-10 animate-spin text-blue-600 mx-auto mb-4" />
                 <p className="text-gray-500 font-medium">Loading Scrolith...</p>
               </div>
             </div>
@@ -598,10 +598,10 @@ const AppContent = () => {
               
               {/* Community Platform Routes (auth required) */}
               <Route
-                path="/post/:id"
+                path="/post/:postId"
                 element={
                   <ProtectedRoute>
-                    <PostPermalink />
+                    <PostDetailView />
                   </ProtectedRoute>
                 }
               />
@@ -766,7 +766,7 @@ const AppContent = () => {
           <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
             <div className="flex items-center gap-3">
               <div className="rounded-2xl bg-slate-900 p-3 text-white">
-                <AlertTriangle className="h-5 w-5" />
+                <AlertTriangleIcon className="h-5 w-5" />
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-900">{biometryLabel} required</p>

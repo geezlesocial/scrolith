@@ -393,8 +393,46 @@ class CommunityService {
     if (params?.scope) search.set('scope', params.scope);
     if (params?.topic) search.set('topic', params.topic);
     if (params?.region) search.set('region', params.region);
-    const endpoint = `/community/feed${search.toString() ? `?${search.toString()}` : ''}`;
-    return this.get(endpoint);
+    const query = search.toString();
+    const endpoint = `/community/feed${query ? `?${query}` : ''}`;
+
+    try {
+      return await this.get(endpoint);
+    } catch (error: any) {
+      const status = Number(error?.response?.status || 0);
+      const shouldTryFallback = status === 404 || status === 405 || status === 501;
+      if (!shouldTryFallback) {
+        throw error;
+      }
+
+      const fallbackEndpoints = [
+        `/feed${query ? `?${query}` : ''}`,
+        `/community/posts${query ? `?${query}` : ''}`
+      ];
+
+      for (const fallback of fallbackEndpoints) {
+        try {
+          const data = await this.get(fallback);
+          if (Array.isArray(data)) {
+            return { items: data, nextCursor: null };
+          }
+          if (Array.isArray(data?.items)) {
+            return data;
+          }
+          if (Array.isArray(data?.posts)) {
+            return { ...data, items: data.posts, nextCursor: data?.nextCursor || null };
+          }
+          if (Array.isArray(data?.data)) {
+            return { ...data, items: data.data, nextCursor: data?.nextCursor || null };
+          }
+          return data;
+        } catch {
+          // Try the next fallback endpoint.
+        }
+      }
+
+      throw error;
+    }
   }
 
   static async getPostById(postId: string): Promise<any> {
@@ -403,7 +441,22 @@ class CommunityService {
     return this.get(`/community/posts/${encodeURIComponent(id)}`);
   }
 
-  static async createPost(data: { title?: string; content: string; attachments?: string[]; attachmentFileIds?: string[]; status?: string; tags?: string[]; mentions?: string[]; visibility?: string; businessPageId?: string; topic?: string; location?: string; commentPolicy?: string; graphicWarning?: boolean }): Promise<any> {
+  static async createPost(data: {
+    title?: string;
+    content: string;
+    attachments?: string[];
+    attachmentFileIds?: string[];
+    status?: string;
+    tags?: string[];
+    mentions?: string[];
+    visibility?: string;
+    businessPageId?: string;
+    topic?: string;
+    location?: string;
+    commentPolicy?: string;
+    graphicWarning?: boolean;
+    aiInsightEnabled?: boolean;
+  }): Promise<any> {
     const attachmentFileIds = Array.from(
       new Set([...(data.attachmentFileIds || []), ...(data.attachments || [])].filter(Boolean))
     );
@@ -420,7 +473,8 @@ class CommunityService {
       visibility: data.visibility || 'public',
       graphicWarning: data.graphicWarning === true,
       businessPageId: data.businessPageId,
-      commentPolicy: data.commentPolicy
+      commentPolicy: data.commentPolicy,
+      aiInsightEnabled: typeof data.aiInsightEnabled === 'boolean' ? data.aiInsightEnabled : undefined
     };
     const response = await this.post('/community/posts', payload);
     return response;
@@ -476,7 +530,24 @@ class CommunityService {
     return response;
   }
 
-  static async updatePost(postId: string, payload: { title?: string; content?: string; attachments?: string[]; attachmentFileIds?: string[]; tags?: string[]; mentions?: string[]; visibility?: string; topic?: string; location?: string; status?: string; commentPolicy?: string; repostsEnabled?: boolean; isPinned?: boolean; isHighlighted?: boolean }): Promise<any> {
+  static async updatePost(postId: string, payload: {
+    title?: string;
+    content?: string;
+    attachments?: string[];
+    attachmentFileIds?: string[];
+    tags?: string[];
+    mentions?: string[];
+    visibility?: string;
+    topic?: string;
+    location?: string;
+    status?: string;
+    commentPolicy?: string;
+    repostsEnabled?: boolean;
+    isPinned?: boolean;
+    isHighlighted?: boolean;
+    aiInsightEnabled?: boolean;
+    regenerateAiInsight?: boolean;
+  }): Promise<any> {
     const attachmentFileIds = Array.from(
       new Set([...(payload.attachmentFileIds || []), ...(payload.attachments || [])].filter(Boolean))
     );
@@ -877,6 +948,79 @@ class CommunityService {
       console.error('Failed to load moderation logs:', error);
       return [];
     }
+  }
+
+  static async getPostReports(params?: {
+    status?: string;
+    page?: number;
+    limit?: number;
+    search?: string;
+    postId?: string;
+    ownerId?: string;
+    reporterId?: string;
+  }): Promise<{
+    items: any[];
+    total: number;
+    page: number;
+    limit: number;
+    pendingCount: number;
+  }> {
+    const query = {
+      status: params?.status || undefined,
+      page: params?.page || 1,
+      limit: params?.limit || 20,
+      search: params?.search || undefined,
+      postId: params?.postId || undefined,
+      ownerId: params?.ownerId || undefined,
+      reporterId: params?.reporterId || undefined
+    };
+    const response = await api.get('/community/admin/reports/posts', { params: query });
+    const data = extractData<any>(response) || {};
+    return {
+      items: Array.isArray(data.items) ? data.items : [],
+      total: Number(data.total || 0),
+      page: Number(data.page || query.page || 1),
+      limit: Number(data.limit || query.limit || 20),
+      pendingCount: Number(data.pendingCount || 0)
+    };
+  }
+
+  static async getPostReportById(reportId: string): Promise<any> {
+    const response = await api.get(`/community/admin/reports/posts/${encodeURIComponent(reportId)}`);
+    return extractData<any>(response) || null;
+  }
+
+  static async replyToPostReport(reportId: string, message: string): Promise<any> {
+    const response = await api.post(`/community/admin/reports/posts/${encodeURIComponent(reportId)}/reply`, {
+      message
+    });
+    return extractData<any>(response) || null;
+  }
+
+  static async resolvePostReport(
+    reportId: string,
+    payload: {
+      decision: 'violation' | 'no_violation';
+      reason?: string;
+      complainantMessage?: string;
+      ownerMessage?: string;
+      severity?: string;
+      actions?: {
+        flagPost?: boolean;
+        removePost?: boolean;
+        sanctionAccount?: boolean;
+        banAccount?: boolean;
+        restrictPostingHours?: number;
+        restrictedFeatures?: string[];
+        restrictFeaturesHours?: number;
+      };
+    }
+  ): Promise<any> {
+    const response = await api.post(
+      `/community/admin/reports/posts/${encodeURIComponent(reportId)}/action`,
+      payload
+    );
+    return extractData<any>(response) || null;
   }
 
   static getRequireLoginToView(settings: PlatformSettings): boolean {

@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, MoreVertical, X } from 'lucide-react';
+import {
+  ExternalLinkIcon as ExternalLink,
+  MoreVerticalIcon as MoreVertical,
+  XIcon as X
+} from '../../../components/icons/ShellIcons';
 import { CommunityService } from '../../../services/community';
 
 type AdMedia = { id: string; url: string; mimeType: string | null; name: string | null };
@@ -109,4 +113,3 @@ export default function FeedAdCard({ ad }: { ad: CommunityAd }) {
     </div>
   );
 }
-

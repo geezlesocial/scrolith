@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CommunityService } from '../../services/community';
 import { CommunityAnalytics as CommunityAnalyticsType } from '../../types'; // Rename the import
-import { BarChart2, Activity, Users, ShieldAlert, MessageSquare, TrendingUp, AlertOctagon } from 'lucide-react';
+import { Activity, Users, ShieldAlert, MessageSquare, TrendingUp, AlertOctagon } from 'lucide-react';
 
 // Rename the component to avoid conflict
 const CommunityAnalyticsComponent = () => {

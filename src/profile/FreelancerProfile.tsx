@@ -6,11 +6,13 @@ import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
 import { UserProfile, TrustScore } from '../types';
 import ProBadge from '../components/ProBadge';
+import VerifiedBadge from '../components/common/VerifiedBadge';
 import { ReputationService } from '../services/ai/reputation.service';
 import { UserService } from '../services/user';
 import { CommunityService } from '../services/community';
 import { MessagingService } from '../services/messaging';
 import { ReviewsService, Review } from '../services/reviews';
+import { resolveVerificationLevel } from '../utils/verification';
 import { resolveAssetUrl } from '../utils/assetUrl';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../community/storyStyles';
 import EditProfile from './EditProfile';
@@ -95,7 +97,15 @@ const FreelancerProfile = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [trustScore, setTrustScore] = useState<TrustScore | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [publicUser, setPublicUser] = useState<{ id?: string; name?: string; avatar?: string; isProFreelancer?: boolean; username?: string } | null>(null);
+  const [publicUser, setPublicUser] = useState<{
+    id?: string;
+    name?: string;
+    avatar?: string;
+    isProFreelancer?: boolean;
+    isVerified?: boolean;
+    verificationLevel?: string;
+    username?: string;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stories, setStories] = useState<any[]>([]);
@@ -139,6 +149,16 @@ const FreelancerProfile = () => {
   const isOwner = useMemo(
     () => Boolean(user?.id && publicUser?.id && String(user.id) === String(publicUser.id)),
     [publicUser?.id, user?.id]
+  );
+  const profileVerificationLevel = useMemo(
+    () =>
+      resolveVerificationLevel({
+        verificationLevel: publicUser?.verificationLevel,
+        isVerified: publicUser?.isVerified,
+        isPro: publicUser?.isProFreelancer,
+        type: 'user'
+      }),
+    [publicUser?.isProFreelancer, publicUser?.isVerified, publicUser?.verificationLevel]
   );
   const publicGender = String(profile?.gender || '').trim();
   const publicBirthMonthDay = String((profile as any)?.birthMonthDay || (profile as any)?.birth_month_day || '').trim();
@@ -186,7 +206,13 @@ const FreelancerProfile = () => {
             name: baseUser.name,
             avatar: baseUser.avatar,
             username: (baseUser as any)?.username,
-            isProFreelancer: Boolean((baseUser as any)?.isProFreelancer ?? (baseUser as any)?.is_pro_freelancer)
+            isProFreelancer: Boolean((baseUser as any)?.isProFreelancer ?? (baseUser as any)?.is_pro_freelancer),
+            isVerified: Boolean((baseUser as any)?.isVerified ?? (baseUser as any)?.is_verified),
+            verificationLevel:
+              (baseUser as any)?.verificationLevel ||
+              (baseUser as any)?.verification_level ||
+              (baseUser as any)?.badgeType ||
+              (baseUser as any)?.badge_type
           });
           setProfile(profileData);
           setTrustScore(trust);
@@ -589,6 +615,7 @@ const FreelancerProfile = () => {
                             <div className="mb-2">
                                 <div className="flex items-center gap-2">
                                     <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">{publicUser?.name || "Profile"}</h1>
+                                    {profileVerificationLevel ? <VerifiedBadge size={20} level={profileVerificationLevel} className="ml-1" /> : null}
                                     <ProBadge role="freelancer" isPro={publicUser?.isProFreelancer} size="md" />
                                 </div>
                                 {publicUser?.username && (

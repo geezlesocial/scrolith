@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { X, Link as LinkIcon, Copy, Mail, Facebook, Twitter, Linkedin, Share2 } from 'lucide-react';
+import { X, Link as LinkIcon, Copy, Mail, Facebook, Twitter, Linkedin } from 'lucide-react';
 
 interface ShareModalProps {
   isOpen: boolean;

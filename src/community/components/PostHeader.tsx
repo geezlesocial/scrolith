@@ -1,7 +1,9 @@
 import React from 'react';
-import { BadgeCheck, ShieldCheck, Users } from 'lucide-react';
+import { ShieldCheck, Users } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import FollowButton from './FollowButton';
+import VerifiedBadge from '../../components/common/VerifiedBadge';
+import { resolveVerificationLevel } from '../../utils/verification';
 
 type PostHeaderAuthor = {
   id?: string | null;
@@ -12,6 +14,8 @@ type PostHeaderAuthor = {
   businessSlug?: string | null;
   isVerified?: boolean;
   isPro?: boolean;
+  verificationLevel?: string | null;
+  verification_level?: string | null;
 };
 
 type PostHeaderProps = {
@@ -57,6 +61,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   const profileUrl = resolveProfileUrl(author, currentUserId);
   const authorName = author.displayName || 'Community member';
   const authorType = String(author.type || 'user').toLowerCase();
+  const verificationLevel = resolveVerificationLevel(author);
   const canShowFollow =
     showFollow &&
     authorType === 'user' &&
@@ -78,15 +83,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
             <Link to={profileUrl} className="text-sm font-semibold text-slate-900 hover:text-slate-700">
               {authorName}
             </Link>
-            {author.isVerified ? (
-              <span
-                className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700"
-                title="Verified account"
-              >
-                <BadgeCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                Verified
-              </span>
-            ) : null}
+            {verificationLevel ? <VerifiedBadge level={verificationLevel} size={18} className="ml-1" /> : null}
             {author.isPro ? (
               <span
                 className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700"

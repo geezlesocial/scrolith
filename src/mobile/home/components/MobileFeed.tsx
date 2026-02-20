@@ -1,5 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BadgeCheck, Loader2, MoreVertical, ShieldCheck, UserPlus } from 'lucide-react';
+import {
+  Loader2Icon as Loader2,
+  MoreVerticalIcon as MoreVertical,
+  ShieldCheckIcon as ShieldCheck
+} from '../../../components/icons/ShellIcons';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { useSocket } from '../../../context/SocketContext';
@@ -8,9 +12,13 @@ import { CommunityService } from '../../../services/community';
 import { jobsApi, Job } from '../../../services/jobs';
 import { gigsApi, Gig } from '../../../services/gigs';
 import { RecoService } from '../../../services/reco';
+import { MessagingService } from '../../../services/messaging';
 import MentionText from '../../../community/components/MentionText';
 import PostEngagementBar from '../../../community/components/PostEngagementBar';
+import FollowButton from '../../../community/components/FollowButton';
 import PostOptionsButton from '../../../community/components/post-options/PostOptionsButton';
+import VerifiedBadge from '../../../components/common/VerifiedBadge';
+import { resolveVerificationLevel } from '../../../utils/verification';
 import FeedAdCard from './FeedAdCard';
 import RecommendedListingCard from './RecommendedListingCard';
 import SuggestedCard from './SuggestedCard';
@@ -68,6 +76,28 @@ const relativeTime = (iso?: string | null) => {
 
 const isVideo = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('video/');
 const isImage = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('image/');
+type NavigatorConnection = {
+  effectiveType?: string;
+  saveData?: boolean;
+  downlink?: number;
+  addEventListener?: (type: string, listener: () => void) => void;
+  removeEventListener?: (type: string, listener: () => void) => void;
+};
+const getNavigatorConnection = (): NavigatorConnection | null => {
+  if (typeof navigator === 'undefined') return null;
+  const nav = navigator as any;
+  return (nav.connection || nav.mozConnection || nav.webkitConnection || null) as NavigatorConnection | null;
+};
+const isConstrainedNetwork = () => {
+  const connection = getNavigatorConnection();
+  if (!connection) return false;
+  if (connection.saveData) return true;
+  const effectiveType = String(connection.effectiveType || '').toLowerCase();
+  if (effectiveType === 'slow-2g' || effectiveType === '2g') return true;
+  const downlink = Number(connection.downlink || 0);
+  if (Number.isFinite(downlink) && downlink > 0 && downlink < 1.2) return true;
+  return false;
+};
 
 const shuffle = <T,>(items: T[]) => {
   const out = [...items];
@@ -78,6 +108,30 @@ const shuffle = <T,>(items: T[]) => {
     out[j] = tmp;
   }
   return out;
+};
+
+const dedupeById = <T extends { id?: string | null }>(items: T[]) => {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  items.forEach((item) => {
+    const id = String(item?.id || '').trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push(item);
+  });
+  return out;
+};
+
+const extractJobsFromPayload = (payload: any): Job[] => {
+  if (Array.isArray(payload?.jobs)) return payload.jobs as Job[];
+  if (Array.isArray(payload)) return payload as Job[];
+  return [];
+};
+
+const extractGigsFromPayload = (payload: any): Gig[] => {
+  if (Array.isArray(payload?.gigs)) return payload.gigs as Gig[];
+  if (Array.isArray(payload)) return payload as Gig[];
+  return [];
 };
 
 const resolveProfileUrl = (
@@ -104,18 +158,6 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const { user } = useUser();
   const { isConnected } = useSocket();
 
-  const activeRoleOverride = (() => {
-    try {
-      return sessionStorage.getItem('activeRole');
-    } catch {
-      return null;
-    }
-  })();
-  const effectiveRole = activeRoleOverride || user?.role || '';
-  const normalizedRole = String(effectiveRole || '').trim().toLowerCase();
-  const isFreelancerMode = normalizedRole.includes('freelancer') || normalizedRole.includes('seller');
-  const isClientMode = normalizedRole.includes('employer') || normalizedRole.includes('client') || normalizedRole.includes('buyer');
-
   const feedSettings = settings?.feed ?? {};
   const postCardSettings = settings?.postCard ?? {};
   const composerSettings = ((settings as any)?.postComposer || (settings as any)?.post_composer || {}) as Record<string, any>;
@@ -123,7 +165,13 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const graphicWarningLabel = String(composerSettings.graphicWarningLabel || composerSettings.graphic_warning_label || 'Graphic warning').trim() || 'Graphic warning';
   const graphicWarningBlurMedia = composerSettings.graphicWarningBlurMedia !== false;
   const showRecommendedGigsJobs = feedSettings.showRecommendedGigsJobs !== false;
-  const [recoInsertIndex] = useState(() => (Math.random() < 0.5 ? 2 : 4));
+  const [isConstrainedConnection, setIsConstrainedConnection] = useState<boolean>(() => isConstrainedNetwork());
+  const listingCardEveryPosts = 2;
+  const maxListingCardsPerFeed = clamp(Number((feedSettings as any).maxListingCardsPerFeed ?? 8) || 8, 1, 16);
+  const listingPoolLimit = Math.max(
+    isConstrainedConnection ? 6 : 8,
+    maxListingCardsPerFeed * (isConstrainedConnection ? 2 : 3)
+  );
 
   const promotedFrequency = clamp(Number(feedSettings.promotedFrequency ?? 6) || 6, 2, 20);
 
@@ -133,6 +181,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [insightCollapsedByPost, setInsightCollapsedByPost] = useState<Record<string, boolean>>({});
   const [revealedGraphic, setRevealedGraphic] = useState<Record<string, boolean>>({});
 
   const [ads, setAds] = useState<any[]>([]);
@@ -141,6 +190,39 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const [suggestedPages, setSuggestedPages] = useState<any[]>([]);
   const [recommendedJobs, setRecommendedJobs] = useState<Job[]>([]);
   const [recommendedGigs, setRecommendedGigs] = useState<Gig[]>([]);
+  const listingCardEntries = useMemo(() => {
+    if (!showRecommendedGigsJobs || !user?.id || !posts.length) return [] as Array<{ kind: 'job' | 'gig'; item: any }>;
+    const slots = Math.min(maxListingCardsPerFeed, Math.floor(posts.length / listingCardEveryPosts));
+    if (slots <= 0) return [] as Array<{ kind: 'job' | 'gig'; item: any }>;
+
+    const jobPool = shuffle(dedupeById((recommendedJobs || []) as Array<Job & { id: string }>)).slice(0, slots * 2);
+    const gigPool = shuffle(dedupeById((recommendedGigs || []) as Array<Gig & { id: string }>)).slice(0, slots * 2);
+    const entries: Array<{ kind: 'job' | 'gig'; item: any }> = [];
+    let preferJob = ((String(user.id || '').length + posts.length) % 2) === 0;
+
+    while (entries.length < slots && (jobPool.length || gigPool.length)) {
+      if (preferJob && jobPool.length) {
+        entries.push({ kind: 'job', item: jobPool.shift() });
+      } else if (!preferJob && gigPool.length) {
+        entries.push({ kind: 'gig', item: gigPool.shift() });
+      } else if (jobPool.length) {
+        entries.push({ kind: 'job', item: jobPool.shift() });
+      } else if (gigPool.length) {
+        entries.push({ kind: 'gig', item: gigPool.shift() });
+      }
+      preferJob = !preferJob;
+    }
+
+    return entries.filter((entry) => Boolean(entry.item?.id));
+  }, [
+    showRecommendedGigsJobs,
+    user?.id,
+    posts.length,
+    recommendedJobs,
+    recommendedGigs,
+    maxListingCardsPerFeed,
+    listingCardEveryPosts
+  ]);
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadMoreArmedRef = useRef(false);
@@ -149,6 +231,45 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const rateLimitUntilRef = useRef<number>(0);
   const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
   const viewTrackedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    const connection = getNavigatorConnection();
+    if (!connection?.addEventListener || !connection?.removeEventListener) return;
+    const syncState = () => setIsConstrainedConnection(isConstrainedNetwork());
+    syncState();
+    connection.addEventListener('change', syncState);
+    return () => {
+      connection.removeEventListener?.('change', syncState);
+    };
+  }, []);
+
+  const handleListingContact = useCallback(
+    async (payload: { kind: 'jobs' | 'gigs'; item: any }) => {
+      if (!user?.id) return;
+      const item = payload.item || {};
+      const targetId =
+        payload.kind === 'jobs'
+          ? String(item?.clientId || '').trim()
+          : String(item?.freelancerId || '').trim();
+      if (!targetId) return;
+      const targetName =
+        payload.kind === 'jobs'
+          ? String(item?.clientName || 'Employer').trim() || 'Employer'
+          : String(item?.freelancerName || 'Freelancer').trim() || 'Freelancer';
+      const targetAvatar = payload.kind === 'jobs' ? item?.clientAvatar : item?.freelancerAvatar;
+
+      try {
+        const conversationId = await MessagingService.createConversation([
+          { id: user.id, name: user.name || 'You', avatar: user.avatar, role: user.role },
+          { id: targetId, name: targetName, avatar: targetAvatar || undefined }
+        ]);
+        navigate(`/messages/${encodeURIComponent(conversationId)}`);
+      } catch (error) {
+        console.error('Unable to start listing conversation', error);
+      }
+    },
+    [navigate, user]
+  );
 
   const syncCommentCount = useCallback((postId: string, count: number) => {
     setPosts((prev) =>
@@ -160,6 +281,24 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       })
     );
   }, []);
+
+  const openPostDetail = useCallback(
+    (postId: string) => {
+      const id = String(postId || '').trim();
+      if (!id) return;
+      navigate(`/post/${encodeURIComponent(id)}`);
+    },
+    [navigate]
+  );
+
+  const openPostFromText = useCallback(
+    (event: React.MouseEvent<HTMLElement>, postId: string) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('a, button, input, textarea, select, label, video, audio')) return;
+      openPostDetail(postId);
+    },
+    [openPostDetail]
+  );
 
   const load = useCallback(async (mode: 'initial' | 'more') => {
     const now = Date.now();
@@ -177,9 +316,10 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
         setLoadingMore(true);
       }
 
+      const feedLimit = isConstrainedConnection ? 8 : 12;
       const resp = await CommunityService.getFeed({
         cursor: mode === 'more' ? cursorRef.current || undefined : undefined,
-        limit: 12,
+        limit: feedLimit,
         scope: 'discover'
       });
       const nextPosts = Array.isArray(resp?.items) ? resp.items : [];
@@ -225,7 +365,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       setLoadingMore(false);
       loadInFlightRef.current = false;
     }
-  }, []);
+  }, [isConstrainedConnection]);
 
   useEffect(() => {
     void load('initial');
@@ -235,8 +375,9 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
     if (feedSettings.showPromoted === false) return;
     if (loading || error) return;
     let cancelled = false;
+    const delayMs = isConstrainedConnection ? 1800 : 900;
     const timer = window.setTimeout(() => {
-      CommunityService.getPublicAds({ placement: 'feed', limit: 8 })
+      CommunityService.getPublicAds({ placement: 'feed', limit: isConstrainedConnection ? 4 : 8 })
         .then((items) => {
           if (cancelled) return;
           setAds(shuffle(Array.isArray(items) ? items : []));
@@ -245,66 +386,75 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
           if (cancelled) return;
           setAds([]);
         });
-    }, 900);
+    }, delayMs);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [feedSettings.showPromoted, loading, error]);
+  }, [feedSettings.showPromoted, loading, error, isConstrainedConnection]);
 
   useEffect(() => {
-    if (!showRecommendedGigsJobs) return;
+    if (!showRecommendedGigsJobs || !user?.id) {
+      setRecommendedJobs([]);
+      setRecommendedGigs([]);
+      return;
+    }
+    if (isConstrainedConnection) {
+      setRecommendedJobs([]);
+      setRecommendedGigs([]);
+      return;
+    }
     if (loading || error) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      if (cancelled) return;
+      Promise.all([
+        Promise.allSettled([
+          jobsApi.getJobs({ status: 'active', limit: listingPoolLimit, featuredOnly: true }),
+          jobsApi.getJobs({ status: 'active', limit: listingPoolLimit, recommended: true })
+        ]),
+        Promise.allSettled([
+          gigsApi.getGigs({ status: 'active', limit: listingPoolLimit, featuredOnly: true }),
+          gigsApi.getGigs({ status: 'active', limit: listingPoolLimit, recommended: true })
+        ])
+      ])
+        .then(([jobsResults, gigsResults]) => {
+          if (cancelled) return;
+          const jobsList = dedupeById(
+            shuffle(
+              jobsResults.flatMap((result) =>
+                result.status === 'fulfilled' ? extractJobsFromPayload(result.value) : []
+              )
+            ) as Array<Job & { id: string }>
+          ).slice(0, listingPoolLimit);
+          const gigsList = dedupeById(
+            shuffle(
+              gigsResults.flatMap((result) =>
+                result.status === 'fulfilled' ? extractGigsFromPayload(result.value) : []
+              )
+            ) as Array<Gig & { id: string }>
+          ).slice(0, listingPoolLimit);
 
-      if (isFreelancerMode) {
-        jobsApi
-          .getJobs({ status: 'active', limit: 20 })
-          .then((data) => {
-            if (cancelled) return;
-            const list = Array.isArray(data?.jobs) ? data.jobs : [];
-            setRecommendedJobs(shuffle(list).slice(0, 8));
-            setRecommendedGigs([]);
-          })
-          .catch(() => {
-            if (cancelled) return;
-            setRecommendedJobs([]);
-          });
-        return;
-      }
-
-      if (isClientMode) {
-        gigsApi
-          .getGigs({ status: 'active', limit: 20 })
-          .then((data: any) => {
-            if (cancelled) return;
-            const list = Array.isArray(data?.gigs) ? data.gigs : [];
-            setRecommendedGigs(shuffle(list).slice(0, 8));
-            setRecommendedJobs([]);
-          })
-          .catch(() => {
-            if (cancelled) return;
-            setRecommendedGigs([]);
-          });
-        return;
-      }
-
-      setRecommendedJobs([]);
-      setRecommendedGigs([]);
+          setRecommendedJobs(jobsList);
+          setRecommendedGigs(gigsList);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setRecommendedJobs([]);
+          setRecommendedGigs([]);
+        });
     }, 1100);
 
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [showRecommendedGigsJobs, isFreelancerMode, isClientMode, loading, error]);
+  }, [showRecommendedGigsJobs, user?.id, loading, error, listingPoolLimit, isConstrainedConnection]);
 
   useEffect(() => {
     if (feedSettings.showTrendingTags === false) return;
     if (loading || error) return;
     let cancelled = false;
+    const delayMs = isConstrainedConnection ? 2200 : 1400;
     const timer = window.setTimeout(() => {
       CommunityService.getTrendingTags(10, 7)
         .then((items) => {
@@ -320,56 +470,64 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
           if (cancelled) return;
           setTrendingTags([]);
         });
-    }, 1400);
+    }, delayMs);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [feedSettings.showTrendingTags, loading, error]);
+  }, [feedSettings.showTrendingTags, loading, error, isConstrainedConnection]);
 
   useEffect(() => {
     if (feedSettings.showSuggestedPeople === false) return;
     if (!user?.id) return;
+    if (isConstrainedConnection) {
+      setSuggestedPeople([]);
+      return;
+    }
     if (loading || error) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
-    Promise.allSettled([
-      RecoService.getAccounts({ surface: 'who_to_follow', type: 'freelancer', limit: 4 }),
-      RecoService.getAccounts({ surface: 'who_to_follow', type: 'client', limit: 4 })
-    ])
-      .then((results) => {
-        if (cancelled) return;
-        const merged: any[] = [];
-        results.forEach((r) => {
-          if (r.status === 'fulfilled' && Array.isArray(r.value)) merged.push(...r.value);
+      Promise.allSettled([
+        RecoService.getAccounts({ surface: 'who_to_follow', type: 'freelancer', limit: 4 }),
+        RecoService.getAccounts({ surface: 'who_to_follow', type: 'client', limit: 4 })
+      ])
+        .then((results) => {
+          if (cancelled) return;
+          const merged: any[] = [];
+          results.forEach((r) => {
+            if (r.status === 'fulfilled' && Array.isArray(r.value)) merged.push(...r.value);
+          });
+          const mapped = merged
+            .map((p: any) => {
+              const account = p?.account || p;
+              const id = String(account?.id || p?.entityId || p?.id || p?.userId || '').trim();
+              const name = String(account?.name || p?.name || 'Community member').trim();
+              const username = String(account?.username || p?.username || '').trim();
+              const avatarUrl = account?.avatar || p?.avatar || null;
+              if (!id || !name) return null;
+              return { id, name, username, avatarUrl, targetType: 'user' as const };
+            })
+            .filter(Boolean);
+          setSuggestedPeople(mapped.slice(0, 4));
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setSuggestedPeople([]);
         });
-        const mapped = merged
-          .map((p: any) => {
-            const account = p?.account || p;
-            const id = String(account?.id || p?.entityId || p?.id || p?.userId || '').trim();
-            const name = String(account?.name || p?.name || 'Community member').trim();
-            const username = String(account?.username || p?.username || '').trim();
-            const avatarUrl = account?.avatar || p?.avatar || null;
-            if (!id || !name) return null;
-            return { id, name, username, avatarUrl, targetType: 'user' as const };
-          })
-          .filter(Boolean);
-        setSuggestedPeople(mapped.slice(0, 4));
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setSuggestedPeople([]);
-      });
     }, 1600);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [feedSettings.showSuggestedPeople, user?.id, loading, error]);
+  }, [feedSettings.showSuggestedPeople, user?.id, loading, error, isConstrainedConnection]);
 
   useEffect(() => {
     if (feedSettings.showSuggestedPages === false) return;
     if (!user?.id) return;
+    if (isConstrainedConnection) {
+      setSuggestedPages([]);
+      return;
+    }
     if (loading || error) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
@@ -398,7 +556,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [feedSettings.showSuggestedPages, user?.id, loading, error]);
+  }, [feedSettings.showSuggestedPages, user?.id, loading, error, isConstrainedConnection]);
 
   useEffect(() => {
     if (isConnected) return;
@@ -472,17 +630,45 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       );
     };
 
+    const onPostAiInsightReady = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const postId = String(detail?.postId || detail?.id || '').trim();
+      if (!postId) return;
+      const insightTextRaw = detail?.aiInsightText ?? detail?.ai_insight_text ?? null;
+      const insightText =
+        insightTextRaw === null || insightTextRaw === undefined
+          ? null
+          : String(insightTextRaw).trim() || null;
+      setPosts((prev) =>
+        prev.map((p) => {
+          if (String(p?.id) !== postId) return p;
+          return {
+            ...p,
+            aiInsightEnabled: Boolean(detail?.aiInsightEnabled ?? detail?.ai_insight_enabled ?? true),
+            aiInsightGenerated: Boolean(
+              detail?.aiInsightGenerated ?? detail?.ai_insight_generated ?? (insightText ? true : false)
+            ),
+            aiInsightText: insightText
+          };
+        })
+      );
+    };
+
     window.addEventListener('community:post_created', onCreated as EventListener);
     window.addEventListener('community:post_updated', onUpdated as EventListener);
     window.addEventListener('community:post_deleted', onDeleted as EventListener);
     window.addEventListener('community:post_metrics_updated', onPostMetricsUpdated as EventListener);
     window.addEventListener('community:post_reaction_updated', onPostReactionUpdated as EventListener);
+    window.addEventListener('community:post_ai_insight_ready', onPostAiInsightReady as EventListener);
+    window.addEventListener('post:aiInsightReady', onPostAiInsightReady as EventListener);
     return () => {
       window.removeEventListener('community:post_created', onCreated as EventListener);
       window.removeEventListener('community:post_updated', onUpdated as EventListener);
       window.removeEventListener('community:post_deleted', onDeleted as EventListener);
       window.removeEventListener('community:post_metrics_updated', onPostMetricsUpdated as EventListener);
       window.removeEventListener('community:post_reaction_updated', onPostReactionUpdated as EventListener);
+      window.removeEventListener('community:post_ai_insight_ready', onPostAiInsightReady as EventListener);
+      window.removeEventListener('post:aiInsightReady', onPostAiInsightReady as EventListener);
     };
   }, []);
 
@@ -492,6 +678,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
   useEffect(() => {
     if (!user?.id || !posts.length) return;
+    if (isConstrainedConnection) return;
     if (loading || error) return;
 
     const pending = posts
@@ -519,7 +706,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       cancelled = true;
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [posts, user?.id, loading, error]);
+  }, [posts, user?.id, loading, error, isConstrainedConnection]);
 
   useEffect(() => {
     if (!sentinelRef.current) return;
@@ -611,6 +798,18 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
           const createdAt = post?.createdAt;
           const isVerified = Boolean((author as any)?.isVerified || (post as any)?.authorIsVerified || (post as any)?.authorVerified);
           const isPro = Boolean((author as any)?.isPro || (post as any)?.authorIsPro || (post as any)?.authorPro);
+          const verificationLevel = resolveVerificationLevel({
+            verificationLevel:
+              (author as any)?.verificationLevel ||
+              (author as any)?.verification_level ||
+              (post as any)?.authorVerificationLevel ||
+              (post as any)?.author_verification_level ||
+              (post as any)?.authorBadgeType ||
+              (post as any)?.author_badge_type,
+            isVerified,
+            isPro,
+            type: author.type || post?.authorType || (post?.businessPage ? 'business' : 'user')
+          });
 
           const profileUrl = resolveProfileUrl(
             {
@@ -639,6 +838,10 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
           const showHashtags = postCardSettings.hashtagsEnabled !== false;
           const tags = Array.isArray(post?.tags) ? post.tags : [];
+          const aiInsightText = String(post?.aiInsightText ?? post?.ai_insight_text ?? '').trim();
+          const hasAiInsight = Boolean(
+            (post?.aiInsightGenerated ?? post?.ai_insight_generated ?? false) && aiInsightText
+          );
 
           return (
             <React.Fragment key={postId || `post_${idx}`}>
@@ -650,25 +853,25 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                       className="h-11 w-11 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100"
                       aria-label={`View ${authorName} profile`}
                     >
-                      {authorAvatar ? <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" /> : null}
+                      {authorAvatar ? (
+                        <img
+                          src={authorAvatar}
+                          alt={authorName}
+                          className="h-full w-full object-cover"
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      ) : null}
                     </Link>
                     <div className="min-w-0">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <Link
                           to={profileUrl}
-                          className="min-w-0 truncate text-sm font-semibold text-slate-900 hover:text-slate-700"
+                          className="min-w-0 text-sm font-semibold text-slate-900 break-words [overflow-wrap:anywhere] hover:text-slate-700"
                         >
                           {authorName}
                         </Link>
-                        {isVerified ? (
-                          <span
-                            className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700"
-                            title="Verified account"
-                          >
-                            <BadgeCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                            Verified
-                          </span>
-                        ) : null}
+                        {verificationLevel ? <VerifiedBadge size={16} level={verificationLevel} className="ml-1" /> : null}
                         {isPro ? (
                           <span
                             className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700"
@@ -696,16 +899,18 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {user?.id && authorId && String(authorId) !== String(user.id) ? (
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50"
-                        onClick={() => void CommunityService.followTarget({ targetType: 'user', targetId: String(authorId) }).catch(() => {})}
-                        aria-label="Follow"
-                      >
-                        <UserPlus className="h-4 w-4" />
-                        Follow
-                      </button>
+                    {authorId && String(authorId) !== String(user?.id || '') ? (
+                      <FollowButton
+                        targetUserId={String(authorId)}
+                        currentUserId={user?.id}
+                        initialIsFollowing={
+                          typeof post?.viewer?.isFollowingAuthor === 'boolean'
+                            ? Boolean(post.viewer.isFollowingAuthor)
+                            : undefined
+                        }
+                        onRequireLogin={() => navigate('/auth/login')}
+                        className="h-9 border-slate-200 bg-white px-3 text-blue-700 hover:bg-blue-50"
+                      />
                     ) : null}
 
                     <PostOptionsButton
@@ -733,8 +938,27 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                 </div>
 
                 <div className="mt-3 space-y-2">
-                  {post?.title ? <h3 className="text-base font-semibold text-slate-900">{post.title}</h3> : null}
-                  <div className="text-sm text-slate-700">
+                  {post?.title ? (
+                    <button
+                      type="button"
+                      onClick={() => openPostDetail(postId)}
+                      className="text-left text-base font-semibold text-slate-900 break-words [overflow-wrap:anywhere] hover:text-blue-700 hover:underline"
+                    >
+                      {post.title}
+                    </button>
+                  ) : null}
+                  <div
+                    className="cursor-pointer text-sm text-slate-700 break-words [overflow-wrap:anywhere]"
+                    role="button"
+                    tabIndex={0}
+                    onClick={(event) => openPostFromText(event, postId)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        openPostDetail(postId);
+                      }
+                    }}
+                  >
                     <MentionText text={visibleText} viewerId={user?.id} viewerUsername={user?.username} />
                     {isLong ? (
                       <button
@@ -753,7 +977,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                         <a
                           key={`${postId}_tag_${tag}`}
                           href={`/community/tags/${encodeURIComponent(tag)}`}
-                          className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600"
+                          className="max-w-full break-all rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600"
                         >
                           #{tag}
                         </a>
@@ -761,15 +985,40 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                     </div>
                   ) : null}
 
+                  {hasAiInsight ? (
+                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                          AI Insight
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setInsightCollapsedByPost((prev) => ({
+                              ...prev,
+                              [postId]: !(prev[postId] ?? true)
+                            }))
+                          }
+                          className="text-[11px] font-semibold text-emerald-700 hover:underline"
+                        >
+                          {(insightCollapsedByPost[postId] ?? true) ? 'Show' : 'Hide'}
+                        </button>
+                      </div>
+                      {!(insightCollapsedByPost[postId] ?? true) ? (
+                        <p className="mt-2 text-sm text-emerald-900">{aiInsightText}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
                   {(post?.topic || post?.location) ? (
                     <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                       {post?.topic ? (
-                        <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">
+                        <span className="max-w-full break-words rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600 [overflow-wrap:anywhere]">
                           Topic: {String(post.topic)}
                         </span>
                       ) : null}
                       {post?.location ? (
-                        <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">
+                        <span className="max-w-full break-words rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600 [overflow-wrap:anywhere]">
                           Location: {String(post.location)}
                         </span>
                       ) : null}
@@ -787,7 +1036,15 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                             {isVideo(file.mimeType) ? (
                               <video src={file.url} className="h-56 w-full object-cover" controls preload="metadata" />
                             ) : isImage(file.mimeType) ? (
-                              <img src={file.url} alt={file.name || 'Attachment'} className="h-56 w-full object-cover" />
+                              <button type="button" onClick={() => openPostDetail(postId)} className="block h-56 w-full text-left">
+                                <img
+                                  src={file.url}
+                                  alt={file.name || 'Attachment'}
+                                  className="h-56 w-full object-cover"
+                                  loading="lazy"
+                                  decoding="async"
+                                />
+                              </button>
                             ) : (
                               <a
                                 href={file.url}
@@ -837,22 +1094,23 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                 />
               </article>
 
-              {showRecommendedGigsJobs && idx === recoInsertIndex ? (
-                isFreelancerMode && recommendedJobs.length ? (
-                  <RecommendedListingCard
-                    kind="jobs"
-                    title="Recommended jobs"
-                    items={recommendedJobs as any}
-                    seeAllHref="/browse-jobs"
-                  />
-                ) : isClientMode && recommendedGigs.length ? (
-                  <RecommendedListingCard
-                    kind="gigs"
-                    title="Recommended gigs"
-                    items={recommendedGigs as any}
-                    seeAllHref="/browse"
-                  />
-                ) : null
+              {showRecommendedGigsJobs && user?.id && (idx + 1) % listingCardEveryPosts === 0 ? (
+                (() => {
+                  const slotIndex = Math.floor((idx + 1) / listingCardEveryPosts) - 1;
+                  const entry = listingCardEntries[slotIndex];
+                  if (!entry) return null;
+                  return (
+                    <RecommendedListingCard
+                      kind={entry.kind === 'job' ? 'jobs' : 'gigs'}
+                      title={entry.kind === 'job' ? 'Recommended job' : 'Recommended gig'}
+                      items={[entry.item] as any}
+                      seeAllHref={entry.kind === 'job' ? '/browse-jobs' : '/browse'}
+                      onContact={({ kind, item }) =>
+                        void handleListingContact({ kind, item })
+                      }
+                    />
+                  );
+                })()
               ) : null}
 
               {feedSettings.showPromoted !== false && promotedFrequency > 0 && (idx + 1) % promotedFrequency === 0 ? (

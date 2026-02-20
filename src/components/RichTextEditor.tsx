@@ -1,6 +1,6 @@
 
 import React, { useRef, useState } from 'react';
-import { Bold, Italic, List, Link, Image, Video, Code, Table, Smile, AtSign, Hash, Paperclip, Check } from 'lucide-react';
+import { Bold, Italic, List, Link, Image, Code, AtSign, Hash } from 'lucide-react';
 import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import { UploadedFile } from '../types';
 

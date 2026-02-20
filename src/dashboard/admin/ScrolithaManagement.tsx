@@ -37,6 +37,14 @@ const parseJson = (value: string) => {
   return JSON.parse(source);
 };
 
+const parseIdList = (value: string): string[] => {
+  const entries = String(value || '')
+    .split(/[\n,]/g)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return Array.from(new Set(entries));
+};
+
 const formatDate = (value?: string | Date | null) => {
   if (!value) return '-';
   const date = new Date(value);
@@ -71,6 +79,9 @@ const ScrolithaManagement: React.FC = () => {
   const [llmHealth, setLlmHealth] = useState<any>(null);
   const [llmModels, setLlmModels] = useState<string[]>([]);
   const [learningInsights, setLearningInsights] = useState<any>(null);
+  const [postAiTargetPostIds, setPostAiTargetPostIds] = useState('');
+  const [postAiBatchLimit, setPostAiBatchLimit] = useState(40);
+  const [postAiActionBusy, setPostAiActionBusy] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [runningActionId, setRunningActionId] = useState<string | null>(null);
@@ -83,14 +94,22 @@ const ScrolithaManagement: React.FC = () => {
   });
 
   const loadConfig = async () => {
-    const data = await ScrolithaService.adminGetConfig(configScope);
-    const next = data && data.scope ? data : data?.[configScope] || null;
-    setConfig(next);
+    const data = await ScrolithaService.adminGetConfig();
+    const selected = data && data.scope ? data : data?.[configScope] || null;
+    const adminConfig = data && data.scope ? (data.scope === 'admin' ? data : null) : data?.admin || null;
+    setConfig(selected);
     setLlmHealth(null);
     setLlmModels([]);
-    const metadata = next?.metadata && typeof next.metadata === 'object' && !Array.isArray(next.metadata) ? next.metadata : {};
-    const chatWidget = metadata?.chatWidget && typeof metadata.chatWidget === 'object' ? metadata.chatWidget : {};
-    setWidgetSettings({ ...defaultWidgetSettings, ...(chatWidget as Partial<ScrolithaWidgetConfig>) });
+    const metadata =
+      adminConfig?.metadata && typeof adminConfig.metadata === 'object' && !Array.isArray(adminConfig.metadata)
+        ? adminConfig.metadata
+        : {};
+    const chatWidgetSource =
+      ((metadata as any)?.chatWidget && typeof (metadata as any).chatWidget === 'object' ? (metadata as any).chatWidget : null) ||
+      ((metadata as any)?.chat_widget && typeof (metadata as any).chat_widget === 'object' ? (metadata as any).chat_widget : null) ||
+      ((metadata as any)?.widget && typeof (metadata as any).widget === 'object' ? (metadata as any).widget : null) ||
+      {};
+    setWidgetSettings({ ...defaultWidgetSettings, ...(chatWidgetSource as Partial<ScrolithaWidgetConfig>) });
   };
 
   const loadLlmHealth = async () => {
@@ -138,6 +157,32 @@ const ScrolithaManagement: React.FC = () => {
     return knowledge as Record<string, any>;
   }, [normalizedMetadata]);
 
+  const postAiMetadata = useMemo(() => {
+    const source = (normalizedMetadata as any).postAi;
+    if (!source || typeof source !== 'object' || Array.isArray(source)) {
+      return {
+        assistantEnabled: true,
+        insightEnabled: true,
+        randomPercentage: 15,
+        manualOnly: false,
+        maxInsightLength: 220,
+        insightSafeMode: false,
+        insightTone: 'professional',
+        rankingBoostEnabled: false
+      };
+    }
+    return {
+      assistantEnabled: source.assistantEnabled !== false,
+      insightEnabled: source.insightEnabled !== false,
+      randomPercentage: Math.max(0, Math.min(100, Number(source.randomPercentage ?? 15) || 0)),
+      manualOnly: Boolean(source.manualOnly),
+      maxInsightLength: Math.max(60, Math.min(500, Number(source.maxInsightLength ?? 220) || 220)),
+      insightSafeMode: Boolean(source.insightSafeMode),
+      insightTone: String(source.insightTone || 'professional').trim() || 'professional',
+      rankingBoostEnabled: Boolean(source.rankingBoostEnabled)
+    };
+  }, [normalizedMetadata]);
+
   const updateLlmMetadata = (patch: Record<string, any>) => {
     setConfig((prev: any) => {
       const metadata = prev?.metadata && typeof prev.metadata === 'object' && !Array.isArray(prev.metadata)
@@ -182,6 +227,19 @@ const ScrolithaManagement: React.FC = () => {
         ? { ...((metadata as any).knowledge as Record<string, any>) }
         : {};
       (metadata as any).knowledge = { ...knowledge, ...patch };
+      return { ...prev, metadata };
+    });
+  };
+
+  const updatePostAiMetadata = (patch: Record<string, any>) => {
+    setConfig((prev: any) => {
+      const metadata = prev?.metadata && typeof prev.metadata === 'object' && !Array.isArray(prev.metadata)
+        ? { ...(prev.metadata as Record<string, any>) }
+        : {};
+      const postAi = (metadata as any).postAi && typeof (metadata as any).postAi === 'object' && !Array.isArray((metadata as any).postAi)
+        ? { ...((metadata as any).postAi as Record<string, any>) }
+        : {};
+      (metadata as any).postAi = { ...postAi, ...patch };
       return { ...prev, metadata };
     });
   };
@@ -253,11 +311,13 @@ const ScrolithaManagement: React.FC = () => {
     socket.on('scrolitha:skills_updated', refresh);
     socket.on('scrolitha:action_completed', refresh);
     socket.on('scrolitha:learning_updated', refresh);
+    socket.on('scrolitha:post_ai_updated', refresh);
     return () => {
       socket.off('scrolitha:config_updated', refresh);
       socket.off('scrolitha:skills_updated', refresh);
       socket.off('scrolitha:action_completed', refresh);
       socket.off('scrolitha:learning_updated', refresh);
+      socket.off('scrolitha:post_ai_updated', refresh);
     };
   }, [socket, configScope, chatRecordScope, chatRecordUserId]);
 
@@ -346,30 +406,33 @@ const ScrolithaManagement: React.FC = () => {
   };
 
   const saveWidgetSettings = async () => {
-    if (!config) return;
     setLoading(true);
     try {
-      const metadata = config?.metadata && typeof config.metadata === 'object' && !Array.isArray(config.metadata)
-        ? { ...config.metadata }
+      const adminConfig = await ScrolithaService.adminGetConfig('admin');
+      if (!adminConfig) {
+        throw new Error('Admin config not found.');
+      }
+      const metadata = adminConfig?.metadata && typeof adminConfig.metadata === 'object' && !Array.isArray(adminConfig.metadata)
+        ? { ...adminConfig.metadata }
         : {};
       metadata.chatWidget = { ...defaultWidgetSettings, ...widgetSettings };
 
       await ScrolithaService.adminUpdateConfig({
         scope: 'admin',
-        enabled: Boolean(config.enabled),
-        safeMode: Boolean(config.safeMode),
-        requireConfirmationByDefault: Boolean(config.requireConfirmationByDefault),
-        lowRiskAutoExecute: Boolean(config.lowRiskAutoExecute),
-        denyListedTools: String(config.denyListedTools || '')
+        enabled: Boolean(adminConfig.enabled),
+        safeMode: Boolean(adminConfig.safeMode),
+        requireConfirmationByDefault: Boolean(adminConfig.requireConfirmationByDefault),
+        lowRiskAutoExecute: Boolean(adminConfig.lowRiskAutoExecute),
+        denyListedTools: String(adminConfig.denyListedTools || '')
           .split(',')
           .map((entry) => entry.trim())
           .filter(Boolean),
-        promptBlocklist: String(config.promptBlocklist || '')
+        promptBlocklist: String(adminConfig.promptBlocklist || '')
           .split(',')
           .map((entry) => entry.trim())
           .filter(Boolean),
-        userRateLimitPerMinute: Number(config.userRateLimitPerMinute || 30),
-        adminActionCapPerMinute: Number(config.adminActionCapPerMinute || 10),
+        userRateLimitPerMinute: Number(adminConfig.userRateLimitPerMinute || 30),
+        adminActionCapPerMinute: Number(adminConfig.adminActionCapPerMinute || 10),
         metadata
       });
 
@@ -424,6 +487,48 @@ const ScrolithaManagement: React.FC = () => {
       showNotification('success', 'Skill', 'Skill deleted.');
     } catch (error: any) {
       showNotification('error', 'Skill', error?.message || 'Failed to delete skill.');
+    }
+  };
+
+  const regeneratePostInsights = async () => {
+    const postIds = parseIdList(postAiTargetPostIds);
+    setPostAiActionBusy(true);
+    try {
+      const result = await ScrolithaService.adminRegeneratePostInsights({
+        postIds: postIds.length ? postIds : undefined,
+        limit: postIds.length ? undefined : Math.max(1, Math.min(200, Math.floor(postAiBatchLimit || 40)))
+      });
+      showNotification(
+        'success',
+        'Post AI',
+        `Insights regenerated: ${Number(result?.generated || 0)} (failed: ${Number(result?.failed || 0)})`
+      );
+      await Promise.all([loadAudit(null), loadAnalytics()]);
+    } catch (error: any) {
+      showNotification('error', 'Post AI', error?.message || 'Failed to regenerate post insights.');
+    } finally {
+      setPostAiActionBusy(false);
+    }
+  };
+
+  const clearPostInsights = async () => {
+    const postIds = parseIdList(postAiTargetPostIds);
+    const warning = postIds.length
+      ? `Clear AI insights for ${postIds.length} selected post(s)?`
+      : 'Clear AI insights for all generated posts?';
+    if (!window.confirm(warning)) return;
+
+    setPostAiActionBusy(true);
+    try {
+      const result = await ScrolithaService.adminClearPostInsights({
+        postIds: postIds.length ? postIds : undefined
+      });
+      showNotification('success', 'Post AI', `Insights cleared: ${Number(result?.updatedCount || 0)}`);
+      await Promise.all([loadAudit(null), loadAnalytics()]);
+    } catch (error: any) {
+      showNotification('error', 'Post AI', error?.message || 'Failed to clear post insights.');
+    } finally {
+      setPostAiActionBusy(false);
     }
   };
 
@@ -793,6 +898,148 @@ const ScrolithaManagement: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {configScope === 'admin' ? (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-900">Post AI Settings</div>
+                      <div className="text-xs text-slate-500">
+                        Governance for Create Post assistant and AI insight generation.
+                      </div>
+                    </div>
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                      Scrolitha + Ollama
+                    </span>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <label className="text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        className="mr-2"
+                        checked={Boolean(postAiMetadata.assistantEnabled)}
+                        onChange={(event) => updatePostAiMetadata({ assistantEnabled: event.target.checked })}
+                      />
+                      Enable AI Post Assistant
+                    </label>
+                    <label className="text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        className="mr-2"
+                        checked={Boolean(postAiMetadata.insightEnabled)}
+                        onChange={(event) => updatePostAiMetadata({ insightEnabled: event.target.checked })}
+                      />
+                      Enable AI Insight System
+                    </label>
+                    <label className="text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        className="mr-2"
+                        checked={Boolean(postAiMetadata.manualOnly)}
+                        onChange={(event) => updatePostAiMetadata({ manualOnly: event.target.checked })}
+                      />
+                      Enable Manual Insight Only
+                    </label>
+                    <label className="text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        className="mr-2"
+                        checked={Boolean(postAiMetadata.insightSafeMode)}
+                        onChange={(event) => updatePostAiMetadata({ insightSafeMode: event.target.checked })}
+                      />
+                      Insight Safe Mode
+                    </label>
+                    <label className="text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        className="mr-2"
+                        checked={Boolean(postAiMetadata.rankingBoostEnabled)}
+                        onChange={(event) => updatePostAiMetadata({ rankingBoostEnabled: event.target.checked })}
+                      />
+                      Enable AI Ranking Boost
+                    </label>
+                    <label className="text-xs font-medium uppercase text-slate-500">
+                      Insight Tone
+                      <select
+                        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                        value={String(postAiMetadata.insightTone || 'professional')}
+                        onChange={(event) => updatePostAiMetadata({ insightTone: event.target.value })}
+                      >
+                        <option value="professional">professional</option>
+                        <option value="neutral">neutral</option>
+                        <option value="concise">concise</option>
+                        <option value="friendly">friendly</option>
+                        <option value="analytical">analytical</option>
+                      </select>
+                    </label>
+                    <label className="text-xs font-medium uppercase text-slate-500 md:col-span-2">
+                      Random Insight Percentage ({Math.round(Number(postAiMetadata.randomPercentage || 0))}%)
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        disabled={Boolean(postAiMetadata.manualOnly)}
+                        value={Math.round(Number(postAiMetadata.randomPercentage || 0))}
+                        onChange={(event) => updatePostAiMetadata({ randomPercentage: Number(event.target.value || 0) })}
+                        className="mt-2 w-full"
+                      />
+                    </label>
+                    <label className="text-xs font-medium uppercase text-slate-500">
+                      Insight Max Length
+                      <input
+                        type="number"
+                        min={60}
+                        max={500}
+                        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                        value={Number(postAiMetadata.maxInsightLength || 220)}
+                        onChange={(event) => updatePostAiMetadata({ maxInsightLength: Number(event.target.value || 220) })}
+                      />
+                    </label>
+                    <label className="text-xs font-medium uppercase text-slate-500">
+                      Regenerate Batch Limit
+                      <input
+                        type="number"
+                        min={1}
+                        max={200}
+                        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                        value={Number(postAiBatchLimit || 40)}
+                        onChange={(event) => setPostAiBatchLimit(Number(event.target.value || 40))}
+                      />
+                    </label>
+                    <label className="text-xs font-medium uppercase text-slate-500 md:col-span-2">
+                      Selected Post IDs (comma/new line)
+                      <textarea
+                        rows={2}
+                        className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                        placeholder="Optional. Leave empty to use batch regenerate scope."
+                        value={postAiTargetPostIds}
+                        onChange={(event) => setPostAiTargetPostIds(event.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void regeneratePostInsights()}
+                      disabled={postAiActionBusy}
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-60"
+                    >
+                      {postAiActionBusy ? 'Working...' : 'Regenerate Insight'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void clearPostInsights()}
+                      disabled={postAiActionBusy}
+                      className="rounded-md border border-rose-300 bg-white px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-60"
+                    >
+                      {postAiActionBusy ? 'Working...' : 'Delete All Insights'}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : (
             <p className="text-sm text-slate-500">Loading config...</p>

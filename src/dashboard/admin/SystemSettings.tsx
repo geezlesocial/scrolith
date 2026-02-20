@@ -3,9 +3,9 @@ import { useContent } from '../../context/ContentContext';
 import { AdminService } from '../../services/admin';
 import { useNotification } from '../../context/NotificationContext';
 import { useCurrency } from '../../context/CurrencyContext';
-import { Save, Settings, Mail, HardDrive, DollarSign, Cpu, CheckCircle, ShieldCheck, Globe, FileText, Lock, Database, Server, RefreshCw, Plus, Trash2, Zap, X, Network, Send, Eye, Loader2, AlertTriangle, Image as ImageIcon } from 'lucide-react';
+import { Save, Settings, Mail, HardDrive, DollarSign, Cpu, CheckCircle, ShieldCheck, Globe, FileText, Database, Server, RefreshCw, Plus, Trash2, X, Network, Send, Loader2, AlertTriangle, Image as ImageIcon } from 'lucide-react';
 import { AIConfigManager } from '../../services/ai/ai.config';
-import { AIConfig, ComplianceConfig, Currency, PlatformSettings, EmailProviderConfig, UploadedFile } from '../../types';
+import { AIConfig, ComplianceConfig, Currency, PlatformSettings, EmailProviderConfig, UploadedFile, SystemConfig } from '../../types';
 import { INITIAL_CURRENCIES } from '../../constants';
 import { CMSService } from '../../services/cms';
 import FilePickerModal from '../shared/FilePickerModal';
@@ -35,19 +35,136 @@ const normalizeNumber = (value: any, fallback: number) => {
     return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const EMAIL_PORT_DEFAULTS: Record<NonNullable<EmailProviderConfig['provider']>, number> = {
+    smtp: 587,
+    ses: 587,
+    sendgrid: 587,
+    mailgun: 587
+};
+
+const normalizeEmailProvider = (value: any): NonNullable<EmailProviderConfig['provider']> => {
+    const provider = String(value || 'smtp').toLowerCase();
+    if (provider === 'ses' || provider === 'sendgrid' || provider === 'mailgun') return provider;
+    return 'smtp';
+};
+
+const getProviderDefaultHost = (provider: NonNullable<EmailProviderConfig['provider']>, region?: string) => {
+    if (provider === 'sendgrid') return 'smtp.sendgrid.net';
+    if (provider === 'mailgun') return 'smtp.mailgun.org';
+    if (provider === 'ses') return `email-smtp.${(region || 'us-east-1').trim() || 'us-east-1'}.amazonaws.com`;
+    return '';
+};
+
 const normalizeEmailConfig = (raw: any): EmailProviderConfig => {
     const source = raw || {};
+    const provider = normalizeEmailProvider(source.provider);
+    const region = source.region || source.ses_region || source.sesRegion || 'us-east-1';
+    const apiKey = source.apiKey || source.api_key || source.sendgrid_api_key || source.mailgun_api_key || '';
+    const domain = source.domain || source.mailgun_domain || source.mailgunDomain || '';
+    const encryption =
+        (source.encryption || source.smtp_encryption || source.smtpEncryption || (source.port === 465 ? 'ssl' : 'tls'))
+            .toString()
+            .toLowerCase() as 'tls' | 'ssl' | 'none';
+    const defaultHost = getProviderDefaultHost(provider, region);
+    const defaultPort = EMAIL_PORT_DEFAULTS[provider] || 587;
+    const defaultUsername =
+        provider === 'sendgrid'
+            ? (source.username || source.user || 'apikey')
+            : (source.username || source.user || '');
+
     return {
-        provider: (source.provider || 'smtp') as EmailProviderConfig['provider'],
-        host: source.host || '',
-        port: normalizeNumber(source.port, 587),
-        username: source.username || '',
+        provider,
+        host: source.host || defaultHost,
+        port: normalizeNumber(source.port, defaultPort),
+        username: defaultUsername,
         password: source.password || '',
+        secure: source.secure !== undefined ? normalizeBoolean(source.secure, false) : encryption === 'ssl',
+        encryption,
+        smtp_encryption: source.smtp_encryption || encryption,
         fromName: source.fromName || source.from_name || 'Scrolith',
         from_name: source.from_name || source.fromName || 'Scrolith',
         fromEmail: source.fromEmail || source.from_email || 'noreply@Scrolith.com',
-        from_email: source.from_email || source.fromEmail || 'noreply@Scrolith.com'
+        from_email: source.from_email || source.fromEmail || 'noreply@Scrolith.com',
+        apiKey,
+        api_key: source.api_key || apiKey,
+        domain,
+        mailgun_domain: source.mailgun_domain || domain,
+        region,
+        ses_region: source.ses_region || region,
+        accessKeyId: source.accessKeyId || source.access_key_id || '',
+        access_key_id: source.access_key_id || source.accessKeyId || '',
+        secretAccessKey: source.secretAccessKey || source.secret_access_key || '',
+        secret_access_key: source.secret_access_key || source.secretAccessKey || ''
     };
+};
+
+const isValidEmailAddress = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+
+const getEmailConfigValidationErrors = (raw: EmailProviderConfig): string[] => {
+    const config = normalizeEmailConfig(raw);
+    const provider = normalizeEmailProvider(config.provider);
+    const errors: string[] = [];
+
+    if (!config.host?.trim()) errors.push('Please configure email host first.');
+    if (!config.port || Number(config.port) <= 0) errors.push('Please configure a valid email port.');
+    if (!config.fromName?.trim()) errors.push('Please provide From Name.');
+    if (!isValidEmailAddress(config.fromEmail || '')) errors.push('Please provide a valid From Email.');
+
+    if (provider === 'smtp' || provider === 'ses') {
+        if (!config.username?.trim()) errors.push('Please provide SMTP username.');
+        if (!config.password?.trim()) errors.push('Please provide SMTP password.');
+    }
+
+    if (provider === 'sendgrid') {
+        if (!config.apiKey?.trim() && !config.password?.trim()) {
+            errors.push('Please provide SendGrid API key (or SMTP password).');
+        }
+    }
+
+    if (provider === 'mailgun') {
+        if (!config.username?.trim() && !config.domain?.trim()) {
+            errors.push('Please provide Mailgun SMTP username or domain.');
+        }
+        if (!config.apiKey?.trim() && !config.password?.trim()) {
+            errors.push('Please provide Mailgun API key (or SMTP password).');
+        }
+    }
+
+    return errors;
+};
+
+const transitionProviderConfig = (
+    current: EmailProviderConfig,
+    nextProviderRaw: any
+): EmailProviderConfig => {
+    const currentNormalized = normalizeEmailConfig(current);
+    const nextProvider = normalizeEmailProvider(nextProviderRaw);
+    const previousProvider = normalizeEmailProvider(currentNormalized.provider);
+    const currentRegion = currentNormalized.region || 'us-east-1';
+
+    const previousDefaultHost = getProviderDefaultHost(previousProvider, currentRegion);
+    const nextDefaultHost = getProviderDefaultHost(nextProvider, currentRegion);
+    const previousDefaultPort = EMAIL_PORT_DEFAULTS[previousProvider] || 587;
+    const nextDefaultPort = EMAIL_PORT_DEFAULTS[nextProvider] || 587;
+
+    const shouldReplaceHost =
+        !currentNormalized.host ||
+        currentNormalized.host === previousDefaultHost ||
+        currentNormalized.host === '';
+    const shouldReplacePort = !currentNormalized.port || Number(currentNormalized.port) === previousDefaultPort;
+
+    return normalizeEmailConfig({
+        ...currentNormalized,
+        provider: nextProvider,
+        host: shouldReplaceHost ? nextDefaultHost : currentNormalized.host,
+        port: shouldReplacePort ? nextDefaultPort : currentNormalized.port,
+        username:
+            nextProvider === 'sendgrid'
+                ? (currentNormalized.username || 'apikey')
+                : currentNormalized.username || '',
+        encryption: currentNormalized.encryption || 'tls',
+        smtp_encryption: currentNormalized.smtp_encryption || currentNormalized.encryption || 'tls'
+    });
 };
 
 const normalizeCurrencyConfig = (raw: any) => {
@@ -335,14 +452,33 @@ const SystemSettings = () => {
         setIsSaving(true);
         try {
             // Avoid overwriting secrets with empty values: only include secrets when provided
-            const safeEmail: Partial<EmailProviderConfig> = { ...(emailConfig || {}) };
+            const safeEmail: Partial<EmailProviderConfig> = { ...normalizeEmailConfig(emailConfig || {}) };
             if (!safeEmail.password) {
                 const _safe = safeEmail as unknown as Record<string, any>;
                 delete _safe.password;
             }
+            if (!(safeEmail as any).apiKey) {
+                const _safe = safeEmail as unknown as Record<string, any>;
+                delete _safe.apiKey;
+                delete _safe.api_key;
+            }
+            if (!(safeEmail as any).secretAccessKey) {
+                const _safe = safeEmail as unknown as Record<string, any>;
+                delete _safe.secretAccessKey;
+                delete _safe.secret_access_key;
+            }
             // Ensure snake_case aliases are present
             (safeEmail as any).from_name = (safeEmail as any).from_name || safeEmail.fromName || '';
             (safeEmail as any).from_email = (safeEmail as any).from_email || safeEmail.fromEmail || '';
+            (safeEmail as any).api_key = (safeEmail as any).api_key || (safeEmail as any).apiKey || '';
+            (safeEmail as any).mailgun_domain = (safeEmail as any).mailgun_domain || (safeEmail as any).domain || '';
+            (safeEmail as any).ses_region = (safeEmail as any).ses_region || (safeEmail as any).region || '';
+            (safeEmail as any).smtp_encryption =
+                (safeEmail as any).smtp_encryption || (safeEmail as any).encryption || 'tls';
+            (safeEmail as any).access_key_id =
+                (safeEmail as any).access_key_id || (safeEmail as any).accessKeyId || '';
+            (safeEmail as any).secret_access_key =
+                (safeEmail as any).secret_access_key || (safeEmail as any).secretAccessKey || '';
 
             const safeStorage: any = { ...(storageConfig || {}) };
             if (safeStorage.driver && safeStorage.driver !== 'local') {
@@ -725,26 +861,21 @@ const SystemSettings = () => {
 
     const handleTestEmail = async () => {
         // Validate email
-        if (!testEmail || !testEmail.includes?.('@') || !testEmail.includes?.('.')) {
+        if (!isValidEmailAddress(testEmail || '')) {
             showNotification('alert', 'Invalid Email', 'Please enter a valid recipient email address.');
             return;
         }
-        
-        // Validate SMTP configuration
-        if (!emailConfig.host?.trim() || !emailConfig.port) {
-            showNotification('alert', 'Configuration Incomplete', 'Please configure email host and port first.');
-            return;
-        }
-        
-        if (emailConfig.provider === 'smtp' && (!emailConfig.username?.trim() || !emailConfig.password?.trim())) {
-            showNotification('alert', 'Configuration Incomplete', 'Please enter SMTP username and password.');
+
+        const validationErrors = getEmailConfigValidationErrors(emailConfig);
+        if (validationErrors.length) {
+            showNotification('alert', 'Configuration Incomplete', validationErrors[0]);
             return;
         }
         
         setIsTestingEmail(true);
         
         try {
-            await AdminService.testEmailSettings({ to: testEmail, config: emailConfig });
+            await AdminService.testEmailSettings({ to: testEmail, config: normalizeEmailConfig(emailConfig) });
             setIsTestingEmail(false);
             showNotification('success', 'Email Sent', `Test email sent to ${testEmail}. Please check your inbox.`);
             setTestEmail('');
@@ -815,6 +946,7 @@ const SystemSettings = () => {
     );
     const kycEnabled = normalizeBoolean(systemSnapshot.kycEnforced ?? systemSnapshot.kyc_enforced, false);
     const admin2FAEnabled = normalizeBoolean(systemSnapshot.admin2FA ?? systemSnapshot.admin_2fa, false);
+    const selectedEmailProvider = normalizeEmailProvider(emailConfig.provider);
 
     if (isLoading) {
         return (
@@ -1434,8 +1566,8 @@ const SystemSettings = () => {
                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Provider</label>
                                     <select 
                                         className="w-full border-gray-300 rounded-lg p-2" 
-                                        value={emailConfig.provider} 
-                                        onChange={e => setEmailConfig({...emailConfig, provider: e.target.value as unknown as EmailProviderConfig['provider']})}
+                                        value={selectedEmailProvider} 
+                                        onChange={e => setEmailConfig(transitionProviderConfig(emailConfig, e.target.value))}
                                     >
                                         <option value="smtp">Custom SMTP</option>
                                         <option value="ses">Amazon SES</option>
@@ -1449,7 +1581,11 @@ const SystemSettings = () => {
                                         className="w-full border-gray-300 rounded-lg p-2" 
                                         value={emailConfig.host || ''} 
                                         onChange={e => setEmailConfig({...emailConfig, host: e.target.value})} 
-                                        placeholder="smtp.example.com"
+                                        placeholder={
+                                            selectedEmailProvider === 'smtp'
+                                                ? 'smtp.example.com'
+                                                : getProviderDefaultHost(selectedEmailProvider, emailConfig.region)
+                                        }
                                     />
                                 </div>
                                 <div>
@@ -1458,10 +1594,28 @@ const SystemSettings = () => {
                                         type="number" 
                                         className="w-full border-gray-300 rounded-lg p-2" 
                                         value={emailConfig.port || 587} 
-                                        onChange={e => setEmailConfig({...emailConfig, port: parseInt(e.target.value) || 587})} 
+                                        onChange={e => setEmailConfig({...emailConfig, port: parseInt(e.target.value) || 587})}
                                         min="1"
                                         max="65535"
                                     />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Encryption</label>
+                                    <select
+                                        className="w-full border-gray-300 rounded-lg p-2"
+                                        value={(emailConfig.encryption || emailConfig.smtp_encryption || 'tls').toString().toLowerCase()}
+                                        onChange={e =>
+                                            setEmailConfig({
+                                                ...emailConfig,
+                                                encryption: e.target.value as 'tls' | 'ssl' | 'none',
+                                                smtp_encryption: e.target.value as 'tls' | 'ssl' | 'none'
+                                            })
+                                        }
+                                    >
+                                        <option value="tls">TLS (Recommended)</option>
+                                        <option value="ssl">SSL</option>
+                                        <option value="none">None</option>
+                                    </select>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Username</label>
@@ -1469,6 +1623,7 @@ const SystemSettings = () => {
                                         className="w-full border-gray-300 rounded-lg p-2" 
                                         value={emailConfig.username || ''} 
                                         onChange={e => setEmailConfig({...emailConfig, username: e.target.value})} 
+                                        placeholder={selectedEmailProvider === 'sendgrid' ? 'apikey' : ''}
                                     />
                                 </div>
                                 <div>
@@ -1480,6 +1635,76 @@ const SystemSettings = () => {
                                         onChange={e => setEmailConfig({...emailConfig, password: e.target.value})} 
                                     />
                                 </div>
+                                {selectedEmailProvider === 'ses' && (
+                                    <div className="col-span-2">
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">SES Region</label>
+                                        <input
+                                            className="w-full border-gray-300 rounded-lg p-2"
+                                            value={emailConfig.region || 'us-east-1'}
+                                            onChange={e =>
+                                                setEmailConfig({
+                                                    ...emailConfig,
+                                                    region: e.target.value,
+                                                    ses_region: e.target.value
+                                                })
+                                            }
+                                            placeholder="us-east-1"
+                                        />
+                                    </div>
+                                )}
+                                {selectedEmailProvider === 'sendgrid' && (
+                                    <div className="col-span-2">
+                                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">SendGrid API Key</label>
+                                        <input
+                                            type="password"
+                                            className="w-full border-gray-300 rounded-lg p-2"
+                                            value={emailConfig.apiKey || ''}
+                                            onChange={e =>
+                                                setEmailConfig({
+                                                    ...emailConfig,
+                                                    apiKey: e.target.value,
+                                                    api_key: e.target.value
+                                                })
+                                            }
+                                            placeholder="SG.xxxxx"
+                                        />
+                                    </div>
+                                )}
+                                {selectedEmailProvider === 'mailgun' && (
+                                    <>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Mailgun Domain</label>
+                                            <input
+                                                className="w-full border-gray-300 rounded-lg p-2"
+                                                value={emailConfig.domain || ''}
+                                                onChange={e =>
+                                                    setEmailConfig({
+                                                        ...emailConfig,
+                                                        domain: e.target.value,
+                                                        mailgun_domain: e.target.value
+                                                    })
+                                                }
+                                                placeholder="mg.example.com"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Mailgun API Key</label>
+                                            <input
+                                                type="password"
+                                                className="w-full border-gray-300 rounded-lg p-2"
+                                                value={emailConfig.apiKey || ''}
+                                                onChange={e =>
+                                                    setEmailConfig({
+                                                        ...emailConfig,
+                                                        apiKey: e.target.value,
+                                                        api_key: e.target.value
+                                                    })
+                                                }
+                                                placeholder="key-xxxxxxxx"
+                                            />
+                                        </div>
+                                    </>
+                                )}
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">From Name</label>
                                     <input 

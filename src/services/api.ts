@@ -23,6 +23,40 @@ const isNative = () => {
 };
 
 const API_URL = getApiBaseUrl();
+const parseTimeoutMs = (value: unknown, fallback: number) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(5000, Math.min(60000, Math.floor(parsed)));
+};
+const DEFAULT_TIMEOUT_MS = parseTimeoutMs(import.meta.env.VITE_API_TIMEOUT_MS, isNative() ? 25000 : 15000);
+const GET_RETRY_LIMIT = 1;
+const RETRY_BASE_DELAY_MS = 350;
+const shouldRetryRequest = (error: any) => {
+  const config = (error?.config || {}) as any;
+  const method = String(config?.method || 'get').toLowerCase();
+  if (method !== 'get') return false;
+
+  const retries = Number(config.__retryCount || 0);
+  if (retries >= GET_RETRY_LIMIT) return false;
+
+  const status = Number(error?.response?.status || 0);
+  if (status && status < 500 && status !== 408 && status !== 429) return false;
+
+  const code = String(error?.code || '').toUpperCase();
+  const message = String(error?.message || '').toLowerCase();
+  const timeoutLike =
+    code === 'ECONNABORTED' ||
+    message.includes('timeout') ||
+    message.includes('network error') ||
+    (!status && Boolean(error?.request));
+
+  return timeoutLike || status === 408 || status === 429 || status >= 500;
+};
+const wait = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
 // Create axios instance with default config
 const api = axios.create({
   baseURL: API_URL,
@@ -32,7 +66,7 @@ const api = axios.create({
   // In native builds we do not rely on cookies; disabling credentials avoids CORS
   // issues with capacitor:// origins and local dev servers.
   withCredentials: !isNative(),
-  timeout: 10000,
+  timeout: DEFAULT_TIMEOUT_MS,
 });
 
 const readToken = () => tokenStore.get();
@@ -97,6 +131,15 @@ api.interceptors.response.use(
         }
       }
     }
+
+    if (shouldRetryRequest(error)) {
+      const config = (error?.config || {}) as any;
+      config.__retryCount = Number(config.__retryCount || 0) + 1;
+      const jitter = Math.floor(Math.random() * 120);
+      await wait(RETRY_BASE_DELAY_MS * config.__retryCount + jitter);
+      return api.request(config);
+    }
+
     return Promise.reject(error);
   }
 );

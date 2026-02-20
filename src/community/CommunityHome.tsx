@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { TrendingUp, Calendar, Award, MessageCircle, Zap, Users, Briefcase, Star, Filter, Search, Plus, Camera as CameraIcon, X, Heart } from 'lucide-react';
-import { Link, useLocation, useParams } from 'react-router-dom';
+import { TrendingUp, Calendar, Award, MessageCircle, Filter, Search, Plus, Camera as CameraIcon, X, Heart } from 'lucide-react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { CMSService } from '../services/cms';
 import DonateButton from '../components/DonateButton';
@@ -165,6 +165,7 @@ type PostDraft = {
 
 const CommunityHome = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const params = useParams<{ id?: string }>();
   const focusPostId = String(params.id || '').trim();
   const focusQuery = new URLSearchParams(location.search);
@@ -222,6 +223,24 @@ const CommunityHome = () => {
   const viewTracked = useRef<Set<string>>(new Set());
   const storyPreviewStyle = getStoryTextStyle(storyDraft);
   const storyEditPreviewStyle = getStoryTextStyle(storyEditDraft);
+
+  const openPostDetail = useCallback(
+    (postId: string) => {
+      const id = String(postId || '').trim();
+      if (!id) return;
+      navigate(`/post/${encodeURIComponent(id)}`);
+    },
+    [navigate]
+  );
+
+  const openPostFromText = useCallback(
+    (event: React.MouseEvent<HTMLElement>, postId: string) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('a, button, input, textarea, select, label, video, audio')) return;
+      openPostDetail(postId);
+    },
+    [openPostDetail]
+  );
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1747,20 +1766,39 @@ const CommunityHome = () => {
                         </div>
                       ) : (
                         <>
-                          {post.title && <h3 className="mt-3 font-semibold text-gray-900">{post.title}</h3>}
+                          {post.title ? (
+                            <button
+                              type="button"
+                              onClick={() => openPostDetail(post.id)}
+                              className="mt-3 text-left font-semibold text-gray-900 hover:text-blue-700 hover:underline"
+                            >
+                              {post.title}
+                            </button>
+                          ) : null}
                           {focusPostId === post.id && focusMentionToken ? (
                             <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
                               You were mentioned in this post.
                             </div>
                           ) : null}
-                          <p className="mt-2 text-sm text-gray-700">
+                          <div
+                            className="mt-2 cursor-pointer text-sm text-gray-700"
+                            role="button"
+                            tabIndex={0}
+                            onClick={(event) => openPostFromText(event, post.id)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                openPostDetail(post.id);
+                              }
+                            }}
+                          >
                             <MentionText
                               text={post.content}
                               mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
                               viewerId={user?.id}
                               viewerUsername={user?.username}
                             />
-                          </p>
+                          </div>
                           {post.tags?.length ? (
                             <div className="mt-2 flex flex-wrap gap-2">
                               {post.tags.map((tag: string) => (
@@ -1783,9 +1821,14 @@ const CommunityHome = () => {
                                 }
                                 if (type === 'image') {
                                   return (
-                                    <div key={media.id || media.url} className="overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+                                    <button
+                                      key={media.id || media.url}
+                                      type="button"
+                                      onClick={() => openPostDetail(post.id)}
+                                      className="overflow-hidden rounded-xl border border-gray-200 bg-gray-50 text-left"
+                                    >
                                       <img src={media.url} alt={media.name || 'Post media'} className="h-40 w-full object-cover" />
-                                    </div>
+                                    </button>
                                   );
                                 }
                                 return (

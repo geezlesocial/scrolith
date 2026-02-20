@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { UserPlus } from 'lucide-react';
+import { UserPlusIcon as UserPlus } from '../../../components/icons/ShellIcons';
 import { CommunityService } from '../../../services/community';
 
 type SuggestedData =
@@ -92,4 +92,3 @@ function FollowList({
     </div>
   );
 }
-

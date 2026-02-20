@@ -3,7 +3,7 @@ import { CommunityService } from '../services/community';
 import { CommunityComment, UserRole } from '../types';
 import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
-import { MessageCircle, Send, Loader2, Heart, Reply, MoreVertical, Trash2, AlertCircle } from 'lucide-react';
+import { MessageCircle, Send, Loader2, Heart, Reply, Trash2, AlertCircle } from 'lucide-react';
 import RichTextEditor from './RichTextEditor';
 import InteractionBar from './InteractionBar';
 

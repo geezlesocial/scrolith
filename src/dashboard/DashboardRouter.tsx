@@ -1,27 +1,50 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { DashboardLayout } from './shared/DashboardLayout';
 import { UserRole } from '../types';
 
-// Import all dashboard components
-import { Overview as FreelancerOverview, MyGigs, Orders, Contracts as FreelancerContracts, MyProposals, UploadedFiles as FreelancerUploadedFiles, WalletModule } from './freelancer';
-import { Overview as EmployerOverview, MyJobs, ProposalsOffers, Contracts as EmployerContracts, UploadedFiles as EmployerUploadedFiles } from './employer';
-import FreelancerReviews from './freelancer/Reviews';
-import FreelancerLikes from './freelancer/Likes';
-import MyAds from '../pages/MyAds';
-import CommunityDashboard from './shared/CommunityDashboard';
-import EmployerFavorites from './employer/Favorites';
-import EmployerReviews from './employer/Reviews';
-import SupportCenter from './shared/SupportCenter';
-import GcoinPanel from './shared/GcoinPanel';
-import MessagesPanel from './shared/MessagesPanel';
-import Favorites from '../pages/Favorites';
-import { KYCVerification } from './shared';
-import EditProfile from '../profile/EditProfile';
-import SettingsModule from './shared/SettingsModule';
-import Membership from './shared/Membership';
-import ManagePagesModule from './shared/ManagePagesModule';
+const FreelancerOverview = React.lazy(() =>
+  import('./freelancer/Overview').then((module) => ({ default: module.Overview }))
+);
+const MyGigs = React.lazy(() => import('./freelancer/MyGigs'));
+const Orders = React.lazy(() => import('./freelancer/Orders'));
+const FreelancerContracts = React.lazy(() => import('./freelancer/Contracts'));
+const MyProposals = React.lazy(() => import('./freelancer/MyProposals'));
+const FreelancerUploadedFiles = React.lazy(() => import('./freelancer/UploadedFiles'));
+const WalletModule = React.lazy(() => import('./freelancer/WalletModule'));
+
+const EmployerOverview = React.lazy(() => import('./employer/Overview'));
+const MyJobs = React.lazy(() => import('./employer/MyJobs'));
+const ProposalsOffers = React.lazy(() =>
+  import('./employer/ProposalsOffers').then((module) => ({ default: module.ProposalsOffers }))
+);
+const EmployerContracts = React.lazy(() => import('./employer/Contracts'));
+const EmployerUploadedFiles = React.lazy(() => import('./employer/UploadedFiles'));
+const EmployerFavorites = React.lazy(() => import('./employer/Favorites'));
+const EmployerReviews = React.lazy(() => import('./employer/Reviews'));
+
+const FreelancerReviews = React.lazy(() => import('./freelancer/Reviews'));
+const FreelancerLikes = React.lazy(() => import('./freelancer/Likes'));
+const MyAds = React.lazy(() => import('../pages/MyAds'));
+const CommunityDashboard = React.lazy(() => import('./shared/CommunityDashboard'));
+const SupportCenter = React.lazy(() => import('./shared/SupportCenter'));
+const GcoinPanel = React.lazy(() => import('./shared/GcoinPanel'));
+const MessagesPanel = React.lazy(() => import('./shared/MessagesPanel'));
+const Favorites = React.lazy(() => import('../pages/Favorites'));
+const KYCVerification = React.lazy(() =>
+  import('./shared/KYCVerification').then((module) => ({ default: module.KYCVerification }))
+);
+const EditProfile = React.lazy(() => import('../profile/EditProfile'));
+const SettingsModule = React.lazy(() => import('./shared/SettingsModule'));
+const Membership = React.lazy(() => import('./shared/Membership'));
+const ManagePagesModule = React.lazy(() => import('./shared/ManagePagesModule'));
+
+const DashboardSectionLoader = () => (
+  <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
+    Loading dashboard module...
+  </div>
+);
 
 export const DashboardRouter: React.FC = () => {
   const { user } = useUser();
@@ -172,7 +195,7 @@ export const DashboardRouter: React.FC = () => {
           </span>
         </div>
       )}
-      {renderContent()}
+      <Suspense fallback={<DashboardSectionLoader />}>{renderContent()}</Suspense>
     </DashboardLayout>
   );
 };

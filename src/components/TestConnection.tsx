@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Wifi, WifiOff, CheckCircle, XCircle } from 'lucide-react';
+import { Wifi, CheckCircle, XCircle } from 'lucide-react';
 import { getApiBaseUrl } from '../utils/apiBase';
 
 export default function TestConnection() {
