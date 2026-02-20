@@ -45,8 +45,15 @@ export const ContractService = {
     await api.patch(`/contracts/${id}/status`, { status });
   },
 
-  startTracking: async (contractId: string): Promise<void> => {
-    await api.post(`/contracts/${contractId}/tracking/start`, {});
+  startTracking: async (contractId: string): Promise<ActiveTrackingSession> => {
+    const response = await api.post(`/contracts/${contractId}/tracking/start`, {});
+    return extractData<ActiveTrackingSession>(response);
+  },
+
+  getActiveSessionForContract: async (contractId: string): Promise<ActiveTrackingSession | null> => {
+    const response = await api.get(`/contracts/${contractId}/tracking/active`);
+    const data = extractData<ActiveTrackingSession | null>(response);
+    return data ?? null;
   },
 
   stopTracking: async (contractId: string, notes: string, screenshots: string[] = []): Promise<TimeEntry> => {

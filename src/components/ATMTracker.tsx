@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Square, Pause, Activity } from 'lucide-react';
 import { Contract } from '../types';
 import { ContractService } from '../services/contract';
@@ -20,41 +20,86 @@ const ATMTracker: React.FC<ATMTrackerProps> = ({ contract, onUpdate }) => {
     const [note, setNote] = useState('');
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    // Initial Load & Persistence Check
-    useEffect(() => {
-        checkActiveSession();
-        // Cleanup on unmount
-        return () => { if (timerRef.current) clearInterval(timerRef.current); };
-    }, [contract.id]);
+    const getSessionStorageKey = useCallback(() => `atm_active_session_${contract.id}`, [contract.id]);
 
-    const checkActiveSession = () => {
-        const key = `atm_active_session_${contract.id}`;
-        const stored = localStorage.getItem(key);
-        if (stored) {
-            const data = JSON.parse(stored);
-            const start = new Date(data.startTime);
-            setSessionStart(start);
-            setNote(data.notes || '');
-            setIsRunning(true);
-            
-            // Calculate elapsed immediately
-            const now = new Date();
-            setElapsed(Math.floor((now.getTime() - start.getTime()) / 1000));
-            
-            // Start local tick
-            if (!timerRef.current) {
-                timerRef.current = setInterval(() => {
-                    setElapsed(prev => prev + 1);
-                }, 1000);
-            }
-        } else {
-            setIsRunning(false);
-            setElapsed(0);
-            setSessionStart(null);
-            if (timerRef.current) clearInterval(timerRef.current);
-            timerRef.current = null;
+    const persistLocalSession = useCallback((startTime: string, notes: string = '') => {
+        localStorage.setItem(getSessionStorageKey(), JSON.stringify({ startTime, notes }));
+    }, [getSessionStorageKey]);
+
+    const startTicker = useCallback((start: Date) => {
+        if (timerRef.current) {
+            clearInterval(timerRef.current);
         }
-    };
+
+        const tick = () => {
+            setElapsed(Math.max(0, Math.floor((Date.now() - start.getTime()) / 1000)));
+        };
+
+        tick();
+        timerRef.current = setInterval(tick, 1000);
+    }, []);
+
+    const hydrateRunningState = useCallback((startTime: string, notes: string = '') => {
+        const start = new Date(startTime);
+        if (Number.isNaN(start.getTime())) return;
+
+        setSessionStart(start);
+        setIsRunning(true);
+        setNote(notes);
+        persistLocalSession(start.toISOString(), notes);
+        startTicker(start);
+    }, [persistLocalSession, startTicker]);
+
+    const stopTimerLocal = useCallback(() => {
+        setIsRunning(false);
+        setElapsed(0);
+        setSessionStart(null);
+        setNote('');
+        if (timerRef.current) clearInterval(timerRef.current);
+        timerRef.current = null;
+        localStorage.removeItem(getSessionStorageKey());
+    }, [getSessionStorageKey]);
+
+    const checkActiveSession = useCallback(async () => {
+        try {
+            const activeSession = await ContractService.getActiveSessionForContract(contract.id);
+            if (activeSession?.startedAt) {
+                const storedRaw = localStorage.getItem(getSessionStorageKey());
+                const stored = storedRaw ? JSON.parse(storedRaw) : null;
+                const notes = typeof stored?.notes === 'string' ? stored.notes : '';
+                hydrateRunningState(activeSession.startedAt, notes);
+                return;
+            }
+        } catch {
+            // Fall back to local cache if server check fails.
+        }
+
+        const storedRaw = localStorage.getItem(getSessionStorageKey());
+        if (!storedRaw) {
+            stopTimerLocal();
+            return;
+        }
+
+        try {
+            const stored = JSON.parse(storedRaw);
+            if (stored?.startTime) {
+                hydrateRunningState(stored.startTime, stored.notes || '');
+                return;
+            }
+        } catch {
+            // Invalid cached payload, clear it below.
+        }
+
+        stopTimerLocal();
+    }, [contract.id, getSessionStorageKey, hydrateRunningState, stopTimerLocal]);
+
+    // Initial load and contract switch sync
+    useEffect(() => {
+        void checkActiveSession();
+        return () => {
+            if (timerRef.current) clearInterval(timerRef.current);
+        };
+    }, [checkActiveSession]);
 
     const formatTime = (totalSeconds: number) => {
         const hours = Math.floor(totalSeconds / 3600);
@@ -63,14 +108,47 @@ const ATMTracker: React.FC<ATMTrackerProps> = ({ contract, onUpdate }) => {
         return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     };
 
+    const extractStartTime = (payload: any): string | null => {
+        const candidates = [
+            payload?.startedAt,
+            payload?.startTime,
+            payload?.started_at,
+            payload?.session?.startedAt,
+            payload?.session?.startTime,
+            payload?.data?.startedAt,
+            payload?.data?.startTime
+        ];
+
+        for (const value of candidates) {
+            if (typeof value !== 'string') continue;
+            const parsed = new Date(value);
+            if (!Number.isNaN(parsed.getTime())) return value;
+        }
+        return null;
+    };
+
     const handleStart = async () => {
         try {
-            await ContractService.startTracking(contract.id);
-            checkActiveSession();
+            const session = await ContractService.startTracking(contract.id);
+            let started = false;
+
+            const startedAt = extractStartTime(session);
+            if (startedAt) {
+                hydrateRunningState(startedAt, note);
+                started = true;
+            } else {
+                await checkActiveSession();
+                started = Boolean(localStorage.getItem(getSessionStorageKey()));
+            }
+
+            if (!started) {
+                throw new Error('Tracker could not be started. Please refresh and try again.');
+            }
+
             showNotification('success', 'Tracker Started', `Recording time for ${contract.title}`);
             if (onUpdate) onUpdate();
-        } catch (error) {
-            showNotification('alert', 'Error', 'Could not start tracker.');
+        } catch (error: any) {
+            showNotification('alert', 'Error', error?.message || 'Could not start tracker.');
         }
     };
 
@@ -97,15 +175,6 @@ const ATMTracker: React.FC<ATMTrackerProps> = ({ contract, onUpdate }) => {
         } catch (error) {
             showNotification('alert', 'Error', 'Failed to pause tracker.');
         }
-    };
-
-    const stopTimerLocal = () => {
-        setIsRunning(false);
-        setElapsed(0);
-        if (timerRef.current) clearInterval(timerRef.current);
-        timerRef.current = null;
-        setNote('');
-        localStorage.removeItem(`atm_active_session_${contract.id}`);
     };
 
     // Calculate live earnings
