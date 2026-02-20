@@ -500,6 +500,11 @@ const AppContent = () => {
 
   const isFooterSuppressedByRule = matchesAnyRouteRule(location.pathname, footerHiddenRoutes);
   const isSupportWidgetSuppressedByRule = matchesAnyRouteRule(location.pathname, supportWidgetHiddenRoutes);
+  const shouldHideAppDistributionPrompt =
+    isMobileShellRoute ||
+    isMessagesRoute ||
+    isMessagesTabRoute ||
+    isGigDetailRoute;
   const shouldHideSupportWidget =
     isMobileShellRoute ||
     isMessagesRoute ||
@@ -512,7 +517,7 @@ const AppContent = () => {
     <div className="flex flex-col min-h-screen relative">
       <IntegrationsManager />
       <OfflineBanner />
-      {!isMobileShellRoute && <AppDistributionPrompt />}
+      {!shouldHideAppDistributionPrompt && <AppDistributionPrompt />}
       {!isAdminRoute && !isMobileShellRoute && <Navbar />}
       <main className="flex-grow">
         <ErrorBoundary>
