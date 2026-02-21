@@ -17,6 +17,11 @@ export interface TimeEntryListResponse {
   total: number;
 }
 
+export interface PayContractDueOptions {
+  paymentMethodId?: string;
+  fundingProvider?: string;
+}
+
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
   if (response?.data !== undefined) return response.data as T;
@@ -79,8 +84,8 @@ export const ContractService = {
     await api.post(`/contracts/time-entries/${id}/approve`, {});
   },
 
-  payContractDue: async (contractId: string): Promise<number> => {
-    const response = await api.post(`/contracts/${contractId}/pay`, {});
+  payContractDue: async (contractId: string, options: PayContractDueOptions = {}): Promise<number> => {
+    const response = await api.post(`/contracts/${contractId}/pay`, options);
     const data = extractData<{ amount?: number }>(response);
     return data?.amount ?? 0;
   },

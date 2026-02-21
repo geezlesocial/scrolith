@@ -1,17 +1,30 @@
 
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Contract, TimeEntry } from '../../types';
+import { Contract, PaymentGateway, TimeEntry } from '../../types';
 import { ContractService } from '../../services/contract';
 import { useCurrency } from '../../context/CurrencyContext';
 import { Clock, CheckCircle, Play, PauseCircle, DollarSign, Download, Ban } from 'lucide-react';
 import ATMTracker from '../../components/ATMTracker';
 import { useNotification } from '../../context/NotificationContext';
 import ConfirmModal from './ConfirmModal';
+import { PaymentService } from '../../services/payment';
+import { WalletService, walletApi } from '../../services/wallet';
+import { getUserFacingPaymentMethodName } from '../../utils/paymentGatewayDisplay';
 
 interface ContractListProps {
     role: 'client' | 'freelancer' | 'admin';
     userId: string;
+}
+
+const CONTRACT_DUE_TOPUP_STORAGE_KEY = 'scrolith.contract_due_topup_pending';
+
+interface PendingContractDueTopup {
+    contractId: string;
+    intentId: string;
+    providerId: string;
+    providerName: string;
+    createdAt: number;
 }
 
 const ContractList: React.FC<ContractListProps> = ({ role, userId }) => {
@@ -27,6 +40,13 @@ const ContractList: React.FC<ContractListProps> = ({ role, userId }) => {
         variant?: 'danger' | 'warning' | 'info';
         onConfirm: () => Promise<void> | void;
     } | null>(null);
+    const [showPayDueModal, setShowPayDueModal] = useState(false);
+    const [duePaymentMethods, setDuePaymentMethods] = useState<PaymentGateway[]>([]);
+    const [dueSelectedMethodId, setDueSelectedMethodId] = useState<string>('');
+    const [dueWalletInfo, setDueWalletInfo] = useState<any>(null);
+    const [dueMethodsLoading, setDueMethodsLoading] = useState(false);
+    const [dueSubmitLoading, setDueSubmitLoading] = useState(false);
+    const [duePaymentError, setDuePaymentError] = useState<string | null>(null);
 
     useEffect(() => {
         loadContracts();
@@ -46,8 +66,111 @@ const ContractList: React.FC<ContractListProps> = ({ role, userId }) => {
         };
     }, [selectedContract?.id, role, userId, searchParams.toString()]);
 
+    useEffect(() => {
+        if (role !== 'client') return;
+        const intentId = searchParams.get('topup_intent');
+        if (!intentId) return;
+
+        const pending = readPendingContractTopup();
+        if (!pending || pending.intentId !== intentId) return;
+
+        let cancelled = false;
+        let attempts = 0;
+
+        const poll = async () => {
+            try {
+                const status = await WalletService.getTopupStatus(intentId);
+                if (cancelled) return;
+                const state = (status?.status || '').toString().toLowerCase();
+
+                if (state === 'succeeded') {
+                    const paidAmount = await ContractService.payContractDue(pending.contractId, {
+                        paymentMethodId: 'wallet',
+                        fundingProvider: pending.providerId
+                    });
+                    if (cancelled) return;
+
+                    showNotification(
+                        'success',
+                        'Payment Sent',
+                        `Paid ${formatPrice(paidAmount)} using ${pending.providerName}.`
+                    );
+
+                    clearPendingContractTopup();
+                    clearTopupQueryParams();
+                    await loadContracts(true);
+                    if (selectedContract?.id === pending.contractId) {
+                        await refreshLogs(pending.contractId);
+                    }
+                    return;
+                }
+
+                if (state === 'failed' || state === 'cancelled' || state === 'expired') {
+                    showNotification(
+                        'error',
+                        'Payment Incomplete',
+                        'Top-up did not complete. Contract due has not been paid.'
+                    );
+                    clearPendingContractTopup();
+                    clearTopupQueryParams();
+                    return;
+                }
+            } catch {
+                // Continue polling up to max attempts.
+            }
+
+            attempts += 1;
+            if (!cancelled && attempts < 20) {
+                window.setTimeout(poll, 3000);
+            }
+        };
+
+        void poll();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [formatPrice, role, searchParams, selectedContract?.id, setSearchParams, showNotification]);
+
     const getContractFromQuery = () =>
         searchParams.get('contract') || searchParams.get('contract_id') || searchParams.get('contractId');
+
+    const readPendingContractTopup = (): PendingContractDueTopup | null => {
+        try {
+            const raw = window.localStorage.getItem(CONTRACT_DUE_TOPUP_STORAGE_KEY);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw) as PendingContractDueTopup;
+            if (!parsed?.contractId || !parsed?.intentId || !parsed?.providerId) return null;
+            return parsed;
+        } catch {
+            return null;
+        }
+    };
+
+    const writePendingContractTopup = (value: PendingContractDueTopup) => {
+        try {
+            window.localStorage.setItem(CONTRACT_DUE_TOPUP_STORAGE_KEY, JSON.stringify(value));
+        } catch {
+            // ignore storage failures
+        }
+    };
+
+    const clearPendingContractTopup = () => {
+        try {
+            window.localStorage.removeItem(CONTRACT_DUE_TOPUP_STORAGE_KEY);
+        } catch {
+            // ignore storage failures
+        }
+    };
+
+    const clearTopupQueryParams = () => {
+        setSearchParams((current) => {
+            const next = new URLSearchParams(current);
+            next.delete('topup_intent');
+            next.delete('topup_status');
+            return next;
+        }, { replace: true });
+    };
 
     const loadContracts = async (silent = false) => {
         try {
@@ -125,26 +248,139 @@ const ContractList: React.FC<ContractListProps> = ({ role, userId }) => {
         });
     };
 
+    const loadDuePaymentMethods = async (requiredAmount: number) => {
+        setDueMethodsLoading(true);
+        setDuePaymentError(null);
+        try {
+            const [gateways, wallet] = await Promise.all([
+                PaymentService.getActivePaymentMethods().catch(() => []),
+                walletApi.getWalletInfo().catch(() => null)
+            ]);
+
+            setDueWalletInfo(wallet || null);
+
+            const walletCurrency = (wallet?.currency || 'USD').toUpperCase();
+            const walletBalance = Number(wallet?.availableBalance ?? wallet?.available_balance ?? 0);
+
+            const walletMethod: PaymentGateway | null = wallet
+                ? ({
+                      id: 'wallet',
+                      name: 'Wallet Balance',
+                      is_enabled: true,
+                      isEnabled: true,
+                      mode: 'test',
+                      logo: '',
+                      supported_currencies: [walletCurrency],
+                      balance: walletBalance
+                  } as unknown as PaymentGateway)
+                : null;
+
+            const externalMethods = (Array.isArray(gateways) ? gateways : [])
+                .map((gateway: any) => ({
+                    ...gateway,
+                    name: getUserFacingPaymentMethodName(gateway)
+                }))
+                .filter((gateway: any) => gateway?.id && gateway.id !== 'wallet');
+
+            const allMethods = walletMethod ? [walletMethod, ...externalMethods] : externalMethods;
+
+            setDuePaymentMethods(allMethods as PaymentGateway[]);
+            if (!allMethods.length) {
+                setDueSelectedMethodId('');
+                setDuePaymentError('No payment methods are available right now.');
+                return;
+            }
+
+            const preferredMethod =
+                (walletMethod && walletBalance >= requiredAmount ? walletMethod : null) || allMethods[0];
+            setDueSelectedMethodId(preferredMethod?.id || '');
+        } catch (error: any) {
+            setDuePaymentMethods([]);
+            setDueSelectedMethodId('');
+            setDuePaymentError(error?.message || 'Failed to load payment methods.');
+        } finally {
+            setDueMethodsLoading(false);
+        }
+    };
+
     const handlePayCurrentDue = async () => {
         if (!selectedContract) return;
-        
+
         const amount = selectedContract.earningsPending || 0;
         if (amount <= 0) {
             showNotification('info', 'Nothing to Pay', 'There are no pending earnings to pay right now.');
             return;
         }
 
-        setConfirmState({
-            title: 'Pay Pending Earnings',
-            message: `Pay all pending earnings of ${formatPrice(amount)} for ${selectedContract.title}?`,
-            variant: 'info',
-            onConfirm: async () => {
-                const paidAmount = await ContractService.payContractDue(selectedContract.id);
+        setDuePaymentError(null);
+        clearPendingContractTopup();
+        setShowPayDueModal(true);
+        await loadDuePaymentMethods(amount);
+    };
+
+    const handleSubmitPayCurrentDue = async () => {
+        if (!selectedContract) return;
+        const amount = Number(selectedContract.earningsPending || 0);
+        if (amount <= 0) {
+            setDuePaymentError('There are no pending earnings to pay right now.');
+            return;
+        }
+        if (!dueSelectedMethodId) {
+            setDuePaymentError('Please select a payment method.');
+            return;
+        }
+
+        const selectedMethod = duePaymentMethods.find((method: any) => method.id === dueSelectedMethodId);
+        const selectedMethodName = getUserFacingPaymentMethodName(
+            selectedMethod || ({ id: dueSelectedMethodId } as any)
+        );
+
+        if (dueSelectedMethodId === 'wallet') {
+            const walletBalance = Number(dueWalletInfo?.availableBalance ?? dueWalletInfo?.available_balance ?? 0);
+            if (walletBalance < amount) {
+                setDuePaymentError('Insufficient wallet balance.');
+                return;
+            }
+        }
+
+        setDueSubmitLoading(true);
+        setDuePaymentError(null);
+        try {
+            if (dueSelectedMethodId === 'wallet') {
+                const paidAmount = await ContractService.payContractDue(selectedContract.id, {
+                    paymentMethodId: 'wallet'
+                });
                 showNotification('success', 'Payment Sent', `Paid ${formatPrice(paidAmount)} to freelancer.`);
+                setShowPayDueModal(false);
                 await loadContracts();
                 await refreshLogs(selectedContract.id);
+                return;
             }
-        });
+
+            const topup = await WalletService.initiateTopup({
+                amount,
+                currency: (dueWalletInfo?.currency || 'USD').toUpperCase(),
+                provider: dueSelectedMethodId
+            });
+            const intentId = topup?.intent_id || topup?.intentId;
+            const redirectUrl = topup?.redirect_url || topup?.redirectUrl;
+            if (!intentId || !redirectUrl) {
+                throw new Error('Unable to start checkout for this payment method.');
+            }
+
+            writePendingContractTopup({
+                contractId: selectedContract.id,
+                intentId: String(intentId),
+                providerId: dueSelectedMethodId,
+                providerName: selectedMethodName,
+                createdAt: Date.now()
+            });
+            window.location.href = redirectUrl;
+        } catch (error: any) {
+            setDuePaymentError(error?.message || 'Unable to process payment.');
+        } finally {
+            setDueSubmitLoading(false);
+        }
     };
 
     const handleDownloadReport = () => {
@@ -361,6 +597,98 @@ const ContractList: React.FC<ContractListProps> = ({ role, userId }) => {
                 )}
             </div>
         </div>
+        {showPayDueModal && selectedContract && (
+            <div className="fixed inset-0 z-[120] bg-black/50 flex items-center justify-center p-4">
+                <div className="w-full max-w-xl bg-white rounded-2xl border border-gray-200 shadow-xl">
+                    <div className="px-6 py-5 border-b border-gray-100">
+                        <h3 className="text-lg font-bold text-gray-900">Pay Current Due</h3>
+                        <p className="text-sm text-gray-600 mt-1">
+                            Select a payment method to pay {formatPrice(selectedContract.earningsPending || 0)} for{' '}
+                            {selectedContract.title}.
+                        </p>
+                    </div>
+                    <div className="px-6 py-5 space-y-3 max-h-[50vh] overflow-y-auto">
+                        {dueMethodsLoading && (
+                            <div className="text-sm text-gray-500">Loading payment methods...</div>
+                        )}
+                        {!dueMethodsLoading && duePaymentMethods.length === 0 && (
+                            <div className="text-sm text-gray-500">No payment methods available.</div>
+                        )}
+                        {!dueMethodsLoading &&
+                            duePaymentMethods.map((method: any) => {
+                                const methodName = getUserFacingPaymentMethodName(method);
+                                const isWallet = method.id === 'wallet';
+                                const walletBalance = Number(
+                                    dueWalletInfo?.availableBalance ?? dueWalletInfo?.available_balance ?? 0
+                                );
+                                const insufficient =
+                                    isWallet && walletBalance < Number(selectedContract.earningsPending || 0);
+
+                                return (
+                                    <button
+                                        key={method.id}
+                                        type="button"
+                                        onClick={() => setDueSelectedMethodId(method.id)}
+                                        className={`w-full text-left rounded-xl border px-4 py-3 transition ${
+                                            dueSelectedMethodId === method.id
+                                                ? 'border-blue-500 bg-blue-50'
+                                                : 'border-gray-200 hover:border-gray-300'
+                                        }`}
+                                    >
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <div className="font-semibold text-gray-900 truncate">{methodName}</div>
+                                                {isWallet ? (
+                                                    <div className={`text-xs mt-1 ${insufficient ? 'text-red-600' : 'text-gray-500'}`}>
+                                                        Balance {formatPrice(walletBalance)}
+                                                        {insufficient ? ' - Insufficient balance' : ''}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-xs mt-1 text-gray-500">
+                                                        Secure checkout via {methodName}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <span
+                                                className={`h-4 w-4 rounded-full border ${
+                                                    dueSelectedMethodId === method.id
+                                                        ? 'border-blue-600 bg-blue-600'
+                                                        : 'border-gray-300 bg-white'
+                                                }`}
+                                            />
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        {duePaymentError && (
+                            <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                                {duePaymentError}
+                            </div>
+                        )}
+                    </div>
+                    <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setShowPayDueModal(false);
+                                setDuePaymentError(null);
+                            }}
+                            className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleSubmitPayCurrentDue}
+                            disabled={dueSubmitLoading || dueMethodsLoading || !dueSelectedMethodId}
+                            className="px-4 py-2 rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                            {dueSubmitLoading ? 'Processing...' : 'Pay Current Due'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
         <ConfirmModal
             isOpen={Boolean(confirmState)}
             title={confirmState?.title || ''}
