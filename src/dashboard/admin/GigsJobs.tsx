@@ -521,6 +521,8 @@ const CategoriesList = ({ items, type, reload, loading }: {
     const { showNotification } = useNotification();
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
     const [uploadTarget, setUploadTarget] = useState<'category' | { subIndex: number }>('category');
+    const [isSaving, setIsSaving] = useState(false);
+    const [isSyncingCatalog, setIsSyncingCatalog] = useState(false);
 
     const generateSlug = (text: string) => {
         return text
@@ -529,6 +531,12 @@ const CategoriesList = ({ items, type, reload, loading }: {
             .replace(/(^-|-$)+/g, '');
     };
 
+    const isTempCategoryId = (value?: string) =>
+        typeof value === 'string' && (value.startsWith('cat-') || value.startsWith('tmp-') || value.startsWith('temp-'));
+
+    const isTempSubId = (value?: string) =>
+        typeof value === 'string' && (value.startsWith('sub-') || value.startsWith('tmp-') || value.startsWith('temp-'));
+
     const handleSave = async () => {
         if (!editing?.name) {
             showNotification('error', 'Error', 'Category name is required.');
@@ -536,27 +544,74 @@ const CategoriesList = ({ items, type, reload, loading }: {
         }
 
         const slug = editing.slug || generateSlug(editing.name);
+        const normalizedSubs = (editing.subcategories || [])
+            .map((sub, index) => {
+                const name = String(sub?.name || '').trim();
+                if (!name) return null;
+                return {
+                    ...(sub?.id && !isTempSubId(sub.id) ? { id: sub.id } : {}),
+                    name,
+                    slug: (sub?.slug || generateSlug(name)).trim(),
+                    status: sub?.status || 'active',
+                    sortOrder: Number.isFinite(Number(sub?.sortOrder)) ? Number(sub?.sortOrder) : index + 1,
+                    icon: sub?.icon || ''
+                };
+            })
+            .filter(Boolean);
 
-        const categoryToSave: ListingCategory = {
-            id: editing.id || `cat-${Date.now()}`,
-            name: editing.name,
+        const categoryToSave: any = {
+            ...(editing.id && !isTempCategoryId(editing.id) ? { id: editing.id } : {}),
+            name: editing.name.trim(),
             slug: slug,
             type: type,
             status: editing.status || 'active',
             count: editing.count || 0,
             sortOrder: editing.sortOrder || 0,
-            subcategories: editing.subcategories || [],
+            subcategories: normalizedSubs,
             description: editing.description || '',
             logo: editing.logo || ''
         };
 
-        const success = await AdminService.saveListingCategory(categoryToSave);
-        if (success) {
-            showNotification('success', 'Saved', 'Category updated successfully.');
-            setEditing(null);
-            reload();
-        } else {
-            showNotification('error', 'Error', 'Failed to save category.');
+        setIsSaving(true);
+        try {
+            const success = await AdminService.saveListingCategory(categoryToSave as ListingCategory);
+            if (success) {
+                showNotification('success', 'Saved', 'Category updated successfully.');
+                setEditing(null);
+                reload();
+            } else {
+                showNotification('error', 'Error', 'Failed to save category.');
+            }
+        } catch (error: any) {
+            const message =
+                error?.response?.data?.error ||
+                error?.message ||
+                'Failed to save category.';
+            showNotification('error', 'Error', message);
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleSyncStandardCatalog = async () => {
+        if (!confirm('Sync the standard Gigs & Jobs categories and subcategories now?')) return;
+        setIsSyncingCatalog(true);
+        try {
+            const success = await AdminService.syncStandardListingCategories();
+            if (success) {
+                showNotification('success', 'Synced', 'Standard category catalog synchronized.');
+                reload();
+            } else {
+                showNotification('error', 'Error', 'Failed to sync standard catalog.');
+            }
+        } catch (error: any) {
+            const message =
+                error?.response?.data?.error ||
+                error?.message ||
+                'Failed to sync standard category catalog.';
+            showNotification('error', 'Error', message);
+        } finally {
+            setIsSyncingCatalog(false);
         }
     };
 
@@ -626,22 +681,36 @@ const CategoriesList = ({ items, type, reload, loading }: {
                     <h3 className="font-bold text-gray-900">{type === 'gig' ? 'Gig' : 'Job'} Categories</h3>
                     <p className="text-xs text-gray-500">Manage structure for {type} listings</p>
                 </div>
-                <button
-                    onClick={() => setEditing({
-                        type,
-                        subcategories: [],
-                        status: 'active',
-                        name: '',
-                        slug: '',
-                        description: '',
-                        logo: '',
-                        count: 0,
-                        sortOrder: 0
-                    })}
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center hover:bg-blue-700 transition"
-                >
-                    <Plus className="w-4 h-4 mr-2" /> Add Category
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={handleSyncStandardCatalog}
+                        disabled={isSyncingCatalog}
+                        className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center hover:bg-indigo-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                        {isSyncingCatalog ? (
+                            <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                        )}
+                        Sync Standard Catalog
+                    </button>
+                    <button
+                        onClick={() => setEditing({
+                            type,
+                            subcategories: [],
+                            status: 'active',
+                            name: '',
+                            slug: '',
+                            description: '',
+                            logo: '',
+                            count: 0,
+                            sortOrder: 0
+                        })}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center hover:bg-blue-700 transition"
+                    >
+                        <Plus className="w-4 h-4 mr-2" /> Add Category
+                    </button>
+                </div>
             </div>
 
             {loading ? (
@@ -843,9 +912,10 @@ const CategoriesList = ({ items, type, reload, loading }: {
                             </button>
                             <button
                                 onClick={handleSave}
-                                className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-sm"
+                                disabled={isSaving}
+                                className="px-6 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
                             >
-                                Save Changes
+                                {isSaving ? 'Saving...' : 'Save Changes'}
                             </button>
                         </div>
                     </div>

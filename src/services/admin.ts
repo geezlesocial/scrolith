@@ -460,6 +460,11 @@ export const AdminService = {
     return Boolean(response?.success);
   },
 
+  async syncStandardListingCategories(): Promise<boolean> {
+    const response = await adminRequest<any>('post', '/gigs-jobs/categories/sync-standard');
+    return Boolean(response?.success);
+  },
+
   async deleteListingCategory(id: string): Promise<boolean> {
     const response = await adminRequest<{ id: string }>('delete', `/gigs-jobs/categories/${id}`);
     return Boolean(response?.success);
