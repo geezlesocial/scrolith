@@ -236,10 +236,9 @@ const AppContent = () => {
     const faviconUrl = configuredFavicon || persistedFavicon;
 
     const ensureRelLinks = (href: string, type?: string) => {
-      const versionedHref = href.includes('?') ? `${href}&v=${Date.now()}` : `${href}?v=${Date.now()}`;
       const isCrossOrigin = (() => {
         try {
-          const resolved = new URL(versionedHref, window.location.origin);
+          const resolved = new URL(href, window.location.origin);
           return resolved.origin !== window.location.origin;
         } catch {
           return false;
@@ -252,7 +251,7 @@ const AppContent = () => {
         const existing = Array.from(document.querySelectorAll(selector)) as HTMLLinkElement[];
         if (existing.length) {
           existing.forEach((link) => {
-            link.href = versionedHref;
+            link.href = href;
             if (type) link.type = type;
             if (isCrossOrigin) link.crossOrigin = 'anonymous';
             else link.removeAttribute('crossorigin');
@@ -261,7 +260,7 @@ const AppContent = () => {
         }
         const link = document.createElement('link');
         link.rel = rel;
-        link.href = versionedHref;
+        link.href = href;
         if (type) link.type = type;
         if (isCrossOrigin) link.crossOrigin = 'anonymous';
         document.head.appendChild(link);
@@ -274,48 +273,24 @@ const AppContent = () => {
       return;
     }
 
-    (async () => {
-      try {
-        const resolved =
-          faviconUrl.startsWith('http://') || faviconUrl.startsWith('https://')
-            ? faviconUrl
-            : new URL(faviconUrl, window.location.origin).toString();
+    try {
+      const resolved =
+        faviconUrl.startsWith('http://') || faviconUrl.startsWith('https://')
+          ? faviconUrl
+          : new URL(faviconUrl, window.location.origin).toString();
+      ensureRelLinks(resolved);
+      localStorage.setItem(LAST_FAVICON_KEY, resolved);
+      console.log('Favicon updated:', resolved);
+      return;
+    } catch (e) {
+      console.warn('Could not resolve favicon URL, falling back:', faviconUrl, e);
+    }
 
-        try {
-          const resp = await fetch(resolved, { method: 'GET', cache: 'no-store' });
-          if (resp.ok) {
-            const contentType = resp.headers.get('content-type') || undefined;
-            const isSvg = contentType?.includes('svg') || resolved.endsWith('.svg');
-            const type = isSvg ? 'image/svg+xml' : contentType || undefined;
-            ensureRelLinks(resolved, type);
-            localStorage.setItem(LAST_FAVICON_KEY, resolved);
-            console.log('Favicon updated:', resolved, 'type=', type);
-            return;
-          }
-          throw new Error(`HTTP ${resp.status}`);
-        } catch (fetchErr: any) {
-          const is404 =
-            typeof fetchErr === 'string'
-              ? fetchErr.includes('HTTP 404')
-              : (fetchErr?.message || '').includes('HTTP 404') || fetchErr?.status === 404;
-          if (!is404) {
-            ensureRelLinks(resolved);
-            localStorage.setItem(LAST_FAVICON_KEY, resolved);
-            console.warn('Favicon fetch failed but applied raw URL:', fetchErr);
-            return;
-          }
-          console.warn('Favicon returned 404; using inline fallback', fetchErr);
-        }
-      } catch (e) {
-        console.warn('Could not resolve favicon URL, falling back:', faviconUrl, e);
-      }
-
-      const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%230D8ABC'/><text x='50' y='55' font-size='55' text-anchor='middle' fill='white' font-family='Arial,Helvetica,sans-serif'>G</text></svg>`;
-      const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-      ensureRelLinks(dataUrl, 'image/svg+xml');
-      localStorage.setItem(LAST_FAVICON_KEY, dataUrl);
-      console.warn('Favicon fetch failed, using inline fallback favicon');
-    })();
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%230D8ABC'/><text x='50' y='55' font-size='55' text-anchor='middle' fill='white' font-family='Arial,Helvetica,sans-serif'>G</text></svg>`;
+    const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+    ensureRelLinks(dataUrl, 'image/svg+xml');
+    localStorage.setItem(LAST_FAVICON_KEY, dataUrl);
+    console.warn('Favicon fallback in use');
   }, [settings, settingsLoading]);
 
   // Dynamic title and meta description from platform settings

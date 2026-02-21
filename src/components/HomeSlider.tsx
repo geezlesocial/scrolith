@@ -278,12 +278,20 @@ const HomeSlider: React.FC<HomeSliderProps> = ({ slides, heroConfig, searchMode 
                 muted
                 loop
                 playsInline
+                preload={index === currentIndex ? "auto" : "metadata"}
+                width={1920}
+                height={820}
                 className="w-full h-full object-cover object-center brightness-75"
               />
             ) : (slide as any).mediaUrl ? (
               <img
                 src={(slide as any).mediaUrl || ""}
                 alt={(slide as any).title || "Slide"}
+                width={1920}
+                height={820}
+                loading={index === currentIndex ? "eager" : "lazy"}
+                decoding="async"
+                fetchPriority={index === currentIndex ? "high" : "low"}
                 className="w-full h-full object-cover object-center brightness-75"
               />
             ) : (

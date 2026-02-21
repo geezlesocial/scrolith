@@ -261,7 +261,15 @@ const DynamicFooter = () => {
             <div className="col-span-1 md:col-span-2">
               <div className="flex items-center">
                 {footerLogo ? (
-                  <img src={footerLogo} alt={brandName || ''} className="h-8 w-auto object-contain" />
+                  <img
+                    src={footerLogo}
+                    alt={brandName || ''}
+                    width={160}
+                    height={32}
+                    loading="lazy"
+                    decoding="async"
+                    className="h-8 w-auto object-contain"
+                  />
                 ) : null}
                 {brandName ? <span className="ml-2 text-xl font-bold">{brandName}</span> : null}
               </div>

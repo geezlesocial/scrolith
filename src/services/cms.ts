@@ -17,7 +17,7 @@ if (import.meta.env.PROD && !_hasBackendEnv) {
     throw new Error('VITE_BACKEND_URL (or VITE_API_URL) must be set when building for production');
 }
 const API_URL = getApiBaseUrl();
-const BRAND_ASSET_URL = 'https://api.scrolith.com/api/files/content/3362f88f-69d6-4cee-9005-49f33411b53f';
+const BRAND_ASSET_URL = 'https://scrolith.com/icon-192.png';
 
 const devLog = (...args: any[]) => {
     if (!import.meta.env.PROD) console.log(...args);

@@ -374,10 +374,17 @@ const Landing = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <LoaderIcon className="animate-spin text-blue-600 w-10 h-10 mx-auto mb-4" />
-          <p className="text-gray-500 font-medium">Loading Marketplace...</p>
+      <div className="relative min-h-screen flex flex-col bg-[#f7f4ee] text-[#0b0b0a]">
+        <div className="pointer-events-none absolute inset-0 -z-10">
+          <div className="absolute -top-32 left-[-10%] h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle_at_center,#ffe9c7,transparent_65%)] opacity-70" />
+          <div className="absolute top-24 right-[-12%] h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle_at_center,#d8f1e5,transparent_65%)] opacity-80" />
+        </div>
+        <div className="h-[620px] sm:h-[660px] md:h-[710px] lg:h-[760px] xl:h-[820px] bg-slate-900/90 animate-pulse" />
+        <div className="mx-auto w-full max-w-7xl px-4 py-10 space-y-5">
+          <div className="h-10 w-1/2 rounded-md bg-slate-200 animate-pulse" />
+          <div className="h-6 w-1/3 rounded-md bg-slate-200 animate-pulse" />
+          <div className="h-64 rounded-2xl bg-slate-200 animate-pulse" />
+          <div className="h-64 rounded-2xl bg-slate-200 animate-pulse" />
         </div>
       </div>
     );
