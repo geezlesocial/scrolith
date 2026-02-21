@@ -1,6 +1,7 @@
 
 import { PaymentGateway, PaymentProviderId, WithdrawalRequest, Escrow, CommissionRule, EscrowStatus } from '../types';
 import api from './api';
+import { withUserFacingPaymentMethodName } from '../utils/paymentGatewayDisplay';
 
 // --- PAYMENT ADAPTER INTERFACES ---
 
@@ -44,14 +45,14 @@ export const PaymentService = {
   getPublicGateways: async (): Promise<PaymentGateway[]> => {
     const response = await api.get('/wallet/gateways');
     const data = response?.data?.data ?? response?.data ?? [];
-    gateways = Array.isArray(data) ? data : [];
+    gateways = Array.isArray(data) ? data.map((gateway: any) => withUserFacingPaymentMethodName(gateway)) : [];
     return gateways;
   },
 
   getActivePaymentMethods: async (): Promise<PaymentGateway[]> => {
     const response = await api.get('/payments/methods/active');
     const data = response?.data?.data ?? response?.data ?? [];
-    gateways = Array.isArray(data) ? data : [];
+    gateways = Array.isArray(data) ? data.map((gateway: any) => withUserFacingPaymentMethodName(gateway)) : [];
     return gateways;
   },
 

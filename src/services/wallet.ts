@@ -1,4 +1,5 @@
 import api from './api';
+import { withUserFacingPaymentMethodName } from '../utils/paymentGatewayDisplay';
 
 export const getWallet = async () => {
   const res = await api.get('/wallet/me');
@@ -293,12 +294,12 @@ export const WalletService = {
     try {
       const response = await api.get('/wallet/gateways');
       const data = handleApiResponse<any>(response);
-      return Array.isArray(data) ? data : [];
+      return Array.isArray(data) ? data.map((gateway: any) => withUserFacingPaymentMethodName(gateway)) : [];
     } catch (e) {
       try {
         const response = await api.get('/payments/methods/active');
         const data = handleApiResponse<any>(response);
-        return Array.isArray(data) ? data : [];
+        return Array.isArray(data) ? data.map((gateway: any) => withUserFacingPaymentMethodName(gateway)) : [];
       } catch {
         return [];
       }

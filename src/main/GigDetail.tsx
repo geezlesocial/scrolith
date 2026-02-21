@@ -18,6 +18,7 @@ import { walletApi } from '../services/wallet';
 import { CMSService } from '../services/cms';
 import { useSocket } from '../context/SocketContext';
 import { Contract, Message, TimeEntry } from '../types';
+import { getUserFacingPaymentMethodName } from '../utils/paymentGatewayDisplay';
 
 const defaultGigExperience = {
   enabled: true,
@@ -1995,11 +1996,17 @@ const GigDetail = () => {
                             const walletBalance = Number(walletInfo?.availableBalance ?? walletInfo?.available_balance ?? 0);
                             const walletCurrency = (walletInfo?.currency || currencyCode).toUpperCase();
                             const isWallet = gw.id === 'wallet';
+                            const gatewayDisplayName = getUserFacingPaymentMethodName(gw);
                             const isSupported = isWallet
                                 ? walletBalance >= requiredAmount && walletCurrency === currencyCode
                                 : supported.length === 0
                                     ? true
                                     : supported.map((c: string) => c.toUpperCase()).includes(currencyCode);
+                            const gatewayStatusText = isWallet
+                                ? `Balance: ${formatPrice(walletBalance)}${!isSupported ? ' - Insufficient balance' : ''}`
+                                : !isSupported
+                                    ? `Not available for ${currency.code}`
+                                    : '';
                             return (
                                 <label
                                     key={gw.id}
@@ -2009,17 +2016,11 @@ const GigDetail = () => {
                                 >
                                     <div className="flex items-center gap-3">
                                         {gw.logo && (
-                                            <img src={gw.logo} alt={gw.name} className="h-6 w-6 rounded bg-white object-contain" />
+                                            <img src={gw.logo} alt={gatewayDisplayName} className="h-6 w-6 rounded bg-white object-contain" />
                                         )}
                                         <div>
-                                            <div className="font-semibold text-gray-900">{gw.name}</div>
-                                            <div className="text-xs text-gray-500">
-                                                {isWallet
-                                                    ? `Balance: ${formatPrice(walletBalance)}`
-                                                    : `${gw.mode === 'live' ? 'Live' : 'Test'} mode`}
-                                                {!isSupported && !isWallet ? ` - Not available for ${currency.code}` : ''}
-                                                {!isSupported && isWallet ? ' - Insufficient balance' : ''}
-                                            </div>
+                                            <div className="font-semibold text-gray-900">{gatewayDisplayName}</div>
+                                            {gatewayStatusText && <div className="text-xs text-gray-500">{gatewayStatusText}</div>}
                                         </div>
                                     </div>
                                     <input

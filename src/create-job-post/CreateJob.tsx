@@ -17,6 +17,7 @@ import { WalletService } from '../services/wallet';
 import { formsApi } from '../services/forms';
 import { plansApi } from '../services/plans';
 import { JobsService } from '../services/jobs';
+import { getUserFacingPaymentMethodName } from '../utils/paymentGatewayDisplay';
 
 const DEFAULT_JOB_STEPS = [
     { id: 'overview', label: 'Job Overview', enabled: true },
@@ -1254,25 +1255,28 @@ const CreateJob: React.FC<CreateJobProps> = ({ jobId, mode = 'create', redirectO
                                                                 No active payment gateways.
                                                             </div>
                                                         ) : (
-                                                            fundingGateways.map((gateway) => (
-                                                                <button
-                                                                    key={gateway.id}
-                                                                    type="button"
-                                                                    onClick={() => setPaymentMethod(gateway.id)}
-                                                                    className={`border rounded-xl p-3 text-left transition ${
-                                                                        paymentMethod === gateway.id
-                                                                            ? 'border-blue-600 ring-2 ring-blue-100 bg-blue-50'
-                                                                            : 'border-gray-200 hover:border-gray-300'
-                                                                    }`}
-                                                                >
-                                                                    <div className="text-sm font-semibold text-gray-900">
-                                                                        {gateway.name || gateway.label || gateway.id}
-                                                                    </div>
-                                                                    <div className="text-xs text-gray-500">
-                                                                        Pay via {gateway.name || gateway.id}.
-                                                                    </div>
-                                                                </button>
-                                                            ))
+                                                            fundingGateways.map((gateway) => {
+                                                                const gatewayDisplayName = getUserFacingPaymentMethodName(gateway);
+                                                                return (
+                                                                    <button
+                                                                        key={gateway.id}
+                                                                        type="button"
+                                                                        onClick={() => setPaymentMethod(gateway.id)}
+                                                                        className={`border rounded-xl p-3 text-left transition ${
+                                                                            paymentMethod === gateway.id
+                                                                                ? 'border-blue-600 ring-2 ring-blue-100 bg-blue-50'
+                                                                                : 'border-gray-200 hover:border-gray-300'
+                                                                        }`}
+                                                                    >
+                                                                        <div className="text-sm font-semibold text-gray-900">
+                                                                            {gatewayDisplayName}
+                                                                        </div>
+                                                                        <div className="text-xs text-gray-500">
+                                                                            Pay via {gatewayDisplayName}.
+                                                                        </div>
+                                                                    </button>
+                                                                );
+                                                            })
                                                         )}
                                                     </div>
                                                     <p className="text-xs text-gray-500">

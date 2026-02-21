@@ -30,6 +30,7 @@ import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextT
 import MentionText from '../../community/components/MentionText';
 import MentionHashtagTextarea from '../../community/components/MentionHashtagTextarea';
 import { resolveAssetUrl } from '../../utils/assetUrl';
+import { getUserFacingPaymentMethodName } from '../../utils/paymentGatewayDisplay';
 import FilePickerModal from './FilePickerModal';
 import MonetizationPanel from './MonetizationPanel';
 
@@ -2451,7 +2452,7 @@ const CommunityDashboard: React.FC = () => {
             ) : (
               availableGateways.map((gateway) => (
                 <option key={gateway.id} value={gateway.id}>
-                  {gateway.name || gateway.label || gateway.id}
+                  {getUserFacingPaymentMethodName(gateway)}
                 </option>
               ))
             )}

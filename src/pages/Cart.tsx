@@ -8,6 +8,7 @@ import { commerceService } from '../services/commerce';
 import { PaymentService } from '../services/payment';
 import { walletApi } from '../services/wallet';
 import type { CartItem } from '../types';
+import { getUserFacingPaymentMethodName } from '../utils/paymentGatewayDisplay';
 
 const Cart = () => {
   const { cart, refreshCart, removeFromCart, clearCart } = useCart();
@@ -292,11 +293,17 @@ const Cart = () => {
                     const requiredAmount = Number(checkoutItem.price ?? 0);
                     const walletCurrency = (walletInfo?.currency || currencyCode).toUpperCase();
                     const isWallet = gw.id === 'wallet';
+                    const gatewayDisplayName = getUserFacingPaymentMethodName(gw);
                     const isSupported = isWallet
                       ? walletBalance >= requiredAmount && walletCurrency === currencyCode
                       : supported.length === 0
                         ? true
                         : supported.map((c: string) => c.toUpperCase()).includes(currencyCode);
+                    const gatewayStatusText = isWallet
+                      ? `Balance: ${formatPrice(walletBalance)}${!isSupported ? ' - Insufficient balance' : ''}`
+                      : !isSupported
+                        ? `Not available for ${currency.code}`
+                        : '';
                     return (
                       <label
                         key={gw.id}
@@ -313,12 +320,8 @@ const Cart = () => {
                           disabled={!isSupported}
                         />
                         <div>
-                          <div className="font-semibold text-gray-900">{gw.name || gw.id}</div>
-                          <div className="text-xs text-gray-500">
-                            {isWallet ? `Balance: ${formatPrice(walletBalance)}` : `${gw.mode === 'live' ? 'Live' : 'Test'} mode`}
-                            {!isSupported && !isWallet ? ` - Not available for ${currency.code}` : ''}
-                            {!isSupported && isWallet ? ' - Insufficient balance' : ''}
-                          </div>
+                          <div className="font-semibold text-gray-900">{gatewayDisplayName}</div>
+                          {gatewayStatusText && <div className="text-xs text-gray-500">{gatewayStatusText}</div>}
                         </div>
                       </label>
                     );

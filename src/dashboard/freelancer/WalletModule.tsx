@@ -15,6 +15,7 @@ import { GcoinService } from '../../services/gcoin';
 import { stripePayoutsApi, StripePayoutStatusResponse } from '../../services/stripePayouts';
 import SendGcoinModal from '../../components/SendGcoinModal';
 import { getDefaultCurrencyForCountry, normalizeCountry } from '../../utils/countryCurrency';
+import { getUserFacingPaymentMethodName } from '../../utils/paymentGatewayDisplay';
 import { Wallet, WalletTransaction, GlobalCommissionSettings, GcoinWallet, GcoinSettings, PaymentGateway } from '../../types';
 
 const FALLBACK_PAYOUT_METHODS: PayoutMethodOption[] = [
@@ -1188,6 +1189,8 @@ const WalletModule = () => {
                                             const isSupported = !wallet.currency || currencies.length === 0
                                                 ? true
                                                 : currencies.map((c: string) => c.toUpperCase()).includes(wallet.currency.toUpperCase());
+                                            const gatewayDisplayName = getUserFacingPaymentMethodName(gateway);
+                                            const gatewayStatusText = !isSupported ? `Not available for ${wallet.currency}` : '';
                                             return (
                                                 <label
                                                     key={gateway.id}
@@ -1197,14 +1200,11 @@ const WalletModule = () => {
                                                 >
                                                     <div className="flex items-center gap-3">
                                                         {gateway.logo ? (
-                                                            <img src={gateway.logo} alt={gateway.name} className="w-8 h-8 object-contain rounded bg-white" />
+                                                            <img src={gateway.logo} alt={gatewayDisplayName} className="w-8 h-8 object-contain rounded bg-white" />
                                                         ) : null}
                                                         <div>
-                                                            <div className="font-semibold text-gray-900">{gateway.name}</div>
-                                                            <div className="text-xs text-gray-500">
-                                                                {gateway.mode === 'live' ? 'Live' : 'Test'} mode
-                                                                {!isSupported ? ` - Not available for ${wallet.currency}` : ''}
-                                                            </div>
+                                                            <div className="font-semibold text-gray-900">{gatewayDisplayName}</div>
+                                                            {gatewayStatusText && <div className="text-xs text-gray-500">{gatewayStatusText}</div>}
                                                         </div>
                                                     </div>
                                                     <input

@@ -8,6 +8,7 @@ import { useUser } from '../context/UserContext';
 import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import { PaymentService } from '../services/payment';
 import { PaymentGateway } from '../types';
+import { getUserFacingPaymentMethodName } from '../utils/paymentGatewayDisplay';
 
 const toNumber = (value: any): number => {
   const n = typeof value === 'number' ? value : Number(value ?? 0);
@@ -434,7 +435,7 @@ const MyAds = () => {
                       ) : (
                         paymentGateways.map((gateway) => (
                           <option key={gateway.id} value={gateway.id}>
-                            {gateway.name || gateway.label || gateway.id}
+                            {getUserFacingPaymentMethodName(gateway)}
                           </option>
                         ))
                       )}
