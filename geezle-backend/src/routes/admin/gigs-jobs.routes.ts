@@ -3,6 +3,7 @@ import { authMiddleware } from '../../middleware/auth.middleware';
 import prisma from '../../utils/prismaClient';
 import { listPlans, savePlan, togglePlanActive } from '../../services/planStore';
 import { notifyFollowersAboutPublication } from '../../services/followPublicationNotifications.service';
+import { STANDARD_LISTING_CATEGORIES } from '../../config/listingCategories';
 
 const router = express.Router();
 
@@ -82,6 +83,65 @@ const slugify = (value: unknown) =>
     .trim()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)+/g, '');
+
+const logoPalette = [
+  '#1d4ed8',
+  '#0f766e',
+  '#7c3aed',
+  '#b45309',
+  '#be123c',
+  '#0891b2',
+  '#4f46e5',
+  '#0d9488'
+];
+
+const toInitials = (value: string, max = 2) => {
+  const words = value
+    .replace(/[^a-zA-Z0-9 ]+/g, ' ')
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (words.length === 0) return 'CT';
+  if (words.length === 1) return words[0].slice(0, max).toUpperCase();
+  return words
+    .slice(0, max)
+    .map((word) => word[0]?.toUpperCase() || '')
+    .join('');
+};
+
+const toLabelLogo = (value: string, index = 0) => {
+  const initials = toInitials(value);
+  const bg = logoPalette[Math.abs(index) % logoPalette.length];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="20" fill="${bg}"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-size="36" font-weight="700">${initials}</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+};
+
+const standardFallbackCategory = (
+  category: { name: string; description: string; subcategories: string[] },
+  categoryIndex: number,
+  type: 'gig' | 'job'
+) => {
+  const parentSlug = slugify(category.name);
+  return {
+    id: `cat-${type}-${categoryIndex + 1}`,
+    name: category.name,
+    slug: parentSlug,
+    type,
+    status: 'active',
+    count: 0,
+    sort_order: categoryIndex + 1,
+    subcategories: category.subcategories.map((sub, subIndex) => ({
+      id: `sub-${type}-${categoryIndex + 1}-${subIndex + 1}`,
+      name: sub,
+      slug: slugify(sub),
+      status: 'active',
+      sort_order: subIndex + 1,
+      icon: toLabelLogo(sub, categoryIndex + subIndex)
+    })),
+    description: category.description,
+    logo: toLabelLogo(category.name, categoryIndex)
+  };
+};
 
 const normalizeJobAdminStatus = (value: unknown, status: string) => {
   const adminStatus = toLower(value);
@@ -163,6 +223,49 @@ const resolveCategoryId = async (value: unknown, type: 'GIG' | 'JOB') => {
     }
   });
   return category?.id || null;
+};
+
+const resolveUniqueCategorySlug = async (
+  tx: any,
+  rawSlug: string,
+  options?: { excludeId?: string; fallbackPrefix?: string }
+) => {
+  const fallbackPrefix = options?.fallbackPrefix || 'category';
+  const base = slugify(rawSlug) || `${fallbackPrefix}-${Date.now()}`;
+  let attempt = base;
+  let suffix = 2;
+  while (true) {
+    const where: AnyRecord = { slug: attempt };
+    if (options?.excludeId) {
+      where.NOT = { id: options.excludeId };
+    }
+    const exists = await tx.category.findFirst({ where, select: { id: true } });
+    if (!exists) return attempt;
+    attempt = `${base}-${suffix++}`;
+  }
+};
+
+const normalizeIncomingSubcategories = (value: unknown) => {
+  const incoming = safeArray<AnyRecord>(value);
+  const seen = new Set<string>();
+  const normalized: AnyRecord[] = [];
+  for (const sub of incoming) {
+    const subName = String(sub?.name || '').trim();
+    if (!subName) continue;
+    const key = subName.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push({
+      id: typeof sub?.id === 'string' ? sub.id : undefined,
+      name: subName,
+      slug: String(sub?.slug || '').trim(),
+      icon: typeof sub?.icon === 'string' ? sub.icon : '',
+      description: typeof sub?.description === 'string' ? sub.description : '',
+      isActive: normalizeCategoryStatus(sub?.status ?? sub?.isActive),
+      order: toNumber(sub?.sort_order ?? sub?.sortOrder, normalized.length + 1)
+    });
+  }
+  return normalized;
 };
 
 const toAdminGig = (gig: any) => {
@@ -543,98 +646,13 @@ let jobs: AnyRecord[] = [
   }
 ];
 
-let gigCategories: AnyRecord[] = [
-  {
-    id: 'cat-gig-1',
-    name: 'Graphics & Design',
-    slug: 'graphics-design',
-    type: 'gig',
-    status: 'active',
-    count: 24,
-    sort_order: 1,
-    subcategories: [
-      {
-        id: 'sub-gig-1',
-        name: 'Logo Design',
-        slug: 'logo-design',
-        status: 'active',
-        sort_order: 1,
-        icon: 'https://cdn-icons-png.flaticon.com/512/732/732004.png'
-      },
-      {
-        id: 'sub-gig-2',
-        name: 'Brand Style Guides',
-        slug: 'brand-style-guides',
-        status: 'active',
-        sort_order: 2,
-        icon: 'https://cdn-icons-png.flaticon.com/512/2972/2972544.png'
-      }
-    ],
-    description: 'Design services including logos, branding, and graphics',
-    logo: 'https://cdn-icons-png.flaticon.com/512/2972/2972544.png'
-  },
-  {
-    id: 'cat-gig-2',
-    name: 'Programming & Tech',
-    slug: 'programming-tech',
-    type: 'gig',
-    status: 'active',
-    count: 42,
-    sort_order: 2,
-    subcategories: [
-      {
-        id: 'sub-gig-3',
-        name: 'Web Development',
-        slug: 'web-development',
-        status: 'active',
-        sort_order: 1,
-        icon: ''
-      },
-      {
-        id: 'sub-gig-4',
-        name: 'Mobile App Development',
-        slug: 'mobile-app-development',
-        status: 'active',
-        sort_order: 2,
-        icon: ''
-      }
-    ],
-    description: 'Programming and technical services',
-    logo: ''
-  }
-];
+let gigCategories: AnyRecord[] = STANDARD_LISTING_CATEGORIES.map((category, index) =>
+  standardFallbackCategory(category, index, 'gig')
+);
 
-let jobCategories: AnyRecord[] = [
-  {
-    id: 'cat-job-1',
-    name: 'Software Development',
-    slug: 'software-development',
-    type: 'job',
-    status: 'active',
-    count: 15,
-    sort_order: 1,
-    subcategories: [
-      {
-        id: 'sub-job-1',
-        name: 'Full Stack Development',
-        slug: 'full-stack-development',
-        status: 'active',
-        sort_order: 1,
-        icon: ''
-      },
-      {
-        id: 'sub-job-2',
-        name: 'Mobile Development',
-        slug: 'mobile-development',
-        status: 'active',
-        sort_order: 2,
-        icon: ''
-      }
-    ],
-    description: 'Software development and programming jobs',
-    logo: ''
-  }
-];
+let jobCategories: AnyRecord[] = STANDARD_LISTING_CATEGORIES.map((category, index) =>
+  standardFallbackCategory(category, index, 'job')
+);
 
 const applyFilters = (
   items: AnyRecord[],
@@ -690,6 +708,7 @@ router.get('/', (req: Request, res: Response) => {
       gigs: '/api/admin/gigs-jobs/gigs',
       jobs: '/api/admin/gigs-jobs/jobs',
       categories: '/api/admin/gigs-jobs/categories?type=gig|job',
+      syncStandardCategories: '/api/admin/gigs-jobs/categories/sync-standard',
       plans: '/api/admin/gigs-jobs/plans',
       dashboard: '/api/admin/gigs-jobs/dashboard/stats',
       test: '/api/admin/gigs-jobs/test'
@@ -716,6 +735,7 @@ router.get('/test', (req: Request, res: Response) => {
       'DELETE /api/admin/gigs-jobs/jobs/:id',
       'GET    /api/admin/gigs-jobs/categories',
       'POST   /api/admin/gigs-jobs/categories',
+      'POST   /api/admin/gigs-jobs/categories/sync-standard',
       'DELETE /api/admin/gigs-jobs/categories/:id',
       'GET    /api/admin/gigs-jobs/plans',
       'POST   /api/admin/gigs-jobs/plans',
@@ -1355,11 +1375,139 @@ router.get('/categories', async (req: Request, res: Response) => {
   res.json({ success: true, data });
 });
 
+router.post('/categories/sync-standard', async (_req: Request, res: Response) => {
+  try {
+    const summary = await prisma.$transaction(async (tx) => {
+      const result = {
+        categoriesCreated: 0,
+        categoriesUpdated: 0,
+        subcategoriesCreated: 0,
+        subcategoriesUpdated: 0
+      };
+
+      for (let catIndex = 0; catIndex < STANDARD_LISTING_CATEGORIES.length; catIndex += 1) {
+        const item = STANDARD_LISTING_CATEGORIES[catIndex];
+        const name = String(item.name || '').trim();
+        if (!name) continue;
+
+        const baseSlug = slugify(name);
+        const existing = await tx.category.findFirst({
+          where: {
+            parentId: null,
+            OR: [{ slug: baseSlug }, { name: { equals: name, mode: 'insensitive' } }]
+          },
+          include: { children: true }
+        });
+
+        const parentSlug = existing
+          ? await resolveUniqueCategorySlug(tx, baseSlug, { excludeId: existing.id, fallbackPrefix: 'category' })
+          : await resolveUniqueCategorySlug(tx, baseSlug, { fallbackPrefix: 'category' });
+
+        const parent = existing
+          ? await tx.category.update({
+              where: { id: existing.id },
+              data: {
+                name,
+                slug: parentSlug,
+                description: item.description || existing.description || null,
+                icon: existing.icon || toLabelLogo(name, catIndex),
+                isActive: true,
+                type: 'BOTH',
+                order: catIndex + 1
+              }
+            })
+          : await tx.category.create({
+              data: {
+                name,
+                slug: parentSlug,
+                description: item.description || null,
+                icon: toLabelLogo(name, catIndex),
+                isActive: true,
+                type: 'BOTH',
+                order: catIndex + 1
+              }
+            });
+
+        if (existing) result.categoriesUpdated += 1;
+        else result.categoriesCreated += 1;
+
+        const existingChildrenRaw = await tx.category.findMany({
+          where: { parentId: parent.id },
+          select: { id: true, name: true, slug: true }
+        });
+        const existingChildren: AnyRecord[] = Array.isArray(existingChildrenRaw) ? existingChildrenRaw : [];
+        const childrenByName = new Map<string, AnyRecord>(
+          existingChildren.map((child: AnyRecord) => [String(child.name).toLowerCase(), child])
+        );
+
+        const seen = new Set<string>();
+        for (let subIndex = 0; subIndex < item.subcategories.length; subIndex += 1) {
+          const subName = String(item.subcategories[subIndex] || '').trim();
+          if (!subName) continue;
+          const normalizedName = subName.toLowerCase();
+          if (seen.has(normalizedName)) continue;
+          seen.add(normalizedName);
+
+          const existingChild = childrenByName.get(normalizedName);
+          const subSlugCandidate = `${parentSlug}-${slugify(subName) || `sub-${subIndex + 1}`}`;
+          const resolvedSubSlug = await resolveUniqueCategorySlug(tx, subSlugCandidate, {
+            excludeId: existingChild?.id,
+            fallbackPrefix: parentSlug
+          });
+
+          if (existingChild) {
+            await tx.category.update({
+              where: { id: existingChild.id },
+              data: {
+                name: subName,
+                slug: resolvedSubSlug,
+                parentId: parent.id,
+                type: 'BOTH',
+                icon: toLabelLogo(subName, catIndex + subIndex + 1),
+                isActive: true,
+                order: subIndex + 1
+              }
+            });
+            result.subcategoriesUpdated += 1;
+          } else {
+            await tx.category.create({
+              data: {
+                name: subName,
+                slug: resolvedSubSlug,
+                parentId: parent.id,
+                type: 'BOTH',
+                icon: toLabelLogo(subName, catIndex + subIndex + 1),
+                isActive: true,
+                order: subIndex + 1
+              }
+            });
+            result.subcategoriesCreated += 1;
+          }
+        }
+      }
+
+      return result;
+    });
+
+    return res.json({
+      success: true,
+      message: 'Standard gig/job categories synchronized.',
+      data: summary
+    });
+  } catch (error: any) {
+    console.error('Error syncing standard categories:', error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to sync standard categories'
+    });
+  }
+});
+
 // Create/Update category
 router.post('/categories', async (req: Request, res: Response) => {
   try {
     const payload = req.body || {};
-    const type = normalizeCategoryType(payload.type);
+    const requestedType = normalizeCategoryType(payload.type);
     const name = String(payload?.name || '').trim();
     if (!name) {
       return res.status(400).json({ success: false, error: 'Category name is required' });
@@ -1370,25 +1518,31 @@ router.post('/categories', async (req: Request, res: Response) => {
     const isActive = normalizeCategoryStatus(payload?.status ?? payload?.isActive);
     const icon = payload?.logo ?? payload?.icon ?? '';
     const description = payload?.description ?? '';
-    const subPayloads = safeArray<AnyRecord>(payload?.subcategories);
+    const normalizedSubcategories = normalizeIncomingSubcategories(payload?.subcategories);
 
-    const existing = payload?.id
+    const existingById = payload?.id
       ? await prisma.category.findUnique({ where: { id: payload.id }, include: { children: true } })
       : null;
-
-    const slugConflict = await prisma.category.findFirst({
-      where: {
-        slug: requestedSlug,
-        ...(existing?.id ? { NOT: { id: existing.id } } : {})
-      }
-    });
-    if (slugConflict) {
-      return res.status(400).json({ success: false, error: 'Category slug already exists' });
-    }
+    const existingByIdentity = !existingById
+      ? await prisma.category.findFirst({
+          where: {
+            parentId: null,
+            OR: [{ slug: requestedSlug }, { name: { equals: name, mode: 'insensitive' } }]
+          },
+          include: { children: true }
+        })
+      : null;
+    const existing = existingById || existingByIdentity;
+    const type: 'GIG' | 'JOB' | 'BOTH' = existing
+      ? existing.type === 'BOTH' || requestedType === 'BOTH' || existing.type !== requestedType
+        ? 'BOTH'
+        : requestedType
+      : requestedType;
 
     const nameConflict = await prisma.category.findFirst({
       where: {
-        name,
+        parentId: null,
+        name: { equals: name, mode: 'insensitive' },
         ...(existing?.id ? { NOT: { id: existing.id } } : {})
       }
     });
@@ -1397,98 +1551,99 @@ router.post('/categories', async (req: Request, res: Response) => {
     }
 
     const record = await prisma.$transaction(async (tx) => {
-      if (!existing) {
-        const created = await tx.category.create({
-          data: {
-            id: payload?.id ?? undefined,
-            name,
-            slug: requestedSlug,
-            icon: icon || null,
-            description: description || null,
-            type,
-            isActive,
-            order: sortOrder,
-            children: {
-              create: subPayloads
-                .filter((sub) => Boolean(sub?.name))
-                .map((sub) => ({
-                  id: sub?.id ?? undefined,
-                  name: String(sub?.name || '').trim(),
-                  slug: slugify(sub?.slug || sub?.name),
-                  icon: sub?.icon ?? null,
-                  description: sub?.description ?? null,
-                  type,
-                  isActive: normalizeCategoryStatus(sub?.status ?? sub?.isActive),
-                  order: toNumber(sub?.sort_order ?? sub?.sortOrder, 0)
-                }))
-            }
-          },
-          include: { children: true }
-        });
-        return created;
-      }
-
-      await tx.category.update({
-        where: { id: existing.id },
-        data: {
-          name,
-          slug: requestedSlug,
-          icon: icon || null,
-          description: description || null,
-          type,
-          isActive,
-          order: sortOrder
-        }
+      const parentSlug = await resolveUniqueCategorySlug(tx, requestedSlug || name, {
+        excludeId: existing?.id,
+        fallbackPrefix: 'category'
       });
 
-      const existingChildren = await tx.category.findMany({ where: { parentId: existing.id } });
-      const incomingIds = new Set(
-        subPayloads.map((sub) => sub?.id).filter((id): id is string => Boolean(id))
-      );
-
-      for (const sub of subPayloads) {
-        const subName = String(sub?.name || '').trim();
-        if (!subName) continue;
-        const subSlug = slugify(sub?.slug || subName);
-        if (sub?.id) {
-          await tx.category.update({
-            where: { id: sub.id },
+      const parent = existing
+        ? await tx.category.update({
+            where: { id: existing.id },
             data: {
-              name: subName,
-              slug: subSlug,
-              icon: sub?.icon ?? null,
-              description: sub?.description ?? null,
+              name,
+              slug: parentSlug,
+              icon: icon || existing.icon || toLabelLogo(name, sortOrder || 0),
+              description: description || null,
               type,
-              isActive: normalizeCategoryStatus(sub?.status ?? sub?.isActive),
-              order: toNumber(sub?.sort_order ?? sub?.sortOrder, 0),
-              parentId: existing.id
+              isActive,
+              order: sortOrder
+            }
+          })
+        : await tx.category.create({
+            data: {
+              name,
+              slug: parentSlug,
+              icon: icon || toLabelLogo(name, sortOrder || 0),
+              description: description || null,
+              type,
+              isActive,
+              order: sortOrder
+            }
+          });
+
+      const existingChildrenRaw = await tx.category.findMany({ where: { parentId: parent.id } });
+      const existingChildren: AnyRecord[] = Array.isArray(existingChildrenRaw) ? existingChildrenRaw : [];
+      const childrenById = new Map<string, AnyRecord>(
+        existingChildren.map((child: AnyRecord) => [String(child.id), child])
+      );
+      const childrenByName = new Map<string, AnyRecord>(
+        existingChildren.map((child: AnyRecord) => [String(child.name).toLowerCase(), child])
+      );
+      const incomingExistingIds = new Set<string>();
+
+      for (let index = 0; index < normalizedSubcategories.length; index += 1) {
+        const sub = normalizedSubcategories[index];
+        const existingChildById = sub.id ? childrenById.get(sub.id) : undefined;
+        const existingChildByName = childrenByName.get(sub.name.toLowerCase());
+        const existingChild = existingChildById || existingChildByName;
+        const subSlugBase = `${parentSlug}-${slugify(sub.slug || sub.name) || `sub-${index + 1}`}`;
+        const subSlug = await resolveUniqueCategorySlug(tx, subSlugBase, {
+          excludeId: existingChild?.id,
+          fallbackPrefix: parentSlug
+        });
+
+        if (existingChild) {
+          incomingExistingIds.add(existingChild.id);
+          await tx.category.update({
+            where: { id: existingChild.id },
+            data: {
+              name: sub.name,
+              slug: subSlug,
+              icon: sub.icon || existingChild.icon || toLabelLogo(sub.name, index + 1),
+              description: sub.description || null,
+              type,
+              isActive: sub.isActive,
+              order: sub.order,
+              parentId: parent.id
             }
           });
         } else {
           await tx.category.create({
             data: {
-              name: subName,
+              name: sub.name,
               slug: subSlug,
-              icon: sub?.icon ?? null,
-              description: sub?.description ?? null,
+              icon: sub.icon || toLabelLogo(sub.name, index + 1),
+              description: sub.description || null,
               type,
-              isActive: normalizeCategoryStatus(sub?.status ?? sub?.isActive),
-              order: toNumber(sub?.sort_order ?? sub?.sortOrder, 0),
-              parentId: existing.id
+              isActive: sub.isActive,
+              order: sub.order,
+              parentId: parent.id
             }
           });
         }
       }
 
-      const removed = existingChildren.filter((child) => !incomingIds.has(child.id));
-      if (removed.length) {
-        await tx.category.updateMany({
-          where: { id: { in: removed.map((child) => child.id) } },
-          data: { isActive: false }
-        });
+      if (existingChildren.length) {
+        const removed = existingChildren.filter((child) => !incomingExistingIds.has(child.id));
+        if (removed.length) {
+          await tx.category.updateMany({
+            where: { id: { in: removed.map((child) => child.id) } },
+            data: { isActive: false }
+          });
+        }
       }
 
-      return tx.category.findUnique({ where: { id: existing.id }, include: { children: true } });
+      return tx.category.findUnique({ where: { id: parent.id }, include: { children: true } });
     });
 
     if (!record) {
