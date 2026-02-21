@@ -3222,17 +3222,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       </div>
 
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="mb-6 flex flex-col gap-4 rounded-3xl border border-white/70 bg-white/80 p-4 sm:p-6 shadow-sm backdrop-blur rise-fade">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
+        <div className="relative z-30 mb-6 overflow-visible flex flex-col gap-4 rounded-3xl border border-white/70 bg-white/80 p-4 sm:p-6 shadow-sm backdrop-blur rise-fade">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="min-w-0 lg:flex-1">
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">Home</p>
               <h2 className="text-2xl sm:text-3xl font-semibold text-slate-900">{content?.title || 'Grow your professional world'}</h2>
               <p className="text-sm sm:text-base text-slate-500">{content?.subtitle || 'Catch up on your network, opportunities, and community highlights.'}</p>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="w-full lg:w-auto flex flex-col gap-3 sm:flex-row sm:items-center lg:justify-end">
               {showSearch && (
-                <div ref={searchRef} className="relative w-full max-w-full sm:w-[34rem]">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <div ref={searchRef} className="relative z-[250] w-full max-w-full sm:flex-1 lg:w-[42rem]">
+                  <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
                   <input
                     value={searchQuery}
                     onChange={(event) => {
@@ -3246,13 +3246,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                       }
                     }}
                     placeholder={searchPlaceholder}
-                    className="h-10 w-full rounded-full border border-slate-200 bg-white pl-9 pr-4 text-sm sm:text-base text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+                    className="h-12 sm:h-14 w-full rounded-full border border-slate-200 bg-white pl-12 pr-5 text-base sm:text-lg text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
                   />
                   {searchOpen && (
-                    <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-[80] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                    <div className="absolute left-0 right-0 top-[calc(100%+0.625rem)] z-[300] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
                       <div className="border-b border-slate-100 px-4 py-2 text-xs text-slate-500">
                         {searchHint}
-                        {searchQuery.trim().length >= 2 && !searchLoading ? ` • ${searchResults.length} result${searchResults.length === 1 ? '' : 's'}` : ''}
+                        {searchQuery.trim().length >= 2 && !searchLoading ? ' (' + searchResults.length + ' result' + (searchResults.length === 1 ? '' : 's') + ')' : ''}
                       </div>
                       <div className="max-h-[min(65vh,32rem)] overflow-y-auto overscroll-contain pb-2">
                         {searchLoading ? (
@@ -3331,7 +3331,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
               <button
                 type="button"
                 onClick={focusComposer}
-                className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white"
+                className="inline-flex h-12 sm:h-14 w-full sm:w-auto shrink-0 items-center justify-center gap-2 rounded-full bg-slate-900 px-6 py-2 text-xs sm:text-sm font-semibold uppercase tracking-wide text-white"
               >
                 <Plus className="h-4 w-4" />
                 Create
@@ -3340,7 +3340,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
           </div>
         </div>
 
-        <div className="grid items-start gap-6 lg:grid-cols-[260px_minmax(0,1fr)_320px]">
+        <div className="relative z-0 grid items-start gap-6 lg:grid-cols-[260px_minmax(0,1fr)_320px]">
           <aside className="order-2 space-y-4 lg:order-1">
             <div className="overflow-hidden rounded-3xl border border-white/70 bg-white shadow-sm rise-fade-delay-1">
               <div className="relative h-16 overflow-hidden bg-gradient-to-r from-slate-900 via-slate-700 to-slate-600">
