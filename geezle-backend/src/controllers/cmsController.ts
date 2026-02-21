@@ -29,7 +29,7 @@ const CMS_FREELANCER_SCOPE = 'cms_freelancer_page';
 const CMS_BLOG_POSTS_SCOPE = 'cms_blog_posts';
 const CMS_BLOG_CATEGORIES_SCOPE = 'cms_blog_categories';
 const CMS_BLOG_SETTINGS_SCOPE = 'cms_blog_settings';
-const BRAND_ASSET_URL = 'https://api.scrolith.com/api/files/content/3362f88f-69d6-4cee-9005-49f33411b53f';
+const BRAND_ASSET_URL = 'https://scrolith.com/icon-192.png';
 
 const PLATFORM_SETTINGS_FILE = path.resolve(__dirname, '../../data/platform-system-settings.json');
 const PUBLIC_PLATFORM_DEFAULTS = {

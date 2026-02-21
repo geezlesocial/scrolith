@@ -8,7 +8,7 @@ import { sendPushToUser } from '../services/pushNotifications';
 const APP_DISTRIBUTION_SCOPE = 'app_distribution';
 const APP_CAMPAIGNS_SCOPE = 'app_distribution_campaigns';
 const TRACKING_EVENT_PREFIX = 'app_dist:';
-const BRAND_ASSET_URL = 'https://api.scrolith.com/api/files/content/3362f88f-69d6-4cee-9005-49f33411b53f';
+const BRAND_ASSET_URL = 'https://scrolith.com/icon-192.png';
 const KNOWN_EVENTS = new Set([
   'prompt_shown',
   'prompt_dismissed',

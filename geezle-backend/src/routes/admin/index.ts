@@ -40,7 +40,7 @@ import bcrypt from 'bcryptjs';
 // Persist to repository-level `Scrolith-backend/data` so it's easy to find and permissions are typical.
 const SETTINGS_DIR = path.resolve(__dirname, '../../../data');
 const SETTINGS_FILE = path.join(SETTINGS_DIR, 'platform-system-settings.json');
-const BRAND_ASSET_URL = 'https://api.scrolith.com/api/files/content/3362f88f-69d6-4cee-9005-49f33411b53f';
+const BRAND_ASSET_URL = 'https://scrolith.com/icon-192.png';
 
 const ensureSettingsDir = () => {
   try {
