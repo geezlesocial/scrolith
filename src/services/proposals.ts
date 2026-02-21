@@ -176,6 +176,8 @@ export const proposalsApi = {
     search?: string;
     page?: number;
     limit?: number;
+    role?: string;
+    as?: string;
   } = {}): Promise<ProposalsResponse> => {
     const response = await api.get<ApiResponse<ProposalsResponse>>('/proposals/me', { params });
     const data = handleApiResponse<any>(response);

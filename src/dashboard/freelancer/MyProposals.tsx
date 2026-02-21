@@ -34,7 +34,8 @@ export default function MyProposals() {
         status: filter === 'all' ? undefined : filter,
         search: searchTerm || undefined,
         page,
-        limit
+        limit,
+        role: 'freelancer'
       });
 
       setProposals(response.proposals || []);
