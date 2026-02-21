@@ -9,6 +9,22 @@ import {
 import { sendSystemEmail } from '../services/email.service';
 
 const normalizeRole = (role?: string) => (role || '').toString().toLowerCase();
+const isFreelancerRole = (role?: string) => {
+  const normalized = normalizeRole(role);
+  return normalized.includes('freelancer') || normalized.includes('seller');
+};
+const isClientRole = (role?: string) => {
+  const normalized = normalizeRole(role);
+  return normalized.includes('client') || normalized.includes('employer');
+};
+const resolveEffectiveRole = (req: Request, userRole?: string) => {
+  const queryRole = normalizeRole((req.query?.role as string) || (req.query?.as as string));
+  if (!queryRole) return normalizeRole(userRole);
+  if (queryRole.includes('admin') || queryRole.includes('superadmin')) return normalizeRole(userRole);
+  if (isFreelancerRole(queryRole)) return 'freelancer';
+  if (isClientRole(queryRole)) return 'client';
+  return normalizeRole(userRole);
+};
 
 const ok = (res: Response, data: any, message?: string) =>
   res.json({ success: true, data, message });
@@ -271,9 +287,15 @@ export const listMyProposals = async (req: Request, res: Response) => {
   try {
     const user = getUser(req);
     const role = normalizeRole(user?.role);
+    const effectiveRole = resolveEffectiveRole(req, role);
     const { status, search, page = '1', limit = '20' } = req.query as any;
 
-    if (!role.includes('freelancer') && !role.includes('seller')) {
+    if (!user?.id) {
+      return fail(res, 'Authentication required', 'UNAUTHORIZED', 401);
+    }
+
+    // Support dual-role accounts: users can switch dashboard views without being hard-locked by primary role.
+    if (!isFreelancerRole(effectiveRole) && !isClientRole(role) && !role.includes('admin') && !role.includes('superadmin')) {
       return fail(res, 'Not authorized', 'FORBIDDEN', 403);
     }
 
@@ -319,8 +341,13 @@ export const createProposal = async (req: Request, res: Response) => {
   try {
     const user = getUser(req);
     const role = normalizeRole(user?.role);
+    const effectiveRole = resolveEffectiveRole(req, role);
 
-    if (!role.includes('freelancer') && !role.includes('seller')) {
+    if (!user?.id) {
+      return fail(res, 'Authentication required', 'UNAUTHORIZED', 401);
+    }
+
+    if (!isFreelancerRole(effectiveRole) && !isClientRole(role) && !role.includes('admin') && !role.includes('superadmin')) {
       return fail(res, 'Not authorized', 'FORBIDDEN', 403);
     }
 
@@ -677,9 +704,14 @@ export const withdrawProposal = async (req: Request, res: Response) => {
   try {
     const user = getUser(req);
     const role = normalizeRole(user?.role);
+    const effectiveRole = resolveEffectiveRole(req, role);
     const { id } = req.params;
 
-    if (!role.includes('freelancer') && !role.includes('seller')) {
+    if (!user?.id) {
+      return fail(res, 'Authentication required', 'UNAUTHORIZED', 401);
+    }
+
+    if (!isFreelancerRole(effectiveRole) && !isClientRole(role) && !role.includes('admin') && !role.includes('superadmin')) {
       return fail(res, 'Not authorized', 'FORBIDDEN', 403);
     }
 
