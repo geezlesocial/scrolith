@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import prisma from "../utils/prismaClient";
 import { sendSystemMessage } from "../services/systemMessaging";
+import realtime from "../utils/realtime";
 
 type RoleNorm = "admin" | "superadmin" | "freelancer" | "client" | "employer" | "user" | "guest" | "";
 
@@ -42,6 +43,58 @@ const getAuth = (req: Request) => {
   const role = resolveEffectiveRole(userRole, queryRole);
   const userId = user?.id || (req.query.userId as string) || "";
   return { user, role, userId };
+};
+
+const toMoney = (value: number) => Number((Number(value || 0)).toFixed(2));
+
+const paymentMethodDisplayName = (raw?: string | null) => {
+  const id = (raw || "").toString().trim().toLowerCase();
+  if (!id || id === "wallet" || id === "balance") return "Wallet Balance";
+  if (id === "stripe" || id === "striped") return "Stripe Payment";
+  return id
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+const paymentSourceDisplayName = (paymentMethodId?: string | null, fundingProvider?: string | null) => {
+  const method = paymentMethodDisplayName(paymentMethodId);
+  const funding = (fundingProvider || "").toString().trim().toLowerCase();
+  if (method === "Wallet Balance" && funding && funding !== "wallet" && funding !== "balance") {
+    return `Wallet Balance (funded via ${paymentMethodDisplayName(funding)})`;
+  }
+  return method;
+};
+
+const ensureUserExistsInTx = async (tx: any, userId: string) => {
+  const existing = await tx.user.findUnique({ where: { id: userId } });
+  if (existing) return existing;
+  const safeLocal = userId.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 32) || "user";
+  const email = `${safeLocal}@local.dev`;
+  return tx.user.create({
+    data: {
+      id: userId,
+      email,
+      role: "USER",
+      isActive: true,
+      isVerified: false
+    }
+  });
+};
+
+const getOrCreateWalletInTx = async (tx: any, userId: string) => {
+  const existing = await tx.wallet.findUnique({ where: { userId } });
+  if (existing) return existing;
+  await ensureUserExistsInTx(tx, userId);
+  return tx.wallet.create({
+    data: {
+      userId,
+      balance: 0,
+      pendingClearance: 0,
+      escrowBalance: 0,
+      frozen: false,
+      currency: "USD"
+    }
+  });
 };
 
 const toContractTypeStr = (dbType: any): "fixed" | "hourly" => {
@@ -791,6 +844,18 @@ export const payContractDue = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, error: "Not authorized" });
     }
 
+    const requestedPaymentMethodId = (req.body?.paymentMethodId || "wallet").toString().trim().toLowerCase();
+    const fundingProvider = (req.body?.fundingProvider || "").toString().trim().toLowerCase();
+    const paymentMethodId = requestedPaymentMethodId === "balance" ? "wallet" : requestedPaymentMethodId;
+
+    if (paymentMethodId !== "wallet") {
+      return res.status(400).json({
+        success: false,
+        error: "Direct contract settlement supports wallet balance. Complete external checkout and retry with wallet.",
+        code: "ERR_CONTRACT_WALLET_REQUIRED"
+      });
+    }
+
     const entriesToPay = await prisma.timeEntry.findMany({
       where: {
         contractId,
@@ -798,20 +863,165 @@ export const payContractDue = async (req: Request, res: Response) => {
       }
     });
 
-    let totalPaid = 0;
-    for (const e of entriesToPay) {
-      totalPaid += Number(e.earnings || 0);
+    if (!entriesToPay.length) {
+      return res.json({ success: true, data: { amount: 0, paymentMethodId, fundingProvider: fundingProvider || null } });
     }
 
-    await prisma.timeEntry.updateMany({
-      where: {
-        contractId,
-        status: { in: ["APPROVED", "PENDING"] }
-      },
-      data: { status: "PAID" }
-    });
+    const provisionalAmount = toMoney(entriesToPay.reduce((sum, entry) => sum + Number(entry.earnings || 0), 0));
+    if (provisionalAmount <= 0) {
+      return res.json({ success: true, data: { amount: 0, paymentMethodId, fundingProvider: fundingProvider || null } });
+    }
 
-    return res.json({ success: true, data: { amount: totalPaid } });
+    let paidAmount = 0;
+    try {
+      const settlement = await prisma.$transaction(async (tx) => {
+        const freshEntries = await tx.timeEntry.findMany({
+          where: {
+            contractId,
+            status: { in: ["APPROVED", "PENDING"] }
+          }
+        });
+
+        const totalDue = toMoney(freshEntries.reduce((sum, entry) => sum + Number(entry.earnings || 0), 0));
+        if (totalDue <= 0) {
+          return { amount: 0 };
+        }
+
+        const clientWallet = await getOrCreateWalletInTx(tx, contract.clientId);
+        const freelancerWallet = await getOrCreateWalletInTx(tx, contract.freelancerId);
+
+        if (clientWallet.frozen) {
+          throw new Error("Client wallet is frozen");
+        }
+
+        const availableBalance = Number(clientWallet.balance || 0);
+        if (availableBalance < totalDue) {
+          throw new Error("Insufficient wallet balance");
+        }
+
+        await tx.wallet.update({
+          where: { id: clientWallet.id },
+          data: { balance: { decrement: totalDue } }
+        });
+
+        await tx.wallet.update({
+          where: { id: freelancerWallet.id },
+          data: { pendingClearance: { increment: totalDue } }
+        });
+
+        await tx.timeEntry.updateMany({
+          where: {
+            contractId,
+            status: { in: ["APPROVED", "PENDING"] }
+          },
+          data: { status: "PAID" }
+        });
+
+        const sourceLabel = paymentSourceDisplayName(paymentMethodId, fundingProvider);
+        const referenceId = `contract_due:${contract.id}:${Date.now()}`;
+
+        await tx.transaction.create({
+          data: {
+            userId: contract.clientId,
+            walletId: clientWallet.id,
+            type: "PAYMENT",
+            amount: totalDue * -1,
+            status: "COMPLETED",
+            currency: clientWallet.currency || "USD",
+            description: `Contract due payment for ${contract.title}`,
+            referenceId,
+            metadata: {
+              contractId: contract.id,
+              counterpartyUserId: contract.freelancerId,
+              paymentSource: sourceLabel,
+              fundingProvider: fundingProvider || null
+            }
+          }
+        });
+
+        await tx.transaction.create({
+          data: {
+            userId: contract.freelancerId,
+            walletId: freelancerWallet.id,
+            type: "TRANSFER",
+            amount: totalDue,
+            status: "PENDING",
+            currency: freelancerWallet.currency || "USD",
+            description: `Contract payment received for ${contract.title}`,
+            referenceId,
+            metadata: {
+              contractId: contract.id,
+              counterpartyUserId: contract.clientId,
+              paymentSource: sourceLabel,
+              fundingProvider: fundingProvider || null
+            }
+          }
+        });
+
+        return { amount: totalDue };
+      });
+
+      paidAmount = settlement.amount;
+    } catch (settlementError: any) {
+      const msg = (settlementError?.message || "").toString();
+      if (msg.toLowerCase().includes("insufficient wallet")) {
+        return res.status(400).json({ success: false, error: "Insufficient wallet balance", code: "ERR_WALLET_INSUFFICIENT" });
+      }
+      if (msg.toLowerCase().includes("wallet is frozen")) {
+        return res.status(403).json({ success: false, error: msg, code: "ERR_WALLET_FROZEN" });
+      }
+      throw settlementError;
+    }
+
+    try {
+      const payer = await prisma.user.findUnique({
+        where: { id: contract.clientId },
+        select: { name: true, email: true }
+      });
+      const freelancerLink = `/freelancer/dashboard?tab=contracts&contract=${contract.id}&contract_id=${contract.id}`;
+      const payerLabel = payer?.name || payer?.email || contract.clientName || "Client";
+      const sourceLabel = paymentSourceDisplayName(paymentMethodId, fundingProvider);
+      const amountLabel = paidAmount.toFixed(2);
+
+      void sendSystemMessage({
+        templateKey: "system_notification",
+        userId: contract.freelancerId,
+        context: {
+          notification: {
+            title: "Contract payment received",
+            message: `${payerLabel} paid $${amountLabel} for "${contract.title}" via ${sourceLabel}.`,
+            link: freelancerLink
+          }
+        },
+        actionUrl: freelancerLink,
+        typeOverride: "contract_payment"
+      });
+    } catch (notifyError) {
+      console.warn("Contract payment notification failed", notifyError);
+    }
+
+    try {
+      realtime.emitToUser(contract.clientId, "wallet:updated", {
+        source: "contract_due_payment",
+        contractId: contract.id
+      });
+      realtime.emitToUser(contract.freelancerId, "wallet:updated", {
+        source: "contract_due_payment",
+        contractId: contract.id
+      });
+    } catch (emitError) {
+      console.warn("Contract payment realtime emit failed", emitError);
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        amount: paidAmount,
+        paymentMethodId,
+        fundingProvider: fundingProvider || null,
+        paymentSource: paymentSourceDisplayName(paymentMethodId, fundingProvider)
+      }
+    });
   } catch (err: any) {
     console.error("payContractDue error:", err);
     return res.status(500).json({ success: false, error: "Failed to pay contract due" });
