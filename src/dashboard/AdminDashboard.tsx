@@ -38,6 +38,7 @@ const ATMTrackerModule = React.lazy(() => import('./admin/ATMTrackerModule'));
 const CommunityManagement = React.lazy(() => import('./admin/CommunityManagement'));
 const NavigationManager = React.lazy(() => import('./admin/NavigationManager'));
 const MarketIntelligence = React.lazy(() => import('./admin/MarketIntelligence'));
+const InsightsGrowth = React.lazy(() => import('./admin/InsightsGrowth'));
 const AdminReviews = React.lazy(() => import('./admin/Reviews'));
 const CommerceEngagement = React.lazy(() => import('./admin/CommerceEngagement'));
 const FormBuilder = React.lazy(() => import('./admin/FormBuilder'));
@@ -49,7 +50,7 @@ const AppManagement = React.lazy(() => import('./admin/AppManagement'));
 const MobileHomepage = React.lazy(() => import('./admin/MobileHomepage'));
 
 // Define valid tab types
-type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps';
+type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps';
 
 // Define navigation item interface
 interface NavItem {
@@ -115,7 +116,7 @@ const AdminDashboard: React.FC = () => {
         const validTabs: Tab[] = [
             'overview', 'analytics', 'listings', 'engagement', 'finance', 'gateways', 'cms', 
             'homepage', 'mobile-homepage', 'blog', 'marketing', 'users', 'monetization', 'files', 'staff', 'role-management', 'moderator-console', 'message-records', 'kyc', 
-            'support', 'system', 'profile', 'messages', 'ai', 'atm', 'community', 'recommendations', 'navigation', 'reviews', 'languages', 'forms', 'google-settings', 'scrolitha', 'apps'
+            'support', 'system', 'profile', 'messages', 'ai', 'atm', 'insights-growth', 'community', 'recommendations', 'navigation', 'reviews', 'languages', 'forms', 'google-settings', 'scrolitha', 'apps'
         ];
         return validTabs.includes(tab as Tab);
     };
@@ -242,7 +243,8 @@ const AdminDashboard: React.FC = () => {
             items: [
                 { id: 'ai', label: t('dashboard.admin.nav.ai_intelligence', 'AI Intelligence'), icon: Brain },
                 { id: 'atm', label: t('dashboard.admin.nav.atm', 'ATM Time Tracker'), icon: Clock },
-                { id: 'scrolitha', label: t('dashboard.admin.nav.scrolitha', 'Scrolitha'), icon: Bot }
+                { id: 'scrolitha', label: t('dashboard.admin.nav.scrolitha', 'Scrolitha'), icon: Bot },
+                { id: 'insights-growth', label: 'Insights & Growth', icon: BarChart2 }
                 , { id: 'market-intelligence', label: t('dashboard.admin.nav.market_intelligence', 'Market Intelligence'), icon: BarChart2 }
             ]
         },
@@ -336,6 +338,7 @@ const AdminDashboard: React.FC = () => {
             case 'ai': return <AIIntelligence />;
             case 'atm': return <ATMTrackerModule />;
             case 'scrolitha': return <ScrolithaManagement />;
+            case 'insights-growth': return <InsightsGrowth />;
             case 'market-intelligence': return <MarketIntelligence />;
             case 'listings': return <ListingsManagementTab />;
             case 'engagement': return <CommerceEngagement />;

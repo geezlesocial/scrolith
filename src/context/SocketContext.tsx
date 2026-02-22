@@ -98,6 +98,14 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'community:post_report_updated', fn: forward('community:post_report_updated') }
       ,{ ev: 'kyc.updated', fn: forward('kyc.updated') }
       ,{ ev: 'kyc.submitted', fn: forward('kyc.submitted') }
+      ,{ ev: 'insights:pgs_updated', fn: forward('insights:pgs_updated') }
+      ,{ ev: 'insights:achievement_unlocked', fn: forward('insights:achievement_unlocked') }
+      ,{ ev: 'insights:streak_updated', fn: forward('insights:streak_updated') }
+      ,{ ev: 'insights:leaderboard_updated', fn: forward('insights:leaderboard_updated') }
+      ,{ ev: 'insights:copilot_tip', fn: forward('insights:copilot_tip') }
+      ,{ ev: 'insights:post_prediction_ready', fn: forward('insights:post_prediction_ready') }
+      ,{ ev: 'insights:opportunity_match_ready', fn: forward('insights:opportunity_match_ready') }
+      ,{ ev: 'insights:toxicity_flagged', fn: forward('insights:toxicity_flagged') }
     ];
 
     handlers.forEach(h => socket.on(h.ev, h.fn));

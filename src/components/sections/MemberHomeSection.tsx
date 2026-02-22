@@ -47,6 +47,7 @@ import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextT
 import { resolveAssetUrl } from '../../utils/assetUrl';
 import { resolveVerificationLevel } from '../../utils/verification';
 import MediaPreviewModal, { PreviewMedia } from '../media/MediaPreviewModal';
+import InsightsQuickPanel from '../insights/InsightsQuickPanel';
 
 type MemberHomeContent = {
   title?: string;
@@ -4199,6 +4200,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
           </main>
 
           <aside className="order-3 space-y-4">
+            <InsightsQuickPanel />
             {showTopSidebarAd && (
               <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 sm:p-5 shadow-sm">
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-amber-600">Sponsored</div>

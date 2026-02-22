@@ -69,6 +69,45 @@ export class ScrolithaService {
     return extractData<any>(response);
   }
 
+  static async rewrite(payload: { text: string; tone?: string; goal?: string; scope?: string }): Promise<any> {
+    const response = await api.post('/scrolitha/rewrite', payload, { timeout: SCROLITHA_EXECUTE_TIMEOUT_MS });
+    return extractData<any>(response);
+  }
+
+  static async hashtags(payload: { text: string; scope?: string; limit?: number }): Promise<any> {
+    const response = await api.post('/scrolitha/hashtags', payload, { timeout: SCROLITHA_EXECUTE_TIMEOUT_MS });
+    return extractData<any>(response);
+  }
+
+  static async commentSuggestions(payload: { text: string; scope?: string; limit?: number }): Promise<any> {
+    const response = await api.post('/scrolitha/comment-suggestions', payload, {
+      timeout: SCROLITHA_EXECUTE_TIMEOUT_MS
+    });
+    return extractData<any>(response);
+  }
+
+  static async proposalDraft(payload: { text: string; context?: Record<string, any> }): Promise<any> {
+    const response = await api.post('/scrolitha/proposal-draft', payload, {
+      timeout: SCROLITHA_EXECUTE_TIMEOUT_MS
+    });
+    return extractData<any>(response);
+  }
+
+  static async gigImprove(payload: { text: string; context?: Record<string, any> }): Promise<any> {
+    const response = await api.post('/scrolitha/gig-improve', payload, { timeout: SCROLITHA_EXECUTE_TIMEOUT_MS });
+    return extractData<any>(response);
+  }
+
+  static async jobImprove(payload: { text: string; context?: Record<string, any> }): Promise<any> {
+    const response = await api.post('/scrolitha/job-improve', payload, { timeout: SCROLITHA_EXECUTE_TIMEOUT_MS });
+    return extractData<any>(response);
+  }
+
+  static async toxicityCheck(payload: { text: string; scope?: string }): Promise<any> {
+    const response = await api.post('/scrolitha/toxicity-check', payload, { timeout: SCROLITHA_EXECUTE_TIMEOUT_MS });
+    return extractData<any>(response);
+  }
+
   static async adminChat(payload: {
     message: string;
     context?: { page?: string; entityId?: string };
@@ -130,6 +169,11 @@ export class ScrolithaService {
     return extractData<any>(response);
   }
 
+  static async adminGetSettings(): Promise<any> {
+    const response = await api.get('/admin/scrolitha/settings');
+    return extractData<any>(response);
+  }
+
   static async adminGetHealth(scope?: 'user' | 'admin'): Promise<any> {
     const query = scope ? `?scope=${encodeURIComponent(scope)}` : '';
     const response = await api.get(`/admin/scrolitha/health${query}`);
@@ -144,6 +188,11 @@ export class ScrolithaService {
 
   static async adminUpdateConfig(payload: any): Promise<any> {
     const response = await api.put('/admin/scrolitha/config', payload);
+    return extractData<any>(response);
+  }
+
+  static async adminUpdateSettings(payload: any): Promise<any> {
+    const response = await api.put('/admin/scrolitha/settings', payload);
     return extractData<any>(response);
   }
 
@@ -181,6 +230,26 @@ export class ScrolithaService {
     if (typeof payload?.limit === 'number') params.set('limit', String(Math.max(1, Math.floor(payload.limit))));
     const query = params.toString();
     const response = await api.get(`/admin/scrolitha/audit${query ? `?${query}` : ''}`);
+    const data = extractData<any>(response);
+    return {
+      items: Array.isArray(data?.items) ? data.items : [],
+      nextCursor: data?.nextCursor || null
+    };
+  }
+
+  static async adminGetLogs(payload?: {
+    cursor?: string;
+    limit?: number;
+    scope?: string;
+    actorId?: string;
+  }): Promise<{ items: any[]; nextCursor?: string | null }> {
+    const params = new URLSearchParams();
+    if (payload?.cursor) params.set('cursor', payload.cursor);
+    if (payload?.scope) params.set('scope', payload.scope);
+    if (payload?.actorId) params.set('actorId', payload.actorId);
+    if (typeof payload?.limit === 'number') params.set('limit', String(Math.max(1, Math.floor(payload.limit))));
+    const query = params.toString();
+    const response = await api.get(`/admin/scrolitha/logs${query ? `?${query}` : ''}`);
     const data = extractData<any>(response);
     return {
       items: Array.isArray(data?.items) ? data.items : [],
