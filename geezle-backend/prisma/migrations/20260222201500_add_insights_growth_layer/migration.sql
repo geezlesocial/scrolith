@@ -1,4 +1,4 @@
-﻿-- Add additive Insights + Growth + Scrolitha intelligence layer tables.
+-- Add additive Insights + Growth + Scrolitha intelligence layer tables.
 
 CREATE TABLE "ProfessionalScore" (
     "id" TEXT NOT NULL,
