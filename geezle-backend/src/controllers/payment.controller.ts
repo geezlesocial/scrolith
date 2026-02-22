@@ -9,11 +9,25 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_mock_key', {
 });
 
 const prisma = new PrismaClient();
+const ADS_CONFIG_SCOPE = 'community_ads_config';
 
 const getOrCreateSettings = async () => {
   let settings = await prisma.settings.findFirst({ orderBy: { updatedAt: 'desc' } });
   if (!settings) settings = await prisma.settings.create({ data: {} });
   return settings;
+};
+
+const resolveAdActivationStatus = async (): Promise<'ACTIVE' | 'SUBMITTED_FOR_REVIEW'> => {
+  try {
+    const configSetting = await prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } });
+    const configData: any = configSetting?.data || {};
+    const approvalMode = String(configData?.approvalMode || '').toLowerCase();
+    const autoApproveAds = Boolean(configData?.autoApproveAds);
+    return approvalMode === 'auto' || autoApproveAds ? 'ACTIVE' : 'SUBMITTED_FOR_REVIEW';
+  } catch (error) {
+    console.warn('Failed to resolve ad activation status from ads config; falling back to review queue.');
+    return 'SUBMITTED_FOR_REVIEW';
+  }
 };
 
 export const createPaymentIntent = async (req: Request, res: Response) => {
@@ -92,11 +106,15 @@ export const handleWebhook = async (req: Request, res: Response) => {
           // Reconcile a pending AdPayment (created when PaymentIntent was requested)
           const amountReceived = (paymentIntent.amount_received || paymentIntent.amount) / 100;
           const currencyStr = (paymentIntent.currency || 'usd').toUpperCase();
+          const nextAdStatus = await resolveAdActivationStatus();
           const existing = await prisma.adPayment.findFirst({ where: { adId, transactionId: paymentIntent.id } });
           if (existing) {
             await prisma.$transaction([
               prisma.adPayment.update({ where: { id: existing.id }, data: { status: 'completed', amount: amountReceived, currency: currencyStr } }),
-              prisma.communityAd.update({ where: { id: adId }, data: { status: 'PAID', paymentTransactionId: paymentIntent.id } })
+              prisma.communityAd.update({
+                where: { id: adId },
+                data: { status: nextAdStatus, paymentTransactionId: paymentIntent.id }
+              })
             ]);
           } else {
             // Mark ad as paid and create AdPayment record
@@ -112,12 +130,12 @@ export const handleWebhook = async (req: Request, res: Response) => {
               }),
               prisma.communityAd.update({
                 where: { id: adId },
-                data: { status: 'PAID', paymentTransactionId: paymentIntent.id }
+                data: { status: nextAdStatus, paymentTransactionId: paymentIntent.id }
               })
             ]);
           }
 
-          console.log(`Payment for ad ${adId} succeeded`);
+          console.log(`Payment for ad ${adId} succeeded; transitioned to ${nextAdStatus}`);
           try {
             const io = (global as any).appIo || null;
             // Try to get io from prisma context via process (fallback to runtime app)
@@ -126,7 +144,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
             }
             const ioReal = (global as any).appIo || (global as any).io || null;
             if (ioReal && typeof ioReal.emit === 'function') {
-              try { ioReal.emit('community:ad_status_updated', { adId, status: 'PAID' }); } catch(e){}
+              try { ioReal.emit('community:ad_status_updated', { adId, status: nextAdStatus }); } catch(e){}
             }
           } catch(e){ console.error('Emit ad paid event error:', e); }
         } else if (orderId) {
