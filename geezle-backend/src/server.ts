@@ -67,6 +67,7 @@ import preloaderRoutes from './routes/preloader.routes';
 import adminPreloadersRoutes from './routes/admin/preloaders.routes';
 import recoRoutes from './routes/reco.routes';
 import scrolithaRoutes from './routes/scrolitha.routes';
+import insightsRoutes from './routes/insights.routes';
 import { authMiddleware } from './middleware/auth.middleware';
 import { maintenanceModeMiddleware } from './middleware/maintenance.middleware';
 import {
@@ -83,6 +84,8 @@ import { getAdminConfig, updateAdminConfig } from './controllers/community.admin
 import { handleStripeWalletWebhook } from './controllers/walletFunding.controller';
 import cron from 'node-cron';
 import { reconcileAdPayments } from './scripts/reconcileAdPayments';
+import { registerInsightsJobs } from './modules/insights/jobs/insights.jobs';
+import { insightsActionTrackerMiddleware } from './modules/insights/realtime/insights.tracker.middleware';
 // Restart trigger comment (no-op) to force ts-node-dev reload when modified during debugging
 
 
@@ -898,6 +901,7 @@ app.get('/socket-test', (req: Request, res: Response) => {
 // Enforce system maintenance mode for non-admin traffic while keeping admin/auth/CMS
 // access paths available for management and status pages.
 app.use('/api', maintenanceModeMiddleware);
+app.use('/api', insightsActionTrackerMiddleware);
 
 // API routes
 app.use('/api/cms', cmsRoutes);
@@ -989,6 +993,7 @@ app.use('/api/payouts/stripe', payoutsStripeRoutes);
 app.use('/api/public/preloader', preloaderRoutes);
 app.use('/api/reco', recoRoutes);
 app.use('/api/scrolitha', scrolithaRoutes);
+app.use('/api/insights', insightsRoutes);
 app.use('/api/admin/preloaders', adminPreloadersRoutes);
 
 // Temporary debug: list mounted API routes (for local debugging only)
@@ -1291,6 +1296,7 @@ app.use((err: Error, req: Request, res: Response, next: any) => {
 // Start server (skip auto-listen during test runs to avoid port conflicts)
 const PORT = parseInt(process.env.PORT!) || 5000;
 if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
+  registerInsightsJobs(app);
   server.listen(PORT, () => {
     console.log(`========================================`);
     console.log(`🚀 Scrolith Marketplace Backend Started`);

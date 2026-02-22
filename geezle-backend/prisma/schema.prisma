@@ -166,6 +166,17 @@ model User {
   monetizationProfile              MonetizationProfile?      @relation("UserMonetizationProfile")
   accountViolations                AccountViolation[]        @relation("UserAccountViolations")
   payoutProviderAccounts           PayoutProviderAccount[]
+
+  // Insights & growth intelligence (additive layer)
+  professionalScore       ProfessionalScore?
+  insightEvents           InsightEvent[]
+  insightAchievements     UserAchievement[]
+  insightStreak           UserStreak?
+  opportunityMatches      OpportunityMatch[]
+  postPredictionsAuthored PostPrediction[]    @relation("PostPredictionAuthor")
+  aiCopilotLogs           AICopilotLog[]
+  skillGapReports         SkillGapReport[]
+  feedModePreference      FeedModePreference?
 }
 
 model Profile {
@@ -559,6 +570,178 @@ model AppSetting {
   data      Json
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
+}
+
+model ProfessionalScore {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  score     Int      @default(0)
+  breakdown Json?
+  riskFlags Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([score])
+  @@index([updatedAt])
+}
+
+model InsightEvent {
+  id        String   @id @default(cuid())
+  userId    String?
+  type      String
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+  @@index([createdAt])
+}
+
+model Achievement {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  title       String
+  description String?
+  tier        String   @default("bronze")
+  rules       Json?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userAchievements UserAchievement[]
+
+  @@index([isActive])
+  @@index([tier])
+}
+
+model UserAchievement {
+  id            String   @id @default(cuid())
+  userId        String
+  achievementId String
+  meta          Json?
+  earnedAt      DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+  @@index([userId, earnedAt])
+  @@index([achievementId, earnedAt])
+}
+
+model UserStreak {
+  id                String    @id @default(cuid())
+  userId            String    @unique
+  currentStreakDays Int       @default(0)
+  bestStreakDays    Int       @default(0)
+  lastActiveDate    DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([currentStreakDays])
+  @@index([updatedAt])
+}
+
+model OpportunityMatch {
+  id         String   @id @default(cuid())
+  userId     String
+  targetType String
+  targetId   String
+  score      Float    @default(0)
+  reasons    Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, targetType, targetId])
+  @@index([userId, score])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
+model WeeklyLeaderboard {
+  id        String   @id @default(cuid())
+  weekKey   String
+  scope     String
+  entries   Json
+  builtAt   DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([weekKey, scope])
+  @@index([scope, weekKey])
+  @@index([builtAt])
+}
+
+model PostPrediction {
+  id                 String   @id @default(cuid())
+  postId             String   @unique
+  authorId           String
+  engagementScore    Float    @default(0)
+  toxicityScore      Float    @default(0)
+  hashtagSuggestions Json?
+  commentSuggestions Json?
+  notes              Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  post   CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author User          @relation("PostPredictionAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([authorId, createdAt])
+  @@index([engagementScore])
+  @@index([toxicityScore])
+}
+
+model AICopilotLog {
+  id            String   @id @default(cuid())
+  userId        String?
+  scope         String
+  promptHash    String
+  inputSummary  String?
+  outputSummary String?
+  riskLevel     String?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([scope, createdAt])
+  @@index([promptHash])
+}
+
+model SkillGapReport {
+  id          String   @id @default(cuid())
+  userId      String
+  report      Json
+  generatedBy String   @default("scrolitha")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model FeedModePreference {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  mode      String   @default("growth")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([mode])
 }
 
 model TranslationKey {
@@ -1930,34 +2113,34 @@ model ReactionSummary {
 
 // Community Post model for feed-style posts (separate from ForumThread)
 model CommunityPost {
-  id             String   @id @default(cuid())
-  authorId       String
-  title          String?
-  content        String   @db.Text
-  attachments    String[] @default([])
-  tags           String[] @default([])
-  mentions       String[] @default([])
-  topic          String?
-  location       String?
-  visibility     String   @default("public") // public, friends, network, private, custom
-  graphicWarning Boolean  @default(false) // content warning flag (UI-only)
-  commentPolicy  String   @default("everyone") // everyone, followers, following, mutuals, none
-  repostsEnabled Boolean  @default(true)
-  originalPostId String?
-  businessPageId String?
-  viewsCount     Int      @default(0)
-  likesCount     Int      @default(0)
-  sharesCount    Int      @default(0)
-  repostsCount   Int      @default(0)
-  status         String   @default("active") // active, draft, deleted
-  isPinned       Boolean  @default(false)
-  isHighlighted  Boolean  @default(false)
-  aiInsightEnabled   Boolean @default(false)
-  aiInsightGenerated Boolean @default(false)
-  aiInsightText      String? @db.Text
+  id                 String   @id @default(cuid())
+  authorId           String
+  title              String?
+  content            String   @db.Text
+  attachments        String[] @default([])
+  tags               String[] @default([])
+  mentions           String[] @default([])
+  topic              String?
+  location           String?
+  visibility         String   @default("public") // public, friends, network, private, custom
+  graphicWarning     Boolean  @default(false) // content warning flag (UI-only)
+  commentPolicy      String   @default("everyone") // everyone, followers, following, mutuals, none
+  repostsEnabled     Boolean  @default(true)
+  originalPostId     String?
+  businessPageId     String?
+  viewsCount         Int      @default(0)
+  likesCount         Int      @default(0)
+  sharesCount        Int      @default(0)
+  repostsCount       Int      @default(0)
+  status             String   @default("active") // active, draft, deleted
+  isPinned           Boolean  @default(false)
+  isHighlighted      Boolean  @default(false)
+  aiInsightEnabled   Boolean  @default(false)
+  aiInsightGenerated Boolean  @default(false)
+  aiInsightText      String?  @db.Text
   aiScore            Float?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   author       User                   @relation(fields: [authorId], references: [id], onDelete: Cascade)
   businessPage CommunityBusinessPage? @relation(fields: [businessPageId], references: [id], onDelete: SetNull)
@@ -1971,6 +2154,7 @@ model CommunityPost {
   hiddenBy      CommunityPostHidden[]
   feedback      CommunityPostFeedback[]
   reports       CommunityPostReport[]
+  prediction    PostPrediction?
 
   @@index([authorId])
   @@index([status])

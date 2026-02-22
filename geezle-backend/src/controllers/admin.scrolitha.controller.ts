@@ -388,3 +388,45 @@ export const deleteAdminScrolithaPostInsightsController = async (req: Request, r
     });
   }
 };
+
+export const getAdminScrolithaSettingsController = async (req: Request, res: Response) => {
+  return getAdminScrolithaConfigController(req, res);
+};
+
+export const putAdminScrolithaSettingsController = async (req: Request, res: Response) => {
+  return putAdminScrolithaConfigController(req, res);
+};
+
+export const getAdminScrolithaLogsController = async (req: Request, res: Response) => {
+  return getAdminScrolithaAuditController(req, res);
+};
+
+export const postAdminScrolithaKnowledgeReindexController = async (req: Request, res: Response) => {
+  try {
+    const actor = resolveActorFromRequest(req);
+    emit(req, 'scrolitha:knowledge_reindex_requested', {
+      updatedAt: new Date().toISOString(),
+      updatedBy: actor.id,
+      scope: String(req.body?.scope || req.query?.scope || 'user')
+    });
+    return res.json({
+      success: true,
+      data: {
+        queued: true,
+        scope: String(req.body?.scope || req.query?.scope || 'user'),
+        message: 'Knowledge reindex queued'
+      },
+      message: 'Scrolitha knowledge reindex queued'
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to queue knowledge reindex',
+      error: String(error?.message || 'Unknown error')
+    });
+  }
+};
+
+export const postAdminScrolithaPoliciesUpdateController = async (req: Request, res: Response) => {
+  return putAdminScrolithaConfigController(req, res);
+};

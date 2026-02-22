@@ -9,6 +9,15 @@ import {
   scrolithaRecordsController,
   scrolithaWidgetConfigController
 } from '../controllers/scrolitha.controller';
+import {
+  scrolithaCommentSuggestionsController,
+  scrolithaGigImproveController,
+  scrolithaHashtagsController,
+  scrolithaJobImproveController,
+  scrolithaProposalDraftController,
+  scrolithaRewriteController,
+  scrolithaToxicityCheckController
+} from '../modules/scrolitha/admin/scrolitha.tasks.controller';
 
 const router = express.Router();
 
@@ -18,6 +27,13 @@ router.use(authMiddleware);
 
 router.post('/chat', scrolithaChatController);
 router.post('/execute', scrolithaExecuteController);
+router.post('/rewrite', scrolithaRewriteController);
+router.post('/hashtags', scrolithaHashtagsController);
+router.post('/comment-suggestions', scrolithaCommentSuggestionsController);
+router.post('/proposal-draft', scrolithaProposalDraftController);
+router.post('/gig-improve', scrolithaGigImproveController);
+router.post('/job-improve', scrolithaJobImproveController);
+router.post('/toxicity-check', scrolithaToxicityCheckController);
 router.get('/history', scrolithaHistoryController);
 router.get('/records', scrolithaRecordsController);
 router.get('/knowledge', scrolithaKnowledgeController);
