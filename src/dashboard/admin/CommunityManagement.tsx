@@ -39,6 +39,51 @@ const defaultSettings: CommunitySettings = {
     enableEvents: true
 } as CommunitySettings;
 
+const DEFAULT_AD_TARGET_COUNTRIES = [
+    'United States',
+    'United Kingdom',
+    'Canada',
+    'Australia',
+    'New Zealand',
+    'Germany',
+    'France',
+    'Netherlands',
+    'Sweden',
+    'Norway',
+    'Denmark',
+    'Ireland',
+    'Spain',
+    'Italy',
+    'United Arab Emirates',
+    'Saudi Arabia',
+    'India',
+    'Nigeria',
+    'South Africa',
+    'Brazil',
+    'Mexico',
+    'Singapore',
+    'Malaysia',
+    'Philippines'
+];
+
+const GuideTip: React.FC<{ text: string }> = ({ text }) => (
+    <details className="group relative shrink-0">
+        <summary className="list-none cursor-pointer rounded-full border border-gray-300 px-2 py-0.5 text-[10px] font-bold text-gray-600 hover:bg-gray-100">
+            ?
+        </summary>
+        <div className="absolute right-0 z-20 mt-1 w-72 rounded-lg border border-gray-200 bg-white p-2 text-[11px] font-normal text-gray-600 shadow-lg">
+            {text}
+        </div>
+    </details>
+);
+
+const LabelWithGuide: React.FC<{ label: string; help: string; className?: string }> = ({ label, help, className = '' }) => (
+    <div className={`mb-1 flex items-center justify-between gap-2 ${className}`}>
+        <span className="text-xs font-bold text-gray-500">{label}</span>
+        <GuideTip text={help} />
+    </div>
+);
+
 const CommunityManagement = () => {
     const [activeTab, setActiveTab] = useState<AdminTab>('overview');
     const [settings, setSettings] = useState<CommunitySettings | null>(null);
@@ -1388,6 +1433,7 @@ const AdManager = () => {
     const [errors, setErrors] = useState<Record<string,string>>({});
     const [isSaving, setIsSaving] = useState(false);
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
+    const [countryDraft, setCountryDraft] = useState('');
     const { showNotification } = useNotification();
 
     useEffect(() => {
@@ -1401,7 +1447,14 @@ const AdManager = () => {
                 ]);
                 setCampaigns(allCampaigns);
                 setReviewQueue(queue);
-                setAdsConfig(cfg);
+                const normalizedCountries = Array.from(
+                    new Set(
+                        (Array.isArray(cfg?.targetCountries) ? cfg.targetCountries : DEFAULT_AD_TARGET_COUNTRIES)
+                            .map((entry: any) => String(entry || '').trim())
+                            .filter(Boolean)
+                    )
+                );
+                setAdsConfig({ ...(cfg || {}), targetCountries: normalizedCountries });
                 setAdsAnalytics(analytics);
             } catch (e) {
                 console.error('Failed to load ads data', e);
@@ -1508,12 +1561,40 @@ const AdManager = () => {
 
     const handleConfigSave = async () => {
         try {
-            const updated = await AdService.updateConfig({ data: adsConfig });
+            const normalizedCountries = Array.from(
+                new Set(
+                    (Array.isArray(adsConfig?.targetCountries) ? adsConfig.targetCountries : [])
+                        .map((entry: any) => String(entry || '').trim())
+                        .filter(Boolean)
+                )
+            );
+            const payload = { ...adsConfig, targetCountries: normalizedCountries };
+            const updated = await AdService.updateConfig({ data: payload });
             setAdsConfig(updated);
             showNotification('success', 'Saved', 'Ads config updated.');
         } catch (e) {
             showNotification('error', 'Failed', 'Unable to save ads config.');
         }
+    };
+
+    const addTargetCountry = () => {
+        const nextCountry = String(countryDraft || '').trim();
+        if (!nextCountry) return;
+        setAdsConfig((prev: any) => {
+            const current = Array.isArray(prev?.targetCountries) ? prev.targetCountries : [];
+            const exists = current.some((entry: any) => String(entry).toLowerCase() === nextCountry.toLowerCase());
+            if (exists) return prev;
+            return { ...prev, targetCountries: [...current, nextCountry] };
+        });
+        setCountryDraft('');
+    };
+
+    const removeTargetCountry = (country: string) => {
+        setAdsConfig((prev: any) => ({
+            ...prev,
+            targetCountries: (Array.isArray(prev?.targetCountries) ? prev.targetCountries : [])
+                .filter((entry: any) => String(entry) !== country)
+        }));
     };
 
     const approve = async (id: string) => {
@@ -1570,14 +1651,20 @@ const AdManager = () => {
             {adsConfig && (
                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-4">
                     <div className="flex items-center justify-between">
-                        <h4 className="font-bold text-gray-900">Ads Pricing & Rules</h4>
+                        <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-gray-900">Ads Pricing & Rules</h4>
+                            <GuideTip text="Configure ad billing rules, approval workflow, media limits, and targeting controls used by user ad-creation forms in real time." />
+                        </div>
                         <button onClick={handleConfigSave} className="px-3 py-1 text-sm bg-green-600 text-white rounded">Save Config</button>
                     </div>
-                    <div className="grid grid-cols-1 gap-4 text-sm lg:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-4 text-sm lg:grid-cols-3">
                         <div className="rounded-lg border border-gray-200 p-3 space-y-3">
                             <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Approval Workflow</p>
                             <div>
-                                <label className="block text-xs font-bold text-gray-500 mb-1">Approval Mode</label>
+                                <LabelWithGuide
+                                    label="Approval Mode"
+                                    help="Manual requires admin approval before serving ads. Auto approves ads immediately after payment."
+                                />
                                 <select
                                     className="w-full border rounded p-2"
                                     value={String(adsConfig?.approvalMode || (adsConfig?.autoApproveAds ? 'auto' : 'manual'))}
@@ -1607,7 +1694,7 @@ const AdManager = () => {
                             <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Budget & Creative Limits</p>
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-500 mb-1">Min Budget</label>
+                                    <LabelWithGuide label="Min Budget" help="Minimum campaign budget users can submit." />
                                     <input
                                         type="number"
                                         className="w-full border rounded p-2"
@@ -1616,7 +1703,7 @@ const AdManager = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-500 mb-1">Max Budget</label>
+                                    <LabelWithGuide label="Max Budget" help="Maximum campaign budget accepted per ad." />
                                     <input
                                         type="number"
                                         className="w-full border rounded p-2"
@@ -1625,7 +1712,10 @@ const AdManager = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-500 mb-1">Max Placements Per Ad</label>
+                                    <LabelWithGuide
+                                        label="Max Placements Per Ad"
+                                        help="Maximum number of placements users can choose for one campaign."
+                                    />
                                     <input
                                         type="number"
                                         min={1}
@@ -1636,7 +1726,7 @@ const AdManager = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-500 mb-1">Max Images</label>
+                                    <LabelWithGuide label="Max Images" help="Maximum image files allowed in one ad campaign." />
                                     <input
                                         type="number"
                                         min={1}
@@ -1646,7 +1736,7 @@ const AdManager = () => {
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-500 mb-1">Max Videos</label>
+                                    <LabelWithGuide label="Max Videos" help="Maximum video files allowed in one ad campaign." />
                                     <input
                                         type="number"
                                         min={1}
@@ -1657,10 +1747,72 @@ const AdManager = () => {
                                 </div>
                             </div>
                         </div>
+
+                        <div className="rounded-lg border border-gray-200 p-3 space-y-3">
+                            <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Target Countries</p>
+                            <LabelWithGuide
+                                label="Country Catalog"
+                                help="This list powers the target-country dropdown shown to users during ad creation. Add new countries or remove ones you do not support."
+                                className="mb-0"
+                            />
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    list="ads-country-suggestions"
+                                    value={countryDraft}
+                                    onChange={(e) => setCountryDraft(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            addTargetCountry();
+                                        }
+                                    }}
+                                    placeholder="Add country"
+                                    className="w-full border rounded p-2"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={addTargetCountry}
+                                    className="px-3 py-2 rounded bg-blue-600 text-white text-xs font-semibold"
+                                >
+                                    Add
+                                </button>
+                            </div>
+                            <datalist id="ads-country-suggestions">
+                                {DEFAULT_AD_TARGET_COUNTRIES.map((country) => (
+                                    <option key={country} value={country} />
+                                ))}
+                            </datalist>
+                            <div className="max-h-36 overflow-y-auto rounded border border-gray-100 p-2">
+                                <div className="flex flex-wrap gap-2">
+                                    {(Array.isArray(adsConfig?.targetCountries) ? adsConfig.targetCountries : []).map((country: string) => (
+                                        <span
+                                            key={country}
+                                            className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] text-blue-700"
+                                        >
+                                            {country}
+                                            <button
+                                                type="button"
+                                                onClick={() => removeTargetCountry(country)}
+                                                className="rounded px-1 text-blue-700 hover:bg-blue-100"
+                                            >
+                                                <X className="w-3 h-3" />
+                                            </button>
+                                        </span>
+                                    ))}
+                                </div>
+                                {(Array.isArray(adsConfig?.targetCountries) ? adsConfig.targetCountries : []).length === 0 && (
+                                    <p className="text-xs text-gray-500">No countries configured yet.</p>
+                                )}
+                            </div>
+                        </div>
                     </div>
 
                     <div className="rounded-lg border border-gray-200 p-3 space-y-3">
-                        <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Placement Pricing (CPM / CPC)</p>
+                        <div className="flex items-center gap-2">
+                            <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Placement Pricing (CPM / CPC)</p>
+                            <GuideTip text="Set the billing rate per placement. CPM is cost per 1,000 impressions, CPC is cost per click." />
+                        </div>
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
                             {[
                                 { key: 'homepage', label: 'Homepage' },

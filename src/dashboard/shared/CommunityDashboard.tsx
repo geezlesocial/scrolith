@@ -47,6 +47,51 @@ const tabs = [
   { id: 'settings', label: 'Settings', icon: UserCircle }
 ] as const;
 
+const DEFAULT_TARGET_COUNTRIES = [
+  'United States',
+  'United Kingdom',
+  'Canada',
+  'Australia',
+  'New Zealand',
+  'Germany',
+  'France',
+  'Netherlands',
+  'Sweden',
+  'Norway',
+  'Denmark',
+  'Ireland',
+  'Spain',
+  'Italy',
+  'United Arab Emirates',
+  'Saudi Arabia',
+  'India',
+  'Nigeria',
+  'South Africa',
+  'Brazil',
+  'Mexico',
+  'Singapore',
+  'Malaysia',
+  'Philippines'
+];
+
+const GuideTip: React.FC<{ text: string }> = ({ text }) => (
+  <details className="group relative shrink-0">
+    <summary className="list-none cursor-pointer rounded-full border border-slate-300 px-2 py-0.5 text-[10px] font-bold text-slate-600 hover:bg-slate-100">
+      ?
+    </summary>
+    <div className="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-slate-200 bg-white p-2 text-[11px] font-normal text-slate-600 shadow-lg">
+      {text}
+    </div>
+  </details>
+);
+
+const FieldLabel: React.FC<{ label: string; help: string }> = ({ label, help }) => (
+  <div className="mb-1 flex items-center justify-between gap-2">
+    <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</span>
+    <GuideTip text={help} />
+  </div>
+);
+
 type TabId = typeof tabs[number]['id'];
 const isTabId = (value: string): value is TabId => tabs.some((tab) => tab.id === value);
 
@@ -352,7 +397,7 @@ const CommunityDashboard: React.FC = () => {
       placement: 'community_feed',
       placements: ['community_feed'] as string[],
       pricingModel: 'CPM' as 'CPM' | 'CPC',
-      targetCountries: '' as string,
+      targetCountries: [] as string[],
       targetAudience: 'users' as 'users' | 'businesses' | 'all',
       dailySpend: 0,
       budget: 120,
@@ -734,6 +779,18 @@ const CommunityDashboard: React.FC = () => {
       return String(currencies).split(',').map((c) => c.trim()).includes(currency);
     });
   }, [adDraft.currency, paymentGateways]);
+
+  const availableTargetCountries = useMemo(() => {
+    const configured = Array.isArray(adsConfig?.targetCountries)
+      ? adsConfig.targetCountries
+          .map((entry: any) => String(entry || '').trim())
+          .filter(Boolean)
+      : DEFAULT_TARGET_COUNTRIES;
+    const selected = Array.isArray(adDraft.targetCountries)
+      ? adDraft.targetCountries.map((entry) => String(entry || '').trim()).filter(Boolean)
+      : [];
+    return Array.from(new Set([...configured, ...selected]));
+  }, [adsConfig, adDraft.targetCountries]);
 
   const primaryAdPlacement = (Array.isArray(adDraft.placements) && adDraft.placements[0]) || adDraft.placement || 'community_feed';
 
@@ -1672,8 +1729,7 @@ const CommunityDashboard: React.FC = () => {
     try {
       const targetCountries = Array.from(
         new Set(
-          String(adDraft.targetCountries || '')
-            .split(',')
+          (Array.isArray(adDraft.targetCountries) ? adDraft.targetCountries : [])
             .map((entry) => entry.trim())
             .filter(Boolean)
         )
@@ -2420,41 +2476,53 @@ const CommunityDashboard: React.FC = () => {
       </header>
       <div className="rounded-3xl border border-dashed border-slate-200 bg-white/80 p-5 shadow-sm">
         <div className="grid gap-3 md:grid-cols-3">
-          <input
-            value={adDraft.title}
-            onChange={(e) => setAdDraft((prev) => ({ ...prev, title: e.target.value }))}
-            placeholder="Ad title"
-            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
-          />
-          <select
-            value={adDraft.objective}
-            onChange={(e) =>
-              setAdDraft((prev) => ({
-                ...prev,
-                objective: e.target.value as 'traffic' | 'messages',
-                destinationType: e.target.value === 'messages' ? 'messages' : prev.destinationType
-              }))
-            }
-            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
-          >
-            <option value="traffic">Objective: Traffic</option>
-            <option value="messages">Objective: Messages</option>
-          </select>
-          <input
-            value={adDraft.destinationUrl}
-            onChange={(e) => setAdDraft((prev) => ({ ...prev, destinationUrl: e.target.value }))}
-            placeholder="Target URL (https://...)"
-            disabled={adDraft.destinationType === 'messages'}
-            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
+          <div>
+            <FieldLabel label="Ad title" help="A short headline users see first. Keep it specific and outcome-focused." />
+            <input
+              value={adDraft.title}
+              onChange={(e) => setAdDraft((prev) => ({ ...prev, title: e.target.value }))}
+              placeholder="Ad title"
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none w-full"
+            />
+          </div>
+          <div>
+            <FieldLabel label="Objective" help="Traffic sends users to a URL. Messages opens direct chat responses." />
+            <select
+              value={adDraft.objective}
+              onChange={(e) =>
+                setAdDraft((prev) => ({
+                  ...prev,
+                  objective: e.target.value as 'traffic' | 'messages',
+                  destinationType: e.target.value === 'messages' ? 'messages' : prev.destinationType
+                }))
+              }
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none w-full"
+            >
+              <option value="traffic">Objective: Traffic</option>
+              <option value="messages">Objective: Messages</option>
+            </select>
+          </div>
+          <div>
+            <FieldLabel label="Target URL" help="Destination page for traffic campaigns. Leave disabled when destination is messages." />
+            <input
+              value={adDraft.destinationUrl}
+              onChange={(e) => setAdDraft((prev) => ({ ...prev, destinationUrl: e.target.value }))}
+              placeholder="Target URL (https://...)"
+              disabled={adDraft.destinationType === 'messages'}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none w-full"
+            />
+          </div>
+        </div>
+        <div className="mt-3">
+          <FieldLabel label="Ad copy" help="Main message shown in the ad. Explain value and action clearly." />
+          <textarea
+            value={adDraft.body}
+            onChange={(e) => setAdDraft((prev) => ({ ...prev, body: e.target.value }))}
+            placeholder="Describe your campaign or creative idea."
+            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
+            rows={3}
           />
         </div>
-        <textarea
-          value={adDraft.body}
-          onChange={(e) => setAdDraft((prev) => ({ ...prev, body: e.target.value }))}
-          placeholder="Describe your campaign or creative idea."
-          className="mt-3 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
-          rows={3}
-        />
         <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
           <button
             onClick={() => setShowAdMediaPicker(true)}
@@ -2605,26 +2673,67 @@ const CommunityDashboard: React.FC = () => {
           />
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
-          <input
-            value={adDraft.targetCountries}
-            onChange={(e) => setAdDraft((prev) => ({ ...prev, targetCountries: e.target.value }))}
-            placeholder="Target countries (comma separated)"
-            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
-          />
-          <select
-            value={adDraft.targetAudience}
-            onChange={(e) =>
-              setAdDraft((prev) => ({
-                ...prev,
-                targetAudience: e.target.value as 'users' | 'businesses' | 'all'
-              }))
-            }
-            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
-          >
-            <option value="users">Target Users</option>
-            <option value="businesses">Target Company/Businesses</option>
-            <option value="all">Target Everyone</option>
-          </select>
+          <div>
+            <FieldLabel label="Target countries" help="Choose one or more countries from the admin-managed country list." />
+            <select
+              defaultValue=""
+              onChange={(e) => {
+                const nextCountry = String(e.target.value || '').trim();
+                if (!nextCountry) return;
+                setAdDraft((prev) => ({
+                  ...prev,
+                  targetCountries: Array.from(new Set([...(prev.targetCountries || []), nextCountry]))
+                }));
+                e.currentTarget.value = '';
+              }}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none w-full"
+            >
+              <option value="" disabled>
+                Choose country
+              </option>
+              {availableTargetCountries.map((country) => (
+                <option key={country} value={country}>
+                  {country}
+                </option>
+              ))}
+            </select>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {adDraft.targetCountries.map((country) => (
+                <span key={country} className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                  {country}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAdDraft((prev) => ({
+                        ...prev,
+                        targetCountries: prev.targetCountries.filter((entry) => entry !== country)
+                      }))
+                    }
+                    className="rounded px-1 text-blue-700 hover:bg-blue-100"
+                  >
+                    x
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+          <div>
+            <FieldLabel label="Target audience" help="Target ads to users, businesses, or everyone." />
+            <select
+              value={adDraft.targetAudience}
+              onChange={(e) =>
+                setAdDraft((prev) => ({
+                  ...prev,
+                  targetAudience: e.target.value as 'users' | 'businesses' | 'all'
+                }))
+              }
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none w-full"
+            >
+              <option value="users">Target Users</option>
+              <option value="businesses">Target Company/Businesses</option>
+              <option value="all">Target Everyone</option>
+            </select>
+          </div>
           <input
             type="number"
             min={0}

@@ -42,6 +42,51 @@ const PLACEMENT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'chat_sidebar', label: 'Chat Side Bar' }
 ];
 
+const DEFAULT_TARGET_COUNTRIES = [
+  'United States',
+  'United Kingdom',
+  'Canada',
+  'Australia',
+  'New Zealand',
+  'Germany',
+  'France',
+  'Netherlands',
+  'Sweden',
+  'Norway',
+  'Denmark',
+  'Ireland',
+  'Spain',
+  'Italy',
+  'United Arab Emirates',
+  'Saudi Arabia',
+  'India',
+  'Nigeria',
+  'South Africa',
+  'Brazil',
+  'Mexico',
+  'Singapore',
+  'Malaysia',
+  'Philippines'
+];
+
+const GuideTip: React.FC<{ text: string }> = ({ text }) => (
+  <details className="group relative shrink-0">
+    <summary className="list-none cursor-pointer rounded-full border border-gray-300 px-2 py-0.5 text-[10px] font-bold text-gray-600 hover:bg-gray-100">
+      ?
+    </summary>
+    <div className="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-gray-200 bg-white p-2 text-[11px] font-normal text-gray-600 shadow-lg">
+      {text}
+    </div>
+  </details>
+);
+
+const FieldLabel: React.FC<{ label: string; help: string }> = ({ label, help }) => (
+  <div className="mb-1 flex items-center justify-between gap-2">
+    <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500">{label}</span>
+    <GuideTip text={help} />
+  </div>
+);
+
 const normalizePlacement = (value: any): string => {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return 'community_feed';
@@ -63,7 +108,7 @@ type AdFormState = {
   ctaText: string;
   placements: string[];
   pricingModel: 'CPM' | 'CPC';
-  targetCountriesText: string;
+  targetCountries: string[];
   targetAudience: 'users' | 'businesses' | 'all';
   dailySpend: number;
   budget: number;
@@ -81,7 +126,7 @@ const buildEmptyForm = (currency: string): AdFormState => ({
   ctaText: '',
   placements: ['community_feed'],
   pricingModel: 'CPM',
-  targetCountriesText: '',
+  targetCountries: [],
   targetAudience: 'users',
   dailySpend: 0,
   budget: 120,
@@ -128,6 +173,18 @@ const MyAds = () => {
     const selected = PLACEMENT_OPTIONS.filter((option) => configuredSet.has(option.value));
     return selected.length ? selected : PLACEMENT_OPTIONS;
   }, [adsConfig]);
+
+  const availableTargetCountries = useMemo(() => {
+    const configured = Array.isArray(adsConfig?.targetCountries)
+      ? adsConfig.targetCountries
+          .map((entry: any) => String(entry || '').trim())
+          .filter(Boolean)
+      : DEFAULT_TARGET_COUNTRIES;
+    const selected = Array.isArray(form.targetCountries)
+      ? form.targetCountries.map((entry) => String(entry || '').trim()).filter(Boolean)
+      : [];
+    return Array.from(new Set([...configured, ...selected]));
+  }, [adsConfig, form.targetCountries]);
 
   const maxPlacements = Math.max(1, Math.min(3, Number(adsConfig?.maxPlacementsPerAd ?? 3)));
   const maxImageAssets = Math.max(1, Math.min(12, Number(adsConfig?.maxImageAssets ?? 6)));
@@ -307,7 +364,19 @@ const MyAds = () => {
       ctaText: ad.ctaText || '',
       placements: placements.length ? placements : ['community_feed'],
       pricingModel: normalizePricingModel(targeting.pricingModel || (ad as any).pricingModel || 'CPM'),
-      targetCountriesText: Array.isArray(targeting.targetCountries) ? targeting.targetCountries.join(', ') : '',
+      targetCountries: Array.from(
+        new Set(
+          (
+            Array.isArray(targeting.targetCountries)
+              ? targeting.targetCountries
+              : typeof targeting.targetCountries === 'string'
+                ? targeting.targetCountries.split(',')
+                : []
+          )
+            .map((entry: any) => String(entry || '').trim())
+            .filter(Boolean)
+        )
+      ),
       targetAudience: (() => {
         const audience = String(targeting.targetAudience || '').toLowerCase();
         if (audience === 'businesses' || audience === 'all') return audience as 'businesses' | 'all';
@@ -440,8 +509,7 @@ const MyAds = () => {
     try {
       const targetCountries = Array.from(
         new Set(
-          String(form.targetCountriesText || '')
-            .split(',')
+          (Array.isArray(form.targetCountries) ? form.targetCountries : [])
             .map((entry) => entry.trim())
             .filter(Boolean)
         )
@@ -753,37 +821,49 @@ const MyAds = () => {
             </div>
             <div className="p-6 space-y-4">
               <div className="grid gap-3 md:grid-cols-2">
-                <input
-                  value={form.title}
-                  onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
-                  placeholder="Ad title"
-                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-                />
-                <select
-                  value={form.objective}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      objective: e.target.value as 'traffic' | 'messages',
-                      destinationType: e.target.value === 'messages' ? 'messages' : prev.destinationType
-                    }))
-                  }
-                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-                >
-                  <option value="traffic">Objective: Traffic</option>
-                  <option value="messages">Objective: Messages</option>
-                </select>
+                <div>
+                  <FieldLabel label="Ad title" help="A short headline users see first. Keep it clear and specific to your offer." />
+                  <input
+                    value={form.title}
+                    onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+                    placeholder="Ad title"
+                    className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
+                  />
+                </div>
+                <div>
+                  <FieldLabel label="Objective" help="Traffic sends users to a URL. Messages opens direct conversation with you." />
+                  <select
+                    value={form.objective}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        objective: e.target.value as 'traffic' | 'messages',
+                        destinationType: e.target.value === 'messages' ? 'messages' : prev.destinationType
+                      }))
+                    }
+                    className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
+                  >
+                    <option value="traffic">Objective: Traffic</option>
+                    <option value="messages">Objective: Messages</option>
+                  </select>
+                </div>
               </div>
-              <textarea
-                value={form.body}
-                onChange={(e) => setForm((prev) => ({ ...prev, body: e.target.value }))}
-                placeholder="Ad copy"
-                className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
-                rows={3}
-              />
+              <div>
+                <FieldLabel label="Ad copy" help="Main message shown in the ad. Explain the value and include a clear call to action." />
+                <textarea
+                  value={form.body}
+                  onChange={(e) => setForm((prev) => ({ ...prev, body: e.target.value }))}
+                  placeholder="Ad copy"
+                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
+                  rows={3}
+                />
+              </div>
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold">Where should this ad appear?</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold">Where should this ad appear?</p>
+                    <GuideTip text="Choose up to the configured limit. The first selected placement is used as the primary placement for pricing." />
+                  </div>
                   <span className="text-xs text-gray-500">Select up to {maxPlacements}</span>
                 </div>
                 <div className="grid gap-2 md:grid-cols-3">
@@ -827,97 +907,165 @@ const MyAds = () => {
                 </div>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
-                <select
-                  value={form.destinationType}
-                  onChange={(e) => setForm((prev) => ({ ...prev, destinationType: e.target.value as 'url' | 'messages' }))}
-                  disabled={form.objective === 'messages'}
-                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-                >
-                  <option value="url">Send users to URL</option>
-                  <option value="messages">Receive messages</option>
-                </select>
-                <select
-                  value={form.pricingModel}
-                  onChange={(e) => setForm((prev) => ({ ...prev, pricingModel: normalizePricingModel(e.target.value) }))}
-                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-                >
-                  <option value="CPM">Cost Per Mille (CPM)</option>
-                  <option value="CPC">Cost Per Click (CPC)</option>
-                </select>
+                <div>
+                  <FieldLabel label="Destination type" help="Choose whether clicks go to your URL or open direct messages." />
+                  <select
+                    value={form.destinationType}
+                    onChange={(e) => setForm((prev) => ({ ...prev, destinationType: e.target.value as 'url' | 'messages' }))}
+                    disabled={form.objective === 'messages'}
+                    className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
+                  >
+                    <option value="url">Send users to URL</option>
+                    <option value="messages">Receive messages</option>
+                  </select>
+                </div>
+                <div>
+                  <FieldLabel label="Billing model" help="CPM charges per 1,000 impressions. CPC charges per click." />
+                  <select
+                    value={form.pricingModel}
+                    onChange={(e) => setForm((prev) => ({ ...prev, pricingModel: normalizePricingModel(e.target.value) }))}
+                    className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
+                  >
+                    <option value="CPM">Cost Per Mille (CPM)</option>
+                    <option value="CPC">Cost Per Click (CPC)</option>
+                  </select>
+                </div>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
-                <input
-                  value={form.destinationUrl}
-                  onChange={(e) => setForm((prev) => ({ ...prev, destinationUrl: e.target.value }))}
-                  placeholder="Destination URL (https://...)"
-                  disabled={form.destinationType === 'messages'}
-                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-                />
-                <input
-                  value={form.ctaText}
-                  onChange={(e) => setForm((prev) => ({ ...prev, ctaText: e.target.value }))}
-                  placeholder="CTA text (optional)"
-                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-                />
+                <div>
+                  <FieldLabel label="Destination URL" help="Where users are sent when they click. Required for URL destination ads." />
+                  <input
+                    value={form.destinationUrl}
+                    onChange={(e) => setForm((prev) => ({ ...prev, destinationUrl: e.target.value }))}
+                    placeholder="Destination URL (https://...)"
+                    disabled={form.destinationType === 'messages'}
+                    className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
+                  />
+                </div>
+                <div>
+                  <FieldLabel label="CTA text" help="Optional button label displayed on the ad, such as Learn More or Send Message." />
+                  <input
+                    value={form.ctaText}
+                    onChange={(e) => setForm((prev) => ({ ...prev, ctaText: e.target.value }))}
+                    placeholder="CTA text (optional)"
+                    className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
+                  />
+                </div>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
-                <input
-                  value={form.targetCountriesText}
-                  onChange={(e) => setForm((prev) => ({ ...prev, targetCountriesText: e.target.value }))}
-                  placeholder="Target countries (comma separated)"
-                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-                />
-                <select
-                  value={form.targetAudience}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      targetAudience: e.target.value as 'users' | 'businesses' | 'all'
-                    }))
-                  }
-                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-                >
-                  <option value="users">Target audience: Users</option>
-                  <option value="businesses">Target audience: Company/Businesses</option>
-                  <option value="all">Target audience: All</option>
-                </select>
+                <div>
+                  <FieldLabel label="Target countries" help="Select one or more countries to limit where your ad is served." />
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      const nextCountry = String(e.target.value || '').trim();
+                      if (!nextCountry) return;
+                      setForm((prev) => ({
+                        ...prev,
+                        targetCountries: Array.from(new Set([...(prev.targetCountries || []), nextCountry]))
+                      }));
+                      e.currentTarget.value = '';
+                    }}
+                    className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
+                  >
+                    <option value="" disabled>
+                      Choose country
+                    </option>
+                    {availableTargetCountries.map((country) => (
+                      <option key={country} value={country}>
+                        {country}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {form.targetCountries.map((country) => (
+                      <span key={country} className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                        {country}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setForm((prev) => ({
+                              ...prev,
+                              targetCountries: prev.targetCountries.filter((entry) => entry !== country)
+                            }))
+                          }
+                          className="rounded px-1 text-blue-700 hover:bg-blue-100"
+                        >
+                          x
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  {form.targetCountries.length === 0 && (
+                    <p className="mt-1 text-xs text-gray-500">No country selected. Your ad can run in all allowed regions.</p>
+                  )}
+                </div>
+                <div>
+                  <FieldLabel label="Target audience" help="Choose whether to target individual users, businesses, or everyone." />
+                  <select
+                    value={form.targetAudience}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        targetAudience: e.target.value as 'users' | 'businesses' | 'all'
+                      }))
+                    }
+                    className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
+                  >
+                    <option value="users">Target audience: Users</option>
+                    <option value="businesses">Target audience: Company/Businesses</option>
+                    <option value="all">Target audience: All</option>
+                  </select>
+                </div>
               </div>
               <div className="grid gap-3 md:grid-cols-4">
-                <input
-                  type="number"
-                  min={0}
-                  value={form.budget}
-                  onChange={(e) => setForm((prev) => ({ ...prev, budget: toNumber(e.target.value) }))}
-                  placeholder={`Budget (min ${minBudget})`}
-                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-                />
-                <select
-                  value={form.currency}
-                  onChange={(e) => setForm((prev) => ({ ...prev, currency: e.target.value }))}
-                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-                >
-                  {currencyOptions.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.code} - {c.name}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="number"
-                  min={1}
-                  value={form.durationDays}
-                  onChange={(e) => setForm((prev) => ({ ...prev, durationDays: toNumber(e.target.value || 1) }))}
-                  placeholder="Duration (days)"
-                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-                />
-                <input
-                  type="number"
-                  min={0}
-                  value={form.dailySpend}
-                  onChange={(e) => setForm((prev) => ({ ...prev, dailySpend: toNumber(e.target.value || 0) }))}
-                  placeholder="Daily spend"
-                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-                />
+                <div>
+                  <FieldLabel label="Total budget" help="Total campaign spend. Minimum and maximum are controlled by admin rules." />
+                  <input
+                    type="number"
+                    min={0}
+                    value={form.budget}
+                    onChange={(e) => setForm((prev) => ({ ...prev, budget: toNumber(e.target.value) }))}
+                    placeholder={`Budget (min ${minBudget})`}
+                    className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
+                  />
+                </div>
+                <div>
+                  <FieldLabel label="Currency" help="Billing currency for this campaign and estimated outcomes." />
+                  <select
+                    value={form.currency}
+                    onChange={(e) => setForm((prev) => ({ ...prev, currency: e.target.value }))}
+                    className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
+                  >
+                    {currencyOptions.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.code} - {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <FieldLabel label="Duration" help="Number of days the campaign should run once approved and active." />
+                  <input
+                    type="number"
+                    min={1}
+                    value={form.durationDays}
+                    onChange={(e) => setForm((prev) => ({ ...prev, durationDays: toNumber(e.target.value || 1) }))}
+                    placeholder="Duration (days)"
+                    className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
+                  />
+                </div>
+                <div>
+                  <FieldLabel label="Daily spend cap" help="Optional daily cap. Leave 0 to let spend distribute naturally over campaign duration." />
+                  <input
+                    type="number"
+                    min={0}
+                    value={form.dailySpend}
+                    onChange={(e) => setForm((prev) => ({ ...prev, dailySpend: toNumber(e.target.value || 0) }))}
+                    placeholder="Daily spend"
+                    className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
+                  />
+                </div>
               </div>
               <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-800">
                 <div className="flex flex-wrap items-center gap-4">
@@ -936,7 +1084,10 @@ const MyAds = () => {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-semibold">Media</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold">Media</p>
+                      <GuideTip text="Upload visual assets for your ad. Limits are enforced by admin policy and shown below." />
+                    </div>
                     <p className="text-xs text-gray-500">
                       Upload up to {maxImageAssets} images and {maxVideoAssets} video.
                     </p>
