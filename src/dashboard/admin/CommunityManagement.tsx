@@ -1536,7 +1536,7 @@ const AdManager = () => {
                     <p className="text-xs text-gray-500">Manage community advertisements</p>
                 </div>
                 <button 
-                    onClick={() => { setOriginalEditing(null); setIsEditing({ title: '', clientName: '', destinationUrl: '', destinationType: 'url', objective: 'traffic', ctaText: '', placement: 'feed', budget: 0, cpm: 0, currency: 'USD', status: 'draft', mediaFileIds: [] }); }}
+                    onClick={() => { setOriginalEditing(null); setIsEditing({ title: '', clientName: '', destinationUrl: '', destinationType: 'url', objective: 'traffic', ctaText: '', placement: 'community_feed', budget: 0, cpm: 0, currency: 'USD', status: 'draft', mediaFileIds: [] }); }}
                     className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center hover:bg-blue-700"
                 >
                     <Plus className="w-4 h-4 mr-2" /> Create Ad
@@ -1573,60 +1573,147 @@ const AdManager = () => {
                         <h4 className="font-bold text-gray-900">Ads Pricing & Rules</h4>
                         <button onClick={handleConfigSave} className="px-3 py-1 text-sm bg-green-600 text-white rounded">Save Config</button>
                     </div>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-1">CPM Feed</label>
-                            <input
-                                type="number"
-                                className="w-full border rounded p-2"
-                                value={adsConfig?.cpmByPlacement?.feed ?? 0}
-                                onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, cpmByPlacement: { ...(prev?.cpmByPlacement || {}), feed: Number(e.target.value || 0) } }))}
-                            />
+                    <div className="grid grid-cols-1 gap-4 text-sm lg:grid-cols-2">
+                        <div className="rounded-lg border border-gray-200 p-3 space-y-3">
+                            <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Approval Workflow</p>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 mb-1">Approval Mode</label>
+                                <select
+                                    className="w-full border rounded p-2"
+                                    value={String(adsConfig?.approvalMode || (adsConfig?.autoApproveAds ? 'auto' : 'manual'))}
+                                    onChange={(e) =>
+                                        setAdsConfig((prev: any) => ({
+                                            ...prev,
+                                            approvalMode: e.target.value,
+                                            autoApproveAds: e.target.value === 'auto'
+                                        }))
+                                    }
+                                >
+                                    <option value="manual">Manual review (admin approval required)</option>
+                                    <option value="auto">Auto approve after payment</option>
+                                </select>
+                            </div>
+                            <label className="inline-flex items-center gap-2 text-xs text-gray-600">
+                                <input
+                                    type="checkbox"
+                                    checked={adsConfig?.notifyAdminOnAdCreate !== false}
+                                    onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, notifyAdminOnAdCreate: e.target.checked }))}
+                                />
+                                Notify admins by email/in-app when a customer creates an ad
+                            </label>
                         </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-1">CPM Forum Listing</label>
-                            <input
-                                type="number"
-                                className="w-full border rounded p-2"
-                                value={adsConfig?.cpmByPlacement?.forum_listing ?? 0}
-                                onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, cpmByPlacement: { ...(prev?.cpmByPlacement || {}), forum_listing: Number(e.target.value || 0) } }))}
-                            />
+
+                        <div className="rounded-lg border border-gray-200 p-3 space-y-3">
+                            <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Budget & Creative Limits</p>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Min Budget</label>
+                                    <input
+                                        type="number"
+                                        className="w-full border rounded p-2"
+                                        value={adsConfig?.minBudget ?? 0}
+                                        onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, minBudget: Number(e.target.value || 0) }))}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Max Budget</label>
+                                    <input
+                                        type="number"
+                                        className="w-full border rounded p-2"
+                                        value={adsConfig?.maxBudget ?? 0}
+                                        onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, maxBudget: Number(e.target.value || 0) }))}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Max Placements Per Ad</label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={3}
+                                        className="w-full border rounded p-2"
+                                        value={adsConfig?.maxPlacementsPerAd ?? 3}
+                                        onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, maxPlacementsPerAd: Number(e.target.value || 1) }))}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Max Images</label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        className="w-full border rounded p-2"
+                                        value={adsConfig?.maxImageAssets ?? 6}
+                                        onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, maxImageAssets: Number(e.target.value || 1) }))}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">Max Videos</label>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        className="w-full border rounded p-2"
+                                        value={adsConfig?.maxVideoAssets ?? 1}
+                                        onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, maxVideoAssets: Number(e.target.value || 1) }))}
+                                    />
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-1">CPM Thread Detail</label>
-                            <input
-                                type="number"
-                                className="w-full border rounded p-2"
-                                value={adsConfig?.cpmByPlacement?.thread_detail ?? 0}
-                                onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, cpmByPlacement: { ...(prev?.cpmByPlacement || {}), thread_detail: Number(e.target.value || 0) } }))}
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-1">CPM Chat</label>
-                            <input
-                                type="number"
-                                className="w-full border rounded p-2"
-                                value={adsConfig?.cpmByPlacement?.chat ?? 0}
-                                onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, cpmByPlacement: { ...(prev?.cpmByPlacement || {}), chat: Number(e.target.value || 0) } }))}
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-1">Min Budget</label>
-                            <input
-                                type="number"
-                                className="w-full border rounded p-2"
-                                value={adsConfig?.minBudget ?? 0}
-                                onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, minBudget: Number(e.target.value || 0) }))}
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-1">Max Budget</label>
-                            <input
-                                type="number"
-                                className="w-full border rounded p-2"
-                                value={adsConfig?.maxBudget ?? 0}
-                                onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, maxBudget: Number(e.target.value || 0) }))}
-                            />
+                    </div>
+
+                    <div className="rounded-lg border border-gray-200 p-3 space-y-3">
+                        <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Placement Pricing (CPM / CPC)</p>
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+                            {[
+                                { key: 'homepage', label: 'Homepage' },
+                                { key: 'homepage_feed', label: 'Homepage Feed' },
+                                { key: 'community_feed', label: 'Community Feed' },
+                                { key: 'forum_listing', label: 'Forum Listing' },
+                                { key: 'thread_detail', label: 'Thread Detail' },
+                                { key: 'chat_sidebar', label: 'Chat Side Bar' }
+                            ].map((placement) => (
+                                <div key={placement.key} className="rounded-md border border-gray-200 p-2">
+                                    <p className="mb-2 text-xs font-semibold text-gray-700">{placement.label}</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <label className="text-[11px] text-gray-500">
+                                            CPM
+                                            <input
+                                                type="number"
+                                                min={0}
+                                                step="0.01"
+                                                className="mt-1 w-full rounded border p-2 text-xs"
+                                                value={adsConfig?.cpmByPlacement?.[placement.key] ?? 0}
+                                                onChange={(e) =>
+                                                    setAdsConfig((prev: any) => ({
+                                                        ...prev,
+                                                        cpmByPlacement: {
+                                                            ...(prev?.cpmByPlacement || {}),
+                                                            [placement.key]: Number(e.target.value || 0)
+                                                        }
+                                                    }))
+                                                }
+                                            />
+                                        </label>
+                                        <label className="text-[11px] text-gray-500">
+                                            CPC
+                                            <input
+                                                type="number"
+                                                min={0}
+                                                step="0.01"
+                                                className="mt-1 w-full rounded border p-2 text-xs"
+                                                value={adsConfig?.cpcByPlacement?.[placement.key] ?? 0}
+                                                onChange={(e) =>
+                                                    setAdsConfig((prev: any) => ({
+                                                        ...prev,
+                                                        cpcByPlacement: {
+                                                            ...(prev?.cpcByPlacement || {}),
+                                                            [placement.key]: Number(e.target.value || 0)
+                                                        }
+                                                    }))
+                                                }
+                                            />
+                                        </label>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 </div>
@@ -1791,10 +1878,12 @@ const AdManager = () => {
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 mb-1">Placement</label>
                                     <select className="w-full border rounded p-2 text-sm" value={isEditing.placement} onChange={e => setIsEditing({...isEditing, placement: e.target.value as string})}>
-                                        <option value="feed">Feed</option>
+                                        <option value="homepage">Homepage</option>
+                                        <option value="homepage_feed">Homepage Feed</option>
+                                        <option value="community_feed">Community Feed</option>
                                         <option value="forum_listing">Forum listing</option>
                                         <option value="thread_detail">Thread detail</option>
-                                        <option value="chat">Chat sidebar</option>
+                                        <option value="chat_sidebar">Chat sidebar</option>
                                     </select>
                                 </div>
                                 <div>

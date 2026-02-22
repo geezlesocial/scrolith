@@ -954,6 +954,7 @@ export interface AdCampaign {
   destinationType?: 'url' | 'messages';
   destinationUrl?: string | null;
   ctaText?: string | null;
+  placements?: string[];
   mediaFileIds?: string[];
   media?: { id?: string; url?: string; name?: string; mimeType?: string }[];
   budget?: number;
@@ -963,6 +964,14 @@ export interface AdCampaign {
   durationDays?: number;
   cpm?: number;
   cpc?: number;
+  pricingModel?: 'CPM' | 'CPC';
+  computeOption?: 'CPM' | 'CPC';
+  targetCountries?: string[];
+  targetAudience?: 'users' | 'businesses' | 'all';
+  dailySpend?: number | null;
+  targeting?: Record<string, any> | null;
+  estimatedImpressions?: number;
+  estimatedClicks?: number;
   body?: string;
   creatorId?: string;
   likes?: number;

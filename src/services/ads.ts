@@ -7,6 +7,96 @@ const extractData = <T>(response: any): T => {
   return response as T;
 };
 
+const normalizePricingModel = (value: any): 'CPM' | 'CPC' => {
+  return String(value || '').toUpperCase() === 'CPC' ? 'CPC' : 'CPM';
+};
+
+const normalizeTargeting = (value: any): Record<string, any> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return { ...value };
+};
+
+const toAdPayload = (payload: Partial<AdCampaign>) => {
+  const incomingTargeting = normalizeTargeting((payload as any).targeting);
+  const placementsSource =
+    Array.isArray((payload as any).placements) && (payload as any).placements.length > 0
+      ? ((payload as any).placements as string[])
+      : payload.placement
+        ? [String(payload.placement)]
+        : Array.isArray(incomingTargeting.placements)
+          ? incomingTargeting.placements
+          : [];
+  const placements = Array.from(
+    new Set(
+      placementsSource
+        .map((placement) => String(placement || '').trim())
+        .filter(Boolean)
+    )
+  ).slice(0, 3);
+  const primaryPlacement = placements[0] || String(payload.placement || 'community_feed');
+
+  const pricingModel = normalizePricingModel(
+    (payload as any).pricingModel || (payload as any).computeOption || incomingTargeting.pricingModel
+  );
+  const targetCountries = Array.from(
+    new Set(
+      (Array.isArray((payload as any).targetCountries)
+        ? (payload as any).targetCountries
+        : Array.isArray(incomingTargeting.targetCountries)
+          ? incomingTargeting.targetCountries
+          : []
+      )
+        .map((entry: any) => String(entry || '').trim())
+        .filter(Boolean)
+    )
+  );
+  const targetAudienceRaw = String(
+    (payload as any).targetAudience || incomingTargeting.targetAudience || 'users'
+  )
+    .trim()
+    .toLowerCase();
+  const targetAudience =
+    targetAudienceRaw === 'businesses' || targetAudienceRaw === 'all' ? targetAudienceRaw : 'users';
+  const dailySpendRaw =
+    (payload as any).dailySpend ?? incomingTargeting.dailySpend ?? null;
+  const dailySpend =
+    dailySpendRaw === null || dailySpendRaw === undefined || dailySpendRaw === ''
+      ? null
+      : Number(dailySpendRaw);
+
+  const targeting = {
+    ...incomingTargeting,
+    placements,
+    pricingModel,
+    targetCountries,
+    targetAudience,
+    dailySpend: Number.isFinite(dailySpend) && dailySpend > 0 ? dailySpend : null
+  };
+
+  return {
+    title: payload.title,
+    body: payload.body,
+    objective: payload.objective,
+    destinationType: payload.destinationType,
+    destinationUrl: payload.destinationUrl,
+    ctaText: payload.ctaText,
+    placement: primaryPlacement,
+    placements,
+    pricingModel,
+    computeOption: pricingModel,
+    targetCountries,
+    targetAudience,
+    dailySpend: targeting.dailySpend,
+    targeting,
+    mediaFileIds: payload.mediaFileIds || [],
+    budget: payload.budget || 0,
+    currency: payload.currency || 'USD',
+    durationDays: payload.durationDays,
+    startAt: (payload as any).startAt,
+    endAt: (payload as any).endAt
+  };
+};
+
 export const AdService = {
   // Public ads listing (frontend)
   getAds: async (role?: UserRole): Promise<AdCampaign[]> => {
@@ -16,20 +106,7 @@ export const AdService = {
   },
 
   createAdDraft: async (payload: Partial<AdCampaign>): Promise<AdCampaign | null> => {
-    const response = await api.post('/community/ads/draft', {
-      title: payload.title,
-      body: payload.body,
-      objective: payload.objective,
-      destinationType: payload.destinationType,
-      destinationUrl: payload.destinationUrl,
-      ctaText: payload.ctaText,
-      placement: payload.placement,
-      targeting: (payload as any).targeting,
-      mediaFileIds: payload.mediaFileIds || [],
-      budget: payload.budget || 0,
-      currency: payload.currency || 'USD',
-      durationDays: payload.durationDays
-    });
+    const response = await api.post('/community/ads/draft', toAdPayload(payload));
     const data = extractData<AdCampaign>(response);
     return data || null;
   },
@@ -143,20 +220,7 @@ export const AdService = {
   saveCampaign: async (campaign: AdCampaign): Promise<void> => {
     if (!campaign.id) {
       // create draft
-      const response = await api.post('/community/ads/draft', {
-        title: campaign.title,
-        body: campaign.body,
-        objective: (campaign as any).objective,
-        destinationType: (campaign as any).destinationType,
-        destinationUrl: (campaign as any).destinationUrl,
-        ctaText: (campaign as any).ctaText,
-        placement: campaign.placement,
-        targeting: campaign.targeting,
-        mediaFileIds: campaign.mediaFileIds || [],
-        budget: campaign.budget || 0,
-        currency: campaign.currency || 'USD',
-        durationDays: (campaign as any).durationDays
-      });
+      const response = await api.post('/community/ads/draft', toAdPayload(campaign));
       const data = extractData<AdCampaign>(response);
       return data;
     }

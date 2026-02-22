@@ -349,7 +349,12 @@ const CommunityDashboard: React.FC = () => {
       title: '',
       body: '',
       objective: 'traffic' as 'traffic' | 'messages',
-      placement: 'feed',
+      placement: 'community_feed',
+      placements: ['community_feed'] as string[],
+      pricingModel: 'CPM' as 'CPM' | 'CPC',
+      targetCountries: '' as string,
+      targetAudience: 'users' as 'users' | 'businesses' | 'all',
+      dailySpend: 0,
       budget: 120,
       currency: 'USD',
       destinationUrl: '',
@@ -730,17 +735,35 @@ const CommunityDashboard: React.FC = () => {
     });
   }, [adDraft.currency, paymentGateways]);
 
+  const primaryAdPlacement = (Array.isArray(adDraft.placements) && adDraft.placements[0]) || adDraft.placement || 'community_feed';
+
   const adRateCard = useMemo(() => {
-    const placement = adDraft.placement || 'feed';
-    const cpm = Number(adsConfig?.cpmByPlacement?.[placement] ?? 0);
-    const cpc = Number(adsConfig?.cpcByPlacement?.[placement] ?? 0);
+    const placement = String(primaryAdPlacement || 'community_feed').toLowerCase();
+    const aliases = [placement];
+    if (placement === 'community_feed') aliases.push('feed');
+    if (placement === 'chat_sidebar') aliases.push('chat');
+    let cpm = 0;
+    let cpc = 0;
+    for (const key of aliases) {
+      const cpmValue = Number(adsConfig?.cpmByPlacement?.[key] ?? 0);
+      const cpcValue = Number(adsConfig?.cpcByPlacement?.[key] ?? 0);
+      if (!cpm && Number.isFinite(cpmValue) && cpmValue >= 0) cpm = cpmValue;
+      if (!cpc && Number.isFinite(cpcValue) && cpcValue >= 0) cpc = cpcValue;
+    }
     return { cpm, cpc };
-  }, [adsConfig, adDraft.placement]);
+  }, [adsConfig, primaryAdPlacement]);
 
   const estimatedImpressions = useMemo(() => {
+    if (adDraft.pricingModel !== 'CPM') return 0;
     if (!adRateCard.cpm) return 0;
     return Math.floor((safeNumber(adDraft.budget) / adRateCard.cpm) * 1000);
-  }, [adRateCard.cpm, adDraft.budget]);
+  }, [adDraft.pricingModel, adRateCard.cpm, adDraft.budget]);
+
+  const estimatedClicks = useMemo(() => {
+    if (adDraft.pricingModel !== 'CPC') return 0;
+    if (!adRateCard.cpc) return 0;
+    return Math.floor(safeNumber(adDraft.budget) / adRateCard.cpc);
+  }, [adDraft.pricingModel, adRateCard.cpc, adDraft.budget]);
 
   const estimatedDailySpend = useMemo(() => {
     const days = Math.max(1, Number(adDraft.durationDays || 1));
@@ -1624,19 +1647,66 @@ const CommunityDashboard: React.FC = () => {
       showNotification('warning', 'Ads', 'Target URL is required for traffic ads.');
       return;
     }
+    const maxPlacements = Math.max(1, Math.min(3, Number(adsConfig?.maxPlacementsPerAd ?? 3)));
+    const normalizedPlacements = Array.from(
+      new Set(
+        (Array.isArray(adDraft.placements) ? adDraft.placements : [adDraft.placement])
+          .map((placement) => String(placement || '').trim().toLowerCase())
+          .map((placement) => {
+            if (placement === 'feed') return 'community_feed';
+            if (placement === 'chat') return 'chat_sidebar';
+            return placement;
+          })
+          .filter(Boolean)
+      )
+    ).slice(0, maxPlacements);
+    if (normalizedPlacements.length === 0) {
+      showNotification('warning', 'Ads', 'Select at least one placement.');
+      return;
+    }
+    if (safeNumber(adDraft.dailySpend) > 0 && safeNumber(adDraft.dailySpend) > safeNumber(adDraft.budget)) {
+      showNotification('warning', 'Ads', 'Daily spend cannot exceed total budget.');
+      return;
+    }
     setAdActionLoading(true);
     try {
+      const targetCountries = Array.from(
+        new Set(
+          String(adDraft.targetCountries || '')
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+        )
+      );
+      const pricingModel = adDraft.pricingModel === 'CPC' ? 'CPC' : 'CPM';
       const payload = {
         title: adDraft.title,
         body: adDraft.body,
         objective: adDraft.objective,
-        placement: adDraft.placement,
+        placement: normalizedPlacements[0],
+        placements: normalizedPlacements,
+        pricingModel,
+        computeOption: pricingModel,
+        targetCountries,
+        targetAudience: adDraft.targetAudience,
+        dailySpend: safeNumber(adDraft.dailySpend) > 0 ? safeNumber(adDraft.dailySpend) : undefined,
         budget: safeNumber(adDraft.budget),
         currency: adDraft.currency,
         destinationType: adDraft.destinationType,
         destinationUrl: adDraft.destinationType === 'url' ? adDraft.destinationUrl : null,
         ctaText: adDraft.ctaText || null,
-        mediaFileIds: adDraft.media.map((m) => m.id)
+        mediaFileIds: adDraft.media.map((m) => m.id),
+        targeting: {
+          placements: normalizedPlacements,
+          pricingModel,
+          targetCountries,
+          targetAudience: adDraft.targetAudience,
+          dailySpend: safeNumber(adDraft.dailySpend) > 0 ? safeNumber(adDraft.dailySpend) : null,
+          estimated:
+            pricingModel === 'CPM'
+              ? { pricingModel, estimatedImpressions, estimatedClicks: 0 }
+              : { pricingModel, estimatedImpressions: 0, estimatedClicks }
+        }
       };
       const startAt = new Date();
       const durationDays = Math.max(1, Number(adDraft.durationDays || 1));
@@ -1689,11 +1759,53 @@ const CommunityDashboard: React.FC = () => {
         type: file.type,
         mimeType: file.mime_type || file.mimeType
       }));
+      const maxImages = Math.max(1, Math.min(12, Number(adsConfig?.maxImageAssets ?? 6)));
+      const maxVideos = Math.max(1, Math.min(3, Number(adsConfig?.maxVideoAssets ?? 1)));
+      let blockedImages = 0;
+      let blockedVideos = 0;
       setAdDraft((prev) => ({
         ...prev,
-        media: [...prev.media, ...mapped]
+        media: (() => {
+          const next = [...prev.media];
+          let imageCount = next.reduce((count, media) => {
+            const mime = String(media.mimeType || media.type || '').toLowerCase();
+            return mime.startsWith('video/') ? count : count + 1;
+          }, 0);
+          let videoCount = next.reduce((count, media) => {
+            const mime = String(media.mimeType || media.type || '').toLowerCase();
+            return mime.startsWith('video/') ? count + 1 : count;
+          }, 0);
+          for (const media of mapped) {
+            if (!media.id || next.some((item) => item.id === media.id)) continue;
+            const mime = String(media.mimeType || media.type || '').toLowerCase();
+            const isVideo = mime.startsWith('video/');
+            if (isVideo) {
+              if (videoCount >= maxVideos) {
+                blockedVideos += 1;
+                continue;
+              }
+              videoCount += 1;
+            } else {
+              if (imageCount >= maxImages) {
+                blockedImages += 1;
+                continue;
+              }
+              imageCount += 1;
+            }
+            next.push(media);
+          }
+          return next;
+        })()
       }));
-    showNotification('success', 'Ads', 'Media added from uploaded files.');
+      if (blockedImages > 0 || blockedVideos > 0) {
+        showNotification(
+          'warning',
+          'Ads',
+          `Only ${maxImages} images and ${maxVideos} video are allowed per campaign.`
+        );
+      } else {
+        showNotification('success', 'Ads', 'Media added from uploaded files.');
+      }
   };
 
   const handleAdMediaRemove = (id: string) => {
@@ -2379,17 +2491,68 @@ const CommunityDashboard: React.FC = () => {
             })}
           </div>
         )}
+        <div className="mt-3 space-y-2">
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span>Where should the ad appear?</span>
+            <span>Select up to {Math.max(1, Math.min(3, Number(adsConfig?.maxPlacementsPerAd ?? 3)))}</span>
+          </div>
+          <div className="grid gap-2 md:grid-cols-3">
+            {[
+              { value: 'homepage', label: 'Homepage' },
+              { value: 'homepage_feed', label: 'Homepage Feed' },
+              { value: 'community_feed', label: 'Community Feed' },
+              { value: 'forum_listing', label: 'Forum Listing' },
+              { value: 'thread_detail', label: 'Thread Detail' },
+              { value: 'chat_sidebar', label: 'Chat Side Bar' }
+            ]
+              .filter((option) => {
+                const allowed = Array.isArray(adsConfig?.allowedPlacements)
+                  ? adsConfig.allowedPlacements.map((entry: any) => String(entry || '').toLowerCase())
+                  : [];
+                return allowed.length === 0 || allowed.includes(option.value);
+              })
+              .map((option) => {
+                const selected = adDraft.placements.includes(option.value);
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      const maxPlacements = Math.max(1, Math.min(3, Number(adsConfig?.maxPlacementsPerAd ?? 3)));
+                      if (selected) {
+                        setAdDraft((prev) => ({
+                          ...prev,
+                          placements: prev.placements.filter((placement) => placement !== option.value),
+                          placement:
+                            prev.placement === option.value
+                              ? prev.placements.find((placement) => placement !== option.value) || 'community_feed'
+                              : prev.placement
+                        }));
+                        return;
+                      }
+                      if (adDraft.placements.length >= maxPlacements) {
+                        showNotification('warning', 'Ads', `You can select up to ${maxPlacements} placements.`);
+                        return;
+                      }
+                      setAdDraft((prev) => ({
+                        ...prev,
+                        placements: [...prev.placements, option.value],
+                        placement: prev.placements.length === 0 ? option.value : prev.placement
+                      }));
+                    }}
+                    className={`rounded-2xl border px-3 py-2 text-left text-sm ${
+                      selected
+                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                        : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+          </div>
+        </div>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
-          <select
-            value={adDraft.placement}
-            onChange={(e) => setAdDraft((prev) => ({ ...prev, placement: e.target.value as any }))}
-            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
-          >
-            <option value="feed">Community feed</option>
-            <option value="forum_listing">Forum listing</option>
-            <option value="thread_detail">Thread detail</option>
-            <option value="chat">Chat sidebar</option>
-          </select>
           <input
             type="number"
             value={adDraft.budget}
@@ -2407,6 +2570,14 @@ const CommunityDashboard: React.FC = () => {
                 {c.code} - {c.name}
               </option>
             ))}
+          </select>
+          <select
+            value={adDraft.pricingModel}
+            onChange={(e) => setAdDraft((prev) => ({ ...prev, pricingModel: e.target.value === 'CPC' ? 'CPC' : 'CPM' }))}
+            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
+          >
+            <option value="CPM">Cost Per Mille (CPM)</option>
+            <option value="CPC">Cost Per Click (CPC)</option>
           </select>
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
@@ -2433,10 +2604,56 @@ const CommunityDashboard: React.FC = () => {
             className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
           />
         </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <input
+            value={adDraft.targetCountries}
+            onChange={(e) => setAdDraft((prev) => ({ ...prev, targetCountries: e.target.value }))}
+            placeholder="Target countries (comma separated)"
+            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
+          />
+          <select
+            value={adDraft.targetAudience}
+            onChange={(e) =>
+              setAdDraft((prev) => ({
+                ...prev,
+                targetAudience: e.target.value as 'users' | 'businesses' | 'all'
+              }))
+            }
+            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
+          >
+            <option value="users">Target Users</option>
+            <option value="businesses">Target Company/Businesses</option>
+            <option value="all">Target Everyone</option>
+          </select>
+          <input
+            type="number"
+            min={0}
+            value={adDraft.dailySpend}
+            onChange={(e) => setAdDraft((prev) => ({ ...prev, dailySpend: Number(e.target.value || 0) }))}
+            placeholder="Daily spend"
+            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none"
+          />
+        </div>
         <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-          {adDraft.destinationType === 'messages'
-            ? 'Users will message you directly from the ad.'
-            : 'Users will be sent to the target URL.'}
+          <div className="flex flex-wrap items-center gap-4">
+            <span>
+              {adDraft.destinationType === 'messages'
+                ? 'Users will message you directly from the ad.'
+                : 'Users will be sent to the target URL.'}
+            </span>
+            <span>
+              Rate:{' '}
+              <strong>
+                {adDraft.pricingModel === 'CPM'
+                  ? `${adRateCard.cpm || 0} ${adDraft.currency}/1,000 views`
+                  : `${adRateCard.cpc || 0} ${adDraft.currency}/click`}
+              </strong>
+            </span>
+            <span>
+              Estimated {adDraft.pricingModel === 'CPM' ? 'views' : 'clicks'}:{' '}
+              <strong>{adDraft.pricingModel === 'CPM' ? estimatedImpressions : estimatedClicks}</strong>
+            </span>
+          </div>
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
@@ -2507,7 +2724,12 @@ const CommunityDashboard: React.FC = () => {
               </div>
             ) : null}
             <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <div className="text-xs text-slate-500">Placement: {ad.placement}</div>
+              <div className="text-xs text-slate-500">
+                Placement:{' '}
+                {Array.isArray((ad as any)?.targeting?.placements) && (ad as any).targeting.placements.length
+                  ? (ad as any).targeting.placements.join(', ')
+                  : ad.placement}
+              </div>
               <div className="text-xs text-slate-500">Budget: {ad.budget ?? ad.pendingBudget ?? 0} {ad.currency || 'USD'}</div>
               <div className="text-xs text-slate-500">Spent: {(Number(ad.budget || 0) - Number(ad.remainingBudget || 0)).toFixed(2)} {ad.currency || 'USD'}</div>
             </div>

@@ -24,6 +24,36 @@ const formatCurrency = (amount: number, code?: string) => {
   }
 };
 
+const DEFAULT_ALLOWED_PLACEMENTS = [
+  'homepage',
+  'homepage_feed',
+  'community_feed',
+  'forum_listing',
+  'thread_detail',
+  'chat_sidebar'
+];
+
+const PLACEMENT_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'homepage', label: 'Homepage' },
+  { value: 'homepage_feed', label: 'Homepage Feed' },
+  { value: 'community_feed', label: 'Community Feed' },
+  { value: 'forum_listing', label: 'Forum Listing' },
+  { value: 'thread_detail', label: 'Thread Detail' },
+  { value: 'chat_sidebar', label: 'Chat Side Bar' }
+];
+
+const normalizePlacement = (value: any): string => {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return 'community_feed';
+  if (raw === 'feed') return 'community_feed';
+  if (raw === 'chat') return 'chat_sidebar';
+  if (raw === 'forum_top') return 'forum_listing';
+  return raw;
+};
+
+const normalizePricingModel = (value: any): 'CPM' | 'CPC' =>
+  String(value || '').toUpperCase() === 'CPC' ? 'CPC' : 'CPM';
+
 type AdFormState = {
   title: string;
   body: string;
@@ -31,7 +61,11 @@ type AdFormState = {
   destinationType: 'url' | 'messages';
   destinationUrl: string;
   ctaText: string;
-  placement: string;
+  placements: string[];
+  pricingModel: 'CPM' | 'CPC';
+  targetCountriesText: string;
+  targetAudience: 'users' | 'businesses' | 'all';
+  dailySpend: number;
   budget: number;
   currency: string;
   durationDays: number;
@@ -45,7 +79,11 @@ const buildEmptyForm = (currency: string): AdFormState => ({
   destinationType: 'url',
   destinationUrl: '',
   ctaText: '',
-  placement: 'feed',
+  placements: ['community_feed'],
+  pricingModel: 'CPM',
+  targetCountriesText: '',
+  targetAudience: 'users',
+  dailySpend: 0,
   budget: 120,
   currency: currency || 'USD',
   durationDays: 7,
@@ -70,6 +108,7 @@ const MyAds = () => {
   const [paymentGateways, setPaymentGateways] = useState<PaymentGateway[]>([]);
   const [gatewayLoading, setGatewayLoading] = useState(false);
   const [adGatewaySelections, setAdGatewaySelections] = useState<Record<string, string>>({});
+  const [adsConfig, setAdsConfig] = useState<any>(null);
 
   const [performanceOpen, setPerformanceOpen] = useState(false);
   const [performanceLoading, setPerformanceLoading] = useState(false);
@@ -80,6 +119,21 @@ const MyAds = () => {
     () => availableCurrencies.filter((c) => c.isActive ?? true),
     [availableCurrencies]
   );
+
+  const placementOptions = useMemo(() => {
+    const configured = Array.isArray(adsConfig?.allowedPlacements)
+      ? adsConfig.allowedPlacements.map((entry: any) => normalizePlacement(entry))
+      : DEFAULT_ALLOWED_PLACEMENTS;
+    const configuredSet = new Set(configured);
+    const selected = PLACEMENT_OPTIONS.filter((option) => configuredSet.has(option.value));
+    return selected.length ? selected : PLACEMENT_OPTIONS;
+  }, [adsConfig]);
+
+  const maxPlacements = Math.max(1, Math.min(3, Number(adsConfig?.maxPlacementsPerAd ?? 3)));
+  const maxImageAssets = Math.max(1, Math.min(12, Number(adsConfig?.maxImageAssets ?? 6)));
+  const maxVideoAssets = Math.max(1, Math.min(3, Number(adsConfig?.maxVideoAssets ?? 1)));
+  const minBudget = Math.max(0, Number(adsConfig?.minBudget ?? 10));
+  const maxBudget = Math.max(minBudget, Number(adsConfig?.maxBudget ?? 10000));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -109,6 +163,18 @@ const MyAds = () => {
       }
     };
     loadGateways();
+  }, []);
+
+  useEffect(() => {
+    const loadAdsConfig = async () => {
+      try {
+        const config = await AdService.getConfig();
+        setAdsConfig(config || null);
+      } catch (e) {
+        setAdsConfig(null);
+      }
+    };
+    loadAdsConfig();
   }, []);
 
   useEffect(() => {
@@ -154,6 +220,56 @@ const MyAds = () => {
   const normalizeStatus = (status?: string) =>
     (status || '').toString().toLowerCase().replace(/-/g, '_');
 
+  const getPlacementRate = useCallback(
+    (placement: string, kind: 'cpmByPlacement' | 'cpcByPlacement') => {
+      const normalized = normalizePlacement(placement);
+      const source = (adsConfig?.[kind] || {}) as Record<string, any>;
+      const aliases = [normalized];
+      if (normalized === 'community_feed') aliases.push('feed');
+      if (normalized === 'chat_sidebar') aliases.push('chat');
+      for (const key of aliases) {
+        const value = Number(source[key]);
+        if (Number.isFinite(value) && value >= 0) return value;
+      }
+      return 0;
+    },
+    [adsConfig]
+  );
+
+  const primaryPlacement = form.placements[0] || placementOptions[0]?.value || 'community_feed';
+  const activeRates = useMemo(() => {
+    return {
+      cpm: getPlacementRate(primaryPlacement, 'cpmByPlacement'),
+      cpc: getPlacementRate(primaryPlacement, 'cpcByPlacement')
+    };
+  }, [getPlacementRate, primaryPlacement]);
+
+  const estimatedOutcomes = useMemo(() => {
+    const budget = toNumber(form.budget);
+    if (form.pricingModel === 'CPM') {
+      return {
+        impressions: activeRates.cpm > 0 ? Math.floor((budget / activeRates.cpm) * 1000) : 0,
+        clicks: 0
+      };
+    }
+    return {
+      impressions: 0,
+      clicks: activeRates.cpc > 0 ? Math.floor(budget / activeRates.cpc) : 0
+    };
+  }, [form.budget, form.pricingModel, activeRates.cpm, activeRates.cpc]);
+
+  const mediaCounts = useMemo(() => {
+    return form.media.reduce(
+      (acc, media) => {
+        const mime = String(media.mimeType || media.type || '').toLowerCase();
+        if (mime.startsWith('video/')) acc.videos += 1;
+        else acc.images += 1;
+        return acc;
+      },
+      { images: 0, videos: 0 }
+    );
+  }, [form.media]);
+
   const openCreate = () => {
     setFormMode('create');
     setEditingAdId(null);
@@ -162,6 +278,21 @@ const MyAds = () => {
   };
 
   const openEdit = (ad: AdCampaign) => {
+    const targeting =
+      ad.targeting && typeof ad.targeting === 'object' && !Array.isArray(ad.targeting)
+        ? (ad.targeting as Record<string, any>)
+        : {};
+    const placements = Array.from(
+      new Set(
+        (
+          Array.isArray(targeting.placements) && targeting.placements.length > 0
+            ? targeting.placements
+            : [ad.placement || 'community_feed']
+        )
+          .map((placement: any) => normalizePlacement(placement))
+          .filter(Boolean)
+      )
+    ).slice(0, maxPlacements);
     const mediaFromAd = Array.isArray(ad.media) && ad.media.length > 0
       ? ad.media.map((m: any) => ({ id: m.id || '', url: m.url, name: m.name, mimeType: m.mimeType }))
       : (ad.mediaFileIds || []).map((id) => ({ id } as any));
@@ -174,7 +305,15 @@ const MyAds = () => {
       destinationType: (ad.destinationType || (ad.objective === 'messages' ? 'messages' : 'url')) as 'url' | 'messages',
       destinationUrl: ad.destinationUrl || '',
       ctaText: ad.ctaText || '',
-      placement: (ad.placement as any) || 'feed',
+      placements: placements.length ? placements : ['community_feed'],
+      pricingModel: normalizePricingModel(targeting.pricingModel || (ad as any).pricingModel || 'CPM'),
+      targetCountriesText: Array.isArray(targeting.targetCountries) ? targeting.targetCountries.join(', ') : '',
+      targetAudience: (() => {
+        const audience = String(targeting.targetAudience || '').toLowerCase();
+        if (audience === 'businesses' || audience === 'all') return audience as 'businesses' | 'all';
+        return 'users';
+      })(),
+      dailySpend: toNumber(targeting.dailySpend),
       budget: toNumber(ad.budget),
       currency: ad.currency || selectedCurrency.code || 'USD',
       durationDays: toNumber(ad.durationDays || 7) || 7,
@@ -268,21 +407,82 @@ const MyAds = () => {
       showNotification('warning', 'Missing URL', 'Please add a destination URL for traffic ads.');
       return;
     }
+    if (!Array.isArray(form.placements) || form.placements.length === 0) {
+      showNotification('warning', 'Missing placement', 'Select at least one ad placement.');
+      return;
+    }
+    if (form.placements.length > maxPlacements) {
+      showNotification('warning', 'Placement limit', `You can select up to ${maxPlacements} placements.`);
+      return;
+    }
+    if (toNumber(form.budget) < minBudget) {
+      showNotification('warning', 'Budget too low', `Minimum ad budget is ${minBudget} ${form.currency}.`);
+      return;
+    }
+    if (toNumber(form.budget) > maxBudget) {
+      showNotification('warning', 'Budget too high', `Maximum ad budget is ${maxBudget} ${form.currency}.`);
+      return;
+    }
+    if (toNumber(form.dailySpend) > 0 && toNumber(form.dailySpend) > toNumber(form.budget)) {
+      showNotification('warning', 'Daily spend', 'Daily spend cannot exceed total budget.');
+      return;
+    }
+    if (mediaCounts.images > maxImageAssets || mediaCounts.videos > maxVideoAssets) {
+      showNotification(
+        'warning',
+        'Media limit',
+        `Max media per ad: ${maxImageAssets} images and ${maxVideoAssets} video.`
+      );
+      return;
+    }
 
     setSaving(true);
     try {
+      const targetCountries = Array.from(
+        new Set(
+          String(form.targetCountriesText || '')
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+        )
+      );
+      const pricingModel = normalizePricingModel(form.pricingModel);
+      const destinationType = form.objective === 'messages' ? 'messages' : form.destinationType;
+      const normalizedPlacements = Array.from(
+        new Set((form.placements || []).map((placement) => normalizePlacement(placement)).filter(Boolean))
+      ).slice(0, maxPlacements);
+      const primaryPlacement = normalizedPlacements[0] || 'community_feed';
+      const targetAudience = form.targetAudience || 'users';
+      const dailySpend = toNumber(form.dailySpend) > 0 ? toNumber(form.dailySpend) : undefined;
       const payload = {
         title: form.title,
         body: form.body,
         objective: form.objective,
-        destinationType: form.destinationType,
-        destinationUrl: form.destinationUrl,
+        destinationType,
+        destinationUrl: destinationType === 'messages' ? null : form.destinationUrl,
         ctaText: form.ctaText,
-        placement: form.placement as any,
+        placement: primaryPlacement as any,
+        placements: normalizedPlacements,
+        pricingModel,
+        computeOption: pricingModel,
+        targetCountries,
+        targetAudience,
+        dailySpend,
         budget: form.budget,
         currency: form.currency,
         durationDays: form.durationDays,
-        mediaFileIds: form.media.map((m) => m.id).filter(Boolean)
+        mediaFileIds: form.media.map((m) => m.id).filter(Boolean),
+        targeting: {
+          placements: normalizedPlacements,
+          pricingModel,
+          targetCountries,
+          targetAudience,
+          dailySpend: dailySpend ?? null,
+          estimated:
+            pricingModel === 'CPM'
+              ? { pricingModel, estimatedImpressions: estimatedOutcomes.impressions, estimatedClicks: 0 }
+              : { pricingModel, estimatedImpressions: 0, estimatedClicks: estimatedOutcomes.clicks }
+        }
       } as Partial<AdCampaign>;
 
       if (formMode === 'create') {
@@ -323,6 +523,52 @@ const MyAds = () => {
     setPerformanceMetrics([]);
     setPerformanceOpen(true);
     refreshPerformance(ad.id);
+  };
+
+  const appendMediaToForm = (files: Array<{ id: string; url?: string; name?: string; mimeType?: string; type?: string }>) => {
+    if (!Array.isArray(files) || files.length === 0) return;
+    let blockedImages = 0;
+    let blockedVideos = 0;
+    setForm((prev) => {
+      const nextMedia = [...prev.media];
+      let imageCount = nextMedia.reduce((count, media) => {
+        const mime = String(media.mimeType || media.type || '').toLowerCase();
+        return mime.startsWith('video/') ? count : count + 1;
+      }, 0);
+      let videoCount = nextMedia.reduce((count, media) => {
+        const mime = String(media.mimeType || media.type || '').toLowerCase();
+        return mime.startsWith('video/') ? count + 1 : count;
+      }, 0);
+
+      for (const file of files) {
+        if (!file?.id || nextMedia.some((media) => media.id === file.id)) continue;
+        const mime = String(file.mimeType || file.type || '').toLowerCase();
+        const isVideo = mime.startsWith('video/');
+        if (isVideo) {
+          if (videoCount >= maxVideoAssets) {
+            blockedVideos += 1;
+            continue;
+          }
+          videoCount += 1;
+        } else {
+          if (imageCount >= maxImageAssets) {
+            blockedImages += 1;
+            continue;
+          }
+          imageCount += 1;
+        }
+        nextMedia.push(file);
+      }
+
+      return { ...prev, media: nextMedia };
+    });
+    if (blockedImages > 0 || blockedVideos > 0) {
+      showNotification(
+        'warning',
+        'Media limit',
+        `Only ${maxImageAssets} images and ${maxVideoAssets} video are allowed per ad campaign.`
+      );
+    }
   };
 
   const performanceTotals = useMemo(() => {
@@ -535,24 +781,68 @@ const MyAds = () => {
                 className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
                 rows={3}
               />
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold">Where should this ad appear?</p>
+                  <span className="text-xs text-gray-500">Select up to {maxPlacements}</span>
+                </div>
+                <div className="grid gap-2 md:grid-cols-3">
+                  {placementOptions.map((option) => {
+                    const selected = form.placements.includes(option.value);
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => {
+                          if (selected) {
+                            setForm((prev) => ({
+                              ...prev,
+                              placements: prev.placements.filter((placement) => placement !== option.value)
+                            }));
+                            return;
+                          }
+                          if (form.placements.length >= maxPlacements) {
+                            showNotification(
+                              'warning',
+                              'Placement limit',
+                              `You can choose up to ${maxPlacements} placements.`
+                            );
+                            return;
+                          }
+                          setForm((prev) => ({
+                            ...prev,
+                            placements: [...prev.placements, option.value]
+                          }));
+                        }}
+                        className={`rounded-xl border px-3 py-2 text-left text-sm transition ${
+                          selected
+                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <div className="grid gap-3 md:grid-cols-2">
-                <select
-                  value={form.placement}
-                  onChange={(e) => setForm((prev) => ({ ...prev, placement: e.target.value }))}
-                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
-                >
-                  <option value="feed">Community feed</option>
-                  <option value="forum_listing">Forum listing</option>
-                  <option value="thread_detail">Thread detail</option>
-                  <option value="chat">Chat sidebar</option>
-                </select>
                 <select
                   value={form.destinationType}
                   onChange={(e) => setForm((prev) => ({ ...prev, destinationType: e.target.value as 'url' | 'messages' }))}
+                  disabled={form.objective === 'messages'}
                   className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
                 >
                   <option value="url">Send users to URL</option>
                   <option value="messages">Receive messages</option>
+                </select>
+                <select
+                  value={form.pricingModel}
+                  onChange={(e) => setForm((prev) => ({ ...prev, pricingModel: normalizePricingModel(e.target.value) }))}
+                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
+                >
+                  <option value="CPM">Cost Per Mille (CPM)</option>
+                  <option value="CPC">Cost Per Click (CPC)</option>
                 </select>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
@@ -570,13 +860,35 @@ const MyAds = () => {
                   className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
                 />
               </div>
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-3 md:grid-cols-2">
+                <input
+                  value={form.targetCountriesText}
+                  onChange={(e) => setForm((prev) => ({ ...prev, targetCountriesText: e.target.value }))}
+                  placeholder="Target countries (comma separated)"
+                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
+                />
+                <select
+                  value={form.targetAudience}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      targetAudience: e.target.value as 'users' | 'businesses' | 'all'
+                    }))
+                  }
+                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
+                >
+                  <option value="users">Target audience: Users</option>
+                  <option value="businesses">Target audience: Company/Businesses</option>
+                  <option value="all">Target audience: All</option>
+                </select>
+              </div>
+              <div className="grid gap-3 md:grid-cols-4">
                 <input
                   type="number"
                   min={0}
                   value={form.budget}
                   onChange={(e) => setForm((prev) => ({ ...prev, budget: toNumber(e.target.value) }))}
-                  placeholder="Budget"
+                  placeholder={`Budget (min ${minBudget})`}
                   className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
                 />
                 <select
@@ -598,12 +910,36 @@ const MyAds = () => {
                   placeholder="Duration (days)"
                   className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
                 />
+                <input
+                  type="number"
+                  min={0}
+                  value={form.dailySpend}
+                  onChange={(e) => setForm((prev) => ({ ...prev, dailySpend: toNumber(e.target.value || 0) }))}
+                  placeholder="Daily spend"
+                  className="rounded-xl border border-gray-200 px-4 py-3 text-sm"
+                />
+              </div>
+              <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-800">
+                <div className="flex flex-wrap items-center gap-4">
+                  <span>
+                    Primary placement: <strong>{placementOptions.find((option) => option.value === primaryPlacement)?.label || primaryPlacement}</strong>
+                  </span>
+                  <span>
+                    Rate: <strong>{form.pricingModel === 'CPM' ? `${activeRates.cpm || 0} ${form.currency}/1,000 views` : `${activeRates.cpc || 0} ${form.currency}/click`}</strong>
+                  </span>
+                  <span>
+                    Estimated {form.pricingModel === 'CPM' ? 'views' : 'clicks'}:{' '}
+                    <strong>{form.pricingModel === 'CPM' ? estimatedOutcomes.impressions : estimatedOutcomes.clicks}</strong>
+                  </span>
+                </div>
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-semibold">Media</p>
-                    <p className="text-xs text-gray-500">Upload or choose images/videos for your ad.</p>
+                    <p className="text-xs text-gray-500">
+                      Upload up to {maxImageAssets} images and {maxVideoAssets} video.
+                    </p>
                   </div>
                   <button
                     onClick={() => setMediaPickerOpen(true)}
@@ -660,19 +996,20 @@ const MyAds = () => {
         open={mediaPickerOpen}
         onClose={() => setMediaPickerOpen(false)}
         onSelectMultiple={(files) => {
-          setForm((prev) => ({
-            ...prev,
-            media: [
-              ...prev.media,
-              ...files.map((file) => ({ id: file.id, url: file.url, name: file.name, mimeType: file.mimeType, type: file.type }))
-            ]
-          }));
+          appendMediaToForm(
+            files.map((file) => ({
+              id: file.id,
+              url: file.url,
+              name: file.name,
+              mimeType: file.mimeType,
+              type: file.type
+            }))
+          );
         }}
         onSelect={(file) => {
-          setForm((prev) => ({
-            ...prev,
-            media: [...prev.media, { id: file.id, url: file.url, name: file.name, mimeType: file.mimeType, type: file.type }]
-          }));
+          appendMediaToForm([
+            { id: file.id, url: file.url, name: file.name, mimeType: file.mimeType, type: file.type }
+          ]);
         }}
         multiple
         allowUpload
