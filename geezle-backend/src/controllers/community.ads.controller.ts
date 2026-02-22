@@ -35,6 +35,33 @@ const DEFAULT_ALLOWED_PLACEMENTS = [
   'chat_sidebar'
 ];
 
+const DEFAULT_TARGET_COUNTRIES = [
+  'United States',
+  'United Kingdom',
+  'Canada',
+  'Australia',
+  'New Zealand',
+  'Germany',
+  'France',
+  'Netherlands',
+  'Sweden',
+  'Norway',
+  'Denmark',
+  'Ireland',
+  'Spain',
+  'Italy',
+  'United Arab Emirates',
+  'Saudi Arabia',
+  'India',
+  'Nigeria',
+  'South Africa',
+  'Brazil',
+  'Mexico',
+  'Singapore',
+  'Malaysia',
+  'Philippines'
+];
+
 const normalizePlacement = (value: any, fallback = 'community_feed') => {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return fallback;
@@ -83,6 +110,7 @@ const defaultAdsConfig = {
   autoApproveAds: false,
   notifyAdminOnAdCreate: true,
   allowedPlacements: DEFAULT_ALLOWED_PLACEMENTS,
+  targetCountries: DEFAULT_TARGET_COUNTRIES,
   allowedMediaTypes: ['text', 'image', 'video'],
   requireLoginToInteract: false
 };
@@ -95,17 +123,40 @@ const resolveAllowedPlacements = (raw: any): string[] => {
   return normalized.length ? Array.from(new Set(normalized)) : [...DEFAULT_ALLOWED_PLACEMENTS];
 };
 
+const normalizeCountryList = (raw: any, fallback: string[] = []): string[] => {
+  const source = Array.isArray(raw) ? raw : [];
+  const normalized = Array.from(
+    new Set(
+      source
+        .map((entry: any) => String(entry || '').trim())
+        .filter(Boolean)
+    )
+  );
+  return normalized.length ? normalized : [...fallback];
+};
+
+const sanitizeTargetCountries = (raw: any, allowedRaw: any): string[] => {
+  const requested = normalizeCountryList(raw, []);
+  const allowed = normalizeCountryList(allowedRaw, []);
+  if (!allowed.length) return requested;
+  if (!requested.length) return [];
+  const allowedSet = new Set(allowed.map((entry) => entry.toLowerCase()));
+  return requested.filter((entry) => allowedSet.has(entry.toLowerCase()));
+};
+
 const mergeAdsConfig = (raw: any) => {
   const input = raw && typeof raw === 'object' ? raw : {};
   const cpmByPlacement = { ...defaultAdsConfig.cpmByPlacement, ...(input.cpmByPlacement || {}) } as Record<string, any>;
   const cpcByPlacement = { ...defaultAdsConfig.cpcByPlacement, ...(input.cpcByPlacement || {}) } as Record<string, any>;
   const normalizedAllowedPlacements = resolveAllowedPlacements(input.allowedPlacements);
+  const normalizedTargetCountries = normalizeCountryList(input.targetCountries, DEFAULT_TARGET_COUNTRIES);
   const normalized = {
     ...defaultAdsConfig,
     ...input,
     cpmByPlacement,
     cpcByPlacement,
     allowedPlacements: normalizedAllowedPlacements,
+    targetCountries: normalizedTargetCountries,
     maxPlacementsPerAd: Math.max(1, Math.min(3, Number(input.maxPlacementsPerAd ?? defaultAdsConfig.maxPlacementsPerAd))),
     maxImageAssets: Math.max(1, Math.min(12, Number(input.maxImageAssets ?? defaultAdsConfig.maxImageAssets))),
     maxVideoAssets: Math.max(1, Math.min(3, Number(input.maxVideoAssets ?? defaultAdsConfig.maxVideoAssets))),
@@ -398,12 +449,9 @@ export const createAdDraft = async (req: Request, res: Response) => {
     const normalizedMedia = await validateAndNormalizeMedia(payload.mediaFileIds || [], maxImages, maxVideos);
 
     const incomingTargeting = parseTargeting(payload.targeting);
-    const targetCountries = Array.from(
-      new Set(
-        (Array.isArray(payload.targetCountries) ? payload.targetCountries : incomingTargeting.targetCountries || [])
-          .map((entry: any) => String(entry || '').trim())
-          .filter(Boolean)
-      )
+    const targetCountries = sanitizeTargetCountries(
+      Array.isArray(payload.targetCountries) ? payload.targetCountries : incomingTargeting.targetCountries || [],
+      adsConfig?.targetCountries
     );
     const targetAudience = String(payload.targetAudience || incomingTargeting.targetAudience || 'users')
       .trim()
@@ -968,17 +1016,14 @@ export const updateAd = async (req: Request, res: Response) => {
       : normalizePricingModel(existingTargeting.pricingModel || 'CPM');
     nextTargeting.pricingModel = pricingModel;
 
-    const targetCountries = payload.targetCountries !== undefined
-      ? Array.from(
-          new Set(
-            (Array.isArray(payload.targetCountries) ? payload.targetCountries : [])
-              .map((entry: any) => String(entry || '').trim())
-              .filter(Boolean)
-          )
-        )
-      : Array.isArray(existingTargeting.targetCountries)
-        ? existingTargeting.targetCountries
-        : [];
+    const targetCountriesSource =
+      payload.targetCountries !== undefined
+        ? payload.targetCountries
+        : nextTargeting.targetCountries;
+    const targetCountries = sanitizeTargetCountries(
+      targetCountriesSource,
+      adsConfig?.targetCountries
+    );
     nextTargeting.targetCountries = targetCountries;
 
     if (payload.targetAudience !== undefined) {
