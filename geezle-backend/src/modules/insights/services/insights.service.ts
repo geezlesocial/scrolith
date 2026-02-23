@@ -290,7 +290,121 @@ const computeBreakdown = (metrics: UserMetricsSnapshot, config: Awaited<ReturnTy
   return { breakdown, normalizedScore, riskFlags };
 };
 
-const evaluateAchievementRule = (key: string, metrics: UserMetricsSnapshot) => {
+const isObject = (value: unknown): value is Record<string, any> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const normalizeFieldName = (fieldInput: unknown) => {
+  const field = String(fieldInput || '').trim();
+  if (!field) return '';
+  const aliases: Record<string, keyof UserMetricsSnapshot> = {
+    streakDays: 'currentStreakDays',
+    streak: 'currentStreakDays',
+    followers: 'followersCount',
+    followers_count: 'followersCount',
+    posts: 'postsCount',
+    comments: 'commentsCount',
+    completions: 'completedOrders',
+    sales: 'completedOrders',
+    verified: 'kycVerified',
+    violations: 'violationsLast30d',
+    profile: 'profileCompleteness'
+  };
+  return String((aliases[field] as string) || field);
+};
+
+const getMetricValue = (metrics: UserMetricsSnapshot, fieldInput: unknown) => {
+  const field = normalizeFieldName(fieldInput);
+  return field ? (metrics as any)?.[field] : undefined;
+};
+
+const toComparableString = (value: unknown) => String(value ?? '').trim().toLowerCase();
+
+const toComparableNumber = (value: unknown) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
+const evaluateRuleLeaf = (
+  node: { field?: unknown; op?: unknown; value?: unknown },
+  metrics: UserMetricsSnapshot
+) => {
+  const field = normalizeFieldName(node.field);
+  if (!field) return false;
+  const actual = getMetricValue(metrics, field);
+  const expected = node.value;
+  const op = String(node.op || 'eq').trim().toLowerCase();
+
+  if (op === 'exists') {
+    const shouldExist = expected === undefined ? true : Boolean(expected);
+    const exists = actual !== undefined && actual !== null && !(typeof actual === 'string' && !actual.trim());
+    return shouldExist ? exists : !exists;
+  }
+
+  if (op === 'contains') {
+    if (Array.isArray(actual)) {
+      return actual.map(toComparableString).includes(toComparableString(expected));
+    }
+    return toComparableString(actual).includes(toComparableString(expected));
+  }
+
+  if (op === 'not_contains') {
+    if (Array.isArray(actual)) {
+      return !actual.map(toComparableString).includes(toComparableString(expected));
+    }
+    return !toComparableString(actual).includes(toComparableString(expected));
+  }
+
+  if (op === 'in' || op === 'not_in') {
+    const list = Array.isArray(expected) ? expected : [];
+    const found = list.map(toComparableString).includes(toComparableString(actual));
+    return op === 'in' ? found : !found;
+  }
+
+  const actualNum = toComparableNumber(actual);
+  const expectedNum = toComparableNumber(expected);
+  const canNumeric = actualNum !== null && expectedNum !== null;
+
+  if (op === 'gt') return canNumeric ? actualNum > expectedNum : toComparableString(actual) > toComparableString(expected);
+  if (op === 'gte') return canNumeric ? actualNum >= expectedNum : toComparableString(actual) >= toComparableString(expected);
+  if (op === 'lt') return canNumeric ? actualNum < expectedNum : toComparableString(actual) < toComparableString(expected);
+  if (op === 'lte') return canNumeric ? actualNum <= expectedNum : toComparableString(actual) <= toComparableString(expected);
+  if (op === 'ne' || op === 'neq') {
+    return canNumeric ? actualNum !== expectedNum : toComparableString(actual) !== toComparableString(expected);
+  }
+  return canNumeric ? actualNum === expectedNum : toComparableString(actual) === toComparableString(expected);
+};
+
+const evaluateRuleTree = (rules: unknown, metrics: UserMetricsSnapshot): boolean => {
+  if (Array.isArray(rules)) return rules.every((entry) => evaluateRuleTree(entry, metrics));
+  if (!isObject(rules)) return false;
+
+  if (rules.field !== undefined) return evaluateRuleLeaf(rules, metrics);
+
+  const hasGroups = Array.isArray(rules.all) || Array.isArray(rules.any) || Array.isArray(rules.not);
+  if (hasGroups) {
+    const allPass = Array.isArray(rules.all) ? rules.all.every((entry) => evaluateRuleTree(entry, metrics)) : true;
+    const anyPass = Array.isArray(rules.any) ? (rules.any.length ? rules.any.some((entry) => evaluateRuleTree(entry, metrics)) : true) : true;
+    const notPass = Array.isArray(rules.not) ? rules.not.every((entry) => !evaluateRuleTree(entry, metrics)) : true;
+    return allPass && anyPass && notPass;
+  }
+
+  const entries = Object.entries(rules);
+  if (!entries.length) return false;
+
+  // Legacy shorthand rule object:
+  // { streakDays: 7, followers: 10, verified: true, violations: 0 }
+  return entries.every(([field, value]) => {
+    const op =
+      typeof value === 'number'
+        ? field.toLowerCase() === 'violations' || field.toLowerCase() === 'violationslast30d'
+          ? 'lte'
+          : 'gte'
+        : 'eq';
+    return evaluateRuleLeaf({ field, op, value }, metrics);
+  });
+};
+
+const evaluateLegacyAchievementKey = (key: string, metrics: UserMetricsSnapshot) => {
   switch (key) {
     case 'CONSISTENCY_7_DAYS':
       return metrics.currentStreakDays >= 7;
@@ -309,6 +423,13 @@ const evaluateAchievementRule = (key: string, metrics: UserMetricsSnapshot) => {
   }
 };
 
+const evaluateAchievementRule = (achievement: { key: string; rules?: unknown }, metrics: UserMetricsSnapshot) => {
+  if (isObject(achievement.rules) && Object.keys(achievement.rules).length > 0) {
+    return evaluateRuleTree(achievement.rules, metrics);
+  }
+  return evaluateLegacyAchievementKey(String(achievement.key || ''), metrics);
+};
+
 const unlockAchievementsIfNeeded = async (userId: string, metrics: UserMetricsSnapshot, app?: Application) => {
   await ensureDefaultAchievements();
   const achievements = await prisma.achievement.findMany({ where: { isActive: true } });
@@ -323,7 +444,7 @@ const unlockAchievementsIfNeeded = async (userId: string, metrics: UserMetricsSn
 
   for (const achievement of achievements) {
     if (existingIds.has(achievement.id)) continue;
-    if (!evaluateAchievementRule(achievement.key, metrics)) continue;
+    if (!evaluateAchievementRule(achievement, metrics)) continue;
     const row = await prisma.userAchievement.create({
       data: {
         userId,
