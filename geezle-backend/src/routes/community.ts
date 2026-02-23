@@ -47,8 +47,12 @@ import {
   joinClub,
   leaveClub,
   getEvents,
+  createEvent,
+  updateEvent,
+  deleteEvent,
   registerEvent,
   unregisterEvent,
+  getCommunityStats,
   getTopContributors,
   getLeaderboard,
   toggleRepost,
@@ -154,9 +158,10 @@ router.get('/analytics', authMiddleware, adminMiddleware, getCommunityAnalytics)
 router.get('/channels', authMiddleware, adminMiddleware, getChannels);
 router.get('/channels/:channelId/messages', authMiddleware, adminMiddleware, getChannelMessages);
 router.get('/clubs', authMiddleware, adminMiddleware, getClubs);
-router.get('/events', authMiddleware, adminMiddleware, getEvents);
+router.get('/events', authMiddleware, getEvents);
+router.get('/stats', authMiddleware, getCommunityStats);
 router.get('/contributors', authMiddleware, getTopContributors);
-router.get('/leaderboard', authMiddleware, adminMiddleware, getLeaderboard);
+router.get('/leaderboard', authMiddleware, getLeaderboard);
 router.get('/settings', authMiddleware, adminMiddleware, getCommunitySettings);
 router.get('/homepage', getCommunityHomepage);
 router.get('/stories/feed', authMiddleware, getStoriesFeed);
@@ -180,8 +185,11 @@ router.post('/channels/:channelId/leave', authMiddleware, adminMiddleware, leave
 router.post('/channels/:channelId/messages', authMiddleware, adminMiddleware, postChannelMessage);
 router.post('/clubs/join', authMiddleware, adminMiddleware, joinClub);
 router.post('/clubs/leave', authMiddleware, adminMiddleware, leaveClub);
-router.post('/events/register', authMiddleware, adminMiddleware, registerEvent);
-router.post('/events/unregister', authMiddleware, adminMiddleware, unregisterEvent);
+router.post('/events/register', authMiddleware, registerEvent);
+router.post('/events/unregister', authMiddleware, unregisterEvent);
+router.post('/events', authMiddleware, adminMiddleware, createEvent);
+router.put('/events/:eventId', authMiddleware, adminMiddleware, updateEvent);
+router.post('/events/:eventId/delete', authMiddleware, adminMiddleware, deleteEvent);
 
 // CommunityPost CRUD endpoints
 router.get('/posts', getPosts); // Public: list posts (feed)
