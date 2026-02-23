@@ -1,4 +1,3 @@
-
 // ... existing imports ...
 import React, { useState, useEffect } from 'react';
 import { useCurrency } from '../../context/CurrencyContext';
@@ -10,36 +9,53 @@ import {
 import { MarketingService } from '../../services/marketing';
 import { MarketService } from '../../services/ai/market.service';
 import { CMSService } from '../../services/cms';
-import { ReferralIntelligence, Affiliate, Coupon, MarketingCampaign, MarketingPopupSubscribeConfig, MarketingROI, AffiliatePageContent, UserRole, UploadedFile } from '../../types';
+import {
+    ReferralIntelligence,
+    Affiliate,
+    Coupon,
+    MarketingCampaign,
+    MarketingPopupSubscribeConfig,
+    MarketingROI,
+    AffiliatePageContent,
+    UploadedFile,
+    AffiliateApplication,
+    AffiliateProgramSettings
+} from '../../types';
 import FilePickerModal from '../shared/FilePickerModal';
-
-// ... AffiliateManager, CouponManager, CampaignManager components (keep as is) ...
-// Note: I am rewriting the whole file to ensure context correctness, but will try to keep others intact if possible. 
-// Since I can't selectively replace inside file easily with just "content", I will provide full file content but with the fix for AffiliatePageEditor.
 
 // --- 1. AFFILIATE MANAGER ---
 const AffiliateManager = ({ formatPrice, showNotification }: any) => {
     const [affiliates, setAffiliates] = useState<Affiliate[]>([]);
+    const [applications, setApplications] = useState<AffiliateApplication[]>([]);
+    const [settings, setSettings] = useState<AffiliateProgramSettings | null>(null);
     const [loading, setLoading] = useState(true);
+    const [savingSettings, setSavingSettings] = useState(false);
+    const [processingApplicationId, setProcessingApplicationId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
 
-    const loadAffiliates = async () => {
+    const loadAffiliateModule = async () => {
         setLoading(true);
         setError(null);
         try {
-            const data = await MarketingService.getAffiliates();
-            setAffiliates(data);
+            const [partners, pendingApplications, affiliateSettings] = await Promise.all([
+                MarketingService.getAffiliates(),
+                MarketingService.getAffiliateApplications(),
+                MarketingService.getAffiliateSettings()
+            ]);
+            setAffiliates(Array.isArray(partners) ? partners : []);
+            setApplications(Array.isArray(pendingApplications) ? pendingApplications : []);
+            setSettings(affiliateSettings || null);
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'Unable to load affiliates';
+            const message = err instanceof Error ? err.message : 'Unable to load affiliate module';
             setError(message);
-            showNotification('alert', 'Unable to load affiliates', message);
+            showNotification('alert', 'Unable to load affiliate module', message);
         } finally {
             setLoading(false);
         }
     };
 
     useEffect(() => {
-        loadAffiliates();
+        loadAffiliateModule();
     }, []);
 
     const toggleStatus = async (affiliate: Affiliate) => {
@@ -47,57 +63,259 @@ const AffiliateManager = ({ formatPrice, showNotification }: any) => {
         try {
             await MarketingService.updateAffiliateStatus(affiliate.id, newStatus);
             showNotification('success', 'Status Updated', `Affiliate is now ${newStatus}`);
-            await loadAffiliates();
+            await loadAffiliateModule();
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Unable to update status';
             showNotification('alert', 'Status update failed', message);
         }
     };
 
+    const handleSaveSettings = async () => {
+        if (!settings) return;
+        setSavingSettings(true);
+        try {
+            const saved = await MarketingService.saveAffiliateSettings(settings);
+            setSettings(saved);
+            showNotification('success', 'Saved', 'Affiliate commission settings updated.');
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Unable to save settings';
+            showNotification('alert', 'Save failed', message);
+        } finally {
+            setSavingSettings(false);
+        }
+    };
+
+    const handleApprove = async (application: AffiliateApplication) => {
+        setProcessingApplicationId(application.id);
+        try {
+            await MarketingService.approveAffiliateApplication(application.id);
+            showNotification('success', 'Approved', 'Application approved and affiliate access enabled.');
+            await loadAffiliateModule();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Unable to approve application';
+            showNotification('alert', 'Approval failed', message);
+        } finally {
+            setProcessingApplicationId(null);
+        }
+    };
+
+    const handleReject = async (application: AffiliateApplication) => {
+        setProcessingApplicationId(application.id);
+        try {
+            await MarketingService.rejectAffiliateApplication(application.id);
+            showNotification('success', 'Rejected', 'Application has been rejected.');
+            await loadAffiliateModule();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Unable to reject application';
+            showNotification('alert', 'Rejection failed', message);
+        } finally {
+            setProcessingApplicationId(null);
+        }
+    };
+
     return (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-                <h3 className="font-bold text-gray-900">Affiliate Partners</h3>
-                <span className="text-xs text-gray-500">{affiliates.length} total</span>
+        <div className="space-y-6">
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h3 className="font-bold text-gray-900">Referral Commission Settings</h3>
+                    <button
+                        onClick={handleSaveSettings}
+                        disabled={!settings || savingSettings}
+                        className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-bold disabled:opacity-60"
+                    >
+                        {savingSettings ? 'Saving...' : 'Save Settings'}
+                    </button>
+                </div>
+                {!settings ? (
+                    <p className="mt-4 text-xs text-gray-500">Loading settings...</p>
+                ) : (
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                                type="checkbox"
+                                checked={Boolean(settings.enabled)}
+                                onChange={(event) => setSettings({ ...settings, enabled: event.target.checked })}
+                            />
+                            Enable affiliate program
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                                type="checkbox"
+                                checked={Boolean(settings.autoApproveApplications)}
+                                onChange={(event) =>
+                                    setSettings({ ...settings, autoApproveApplications: event.target.checked })
+                                }
+                            />
+                            Auto-approve applications
+                        </label>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">First Purchase Commission (%)</label>
+                            <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                className="w-full border rounded-lg p-2.5"
+                                value={Number(settings.firstPurchaseCommissionPercent || 0)}
+                                onChange={(event) =>
+                                    setSettings({
+                                        ...settings,
+                                        firstPurchaseCommissionPercent: Number(event.target.value || 0)
+                                    })
+                                }
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Minimum Withdrawal</label>
+                            <input
+                                type="number"
+                                min={0}
+                                className="w-full border rounded-lg p-2.5"
+                                value={Number(settings.minimumWithdrawalAmount || 0)}
+                                onChange={(event) =>
+                                    setSettings({
+                                        ...settings,
+                                        minimumWithdrawalAmount: Number(event.target.value || 0)
+                                    })
+                                }
+                            />
+                        </div>
+                    </div>
+                )}
             </div>
-            {loading ? (
-                <div className="p-6 text-center text-xs text-gray-500">Loading affiliates...</div>
-            ) : error ? (
-                <div className="p-6 text-center text-xs text-red-500">{error}</div>
-            ) : (
-            <table className="w-full text-sm text-left">
-                <thead className="bg-gray-50 text-gray-500">
-                    <tr>
-                        <th className="px-6 py-3">User</th>
-                        <th className="px-6 py-3">Code</th>
-                        <th className="px-6 py-3">Earnings</th>
-                        <th className="px-6 py-3">Referrals</th>
-                        <th className="px-6 py-3">Status</th>
-                        <th className="px-6 py-3 text-right">Action</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                    {affiliates.map(aff => (
-                        <tr key={aff.id} className="hover:bg-gray-50">
-                            <td className="px-6 py-4 font-medium">{aff.userName}</td>
-                            <td className="px-6 py-4"><span className="font-mono bg-gray-100 px-2 py-1 rounded text-xs">{aff.code}</span></td>
-                            <td className="px-6 py-4 font-bold text-green-600">{formatPrice(aff.earnings)}</td>
-                            <td className="px-6 py-4">{aff.referrals}</td>
-                            <td className="px-6 py-4">
-                                <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${aff.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                                    {aff.status}
-                                </span>
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                                <button onClick={() => toggleStatus(aff)} className={`text-xs px-3 py-1 rounded border ${aff.status === 'active' ? 'border-red-200 text-red-600 hover:bg-red-50' : 'border-green-200 text-green-600 hover:bg-green-50'}`}>
-                                    {aff.status === 'active' ? 'Deactivate' : 'Activate'}
-                                </button>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-            )}
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                    <h3 className="font-bold text-gray-900">Affiliate Applications</h3>
+                    <span className="text-xs text-gray-500">{applications.length} total</span>
+                </div>
+                {loading ? (
+                    <div className="p-6 text-center text-xs text-gray-500">Loading applications...</div>
+                ) : error ? (
+                    <div className="p-6 text-center text-xs text-red-500">{error}</div>
+                ) : applications.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-gray-500">No applications yet.</div>
+                ) : (
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-gray-50 text-gray-500">
+                            <tr>
+                                <th className="px-6 py-3">Applicant</th>
+                                <th className="px-6 py-3">Website</th>
+                                <th className="px-6 py-3">Audience</th>
+                                <th className="px-6 py-3">Submitted</th>
+                                <th className="px-6 py-3">Status</th>
+                                <th className="px-6 py-3 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {applications.map((application) => {
+                                const isPending = application.status === 'pending';
+                                return (
+                                    <tr key={application.id} className="hover:bg-gray-50">
+                                        <td className="px-6 py-4">
+                                            <div className="font-medium">{application.userName || application.email || application.userId}</div>
+                                            <div className="text-xs text-gray-500">{application.email || application.userId}</div>
+                                        </td>
+                                        <td className="px-6 py-4 text-xs text-gray-600">{application.website || '-'}</td>
+                                        <td className="px-6 py-4 text-xs text-gray-600">{application.audienceSize || '-'}</td>
+                                        <td className="px-6 py-4 text-xs text-gray-600">{new Date(application.submittedAt).toLocaleString()}</td>
+                                        <td className="px-6 py-4">
+                                            <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
+                                                application.status === 'approved'
+                                                    ? 'bg-green-100 text-green-700'
+                                                    : application.status === 'rejected'
+                                                        ? 'bg-red-100 text-red-700'
+                                                        : 'bg-amber-100 text-amber-700'
+                                            }`}>
+                                                {application.status}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 text-right">
+                                            {isPending ? (
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <button
+                                                        onClick={() => handleApprove(application)}
+                                                        disabled={processingApplicationId === application.id}
+                                                        className="text-xs px-3 py-1 rounded border border-green-200 text-green-600 hover:bg-green-50 disabled:opacity-60"
+                                                    >
+                                                        Approve
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleReject(application)}
+                                                        disabled={processingApplicationId === application.id}
+                                                        className="text-xs px-3 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
+                                                    >
+                                                        Reject
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <span className="text-xs text-gray-400">No action</span>
+                                            )}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                )}
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div className="p-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                    <h3 className="font-bold text-gray-900">Affiliate Partners</h3>
+                    <span className="text-xs text-gray-500">{affiliates.length} total</span>
+                </div>
+                {loading ? (
+                    <div className="p-6 text-center text-xs text-gray-500">Loading affiliates...</div>
+                ) : error ? (
+                    <div className="p-6 text-center text-xs text-red-500">{error}</div>
+                ) : (
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-gray-50 text-gray-500">
+                            <tr>
+                                <th className="px-6 py-3">User</th>
+                                <th className="px-6 py-3">Code</th>
+                                <th className="px-6 py-3">Commission</th>
+                                <th className="px-6 py-3">Earnings</th>
+                                <th className="px-6 py-3">Referrals</th>
+                                <th className="px-6 py-3">Status</th>
+                                <th className="px-6 py-3 text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {affiliates.map((affiliate) => (
+                                <tr key={affiliate.id} className="hover:bg-gray-50">
+                                    <td className="px-6 py-4 font-medium">{affiliate.userName || affiliate.userId}</td>
+                                    <td className="px-6 py-4">
+                                        <span className="font-mono bg-gray-100 px-2 py-1 rounded text-xs">{affiliate.code}</span>
+                                    </td>
+                                    <td className="px-6 py-4 text-xs text-gray-600">{Number(affiliate.commissionRate || 0)}%</td>
+                                    <td className="px-6 py-4 font-bold text-green-600">{formatPrice(affiliate.earnings)}</td>
+                                    <td className="px-6 py-4">{affiliate.referrals}</td>
+                                    <td className="px-6 py-4">
+                                        <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${
+                                            affiliate.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                        }`}>
+                                            {affiliate.status}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 text-right">
+                                        <button
+                                            onClick={() => toggleStatus(affiliate)}
+                                            className={`text-xs px-3 py-1 rounded border ${
+                                                affiliate.status === 'active'
+                                                    ? 'border-red-200 text-red-600 hover:bg-red-50'
+                                                    : 'border-green-200 text-green-600 hover:bg-green-50'
+                                            }`}
+                                        >
+                                            {affiliate.status === 'active' ? 'Deactivate' : 'Activate'}
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                )}
+            </div>
         </div>
     );
 };

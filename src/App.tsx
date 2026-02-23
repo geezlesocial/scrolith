@@ -39,6 +39,7 @@ import {
   isNativePlatform,
   setBiometricPreference
 } from './mobile/biometrics';
+import { MarketingService } from './services/marketing';
 
 // Lazy Loaded Components
 const Landing = React.lazy(() => import('./main/Landing'));
@@ -217,6 +218,22 @@ const AppContent = () => {
   const lastBiometricSuccessAtRef = useRef(0);
   const lastBiometricPromptAtRef = useRef(0);
   const isNative = isNativePlatform();
+
+  useEffect(() => {
+    const referralCode = new URLSearchParams(location.search).get('ref');
+    if (!referralCode || !user?.id) return;
+    const normalized = referralCode.trim();
+    if (!normalized) return;
+    const linkedKey = `affiliate.ref.linked.${user.id}.${normalized}`;
+    if (sessionStorage.getItem(linkedKey) === '1') return;
+    MarketingService.linkReferralCode(normalized)
+      .then(() => {
+        sessionStorage.setItem(linkedKey, '1');
+      })
+      .catch(() => {
+        // Ignore: invalid, duplicate, or self-referral
+      });
+  }, [location.search, user?.id]);
 
   // Dynamic Favicon Update
   useEffect(() => {

@@ -872,8 +872,89 @@ export interface Affiliate {
   status: AffiliateStatus;
   commission_rate?: number;
   commissionRate?: number;
+  availableBalance?: number;
+  approvedAt?: string;
+  approvedBy?: string;
   created_at?: string;
   createdAt?: string;
+}
+
+export interface AffiliateProgramSettings {
+  enabled: boolean;
+  firstPurchaseCommissionPercent: number;
+  minimumWithdrawalAmount: number;
+  autoApproveApplications: boolean;
+  payoutCurrency: string;
+  updatedAt?: string;
+}
+
+export interface AffiliateApplication {
+  id: string;
+  userId: string;
+  userName?: string;
+  email?: string;
+  website?: string;
+  promotionStrategy?: string;
+  audienceSize?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  submittedAt: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  reviewNote?: string;
+}
+
+export interface AffiliateReferral {
+  id: string;
+  affiliateUserId: string;
+  affiliateCode: string;
+  referredUserId: string;
+  referredEmail?: string;
+  status: 'linked' | 'paid';
+  linkedAt: string;
+  firstQualifiedOrderId?: string;
+}
+
+export interface AffiliateEarning {
+  id: string;
+  affiliateUserId: string;
+  referredUserId: string;
+  orderId: string;
+  baseAmount: number;
+  commissionRate: number;
+  commissionAmount: number;
+  currency: string;
+  createdAt: string;
+  withdrawalId?: string;
+  withdrawnAt?: string;
+}
+
+export interface AffiliateWithdrawal {
+  id: string;
+  affiliateUserId: string;
+  amount: number;
+  currency: string;
+  status: 'completed' | 'failed';
+  createdAt: string;
+  walletTransactionId?: string;
+}
+
+export interface AffiliateDashboardData {
+  settings: AffiliateProgramSettings;
+  status: 'not_applied' | 'pending' | 'approved' | 'rejected';
+  application?: AffiliateApplication | null;
+  partner?: Affiliate | null;
+  referralLink?: string | null;
+  referrals: AffiliateReferral[];
+  earnings: AffiliateEarning[];
+  withdrawals: AffiliateWithdrawal[];
+  summary: {
+    totalReferrals: number;
+    totalEarnings: number;
+    totalWithdrawn: number;
+    availableBalance: number;
+    minimumWithdrawalAmount: number;
+    payoutCurrency: string;
+  };
 }
 
 export interface Coupon {

@@ -6,9 +6,11 @@ import { CMSService } from '../services/cms';
 import { useNotification } from '../context/NotificationContext';
 import { useNavigate } from 'react-router-dom';
 import { AffiliatePageContent } from '../types';
+import { useUser } from '../context/UserContext';
 
 const AffiliateProgram = () => {
     const { showNotification } = useNotification();
+    const { user } = useUser();
     const navigate = useNavigate();
     const [content, setContent] = useState<AffiliatePageContent | null>(null);
     const [loading, setLoading] = useState(true);
@@ -35,6 +37,20 @@ const AffiliateProgram = () => {
         };
         fetchContent();
     }, []);
+
+    useEffect(() => {
+        const referralCode = new URLSearchParams(window.location.search).get('ref');
+        if (!referralCode || !user?.id) return;
+        const flag = `affiliate.ref.linked.${user.id}.${referralCode}`;
+        if (sessionStorage.getItem(flag) === '1') return;
+        MarketingService.linkReferralCode(referralCode)
+            .then(() => {
+                sessionStorage.setItem(flag, '1');
+            })
+            .catch(() => {
+                // ignore link failures (invalid code / already linked / not eligible)
+            });
+    }, [user?.id]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();

@@ -4,6 +4,7 @@ import { useUser } from '../../context/UserContext';
 import { UserRole } from '../../types';
 import { useMessages } from '../../context/MessageContext';
 import { SupportService } from '../../services/support';
+import { MarketingService } from '../../services/marketing';
 import { Menu, X } from 'lucide-react';
 
 interface SidebarItemProps {
@@ -67,7 +68,11 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
     kycverification: 'kyc',
     'kyc-verification': 'kyc',
     uploadedfiles: 'uploaded-files',
-    uploaded_files: 'uploaded-files'
+    uploaded_files: 'uploaded-files',
+    affiliate: 'affiliate-program',
+    affiliates: 'affiliate-program',
+    referral: 'affiliate-program',
+    referrals: 'affiliate-program'
   };
 
   if (commonMap[tab]) return commonMap[tab];
@@ -104,6 +109,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { unreadCount } = useMessages();
   const [unreadSupportCount, setUnreadSupportCount] = useState(0);
+  const [showAffiliateModule, setShowAffiliateModule] = useState(false);
   // Determine effective role view (honor ?as= override for admins or explicit view)
   const urlParams = new URLSearchParams(location.search);
   const asParam = (urlParams.get('as') || urlParams.get('view') || '').toString().toLowerCase();
@@ -166,6 +172,37 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [user?.id]);
 
+  useEffect(() => {
+    let mounted = true;
+    let timer: number | undefined;
+
+    const canViewAffiliate =
+      effectiveRole === UserRole.FREELANCER || effectiveRole === UserRole.EMPLOYER;
+    if (!user || !canViewAffiliate) {
+      setShowAffiliateModule(false);
+      return () => undefined;
+    }
+
+    const loadAffiliateStatus = async () => {
+      try {
+        const payload = await MarketingService.getMyAffiliateDashboard();
+        if (!mounted) return;
+        const approved = payload?.status === 'approved' || Boolean(payload?.partner);
+        setShowAffiliateModule(Boolean(approved));
+      } catch {
+        if (mounted) setShowAffiliateModule(false);
+      }
+    };
+
+    loadAffiliateStatus();
+    timer = window.setInterval(loadAffiliateStatus, 30000);
+
+    return () => {
+      mounted = false;
+      if (timer) window.clearInterval(timer);
+    };
+  }, [user?.id, effectiveRole]);
+
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
     // Update URL without causing a navigation
@@ -219,6 +256,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
         { tab: 'my-proposals', label: 'My Proposals' },
         { tab: 'wallet', label: 'Wallet' },
         { tab: 'membership', label: 'Membership' },
+        ...(showAffiliateModule ? [{ tab: 'affiliate-program', label: 'Affiliate Program' }] : []),
         { tab: 'gcoin', label: 'Gcoin' },
         { tab: 'favorites', label: 'Favorites' },
         { tab: 'reviews', label: 'Reviews' },
@@ -239,6 +277,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
         { tab: 'contracts', label: 'Contracts' },
         { tab: 'wallet', label: 'Wallet' },
         { tab: 'membership', label: 'Membership' },
+        ...(showAffiliateModule ? [{ tab: 'affiliate-program', label: 'Affiliate Program' }] : []),
         { tab: 'gcoin', label: 'Gcoin' },
         { tab: 'favorites', label: 'Favorites' },
         { tab: 'reviews', label: 'Reviews' },

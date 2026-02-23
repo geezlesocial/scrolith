@@ -1,7 +1,16 @@
 
 import api from './api';
-import { MarketingCampaign, Affiliate, Coupon, EmailProviderConfig, MarketingPopupSubscribeConfig } from '../types';
-import { MOCK_AFFILIATES, MOCK_COUPONS } from '../constants';
+import {
+    MarketingCampaign,
+    Affiliate,
+    Coupon,
+    EmailProviderConfig,
+    MarketingPopupSubscribeConfig,
+    AffiliateApplication,
+    AffiliateDashboardData,
+    AffiliateProgramSettings
+} from '../types';
+import { MOCK_COUPONS } from '../constants';
 
 const extractData = <T>(response: any): T => {
     if (response?.data?.data !== undefined) return response.data.data as T;
@@ -9,7 +18,6 @@ const extractData = <T>(response: any): T => {
     return response as T;
 };
 
-let affiliates: Affiliate[] = [...MOCK_AFFILIATES];
 let coupons: Coupon[] = [...MOCK_COUPONS];
 let emailConfig: EmailProviderConfig = {
     provider: 'smtp',
@@ -60,15 +68,37 @@ export const MarketingService = {
 
     // --- Affiliates ---
     getAffiliates: async (): Promise<Affiliate[]> => {
-        return new Promise(resolve => setTimeout(() => resolve([...affiliates]), 200));
+        const response = await api.get('/admin/marketing/affiliates');
+        const data = extractData<Affiliate[]>(response);
+        return Array.isArray(data) ? data : [];
     },
 
     updateAffiliateStatus: async (id: string, status: Affiliate['status']): Promise<void> => {
-        return new Promise(resolve => {
-            const idx = affiliates.findIndex(a => a.id === id);
-            if (idx >= 0) affiliates[idx].status = status;
-            resolve();
-        });
+        await api.patch(`/admin/marketing/affiliates/${id}/status`, { status });
+    },
+
+    getAffiliateSettings: async (): Promise<AffiliateProgramSettings> => {
+        const response = await api.get('/admin/marketing/affiliates/settings');
+        return extractData<AffiliateProgramSettings>(response);
+    },
+
+    saveAffiliateSettings: async (settings: Partial<AffiliateProgramSettings>): Promise<AffiliateProgramSettings> => {
+        const response = await api.put('/admin/marketing/affiliates/settings', settings);
+        return extractData<AffiliateProgramSettings>(response);
+    },
+
+    getAffiliateApplications: async (): Promise<AffiliateApplication[]> => {
+        const response = await api.get('/admin/marketing/affiliates/applications');
+        const data = extractData<AffiliateApplication[]>(response);
+        return Array.isArray(data) ? data : [];
+    },
+
+    approveAffiliateApplication: async (id: string, reviewNote?: string): Promise<void> => {
+        await api.post(`/admin/marketing/affiliates/applications/${id}/approve`, { reviewNote });
+    },
+
+    rejectAffiliateApplication: async (id: string, reviewNote?: string): Promise<void> => {
+        await api.post(`/admin/marketing/affiliates/applications/${id}/reject`, { reviewNote });
     },
 
     // --- Coupons ---
@@ -93,11 +123,24 @@ export const MarketingService = {
     },
 
     // --- Applications ---
-    submitApplication: async (data: any): Promise<void> => {
-        return new Promise(resolve => setTimeout(() => {
-            console.log("Affiliate Application Submitted:", data);
-            resolve();
-        }, 1000));
+    submitApplication: async (data: any): Promise<any> => {
+        const response = await api.post('/marketing/affiliate/apply', data || {});
+        return extractData<any>(response);
+    },
+
+    getMyAffiliateDashboard: async (): Promise<AffiliateDashboardData> => {
+        const response = await api.get('/marketing/affiliate/me');
+        return extractData<AffiliateDashboardData>(response);
+    },
+
+    linkReferralCode: async (referralCode: string): Promise<any> => {
+        const response = await api.post('/marketing/affiliate/link', { referralCode });
+        return extractData<any>(response);
+    },
+
+    requestAffiliateWithdrawal: async (amount?: number): Promise<any> => {
+        const response = await api.post('/marketing/affiliate/withdraw', amount ? { amount } : {});
+        return extractData<any>(response);
     },
 
     // --- Popup Subscribe Config (Admin) ---

@@ -39,6 +39,7 @@ const EditProfile = React.lazy(() => import('../profile/EditProfile'));
 const SettingsModule = React.lazy(() => import('./shared/SettingsModule'));
 const Membership = React.lazy(() => import('./shared/Membership'));
 const ManagePagesModule = React.lazy(() => import('./shared/ManagePagesModule'));
+const AffiliateDashboardModule = React.lazy(() => import('./shared/AffiliateDashboardModule'));
 
 const DashboardSectionLoader = () => (
   <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
@@ -76,7 +77,11 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
     kycverification: 'kyc',
     'kyc-verification': 'kyc',
     uploadedfiles: 'uploaded-files',
-    uploaded_files: 'uploaded-files'
+    uploaded_files: 'uploaded-files',
+    affiliate: 'affiliate-program',
+    affiliates: 'affiliate-program',
+    referral: 'affiliate-program',
+    referrals: 'affiliate-program'
   };
 
   if (commonMap[tab]) return commonMap[tab];
@@ -180,6 +185,8 @@ export const DashboardRouter: React.FC = () => {
           return <WalletModule />;
         case 'membership':
           return <Membership />;
+        case 'affiliate-program':
+          return <AffiliateDashboardModule />;
         case 'profile':
           return <EditProfile isEmbedded={true} />;
         case 'settings':
@@ -223,6 +230,8 @@ export const DashboardRouter: React.FC = () => {
           return <WalletModule />;
         case 'membership':
           return <Membership />;
+        case 'affiliate-program':
+          return <AffiliateDashboardModule />;
         case 'profile':
           return <EditProfile isEmbedded={true} />;
         case 'settings':
