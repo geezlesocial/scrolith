@@ -1,6 +1,15 @@
 import express from 'express';
 import { randomUUID } from 'crypto';
 import prisma from '../../utils/prismaClient';
+import {
+  approveAffiliateApplication,
+  getAffiliateProgramSettings,
+  listAffiliateApplications,
+  listAffiliatePartners,
+  rejectAffiliateApplication,
+  saveAffiliateProgramSettings,
+  updateAffiliatePartnerStatus
+} from '../../services/affiliateProgram.service';
 
 const router = express.Router();
 
@@ -403,6 +412,72 @@ router.post('/popup-subscribe', async (req, res) => {
   const payload = req.body || {};
   const saved = await saveSetting(POPUP_SUBSCRIBE_SCOPE, payload);
   res.json({ success: true, data: saved });
+});
+
+router.get('/affiliates/settings', async (_req, res) => {
+  const settings = await getAffiliateProgramSettings();
+  res.json({ success: true, data: settings });
+});
+
+router.put('/affiliates/settings', async (req, res) => {
+  try {
+    const saved = await saveAffiliateProgramSettings(req.body || {});
+    res.json({ success: true, data: saved, message: 'Affiliate settings updated' });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error?.message || 'Failed to update affiliate settings' });
+  }
+});
+
+router.get('/affiliates/applications', async (_req, res) => {
+  const applications = await listAffiliateApplications();
+  res.json({ success: true, data: applications });
+});
+
+router.post('/affiliates/applications/:id/approve', async (req, res) => {
+  try {
+    const reviewerId = req.user?.id;
+    const reviewNote = String(req.body?.reviewNote || '').trim() || undefined;
+    const result = await approveAffiliateApplication(req.params.id, reviewerId, reviewNote);
+    res.json({ success: true, data: result, message: 'Application approved' });
+  } catch (error: any) {
+    const message = error?.message || 'Failed to approve application';
+    const status = message.includes('not found') ? 404 : 400;
+    res.status(status).json({ success: false, error: message });
+  }
+});
+
+router.post('/affiliates/applications/:id/reject', async (req, res) => {
+  try {
+    const reviewerId = req.user?.id;
+    const reviewNote = String(req.body?.reviewNote || '').trim() || undefined;
+    const result = await rejectAffiliateApplication(req.params.id, reviewerId, reviewNote);
+    res.json({ success: true, data: result, message: 'Application rejected' });
+  } catch (error: any) {
+    const message = error?.message || 'Failed to reject application';
+    const status = message.includes('not found') ? 404 : 400;
+    res.status(status).json({ success: false, error: message });
+  }
+});
+
+router.get('/affiliates', async (_req, res) => {
+  const affiliates = await listAffiliatePartners();
+  res.json({ success: true, data: affiliates });
+});
+
+router.patch('/affiliates/:id/status', async (req, res) => {
+  try {
+    const status = String(req.body?.status || '').toLowerCase();
+    if (!['active', 'inactive'].includes(status)) {
+      res.status(400).json({ success: false, error: 'Invalid status' });
+      return;
+    }
+    const updated = await updateAffiliatePartnerStatus(req.params.id, status as 'active' | 'inactive');
+    res.json({ success: true, data: updated, message: 'Affiliate status updated' });
+  } catch (error: any) {
+    const message = error?.message || 'Failed to update status';
+    const status = message.includes('not found') ? 404 : 400;
+    res.status(status).json({ success: false, error: message });
+  }
 });
 
 export default router;

@@ -1,6 +1,15 @@
 import express from 'express';
 import { randomUUID } from 'crypto';
 import prisma from '../utils/prismaClient';
+import { authMiddleware } from '../middleware/auth.middleware';
+import {
+  getAffiliateDashboardByUserId,
+  getAffiliateProgramSettings,
+  linkAffiliateReferral,
+  requestAffiliateWithdrawalToWallet,
+  submitAffiliateApplication
+} from '../services/affiliateProgram.service';
+import { notifyAdmins } from '../utils/notify';
 
 const router = express.Router();
 
@@ -162,6 +171,117 @@ router.get('/popup-banners', async (req, res) => {
   const filtered = list.filter(c => (c.type || '').toLowerCase() === 'popup_banner' && isActive(c) && audienceMatches(c));
 
   res.json({ success: true, data: filtered });
+});
+
+router.get('/affiliate/settings', async (_req, res) => {
+  const settings = await getAffiliateProgramSettings();
+  res.json({
+    success: true,
+    data: {
+      enabled: settings.enabled,
+      firstPurchaseCommissionPercent: settings.firstPurchaseCommissionPercent,
+      minimumWithdrawalAmount: settings.minimumWithdrawalAmount,
+      payoutCurrency: settings.payoutCurrency
+    }
+  });
+});
+
+router.post('/affiliate/apply', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const profile = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, email: true }
+    });
+
+    const payload = req.body || {};
+    const result = await submitAffiliateApplication({
+      userId,
+      userName: profile?.name || undefined,
+      email: profile?.email || undefined,
+      website: payload.website,
+      promotionStrategy: payload.promotionStrategy,
+      audienceSize: payload.audienceSize
+    });
+
+    notifyAdmins({
+      type: 'affiliate',
+      title: 'New affiliate application',
+      body: `${profile?.name || profile?.email || 'A user'} submitted an affiliate application.`,
+      link: '/admin/dashboard?tab=marketing',
+      meta: { applicationId: result.application.id, userId }
+    });
+
+    const message = result.autoApproved
+      ? 'Application approved automatically'
+      : 'Application submitted and pending review';
+    res.json({ success: true, data: result, message });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: error?.message || 'Failed to submit application' });
+  }
+});
+
+router.get('/affiliate/me', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+    const data = await getAffiliateDashboardByUserId(userId);
+    res.json({ success: true, data });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error?.message || 'Failed to load affiliate dashboard' });
+  }
+});
+
+router.post('/affiliate/withdraw', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+    const amount = req.body?.amount;
+    const result = await requestAffiliateWithdrawalToWallet({ userId, amount });
+    res.json({ success: true, data: result, message: 'Withdrawal moved to wallet balance' });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: error?.message || 'Failed to process withdrawal' });
+  }
+});
+
+router.post('/affiliate/link', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+    const referralCode = String(req.body?.referralCode || req.body?.code || '').trim();
+    if (!referralCode) {
+      res.status(400).json({ success: false, error: 'Referral code is required' });
+      return;
+    }
+
+    const profile = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true }
+    });
+
+    const referral = await linkAffiliateReferral({
+      referredUserId: userId,
+      referredEmail: profile?.email || undefined,
+      referralCode
+    });
+    res.json({ success: true, data: referral, message: 'Referral linked successfully' });
+  } catch (error: any) {
+    res.status(400).json({ success: false, error: error?.message || 'Failed to link referral' });
+  }
 });
 
 export default router;

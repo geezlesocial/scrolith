@@ -1,5 +1,6 @@
 import prisma from '../utils/prismaClient';
 import { computeCommissionBreakdown } from '../utils/commission';
+import { awardAffiliateFirstPurchaseCommission } from './affiliateProgram.service';
 
 type OrderPaymentStatus = 'succeeded' | 'failed';
 
@@ -153,6 +154,18 @@ export const settleOrderPaymentIntent = async (params: {
   if (status === 'succeeded') {
     try {
       const order = await prisma.order.findUnique({ where: { id: intent.orderId } });
+      if (order) {
+        try {
+          await awardAffiliateFirstPurchaseCommission({
+            referredUserId: order.clientId,
+            orderId: order.id,
+            orderAmount: Number(order.amount || 0),
+            currency: intent.currency || undefined
+          });
+        } catch (affiliateError) {
+          console.warn('Affiliate first purchase commission failed', affiliateError);
+        }
+      }
       const ns = (global as any).appCommunityIo || null;
       if (order && ns && typeof ns.to === 'function') {
         ns.to(`community:user:${order.clientId}`).emit('orders:updated', { orderId: order.id, status: 'PAID' });

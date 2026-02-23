@@ -6,6 +6,7 @@ import { notifyAdmins } from '../utils/notify';
 import { sendSystemMessage } from '../services/systemMessaging';
 import { maybeDecryptSecret } from '../utils/secretCipher';
 import { getStripeClient } from '../services/stripeConfig.service';
+import { awardAffiliateFirstPurchaseCommission } from '../services/affiliateProgram.service';
 
 const nowIso = () => new Date().toISOString();
 
@@ -447,6 +448,17 @@ export const purchaseGig = async (req: Request, res: Response) => {
         });
       } catch (notifyError) {
         console.warn('Order paid notification failed', notifyError);
+      }
+
+      try {
+        await awardAffiliateFirstPurchaseCommission({
+          referredUserId: user.id,
+          orderId: result.order.id,
+          orderAmount: baseAmount,
+          currency
+        });
+      } catch (affiliateError) {
+        console.warn('Affiliate first purchase commission failed', affiliateError);
       }
 
       return ok(res, {
