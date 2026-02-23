@@ -21,6 +21,13 @@ export const registerDevice = async (req: Request, res: Response) => {
       create: { userId, platform, token, deviceId: deviceId || null, lastSeenAt: new Date() }
     });
 
+    console.log('[push] device token registered', {
+      userId,
+      platform,
+      deviceId: deviceId || null,
+      tokenPrefix: token.slice(0, 12)
+    });
+
     return res.json({ success: true, data: { id: record.id }, timestamp: nowIso() });
   } catch (error: any) {
     console.error('Register device token error:', error);
@@ -38,7 +45,12 @@ export const unregisterDevice = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'token is required', timestamp: nowIso() });
     }
 
-    await prisma.deviceToken.deleteMany({ where: { token, userId } });
+    const removed = await prisma.deviceToken.deleteMany({ where: { token, userId } });
+    console.log('[push] device token unregistered', {
+      userId,
+      removed: removed.count,
+      tokenPrefix: token.slice(0, 12)
+    });
     return res.json({ success: true, timestamp: nowIso() });
   } catch (error: any) {
     console.error('Unregister device token error:', error);
