@@ -316,6 +316,16 @@ const normalizeCampaignRecord = (raw: any): CampaignRecord => {
   };
 };
 
+const buildCampaignFallbackPath = (
+  campaignId: string,
+  targetPlatform: 'all' | 'android' | 'desktop'
+) => {
+  if (targetPlatform === 'desktop') {
+    return `/dashboard?tab=notifications&campaignId=${encodeURIComponent(campaignId)}`;
+  }
+  return `/m/notifications?campaignId=${encodeURIComponent(campaignId)}`;
+};
+
 const readCampaigns = async () => {
   const record = await prisma.appSetting.findUnique({ where: { scope: APP_CAMPAIGNS_SCOPE } });
   const list = Array.isArray(record?.data) ? record?.data : [];
@@ -756,6 +766,148 @@ export const getAdminAppCampaigns = async (_req: Request, res: Response) => {
   }
 };
 
+export const updateAdminAppCampaign = async (req: Request, res: Response) => {
+  try {
+    const campaignId = asString(req.params.id);
+    if (!campaignId) {
+      return res.status(400).json({
+        success: false,
+        error: 'campaign id is required',
+        timestamp: nowIso()
+      });
+    }
+    const campaigns = await readCampaigns();
+    const existing = campaigns.find((item) => item.id === campaignId);
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'Campaign not found',
+        timestamp: nowIso()
+      });
+    }
+    const payload = isObject(req.body) ? req.body : {};
+    const candidate = normalizeCampaignRecord({
+      ...existing,
+      ...payload,
+      id: existing.id,
+      createdAt: existing.createdAt,
+      createdById: existing.createdById,
+      createdByEmail: existing.createdByEmail,
+      totalRecipients: existing.totalRecipients,
+      totalPushSent: existing.totalPushSent,
+      totalPushFailed: existing.totalPushFailed,
+      totalNotificationsCreated: existing.totalNotificationsCreated,
+      lastPushEligibleUsers: existing.lastPushEligibleUsers,
+      lastPushSkippedUsers: existing.lastPushSkippedUsers,
+      lastPushDisabled: existing.lastPushDisabled,
+      lastSentAt: existing.lastSentAt,
+      updatedAt: nowIso()
+    });
+    if (!candidate.title || !candidate.body) {
+      return res.status(400).json({
+        success: false,
+        error: 'title and body are required',
+        timestamp: nowIso()
+      });
+    }
+    const nextCampaigns = [
+      candidate,
+      ...campaigns.filter((item) => item.id !== campaignId)
+    ].slice(0, 500);
+    await saveCampaigns(nextCampaigns);
+    emitAdminEvent(req, 'apps:campaign_updated', {
+      campaignId: candidate.id
+    });
+    return res.json({
+      success: true,
+      data: candidate,
+      timestamp: nowIso()
+    });
+  } catch (error: any) {
+    console.error('Failed to update app campaign:', error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to update app campaign',
+      timestamp: nowIso()
+    });
+  }
+};
+
+export const deleteAdminAppCampaign = async (req: Request, res: Response) => {
+  try {
+    const campaignId = asString(req.params.id);
+    if (!campaignId) {
+      return res.status(400).json({
+        success: false,
+        error: 'campaign id is required',
+        timestamp: nowIso()
+      });
+    }
+    const campaigns = await readCampaigns();
+    const exists = campaigns.some((item) => item.id === campaignId);
+    if (!exists) {
+      return res.status(404).json({
+        success: false,
+        error: 'Campaign not found',
+        timestamp: nowIso()
+      });
+    }
+    const nextCampaigns = campaigns.filter((item) => item.id !== campaignId);
+    await saveCampaigns(nextCampaigns);
+    emitAdminEvent(req, 'apps:campaign_deleted', {
+      campaignId
+    });
+    return res.json({
+      success: true,
+      data: { id: campaignId },
+      timestamp: nowIso()
+    });
+  } catch (error: any) {
+    console.error('Failed to delete app campaign:', error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to delete app campaign',
+      timestamp: nowIso()
+    });
+  }
+};
+
+export const resendAdminAppCampaign = async (req: Request, res: Response) => {
+  try {
+    const campaignId = asString(req.params.id);
+    if (!campaignId) {
+      return res.status(400).json({
+        success: false,
+        error: 'campaign id is required',
+        timestamp: nowIso()
+      });
+    }
+    const campaigns = await readCampaigns();
+    const existing = campaigns.find((item) => item.id === campaignId);
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'Campaign not found',
+        timestamp: nowIso()
+      });
+    }
+    const payload = isObject(req.body) ? req.body : {};
+    req.body = {
+      ...existing,
+      ...payload,
+      id: existing.id
+    };
+    return sendAdminAppCampaign(req, res);
+  } catch (error: any) {
+    console.error('Failed to resend app campaign:', error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to resend app campaign',
+      timestamp: nowIso()
+    });
+  }
+};
+
 export const sendAdminAppCampaign = async (req: Request, res: Response) => {
   try {
     const payload = isObject(req.body) ? req.body : {};
@@ -790,6 +942,8 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
           : 'none';
     const mediaUrl = asString(payload.mediaUrl);
     const actionUrl = asString(payload.actionUrl);
+    const fallbackPath = buildCampaignFallbackPath(campaignId, targetPlatform);
+    const resolvedActionUrl = actionUrl || fallbackPath;
     const explicitUserIds = Array.isArray(payload.userIds)
       ? payload.userIds.map((value: any) => asString(value)).filter(Boolean)
       : [];
@@ -834,9 +988,11 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
           isRead: false,
           meta: {
             campaignId,
+            campaignName: name,
             mediaType,
             mediaUrl,
-            actionUrl,
+            actionUrl: resolvedActionUrl,
+            action_url: resolvedActionUrl,
             targetPlatform,
             targetRole
           } as any
@@ -851,11 +1007,14 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
           title,
           body,
           message: body,
-          actionUrl,
+          actionUrl: resolvedActionUrl,
           meta: {
             campaignId,
+            campaignName: name,
             mediaType,
-            mediaUrl
+            mediaUrl,
+            actionUrl: resolvedActionUrl,
+            action_url: resolvedActionUrl
           },
           createdAt: nowIso(),
           isRead: false
@@ -872,12 +1031,14 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
           type: 'app_campaign',
           title,
           body,
-          deepLink: actionUrl || undefined,
+          deepLink: resolvedActionUrl || undefined,
           data: {
             campaignId,
+            campaignName: name,
             mediaType,
             mediaUrl,
-            actionUrl
+            actionUrl: resolvedActionUrl,
+            action_url: resolvedActionUrl
           }
         });
         pushSent += Number(result.sent || 0);
@@ -898,7 +1059,7 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
       body,
       mediaType,
       mediaUrl,
-      actionUrl,
+      actionUrl: resolvedActionUrl,
       targetPlatform,
       targetRole,
       deliveryInApp,
