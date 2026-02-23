@@ -9,6 +9,24 @@ const numberValue = (value: any, fallback: number) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+const parseRulesInput = (raw: string) => {
+  const text = String(raw || '').trim();
+  if (!text) return {};
+  const parsed = JSON.parse(text);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Rules must be a valid JSON object.');
+  }
+  return parsed;
+};
+
+const prettyRules = (rules: any) => {
+  try {
+    return JSON.stringify(rules || {}, null, 2);
+  } catch (_error) {
+    return '{}';
+  }
+};
+
 const thisWeekKey = () => {
   const now = new Date();
   const utc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -35,7 +53,15 @@ const InsightsGrowth: React.FC = () => {
     key: '',
     title: '',
     description: '',
-    tier: 'bronze'
+    tier: 'bronze',
+    rulesText: '{\n  "all": []\n}'
+  });
+  const [editingAchievementId, setEditingAchievementId] = useState<string | null>(null);
+  const [editingAchievementDraft, setEditingAchievementDraft] = useState({
+    title: '',
+    description: '',
+    tier: 'bronze',
+    rulesText: '{\n  "all": []\n}'
   });
 
   const loadData = async () => {
@@ -170,13 +196,21 @@ const InsightsGrowth: React.FC = () => {
     }
     setAchievementBusy(true);
     try {
+      const rules = parseRulesInput(newAchievement.rulesText);
       await InsightsService.createAdminAchievement({
         key,
         title,
         description: newAchievement.description || null,
-        tier: newAchievement.tier || 'bronze'
+        tier: newAchievement.tier || 'bronze',
+        rules
       });
-      setNewAchievement({ key: '', title: '', description: '', tier: 'bronze' });
+      setNewAchievement({
+        key: '',
+        title: '',
+        description: '',
+        tier: 'bronze',
+        rulesText: '{\n  "all": []\n}'
+      });
       setAchievements(await InsightsService.getAdminAchievements());
       showNotification('success', 'Achievements', 'Achievement created.');
     } catch (error: any) {
@@ -192,6 +226,51 @@ const InsightsGrowth: React.FC = () => {
       setAchievements(await InsightsService.getAdminAchievements());
     } catch (error: any) {
       showNotification('error', 'Achievements', error?.message || 'Failed to toggle achievement.');
+    }
+  };
+
+  const startEditAchievement = (item: any) => {
+    setEditingAchievementId(String(item.id));
+    setEditingAchievementDraft({
+      title: String(item.title || ''),
+      description: String(item.description || ''),
+      tier: String(item.tier || 'bronze'),
+      rulesText: prettyRules(item.rules || {})
+    });
+  };
+
+  const cancelEditAchievement = () => {
+    setEditingAchievementId(null);
+    setEditingAchievementDraft({
+      title: '',
+      description: '',
+      tier: 'bronze',
+      rulesText: '{\n  "all": []\n}'
+    });
+  };
+
+  const saveEditAchievement = async (id: string) => {
+    const title = String(editingAchievementDraft.title || '').trim();
+    if (!title) {
+      showNotification('warning', 'Achievements', 'Title is required.');
+      return;
+    }
+    setAchievementBusy(true);
+    try {
+      const rules = parseRulesInput(editingAchievementDraft.rulesText);
+      await InsightsService.updateAdminAchievement(id, {
+        title,
+        description: editingAchievementDraft.description || null,
+        tier: editingAchievementDraft.tier || 'bronze',
+        rules
+      });
+      setAchievements(await InsightsService.getAdminAchievements());
+      cancelEditAchievement();
+      showNotification('success', 'Achievements', 'Achievement updated.');
+    } catch (error: any) {
+      showNotification('error', 'Achievements', error?.message || 'Failed to update achievement.');
+    } finally {
+      setAchievementBusy(false);
     }
   };
 
@@ -310,7 +389,6 @@ const InsightsGrowth: React.FC = () => {
           </button>
         </div>
       </section>
-
       <section className="rounded-xl border border-gray-200 bg-white p-5">
         <div className="mb-3 flex items-center justify-between gap-2">
           <h3 className="text-base font-semibold text-gray-900">Achievements</h3>
@@ -356,29 +434,104 @@ const InsightsGrowth: React.FC = () => {
           placeholder="Description (optional)"
           rows={2}
         />
+        <textarea
+          className="mt-2 w-full rounded-md border border-gray-300 px-2 py-1.5 font-mono text-xs"
+          value={newAchievement.rulesText}
+          onChange={(e) => setNewAchievement((prev) => ({ ...prev, rulesText: e.target.value }))}
+          placeholder="Rules JSON"
+          rows={8}
+        />
+        <p className="mt-2 text-xs text-gray-500">
+          Dynamic rules example: <code>{'{ "all": [ { "field": "currentStreakDays", "op": "gte", "value": 7 } ] }'}</code>
+        </p>
 
         <div className="mt-3 space-y-2">
           {achievements.map((item) => (
-            <div key={item.id} className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm">
-              <div className="min-w-0">
-                <p className="truncate font-semibold text-gray-800">{item.title}</p>
-                <p className="truncate text-xs text-gray-500">
-                  {item.key} · {item.tier} · {item.isActive ? 'active' : 'inactive'}
-                </p>
+            <div key={item.id} className="rounded-md border border-gray-200 px-3 py-2 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-gray-800">{item.title}</p>
+                  <p className="truncate text-xs text-gray-500">
+                    {item.key} | {item.tier} | {item.isActive ? 'active' : 'inactive'}
+                  </p>
+                  <p className="mt-1 line-clamp-2 font-mono text-[11px] text-gray-500">{prettyRules(item.rules || {})}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => startEditAchievement(item)}
+                    className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void toggleAchievement(item.id)}
+                    className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700"
+                  >
+                    {item.isActive ? 'Disable' : 'Enable'}
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => void toggleAchievement(item.id)}
-                className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700"
-              >
-                {item.isActive ? 'Disable' : 'Enable'}
-              </button>
+
+              {editingAchievementId === item.id ? (
+                <div className="mt-3 rounded-md border border-blue-100 bg-blue-50/40 p-3">
+                  <div className="grid gap-2 md:grid-cols-3">
+                    <input
+                      className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                      value={editingAchievementDraft.title}
+                      onChange={(e) => setEditingAchievementDraft((prev) => ({ ...prev, title: e.target.value }))}
+                      placeholder="Title"
+                    />
+                    <select
+                      className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                      value={editingAchievementDraft.tier}
+                      onChange={(e) => setEditingAchievementDraft((prev) => ({ ...prev, tier: e.target.value }))}
+                    >
+                      <option value="bronze">bronze</option>
+                      <option value="silver">silver</option>
+                      <option value="gold">gold</option>
+                      <option value="platinum">platinum</option>
+                    </select>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => cancelEditAchievement()}
+                        className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void saveEditAchievement(item.id)}
+                        disabled={achievementBusy}
+                        className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                  <textarea
+                    className="mt-2 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                    value={editingAchievementDraft.description}
+                    onChange={(e) => setEditingAchievementDraft((prev) => ({ ...prev, description: e.target.value }))}
+                    placeholder="Description"
+                    rows={2}
+                  />
+                  <textarea
+                    className="mt-2 w-full rounded-md border border-gray-300 px-2 py-1.5 font-mono text-xs"
+                    value={editingAchievementDraft.rulesText}
+                    onChange={(e) => setEditingAchievementDraft((prev) => ({ ...prev, rulesText: e.target.value }))}
+                    placeholder="Rules JSON"
+                    rows={8}
+                  />
+                </div>
+              ) : null}
             </div>
           ))}
           {achievements.length === 0 ? <p className="text-xs text-gray-500">No achievements yet.</p> : null}
         </div>
       </section>
-
       <section className="rounded-xl border border-gray-200 bg-white p-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-base font-semibold text-gray-900">Weekly Leaderboard</h3>
@@ -434,3 +587,4 @@ const InsightsGrowth: React.FC = () => {
 };
 
 export default InsightsGrowth;
+
