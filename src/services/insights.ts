@@ -6,6 +6,19 @@ const extractData = <T>(response: any): T => {
   return response as T;
 };
 
+const normalizeSkillGapPayload = (payload: any) => {
+  if (!payload || typeof payload !== 'object') return null;
+  if (payload.report && typeof payload.report === 'object') {
+    return {
+      ...payload.report,
+      reportId: payload.id || payload.reportId || null,
+      createdAt: payload.createdAt || payload.report?.createdAt || null,
+      generatedBy: payload.generatedBy || payload.report?.generatedBy || null
+    };
+  }
+  return payload;
+};
+
 export type FeedMode = 'growth' | 'opportunity' | 'network' | 'learning';
 
 export type ProfessionalScore = {
@@ -58,12 +71,12 @@ class InsightsService {
 
   static async generateSkillGap(): Promise<any> {
     const response = await api.post('/insights/skill-gap/generate', {});
-    return extractData<any>(response);
+    return normalizeSkillGapPayload(extractData<any>(response));
   }
 
   static async getSkillGap(): Promise<any> {
     const response = await api.get('/insights/skill-gap/me');
-    return extractData<any>(response);
+    return normalizeSkillGapPayload(extractData<any>(response));
   }
 
   static async setFeedMode(mode: FeedMode): Promise<any> {
