@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import * as jwt from 'jsonwebtoken';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
-import { sendPushToUser } from '../services/pushNotifications';
+import { isPushEnabled, sendPushToUser } from '../services/pushNotifications';
 
 const APP_DISTRIBUTION_SCOPE = 'app_distribution';
 const APP_CAMPAIGNS_SCOPE = 'app_distribution_campaigns';
@@ -38,6 +38,9 @@ type CampaignRecord = {
   totalPushSent: number;
   totalPushFailed: number;
   totalNotificationsCreated: number;
+  lastPushEligibleUsers: number;
+  lastPushSkippedUsers: number;
+  lastPushDisabled: boolean;
   lastSentAt: string | null;
 };
 
@@ -306,6 +309,9 @@ const normalizeCampaignRecord = (raw: any): CampaignRecord => {
     totalPushSent: asNumber(raw?.totalPushSent, 0, 0),
     totalPushFailed: asNumber(raw?.totalPushFailed, 0, 0),
     totalNotificationsCreated: asNumber(raw?.totalNotificationsCreated, 0, 0),
+    lastPushEligibleUsers: asNumber(raw?.lastPushEligibleUsers, 0, 0),
+    lastPushSkippedUsers: asNumber(raw?.lastPushSkippedUsers, 0, 0),
+    lastPushDisabled: asBoolean(raw?.lastPushDisabled, false),
     lastSentAt: asString(raw?.lastSentAt) || null
   };
 };
@@ -377,6 +383,38 @@ const resolveCampaignRecipients = async (payload: {
     if (!platforms || platforms.size === 0) return false;
     return !platforms.has('android') || platforms.has('web') || platforms.has('desktop');
   });
+};
+
+const matchesPushTargetPlatform = (
+  tokenPlatformInput: unknown,
+  targetPlatform: 'all' | 'android' | 'desktop'
+) => {
+  const tokenPlatform = asString(tokenPlatformInput).toLowerCase();
+  if (!tokenPlatform) return false;
+  if (targetPlatform === 'all') return true;
+  if (targetPlatform === 'android') {
+    return tokenPlatform === 'android' || tokenPlatform === 'ios';
+  }
+  // Desktop/web bucket.
+  return tokenPlatform === 'web' || tokenPlatform === 'desktop' || tokenPlatform === 'browser';
+};
+
+const resolvePushRecipientUserIds = async (
+  userIds: string[],
+  targetPlatform: 'all' | 'android' | 'desktop'
+) => {
+  if (!userIds.length) return [];
+  const tokens = await prisma.deviceToken.findMany({
+    where: { userId: { in: userIds } },
+    select: { userId: true, platform: true }
+  });
+  const eligible = new Set<string>();
+  tokens.forEach((token) => {
+    if (matchesPushTargetPlatform(token.platform, targetPlatform)) {
+      eligible.add(token.userId);
+    }
+  });
+  return userIds.filter((id) => eligible.has(id));
 };
 
 export const getPublicAppDistributionConfig = async (_req: Request, res: Response) => {
@@ -769,6 +807,21 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
       });
     }
 
+    const pushEnabled = deliveryPush ? isPushEnabled() : false;
+    if (deliveryPush && !deliveryInApp && !pushEnabled) {
+      return res.status(503).json({
+        success: false,
+        error: 'Push delivery is unavailable. Configure Firebase credentials first.',
+        timestamp: nowIso()
+      });
+    }
+    const pushRecipientIds = deliveryPush
+      ? await resolvePushRecipientUserIds(recipients, targetPlatform)
+      : [];
+    const pushSkippedUsers = deliveryPush
+      ? Math.max(0, recipients.length - pushRecipientIds.length)
+      : 0;
+
     let notificationsCreated = 0;
     if (deliveryInApp) {
       const created = await prisma.notification.createMany({
@@ -812,8 +865,8 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
 
     let pushSent = 0;
     let pushFailed = 0;
-    if (deliveryPush) {
-      for (const userId of recipients) {
+    if (deliveryPush && pushEnabled && pushRecipientIds.length) {
+      for (const userId of pushRecipientIds) {
         const result = await sendPushToUser(userId, {
           id: campaignId,
           type: 'app_campaign',
@@ -830,6 +883,8 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
         pushSent += Number(result.sent || 0);
         pushFailed += Number(result.failed || 0);
       }
+    } else if (deliveryPush && !pushEnabled && pushRecipientIds.length) {
+      pushFailed += pushRecipientIds.length;
     }
 
     const now = nowIso();
@@ -857,6 +912,9 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
       totalPushFailed: Number(existing?.totalPushFailed || 0) + pushFailed,
       totalNotificationsCreated:
         Number(existing?.totalNotificationsCreated || 0) + notificationsCreated,
+      lastPushEligibleUsers: pushRecipientIds.length,
+      lastPushSkippedUsers: pushSkippedUsers,
+      lastPushDisabled: deliveryPush && !pushEnabled,
       lastSentAt: now
     });
 
@@ -869,6 +927,9 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
     emitAdminEvent(req, 'apps:campaign_sent', {
       campaignId,
       recipients: recipients.length,
+      pushEligibleUsers: pushRecipientIds.length,
+      pushSkippedUsers,
+      pushEnabled,
       pushSent,
       pushFailed
     });
@@ -882,6 +943,9 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
         campaign: updatedCampaign,
         recipients: recipients.length,
         notificationsCreated,
+        pushEligibleUsers: pushRecipientIds.length,
+        pushSkippedUsers,
+        pushEnabled,
         pushSent,
         pushFailed
       },
