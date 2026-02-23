@@ -411,13 +411,24 @@ const AppContent = () => {
   }, [navigate]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
     let isCancelled = false;
-    const bootstrapPush = async () => {
+    const bootstrapNativePush = async () => {
       await initPushNotifications((path) => navigate(path, { replace: true }));
       if (!isCancelled) {
         await syncStoredPushToken();
       }
+    };
+    void bootstrapNativePush();
+    return () => {
+      isCancelled = true;
+    };
+  }, [navigate]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let isCancelled = false;
+    const bootstrapPush = async () => {
+      if (!isCancelled) await syncStoredPushToken();
     };
     void bootstrapPush();
     return () => {
