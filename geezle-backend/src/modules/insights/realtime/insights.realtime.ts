@@ -9,9 +9,12 @@ const emitToSockets = (app: Application | undefined, eventName: string, payload:
   const io = app.get('io');
   const communityNs = app.get('communityNs');
   try {
-    io?.emit(eventName, payload);
-    communityNs?.emit(eventName, payload);
-    if (payload.userId) {
+    const hasTargetUser = Boolean(String(payload.userId || '').trim());
+    if (!hasTargetUser) {
+      io?.emit(eventName, payload);
+      communityNs?.emit(eventName, payload);
+    }
+    if (hasTargetUser) {
       io?.to(payload.userId).emit(eventName, payload);
       communityNs?.to(`community:user:${payload.userId}`).emit(eventName, payload);
       communityNs?.to(payload.userId).emit(eventName, payload);
@@ -39,4 +42,3 @@ export const emitInsightsEvent = (
     emittedAt: new Date().toISOString()
   });
 };
-

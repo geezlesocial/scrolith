@@ -680,6 +680,7 @@ export const refreshOpportunityMatchesForUser = async (input: {
   userId: string;
   type?: unknown;
   app?: Application;
+  emitEvent?: boolean;
 }) => {
   const user = await prisma.user.findUnique({
     where: { id: input.userId },
@@ -794,11 +795,13 @@ export const refreshOpportunityMatchesForUser = async (input: {
     }
   });
 
-  emitInsightsEvent(input.app, 'insights:opportunity_match_ready', {
-    userId: user.id,
-    total: sorted.length,
-    types
-  });
+  if (input.emitEvent !== false) {
+    emitInsightsEvent(input.app, 'insights:opportunity_match_ready', {
+      userId: user.id,
+      total: sorted.length,
+      types
+    });
+  }
 
   return { total: sorted.length, items: sorted };
 };
@@ -854,7 +857,7 @@ export const getOpportunityMatches = async (input: {
     take: 50
   });
   if (!rows.length) {
-    await refreshOpportunityMatchesForUser({ userId: input.userId, type: filterType, app: input.app });
+    await refreshOpportunityMatchesForUser({ userId: input.userId, type: filterType, app: input.app, emitEvent: false });
     rows = await prisma.opportunityMatch.findMany({
       where: {
         userId: input.userId,
