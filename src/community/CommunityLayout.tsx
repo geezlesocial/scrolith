@@ -21,7 +21,7 @@ const CommunityLayout = () => {
 
     const moreItems = [
         { label: 'Contributors', path: '/community/leaderboard', icon: Users },
-        { label: 'Content', path: '/community/content', icon: BookOpen },
+        { label: 'Knowledge Hub', path: '/community/resources', icon: BookOpen },
         { label: 'Help', path: '/support', icon: HelpCircle },
     ];
 

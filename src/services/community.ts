@@ -161,6 +161,11 @@ class CommunityService {
     return extractData<any>(response);
   }
 
+  static async put(endpoint: string, data: any) {
+    const response = await api.put(endpoint, data);
+    return extractData<any>(response);
+  }
+
   static async toggleSetting(settingName: string, value: boolean): Promise<CommunitySettings> {
     const keyMap: Record<string, string> = {
       requireLoginToView: 'require_login_to_view',
@@ -334,7 +339,26 @@ class CommunityService {
 
   static async getEvents(): Promise<CommunityEvent[]> {
     const data = await this.get('/community/events');
-    return Array.isArray(data) ? data : [];
+    if (!Array.isArray(data)) return [];
+    return data.map((event: any) => ({
+      id: String(event?.id || ''),
+      title: String(event?.title || ''),
+      description: String(event?.description || ''),
+      start_time: String(event?.start_time || event?.startTime || ''),
+      startTime: String(event?.startTime || event?.start_time || ''),
+      end_time: String(event?.end_time || event?.endTime || ''),
+      endTime: String(event?.endTime || event?.end_time || ''),
+      type: String(event?.type || 'workshop').toLowerCase(),
+      host_name: String(event?.host_name || event?.hostName || 'Community host'),
+      hostName: String(event?.hostName || event?.host_name || 'Community host'),
+      attendees: Number(event?.attendees ?? event?.attendeeCount ?? event?.attendee_count ?? 0),
+      image: String(event?.image || ''),
+      is_registered: Boolean(event?.is_registered ?? event?.isRegistered),
+      isRegistered: Boolean(event?.isRegistered ?? event?.is_registered),
+      location: String(event?.location || ''),
+      max_attendees: event?.max_attendees ?? event?.maxAttendees ?? null,
+      maxAttendees: event?.maxAttendees ?? event?.max_attendees ?? null
+    })) as CommunityEvent[];
   }
 
   static async registerEvent(eventId: string): Promise<boolean> {
@@ -357,6 +381,37 @@ class CommunityService {
     return Boolean(response?.success);
   }
 
+  static async createEvent(data: {
+    title: string;
+    description: string;
+    startTime: string;
+    endTime: string;
+    type?: 'workshop' | 'meetup' | 'webinar';
+    location?: string;
+    maxAttendees?: number | null;
+    image?: string;
+  }): Promise<CommunityEvent | null> {
+    const response = await this.post('/community/events', data);
+    return response || null;
+  }
+
+  static async updateEvent(
+    eventId: string,
+    data: Partial<{
+      title: string;
+      description: string;
+      startTime: string;
+      endTime: string;
+      type: 'workshop' | 'meetup' | 'webinar';
+      location: string;
+      maxAttendees: number | null;
+      image: string;
+    }>
+  ): Promise<CommunityEvent | null> {
+    const response = await this.put(`/community/events/${eventId}`, data);
+    return response || null;
+  }
+
   static async getTopContributors(limit: number = 5): Promise<ContributorProfile[]> {
     const data = await this.get(`/community/contributors?limit=${limit}`);
     return Array.isArray(data) ? data : [];
@@ -365,6 +420,29 @@ class CommunityService {
   static async getLeaderboard(period: 'weekly' | 'monthly' | 'all-time'): Promise<LeaderboardEntry[]> {
     const data = await this.get(`/community/leaderboard?period=${period}`);
     return Array.isArray(data) ? data : [];
+  }
+
+  static async getCommunityStats(): Promise<{
+    members: number;
+    discussions: number;
+    topics: number;
+    events: number;
+    posts?: number;
+    comments?: number;
+    contributors?: number;
+    generatedAt?: string;
+  }> {
+    const data = await this.get('/community/stats');
+    return {
+      members: Number(data?.members ?? data?.members_count ?? 0),
+      discussions: Number(data?.discussions ?? data?.discussions_count ?? 0),
+      topics: Number(data?.topics ?? data?.topics_count ?? 0),
+      events: Number(data?.events ?? data?.events_count ?? 0),
+      posts: Number(data?.posts ?? data?.posts_count ?? 0),
+      comments: Number(data?.comments ?? data?.comments_count ?? 0),
+      contributors: Number(data?.contributors ?? data?.contributors_count ?? 0),
+      generatedAt: String(data?.generatedAt || data?.generated_at || '')
+    };
   }
 
   // Community feed posts (CommunityPost)

@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { TrendingUp, Calendar, Award, MessageCircle, Filter, Search, Plus, Camera as CameraIcon, X, Heart } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
-import { CMSService } from '../services/cms';
 import DonateButton from '../components/DonateButton';
 import { CommunityService } from '../services/community';
 import { AdService } from '../services/ads';
@@ -30,6 +29,28 @@ const inferMediaType = (media: { url?: string; mimeType?: string; type?: string 
   if (/\.(mp4|webm|mov|m4v|ogg)$/.test(url)) return 'video';
   if (/\.(png|jpe?g|gif|webp|svg)$/.test(url)) return 'image';
   return 'document';
+};
+
+const formatRelativeTime = (value: string | Date | null | undefined) => {
+  if (!value) return 'recently';
+  const timestamp = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return 'recently';
+  const diff = Date.now() - timestamp;
+  const minutes = Math.max(1, Math.floor(diff / 60000));
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(timestamp).toLocaleDateString();
+};
+
+const formatCompactCount = (value: unknown) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return '0';
+  if (numeric >= 1_000_000) return `${(numeric / 1_000_000).toFixed(1).replace(/\.0$/, '')}M+`;
+  if (numeric >= 1_000) return `${(numeric / 1_000).toFixed(1).replace(/\.0$/, '')}k+`;
+  return String(Math.trunc(numeric));
 };
 
 type ViewportDevice = 'mobile' | 'tablet' | 'desktop';
@@ -177,6 +198,12 @@ const CommunityHome = () => {
   const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
   const [topContributors, setTopContributors] = useState<any[]>([]);
   const [discussions, setDiscussions] = useState<any[]>([]);
+  const [communityStats, setCommunityStats] = useState({
+    members: 0,
+    discussions: 0,
+    topics: 0,
+    events: 0
+  });
   const [posts, setPosts] = useState<any[]>([]);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
@@ -405,38 +432,104 @@ const CommunityHome = () => {
   }, [sortPosts, syncCommentCount]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const loadCommunityOverview = async () => {
+      const [tagList, eventList, contributorList, threadList, stats] = await Promise.all([
+        CommunityService.getTrendingTags(10, 14),
+        CommunityService.getEvents(),
+        CommunityService.getTopContributors(6),
+        CommunityService.getThreads({ limit: 8 }),
+        CommunityService.getCommunityStats()
+      ]);
+
+      if (cancelled) return;
+
+      const mappedTopics = (Array.isArray(tagList) ? tagList : []).map((topic: any, index: number) => {
+        const slug = String(topic?.slug || topic?.tag || topic?.name || '').trim();
+        const titleSeed = String(topic?.label || topic?.name || slug || '').trim();
+        return {
+          id: String(topic?.id || slug || `topic-${index + 1}`),
+          slug,
+          title: titleSeed
+            ? titleSeed
+                .split('-')
+                .filter(Boolean)
+                .map((part: string) => part.charAt(0).toUpperCase() + part.slice(1))
+                .join(' ')
+            : `Topic ${index + 1}`,
+          count: Number(topic?.posts ?? topic?.postCount ?? topic?.postsCount ?? topic?.count ?? 0)
+        };
+      });
+
+      const mappedEvents = (Array.isArray(eventList) ? eventList : []).map((event: any, index: number) => {
+        const startTime = event?.startTime || event?.start_time || null;
+        const date = startTime ? new Date(startTime) : null;
+        return {
+          id: String(event?.id || `event-${index + 1}`),
+          title: String(event?.title || 'Community event'),
+          date:
+            date && Number.isFinite(date.getTime())
+              ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+              : 'Upcoming',
+          startTime: startTime || '',
+          attendees: Number(event?.attendees ?? event?.attendeeCount ?? event?.attendee_count ?? 0),
+          location: String(event?.location || ''),
+          type: String(event?.type || '')
+        };
+      });
+
+      const mappedContributors = (Array.isArray(contributorList) ? contributorList : []).map((contributor: any, index: number) => {
+        const followers = Number(contributor?.followersCount ?? contributor?.followers_count ?? 0);
+        const postsCount = Number(contributor?.postsCount ?? contributor?.posts_count ?? 0);
+        const reputation = Math.max(0, followers * 2 + postsCount * 5);
+        const name =
+          contributor?.name ||
+          contributor?.userName ||
+          contributor?.user_name ||
+          contributor?.username ||
+          `Contributor ${index + 1}`;
+        return {
+          id: String(contributor?.id || contributor?.userId || contributor?.user_id || `contributor-${index + 1}`),
+          name: String(name),
+          reputation,
+          followers,
+          postsCount,
+          avatar: String(contributor?.avatar || contributor?.userAvatar || contributor?.user_avatar || '')
+        };
+      });
+
+      const mappedDiscussions = (Array.isArray(threadList) ? threadList : []).map((thread: any, index: number) => ({
+        id: String(thread?.id || `thread-${index + 1}`),
+        title: String(thread?.title || 'Discussion'),
+        author: String(thread?.userName || thread?.user_name || 'Community member'),
+        lastReply: formatRelativeTime(thread?.createdAt || thread?.created_at),
+        replies: Number(thread?.repliesCount ?? thread?.replies_count ?? thread?.interactions?.comments ?? 0)
+      }));
+
+      setTrendingTopics(mappedTopics);
+      setUpcomingEvents(mappedEvents);
+      setTopContributors(mappedContributors);
+      setDiscussions(mappedDiscussions);
+      setCommunityStats({
+        members: Number(stats?.members || 0),
+        discussions: Number(stats?.discussions || 0),
+        topics: Number(stats?.topics || 0),
+        events: Number(stats?.events || 0)
+      });
+    };
+
     const fetchData = async () => {
       try {
         setStoriesLoading(true);
-        // Add small delays to prevent rate limiting
-        await new Promise(resolve => setTimeout(resolve, 200));
-        const topics = await CMSService.getTrendingTopics();
-        
-        await new Promise(resolve => setTimeout(resolve, 200));
-        const events = await CMSService.getUpcomingEvents();
-        
-        await new Promise(resolve => setTimeout(resolve, 200));
-        const contributors = await CMSService.getTopContributors();
-        
-        await new Promise(resolve => setTimeout(resolve, 200));
-        const discussions = await CMSService.getDiscussions();
-
-        await new Promise(resolve => setTimeout(resolve, 200));
-        const feedPosts = await CommunityService.getPosts({ limit: 20 });
-        
-        await new Promise(resolve => setTimeout(resolve, 200));
-        const ads = await AdService.getAds(user?.role);
-
-        await new Promise(resolve => setTimeout(resolve, 200));
-        const homepageConfig = await CommunityService.getCommunityHomepage();
-
-        await new Promise(resolve => setTimeout(resolve, 200));
-        const storiesFeed = await CommunityService.getStoriesFeed();
-
-        setTrendingTopics(topics);
-        setUpcomingEvents(events);
-        setTopContributors(contributors);
-        setDiscussions(discussions);
+        const [feedPosts, ads, homepageConfig, storiesFeed] = await Promise.all([
+          CommunityService.getPosts({ limit: 20 }),
+          AdService.getAds(user?.role),
+          CommunityService.getCommunityHomepage(),
+          CommunityService.getStoriesFeed(),
+          loadCommunityOverview()
+        ]);
+        if (cancelled) return;
         const normalizedPosts = sortPosts((Array.isArray(feedPosts) ? feedPosts : []).map(normalizePost));
         setPosts(normalizedPosts);
         const followSeed: Record<string, boolean> = {};
@@ -456,6 +549,7 @@ const CommunityHome = () => {
         if (authorIds.size && user?.id) {
           try {
             const statusMap = await CommunityService.getFollowStatus(Array.from(authorIds));
+            if (cancelled) return;
             setFollowStatuses(statusMap);
           } catch (error) {
             console.warn('Failed to hydrate follow status map for community posts:', error);
@@ -482,27 +576,39 @@ const CommunityHome = () => {
         setHomepage(null);
         setStories([]);
       } finally {
-        setStoriesLoading(false);
-        setLoading(false);
+        if (!cancelled) {
+          setStoriesLoading(false);
+          setLoading(false);
+        }
       }
     };
 
     fetchData();
+
+    const refreshCommunityOverview = () => {
+      loadCommunityOverview().catch((error) => {
+        console.error('Failed to refresh community overview:', error);
+      });
+    };
+
     const onAdEvent = async () => {
       try {
         const newAds = await AdService.getAds(user?.role);
+        if (cancelled) return;
         setAds(newAds);
       } catch (e) { console.error('Failed to refresh ads on event', e); }
     };
     const onHomepageUpdate = async () => {
       try {
         const updated = await CommunityService.getCommunityHomepage();
+        if (cancelled) return;
         setHomepage(updated);
       } catch (e) { console.error('Failed to refresh homepage config', e); }
     };
     const onStoryUpdate = async () => {
       try {
         const updated = await CommunityService.getStoriesFeed();
+        if (cancelled) return;
         setStories(filterActiveStories(Array.isArray(updated) ? updated : []));
       } catch (e) { console.error('Failed to refresh stories', e); }
     };
@@ -551,7 +657,18 @@ const CommunityHome = () => {
     window.addEventListener('community:story_deleted', onStoryUpdate as EventListener);
     window.addEventListener('community:story_updated', onStoryUpdated as EventListener);
     window.addEventListener('community:story_liked', onStoryLiked as EventListener);
+    window.addEventListener('community:event_registered', refreshCommunityOverview as EventListener);
+    window.addEventListener('community:event_unregistered', refreshCommunityOverview as EventListener);
+    window.addEventListener('community:event_created', refreshCommunityOverview as EventListener);
+    window.addEventListener('community:event_updated', refreshCommunityOverview as EventListener);
+    window.addEventListener('community:event_deleted', refreshCommunityOverview as EventListener);
+    window.addEventListener('community:stats_updated', refreshCommunityOverview as EventListener);
+    window.addEventListener('community:thread_created', refreshCommunityOverview as EventListener);
+    window.addEventListener('community:thread_deleted', refreshCommunityOverview as EventListener);
+    window.addEventListener('community:comment_created', refreshCommunityOverview as EventListener);
+
     return () => {
+      cancelled = true;
       window.removeEventListener('community:ad_status_updated', onAdEvent as EventListener);
       window.removeEventListener('community:ad_created', onAdEvent as EventListener);
       window.removeEventListener('community:homepage_updated', onHomepageUpdate as EventListener);
@@ -559,6 +676,15 @@ const CommunityHome = () => {
       window.removeEventListener('community:story_deleted', onStoryUpdate as EventListener);
       window.removeEventListener('community:story_updated', onStoryUpdated as EventListener);
       window.removeEventListener('community:story_liked', onStoryLiked as EventListener);
+      window.removeEventListener('community:event_registered', refreshCommunityOverview as EventListener);
+      window.removeEventListener('community:event_unregistered', refreshCommunityOverview as EventListener);
+      window.removeEventListener('community:event_created', refreshCommunityOverview as EventListener);
+      window.removeEventListener('community:event_updated', refreshCommunityOverview as EventListener);
+      window.removeEventListener('community:event_deleted', refreshCommunityOverview as EventListener);
+      window.removeEventListener('community:stats_updated', refreshCommunityOverview as EventListener);
+      window.removeEventListener('community:thread_created', refreshCommunityOverview as EventListener);
+      window.removeEventListener('community:thread_deleted', refreshCommunityOverview as EventListener);
+      window.removeEventListener('community:comment_created', refreshCommunityOverview as EventListener);
     };
   }, [applyStoryUpdate, filterActiveStories, normalizePost, sortPosts, user?.id, user?.role]);
 
@@ -1341,7 +1467,11 @@ const CommunityHome = () => {
                 </div>
                 <div className="space-y-3">
                   {trendingTopics.map((topic) => (
-                    <Link key={topic.id} to={`/community/topic/${topic.id}`} className="block p-3 hover:bg-gray-50 rounded-lg transition-colors">
+                    <Link
+                      key={topic.id}
+                      to={topic.slug ? `/community/forum?topic=${encodeURIComponent(topic.slug)}` : '/community/forum'}
+                      className="block p-3 hover:bg-gray-50 rounded-lg transition-colors"
+                    >
                       <div className="font-medium">{topic.title}</div>
                       <div className="text-sm text-gray-500">{topic.count} posts</div>
                     </Link>
@@ -1882,7 +2012,7 @@ const CommunityHome = () => {
               </div>
               <div className="divide-y divide-gray-200">
                 {discussions.map((discussion) => (
-                  <Link key={discussion.id} to={`/community/discussion/${discussion.id}`} className="block p-4 hover:bg-gray-50 transition-colors">
+                  <Link key={discussion.id} to={`/community/thread/${discussion.id}`} className="block p-4 hover:bg-gray-50 transition-colors">
                     <div className="flex justify-between items-start">
                       <div>
                         <h3 className="font-medium text-gray-900">{discussion.title}</h3>
@@ -1912,7 +2042,7 @@ const CommunityHome = () => {
             <div className="bg-white rounded-xl shadow-sm p-6">
               <h2 className="text-lg font-bold mb-4">{getModuleTitle(modules, 'quickActions', 'Quick Actions')}</h2>
               <div className="space-y-3">
-                <Link to="/community/new-topic" className="block w-full text-center bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700">
+                <Link to="/community/forum?create=1" className="block w-full text-center bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700">
                   Start Discussion
                 </Link>
                 <Link to="/community/gcoin" className="block w-full text-center bg-yellow-500 text-white py-2 px-4 rounded-lg hover:bg-yellow-600">
@@ -1979,19 +2109,19 @@ const CommunityHome = () => {
               <h2 className="text-lg font-bold mb-4">{getModuleTitle(modules, 'stats', 'Community Stats')}</h2>
               <div className="grid grid-cols-2 gap-4">
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-600">10k+</div>
+                  <div className="text-2xl font-bold text-blue-600">{formatCompactCount(communityStats.members)}</div>
                   <div className="text-sm text-gray-500">Members</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-green-600">50k+</div>
+                  <div className="text-2xl font-bold text-green-600">{formatCompactCount(communityStats.discussions)}</div>
                   <div className="text-sm text-gray-500">Discussions</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-purple-600">2k+</div>
+                  <div className="text-2xl font-bold text-purple-600">{formatCompactCount(communityStats.topics)}</div>
                   <div className="text-sm text-gray-500">Topics</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-yellow-600">500+</div>
+                  <div className="text-2xl font-bold text-yellow-600">{formatCompactCount(communityStats.events)}</div>
                   <div className="text-sm text-gray-500">Events</div>
                 </div>
               </div>

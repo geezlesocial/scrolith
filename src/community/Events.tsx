@@ -1,111 +1,382 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CommunityService } from '../services/community';
 import { CommunityEvent, UserRole } from '../types';
-import { Clock, Video, CheckCircle, Trash2 } from 'lucide-react';
+import { CalendarDays, CheckCircle, Clock, MapPin, Plus, Trash2, Users } from 'lucide-react';
 import { useNotification } from '../context/NotificationContext';
 import { useUser } from '../context/UserContext';
 
+type EventFormState = {
+  title: string;
+  description: string;
+  startTime: string;
+  endTime: string;
+  type: 'workshop' | 'meetup' | 'webinar';
+  location: string;
+  maxAttendees: string;
+  image: string;
+};
+
+const INITIAL_FORM: EventFormState = {
+  title: '',
+  description: '',
+  startTime: '',
+  endTime: '',
+  type: 'workshop',
+  location: '',
+  maxAttendees: '',
+  image: ''
+};
+
+const resolveEventDate = (event: CommunityEvent) => {
+  const raw = String(event.startTime || event.start_time || '');
+  const date = new Date(raw);
+  return Number.isFinite(date.getTime()) ? date : null;
+};
+
+const resolveEventEndDate = (event: CommunityEvent) => {
+  const raw = String(event.endTime || event.end_time || '');
+  const date = new Date(raw);
+  return Number.isFinite(date.getTime()) ? date : null;
+};
+
 const Events = () => {
-    const [events, setEvents] = useState<CommunityEvent[]>([]);
-    const { showNotification } = useNotification();
-    const { user } = useUser();
-    const isAdmin = user?.role === UserRole.ADMIN;
+  const [events, setEvents] = useState<CommunityEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [form, setForm] = useState<EventFormState>(INITIAL_FORM);
+  const { showNotification } = useNotification();
+  const { user } = useUser();
+  const isAdmin = user?.role === UserRole.ADMIN;
 
-    useEffect(() => {
-        loadEvents();
-    }, []);
+  const loadEvents = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await CommunityService.getEvents();
+      setEvents(Array.isArray(data) ? data : []);
+    } catch (error: any) {
+      showNotification('error', 'Events', error?.message || 'Failed to load events');
+    } finally {
+      setLoading(false);
+    }
+  }, [showNotification]);
 
-    const loadEvents = async () => {
-        const data = await CommunityService.getEvents();
-        setEvents(data);
+  useEffect(() => {
+    loadEvents();
+  }, [loadEvents]);
+
+  useEffect(() => {
+    const refresh = () => {
+      loadEvents().catch((error) => {
+        console.error('Event refresh failed:', error);
+      });
     };
+    window.addEventListener('community:event_registered', refresh as EventListener);
+    window.addEventListener('community:event_unregistered', refresh as EventListener);
+    window.addEventListener('community:event_created', refresh as EventListener);
+    window.addEventListener('community:event_updated', refresh as EventListener);
+    window.addEventListener('community:event_deleted', refresh as EventListener);
+    return () => {
+      window.removeEventListener('community:event_registered', refresh as EventListener);
+      window.removeEventListener('community:event_unregistered', refresh as EventListener);
+      window.removeEventListener('community:event_created', refresh as EventListener);
+      window.removeEventListener('community:event_updated', refresh as EventListener);
+      window.removeEventListener('community:event_deleted', refresh as EventListener);
+    };
+  }, [loadEvents]);
 
-    const handleRegister = async (event: CommunityEvent) => {
-        if (event.isRegistered) return;
+  const sortedEvents = useMemo(() => {
+    return [...events].sort((a, b) => {
+      const aTime = resolveEventDate(a)?.getTime() || 0;
+      const bTime = resolveEventDate(b)?.getTime() || 0;
+      return aTime - bTime;
+    });
+  }, [events]);
+
+  const resetForm = () => {
+    setForm(INITIAL_FORM);
+  };
+
+  const handleToggleRegistration = async (event: CommunityEvent) => {
+    try {
+      const isRegistered = Boolean(event.isRegistered ?? event.is_registered);
+      if (isRegistered) {
+        await CommunityService.unregisterEvent(event.id);
+        showNotification('success', 'Event', `You left ${event.title}`);
+      } else {
         await CommunityService.registerEvent(event.id);
-        setEvents(prev => prev.map(e => e.id === event.id ? { ...e, isRegistered: true, attendees: e.attendees + 1 } : e));
-        showNotification('success', 'Registered', `You are booked for ${event.title}`);
-    };
+        showNotification('success', 'Event', `You are registered for ${event.title}`);
+      }
+      await loadEvents();
+    } catch (error: any) {
+      showNotification('error', 'Event', error?.message || 'Unable to update registration');
+    }
+  };
 
-    const handleDelete = async (id: string) => {
-        if (confirm("Are you sure you want to cancel and delete this event?")) {
-            await CommunityService.deleteEvent(id);
-            showNotification('success', 'Deleted', 'Event cancelled and removed.');
-            loadEvents();
-        }
-    };
+  const handleDelete = async (id: string) => {
+    const accepted = window.confirm('Delete this event? This action cannot be undone.');
+    if (!accepted) return;
+    try {
+      await CommunityService.deleteEvent(id);
+      showNotification('success', 'Event', 'Event deleted');
+      await loadEvents();
+    } catch (error: any) {
+      showNotification('error', 'Event', error?.message || 'Failed to delete event');
+    }
+  };
 
-    return (
-        <div className="space-y-6">
-            <h1 className="text-2xl font-bold text-gray-900">Upcoming Events</h1>
-            
-            <div className="space-y-4">
-                {events.map(event => (
-                    <div key={event.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row gap-6 hover:border-indigo-200 transition-all group relative">
-                        {/* Admin Control */}
-                        {isAdmin && (
-                            <button 
-                                onClick={() => handleDelete(event.id)}
-                                className="absolute top-4 right-4 z-10 p-1.5 bg-white border border-gray-200 text-gray-400 hover:text-red-600 rounded-md shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
-                                title="Admin: Delete Event"
-                            >
-                                <Trash2 className="w-4 h-4" />
-                            </button>
-                        )}
+  const handleCreate = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const start = new Date(form.startTime);
+    const end = new Date(form.endTime);
+    if (!form.title.trim() || !form.description.trim()) {
+      showNotification('error', 'Event', 'Title and description are required');
+      return;
+    }
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) {
+      showNotification('error', 'Event', 'Please provide valid start and end times');
+      return;
+    }
 
-                        <div className="w-full md:w-56 h-36 flex-shrink-0 bg-gray-100 rounded-lg overflow-hidden relative">
-                             <img src={event.image} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                             <div className="absolute top-2 left-2 bg-white/90 backdrop-blur px-2 py-1 rounded text-xs font-bold text-gray-900 flex flex-col items-center shadow-sm">
-                                 <span className="text-red-600">{new Date(event.startTime).toLocaleString('default', { month: 'short' }).toUpperCase()}</span>
-                                 <span className="text-lg leading-none">{new Date(event.startTime).getDate()}</span>
-                             </div>
-                        </div>
-                        <div className="flex-1">
-                            <div className="flex flex-col sm:flex-row justify-between items-start gap-2">
-                                <div>
-                                    <span className="text-xs font-bold text-indigo-600 uppercase tracking-wide bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">{event.type}</span>
-                                    <h3 className="text-xl font-bold text-gray-900 mt-2 mb-1">{event.title}</h3>
-                                    <p className="text-sm text-gray-500 mb-1">Hosted by {event.hostName}</p>
-                                </div>
-                                {event.isRegistered && (
-                                    <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold flex items-center border border-green-200">
-                                        <CheckCircle className="w-3 h-3 mr-1" /> Registered
-                                    </span>
-                                )}
-                            </div>
-                            <p className="text-gray-600 mt-3 mb-4 text-sm line-clamp-2">{event.description}</p>
-                            
-                            <div className="flex flex-wrap gap-4 text-sm text-gray-500 mt-auto pt-3 border-t border-gray-100">
-                                <div className="flex items-center">
-                                    <Clock className="w-4 h-4 mr-1.5 text-gray-400" />
-                                    {new Date(event.startTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                </div>
-                                <div className="flex items-center">
-                                    <Video className="w-4 h-4 mr-1.5 text-gray-400" />
-                                    Online Event
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex flex-col justify-center items-end min-w-[140px] border-l border-gray-100 pl-6 md:pl-0 md:border-l-0">
-                            <div className="text-sm text-gray-500 mb-3 font-medium">{event.attendees} attending</div>
-                            <button 
-                                onClick={() => handleRegister(event)}
-                                disabled={event.isRegistered}
-                                className={`w-full py-2.5 px-4 rounded-lg font-bold transition-all shadow-sm ${
-                                    event.isRegistered 
-                                    ? 'bg-gray-100 text-gray-500 cursor-default border border-gray-200' 
-                                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                                }`}
-                            >
-                                {event.isRegistered ? 'Ticket Confirmed' : 'Register Now'}
-                            </button>
-                        </div>
-                    </div>
-                ))}
-            </div>
+    setSubmitting(true);
+    try {
+      await CommunityService.createEvent({
+        title: form.title.trim(),
+        description: form.description.trim(),
+        startTime: start.toISOString(),
+        endTime: end.toISOString(),
+        type: form.type,
+        location: form.location.trim(),
+        image: form.image.trim(),
+        maxAttendees: form.maxAttendees.trim() ? Number(form.maxAttendees.trim()) : null
+      });
+      showNotification('success', 'Event', 'Event created');
+      setShowCreateModal(false);
+      resetForm();
+      await loadEvents();
+    } catch (error: any) {
+      showNotification('error', 'Event', error?.message || 'Failed to create event');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Upcoming Events</h1>
+          <p className="text-sm text-gray-600">Join live sessions, workshops, and community meetups in real time.</p>
         </div>
-    );
+        {isAdmin ? (
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+          >
+            <Plus className="h-4 w-4" />
+            Create Event
+          </button>
+        ) : null}
+      </div>
+
+      {loading ? (
+        <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-500">Loading events...</div>
+      ) : sortedEvents.length === 0 ? (
+        <div className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-500">
+          No upcoming events yet.
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {sortedEvents.map((event) => {
+            const start = resolveEventDate(event);
+            const end = resolveEventEndDate(event);
+            const isRegistered = Boolean(event.isRegistered ?? event.is_registered);
+            return (
+              <div
+                key={event.id}
+                className="group relative flex flex-col gap-5 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:border-indigo-200 md:flex-row"
+              >
+                {isAdmin ? (
+                  <button
+                    onClick={() => handleDelete(event.id)}
+                    className="absolute right-4 top-4 rounded-md border border-gray-200 bg-white p-1.5 text-gray-400 hover:text-red-600"
+                    title="Delete event"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                ) : null}
+
+                <div className="h-36 w-full flex-shrink-0 overflow-hidden rounded-lg bg-gray-100 md:w-56">
+                  {event.image ? (
+                    <img src={event.image} alt={event.title} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-indigo-500 to-blue-500 text-white">
+                      <CalendarDays className="h-8 w-8" />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex min-w-0 flex-1 flex-col gap-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <span className="rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-semibold uppercase text-indigo-600">
+                        {String(event.type || 'workshop')}
+                      </span>
+                      <h3 className="mt-2 text-xl font-bold text-gray-900">{event.title}</h3>
+                      <p className="text-sm text-gray-500">Hosted by {event.hostName || event.host_name || 'Community host'}</p>
+                    </div>
+                    {isRegistered ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
+                        <CheckCircle className="h-3.5 w-3.5" />
+                        Registered
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <p className="line-clamp-2 text-sm text-gray-600">{event.description}</p>
+
+                  <div className="mt-auto flex flex-wrap items-center gap-4 text-sm text-gray-500">
+                    <div className="inline-flex items-center gap-1.5">
+                      <Clock className="h-4 w-4 text-gray-400" />
+                      {start ? start.toLocaleString() : 'TBD'}
+                    </div>
+                    <div className="inline-flex items-center gap-1.5">
+                      <Users className="h-4 w-4 text-gray-400" />
+                      {Number(event.attendees || 0)} attending
+                    </div>
+                    {event.location ? (
+                      <div className="inline-flex items-center gap-1.5">
+                        <MapPin className="h-4 w-4 text-gray-400" />
+                        {event.location}
+                      </div>
+                    ) : null}
+                    {end ? <div className="text-xs text-gray-400">Ends {end.toLocaleString()}</div> : null}
+                  </div>
+                </div>
+
+                <div className="flex min-w-[165px] items-center">
+                  <button
+                    onClick={() => handleToggleRegistration(event)}
+                    className={`w-full rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
+                      isRegistered
+                        ? 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                        : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                    }`}
+                  >
+                    {isRegistered ? 'Unregister' : 'Register Now'}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {showCreateModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl rounded-xl border border-gray-200 bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+              <h2 className="text-lg font-semibold text-gray-900">Create Community Event</h2>
+              <button
+                onClick={() => {
+                  setShowCreateModal(false);
+                  resetForm();
+                }}
+                className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+              >
+                x
+              </button>
+            </div>
+            <form onSubmit={handleCreate} className="space-y-4 p-5">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <input
+                  required
+                  value={form.title}
+                  onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
+                  placeholder="Event title"
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                />
+                <select
+                  value={form.type}
+                  onChange={(e) => setForm((prev) => ({ ...prev, type: e.target.value as EventFormState['type'] }))}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                >
+                  <option value="workshop">Workshop</option>
+                  <option value="meetup">Meetup</option>
+                  <option value="webinar">Webinar</option>
+                </select>
+              </div>
+              <textarea
+                required
+                value={form.description}
+                onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
+                placeholder="Event description"
+                rows={4}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+              />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <input
+                  type="datetime-local"
+                  required
+                  value={form.startTime}
+                  onChange={(e) => setForm((prev) => ({ ...prev, startTime: e.target.value }))}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                />
+                <input
+                  type="datetime-local"
+                  required
+                  value={form.endTime}
+                  onChange={(e) => setForm((prev) => ({ ...prev, endTime: e.target.value }))}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                />
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <input
+                  value={form.location}
+                  onChange={(e) => setForm((prev) => ({ ...prev, location: e.target.value }))}
+                  placeholder="Location (optional)"
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                />
+                <input
+                  type="number"
+                  min={1}
+                  value={form.maxAttendees}
+                  onChange={(e) => setForm((prev) => ({ ...prev, maxAttendees: e.target.value }))}
+                  placeholder="Max attendees (optional)"
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+                />
+              </div>
+              <input
+                value={form.image}
+                onChange={(e) => setForm((prev) => ({ ...prev, image: e.target.value }))}
+                placeholder="Image URL (optional)"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-400"
+              />
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    resetForm();
+                  }}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {submitting ? 'Creating...' : 'Create Event'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 };
 
 export default Events;

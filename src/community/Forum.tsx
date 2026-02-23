@@ -9,9 +9,11 @@ import { useUser } from '../context/UserContext';
 import RichTextEditor from '../components/RichTextEditor';
 import InteractionBar from '../components/InteractionBar';
 import AdCard from '../components/AdCard';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 const Forum = () => {
+    const location = useLocation();
+    const navigate = useNavigate();
     const { user } = useUser();
     const [threads, setThreads] = useState<ForumThread[]>([]);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -27,6 +29,15 @@ const Forum = () => {
     const isAdmin = user?.role === UserRole.ADMIN;
     const canModerate = isAdmin || user?.role === UserRole.MODERATOR;
 
+    const closeCreateModal = () => {
+        setIsCreateModalOpen(false);
+        const isNewTopicRoute = location.pathname.endsWith('/new-topic');
+        const hasCreateParam = new URLSearchParams(location.search).get('create');
+        if (isNewTopicRoute || hasCreateParam) {
+            navigate('/community/forum', { replace: true });
+        }
+    };
+
     useEffect(() => {
         const loadData = async () => {
             const [tData, aData] = await Promise.all([
@@ -38,6 +49,16 @@ const Forum = () => {
         };
         loadData();
     }, [user]);
+
+    useEffect(() => {
+        const params = new URLSearchParams(location.search);
+        const createParam = String(params.get('create') || '').toLowerCase();
+        const shouldOpenFromQuery = ['1', 'true', 'yes', 'on'].includes(createParam);
+        const shouldOpenFromRoute = location.pathname.endsWith('/new-topic');
+        if (shouldOpenFromQuery || shouldOpenFromRoute) {
+            setIsCreateModalOpen(true);
+        }
+    }, [location.pathname, location.search]);
 
     // Real-time listeners forwarded from SocketContext via window CustomEvents
     useEffect(() => {
@@ -136,7 +157,7 @@ const Forum = () => {
             // 2. Create
             await CommunityService.createThread({ title: newTitle, content: newContent });
             showNotification('success', 'Posted', 'Discussion started successfully.');
-            setIsCreateModalOpen(false);
+            closeCreateModal();
             setNewTitle('');
             setNewContent('');
             const data = await CommunityService.getThreads(); // Refresh
@@ -272,7 +293,7 @@ const Forum = () => {
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl p-6 flex flex-col max-h-[90vh]">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-bold text-gray-900">Start a Discussion</h3>
-                            <button onClick={() => setIsCreateModalOpen(false)} className="text-gray-400 hover:text-gray-600"><AlertCircle className="w-5 h-5 rotate-45" /></button>
+                            <button onClick={closeCreateModal} className="text-gray-400 hover:text-gray-600"><AlertCircle className="w-5 h-5 rotate-45" /></button>
                         </div>
                         <form onSubmit={handleCreatePost} className="space-y-4 flex-1 overflow-y-auto pr-2">
                             <div>
@@ -299,7 +320,7 @@ const Forum = () => {
                                 <p><strong>Safety Warning:</strong> Do not share sensitive personal information such as passwords, private keys, bank details, or government IDs. AtMyWorks admins will never request this information.</p>
                             </div>
                             <div className="flex justify-end gap-3 pt-2">
-                                <button type="button" onClick={() => setIsCreateModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors">Cancel</button>
+                                <button type="button" onClick={closeCreateModal} className="px-4 py-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors">Cancel</button>
                                 <button 
                                     type="submit" 
                                     disabled={isPosting}

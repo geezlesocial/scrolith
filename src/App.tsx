@@ -100,6 +100,7 @@ const Events = React.lazy(() => import('./community/Events'));
 const Chat = React.lazy(() => import('./community/Chat'));
 const Leaderboard = React.lazy(() => import('./community/Leaderboard'));
 const GcoinDash = React.lazy(() => import('./community/GcoinDash'));
+const KnowledgeHub = React.lazy(() => import('./community/KnowledgeHub'));
 const CommunityDashboard = React.lazy(() => import('./dashboard/shared/CommunityDashboard'));
 const MyAds = React.lazy(() => import('./pages/MyAds'));
 
@@ -619,6 +620,7 @@ const AppContent = () => {
                 <Route index element={<CommunityHome />} />
                 <Route path="posts/:id" element={<CommunityHome />} />
                 <Route path="forum" element={<Forum />} />
+                <Route path="new-topic" element={<Forum />} />
                 <Route path="thread/:id" element={<ThreadDetail />} />
                 <Route path="dashboard" element={<CommunityDashboard />} />
                 <Route path="gcoin" element={<GcoinDash />} />
@@ -626,7 +628,8 @@ const AppContent = () => {
                 <Route path="clubs" element={<Clubs />} />
                 <Route path="events" element={<Events />} />
                 <Route path="leaderboard" element={<Leaderboard />} />
-                <Route path="content" element={<div className="p-12 text-center text-gray-500">Knowledge Hub Coming Soon</div>} />
+                <Route path="resources" element={<KnowledgeHub />} />
+                <Route path="content" element={<KnowledgeHub />} />
               </Route>
 
               {/* My Ads - user-owned ads */}
