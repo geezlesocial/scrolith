@@ -6,10 +6,14 @@ import {
   Download,
   Loader2,
   MapPin,
+  Pencil,
+  RefreshCw,
   Save,
   Send,
   Smartphone,
-  Monitor
+  Monitor,
+  Trash2,
+  X
 } from 'lucide-react';
 import { AdminService } from '../../services/admin';
 import { useNotification } from '../../context/NotificationContext';
@@ -66,29 +70,32 @@ const setValueByPath = (obj: Record<string, any>, path: string, value: any) => {
   return out;
 };
 
+const initialCampaignForm = {
+  name: '',
+  title: '',
+  body: '',
+  mediaType: 'none',
+  mediaUrl: '',
+  actionUrl: '',
+  targetPlatform: 'all',
+  targetRole: 'all',
+  deliveryInApp: true,
+  deliveryPush: true
+};
+
 const AppManagement: React.FC = () => {
   const { showNotification } = useNotification();
   const [loading, setLoading] = useState(true);
   const [savingConfig, setSavingConfig] = useState(false);
   const [sendingCampaign, setSendingCampaign] = useState(false);
   const [rangeDays, setRangeDays] = useState(7);
+  const [editingCampaignId, setEditingCampaignId] = useState<string | null>(null);
 
   const [config, setConfig] = useState<any>(defaultConfig);
   const [analytics, setAnalytics] = useState<any>(null);
   const [events, setEvents] = useState<any[]>([]);
   const [campaigns, setCampaigns] = useState<any[]>([]);
-  const [campaignForm, setCampaignForm] = useState({
-    name: '',
-    title: '',
-    body: '',
-    mediaType: 'none',
-    mediaUrl: '',
-    actionUrl: '',
-    targetPlatform: 'all',
-    targetRole: 'all',
-    deliveryInApp: true,
-    deliveryPush: true
-  });
+  const [campaignForm, setCampaignForm] = useState(initialCampaignForm);
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -127,6 +134,8 @@ const AppManagement: React.FC = () => {
       'apps:event_tracked',
       'apps:metrics_updated',
       'apps:campaign_sent',
+      'apps:campaign_updated',
+      'apps:campaign_deleted',
       'apps:config_updated'
     ];
     eventsToWatch.forEach((eventName) => {
@@ -149,6 +158,43 @@ const AppManagement: React.FC = () => {
       totalDeviceTokens: 0
     };
   }, [analytics]);
+
+  const focusedCampaignId = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    return new URLSearchParams(window.location.search).get('campaignId') || '';
+  }, []);
+
+  const resetCampaignForm = useCallback(() => {
+    setCampaignForm(initialCampaignForm);
+    setEditingCampaignId(null);
+  }, []);
+
+  const editCampaign = useCallback((campaign: any) => {
+    if (!campaign?.id) return;
+    setEditingCampaignId(String(campaign.id));
+    setCampaignForm({
+      name: String(campaign.name || ''),
+      title: String(campaign.title || ''),
+      body: String(campaign.body || ''),
+      mediaType:
+        campaign.mediaType === 'image' || campaign.mediaType === 'video' ? campaign.mediaType : 'none',
+      mediaUrl: String(campaign.mediaUrl || ''),
+      actionUrl: String(campaign.actionUrl || ''),
+      targetPlatform:
+        campaign.targetPlatform === 'android' || campaign.targetPlatform === 'desktop'
+          ? campaign.targetPlatform
+          : 'all',
+      targetRole:
+        campaign.targetRole === 'freelancer' ||
+        campaign.targetRole === 'employer' ||
+        campaign.targetRole === 'admin'
+          ? campaign.targetRole
+          : 'all',
+      deliveryInApp: campaign.deliveryInApp !== false,
+      deliveryPush: campaign.deliveryPush !== false
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
 
   const handleConfigChange = (path: string, value: any) => {
     setConfig((prev: any) => setValueByPath(prev, path, value));
@@ -220,15 +266,7 @@ const AppManagement: React.FC = () => {
           `${pushSkippedUsers} recipient(s) had no matching active device token for the selected platform.`
         );
       }
-      setCampaignForm((prev) => ({
-        ...prev,
-        name: '',
-        title: '',
-        body: '',
-        mediaType: 'none',
-        mediaUrl: '',
-        actionUrl: ''
-      }));
+      resetCampaignForm();
       await loadDashboard();
     } catch (error: any) {
       const message =
@@ -237,6 +275,80 @@ const AppManagement: React.FC = () => {
         error?.message ||
         'Failed to send campaign';
       showNotification('error', 'Send Failed', message);
+    } finally {
+      setSendingCampaign(false);
+    }
+  };
+
+  const saveCampaignChanges = async () => {
+    if (!editingCampaignId) return;
+    if (!campaignForm.title.trim() || !campaignForm.body.trim()) {
+      showNotification('error', 'Missing fields', 'Campaign title and body are required.');
+      return;
+    }
+    setSendingCampaign(true);
+    try {
+      await AdminService.updateAppCampaign(editingCampaignId, {
+        ...campaignForm,
+        name: campaignForm.name || campaignForm.title
+      });
+      showNotification('success', 'Campaign Updated', 'Campaign details saved.');
+      resetCampaignForm();
+      await loadDashboard();
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to update campaign';
+      showNotification('error', 'Update Failed', message);
+    } finally {
+      setSendingCampaign(false);
+    }
+  };
+
+  const resendCampaign = async (campaignId: string) => {
+    if (!campaignId) return;
+    setSendingCampaign(true);
+    try {
+      const result = await AdminService.resendAppCampaign(campaignId);
+      showNotification(
+        'success',
+        'Campaign Resent',
+        `Recipients: ${Number(result?.recipients || 0)} • Push sent: ${Number(result?.pushSent || 0)}`
+      );
+      await loadDashboard();
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to resend campaign';
+      showNotification('error', 'Resend Failed', message);
+    } finally {
+      setSendingCampaign(false);
+    }
+  };
+
+  const deleteCampaign = async (campaignId: string) => {
+    if (!campaignId) return;
+    const confirmed = window.confirm('Delete this campaign? This cannot be undone.');
+    if (!confirmed) return;
+    setSendingCampaign(true);
+    try {
+      await AdminService.deleteAppCampaign(campaignId);
+      if (editingCampaignId === campaignId) {
+        resetCampaignForm();
+      }
+      showNotification('success', 'Campaign Deleted', 'Campaign removed from history.');
+      await loadDashboard();
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to delete campaign';
+      showNotification('error', 'Delete Failed', message);
     } finally {
       setSendingCampaign(false);
     }
@@ -432,7 +544,21 @@ const AppManagement: React.FC = () => {
       </div>
 
       <section className="rounded-xl border border-gray-200 bg-white p-5">
-        <h2 className="mb-4 text-lg font-semibold text-gray-900">Send App Campaign</h2>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold text-gray-900">
+            {editingCampaignId ? 'Edit App Campaign' : 'Send App Campaign'}
+          </h2>
+          {editingCampaignId ? (
+            <button
+              onClick={resetCampaignForm}
+              disabled={sendingCampaign}
+              className="inline-flex items-center rounded-lg border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+            >
+              <X className="mr-1 h-3.5 w-3.5" />
+              Cancel edit
+            </button>
+          ) : null}
+        </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <input
             placeholder="Campaign name"
@@ -517,7 +643,7 @@ const AppManagement: React.FC = () => {
         </div>
 
         <button
-          onClick={sendCampaign}
+          onClick={editingCampaignId ? saveCampaignChanges : sendCampaign}
           disabled={sendingCampaign}
           className="mt-4 inline-flex items-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
@@ -526,7 +652,7 @@ const AppManagement: React.FC = () => {
           ) : (
             <Send className="mr-2 h-4 w-4" />
           )}
-          Send Campaign
+          {editingCampaignId ? 'Save Campaign' : 'Send Campaign'}
         </button>
       </section>
 
@@ -572,7 +698,15 @@ const AppManagement: React.FC = () => {
           </h2>
           <div className="space-y-3">
             {campaigns.slice(0, 12).map((campaign) => (
-              <div key={campaign.id} className="rounded-lg border border-gray-200 p-3">
+              <div
+                key={campaign.id}
+                className={[
+                  'rounded-lg border p-3',
+                  focusedCampaignId && focusedCampaignId === String(campaign.id)
+                    ? 'border-indigo-400 ring-1 ring-indigo-300'
+                    : 'border-gray-200'
+                ].join(' ')}
+              >
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold text-gray-900">{campaign.name || campaign.title}</p>
@@ -585,6 +719,40 @@ const AppManagement: React.FC = () => {
                       ? new Date(campaign.lastSentAt).toLocaleString()
                       : 'Not sent'}
                   </span>
+                </div>
+                {campaign.body ? (
+                  <p className="mt-2 whitespace-pre-wrap text-xs text-gray-700">{campaign.body}</p>
+                ) : null}
+                {campaign.actionUrl ? (
+                  <p className="mt-1 truncate text-xs text-indigo-700">Action: {campaign.actionUrl}</p>
+                ) : null}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => editCampaign(campaign)}
+                    className="inline-flex items-center rounded-md border border-gray-300 px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    <Pencil className="mr-1 h-3 w-3" />
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => resendCampaign(String(campaign.id))}
+                    disabled={sendingCampaign}
+                    className="inline-flex items-center rounded-md border border-indigo-300 px-2.5 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-60"
+                  >
+                    <RefreshCw className="mr-1 h-3 w-3" />
+                    Resend
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteCampaign(String(campaign.id))}
+                    disabled={sendingCampaign}
+                    className="inline-flex items-center rounded-md border border-rose-300 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                  >
+                    <Trash2 className="mr-1 h-3 w-3" />
+                    Delete
+                  </button>
                 </div>
                 <div className="mt-2 grid grid-cols-4 gap-2 text-xs text-gray-600">
                   <div className="rounded bg-gray-50 p-2">
@@ -607,9 +775,9 @@ const AppManagement: React.FC = () => {
                   </div>
                 </div>
                 <div className="mt-2 text-xs text-gray-500">
-                  Push eligible: {campaign.lastPushEligibleUsers || 0} • Skipped (no token):{' '}
+                  Push eligible: {campaign.lastPushEligibleUsers || 0} | Skipped (no token):{' '}
                   {campaign.lastPushSkippedUsers || 0}
-                  {campaign.lastPushDisabled ? ' • Push disabled on backend' : ''}
+                  {campaign.lastPushDisabled ? ' | Push disabled on backend' : ''}
                 </div>
               </div>
             ))}

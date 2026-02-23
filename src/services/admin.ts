@@ -1006,6 +1006,46 @@ export const AdminService = {
     return adminPost<any>('/apps/campaigns/send', payload);
   },
 
+  async updateAppCampaign(
+    id: string,
+    payload: {
+      name?: string;
+      title?: string;
+      body?: string;
+      mediaType?: 'none' | 'image' | 'video';
+      mediaUrl?: string;
+      actionUrl?: string;
+      targetPlatform?: 'all' | 'android' | 'desktop';
+      targetRole?: 'all' | 'freelancer' | 'employer' | 'admin';
+      deliveryInApp?: boolean;
+      deliveryPush?: boolean;
+    }
+  ): Promise<any> {
+    return adminPut<any>(`/apps/campaigns/${encodeURIComponent(id)}`, payload);
+  },
+
+  async deleteAppCampaign(id: string): Promise<{ id: string }> {
+    return adminDelete<{ id: string }>(`/apps/campaigns/${encodeURIComponent(id)}`);
+  },
+
+  async resendAppCampaign(
+    id: string,
+    payload?: {
+      title?: string;
+      body?: string;
+      mediaType?: 'none' | 'image' | 'video';
+      mediaUrl?: string;
+      actionUrl?: string;
+      targetPlatform?: 'all' | 'android' | 'desktop';
+      targetRole?: 'all' | 'freelancer' | 'employer' | 'admin';
+      deliveryInApp?: boolean;
+      deliveryPush?: boolean;
+      userIds?: string[];
+    }
+  ): Promise<any> {
+    return adminPost<any>(`/apps/campaigns/${encodeURIComponent(id)}/resend`, payload || {});
+  },
+
   // ---- Form Builder ----
   async getFormConfig(): Promise<any> {
     return getAdminFormConfig<any>();

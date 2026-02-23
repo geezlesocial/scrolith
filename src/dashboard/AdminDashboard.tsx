@@ -158,6 +158,16 @@ const AdminDashboard: React.FC = () => {
         const id = String(notif?.id || '');
         if (id) markAsRead(id);
         setShowAdminNotifications(false);
+        const metadata =
+            notif?.metadata && typeof notif.metadata === 'object'
+                ? (notif.metadata as Record<string, any>)
+                : {};
+        const campaignId = String(metadata?.campaignId || metadata?.campaign_id || '');
+        const type = String(notif?.type || notif?.notificationType || '').toLowerCase();
+        if (type === 'app_campaign' && campaignId) {
+            window.location.href = `/admin/dashboard?tab=apps&campaignId=${encodeURIComponent(campaignId)}`;
+            return;
+        }
         const actionUrl = getNotificationActionUrl(notif);
         if (actionUrl) window.location.href = actionUrl;
     };

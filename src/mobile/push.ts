@@ -5,6 +5,7 @@ import api from '../services/api';
 import { extractPathFromUrl } from './deeplinks';
 
 let initialized = false;
+let listenersAttached = false;
 const TOKEN_KEY = 'push_device_token';
 
 const storeToken = async (token: string) => {
@@ -31,25 +32,30 @@ const clearToken = async () => {
   } catch {}
 };
 
-export const initPushNotifications = async (navigate?: (path: string) => void) => {
-  if (initialized) return;
-  if (!Capacitor.isNativePlatform()) return;
-  initialized = true;
+const registerTokenWithBackend = async (token: string) => {
+  if (!token) return false;
+  try {
+    await api.post('/notifications/device/register', {
+      platform: Capacitor.getPlatform(),
+      token
+    });
+    return true;
+  } catch (e) {
+    console.error('Failed to register device token', e);
+    return false;
+  }
+};
 
-  const perm = await PushNotifications.requestPermissions();
-  if (perm.receive !== 'granted') return;
-
-  await PushNotifications.register();
+const attachPushListeners = (navigate?: (path: string) => void) => {
+  if (listenersAttached) return;
+  listenersAttached = true;
 
   PushNotifications.addListener('registration', async (token) => {
     try {
       await storeToken(token.value);
-      await api.post('/notifications/device/register', {
-        platform: Capacitor.getPlatform(),
-        token: token.value
-      });
+      await registerTokenWithBackend(token.value);
     } catch (e) {
-      console.error('Failed to register device token', e);
+      console.error('Failed to persist device token', e);
     }
   });
 
@@ -58,11 +64,36 @@ export const initPushNotifications = async (navigate?: (path: string) => void) =
   });
 
   PushNotifications.addListener('pushNotificationActionPerformed', (event) => {
-    const deepLink = (event.notification?.data as any)?.deepLink || (event.notification?.data as any)?.deeplink;
+    const deepLink =
+      (event.notification?.data as any)?.deepLink || (event.notification?.data as any)?.deeplink;
     if (!deepLink || !navigate) return;
     const path = extractPathFromUrl(String(deepLink));
     if (path) navigate(path);
   });
+};
+
+export const syncStoredPushToken = async () => {
+  if (!Capacitor.isNativePlatform()) return false;
+  const stored = await readToken();
+  if (!stored) return false;
+  return registerTokenWithBackend(stored);
+};
+
+export const initPushNotifications = async (navigate?: (path: string) => void) => {
+  if (!Capacitor.isNativePlatform()) return;
+  attachPushListeners(navigate);
+
+  if (initialized) {
+    await syncStoredPushToken();
+    return;
+  }
+
+  const perm = await PushNotifications.requestPermissions();
+  if (perm.receive !== 'granted') return;
+
+  await PushNotifications.register();
+  initialized = true;
+  await syncStoredPushToken();
 };
 
 export const unregisterPushNotifications = async () => {
@@ -76,5 +107,6 @@ export const unregisterPushNotifications = async () => {
     console.warn('Failed to unregister push token', e);
   } finally {
     await clearToken();
+    initialized = false;
   }
 };

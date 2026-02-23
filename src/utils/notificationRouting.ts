@@ -113,6 +113,20 @@ export const getNotificationActionUrl = (notification: any): string | undefined 
     return `/post/${encodeURIComponent(parentId)}${qs ? `?${qs}` : ''}`;
   }
 
+  const campaignId = coerceString(metadata?.campaignId ?? metadata?.campaign_id);
+  const notificationType = coerceString(notification?.type ?? notification?.notificationType).toLowerCase();
+  if (notificationType === 'app_campaign' && campaignId) {
+    if (typeof window !== 'undefined') {
+      const currentPath = coerceString(window.location.pathname || '').toLowerCase();
+      if (currentPath.startsWith('/admin/')) {
+        return `/admin/dashboard?tab=apps&campaignId=${encodeURIComponent(campaignId)}`;
+      }
+      if (currentPath.startsWith('/m/')) {
+        return `/m/notifications?campaignId=${encodeURIComponent(campaignId)}`;
+      }
+    }
+    return `/dashboard?tab=notifications&campaignId=${encodeURIComponent(campaignId)}`;
+  }
+
   return undefined;
 };
-

@@ -29,7 +29,7 @@ import GlobalPreloader from './components/GlobalPreloader';
 import { AlertTriangleIcon, LoaderIcon } from './components/icons/ShellIcons';
 import IntegrationsManager from './components/IntegrationsManager';
 import { registerDeepLinks } from './mobile/deeplinks';
-import { initPushNotifications } from './mobile/push';
+import { initPushNotifications, syncStoredPushToken } from './mobile/push';
 import { App as CapacitorApp } from '@capacitor/app';
 import {
   authenticateBiometrics,
@@ -204,7 +204,6 @@ const AppContent = () => {
   const { showNotification } = useNotification();
   const location = useLocation();
   const navigate = useNavigate();
-  const pushInitRef = useRef(false);
   const themeKey = 'Scrolith.pref.theme';
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricVerified, setBiometricVerified] = useState(false);
@@ -412,10 +411,19 @@ const AppContent = () => {
   }, [navigate]);
 
   useEffect(() => {
-    if (!isAuthenticated || pushInitRef.current) return;
-    pushInitRef.current = true;
-    void initPushNotifications((path) => navigate(path, { replace: true }));
-  }, [isAuthenticated, navigate]);
+    if (!isAuthenticated) return;
+    let isCancelled = false;
+    const bootstrapPush = async () => {
+      await initPushNotifications((path) => navigate(path, { replace: true }));
+      if (!isCancelled) {
+        await syncStoredPushToken();
+      }
+    };
+    void bootstrapPush();
+    return () => {
+      isCancelled = true;
+    };
+  }, [isAuthenticated, navigate, user?.id]);
 
   useEffect(() => {
     if (!biometricEnabled || !isAuthenticated || !user) {
