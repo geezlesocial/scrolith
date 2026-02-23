@@ -183,11 +183,43 @@ const AppManagement: React.FC = () => {
         ...campaignForm,
         name: campaignForm.name || campaignForm.title
       });
+      const recipients = Number(result?.recipients || 0);
+      const inApp = Number(result?.notificationsCreated || 0);
+      const pushSent = Number(result?.pushSent || 0);
+      const pushEligibleUsers = Number(result?.pushEligibleUsers || 0);
+      const pushSkippedUsers = Number(result?.pushSkippedUsers || 0);
+      const pushEnabled = result?.pushEnabled !== false;
+
       showNotification(
         'success',
         'Campaign Sent',
-        `Delivered to ${result?.recipients || 0} recipients.`
+        [
+          `Recipients: ${recipients}`,
+          campaignForm.deliveryInApp ? `In-app: ${inApp}` : null,
+          campaignForm.deliveryPush ? `Push sent: ${pushSent}` : null
+        ]
+          .filter(Boolean)
+          .join(' • ')
       );
+      if (campaignForm.deliveryPush && !pushEnabled) {
+        showNotification(
+          'alert',
+          'Push Delivery Disabled',
+          'FCM credentials are not configured on the backend. Configure Firebase service-account credentials to enable push campaigns.'
+        );
+      } else if (campaignForm.deliveryPush && pushEligibleUsers === 0) {
+        showNotification(
+          'info',
+          'No Push-Eligible Devices',
+          'No active device tokens matched this audience/platform. In-app delivery may still succeed.'
+        );
+      } else if (campaignForm.deliveryPush && pushSkippedUsers > 0) {
+        showNotification(
+          'info',
+          'Partial Push Audience',
+          `${pushSkippedUsers} recipient(s) had no matching active device token for the selected platform.`
+        );
+      }
       setCampaignForm((prev) => ({
         ...prev,
         name: '',
@@ -554,7 +586,7 @@ const AppManagement: React.FC = () => {
                       : 'Not sent'}
                   </span>
                 </div>
-                <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-gray-600">
+                <div className="mt-2 grid grid-cols-4 gap-2 text-xs text-gray-600">
                   <div className="rounded bg-gray-50 p-2">
                     <p className="font-semibold text-gray-900">{campaign.totalRecipients || 0}</p>
                     <p>Recipients</p>
@@ -564,11 +596,20 @@ const AppManagement: React.FC = () => {
                     <p>Push sent</p>
                   </div>
                   <div className="rounded bg-gray-50 p-2">
+                    <p className="font-semibold text-gray-900">{campaign.totalPushFailed || 0}</p>
+                    <p>Push failed</p>
+                  </div>
+                  <div className="rounded bg-gray-50 p-2">
                     <p className="font-semibold text-gray-900">
                       {campaign.totalNotificationsCreated || 0}
                     </p>
                     <p>In-app</p>
                   </div>
+                </div>
+                <div className="mt-2 text-xs text-gray-500">
+                  Push eligible: {campaign.lastPushEligibleUsers || 0} • Skipped (no token):{' '}
+                  {campaign.lastPushSkippedUsers || 0}
+                  {campaign.lastPushDisabled ? ' • Push disabled on backend' : ''}
                 </div>
               </div>
             ))}
