@@ -40,7 +40,6 @@ const tabs = [
   { id: 'followers', label: 'Followers', icon: Users },
   { id: 'gcoin', label: 'Gcoin', icon: CreditCard },
   { id: 'earnings', label: 'Earnings', icon: BarChart3 },
-  { id: 'ads', label: 'Ads Manager', icon: Megaphone },
   { id: 'business', label: 'Business Pages', icon: Building2 },
   { id: 'stories', label: 'Stories', icon: Camera },
   { id: 'chats', label: 'Chats', icon: MessageSquare },
@@ -3660,8 +3659,6 @@ const CommunityDashboard: React.FC = () => {
         return renderGcoin();
       case 'earnings':
         return renderEarnings();
-      case 'ads':
-        return renderAds();
       case 'business':
         return renderBusiness();
       case 'stories':
