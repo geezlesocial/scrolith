@@ -253,29 +253,85 @@ const MyAds = () => {
     } catch (e) {}
   };
 
-  const resolveGatewaySelection = (adId?: string, fallback?: string) => {
+  const resolveGatewayProvider = (gatewayId?: string, sourceGateway?: any): string => {
+    const rawId = String(gatewayId || '').trim();
+    if (!rawId) return '';
+    const selectedGateway =
+      sourceGateway ||
+      paymentGateways.find((gateway: any) => String(gateway?.id || '').trim() === rawId) ||
+      null;
+    const candidates = [
+      rawId,
+      selectedGateway?.id,
+      (selectedGateway as any)?.provider,
+      (selectedGateway as any)?.method,
+      (selectedGateway as any)?.code,
+      selectedGateway?.name,
+      (selectedGateway as any)?.label
+    ]
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean);
+
+    if (candidates.some((value) => value === 'wallet' || value === 'balance' || value.includes('wallet'))) {
+      return 'wallet';
+    }
+    if (candidates.some((value) => value === 'card' || value.includes('stripe'))) {
+      return 'stripe';
+    }
+    return candidates[0] || '';
+  };
+
+  const getPreferredCheckoutGatewayId = () => {
+    const externalGateway = paymentGateways.find(
+      (gateway: any) => resolveGatewayProvider(String(gateway?.id || ''), gateway) === 'stripe'
+    );
+    return String(externalGateway?.id || paymentGateways[0]?.id || '');
+  };
+
+  const resolveGatewaySelection = (
+    adId?: string,
+    fallback?: string,
+    options: { preferFallback?: boolean } = {}
+  ) => {
+    if (options.preferFallback && fallback) return fallback;
     if (adId) {
       const fromRow = adGatewaySelections[adId];
       if (fromRow) return fromRow;
     }
     if (formGatewayId) return formGatewayId;
     if (fallback) return fallback;
-    return paymentGateways[0]?.id || '';
+    return getPreferredCheckoutGatewayId();
+  };
+
+  const isPaymentRequiredError = (result: { message?: string; code?: string } | null | undefined): boolean => {
+    const code = String(result?.code || '').trim().toUpperCase();
+    if (code === 'PAYMENT_REQUIRED') return true;
+    const message = String(result?.message || '').toLowerCase();
+    return (
+      message.includes('paid before submission') ||
+      message.includes('must be paid') ||
+      message.includes('payment required')
+    );
   };
 
   const requestAdPayment = async (
     adId: string,
     options: { gatewayId?: string; currency?: string; pendingSubmit?: boolean } = {}
   ): Promise<{ redirected: boolean; paid: boolean }> => {
-    const gatewayId = options.gatewayId || '';
+    const gatewayId = options.gatewayId || getPreferredCheckoutGatewayId();
     const currency = options.currency || form.currency || 'USD';
     const pendingSubmit = Boolean(options.pendingSubmit);
-    if (!gatewayId) {
+    const providerId = resolveGatewayProvider(gatewayId);
+    if (!gatewayId || !providerId) {
       showNotification('warning', 'Payment method', 'Select a payment method before paying.');
       return { redirected: false, paid: false };
     }
 
-    const paymentResult = await AdService.payAd(adId, { paymentMethodId: gatewayId, currency });
+    const paymentResult = await AdService.payAd(adId, {
+      paymentMethodId: providerId,
+      gatewayId,
+      currency
+    });
     if (paymentResult?.success === false) {
       showNotification('error', 'Payment failed', paymentResult?.message || 'Unable to process payment.');
       return { redirected: false, paid: false };
@@ -351,7 +407,14 @@ const MyAds = () => {
       try {
         const gateways = await PaymentService.getActivePaymentMethods();
         const active = Array.isArray(gateways) ? gateways : [];
-        const supported = active.filter((gateway: any) => String(gateway?.id || '').toLowerCase() === 'stripe');
+        const supported = active.filter(
+          (gateway: any) => resolveGatewayProvider(String(gateway?.id || ''), gateway) === 'stripe'
+        );
+        const dedupedSupported = Array.from(
+          new Map(
+            supported.map((gateway: any) => [String(gateway?.id || '').trim().toLowerCase(), gateway])
+          ).values()
+        );
         const walletGateway = {
           id: 'wallet',
           name: 'Wallet Balance',
@@ -360,7 +423,7 @@ const MyAds = () => {
           supported_currencies: [],
           supportedCurrencies: []
         } as PaymentGateway;
-        setPaymentGateways([walletGateway, ...supported]);
+        setPaymentGateways([walletGateway, ...dedupedSupported]);
       } catch (e: any) {
         setPaymentGateways([
           {
@@ -398,8 +461,9 @@ const MyAds = () => {
     }
     setAdGatewaySelections((prev) => {
       const next: Record<string, string> = {};
+      const preferredGatewayId = getPreferredCheckoutGatewayId();
       ads.forEach((ad) => {
-        next[ad.id] = prev[ad.id] || paymentGateways[0].id;
+        next[ad.id] = prev[ad.id] || preferredGatewayId;
       });
       return next;
     });
@@ -413,7 +477,7 @@ const MyAds = () => {
     }
     setFormGatewayId((prev) => {
       if (prev && paymentGateways.some((gateway) => gateway.id === prev)) return prev;
-      return paymentGateways[0].id;
+      return getPreferredCheckoutGatewayId();
     });
   }, [formOpen, paymentGateways]);
 
@@ -497,7 +561,7 @@ const MyAds = () => {
     setFormMode('create');
     setEditingAdId(null);
     setForm(buildEmptyForm(selectedCurrency.code));
-    setFormGatewayId(paymentGateways[0]?.id || '');
+    setFormGatewayId(getPreferredCheckoutGatewayId());
     setFormOpen(true);
   };
 
@@ -522,7 +586,7 @@ const MyAds = () => {
       : (ad.mediaFileIds || []).map((id) => ({ id } as any));
     setFormMode('edit');
     setEditingAdId(ad.id);
-    setFormGatewayId(adGatewaySelections[ad.id] || paymentGateways[0]?.id || '');
+    setFormGatewayId(adGatewaySelections[ad.id] || getPreferredCheckoutGatewayId());
     setForm({
       title: ad.title || '',
       body: ad.body || '',
@@ -594,14 +658,14 @@ const MyAds = () => {
     if (!confirm('Submit this ad for review?')) return;
     setSubmittingId(adId);
     try {
-      const submitResult = await AdService.submitAd(adId);
-      if (submitResult?.success === false) {
-        const submitMessage = submitResult?.message || 'Unable to submit ad.';
-        const requiresPayment = submitMessage.toLowerCase().includes('must be paid before submission');
-        if (!requiresPayment) {
-          showNotification('error', 'Submit failed', submitMessage);
-          return;
-        }
+        const submitResult = await AdService.submitAd(adId);
+        if (submitResult?.success === false) {
+          const submitMessage = submitResult?.message || 'Unable to submit ad.';
+          const requiresPayment = isPaymentRequiredError(submitResult);
+          if (!requiresPayment) {
+            showNotification('error', 'Submit failed', submitMessage);
+            return;
+          }
 
         const ad = ads.find((entry) => entry.id === adId);
         const selectedGateway = resolveGatewaySelection(adId);
@@ -772,14 +836,14 @@ const MyAds = () => {
         const submitResult = await AdService.submitAd(adId);
         if (submitResult?.success === false) {
           const submitMessage = submitResult?.message || 'Unable to submit ad.';
-          const requiresPayment = submitMessage.toLowerCase().includes('must be paid before submission');
+          const requiresPayment = isPaymentRequiredError(submitResult);
           if (!requiresPayment) {
             showNotification('error', 'Submit failed', submitMessage);
             await load();
             return;
           }
 
-          const selectedGateway = resolveGatewaySelection(adId, formGatewayId);
+          const selectedGateway = resolveGatewaySelection(adId, formGatewayId, { preferFallback: true });
           const paymentState = await requestAdPayment(adId, {
             gatewayId: selectedGateway,
             currency: form.currency,
@@ -808,7 +872,7 @@ const MyAds = () => {
 
       if (mode === 'pay') {
         const paymentState = await requestAdPayment(adId, {
-          gatewayId: resolveGatewaySelection(adId, formGatewayId),
+          gatewayId: resolveGatewaySelection(adId, formGatewayId, { preferFallback: true }),
           currency: form.currency
         });
         if (paymentState.redirected) return;
@@ -959,7 +1023,7 @@ const MyAds = () => {
             const progress = budget > 0 ? Math.min(100, (spent / budget) * 100) : 0;
             const canEdit = ['draft', 'rejected', 'awaiting_payment'].includes(status);
             const canPay = ['draft', 'rejected', 'awaiting_payment'].includes(status);
-            const canSubmit = status === 'paid';
+            const canSubmit = ['draft', 'rejected', 'awaiting_payment', 'paid'].includes(status);
             const canDelete = ['draft', 'rejected'].includes(status);
             const canPause = status === 'active';
             const canResume = status === 'paused';

@@ -7,8 +7,51 @@ const extractData = <T>(response: any): T => {
   return response as T;
 };
 
-const extractApiErrorMessage = (error: any, fallback: string) =>
-  String(error?.response?.data?.error || error?.response?.data?.message || error?.message || fallback);
+const unwrapApiErrorValue = (value: any): any => {
+  if (!value) return value;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object') {
+    if (value.error && typeof value.error === 'object') {
+      const nested = unwrapApiErrorValue(value.error);
+      if (typeof nested === 'string' && nested.trim()) return nested;
+    }
+    if (typeof value.message === 'string' && value.message.trim()) return value.message;
+    if (typeof value.error === 'string' && value.error.trim()) return value.error;
+    if (typeof value.detail === 'string' && value.detail.trim()) return value.detail;
+  }
+  return value;
+};
+
+const extractApiErrorMessage = (error: any, fallback: string) => {
+  const payload = error?.response?.data || {};
+  const candidates = [
+    unwrapApiErrorValue(payload?.error),
+    unwrapApiErrorValue(payload?.message),
+    unwrapApiErrorValue(payload?.data?.error),
+    unwrapApiErrorValue(payload?.data?.message),
+    unwrapApiErrorValue(error?.message)
+  ];
+  const picked = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
+  const normalized = String(picked || '').trim();
+  if (normalized && !/^request failed with status code\s+\d+/i.test(normalized)) {
+    return normalized;
+  }
+  return fallback || normalized;
+};
+
+const extractApiErrorCode = (error: any): string => {
+  const payload = error?.response?.data || {};
+  const candidates = [
+    payload?.error?.code,
+    payload?.code,
+    payload?.errorCode,
+    payload?.data?.error?.code,
+    payload?.data?.code,
+    payload?.data?.errorCode
+  ];
+  const picked = candidates.find((value) => typeof value === 'string' && value.trim().length > 0);
+  return String(picked || '');
+};
 
 const normalizePricingModel = (value: any): 'CPM' | 'CPC' => {
   return String(value || '').toUpperCase() === 'CPC' ? 'CPC' : 'CPM';
@@ -170,16 +213,27 @@ export const AdService = {
     return extractData<any>(response);
   },
 
-  payAd: async (id: string, paymentMethod?: any): Promise<{ success: boolean; message?: string; data?: any }> => {
+  payAd: async (
+    id: string,
+    paymentMethod?: any
+  ): Promise<{ success: boolean; message?: string; code?: string; data?: any }> => {
     try {
       const response = await api.post(`/community/ads/${id}/pay`, paymentMethod || {});
       const success = response?.data?.success ?? true;
-      const message = response?.data?.message || response?.data?.error;
+      const message = extractApiErrorMessage({ response }, '');
+      const code = String(
+        response?.data?.code ||
+        response?.data?.errorCode ||
+        response?.data?.error?.code ||
+        response?.data?.data?.code ||
+        ''
+      );
       const data = extractData<any>(response);
-      return { success, message, data };
+      return { success, message, code, data };
     } catch (error: any) {
       return {
         success: false,
+        code: extractApiErrorCode(error),
         message: extractApiErrorMessage(error, 'Unable to process payment.')
       };
     }
@@ -195,16 +249,24 @@ export const AdService = {
     return extractData<any>(response);
   },
 
-  submitAd: async (id: string): Promise<{ success: boolean; message?: string; data?: any }> => {
+  submitAd: async (id: string): Promise<{ success: boolean; message?: string; code?: string; data?: any }> => {
     try {
       const response = await api.post(`/community/ads/${id}/submit`, {});
       const success = response?.data?.success ?? true;
-      const message = response?.data?.message || response?.data?.error;
+      const message = extractApiErrorMessage({ response }, '');
+      const code = String(
+        response?.data?.code ||
+        response?.data?.errorCode ||
+        response?.data?.error?.code ||
+        response?.data?.data?.code ||
+        ''
+      );
       const data = extractData<any>(response);
-      return { success, message, data };
+      return { success, message, code, data };
     } catch (error: any) {
       return {
         success: false,
+        code: extractApiErrorCode(error),
         message: extractApiErrorMessage(error, 'Unable to submit ad.')
       };
     }
