@@ -7,6 +7,9 @@ const extractData = <T>(response: any): T => {
   return response as T;
 };
 
+const extractApiErrorMessage = (error: any, fallback: string) =>
+  String(error?.response?.data?.error || error?.response?.data?.message || error?.message || fallback);
+
 const normalizePricingModel = (value: any): 'CPM' | 'CPC' => {
   return String(value || '').toUpperCase() === 'CPC' ? 'CPC' : 'CPM';
 };
@@ -106,9 +109,13 @@ export const AdService = {
   },
 
   createAdDraft: async (payload: Partial<AdCampaign>): Promise<AdCampaign | null> => {
-    const response = await api.post('/community/ads/draft', toAdPayload(payload));
-    const data = extractData<AdCampaign>(response);
-    return data || null;
+    try {
+      const response = await api.post('/community/ads/draft', toAdPayload(payload));
+      const data = extractData<AdCampaign>(response);
+      return data || null;
+    } catch (error: any) {
+      throw new Error(extractApiErrorMessage(error, 'Unable to create ad draft.'));
+    }
   },
 
   // Admin: get review queue / all campaigns for admin panel
@@ -164,11 +171,18 @@ export const AdService = {
   },
 
   payAd: async (id: string, paymentMethod?: any): Promise<{ success: boolean; message?: string; data?: any }> => {
-    const response = await api.post(`/community/ads/${id}/pay`, paymentMethod || {});
-    const success = response?.data?.success ?? true;
-    const message = response?.data?.message || response?.data?.error;
-    const data = extractData<any>(response);
-    return { success, message, data };
+    try {
+      const response = await api.post(`/community/ads/${id}/pay`, paymentMethod || {});
+      const success = response?.data?.success ?? true;
+      const message = response?.data?.message || response?.data?.error;
+      const data = extractData<any>(response);
+      return { success, message, data };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: extractApiErrorMessage(error, 'Unable to process payment.')
+      };
+    }
   },
 
   pauseOwnAd: async (id: string): Promise<any> => {
@@ -182,11 +196,18 @@ export const AdService = {
   },
 
   submitAd: async (id: string): Promise<{ success: boolean; message?: string; data?: any }> => {
-    const response = await api.post(`/community/ads/${id}/submit`, {});
-    const success = response?.data?.success ?? true;
-    const message = response?.data?.message || response?.data?.error;
-    const data = extractData<any>(response);
-    return { success, message, data };
+    try {
+      const response = await api.post(`/community/ads/${id}/submit`, {});
+      const success = response?.data?.success ?? true;
+      const message = response?.data?.message || response?.data?.error;
+      const data = extractData<any>(response);
+      return { success, message, data };
+    } catch (error: any) {
+      return {
+        success: false,
+        message: extractApiErrorMessage(error, 'Unable to submit ad.')
+      };
+    }
   },
 
   recordImpression: async (id: string): Promise<void> => {
@@ -208,12 +229,16 @@ export const AdService = {
   },
 
   updateAd: async (id: string, campaign: Partial<AdCampaign>): Promise<AdCampaign | null> => {
-    const payload = { ...campaign } as any;
-    // Prevent frontend from attempting to change status via creator update
-    if (payload.status) delete payload.status;
-    const response = await api.put(`/community/ads/${id}`, payload);
-    const data = extractData<AdCampaign>(response);
-    return data || null;
+    try {
+      const payload = { ...campaign } as any;
+      // Prevent frontend from attempting to change status via creator update
+      if (payload.status) delete payload.status;
+      const response = await api.put(`/community/ads/${id}`, payload);
+      const data = extractData<AdCampaign>(response);
+      return data || null;
+    } catch (error: any) {
+      throw new Error(extractApiErrorMessage(error, 'Unable to update ad.'));
+    }
   },
 
   // Save campaign: create draft or update via available endpoints

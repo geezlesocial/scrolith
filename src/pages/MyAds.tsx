@@ -600,7 +600,16 @@ const MyAds = () => {
       if (mode === 'submit') {
         const submitResult = await AdService.submitAd(adId);
         if (submitResult?.success === false) {
-          showNotification('error', 'Submit failed', submitResult?.message || 'Unable to submit ad.');
+          const submitMessage = submitResult?.message || 'Unable to submit ad.';
+          if (submitMessage.toLowerCase().includes('must be paid before submission')) {
+            showNotification(
+              'warning',
+              'Payment required',
+              'Complete Pay Now first, then submit the campaign for review.'
+            );
+          } else {
+            showNotification('error', 'Submit failed', submitMessage);
+          }
           await load();
           return;
         }
