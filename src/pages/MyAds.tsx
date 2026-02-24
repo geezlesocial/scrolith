@@ -144,6 +144,7 @@ const MyAds = () => {
   const [payingId, setPayingId] = useState<string | null>(null);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [formActionMode, setFormActionMode] = useState<'draft' | 'submit' | 'pay' | null>(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
@@ -153,6 +154,7 @@ const MyAds = () => {
   const [paymentGateways, setPaymentGateways] = useState<PaymentGateway[]>([]);
   const [gatewayLoading, setGatewayLoading] = useState(false);
   const [adGatewaySelections, setAdGatewaySelections] = useState<Record<string, string>>({});
+  const [formGatewayId, setFormGatewayId] = useState('');
   const [adsConfig, setAdsConfig] = useState<any>(null);
 
   const [performanceOpen, setPerformanceOpen] = useState(false);
@@ -249,6 +251,18 @@ const MyAds = () => {
   }, [ads, paymentGateways]);
 
   useEffect(() => {
+    if (!formOpen) return;
+    if (paymentGateways.length === 0) {
+      setFormGatewayId('');
+      return;
+    }
+    setFormGatewayId((prev) => {
+      if (prev && paymentGateways.some((gateway) => gateway.id === prev)) return prev;
+      return paymentGateways[0].id;
+    });
+  }, [formOpen, paymentGateways]);
+
+  useEffect(() => {
     const handleAdEvents = () => {
       load();
       if (performanceOpen && performanceAd?.id) {
@@ -331,6 +345,7 @@ const MyAds = () => {
     setFormMode('create');
     setEditingAdId(null);
     setForm(buildEmptyForm(selectedCurrency.code));
+    setFormGatewayId(paymentGateways[0]?.id || '');
     setFormOpen(true);
   };
 
@@ -355,6 +370,7 @@ const MyAds = () => {
       : (ad.mediaFileIds || []).map((id) => ({ id } as any));
     setFormMode('edit');
     setEditingAdId(ad.id);
+    setFormGatewayId(adGatewaySelections[ad.id] || paymentGateways[0]?.id || '');
     setForm({
       title: ad.title || '',
       body: ad.body || '',
@@ -467,7 +483,7 @@ const MyAds = () => {
     }
   };
 
-  const handleSave = async () => {
+  const handleFormAction = async (mode: 'draft' | 'submit' | 'pay') => {
     if (!form.title.trim()) {
       showNotification('warning', 'Missing title', 'Please add a title for your ad.');
       return;
@@ -504,7 +520,12 @@ const MyAds = () => {
       );
       return;
     }
+    if (mode === 'pay' && !formGatewayId) {
+      showNotification('warning', 'Payment method', 'Select a payment method before paying.');
+      return;
+    }
 
+    setFormActionMode(mode);
     setSaving(true);
     try {
       const targetCountries = Array.from(
@@ -553,14 +574,50 @@ const MyAds = () => {
         }
       } as Partial<AdCampaign>;
 
+      let adId = editingAdId || '';
       if (formMode === 'create') {
         const created = await AdService.createAdDraft(payload);
-        if (!created) throw new Error('Unable to create ad draft.');
-        showNotification('success', 'Draft created', 'Ad draft saved.');
+        if (!created?.id) throw new Error('Unable to create ad draft.');
+        adId = created.id;
+        setFormMode('edit');
+        setEditingAdId(created.id);
+        if (mode === 'draft') {
+          showNotification('success', 'Draft created', 'Ad draft saved.');
+        }
       } else if (editingAdId) {
         const updated = await AdService.updateAd(editingAdId, payload);
         if (!updated) throw new Error('Unable to update ad.');
-        showNotification('success', 'Updated', 'Ad updated successfully.');
+        adId = updated.id || editingAdId;
+        if (mode === 'draft') {
+          showNotification('success', 'Updated', 'Ad updated successfully.');
+        }
+      }
+
+      if (!adId) {
+        throw new Error('Unable to resolve ad campaign id.');
+      }
+
+      if (mode === 'submit') {
+        const submitResult = await AdService.submitAd(adId);
+        if (submitResult?.success === false) {
+          showNotification('error', 'Submit failed', submitResult?.message || 'Unable to submit ad.');
+          await load();
+          return;
+        }
+        showNotification('success', 'Submitted', submitResult?.message || 'Ad submitted for review.');
+      }
+
+      if (mode === 'pay') {
+        const paymentResult = await AdService.payAd(adId, {
+          paymentMethodId: formGatewayId,
+          currency: form.currency
+        });
+        if (paymentResult?.success === false) {
+          showNotification('error', 'Payment failed', paymentResult?.message || 'Unable to process payment.');
+          await load();
+          return;
+        }
+        showNotification('success', 'Paid', paymentResult?.message || 'Ad payment initiated.');
       }
 
       setFormOpen(false);
@@ -569,6 +626,7 @@ const MyAds = () => {
     } catch (e: any) {
       showNotification('error', 'Save failed', e?.message || 'Unable to save ad.');
     } finally {
+      setFormActionMode(null);
       setSaving(false);
     }
   };
@@ -1123,8 +1181,34 @@ const MyAds = () => {
                   </div>
                 )}
               </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600">
+                  Available payment methods update from your configured payment gateways.
+                </div>
+                <div>
+                  <FieldLabel label="Payment method" help="Select the payment provider to fund this ad campaign before review." />
+                  <select
+                    value={formGatewayId}
+                    onChange={(e) => setFormGatewayId(e.target.value)}
+                    className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
+                    disabled={gatewayLoading || paymentGateways.length === 0}
+                  >
+                    {gatewayLoading ? (
+                      <option value="">Loading...</option>
+                    ) : paymentGateways.length === 0 ? (
+                      <option value="">No active gateways</option>
+                    ) : (
+                      paymentGateways.map((gateway) => (
+                        <option key={gateway.id} value={gateway.id}>
+                          {getUserFacingPaymentMethodName(gateway)}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+              </div>
             </div>
-            <div className="p-6 border-t flex items-center justify-end gap-2">
+            <div className="p-6 border-t flex flex-wrap items-center justify-end gap-2">
               <button
                 onClick={() => setFormOpen(false)}
                 className="px-4 py-2 rounded-xl border text-sm"
@@ -1132,11 +1216,31 @@ const MyAds = () => {
                 Cancel
               </button>
               <button
-                onClick={handleSave}
+                onClick={() => handleFormAction('draft')}
                 disabled={saving}
-                className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold"
+                className="px-4 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-sm font-semibold"
               >
-                {saving ? 'Saving...' : formMode === 'create' ? 'Save Draft' : 'Save Changes'}
+                {saving && formActionMode === 'draft'
+                  ? formMode === 'create'
+                    ? 'Saving...'
+                    : 'Updating...'
+                  : formMode === 'create'
+                    ? 'Save Draft'
+                    : 'Save Changes'}
+              </button>
+              <button
+                onClick={() => handleFormAction('submit')}
+                disabled={saving}
+                className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold disabled:bg-gray-300"
+              >
+                {saving && formActionMode === 'submit' ? 'Submitting...' : 'Submit for Review'}
+              </button>
+              <button
+                onClick={() => handleFormAction('pay')}
+                disabled={saving || gatewayLoading || paymentGateways.length === 0 || !formGatewayId}
+                className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold disabled:bg-gray-300"
+              >
+                {saving && formActionMode === 'pay' ? 'Processing payment...' : 'Pay Now'}
               </button>
             </div>
           </div>
