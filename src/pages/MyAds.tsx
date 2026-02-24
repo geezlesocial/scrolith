@@ -281,11 +281,37 @@ const MyAds = () => {
     return candidates[0] || '';
   };
 
-  const getPreferredCheckoutGatewayId = () => {
+  const getStripeGatewayId = () => {
     const externalGateway = paymentGateways.find(
       (gateway: any) => resolveGatewayProvider(String(gateway?.id || ''), gateway) === 'stripe'
     );
-    return String(externalGateway?.id || paymentGateways[0]?.id || '');
+    return String(externalGateway?.id || '');
+  };
+
+  const getWalletGatewayId = () => {
+    const walletGateway = paymentGateways.find(
+      (gateway: any) => resolveGatewayProvider(String(gateway?.id || ''), gateway) === 'wallet'
+    );
+    return String(walletGateway?.id || 'wallet');
+  };
+
+  const normalizeGatewaySelection = (candidate?: string) => {
+    const raw = String(candidate || '').trim();
+    if (!raw) return '';
+
+    const direct = paymentGateways.find((gateway: any) => String(gateway?.id || '').trim() === raw);
+    if (direct) return String(direct.id || '');
+
+    const provider = resolveGatewayProvider(raw);
+    if (provider === 'wallet') return getWalletGatewayId();
+    if (provider === 'stripe') return getStripeGatewayId();
+    return '';
+  };
+
+  const getPreferredCheckoutGatewayId = () => {
+    const stripeGatewayId = getStripeGatewayId();
+    if (stripeGatewayId) return stripeGatewayId;
+    return getWalletGatewayId();
   };
 
   const resolveGatewaySelection = (
@@ -293,14 +319,18 @@ const MyAds = () => {
     fallback?: string,
     options: { preferFallback?: boolean } = {}
   ) => {
-    if (options.preferFallback && fallback) return fallback;
-    if (adId) {
-      const fromRow = adGatewaySelections[adId];
-      if (fromRow) return fromRow;
+    const candidates: string[] = [];
+    if (options.preferFallback && fallback) candidates.push(fallback);
+    if (adId && adGatewaySelections[adId]) candidates.push(adGatewaySelections[adId]);
+    if (formGatewayId) candidates.push(formGatewayId);
+    if (!options.preferFallback && fallback) candidates.push(fallback);
+    candidates.push(getPreferredCheckoutGatewayId());
+
+    for (const candidate of candidates) {
+      const normalized = normalizeGatewaySelection(candidate);
+      if (normalized) return normalized;
     }
-    if (formGatewayId) return formGatewayId;
-    if (fallback) return fallback;
-    return getPreferredCheckoutGatewayId();
+    return '';
   };
 
   const isPaymentRequiredError = (result: { message?: string; code?: string } | null | undefined): boolean => {
@@ -318,11 +348,15 @@ const MyAds = () => {
     adId: string,
     options: { gatewayId?: string; currency?: string; pendingSubmit?: boolean } = {}
   ): Promise<{ redirected: boolean; paid: boolean }> => {
-    const gatewayId = options.gatewayId || getPreferredCheckoutGatewayId();
+    const gatewayId =
+      normalizeGatewaySelection(options.gatewayId || '') || getPreferredCheckoutGatewayId();
     const currency = options.currency || form.currency || 'USD';
     const pendingSubmit = Boolean(options.pendingSubmit);
-    const providerId = resolveGatewayProvider(gatewayId);
-    if (!gatewayId || !providerId) {
+    const selectedGateway = paymentGateways.find(
+      (gateway: any) => String(gateway?.id || '').trim() === String(gatewayId || '').trim()
+    );
+    const providerId = resolveGatewayProvider(gatewayId, selectedGateway);
+    if (!gatewayId || !providerId || !['wallet', 'stripe'].includes(providerId)) {
       showNotification('warning', 'Payment method', 'Select a payment method before paying.');
       return { redirected: false, paid: false };
     }
@@ -820,11 +854,23 @@ const MyAds = () => {
           showNotification('success', 'Draft created', 'Ad draft saved.');
         }
       } else if (editingAdId) {
-        const updated = await AdService.updateAd(editingAdId, payload);
-        if (!updated) throw new Error('Unable to update ad.');
-        adId = updated.id || editingAdId;
-        if (mode === 'draft') {
-          showNotification('success', 'Updated', 'Ad updated successfully.');
+        try {
+          const updated = await AdService.updateAd(editingAdId, payload);
+          if (!updated) throw new Error('Unable to update ad.');
+          adId = updated.id || editingAdId;
+          if (mode === 'draft') {
+            showNotification('success', 'Updated', 'Ad updated successfully.');
+          }
+        } catch (saveError: any) {
+          if (mode === 'draft') {
+            throw saveError;
+          }
+          adId = editingAdId;
+          showNotification(
+            'warning',
+            'Draft update skipped',
+            'Using your last saved draft for checkout. You can save text/media edits after payment.'
+          );
         }
       }
 
@@ -886,7 +932,9 @@ const MyAds = () => {
       setEditingAdId(null);
       await load();
     } catch (e: any) {
-      showNotification('error', 'Save failed', e?.message || 'Unable to save ad.');
+      const title =
+        mode === 'submit' ? 'Submit failed' : mode === 'pay' ? 'Payment failed' : 'Save failed';
+      showNotification('error', title, e?.message || 'Unable to save ad.');
     } finally {
       setFormActionMode(null);
       setSaving(false);
