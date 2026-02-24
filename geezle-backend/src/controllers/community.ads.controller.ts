@@ -75,6 +75,33 @@ const toPositiveNumber = (value: any, fallback = 0) => {
   return parsed;
 };
 
+const normalizeCurrencyCode = (value: any, fallback = 'USD') => {
+  const raw = String(value || fallback || 'USD').trim().toUpperCase();
+  if (!raw) return String(fallback || 'USD').toUpperCase();
+  const directMatch = raw.match(/^[A-Z]{3}$/);
+  if (directMatch) return directMatch[0];
+  const tokenMatch = raw.match(/[A-Z]{3}/);
+  if (tokenMatch) return tokenMatch[0];
+  return String(fallback || 'USD').toUpperCase();
+};
+
+const createValidationError = (message: string, code = 'VALIDATION_ERROR') => {
+  const err: any = new Error(message);
+  err.statusCode = 400;
+  err.code = code;
+  return err;
+};
+
+const parseOptionalDateInput = (value: any, fieldLabel: string) => {
+  if (value === undefined) return undefined;
+  if (value === null || String(value).trim() === '') return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw createValidationError(`${fieldLabel} is invalid.`, 'INVALID_DATE');
+  }
+  return parsed;
+};
+
 const defaultAdsConfig = {
   cpmByPlacement: {
     homepage: 6,
@@ -235,7 +262,15 @@ const getOrCreateWallet = async (userId: string) => {
 const normalizePaymentMethod = (value: any): string => {
   const raw = String(value || 'stripe').trim().toLowerCase();
   if (!raw) return 'stripe';
-  return raw === 'balance' ? 'wallet' : raw;
+  const compact = raw.replace(/[\s-]+/g, '_');
+
+  if (compact === 'balance' || compact === 'wallet' || compact === 'wallet_balance' || compact.includes('wallet')) {
+    return 'wallet';
+  }
+  if (compact === 'card' || compact === 'credit_card' || compact === 'debit_card' || compact.includes('stripe')) {
+    return 'stripe';
+  }
+  return compact;
 };
 
 const validateAndNormalizeMedia = async (
@@ -257,26 +292,33 @@ const validateAndNormalizeMedia = async (
   const byId = new Map<string, { id: string; mimeType: string | null }>(
     files.map((file) => [file.id, file])
   );
+  const normalizedIds = ids.filter((id) => byId.has(id));
   const missing = ids.filter((id) => !byId.has(id));
   if (missing.length) {
-    throw new Error('Some selected ad media files are unavailable. Please reselect your media.');
+    console.warn(`[community_ads] Ignoring ${missing.length} missing media file(s) during validation.`);
   }
 
   let imageCount = 0;
   let videoCount = 0;
-  for (const id of ids) {
+  for (const id of normalizedIds) {
     const mimeType = String(byId.get(id)?.mimeType || '').toLowerCase();
     if (mimeType.startsWith('video/')) videoCount += 1;
     else imageCount += 1;
   }
   if (imageCount > maxImages) {
-    throw new Error(`You can upload up to ${maxImages} images per ad campaign.`);
+    throw createValidationError(
+      `You can upload up to ${maxImages} images per ad campaign.`,
+      'MEDIA_IMAGES_LIMIT'
+    );
   }
   if (videoCount > maxVideos) {
-    throw new Error(`You can upload only ${maxVideos} video per ad campaign.`);
+    throw createValidationError(
+      `You can upload only ${maxVideos} video per ad campaign.`,
+      'MEDIA_VIDEOS_LIMIT'
+    );
   }
 
-  return { ids, imageCount, videoCount };
+  return { ids: normalizedIds, imageCount, videoCount };
 };
 
 const estimateAdOutcomes = (
@@ -447,13 +489,13 @@ export const createAdDraft = async (req: Request, res: Response) => {
     if (!Number.isFinite(budget) || budget < minBudget) {
       return res.status(400).json({
         success: false,
-        error: `Minimum ad budget is ${minBudget} ${String(payload.currency || 'USD').toUpperCase()}.`
+        error: `Minimum ad budget is ${minBudget} ${normalizeCurrencyCode(payload.currency, 'USD')}.`
       });
     }
     if (budget > maxBudget) {
       return res.status(400).json({
         success: false,
-        error: `Maximum ad budget is ${maxBudget} ${String(payload.currency || 'USD').toUpperCase()}.`
+        error: `Maximum ad budget is ${maxBudget} ${normalizeCurrencyCode(payload.currency, 'USD')}.`
       });
     }
 
@@ -512,7 +554,7 @@ export const createAdDraft = async (req: Request, res: Response) => {
         mediaFileIds: normalizedMedia.ids,
         budget,
         remainingBudget: budget,
-        currency: String(payload.currency || 'USD').toUpperCase(),
+        currency: normalizeCurrencyCode(payload.currency, 'USD'),
         startAt,
         endAt,
         durationDays: normalizedDurationDays,
@@ -542,6 +584,13 @@ export const createAdDraft = async (req: Request, res: Response) => {
     return res.json({ success: true, data: ad });
   } catch (error: any) {
     console.error('Create ad draft error:', error);
+    if (Number(error?.statusCode || 0) === 400) {
+      return res.status(400).json({
+        success: false,
+        code: error?.code || 'VALIDATION_ERROR',
+        error: error?.message || 'Invalid ad payload.'
+      });
+    }
     return res.status(500).json({ success: false, error: error.message || 'Failed to create ad' });
   }
 };
@@ -558,10 +607,19 @@ export const payAd = async (req: Request, res: Response) => {
     if (ad.creatorId !== userId) return res.status(403).json({ success: false, error: 'Forbidden' });
 
     const payload = req.body || {};
-    const paymentMethodId = normalizePaymentMethod(payload.paymentMethodId || payload.method || payload.gateway || 'stripe');
+    const requestedMethod =
+      payload.paymentMethodId ||
+      payload.gatewayId ||
+      payload.method ||
+      payload.gateway ||
+      'stripe';
+    const paymentMethodId = normalizePaymentMethod(requestedMethod);
 
     if (payload.currency) {
-      await prisma.communityAd.update({ where: { id: adId }, data: { currency: String(payload.currency).toUpperCase() } });
+      await prisma.communityAd.update({
+        where: { id: adId },
+        data: { currency: normalizeCurrencyCode(payload.currency, String(ad.currency || 'USD')) }
+      });
     }
 
     const currentAd =
@@ -584,8 +642,8 @@ export const payAd = async (req: Request, res: Response) => {
 
     if (paymentMethodId === 'wallet') {
       const wallet = await getOrCreateWallet(userId);
-      const walletCurrency = String(wallet.currency || 'USD').toUpperCase();
-      const adCurrency = String(currentAd.currency || 'USD').toUpperCase();
+      const walletCurrency = normalizeCurrencyCode(wallet.currency, 'USD');
+      const adCurrency = normalizeCurrencyCode(currentAd.currency, 'USD');
 
       if (wallet.frozen) {
         return res.status(400).json({ success: false, error: 'Wallet is frozen.' });
@@ -671,7 +729,9 @@ export const payAd = async (req: Request, res: Response) => {
     if (paymentMethodId !== 'stripe') {
       return res.status(400).json({
         success: false,
-        error: 'Selected payment method is not available for direct ad checkout yet. Choose Stripe Payment or Wallet Balance.'
+        code: 'PAYMENT_METHOD_UNSUPPORTED',
+        error:
+          'Selected payment method is not available for direct ad checkout yet. Choose Stripe Payment or Wallet Balance.'
       });
     }
 
@@ -693,7 +753,7 @@ export const payAd = async (req: Request, res: Response) => {
         {
           quantity: 1,
           price_data: {
-            currency: String(currentAd.currency || 'USD').toLowerCase(),
+            currency: normalizeCurrencyCode(currentAd.currency, 'USD').toLowerCase(),
             unit_amount: Math.round(amount * 100),
             product_data: {
               name: currentAd.title || 'Scrolith Ad Campaign',
@@ -750,6 +810,17 @@ export const payAd = async (req: Request, res: Response) => {
         error: 'Stripe credentials are invalid. Please update Stripe Payment settings in the admin payment gateways.'
       });
     }
+    if (
+      error?.type === 'StripeInvalidRequestError' ||
+      error?.type === 'StripeAPIError' ||
+      Number(error?.statusCode || 0) === 400
+    ) {
+      return res.status(400).json({
+        success: false,
+        code: 'PAYMENT_INIT_FAILED',
+        error: error?.message || 'Unable to initialize checkout with the selected payment method.'
+      });
+    }
     return res.status(500).json({ success: false, error: error.message || 'Failed to create payment' });
   }
 };
@@ -763,8 +834,43 @@ export const submitAd = async (req: Request, res: Response) => {
     if (!ad) return res.status(404).json({ success: false, error: 'Ad not found' });
     if (ad.creatorId !== userId) return res.status(403).json({ success: false, error: 'Forbidden' });
 
-    if (ad.status !== 'PAID') {
-      return res.status(400).json({ success: false, error: 'Ad must be paid before submission' });
+    const currentStatus = String(ad.status || '').toUpperCase();
+    if (currentStatus === 'SUBMITTED_FOR_REVIEW' || currentStatus === 'ACTIVE') {
+      return res.json({
+        success: true,
+        message: 'Ad is already submitted for review.',
+        data: ad
+      });
+    }
+
+    if (currentStatus !== 'PAID') {
+      const completedPayment = await prisma.adPayment.findFirst({
+        where: {
+          adId,
+          status: {
+            in: ['completed', 'paid', 'succeeded']
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+      if (!completedPayment) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'PAYMENT_REQUIRED',
+            message: 'Ad must be paid before submission'
+          }
+        });
+      }
+
+      await prisma.communityAd.update({
+        where: { id: adId },
+        data: {
+          status: 'PAID',
+          paymentTransactionId:
+            ad.paymentTransactionId || completedPayment.transactionId || ad.paymentTransactionId || null
+        }
+      });
     }
 
     const adsConfigSetting = await prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } });
@@ -1233,7 +1339,9 @@ export const updateAd = async (req: Request, res: Response) => {
       allowed.remainingBudget = Math.max(0, Number((newBudget - previouslySpent).toFixed(6)));
     }
 
-    if (payload.currency !== undefined) allowed.currency = String(payload.currency || 'USD').toUpperCase();
+    if (payload.currency !== undefined) {
+      allowed.currency = normalizeCurrencyCode(payload.currency, String(existing.currency || 'USD'));
+    }
 
     const selectedBudget = allowed.budget !== undefined ? Number(allowed.budget) : Number(existing.budget || 0);
     if (nextTargeting.dailySpend !== undefined && nextTargeting.dailySpend !== null && Number(nextTargeting.dailySpend) > selectedBudget) {
@@ -1257,8 +1365,12 @@ export const updateAd = async (req: Request, res: Response) => {
 
     allowed.targeting = nextTargeting;
 
-    if (payload.startAt !== undefined) allowed.startAt = payload.startAt ? new Date(payload.startAt) : null;
-    if (payload.endAt !== undefined) allowed.endAt = payload.endAt ? new Date(payload.endAt) : null;
+    if (payload.startAt !== undefined) {
+      allowed.startAt = parseOptionalDateInput(payload.startAt, 'Start date');
+    }
+    if (payload.endAt !== undefined) {
+      allowed.endAt = parseOptionalDateInput(payload.endAt, 'End date');
+    }
     if (payload.durationDays !== undefined) {
       const durationDays = Number(payload.durationDays || 0);
       allowed.durationDays = Number.isFinite(durationDays) && durationDays > 0 ? Math.floor(durationDays) : null;
@@ -1276,6 +1388,21 @@ export const updateAd = async (req: Request, res: Response) => {
     return res.json({ success: true, data: updated });
   } catch (error: any) {
     console.error('Update ad error:', error);
+    if (Number(error?.statusCode || 0) === 400) {
+      return res.status(400).json({
+        success: false,
+        code: error?.code || 'VALIDATION_ERROR',
+        error: error?.message || 'Invalid ad payload.'
+      });
+    }
+    const prismaCode = String(error?.code || '').toUpperCase();
+    if (prismaCode.startsWith('P')) {
+      return res.status(400).json({
+        success: false,
+        code: prismaCode || 'DB_VALIDATION_ERROR',
+        error: 'Invalid ad payload. Please review date, budget, and targeting fields.'
+      });
+    }
     return res.status(500).json({ success: false, error: error.message || 'Failed to update ad' });
   }
 };
