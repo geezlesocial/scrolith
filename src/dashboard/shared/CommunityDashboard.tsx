@@ -413,10 +413,17 @@ const CommunityDashboard: React.FC = () => {
 
   useEffect(() => {
     const section = new URLSearchParams(location.search).get('section');
+    if (String(section || '').trim().toLowerCase() === 'ads') {
+      const params = new URLSearchParams(location.search);
+      params.set('tab', 'my-ads');
+      params.delete('section');
+      navigate(`${location.pathname}?${params.toString()}`, { replace: true });
+      return;
+    }
     if (section && isTabId(section)) {
       setActiveTab(section);
     }
-  }, [location.search]);
+  }, [location.pathname, location.search, navigate]);
 
   const formattedUserName = `${user?.name || user?.username || 'Community member'}`;
   const hasPostUploads = postDraft.media.some((item) => item.uploading);
@@ -2765,7 +2772,7 @@ const CommunityDashboard: React.FC = () => {
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-            Available methods update from your configured payment gateways.
+            Available payment methods.
           </div>
           <select
             value={selectedGatewayId}

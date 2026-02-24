@@ -292,7 +292,7 @@ export const AdService = {
 
   updateAd: async (id: string, campaign: Partial<AdCampaign>): Promise<AdCampaign | null> => {
     try {
-      const payload = { ...campaign } as any;
+      const payload = toAdPayload(campaign as Partial<AdCampaign>) as any;
       // Prevent frontend from attempting to change status via creator update
       if (payload.status) delete payload.status;
       const response = await api.put(`/community/ads/${id}`, payload);
