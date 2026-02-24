@@ -1,14 +1,10 @@
 import { Request, Response } from 'express';
-import Stripe from 'stripe';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { recordClick, recordImpression } from '../services/adService';
 import { syncFileUsages } from '../utils/fileUsage';
 import { sendSystemEmail } from '../services/email.service';
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_mock_key', {
-  apiVersion: '2023-10-16' as any
-});
+import { getStripeClient } from '../services/stripeConfig.service';
 
 const ADS_CONFIG_SCOPE = 'community_ads_config';
 const PLATFORM_ORIGIN = process.env.PLATFORM_URL || 'https://scrolith.com';
@@ -551,7 +547,15 @@ export const payAd = async (req: Request, res: Response) => {
     const amount = Math.max(0, Number(ad.budget || 0));
     if (amount <= 0) return res.status(400).json({ success: false, error: 'Invalid budget amount' });
 
-    const paymentIntent = await stripe.paymentIntents.create({
+    const stripeClient = await getStripeClient();
+    if (!stripeClient) {
+      return res.status(400).json({
+        success: false,
+        error: 'Stripe Payment is not configured. Please contact support or choose another payment method.'
+      });
+    }
+
+    const paymentIntent = await stripeClient.paymentIntents.create({
       amount: Math.round(amount * 100),
       currency: (ad.currency || 'USD').toLowerCase(),
       metadata: { adId: ad.id },
@@ -580,6 +584,12 @@ export const payAd = async (req: Request, res: Response) => {
     return res.json({ success: true, data: { clientSecret: paymentIntent.client_secret, paymentIntentId: paymentIntent.id } });
   } catch (error: any) {
     console.error('Pay ad error:', error);
+    if (error?.type === 'StripeAuthenticationError' || Number(error?.statusCode || 0) === 401) {
+      return res.status(400).json({
+        success: false,
+        error: 'Stripe credentials are invalid. Please update Stripe Payment settings in the admin payment gateways.'
+      });
+    }
     return res.status(500).json({ success: false, error: error.message || 'Failed to create payment' });
   }
 };
@@ -680,17 +690,20 @@ export const rejectAd = async (req: Request, res: Response) => {
     // Refund handling: mark existing payments refunded, attempt gateway refund when possible,
     // and record a refund AdPayment entry linking to gateway refund id.
     if (refund) {
+      const stripeClient = await getStripeClient();
       const payments = await prisma.adPayment.findMany({ where: { adId } });
       for (const p of payments) {
         try {
           // attempt gateway refund if we have a transaction/payment intent id
           let refundResult: any = null;
-          if (p.transactionId) {
+          if (p.transactionId && stripeClient) {
             try {
-              refundResult = await stripe.refunds.create({ payment_intent: p.transactionId } as any);
+              refundResult = await stripeClient.refunds.create({ payment_intent: p.transactionId } as any);
             } catch (stripeErr) {
               console.error('Stripe refund error for ad payment', p.id, stripeErr);
             }
+          } else if (p.transactionId && !stripeClient) {
+            console.warn('Stripe client unavailable while refunding ad payment', p.id);
           }
 
           // mark original payment as refunded/flagged
