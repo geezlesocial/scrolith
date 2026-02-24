@@ -216,6 +216,28 @@ const ensureMessageDestinationType = (objective: string, destinationType: string
   return objective === 'messages' ? 'messages' : destinationType;
 };
 
+const getOrCreateWallet = async (userId: string) => {
+  let wallet = await prisma.wallet.findUnique({ where: { userId } });
+  if (wallet) return wallet;
+  wallet = await prisma.wallet.create({
+    data: {
+      userId,
+      balance: 0,
+      pendingClearance: 0,
+      escrowBalance: 0,
+      currency: 'USD',
+      isActive: true
+    }
+  });
+  return wallet;
+};
+
+const normalizePaymentMethod = (value: any): string => {
+  const raw = String(value || 'stripe').trim().toLowerCase();
+  if (!raw) return 'stripe';
+  return raw === 'balance' ? 'wallet' : raw;
+};
+
 const validateAndNormalizeMedia = async (
   mediaFileIds: any,
   maxImages: number,
@@ -530,22 +552,128 @@ export const payAd = async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
     const adId = req.params.id;
-    const ad = await prisma.communityAd.findUnique({ where: { id: adId } });
+    const existingAd = await prisma.communityAd.findUnique({ where: { id: adId } });
+    const ad = existingAd;
     if (!ad) return res.status(404).json({ success: false, error: 'Ad not found' });
     if (ad.creatorId !== userId) return res.status(403).json({ success: false, error: 'Forbidden' });
 
     const payload = req.body || {};
-    const paymentMethodId = (payload.paymentMethodId || payload.method || payload.gateway || 'stripe').toString();
-    if (paymentMethodId && paymentMethodId !== 'stripe') {
-      return res.status(400).json({ success: false, error: 'Selected payment method is not available for ads yet' });
-    }
+    const paymentMethodId = normalizePaymentMethod(payload.paymentMethodId || payload.method || payload.gateway || 'stripe');
 
     if (payload.currency) {
       await prisma.communityAd.update({ where: { id: adId }, data: { currency: String(payload.currency).toUpperCase() } });
     }
 
-    const amount = Math.max(0, Number(ad.budget || 0));
+    const currentAd =
+      payload.currency !== undefined
+        ? await prisma.communityAd.findUnique({ where: { id: adId } })
+        : ad;
+    if (!currentAd) return res.status(404).json({ success: false, error: 'Ad not found' });
+
+    const amount = Math.max(0, Number(currentAd.budget || 0));
     if (amount <= 0) return res.status(400).json({ success: false, error: 'Invalid budget amount' });
+
+    const userRole = String(req.user?.role || '').toLowerCase();
+    const frontendBase = process.env.FRONTEND_URL || process.env.APP_URL || PLATFORM_ORIGIN || 'http://localhost:3000';
+    const dashboardPath =
+      userRole.includes('freelancer') || userRole.includes('seller')
+        ? '/freelancer/dashboard'
+        : '/client/dashboard';
+    const successUrl = `${frontendBase}${dashboardPath}?tab=my-ads&ad_payment=success&ad_id=${encodeURIComponent(adId)}`;
+    const cancelUrl = `${frontendBase}${dashboardPath}?tab=my-ads&ad_payment=cancel&ad_id=${encodeURIComponent(adId)}`;
+
+    if (paymentMethodId === 'wallet') {
+      const wallet = await getOrCreateWallet(userId);
+      const walletCurrency = String(wallet.currency || 'USD').toUpperCase();
+      const adCurrency = String(currentAd.currency || 'USD').toUpperCase();
+
+      if (wallet.frozen) {
+        return res.status(400).json({ success: false, error: 'Wallet is frozen.' });
+      }
+      if (walletCurrency !== adCurrency) {
+        return res.status(400).json({
+          success: false,
+          error: `Wallet currency ${walletCurrency} does not match ${adCurrency}.`
+        });
+      }
+
+      const walletRef = `ad-wallet-${adId}-${Date.now()}`;
+      try {
+        await prisma.$transaction(async (tx) => {
+          const freshWallet = await tx.wallet.findUnique({ where: { id: wallet.id } });
+          if (!freshWallet) throw new Error('Wallet not found.');
+          if (freshWallet.frozen) throw new Error('Wallet is frozen.');
+          if (Number(freshWallet.balance || 0) < amount) throw new Error('Insufficient wallet balance.');
+
+          await tx.wallet.update({
+            where: { id: freshWallet.id },
+            data: { balance: { decrement: amount } }
+          });
+
+          await tx.transaction.create({
+            data: {
+              walletId: freshWallet.id,
+              userId,
+              type: 'PAYMENT' as any,
+              amount,
+              currency: adCurrency,
+              status: 'COMPLETED' as any,
+              description: `Community ad payment: ${currentAd.title || 'Ad campaign'}`,
+              referenceId: walletRef,
+              metadata: {
+                adId,
+                source: 'community_ads',
+                paymentMethodId: 'wallet'
+              }
+            }
+          });
+
+          await tx.adPayment.create({
+            data: {
+              adId,
+              transactionId: walletRef,
+              amount,
+              currency: adCurrency,
+              status: 'completed'
+            }
+          });
+
+          await tx.communityAd.update({
+            where: { id: adId },
+            data: { status: 'PAID', paymentTransactionId: walletRef }
+          });
+        });
+
+        const io = (req.app as any).get('io');
+        try { io?.emit('community:ad_status_updated', { adId, status: 'PAID' }); } catch (e) {}
+        try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: 'PAID' }); } catch (e) {}
+
+        return res.json({
+          success: true,
+          message: 'Ad payment completed using wallet balance.',
+          data: {
+            paymentMethodId: 'wallet',
+            status: 'paid'
+          }
+        });
+      } catch (walletError: any) {
+        const message = String(walletError?.message || '').toLowerCase();
+        if (message.includes('insufficient wallet')) {
+          return res.status(400).json({ success: false, error: 'Insufficient wallet balance.' });
+        }
+        if (message.includes('wallet is frozen')) {
+          return res.status(400).json({ success: false, error: 'Wallet is frozen.' });
+        }
+        throw walletError;
+      }
+    }
+
+    if (paymentMethodId !== 'stripe') {
+      return res.status(400).json({
+        success: false,
+        error: 'Selected payment method is not available for direct ad checkout yet. Choose Stripe Payment or Wallet Balance.'
+      });
+    }
 
     const stripeClient = await getStripeClient();
     if (!stripeClient) {
@@ -555,33 +683,65 @@ export const payAd = async (req: Request, res: Response) => {
       });
     }
 
-    const paymentIntent = await stripeClient.paymentIntents.create({
-      amount: Math.round(amount * 100),
-      currency: (ad.currency || 'USD').toLowerCase(),
-      metadata: { adId: ad.id },
-      automatic_payment_methods: { enabled: true }
+    const checkoutSession = await stripeClient.checkout.sessions.create({
+      mode: 'payment',
+      payment_method_types: ['card'],
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      client_reference_id: adId,
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: String(currentAd.currency || 'USD').toLowerCase(),
+            unit_amount: Math.round(amount * 100),
+            product_data: {
+              name: currentAd.title || 'Scrolith Ad Campaign',
+              description: 'Community ad campaign prepayment'
+            }
+          }
+        }
+      ],
+      metadata: {
+        adId,
+        creatorId: userId,
+        source: 'community_ads'
+      },
+      payment_intent_data: {
+        metadata: {
+          adId,
+          creatorId: userId,
+          source: 'community_ads'
+        }
+      }
     });
 
-    // Mark ad as awaiting payment and create a pending AdPayment for reconciliation
+    await prisma.communityAd.update({ where: { id: adId }, data: { status: 'AWAITING_PAYMENT' } });
+    const io = (req.app as any).get('io');
+    try { io?.emit('community:ad_status_updated', { adId, status: 'AWAITING_PAYMENT' }); } catch (e) {}
     try {
-      await prisma.communityAd.update({ where: { id: adId }, data: { status: 'AWAITING_PAYMENT' } });
-      await prisma.adPayment.create({ data: {
+      io?.emit('community:ad_payment_initiated', { adId, checkoutSessionId: checkoutSession.id, paymentMethodId: 'stripe' });
+    } catch (e) {}
+    try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: 'AWAITING_PAYMENT' }); } catch (e) {}
+    try {
+      realtime.emitToAd(adId, 'community:ad_payment_initiated', {
         adId,
-        transactionId: paymentIntent.id,
-        amount: amount,
-        currency: (ad.currency || 'USD').toUpperCase(),
-        status: 'pending'
-      } });
-      const io = (req.app as any).get('io');
-      try { io?.emit('community:ad_status_updated', { adId, status: 'AWAITING_PAYMENT' }); } catch(e){}
-      try { io?.emit('community:ad_payment_initiated', { adId, paymentIntentId: paymentIntent.id }); } catch(e){}
-      try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: 'AWAITING_PAYMENT' }); } catch (e) {}
-      try { realtime.emitToAd(adId, 'community:ad_payment_initiated', { adId, paymentIntentId: paymentIntent.id }); } catch (e) {}
-    } catch (err) {
-      console.error('Failed to create pending ad payment record:', err);
-    }
+        checkoutSessionId: checkoutSession.id,
+        paymentMethodId: 'stripe'
+      });
+    } catch (e) {}
 
-    return res.json({ success: true, data: { clientSecret: paymentIntent.client_secret, paymentIntentId: paymentIntent.id } });
+    return res.json({
+      success: true,
+      message: 'Redirecting to checkout.',
+      data: {
+        paymentMethodId: 'stripe',
+        checkoutSessionId: checkoutSession.id,
+        redirect_url: checkoutSession.url || null,
+        success_url: successUrl,
+        cancel_url: cancelUrl
+      }
+    });
   } catch (error: any) {
     console.error('Pay ad error:', error);
     if (error?.type === 'StripeAuthenticationError' || Number(error?.statusCode || 0) === 401) {

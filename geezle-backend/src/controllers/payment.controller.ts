@@ -96,6 +96,76 @@ export const handleWebhook = async (req: Request, res: Response) => {
 
   // Handle the event
   switch (event.type) {
+    case 'checkout.session.completed': {
+      const checkoutSession: any = event.data.object;
+      const adId = checkoutSession?.metadata?.adId;
+      if (adId) {
+        try {
+          let paymentIntentId =
+            typeof checkoutSession.payment_intent === 'string'
+              ? checkoutSession.payment_intent
+              : checkoutSession.payment_intent?.id;
+
+          if (!paymentIntentId && checkoutSession?.id) {
+            try {
+              const refreshedSession = await stripe.checkout.sessions.retrieve(checkoutSession.id, {
+                expand: ['payment_intent']
+              });
+              paymentIntentId =
+                typeof (refreshedSession as any)?.payment_intent === 'string'
+                  ? (refreshedSession as any).payment_intent
+                  : (refreshedSession as any)?.payment_intent?.id;
+            } catch (retrieveError) {
+              console.warn('Unable to expand checkout session payment_intent for ad payment:', retrieveError);
+            }
+          }
+
+          const transactionId = paymentIntentId || checkoutSession.id;
+          const amountReceived = Number(checkoutSession.amount_total || 0) / 100;
+          const currencyStr = String(checkoutSession.currency || 'usd').toUpperCase();
+          const nextAdStatus = await resolveAdActivationStatus();
+
+          const existing = await prisma.adPayment.findFirst({
+            where: { adId, transactionId }
+          });
+
+          if (existing) {
+            await prisma.$transaction([
+              prisma.adPayment.update({
+                where: { id: existing.id },
+                data: { status: 'completed', amount: amountReceived, currency: currencyStr }
+              }),
+              prisma.communityAd.update({
+                where: { id: adId },
+                data: { status: nextAdStatus, paymentTransactionId: transactionId }
+              })
+            ]);
+          } else {
+            await prisma.$transaction([
+              prisma.adPayment.create({
+                data: {
+                  adId,
+                  transactionId,
+                  amount: amountReceived,
+                  currency: currencyStr,
+                  status: 'completed'
+                }
+              }),
+              prisma.communityAd.update({
+                where: { id: adId },
+                data: { status: nextAdStatus, paymentTransactionId: transactionId }
+              })
+            ]);
+          }
+
+          console.log(`Checkout session completed for ad ${adId}; transitioned to ${nextAdStatus}`);
+        } catch (checkoutAdError) {
+          console.error('Error updating ad payment from checkout session completion:', checkoutAdError);
+        }
+      }
+      break;
+    }
+
     case 'payment_intent.succeeded':
       const paymentIntent = event.data.object;
       const orderId = paymentIntent.metadata.orderId;
