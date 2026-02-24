@@ -58,6 +58,9 @@ const DEFAULT_TARGET_COUNTRIES = [
   'Philippines'
 ];
 
+const AD_PAYMENT_COMPLETED_STATUSES = ['completed', 'paid', 'succeeded'] as const;
+const AD_PAYMENT_SETTLED_AD_STATUSES = new Set(['PAID', 'SUBMITTED_FOR_REVIEW', 'ACTIVE', 'PAUSED']);
+
 const normalizePlacement = (value: any, fallback = 'community_feed') => {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return fallback;
@@ -501,8 +504,18 @@ export const createAdDraft = async (req: Request, res: Response) => {
 
     const durationDays = Number(payload.durationDays || 0);
     const normalizedDurationDays = Number.isFinite(durationDays) && durationDays > 0 ? Math.floor(durationDays) : 7;
-    const startAt = payload.startAt ? new Date(payload.startAt) : new Date();
-    const endAt = new Date(startAt.getTime() + normalizedDurationDays * 24 * 60 * 60 * 1000);
+    const parsedStartAt = parseOptionalDateInput(payload.startAt, 'Start date');
+    const parsedEndAt = parseOptionalDateInput(payload.endAt, 'End date');
+    const startAt = parsedStartAt || new Date();
+    const endAt =
+      parsedEndAt ||
+      new Date(startAt.getTime() + normalizedDurationDays * 24 * 60 * 60 * 1000);
+    if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) {
+      throw createValidationError('Campaign schedule dates are invalid.', 'INVALID_DATE');
+    }
+    if (endAt.getTime() <= startAt.getTime()) {
+      throw createValidationError('End date must be after start date.', 'INVALID_DATE_RANGE');
+    }
 
     const maxImages = Math.max(1, Math.min(12, Number(adsConfig.maxImageAssets ?? 6)));
     const maxVideos = Math.max(1, Math.min(3, Number(adsConfig.maxVideoAssets ?? 1)));
@@ -630,6 +643,30 @@ export const payAd = async (req: Request, res: Response) => {
 
     const amount = Math.max(0, Number(currentAd.budget || 0));
     if (amount <= 0) return res.status(400).json({ success: false, error: 'Invalid budget amount' });
+
+    const normalizedAdStatus = String(currentAd.status || '').toUpperCase();
+    if (AD_PAYMENT_SETTLED_AD_STATUSES.has(normalizedAdStatus)) {
+      const settledPayment = await prisma.adPayment.findFirst({
+        where: {
+          adId,
+          status: {
+            in: [...AD_PAYMENT_COMPLETED_STATUSES]
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+      if (settledPayment) {
+        return res.json({
+          success: true,
+          message: 'Ad payment is already completed.',
+          data: {
+            paymentMethodId,
+            status: 'paid',
+            alreadyPaid: true
+          }
+        });
+      }
+    }
 
     const userRole = String(req.user?.role || '').toLowerCase();
     const frontendBase = process.env.FRONTEND_URL || process.env.APP_URL || PLATFORM_ORIGIN || 'http://localhost:3000';
@@ -848,7 +885,7 @@ export const submitAd = async (req: Request, res: Response) => {
         where: {
           adId,
           status: {
-            in: ['completed', 'paid', 'succeeded']
+            in: [...AD_PAYMENT_COMPLETED_STATUSES]
           }
         },
         orderBy: { createdAt: 'desc' }
@@ -1374,6 +1411,28 @@ export const updateAd = async (req: Request, res: Response) => {
     if (payload.durationDays !== undefined) {
       const durationDays = Number(payload.durationDays || 0);
       allowed.durationDays = Number.isFinite(durationDays) && durationDays > 0 ? Math.floor(durationDays) : null;
+    }
+    const nextStartAt =
+      allowed.startAt !== undefined ? allowed.startAt : (existing.startAt || null);
+    const nextEndAt =
+      allowed.endAt !== undefined ? allowed.endAt : (existing.endAt || null);
+    if (nextStartAt && nextEndAt) {
+      const startMs = new Date(nextStartAt).getTime();
+      const endMs = new Date(nextEndAt).getTime();
+      if (Number.isNaN(startMs) || Number.isNaN(endMs)) {
+        return res.status(400).json({
+          success: false,
+          code: 'INVALID_DATE',
+          error: 'Campaign schedule dates are invalid.'
+        });
+      }
+      if (endMs <= startMs) {
+        return res.status(400).json({
+          success: false,
+          code: 'INVALID_DATE_RANGE',
+          error: 'End date must be after start date.'
+        });
+      }
     }
 
     // Prevent creators from changing status via this endpoint
