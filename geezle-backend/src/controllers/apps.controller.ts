@@ -15,7 +15,9 @@ const KNOWN_EVENTS = new Set([
   'download_clicked',
   'install_marked',
   'prompt_suppressed',
-  'campaign_opened'
+  'campaign_opened',
+  'push_registration_error',
+  'push_token_registered'
 ]);
 
 type CampaignRecord = {

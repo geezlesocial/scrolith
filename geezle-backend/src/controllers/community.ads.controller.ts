@@ -95,6 +95,19 @@ const createValidationError = (message: string, code = 'VALIDATION_ERROR') => {
   return err;
 };
 
+const isPrismaValidationLikeError = (error: any): boolean => {
+  if (!error) return false;
+  const name = String(error?.name || '').toLowerCase();
+  if (name.includes('prismaclientvalidationerror')) return true;
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    message.includes('unknown arg') ||
+    message.includes('invalid value provided') ||
+    message.includes('invalid enum value') ||
+    (message.includes('argument') && message.includes('missing'))
+  );
+};
+
 const parseOptionalDateInput = (value: any, fieldLabel: string) => {
   if (value === undefined) return undefined;
   if (value === null || String(value).trim() === '') return null;
@@ -223,6 +236,29 @@ const getPlacementRate = (
 const parseTargeting = (value: any): Record<string, any> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return { ...value };
+};
+
+const sanitizeJsonValue = (value: any): any => {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => sanitizeJsonValue(entry))
+      .filter((entry) => entry !== undefined);
+  }
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+  }
+  if (typeof value === 'object') {
+    const output: Record<string, any> = {};
+    Object.entries(value).forEach(([key, entry]) => {
+      const normalized = sanitizeJsonValue(entry);
+      if (normalized !== undefined) output[key] = normalized;
+    });
+    return output;
+  }
+  if (typeof value === 'number' && !Number.isFinite(value)) return null;
+  return value;
 };
 
 const extractPlacements = (payload: any, adsConfig: any, existingPrimaryPlacement?: string): string[] => {
@@ -543,7 +579,7 @@ export const createAdDraft = async (req: Request, res: Response) => {
     }
 
     const estimated = estimateAdOutcomes(budget, pricingModel, cpm, cpc);
-    const targeting = {
+    const targeting = sanitizeJsonValue({
       ...incomingTargeting,
       placements,
       targetCountries,
@@ -551,13 +587,13 @@ export const createAdDraft = async (req: Request, res: Response) => {
       pricingModel,
       dailySpend,
       estimated
-    };
+    }) || {};
 
     const ad = await prisma.communityAd.create({
       data: {
         creatorId: userId,
-        title: payload.title || 'Untitled Ad',
-        body: payload.body || '',
+        title: String(payload.title || 'Untitled Ad'),
+        body: String(payload.body || ''),
         objective,
         destinationType,
         destinationUrl,
@@ -602,6 +638,21 @@ export const createAdDraft = async (req: Request, res: Response) => {
         success: false,
         code: error?.code || 'VALIDATION_ERROR',
         error: error?.message || 'Invalid ad payload.'
+      });
+    }
+    const prismaCode = String(error?.code || '').toUpperCase();
+    if (prismaCode.startsWith('P')) {
+      return res.status(400).json({
+        success: false,
+        code: prismaCode || 'DB_VALIDATION_ERROR',
+        error: 'Invalid ad payload. Please review destination URL, targeting, media, and budget values.'
+      });
+    }
+    if (isPrismaValidationLikeError(error)) {
+      return res.status(400).json({
+        success: false,
+        code: 'DB_VALIDATION_ERROR',
+        error: 'Invalid ad payload. Please review destination URL, placement, budget, and scheduling values.'
       });
     }
     return res.status(500).json({ success: false, error: error.message || 'Failed to create ad' });
@@ -674,7 +725,7 @@ export const payAd = async (req: Request, res: Response) => {
       userRole.includes('freelancer') || userRole.includes('seller')
         ? '/freelancer/dashboard'
         : '/client/dashboard';
-    const successUrl = `${frontendBase}${dashboardPath}?tab=my-ads&ad_payment=success&ad_id=${encodeURIComponent(adId)}`;
+    const successUrl = `${frontendBase}${dashboardPath}?tab=my-ads&ad_payment=success&ad_id=${encodeURIComponent(adId)}&session_id={CHECKOUT_SESSION_ID}`;
     const cancelUrl = `${frontendBase}${dashboardPath}?tab=my-ads&ad_payment=cancel&ad_id=${encodeURIComponent(adId)}`;
 
     if (paymentMethodId === 'wallet') {
@@ -780,8 +831,9 @@ export const payAd = async (req: Request, res: Response) => {
       });
     }
 
-    const checkoutSession = await stripeClient.checkout.sessions.create({
+    let checkoutSession = await stripeClient.checkout.sessions.create({
       mode: 'payment',
+      ui_mode: 'hosted',
       payment_method_types: ['card'],
       success_url: successUrl,
       cancel_url: cancelUrl,
@@ -813,6 +865,22 @@ export const payAd = async (req: Request, res: Response) => {
       }
     });
 
+    if (!checkoutSession?.url) {
+      try {
+        checkoutSession = await stripeClient.checkout.sessions.retrieve(checkoutSession.id);
+      } catch (refreshError) {
+        console.warn('Unable to refresh checkout session URL for ad payment:', refreshError);
+      }
+    }
+    const checkoutUrl = checkoutSession?.url || null;
+    if (!checkoutUrl) {
+      return res.status(400).json({
+        success: false,
+        code: 'PAYMENT_INIT_FAILED',
+        error: 'Unable to create checkout URL for this campaign. Please try again.'
+      });
+    }
+
     await prisma.communityAd.update({ where: { id: adId }, data: { status: 'AWAITING_PAYMENT' } });
     const io = (req.app as any).get('io');
     try { io?.emit('community:ad_status_updated', { adId, status: 'AWAITING_PAYMENT' }); } catch (e) {}
@@ -834,7 +902,8 @@ export const payAd = async (req: Request, res: Response) => {
       data: {
         paymentMethodId: 'stripe',
         checkoutSessionId: checkoutSession.id,
-        redirect_url: checkoutSession.url || null,
+        redirect_url: checkoutUrl,
+        checkout_url: checkoutUrl,
         success_url: successUrl,
         cancel_url: cancelUrl
       }
@@ -867,6 +936,7 @@ export const submitAd = async (req: Request, res: Response) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
     const adId = req.params.id;
+    const payload = req.body || {};
     const ad = await prisma.communityAd.findUnique({ where: { id: adId } });
     if (!ad) return res.status(404).json({ success: false, error: 'Ad not found' });
     if (ad.creatorId !== userId) return res.status(403).json({ success: false, error: 'Forbidden' });
@@ -881,7 +951,7 @@ export const submitAd = async (req: Request, res: Response) => {
     }
 
     if (currentStatus !== 'PAID') {
-      const completedPayment = await prisma.adPayment.findFirst({
+      let completedPayment = await prisma.adPayment.findFirst({
         where: {
           adId,
           status: {
@@ -890,9 +960,115 @@ export const submitAd = async (req: Request, res: Response) => {
         },
         orderBy: { createdAt: 'desc' }
       });
+
+      // Fallback for delayed/missed webhook: reconcile paid Stripe checkout session directly.
+      if (!completedPayment) {
+        const requestedSessionId = String(
+          payload.sessionId || payload.checkoutSessionId || payload.session_id || ''
+        ).trim();
+        const stripeClient = await getStripeClient();
+        if (stripeClient) {
+          try {
+            let paidSession: any = null;
+
+            if (requestedSessionId) {
+              const session = await stripeClient.checkout.sessions.retrieve(requestedSessionId);
+              if (
+                String(session?.client_reference_id || '').trim() === adId &&
+                String(session?.payment_status || '').toLowerCase() === 'paid'
+              ) {
+                paidSession = session;
+              }
+            }
+
+            if (!paidSession) {
+              const sessions = await stripeClient.checkout.sessions.list({
+                limit: 100
+              });
+              paidSession =
+                sessions.data.find(
+                  (session: any) =>
+                    String(session?.client_reference_id || '').trim() === adId &&
+                    String(session?.payment_status || '').toLowerCase() === 'paid'
+                ) || null;
+            }
+
+            if (paidSession) {
+              const checkoutSessionId = String(paidSession.id || requestedSessionId || '').trim();
+              const paymentIntentId =
+                typeof paidSession.payment_intent === 'string'
+                  ? String(paidSession.payment_intent).trim()
+                  : '';
+              const transactionId =
+                paymentIntentId || checkoutSessionId || `ad-stripe-${adId}-${Date.now()}`;
+              const amountFromSession = Number(paidSession.amount_total || 0);
+              const amount =
+                Number.isFinite(amountFromSession) && amountFromSession > 0
+                  ? amountFromSession / 100
+                  : Math.max(0, Number(ad.budget || 0));
+              const currency = normalizeCurrencyCode(
+                paidSession.currency,
+                normalizeCurrencyCode(ad.currency, 'USD')
+              );
+
+              await prisma.$transaction(async (tx) => {
+                const paymentRefs = Array.from(
+                  new Set([transactionId, checkoutSessionId].filter(Boolean))
+                );
+                const existingCompleted = await tx.adPayment.findFirst({
+                  where: {
+                    adId,
+                    status: { in: [...AD_PAYMENT_COMPLETED_STATUSES] },
+                    ...(paymentRefs.length ? { transactionId: { in: paymentRefs } } : {})
+                  },
+                  orderBy: { createdAt: 'desc' }
+                });
+
+                if (!existingCompleted) {
+                  await tx.adPayment.create({
+                    data: {
+                      adId,
+                      transactionId,
+                      amount: Math.max(0, Number(amount || 0)),
+                      currency,
+                      status: 'completed'
+                    }
+                  });
+                }
+
+                await tx.communityAd.update({
+                  where: { id: adId },
+                  data: {
+                    status: 'PAID',
+                    paymentTransactionId: transactionId
+                  }
+                });
+              });
+
+              const io = (req.app as any).get('io');
+              try { io?.emit('community:ad_status_updated', { adId, status: 'PAID' }); } catch (e) {}
+              try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: 'PAID' }); } catch (e) {}
+
+              completedPayment = await prisma.adPayment.findFirst({
+                where: {
+                  adId,
+                  status: {
+                    in: [...AD_PAYMENT_COMPLETED_STATUSES]
+                  }
+                },
+                orderBy: { createdAt: 'desc' }
+              });
+            }
+          } catch (reconcileError) {
+            console.warn('[community_ads] submit reconciliation failed:', reconcileError);
+          }
+        }
+      }
+
       if (!completedPayment) {
         return res.status(400).json({
           success: false,
+          code: 'PAYMENT_REQUIRED',
           error: {
             code: 'PAYMENT_REQUIRED',
             message: 'Ad must be paid before submission'
@@ -921,6 +1097,20 @@ export const submitAd = async (req: Request, res: Response) => {
     return res.json({ success: true, data: updated });
   } catch (error: any) {
     console.error('Submit ad error:', error);
+    if (Number(error?.statusCode || 0) === 400) {
+      return res.status(400).json({
+        success: false,
+        code: error?.code || 'VALIDATION_ERROR',
+        error: error?.message || 'Invalid submit request.'
+      });
+    }
+    if (isPrismaValidationLikeError(error)) {
+      return res.status(400).json({
+        success: false,
+        code: 'DB_VALIDATION_ERROR',
+        error: 'Invalid ad data for submission. Please save your draft again and retry.'
+      });
+    }
     return res.status(500).json({ success: false, error: error.message || 'Failed to submit ad' });
   }
 };
@@ -1400,7 +1590,16 @@ export const updateAd = async (req: Request, res: Response) => {
       );
     }
 
-    allowed.targeting = nextTargeting;
+    allowed.targeting = sanitizeJsonValue(nextTargeting) || {};
+    try {
+      allowed.targeting = JSON.parse(JSON.stringify(allowed.targeting || {}));
+    } catch (e) {
+      allowed.targeting = {};
+    }
+
+    Object.keys(allowed).forEach((key) => {
+      if ((allowed as any)[key] === undefined) delete (allowed as any)[key];
+    });
 
     if (payload.startAt !== undefined) {
       allowed.startAt = parseOptionalDateInput(payload.startAt, 'Start date');
@@ -1460,6 +1659,13 @@ export const updateAd = async (req: Request, res: Response) => {
         success: false,
         code: prismaCode || 'DB_VALIDATION_ERROR',
         error: 'Invalid ad payload. Please review date, budget, and targeting fields.'
+      });
+    }
+    if (isPrismaValidationLikeError(error)) {
+      return res.status(400).json({
+        success: false,
+        code: 'DB_VALIDATION_ERROR',
+        error: 'Invalid ad payload. Please review destination URL, placement, budget, and scheduling values.'
       });
     }
     return res.status(500).json({ success: false, error: error.message || 'Failed to update ad' });
