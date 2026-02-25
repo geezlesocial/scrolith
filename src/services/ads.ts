@@ -249,9 +249,12 @@ export const AdService = {
     return extractData<any>(response);
   },
 
-  submitAd: async (id: string): Promise<{ success: boolean; message?: string; code?: string; data?: any }> => {
+  submitAd: async (
+    id: string,
+    payload?: Record<string, any>
+  ): Promise<{ success: boolean; message?: string; code?: string; data?: any }> => {
     try {
-      const response = await api.post(`/community/ads/${id}/submit`, {});
+      const response = await api.post(`/community/ads/${id}/submit`, payload || {});
       const success = response?.data?.success ?? true;
       const message = extractApiErrorMessage({ response }, '');
       const code = String(
@@ -281,8 +284,14 @@ export const AdService = {
   },
 
   getConfig: async (): Promise<any> => {
-    const response = await api.get('/community/admin/ads/config');
-    return extractData<any>(response);
+    try {
+      const response = await api.get('/community/ads/config');
+      return extractData<any>(response);
+    } catch (error: any) {
+      // Backward-compatible fallback for older deployments where only admin route exists.
+      const response = await api.get('/community/admin/ads/config');
+      return extractData<any>(response);
+    }
   },
 
   updateConfig: async (data: any): Promise<any> => {
@@ -319,8 +328,8 @@ export const AdService = {
     } else if (campaign.status === 'PAUSED' || campaign.status === 'paused') {
       await api.post(`/community/admin/ads/${campaign.id}/pause`);
     } else if (campaign.status === 'DRAFT' || campaign.status === 'draft') {
-      // basic update via re-create draft endpoint is not available; fallback to submit
-      await api.post(`/community/ads/${campaign.id}/submit`);
+      // Drafts should be updated, never auto-submitted.
+      await api.put(`/community/ads/${campaign.id}`, toAdPayload(campaign));
     } else {
       // fallback: try to POST to draft endpoint
       const response = await api.post('/community/ads/draft', campaign);

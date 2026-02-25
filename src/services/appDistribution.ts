@@ -7,7 +7,9 @@ export type AppDistributionEvent =
   | 'download_clicked'
   | 'install_marked'
   | 'prompt_suppressed'
-  | 'campaign_opened';
+  | 'campaign_opened'
+  | 'push_registration_error'
+  | 'push_token_registered';
 
 export type AppDistributionConfig = {
   enabled: boolean;
@@ -76,4 +78,3 @@ export const AppDistributionService = {
 };
 
 export default AppDistributionService;
-

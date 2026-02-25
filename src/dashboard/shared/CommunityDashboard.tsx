@@ -1701,113 +1701,12 @@ const CommunityDashboard: React.FC = () => {
     handleBusinessCoverSelected(file);
   };
 
-  const handleAdSubmit = async (mode: 'draft' | 'submit' | 'pay') => {
-    if (!adDraft.title.trim() || !adDraft.body.trim()) {
-      showNotification('warning', 'Ads', 'Title and body are required.');
-      return;
-    }
-    if (adDraft.destinationType === 'url' && !adDraft.destinationUrl.trim()) {
-      showNotification('warning', 'Ads', 'Target URL is required for traffic ads.');
-      return;
-    }
-    const maxPlacements = Math.max(1, Math.min(3, Number(adsConfig?.maxPlacementsPerAd ?? 3)));
-    const normalizedPlacements = Array.from(
-      new Set(
-        (Array.isArray(adDraft.placements) ? adDraft.placements : [adDraft.placement])
-          .map((placement) => String(placement || '').trim().toLowerCase())
-          .map((placement) => {
-            if (placement === 'feed') return 'community_feed';
-            if (placement === 'chat') return 'chat_sidebar';
-            return placement;
-          })
-          .filter(Boolean)
-      )
-    ).slice(0, maxPlacements);
-    if (normalizedPlacements.length === 0) {
-      showNotification('warning', 'Ads', 'Select at least one placement.');
-      return;
-    }
-    if (safeNumber(adDraft.dailySpend) > 0 && safeNumber(adDraft.dailySpend) > safeNumber(adDraft.budget)) {
-      showNotification('warning', 'Ads', 'Daily spend cannot exceed total budget.');
-      return;
-    }
-    setAdActionLoading(true);
-    try {
-      const targetCountries = Array.from(
-        new Set(
-          (Array.isArray(adDraft.targetCountries) ? adDraft.targetCountries : [])
-            .map((entry) => entry.trim())
-            .filter(Boolean)
-        )
-      );
-      const pricingModel = adDraft.pricingModel === 'CPC' ? 'CPC' : 'CPM';
-      const payload = {
-        title: adDraft.title,
-        body: adDraft.body,
-        objective: adDraft.objective,
-        placement: normalizedPlacements[0],
-        placements: normalizedPlacements,
-        pricingModel,
-        computeOption: pricingModel,
-        targetCountries,
-        targetAudience: adDraft.targetAudience,
-        dailySpend: safeNumber(adDraft.dailySpend) > 0 ? safeNumber(adDraft.dailySpend) : undefined,
-        budget: safeNumber(adDraft.budget),
-        currency: adDraft.currency,
-        destinationType: adDraft.destinationType,
-        destinationUrl: adDraft.destinationType === 'url' ? adDraft.destinationUrl : null,
-        ctaText: adDraft.ctaText || null,
-        mediaFileIds: adDraft.media.map((m) => m.id),
-        targeting: {
-          placements: normalizedPlacements,
-          pricingModel,
-          targetCountries,
-          targetAudience: adDraft.targetAudience,
-          dailySpend: safeNumber(adDraft.dailySpend) > 0 ? safeNumber(adDraft.dailySpend) : null,
-          estimated:
-            pricingModel === 'CPM'
-              ? { pricingModel, estimatedImpressions, estimatedClicks: 0 }
-              : { pricingModel, estimatedImpressions: 0, estimatedClicks }
-        }
-      };
-      const startAt = new Date();
-      const durationDays = Math.max(1, Number(adDraft.durationDays || 1));
-      const endAt = new Date(startAt.getTime() + durationDays * 24 * 60 * 60 * 1000);
-      const draft: any = await AdService.saveCampaign({ ...payload, durationDays, status: mode === 'submit' ? 'DRAFT' : undefined } as any);
-      if (draft?.id) {
-        await AdService.updateAd(draft.id, { startAt, endAt, durationDays, mediaFileIds: payload.mediaFileIds } as any);
-      }
-      if (mode === 'submit' && draft?.id) {
-        await AdService.submitAd(draft.id);
-        showNotification('success', 'Ads', 'Ad submitted for review.');
-      } else if (mode === 'pay' && draft?.id) {
-        if (!selectedGatewayId) {
-          showNotification('warning', 'Ads', 'Select a payment method before paying.');
-          setAdActionLoading(false);
-          return;
-        }
-        setPaymentProcessingId(draft.id);
-        const result = await AdService.payAd(draft.id, {
-          paymentMethodId: selectedGatewayId,
-          currency: adDraft.currency
-        });
-        if (result?.success !== false) {
-          showNotification('success', 'Ads', 'Payment recorded.');
-        } else {
-          showNotification('error', 'Ads', result?.message || 'Payment failed.');
-        }
-        setPaymentProcessingId(null);
-      } else {
-        showNotification('success', 'Ads', 'Draft saved.');
-      }
-      setAdDraft((prev) => ({ ...prev }));
-      loadDashboard();
-    } catch (error) {
-      console.error(error);
-      showNotification('error', 'Ads', 'Unable to save ad.');
-    } finally {
-      setAdActionLoading(false);
-    }
+  const handleAdSubmit = async (_mode: 'draft' | 'submit' | 'pay') => {
+    const params = new URLSearchParams(location.search);
+    params.set('tab', 'my-ads');
+    params.delete('section');
+    showNotification('info', 'My Ads', 'Ad campaign creation is managed from My Ads.');
+    navigate(`${location.pathname}?${params.toString()}`);
   };
 
   const handleSuggestedFollow = (profile: CreatorProfile) => () => handleFollowToggle(profile);

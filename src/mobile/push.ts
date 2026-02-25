@@ -3,6 +3,7 @@ import { Preferences } from '@capacitor/preferences';
 import { PushNotifications } from '@capacitor/push-notifications';
 import api from '../services/api';
 import { tokenStore } from '../services/tokenStore';
+import { AppDistributionService } from '../services/appDistribution';
 import { extractPathFromUrl } from './deeplinks';
 
 let initialized = false;
@@ -10,6 +11,13 @@ let listenersAttached = false;
 const TOKEN_KEY = 'push_device_token';
 const REGISTER_RETRIES = 4;
 const REGISTER_RETRY_DELAY_MS = 1200;
+const MAX_NATIVE_REGISTER_RETRIES = 5;
+const NATIVE_REGISTER_RETRY_BASE_MS = 4000;
+
+let nativeRegisterRetryCount = 0;
+let nativeRegisterRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let lastReportedPushError = '';
+let lastReportedPushErrorAt = 0;
 
 const storeToken = async (token: string) => {
   if (!Capacitor.isNativePlatform()) return;
@@ -57,6 +65,39 @@ const registerTokenWithBackend = async (token: string) => {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const reportPushTrackingEvent = async (event: 'push_registration_error' | 'push_token_registered', details: Record<string, any>) => {
+  try {
+    await AppDistributionService.trackEvent({
+      event,
+      platform: Capacitor.getPlatform() as any,
+      deviceCategory: Capacitor.getPlatform() as any,
+      sourcePath: '/mobile/push',
+      details
+    });
+  } catch {
+    // best effort only
+  }
+};
+
+const scheduleNativeRegisterRetry = async (reason: string) => {
+  if (!Capacitor.isNativePlatform()) return;
+  if (nativeRegisterRetryCount >= MAX_NATIVE_REGISTER_RETRIES) return;
+  if (nativeRegisterRetryTimer) return;
+
+  nativeRegisterRetryCount += 1;
+  const delayMs = NATIVE_REGISTER_RETRY_BASE_MS * nativeRegisterRetryCount;
+  nativeRegisterRetryTimer = setTimeout(async () => {
+    nativeRegisterRetryTimer = null;
+    try {
+      const perm = await PushNotifications.checkPermissions();
+      if (perm.receive !== 'granted') return;
+      await PushNotifications.register();
+    } catch (error) {
+      console.error('Push retry registration failed', { reason, attempt: nativeRegisterRetryCount, error });
+    }
+  }, delayMs);
+};
+
 const registerTokenWithRetry = async (token: string) => {
   for (let attempt = 0; attempt <= REGISTER_RETRIES; attempt += 1) {
     const ok = await registerTokenWithBackend(token);
@@ -74,15 +115,35 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
 
   PushNotifications.addListener('registration', async (token) => {
     try {
+      nativeRegisterRetryCount = 0;
+      if (nativeRegisterRetryTimer) {
+        clearTimeout(nativeRegisterRetryTimer);
+        nativeRegisterRetryTimer = null;
+      }
       await storeToken(token.value);
       await registerTokenWithRetry(token.value);
+      await reportPushTrackingEvent('push_token_registered', {
+        tokenPrefix: String(token.value || '').slice(0, 12),
+        platform: Capacitor.getPlatform()
+      });
     } catch (e) {
       console.error('Failed to persist device token', e);
     }
   });
 
-  PushNotifications.addListener('registrationError', (err) => {
+  PushNotifications.addListener('registrationError', async (err) => {
     console.error('Push registration error', err);
+    const serialized = JSON.stringify(err || {});
+    const now = Date.now();
+    if (serialized && (serialized !== lastReportedPushError || now - lastReportedPushErrorAt > 30000)) {
+      lastReportedPushError = serialized;
+      lastReportedPushErrorAt = now;
+      await reportPushTrackingEvent('push_registration_error', {
+        platform: Capacitor.getPlatform(),
+        error: serialized
+      });
+    }
+    await scheduleNativeRegisterRetry('registration_error');
   });
 
   PushNotifications.addListener('pushNotificationActionPerformed', (event) => {
