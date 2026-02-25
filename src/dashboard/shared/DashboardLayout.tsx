@@ -1,43 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  BriefcaseBusiness,
+  Building2,
+  ClipboardList,
+  Coins,
+  Crown,
+  FileText,
+  FolderOpen,
+  Heart,
+  LayoutDashboard,
+  LifeBuoy,
+  Megaphone,
+  Menu,
+  MessageCircle,
+  ShieldCheck,
+  ShoppingBag,
+  Star,
+  ThumbsUp,
+  Users,
+  Wallet
+} from 'lucide-react';
 import { useUser } from '../../context/UserContext';
 import { UserRole } from '../../types';
 import { useMessages } from '../../context/MessageContext';
 import { SupportService } from '../../services/support';
 import { MarketingService } from '../../services/marketing';
-import { Menu, X } from 'lucide-react';
-
-interface SidebarItemProps {
-  tab: string;
-  label: string;
-  isActive: boolean;
-  badgeCount?: number;
-  onClick: (tab: string) => void;
-}
-
-const SidebarItem: React.FC<SidebarItemProps> = ({ tab, label, isActive, badgeCount, onClick }) => {
-  return (
-    <li>
-      <button
-        onClick={() => onClick(tab)}
-        className={`w-full text-left px-3 py-2 rounded-md transition-colors ${
-          isActive
-            ? 'bg-indigo-100 text-indigo-700 font-semibold'
-            : 'text-gray-700 hover:bg-gray-100'
-        }`}
-      >
-        <span className="flex items-center justify-between">
-          <span>{label}</span>
-          {badgeCount && badgeCount > 0 && (
-            <span className="ml-2 inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-600 text-white">
-              {badgeCount > 99 ? '99+' : badgeCount}
-            </span>
-          )}
-        </span>
-      </button>
-    </li>
-  );
-};
+import MobileDrawerNav, { DrawerSection } from '../../components/dashboard/MobileDrawerNav';
 
 const getDashboardTabFromPath = (pathname: string): string | null => {
   const parts = String(pathname || '')
@@ -110,7 +99,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   const { unreadCount } = useMessages();
   const [unreadSupportCount, setUnreadSupportCount] = useState(0);
   const [showAffiliateModule, setShowAffiliateModule] = useState(false);
-  // Determine effective role view (honor ?as= override for admins or explicit view)
+
   const urlParams = new URLSearchParams(location.search);
   const asParam = (urlParams.get('as') || urlParams.get('view') || '').toString().toLowerCase();
 
@@ -131,11 +120,12 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
     if (!user) return;
     try {
       sessionStorage.setItem('activeRole', String(effectiveRole));
-    } catch {}
+    } catch {
+      // ignore storage failures
+    }
   }, [effectiveRole, user?.id]);
 
   useEffect(() => {
-    // Set initial tab from URL
     const searchParams = new URLSearchParams(location.search);
     const searchTab = searchParams.get('tab');
     const pathTab = getDashboardTabFromPath(location.pathname);
@@ -156,7 +146,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
       try {
         const tickets = await SupportService.getMyTickets();
         if (!mounted) return;
-        const unread = tickets.filter((t) => !t.is_read_by_user).length;
+        const unread = tickets.filter((ticket) => !ticket.is_read_by_user).length;
         setUnreadSupportCount(unread);
       } catch {
         if (mounted) setUnreadSupportCount(0);
@@ -176,8 +166,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
     let mounted = true;
     let timer: number | undefined;
 
-    const canViewAffiliate =
-      effectiveRole === UserRole.FREELANCER || effectiveRole === UserRole.EMPLOYER;
+    const canViewAffiliate = effectiveRole === UserRole.FREELANCER || effectiveRole === UserRole.EMPLOYER;
     if (!user || !canViewAffiliate) {
       setShowAffiliateModule(false);
       return () => undefined;
@@ -205,90 +194,138 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    // Update URL without causing a navigation
     const newUrl = `${location.pathname}?tab=${tab}`;
     window.history.replaceState({}, '', newUrl);
     setIsSidebarOpen(false);
-
-    // Dispatch custom event for DashboardRouter
     window.dispatchEvent(new CustomEvent('dashboard-navigation', { detail: { tab } }));
   };
 
   const handleRoleSwitch = () => {
     if (!user) return;
 
-    // Admins should not mutate their stored role — toggle the view via query param instead
     if (user.role === UserRole.ADMIN) {
       const params = new URLSearchParams(location.search);
-      const currentAs = (params.get('as') || '').toString().toLowerCase();
-      const newAs = (effectiveRole === UserRole.FREELANCER) ? 'employer' : 'freelancer';
+      const newAs = effectiveRole === UserRole.FREELANCER ? 'employer' : 'freelancer';
       params.set('as', newAs);
-      // Preserve tab param if present
       const newSearch = params.toString();
       navigate(`${location.pathname}${newSearch ? `?${newSearch}` : ''}`, { replace: true });
-      // Dispatch navigation event to update sidebar/tab state
       window.dispatchEvent(new CustomEvent('dashboard-navigation', { detail: { tab: 'overview' } }));
       return;
     }
 
-    // Non-admins: switch view explicitly to avoid role refresh conflicts
     const targetRole = effectiveRole === UserRole.FREELANCER ? UserRole.EMPLOYER : UserRole.FREELANCER;
     const targetPath = targetRole === UserRole.FREELANCER ? '/freelancer/dashboard' : '/client/dashboard';
     try {
       sessionStorage.setItem('activeRole', String(targetRole));
-    } catch {}
+    } catch {
+      // ignore storage failures
+    }
     navigate(`${targetPath}?as=${targetRole}`, { replace: true });
     window.dispatchEvent(new CustomEvent('dashboard-navigation', { detail: { tab: 'overview' } }));
   };
 
-  const getSidebarItems = () => {
-    const roleToUse = effectiveRole;
-
-    if (roleToUse === UserRole.FREELANCER) {
-      return [
-        { tab: 'overview', label: 'Overview' },
-        { tab: 'community', label: 'Community' },
-        { tab: 'manage-pages', label: 'Manage Pages' },
-        { tab: 'my-gigs', label: 'My Gigs' },
-        { tab: 'my-ads', label: 'My Ads' },
-        { tab: 'orders', label: 'Orders' },
-        { tab: 'contracts', label: 'Contracts' },
-        { tab: 'my-proposals', label: 'My Proposals' },
-        { tab: 'wallet', label: 'Wallet' },
-        { tab: 'membership', label: 'Membership' },
-        ...(showAffiliateModule ? [{ tab: 'affiliate-program', label: 'Affiliate Program' }] : []),
-        { tab: 'gcoin', label: 'Gcoin' },
-        { tab: 'favorites', label: 'Favorites' },
-        { tab: 'reviews', label: 'Reviews' },
-        { tab: 'likes', label: 'Likes' },
-        { tab: 'messages', label: 'Messages' },
-        { tab: 'support', label: 'Support' },
-        { tab: 'uploaded-files', label: 'Uploaded Files' },
-        { tab: 'kyc', label: 'KYC Verification' },
+  const getSidebarSections = (): DrawerSection[] => {
+    if (effectiveRole === UserRole.FREELANCER) {
+      const financeItems = [
+        { tab: 'wallet', label: 'Wallet', icon: Wallet },
+        { tab: 'membership', label: 'Membership', icon: Crown },
+        ...(showAffiliateModule
+          ? [{ tab: 'affiliate-program', label: 'Affiliate Program', icon: BadgeDollarSign }]
+          : []),
+        { tab: 'gcoin', label: 'Gcoin', icon: Coins }
       ];
-    } else if (roleToUse === UserRole.EMPLOYER) {
+
       return [
-        { tab: 'overview', label: 'Overview' },
-        { tab: 'community', label: 'Community' },
-        { tab: 'manage-pages', label: 'Manage Pages' },
-        { tab: 'my-ads', label: 'My Ads' },
-        { tab: 'my-jobs', label: 'My Jobs' },
-        { tab: 'proposals-offers', label: 'Proposals & Offers' },
-        { tab: 'contracts', label: 'Contracts' },
-        { tab: 'wallet', label: 'Wallet' },
-        { tab: 'membership', label: 'Membership' },
-        ...(showAffiliateModule ? [{ tab: 'affiliate-program', label: 'Affiliate Program' }] : []),
-        { tab: 'gcoin', label: 'Gcoin' },
-        { tab: 'favorites', label: 'Favorites' },
-        { tab: 'reviews', label: 'Reviews' },
-        { tab: 'messages', label: 'Messages' },
-        { tab: 'support', label: 'Support' },
-        { tab: 'uploaded-files', label: 'Uploaded Files' },
-        { tab: 'kyc', label: 'KYC Verification' },
+        {
+          id: 'dashboard',
+          title: 'Dashboard',
+          items: [
+            { tab: 'overview', label: 'Overview', icon: LayoutDashboard },
+            { tab: 'community', label: 'Community', icon: Users },
+            { tab: 'manage-pages', label: 'Manage Pages', icon: Building2 }
+          ]
+        },
+        {
+          id: 'work',
+          title: 'Work',
+          items: [
+            { tab: 'my-gigs', label: 'My Gigs', icon: BriefcaseBusiness },
+            { tab: 'my-ads', label: 'My Ads', icon: Megaphone },
+            { tab: 'orders', label: 'Orders', icon: ShoppingBag },
+            { tab: 'contracts', label: 'Contracts', icon: ClipboardList },
+            { tab: 'my-proposals', label: 'My Proposals', icon: FileText }
+          ]
+        },
+        { id: 'finance', title: 'Finance', items: financeItems },
+        {
+          id: 'account',
+          title: 'Account',
+          items: [
+            { tab: 'favorites', label: 'Favorites', icon: Heart },
+            { tab: 'reviews', label: 'Reviews', icon: Star },
+            { tab: 'likes', label: 'Likes', icon: ThumbsUp },
+            { tab: 'messages', label: 'Messages', icon: MessageCircle, badgeCount: unreadCount || undefined },
+            { tab: 'support', label: 'Support', icon: LifeBuoy, badgeCount: unreadSupportCount || undefined },
+            { tab: 'uploaded-files', label: 'Uploaded Files', icon: FolderOpen },
+            { tab: 'kyc', label: 'KYC Verification', icon: ShieldCheck }
+          ]
+        }
       ];
     }
+
+    if (effectiveRole === UserRole.EMPLOYER) {
+      const financeItems = [
+        { tab: 'wallet', label: 'Wallet', icon: Wallet },
+        { tab: 'membership', label: 'Membership', icon: Crown },
+        ...(showAffiliateModule
+          ? [{ tab: 'affiliate-program', label: 'Affiliate Program', icon: BadgeDollarSign }]
+          : []),
+        { tab: 'gcoin', label: 'Gcoin', icon: Coins }
+      ];
+
+      return [
+        {
+          id: 'dashboard',
+          title: 'Dashboard',
+          items: [
+            { tab: 'overview', label: 'Overview', icon: LayoutDashboard },
+            { tab: 'community', label: 'Community', icon: Users },
+            { tab: 'manage-pages', label: 'Manage Pages', icon: Building2 }
+          ]
+        },
+        {
+          id: 'work',
+          title: 'Work',
+          items: [
+            { tab: 'my-jobs', label: 'My Jobs', icon: BriefcaseBusiness },
+            { tab: 'my-ads', label: 'My Ads', icon: Megaphone },
+            { tab: 'proposals-offers', label: 'Proposals & Offers', icon: FileText },
+            { tab: 'contracts', label: 'Contracts', icon: ClipboardList }
+          ]
+        },
+        { id: 'finance', title: 'Finance', items: financeItems },
+        {
+          id: 'account',
+          title: 'Account',
+          items: [
+            { tab: 'favorites', label: 'Favorites', icon: Heart },
+            { tab: 'reviews', label: 'Reviews', icon: Star },
+            { tab: 'messages', label: 'Messages', icon: MessageCircle, badgeCount: unreadCount || undefined },
+            { tab: 'support', label: 'Support', icon: LifeBuoy, badgeCount: unreadSupportCount || undefined },
+            { tab: 'uploaded-files', label: 'Uploaded Files', icon: FolderOpen },
+            { tab: 'kyc', label: 'KYC Verification', icon: ShieldCheck }
+          ]
+        }
+      ];
+    }
+
     return [];
   };
+
+  const roleSwitchLabel =
+    user?.role === UserRole.ADMIN
+      ? `View as ${effectiveRole === UserRole.FREELANCER ? 'Client' : 'Freelancer'}`
+      : `Switch to ${effectiveRole === UserRole.FREELANCER ? 'Client' : 'Freelancer'}`;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -303,56 +340,25 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
         )}
 
         <aside
-          className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[88vw] overflow-y-auto border-r border-gray-200 bg-white p-4 transition-transform duration-200 ease-out md:static md:z-auto md:w-64 md:max-w-none md:translate-x-0 ${
+          className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[88vw] overflow-y-auto border-r border-gray-200 bg-white p-4 transition-transform duration-200 ease-out md:static md:z-auto md:w-72 md:max-w-none md:translate-x-0 ${
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
-          <div className="mb-4 flex items-start justify-between gap-2">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Dashboard</h3>
-              <p className="text-xs text-gray-500 capitalize">Viewing as {effectiveRole}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsSidebarOpen(false)}
-              className="rounded-md p-1 text-gray-600 hover:bg-gray-100 md:hidden"
-              aria-label="Close menu"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-
-          <button
-            onClick={handleRoleSwitch}
-            className="mb-4 w-full rounded-full bg-blue-100 px-3 py-2 text-sm text-blue-700 transition-colors hover:bg-blue-200"
-            title="Switch view"
-          >
-            {user?.role === UserRole.ADMIN ? `View as ${effectiveRole === UserRole.FREELANCER ? 'Client' : 'Freelancer'}` : `Switch to ${effectiveRole === UserRole.FREELANCER ? 'Client' : 'Freelancer'}`}
-          </button>
-
-          <ul className="space-y-1">
-            {getSidebarItems().map((item) => (
-              <SidebarItem
-                key={item.tab}
-                tab={item.tab}
-                label={item.label}
-                isActive={activeTab === item.tab}
-                badgeCount={item.tab === 'messages' ? unreadCount : item.tab === 'support' ? unreadSupportCount : undefined}
-                onClick={handleTabChange}
-              />
-            ))}
-            <li className="pt-4 border-t border-gray-200">
-              <button
-                onClick={() => {
-                  setIsSidebarOpen(false);
-                  navigate('/');
-                }}
-                className="w-full rounded-md px-3 py-2 text-left text-gray-600 transition-colors hover:bg-gray-100"
-              >
-                Back to site
-              </button>
-            </li>
-          </ul>
+          <MobileDrawerNav
+            userName={user?.name || 'User'}
+            userAvatar={user?.avatar}
+            roleLabel={String(effectiveRole)}
+            sections={getSidebarSections()}
+            activeTab={activeTab}
+            onTabSelect={handleTabChange}
+            onRoleSwitch={handleRoleSwitch}
+            roleSwitchLabel={roleSwitchLabel}
+            onClose={() => setIsSidebarOpen(false)}
+            onBackToSite={() => {
+              setIsSidebarOpen(false);
+              navigate('/');
+            }}
+          />
         </aside>
 
         <div className="flex min-h-screen min-w-0 flex-1 flex-col">
@@ -366,23 +372,30 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
               >
                 <Menu className="h-5 w-5" />
               </button>
+
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-gray-900">Dashboard</p>
-                <p className="truncate text-xs text-gray-500 capitalize">{effectiveRole}</p>
+                <p className="truncate text-xs capitalize text-gray-500">{effectiveRole}</p>
               </div>
-              <button
-                onClick={handleRoleSwitch}
-                className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700"
-              >
-                Switch
-              </button>
+
+              <div className="flex items-center gap-1.5">
+                {unreadCount > 0 && (
+                  <span className="inline-flex min-w-[20px] items-center justify-center rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+                <button
+                  onClick={handleRoleSwitch}
+                  className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700"
+                >
+                  Switch
+                </button>
+              </div>
             </div>
           </header>
 
           <main className="min-w-0 flex-1 p-3 sm:p-4 md:p-6">
-            <div className="mx-auto w-full max-w-7xl min-w-0">
-              {children}
-            </div>
+            <div className="mx-auto w-full max-w-7xl min-w-0">{children}</div>
           </main>
         </div>
       </div>

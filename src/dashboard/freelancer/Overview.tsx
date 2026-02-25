@@ -1,208 +1,349 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
-import { DollarSign, ShoppingCart, TrendingUp, Wallet, PlusCircle, User } from 'lucide-react';
-import { freelancerApi } from '../../services/freelancer';
-import { Skeleton } from '../shared/Skeleton';
+import {
+  BadgeDollarSign,
+  BriefcaseBusiness,
+  FileText,
+  MessageCircle,
+  PlusCircle,
+  Search,
+  TrendingUp,
+  UserRound,
+  Wallet
+} from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { freelancerApi, FreelancerOverview as FreelancerOverviewData } from '../../services/freelancer';
+import { OrdersService } from '../../services/orders';
+import { proposalsApi } from '../../services/proposals';
+import { ContractService } from '../../services/contract';
+import DashboardShell from '../../components/dashboard/DashboardShell';
+import KpiGrid, { KpiItem } from '../../components/dashboard/KpiGrid';
+import QuickActions from '../../components/dashboard/QuickActions';
+import ActivityPanel, { ActivityItem } from '../../components/dashboard/ActivityPanel';
+import RightRail, { RightRailAction } from '../../components/dashboard/RightRail';
+import { useMessages } from '../../context/MessageContext';
+import { useNotification } from '../../context/NotificationContext';
+import { useSocket } from '../../context/SocketContext';
 import { useUser } from '../../context/UserContext';
 
-export const Overview: React.FC = () => {
-  const { user } = useUser();
-  const [data, setData] = React.useState<Awaited<ReturnType<typeof freelancerApi.getOverview>> | null>(null);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
+const formatMoney = (value: number) => `$${Number(value || 0).toFixed(2)}`;
 
-  React.useEffect(() => {
-    loadOverview();
-    // Set up polling every 30 seconds
-    const interval = setInterval(loadOverview, 30000);
-    return () => clearInterval(interval);
-  }, []);
+const formatTime = (value?: string) => {
+  if (!value) return 'Updated just now';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Updated just now';
+  return date.toLocaleString();
+};
 
-  const loadOverview = async () => {
-    try {
-      setLoading(true);
-      const overview = await freelancerApi.getOverview();
-      setData(overview);
-      setError(null);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load overview');
-      console.error('Failed to load freelancer overview:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+const dateValue = (value?: string) => {
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+};
 
-  if (loading && !data) {
-    return <Skeleton type="overview" />;
-  }
-
-  if (error && !data) {
-    return (
-      <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
-        <p className="text-red-700">{error}</p>
-        <button
-          onClick={loadOverview}
-          className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
-  const overview = data!;
-
-  return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 data-cy="page-title" className="text-2xl font-bold text-gray-900 sm:text-3xl">Dashboard</h1>
-        <div className="flex w-full items-center sm:w-auto">
-          <Link
-            to="/create-gig"
-            className="flex w-full items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white transition hover:bg-indigo-700 sm:w-auto"
-          >
-            <PlusCircle className="w-4 h-4 mr-2" />
-            Create Gig
-          </Link>
-        </div>
-      </div>
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div data-cy="overview-card-active-orders" className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm text-gray-500 font-medium">Active Orders</div>
-            <ShoppingCart className="w-5 h-5 text-blue-500" />
-          </div>
-          <div data-cy="overview-value-active-orders" className="text-2xl font-bold text-gray-900 sm:text-3xl">{overview.activeOrders}</div>
-          {overview.revisionOrders > 0 && (
-            <div className="mt-2 text-xs text-orange-600">
-              {overview.revisionOrders} in revision
-            </div>
-          )}
-        </div>
-
-        <div data-cy="overview-card-earnings" className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm text-gray-500 font-medium">Earnings (Month)</div>
-            <DollarSign className="w-5 h-5 text-green-500" />
-          </div>
-          <div data-cy="overview-value-earnings" className="text-2xl font-bold text-green-600 sm:text-3xl">
-            ${overview.earningsThisMonth.toFixed(2)}
-          </div>
-        </div>
-
-        <div data-cy="overview-card-wallet" className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm text-gray-500 font-medium">Wallet Balance</div>
-            <Wallet className="w-5 h-5 text-indigo-500" />
-          </div>
-          <div data-cy="overview-value-wallet" className="text-2xl font-bold text-indigo-600 sm:text-3xl">
-            ${overview.walletBalance.toFixed(2)}
-          </div>
-        </div>
-
-        <div data-cy="overview-card-rating" className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-sm text-gray-500 font-medium">Rating</div>
-            <TrendingUp className="w-5 h-5 text-yellow-500" />
-          </div>
-          <div data-cy="overview-value-rating" className="text-2xl font-bold text-gray-900 sm:text-3xl">{overview.rating.toFixed(1)}</div>
-          <div className="text-xs text-gray-500 mt-1">{overview.reviews} reviews</div>
-        </div>
-      </div>
-
-      {/* Gig Performance */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Gig Performance</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div>
-            <div className="text-sm text-gray-500 mb-1">Total Views</div>
-            <div className="text-2xl font-bold text-gray-900">{overview.gigViews.toLocaleString()}</div>
-          </div>
-          <div>
-            <div className="text-sm text-gray-500 mb-1">Total Clicks</div>
-            <div className="text-2xl font-bold text-gray-900">{overview.gigClicks.toLocaleString()}</div>
-          </div>
-          <div>
-            <div className="text-sm text-gray-500 mb-1">Conversion Rate</div>
-            <div className="text-2xl font-bold text-gray-900">
-              {overview.gigViews > 0
-                ? ((overview.gigClicks / overview.gigViews) * 100).toFixed(1)
-                : '0.0'}
-              %
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-        <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Actions</h2>
-        <div className="flex flex-wrap gap-3">
-          <Link
-            to="/create-gig"
-            className="flex w-full items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white transition hover:bg-indigo-700 sm:w-auto"
-          >
-            <PlusCircle className="w-4 h-4 mr-2" />
-            Create Gig
-          </Link>
-          <Link
-            to="/freelancer/dashboard?tab=wallet"
-            className="flex w-full items-center justify-center rounded-lg bg-gray-100 px-4 py-2 font-medium text-gray-700 transition hover:bg-gray-200 sm:w-auto"
-          >
-            <User className="w-4 h-4 mr-2" />
-            Update Profile
-          </Link>
-          {overview.walletBalance > 0 && (
-            <Link
-              to="/freelancer/dashboard?tab=withdrawals"
-              className="flex w-full items-center justify-center rounded-lg bg-green-600 px-4 py-2 font-medium text-white transition hover:bg-green-700 sm:w-auto"
-            >
-              <DollarSign className="w-4 h-4 mr-2" />
-              Withdraw Funds
-            </Link>
-          )}
-        </div>
-      </div>
-
-      {/* Notifications Summary */}
-      {(overview.unreadMessages > 0 || overview.unreadNotifications > 0) && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              {overview.unreadMessages > 0 && (
-                <p data-cy="unread-messages" className="text-sm text-blue-700">
-                  {overview.unreadMessages} unread message{overview.unreadMessages !== 1 ? 's' : ''}
-                </p>
-              )}
-              {overview.unreadNotifications > 0 && (
-                <p data-cy="unread-notifications" className="text-sm text-blue-700">
-                  {overview.unreadNotifications} unread notification{overview.unreadNotifications !== 1 ? 's' : ''}
-                </p>
-              )}
-            </div>
-            <div className="flex space-x-2">
-              {overview.unreadMessages > 0 && (
-                <Link
-                  to="/freelancer/dashboard?tab=messages"
-                  className="text-sm text-blue-600 hover:underline font-medium"
-                >
-                  View Messages
-                </Link>
-              )}
-              {overview.unreadNotifications > 0 && (
-                <Link
-                  to="/freelancer/dashboard?tab=notifications"
-                  className="text-sm text-blue-600 hover:underline font-medium"
-                >
-                  View Notifications
-                </Link>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+const isVerifiedUser = (user: any): boolean => {
+  return Boolean(
+    user?.isVerified ||
+      user?.is_verified ||
+      user?.verified ||
+      (typeof user?.verificationStatus === 'string' && user.verificationStatus.toLowerCase() === 'verified')
   );
 };
+
+export const Overview: React.FC = () => {
+  const navigate = useNavigate();
+  const { user } = useUser();
+  const { unreadCount } = useMessages();
+  const { notifications } = useNotification();
+  const { isConnected } = useSocket();
+
+  const [overview, setOverview] = React.useState<FreelancerOverviewData | null>(null);
+  const [activity, setActivity] = React.useState<ActivityItem[]>([]);
+  const [proposalCount, setProposalCount] = React.useState(0);
+  const [loading, setLoading] = React.useState(true);
+  const [search, setSearch] = React.useState('');
+
+  const loadOverview = React.useCallback(async () => {
+    if (!user?.id) return;
+    setLoading(true);
+
+    const [overviewResult, ordersResult, proposalsResult, contractsResult] = await Promise.allSettled([
+      freelancerApi.getOverview(),
+      OrdersService.list({ role: 'freelancer', status: 'active' }),
+      proposalsApi.getMyProposals({ limit: 5, page: 1 }),
+      ContractService.getContracts(user.id, 'freelancer')
+    ]);
+
+    if (overviewResult.status === 'fulfilled') {
+      setOverview(overviewResult.value);
+    }
+
+    const mergedActivity: ActivityItem[] = [];
+
+    if (ordersResult.status === 'fulfilled') {
+      ordersResult.value.slice(0, 4).forEach((order) => {
+        mergedActivity.push({
+          id: `order-${order.id}`,
+          title: `Order ${order.status || 'active'}: ${order.gigTitle || 'Gig'}`,
+          description: `${order.buyerName || 'Client'} • ${formatMoney(order.amount)}`,
+          timestamp: formatTime(order.updatedAt || order.createdAt),
+          status: order.status || 'active',
+          href: '/freelancer/dashboard?tab=orders'
+        });
+      });
+    }
+
+    if (proposalsResult.status === 'fulfilled') {
+      const proposalItems = proposalsResult.value.proposals || [];
+      setProposalCount(Number(proposalsResult.value.pagination?.total || proposalItems.length || 0));
+      proposalItems.slice(0, 4).forEach((proposal) => {
+        mergedActivity.push({
+          id: `proposal-${proposal.id}`,
+          title: `Proposal ${proposal.status}: ${proposal.jobTitle || 'Job'}`,
+          description: `${formatMoney(proposal.proposedAmount)} • ${proposal.proposedTimeline} day timeline`,
+          timestamp: formatTime(proposal.updatedAt || proposal.createdAt),
+          status: proposal.status,
+          href: proposal.contractId
+            ? `/freelancer/dashboard?tab=contracts&contract_id=${proposal.contractId}`
+            : '/freelancer/dashboard?tab=my-proposals'
+        });
+      });
+    } else {
+      setProposalCount(0);
+    }
+
+    if (contractsResult.status === 'fulfilled') {
+      contractsResult.value
+        .filter((contract) => contract.status === 'active' || contract.status === 'paused')
+        .slice(0, 3)
+        .forEach((contract) => {
+          const hourlyRate = Number(contract.hourlyRate ?? contract.hourly_rate ?? 0);
+          mergedActivity.push({
+            id: `contract-${contract.id}`,
+            title: `Contract ${contract.status}: ${contract.title || 'Hourly engagement'}`,
+            description: `${hourlyRate > 0 ? `${formatMoney(hourlyRate)}/hr` : 'Hourly rate set'} • Client ${
+              contract.clientName || contract.client_name || 'Client'
+            }`,
+            timestamp: formatTime(contract.start_date),
+            status: contract.status,
+            href: `/freelancer/dashboard?tab=contracts&contract_id=${contract.id}`
+          });
+        });
+    }
+
+    mergedActivity.sort((a, b) => dateValue(b.timestamp) - dateValue(a.timestamp));
+    setActivity(mergedActivity.slice(0, 8));
+    setLoading(false);
+  }, [user?.id]);
+
+  React.useEffect(() => {
+    void loadOverview();
+    const interval = window.setInterval(() => {
+      void loadOverview();
+    }, 30000);
+
+    const refresh = () => {
+      void loadOverview();
+    };
+    window.addEventListener('messages:new', refresh as EventListener);
+    window.addEventListener('notifications:new', refresh as EventListener);
+    window.addEventListener('orders:updated', refresh as EventListener);
+    window.addEventListener('contracts:updated', refresh as EventListener);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('messages:new', refresh as EventListener);
+      window.removeEventListener('notifications:new', refresh as EventListener);
+      window.removeEventListener('orders:updated', refresh as EventListener);
+      window.removeEventListener('contracts:updated', refresh as EventListener);
+    };
+  }, [loadOverview]);
+
+  const unreadNotifications = React.useMemo(() => {
+    return notifications.reduce((total, item) => total + (item.isRead ? 0 : 1), 0);
+  }, [notifications]);
+
+  const filteredActivity = React.useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return activity;
+    return activity.filter(
+      (entry) =>
+        entry.title.toLowerCase().includes(query) ||
+        entry.description.toLowerCase().includes(query) ||
+        String(entry.status || '')
+          .toLowerCase()
+          .includes(query)
+    );
+  }, [activity, search]);
+
+  const kpiItems: KpiItem[] = React.useMemo(() => {
+    if (!overview) return [];
+    return [
+      {
+        id: 'active-orders',
+        title: 'Active Orders',
+        value: overview.activeOrders,
+        icon: BriefcaseBusiness,
+        delta: overview.revisionOrders > 0 ? `${overview.revisionOrders} in revision` : 'No revisions pending',
+        href: '/freelancer/dashboard?tab=orders',
+        accent: 'indigo'
+      },
+      {
+        id: 'earnings-month',
+        title: 'Earnings (Month)',
+        value: formatMoney(overview.earningsThisMonth),
+        icon: BadgeDollarSign,
+        delta: 'Tracked in real time',
+        href: '/freelancer/dashboard?tab=wallet',
+        accent: 'green'
+      },
+      {
+        id: 'wallet-balance',
+        title: 'Wallet Balance',
+        value: formatMoney(overview.walletBalance),
+        icon: Wallet,
+        delta: 'Available for payout',
+        href: '/freelancer/dashboard?tab=wallet',
+        accent: 'blue'
+      },
+      {
+        id: 'pending-proposals',
+        title: 'Pending Proposals',
+        value: proposalCount,
+        icon: FileText,
+        delta: 'Follow-up opportunities',
+        href: '/freelancer/dashboard?tab=my-proposals',
+        accent: 'amber'
+      },
+      {
+        id: 'profile-views',
+        title: 'Profile Views',
+        value: overview.gigViews.toLocaleString(),
+        icon: TrendingUp,
+        delta: 'Gig funnel visibility',
+        href: '/freelancer/dashboard?tab=my-gigs',
+        accent: 'slate'
+      },
+      {
+        id: 'unread-updates',
+        title: 'Unread Updates',
+        value: unreadCount + unreadNotifications,
+        icon: MessageCircle,
+        delta: 'Messages and notifications',
+        href: '/freelancer/dashboard?tab=messages',
+        accent: 'indigo'
+      }
+    ];
+  }, [overview, proposalCount, unreadCount, unreadNotifications]);
+
+  const nextActions: RightRailAction[] = React.useMemo(() => {
+    if (!overview) return [];
+    const actions: RightRailAction[] = [];
+
+    if (overview.activeOrders > 0) {
+      actions.push({
+        id: 'deliver-orders',
+        label: 'Deliver active orders',
+        description: 'Review timelines and send milestones to clients.',
+        href: '/freelancer/dashboard?tab=orders'
+      });
+    }
+
+    if (proposalCount > 0) {
+      actions.push({
+        id: 'follow-proposals',
+        label: 'Check proposal outcomes',
+        description: 'Track shortlisted and accepted opportunities.',
+        href: '/freelancer/dashboard?tab=my-proposals'
+      });
+    }
+
+    if (overview.walletBalance > 0) {
+      actions.push({
+        id: 'review-wallet',
+        label: 'Review wallet and payouts',
+        description: 'Verify available balance and payment schedule.',
+        href: '/freelancer/dashboard?tab=wallet'
+      });
+    }
+
+    return actions.slice(0, 3);
+  }, [overview, proposalCount]);
+
+  const recommendations: RightRailAction[] = React.useMemo(() => {
+    if (!overview) return [];
+    const base: RightRailAction[] = [
+      {
+        id: 'recommend-jobs',
+        label: 'Browse matched jobs',
+        description: 'Expand pipeline with high-intent opportunities.',
+        href: '/jobs'
+      },
+      {
+        id: 'recommend-gig-optimization',
+        label: 'Optimize gig conversion',
+        description: 'Improve thumbnails and packages to increase click-through.',
+        href: '/freelancer/dashboard?tab=my-gigs'
+      }
+    ];
+
+    if (overview.rating < 4.8) {
+      base.unshift({
+        id: 'recommend-reviews',
+        label: 'Request client reviews',
+        description: 'Improve rating visibility for better ranking.',
+        href: '/freelancer/dashboard?tab=orders'
+      });
+    }
+
+    return base.slice(0, 3);
+  }, [overview]);
+
+  const quickActions = [
+    { id: 'create-gig', label: 'Create Gig', icon: PlusCircle, href: '/create-gig', variant: 'primary' as const },
+    { id: 'browse-jobs', label: 'Browse Jobs', icon: Search, href: '/jobs' },
+    { id: 'my-orders', label: 'My Orders', icon: BriefcaseBusiness, href: '/freelancer/dashboard?tab=orders' },
+    { id: 'withdraw', label: 'Withdraw', icon: Wallet, href: '/freelancer/dashboard?tab=wallet' },
+    { id: 'improve-profile', label: 'Improve Profile (AI)', icon: UserRound, href: '/freelancer/dashboard?tab=profile' }
+  ];
+
+  return (
+    <DashboardShell
+      title="Freelancer Dashboard"
+      subtitle="Track delivery, earnings, proposals, and growth signals in one workspace."
+      roleLabel="Freelancer"
+      searchPlaceholder="Search orders, contracts, or proposals..."
+      searchValue={search}
+      onSearchChange={setSearch}
+      infoMessage="Use this overview to prioritize active work, monitor earnings, and act on opportunities without leaving the dashboard."
+      bannerStorageKey="freelancer-overview-banner-dismissed"
+      verificationStatus={isVerifiedUser(user) ? 'verified' : 'pending'}
+      profileCompleteness={Number(user?.profileCompleteness ?? user?.profile_completion ?? 0)}
+      lastLoginLabel={user?.lastLoginAt ? formatTime(user.lastLoginAt) : undefined}
+      kpiContent={<KpiGrid items={kpiItems} loading={loading && !overview} />}
+      quickActionsContent={<QuickActions items={quickActions} subtitle="Fast access to your highest-impact workflows." />}
+      activityContent={
+        <ActivityPanel
+          title="Recent Activity"
+          subtitle="Live updates from orders, contracts, and proposal outcomes."
+          items={filteredActivity}
+          loading={loading && !overview}
+          emptyTitle="No activity yet"
+          emptyDescription="Activity will appear when you receive orders, proposals, or contract updates."
+          emptyCtaLabel="Browse Jobs"
+          onEmptyCtaClick={() => navigate('/jobs')}
+        />
+      }
+      rightRailContent={
+        <RightRail
+          unreadMessages={unreadCount}
+          unreadNotifications={unreadNotifications}
+          socketConnected={Boolean(isConnected)}
+          nextActions={nextActions}
+          recommendations={recommendations}
+        />
+      }
+    />
+  );
+};
+
+export default Overview;
