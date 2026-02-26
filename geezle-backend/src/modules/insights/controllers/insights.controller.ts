@@ -1,8 +1,10 @@
 import type { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../../../services/scrolitha/scrolitha.audit';
 import {
+  completeUserQuest,
   generatePostPrediction,
   generateSkillGapReport,
+  getUserQuests,
   getLatestSkillGapReport,
   getLeaderboard,
   getOpportunityMatches,
@@ -54,6 +56,36 @@ export const getMyStreakController = async (req: Request, res: Response) => {
     return res.json({ success: true, data, message: 'Streak loaded' });
   } catch (error) {
     return fail(res, 'Failed to load streak', error);
+  }
+};
+
+export const getMyQuestsController = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
+    const data = await getUserQuests({ userId, app: req.app });
+    return res.json({ success: true, data, message: 'Quests loaded' });
+  } catch (error) {
+    return fail(res, 'Failed to load quests', error);
+  }
+};
+
+export const completeMyQuestController = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
+    const userQuestId = String(req.params.userQuestId || '').trim();
+    if (!userQuestId) return res.status(400).json({ success: false, data: null, message: 'userQuestId is required' });
+    const data = await completeUserQuest({ userId, userQuestId, app: req.app });
+    return res.json({ success: true, data, message: 'Quest completion processed' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to complete quest');
+    if (message.toLowerCase().includes('not found')) return fail(res, message, error, 404);
+    if (message.toLowerCase().includes('required')) return fail(res, message, error, 400);
+    if (message.toLowerCase().includes('inactive') || message.toLowerCase().includes('expired')) {
+      return fail(res, message, error, 409);
+    }
+    return fail(res, 'Failed to complete quest', error);
   }
 };
 
@@ -156,4 +188,3 @@ export const getFeedModeController = async (req: Request, res: Response) => {
     return fail(res, 'Failed to load feed mode', error);
   }
 };
-

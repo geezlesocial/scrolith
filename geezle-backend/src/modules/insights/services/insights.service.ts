@@ -144,6 +144,96 @@ const DEFAULT_ACHIEVEMENTS = [
   }
 ];
 
+const DEFAULT_QUEST_CATALOG = [
+  {
+    key: 'PROFILE_POLISH_80',
+    title: 'Profile Polish',
+    description: 'Reach at least 80% profile completeness.',
+    roleScope: ['all'],
+    difficulty: 'starter',
+    verificationRules: {
+      all: [{ field: 'profileCompleteness', op: 'gte', value: 80 }],
+      target: 1
+    },
+    reward: { type: 'badge', key: 'PROFILE_POLISH_80', points: 10 },
+    isWeekly: false,
+    rotationWeight: 90
+  },
+  {
+    key: 'WEEKLY_CONSISTENCY_3',
+    title: 'Consistency Sprint',
+    description: 'Keep a 3-day streak this week.',
+    roleScope: ['all'],
+    difficulty: 'standard',
+    verificationRules: {
+      all: [{ field: 'currentStreakDays', op: 'gte', value: 3 }],
+      target: 1
+    },
+    reward: { type: 'streak_bonus', points: 15 },
+    isWeekly: true,
+    rotationWeight: 120
+  },
+  {
+    key: 'WEEKLY_COMMUNITY_HELPER',
+    title: 'Community Helper',
+    description: 'Publish at least 1 post and 3 comments.',
+    roleScope: ['all'],
+    difficulty: 'standard',
+    verificationRules: {
+      all: [
+        { field: 'postsCount', op: 'gte', value: 1 },
+        { field: 'commentsCount', op: 'gte', value: 3 }
+      ],
+      target: 1
+    },
+    reward: { type: 'community_boost', points: 20 },
+    isWeekly: true,
+    rotationWeight: 110
+  },
+  {
+    key: 'FREELANCER_WEEKLY_PITCH',
+    title: 'Pitch Power Week',
+    description: 'Submit at least 2 proposals this week.',
+    roleScope: ['freelancer'],
+    difficulty: 'standard',
+    verificationRules: {
+      all: [{ field: 'totalProposals', op: 'gte', value: 2 }],
+      target: 1
+    },
+    reward: { type: 'marketplace_boost', points: 25 },
+    isWeekly: true,
+    rotationWeight: 115
+  },
+  {
+    key: 'FREELANCER_FIRST_WIN',
+    title: 'First Win',
+    description: 'Complete your first paid order.',
+    roleScope: ['freelancer'],
+    difficulty: 'milestone',
+    verificationRules: {
+      all: [{ field: 'completedOrders', op: 'gte', value: 1 }],
+      target: 1
+    },
+    reward: { type: 'milestone_badge', key: 'FREELANCER_FIRST_WIN', points: 30 },
+    isWeekly: false,
+    rotationWeight: 100
+  },
+  {
+    key: 'TRUST_CLEAN_WEEK',
+    title: 'Trust Keeper',
+    description: 'Keep your account clean with zero active violations.',
+    roleScope: ['all'],
+    difficulty: 'standard',
+    verificationRules: {
+      all: [{ field: 'violationsLast30d', op: 'lte', value: 0 }],
+      target: 1
+    },
+    reward: { type: 'trust_signal', points: 12 },
+    isWeekly: true,
+    rotationWeight: 95
+  }
+] as const;
+
 export const ensureDefaultAchievements = async () => {
   await Promise.all(
     DEFAULT_ACHIEVEMENTS.map((item) =>
@@ -162,6 +252,38 @@ export const ensureDefaultAchievements = async () => {
           description: item.description,
           tier: item.tier,
           rules: item.rules
+        }
+      })
+    )
+  );
+};
+
+export const ensureDefaultQuestCatalog = async () => {
+  await Promise.all(
+    DEFAULT_QUEST_CATALOG.map((item) =>
+      prisma.questCatalog.upsert({
+        where: { key: item.key },
+        create: {
+          key: item.key,
+          title: item.title,
+          description: item.description,
+          roleScope: [...item.roleScope],
+          difficulty: item.difficulty,
+          verificationRules: item.verificationRules,
+          reward: item.reward,
+          isWeekly: item.isWeekly,
+          rotationWeight: item.rotationWeight,
+          isActive: true
+        },
+        update: {
+          title: item.title,
+          description: item.description,
+          roleScope: [...item.roleScope],
+          difficulty: item.difficulty,
+          verificationRules: item.verificationRules,
+          reward: item.reward,
+          isWeekly: item.isWeekly,
+          rotationWeight: item.rotationWeight
         }
       })
     )
@@ -472,6 +594,432 @@ const unlockAchievementsIfNeeded = async (userId: string, metrics: UserMetricsSn
   }
 
   return unlocked;
+};
+
+const normalizeRoleToken = (value: unknown) => String(value || '').trim().toLowerCase();
+
+const parseRoleScopeInput = (input: unknown): string[] => {
+  if (Array.isArray(input)) {
+    return Array.from(new Set(input.map((entry) => normalizeRoleToken(entry)).filter(Boolean)));
+  }
+  if (typeof input === 'string') {
+    return Array.from(
+      new Set(
+        input
+          .split(',')
+          .map((entry) => normalizeRoleToken(entry))
+          .filter(Boolean)
+      )
+    );
+  }
+  return [];
+};
+
+const roleAliasesForScope = (roleInput: unknown) => {
+  const role = normalizeRoleToken(roleInput);
+  const aliases = new Set<string>([role, 'all', '*']);
+  if (role === 'client' || role === 'employer') {
+    aliases.add('client');
+    aliases.add('employer');
+  }
+  if (!role || role === 'user') aliases.add('user');
+  return Array.from(aliases).filter(Boolean);
+};
+
+const roleMatchesScope = (scopeInput: unknown, roleInput: unknown) => {
+  const scope = parseRoleScopeInput(scopeInput);
+  if (!scope.length) return true;
+  const aliases = roleAliasesForScope(roleInput);
+  return scope.some((entry) => aliases.includes(entry));
+};
+
+const parseQuestTarget = (rulesInput: unknown) => {
+  if (!isObject(rulesInput)) return 1;
+  const target = Number((rulesInput as any).target);
+  if (Number.isFinite(target) && target > 0) return Math.max(1, Math.floor(target));
+  return 1;
+};
+
+const computeCurrentWeekBoundsUtc = () => {
+  const now = todayUtc();
+  const day = now.getUTCDay();
+  const mondayDelta = day === 0 ? -6 : 1 - day;
+  const start = new Date(now);
+  start.setUTCDate(now.getUTCDate() + mondayDelta);
+  start.setUTCHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setUTCDate(start.getUTCDate() + 6);
+  end.setUTCHours(23, 59, 59, 999);
+  return { start, end, weekKey: isoWeekKey(now) };
+};
+
+const isQuestAlreadyAssignedForWindow = (userQuest: any, weekKey: string) => {
+  const assignedWeek = String(userQuest?.meta?.weekKey || '').trim();
+  if (!assignedWeek) return false;
+  return assignedWeek === weekKey;
+};
+
+const formatUserQuest = (row: any) => ({
+  id: row.id,
+  userId: row.userId,
+  questId: row.questId,
+  status: row.status,
+  progress: Number(row.progress || 0),
+  target: Number(row.target || 1),
+  assignedAt: row.assignedAt,
+  startedAt: row.startedAt,
+  completedAt: row.completedAt,
+  expiresAt: row.expiresAt,
+  rewardGranted: Boolean(row.rewardGranted),
+  meta: row.meta || {},
+  quest: row.quest
+    ? {
+        id: row.quest.id,
+        key: row.quest.key,
+        title: row.quest.title,
+        description: row.quest.description,
+        roleScope: row.quest.roleScope || [],
+        difficulty: row.quest.difficulty,
+        verificationRules: row.quest.verificationRules || {},
+        reward: row.quest.reward || {},
+        isWeekly: Boolean(row.quest.isWeekly),
+        rotationWeight: Number(row.quest.rotationWeight || 100),
+        isActive: Boolean(row.quest.isActive)
+      }
+    : null
+});
+
+const assignQuestsForUserIfNeeded = async (userId: string, app?: Application) => {
+  await ensureDefaultQuestCatalog();
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, role: true, isActive: true }
+  });
+  if (!user || !user.isActive) return { assigned: 0, reused: 0 };
+
+  const roleAliases = roleAliasesForScope(user.role);
+  const activeCatalog = await prisma.questCatalog.findMany({
+    where: {
+      isActive: true,
+      OR: [{ roleScope: { isEmpty: true } }, { roleScope: { hasSome: roleAliases } }]
+    },
+    orderBy: [{ isWeekly: 'desc' }, { rotationWeight: 'desc' }, { createdAt: 'asc' }]
+  });
+
+  if (!activeCatalog.length) return { assigned: 0, reused: 0 };
+
+  const weeklyCatalog = activeCatalog.filter((item) => item.isWeekly);
+  const alwaysCatalog = activeCatalog.filter((item) => !item.isWeekly);
+  const weeklyLimit = 3;
+  const weeklySorted = [...weeklyCatalog].sort((a, b) => {
+    const aSeed = deterministicPercent(`${userId}:${isoWeekKey()}:${a.key}`) + Number(a.rotationWeight || 0);
+    const bSeed = deterministicPercent(`${userId}:${isoWeekKey()}:${b.key}`) + Number(b.rotationWeight || 0);
+    return bSeed - aSeed;
+  });
+  const selectedWeekly = weeklySorted.slice(0, weeklyLimit);
+  const selected = [...alwaysCatalog, ...selectedWeekly];
+  const selectedQuestIds = selected.map((item) => item.id);
+  const existing = await prisma.userQuest.findMany({
+    where: {
+      userId,
+      questId: { in: selectedQuestIds }
+    },
+    orderBy: [{ updatedAt: 'desc' }]
+  });
+  const existingByQuest = new Map<string, any>();
+  existing.forEach((row) => {
+    if (!existingByQuest.has(row.questId)) existingByQuest.set(row.questId, row);
+  });
+
+  const { end: weekEnd, weekKey } = computeCurrentWeekBoundsUtc();
+  let assigned = 0;
+  let reused = 0;
+
+  for (const quest of selected) {
+    if (!roleMatchesScope(quest.roleScope, user.role)) continue;
+    const current = existingByQuest.get(quest.id);
+    if (current) {
+      if (!quest.isWeekly) {
+        reused += 1;
+        continue;
+      }
+      const completedThisWeek =
+        current.status === 'completed' &&
+        Boolean(current.completedAt) &&
+        isQuestAlreadyAssignedForWindow(current, weekKey);
+      const activeWeekly =
+        ['assigned', 'in_progress'].includes(String(current.status || '').toLowerCase()) &&
+        Boolean(current.expiresAt && new Date(current.expiresAt).getTime() >= Date.now()) &&
+        isQuestAlreadyAssignedForWindow(current, weekKey);
+      if (completedThisWeek || activeWeekly) {
+        reused += 1;
+        continue;
+      }
+    }
+
+    const target = parseQuestTarget(quest.verificationRules);
+    await prisma.userQuest.create({
+      data: {
+        userId,
+        questId: quest.id,
+        status: 'assigned',
+        progress: 0,
+        target,
+        assignedAt: new Date(),
+        expiresAt: quest.isWeekly ? weekEnd : null,
+        meta: {
+          source: 'insights-quest-engine',
+          assignedAt: new Date().toISOString(),
+          weekKey: quest.isWeekly ? weekKey : null
+        }
+      }
+    });
+    assigned += 1;
+  }
+
+  if (assigned > 0) {
+    emitInsightsEvent(app, 'insights:quests_assigned', {
+      userId,
+      totalAssigned: assigned,
+      weekKey
+    });
+  }
+
+  return { assigned, reused };
+};
+
+export const getUserQuests = async (input: {
+  userId: string;
+  app?: Application;
+}) => {
+  const userId = String(input.userId || '').trim();
+  if (!userId) return [];
+
+  await assignQuestsForUserIfNeeded(userId, input.app);
+  const rows = await prisma.userQuest.findMany({
+    where: { userId },
+    include: {
+      quest: true
+    },
+    orderBy: [{ status: 'asc' }, { assignedAt: 'desc' }],
+    take: 40
+  });
+
+  return rows.map(formatUserQuest);
+};
+
+const evaluateQuestVerification = (verificationRules: unknown, metrics: UserMetricsSnapshot) => {
+  if (!isObject(verificationRules)) return true;
+  const ruleObject = { ...(verificationRules as Record<string, any>) };
+  if ('target' in ruleObject) {
+    delete (ruleObject as any).target;
+  }
+  if (!Object.keys(ruleObject).length) return true;
+  return evaluateRuleTree(ruleObject, metrics);
+};
+
+export const completeUserQuest = async (input: {
+  userId: string;
+  userQuestId: string;
+  app?: Application;
+}) => {
+  const userId = String(input.userId || '').trim();
+  const userQuestId = String(input.userQuestId || '').trim();
+  if (!userId || !userQuestId) throw new Error('userId and userQuestId are required');
+
+  const row = await prisma.userQuest.findFirst({
+    where: { id: userQuestId, userId },
+    include: { quest: true }
+  });
+  if (!row) throw new Error('Quest assignment not found');
+  if (!row.quest || !row.quest.isActive) throw new Error('Quest is inactive');
+
+  if (row.status === 'completed') return formatUserQuest(row);
+
+  if (row.expiresAt && row.expiresAt.getTime() < Date.now()) {
+    await prisma.userQuest.update({
+      where: { id: row.id },
+      data: { status: 'expired' }
+    });
+    throw new Error('Quest assignment has expired');
+  }
+
+  const metrics = await loadMetricsSnapshot(userId);
+  const verified = evaluateQuestVerification(row.quest.verificationRules, metrics);
+  if (!verified) {
+    const pending = await prisma.userQuest.update({
+      where: { id: row.id },
+      data: {
+        status: 'in_progress',
+        startedAt: row.startedAt || new Date(),
+        lastEventAt: new Date(),
+        progress: Math.max(0, Number(row.progress || 0))
+      },
+      include: { quest: true }
+    });
+    emitInsightsEvent(input.app, 'insights:quests_progress', {
+      userId,
+      userQuestId: pending.id,
+      questId: pending.questId,
+      progress: pending.progress,
+      target: pending.target
+    });
+    return formatUserQuest(pending);
+  }
+
+  const reward = row.quest.reward || null;
+  const completed = await prisma.$transaction(async (tx) => {
+    const updated = await tx.userQuest.update({
+      where: { id: row.id },
+      data: {
+        status: 'completed',
+        progress: Math.max(1, Number(row.target || 1)),
+        startedAt: row.startedAt || new Date(),
+        lastEventAt: new Date(),
+        completedAt: new Date(),
+        rewardGranted: reward ? true : row.rewardGranted
+      },
+      include: { quest: true }
+    });
+
+    await tx.questCompletionLog.create({
+      data: {
+        userId,
+        questId: updated.questId,
+        userQuestId: updated.id,
+        verification: {
+          verifiedAt: new Date().toISOString(),
+          metrics
+        },
+        reward: reward || undefined
+      }
+    });
+
+    return updated;
+  });
+
+  await recordInsightEvent({
+    userId,
+    type: 'QUEST_COMPLETED',
+    payload: {
+      questId: completed.questId,
+      userQuestId: completed.id,
+      reward
+    },
+    app: input.app
+  });
+
+  emitInsightsEvent(input.app, 'insights:quests_completed', {
+    userId,
+    userQuestId: completed.id,
+    questId: completed.questId,
+    key: completed.quest?.key,
+    title: completed.quest?.title,
+    completedAt: completed.completedAt
+  });
+
+  if (reward) {
+    emitInsightsEvent(input.app, 'insights:quest_reward_granted', {
+      userId,
+      userQuestId: completed.id,
+      questId: completed.questId,
+      reward
+    });
+  }
+
+  return formatUserQuest(completed);
+};
+
+export const getAdminQuestCatalog = async () => {
+  await ensureDefaultQuestCatalog();
+  return prisma.questCatalog.findMany({
+    orderBy: [{ isActive: 'desc' }, { isWeekly: 'desc' }, { rotationWeight: 'desc' }, { createdAt: 'asc' }]
+  });
+};
+
+export const createAdminQuestCatalog = async (input: {
+  actorUserId?: string | null;
+  key: string;
+  title: string;
+  description?: string | null;
+  roleScope?: unknown;
+  difficulty?: unknown;
+  verificationRules?: unknown;
+  reward?: unknown;
+  isWeekly?: unknown;
+  rotationWeight?: unknown;
+  isActive?: unknown;
+}) => {
+  const key = String(input.key || '').trim().toUpperCase();
+  const title = String(input.title || '').trim();
+  if (!key || !title) throw new Error('key and title are required');
+  const roleScope = parseRoleScopeInput(input.roleScope);
+  return prisma.questCatalog.create({
+    data: {
+      key,
+      title,
+      description: input.description ? String(input.description) : null,
+      roleScope,
+      difficulty: String(input.difficulty || 'standard').trim().toLowerCase() || 'standard',
+      verificationRules: isObject(input.verificationRules) ? input.verificationRules : {},
+      reward: isObject(input.reward) ? input.reward : {},
+      isWeekly: Boolean(input.isWeekly),
+      rotationWeight: Math.max(1, Math.floor(Number(input.rotationWeight || 100))),
+      isActive: input.isActive === undefined ? true : Boolean(input.isActive),
+      createdById: input.actorUserId || null,
+      updatedById: input.actorUserId || null
+    }
+  });
+};
+
+export const updateAdminQuestCatalog = async (input: {
+  id: string;
+  actorUserId?: string | null;
+  title?: unknown;
+  description?: unknown;
+  roleScope?: unknown;
+  difficulty?: unknown;
+  verificationRules?: unknown;
+  reward?: unknown;
+  isWeekly?: unknown;
+  rotationWeight?: unknown;
+  isActive?: unknown;
+}) => {
+  const id = String(input.id || '').trim();
+  if (!id) throw new Error('id is required');
+  return prisma.questCatalog.update({
+    where: { id },
+    data: {
+      title: input.title !== undefined ? String(input.title || '').trim() : undefined,
+      description: input.description !== undefined ? (input.description ? String(input.description) : null) : undefined,
+      roleScope: input.roleScope !== undefined ? parseRoleScopeInput(input.roleScope) : undefined,
+      difficulty: input.difficulty !== undefined ? String(input.difficulty || 'standard').trim().toLowerCase() : undefined,
+      verificationRules: input.verificationRules !== undefined ? (isObject(input.verificationRules) ? input.verificationRules : {}) : undefined,
+      reward: input.reward !== undefined ? (isObject(input.reward) ? input.reward : {}) : undefined,
+      isWeekly: input.isWeekly !== undefined ? Boolean(input.isWeekly) : undefined,
+      rotationWeight:
+        input.rotationWeight !== undefined ? Math.max(1, Math.floor(Number(input.rotationWeight || 100))) : undefined,
+      isActive: input.isActive !== undefined ? Boolean(input.isActive) : undefined,
+      updatedById: input.actorUserId !== undefined ? input.actorUserId : undefined
+    }
+  });
+};
+
+export const toggleAdminQuestCatalog = async (input: {
+  id: string;
+  actorUserId?: string | null;
+}) => {
+  const id = String(input.id || '').trim();
+  if (!id) throw new Error('id is required');
+  const current = await prisma.questCatalog.findUnique({ where: { id } });
+  if (!current) throw new Error('Quest not found');
+  return prisma.questCatalog.update({
+    where: { id },
+    data: {
+      isActive: !current.isActive,
+      updatedById: input.actorUserId || null
+    }
+  });
 };
 
 export const getProfessionalScoreForUser = async (userId: string, app?: Application) => {

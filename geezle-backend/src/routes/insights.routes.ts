@@ -1,12 +1,14 @@
 import express from 'express';
 import { authMiddleware } from '../middleware/auth.middleware';
 import {
+  completeMyQuestController,
   generateSkillGapController,
   getFeedModeController,
   getLeaderboardController,
   getMatchesController,
   getMyAchievementsController,
   getMyPgsController,
+  getMyQuestsController,
   getMySkillGapController,
   getMyStreakController,
   getPostPredictionController,
@@ -21,6 +23,8 @@ router.use(authMiddleware);
 router.get('/pgs/me', getMyPgsController);
 router.get('/achievements/me', getMyAchievementsController);
 router.get('/streak/me', getMyStreakController);
+router.get('/quests/me', getMyQuestsController);
+router.post('/quests/:userQuestId/complete', completeMyQuestController);
 router.get('/leaderboard', getLeaderboardController);
 router.get('/matches/me', getMatchesController);
 router.get('/revenue/me', getRevenueController);
@@ -31,4 +35,3 @@ router.post('/feed-mode', setFeedModeController);
 router.get('/feed-mode', getFeedModeController);
 
 export default router;
-

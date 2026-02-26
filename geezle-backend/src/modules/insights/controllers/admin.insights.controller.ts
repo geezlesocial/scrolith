@@ -4,8 +4,12 @@ import { resolveActorFromRequest } from '../../../services/scrolitha/scrolitha.a
 import { getInsightsConfig, updateInsightsConfig } from '../policies/insights.config';
 import {
   buildWeeklyLeaderboard,
+  createAdminQuestCatalog,
+  getAdminQuestCatalog,
   recomputeAllProfessionalScores,
-  recomputeProfessionalScore
+  recomputeProfessionalScore,
+  toggleAdminQuestCatalog,
+  updateAdminQuestCatalog
 } from '../services/insights.service';
 
 const fail = (res: Response, message: string, error: any, status = 500) =>
@@ -66,6 +70,82 @@ export const getAdminAchievementsController = async (_req: Request, res: Respons
     return res.json({ success: true, data, message: 'Achievements loaded' });
   } catch (error) {
     return fail(res, 'Failed to load achievements', error);
+  }
+};
+
+export const getAdminQuestCatalogController = async (_req: Request, res: Response) => {
+  try {
+    const data = await getAdminQuestCatalog();
+    return res.json({ success: true, data, message: 'Quest catalog loaded' });
+  } catch (error) {
+    return fail(res, 'Failed to load quest catalog', error);
+  }
+};
+
+export const postAdminQuestCatalogController = async (req: Request, res: Response) => {
+  try {
+    const key = String(req.body?.key || '').trim();
+    const title = String(req.body?.title || '').trim();
+    if (!key || !title) {
+      return res.status(400).json({ success: false, data: null, message: 'key and title are required' });
+    }
+    const actor = resolveActorFromRequest(req);
+    const data = await createAdminQuestCatalog({
+      actorUserId: actor.id || null,
+      key,
+      title,
+      description: req.body?.description,
+      roleScope: req.body?.roleScope,
+      difficulty: req.body?.difficulty,
+      verificationRules: req.body?.verificationRules,
+      reward: req.body?.reward,
+      isWeekly: req.body?.isWeekly,
+      rotationWeight: req.body?.rotationWeight,
+      isActive: req.body?.isActive
+    });
+    return res.status(201).json({ success: true, data, message: 'Quest created' });
+  } catch (error) {
+    return fail(res, 'Failed to create quest', error);
+  }
+};
+
+export const putAdminQuestCatalogController = async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ success: false, data: null, message: 'id is required' });
+    const actor = resolveActorFromRequest(req);
+    const data = await updateAdminQuestCatalog({
+      id,
+      actorUserId: actor.id || null,
+      title: req.body?.title,
+      description: req.body?.description,
+      roleScope: req.body?.roleScope,
+      difficulty: req.body?.difficulty,
+      verificationRules: req.body?.verificationRules,
+      reward: req.body?.reward,
+      isWeekly: req.body?.isWeekly,
+      rotationWeight: req.body?.rotationWeight,
+      isActive: req.body?.isActive
+    });
+    return res.json({ success: true, data, message: 'Quest updated' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to update quest');
+    if (message.toLowerCase().includes('not found')) return fail(res, message, error, 404);
+    return fail(res, 'Failed to update quest', error);
+  }
+};
+
+export const toggleAdminQuestCatalogController = async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ success: false, data: null, message: 'id is required' });
+    const actor = resolveActorFromRequest(req);
+    const data = await toggleAdminQuestCatalog({ id, actorUserId: actor.id || null });
+    return res.json({ success: true, data, message: 'Quest status toggled' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to toggle quest');
+    if (message.toLowerCase().includes('not found')) return fail(res, message, error, 404);
+    return fail(res, 'Failed to toggle quest', error);
   }
 };
 
@@ -169,4 +249,3 @@ export const postAdminLeaderboardRebuildController = async (req: Request, res: R
     return fail(res, 'Failed to rebuild leaderboard', error);
   }
 };
-
