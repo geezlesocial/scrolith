@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSocket } from '../../context/SocketContext';
 import { useUser } from '../../context/UserContext';
-import { InsightsService, type FeedMode, type ProfessionalScore } from '../../services/insights';
+import { InsightsService, type FeedMode, type ProfessionalScore, type UserQuest } from '../../services/insights';
 
 type Props = {
   compact?: boolean;
@@ -29,10 +29,13 @@ export default function InsightsQuickPanel({ compact = false, className = '' }: 
   const [pgs, setPgs] = useState<ProfessionalScore | null>(null);
   const [streak, setStreak] = useState<any>(null);
   const [achievements, setAchievements] = useState<any[]>([]);
+  const [quests, setQuests] = useState<UserQuest[]>([]);
   const [matches, setMatches] = useState<any[]>([]);
   const [feedMode, setFeedMode] = useState<FeedMode>('growth');
   const [updatingFeedMode, setUpdatingFeedMode] = useState(false);
   const [skillGapBusy, setSkillGapBusy] = useState(false);
+  const [questBusyId, setQuestBusyId] = useState<string | null>(null);
+  const [questStatus, setQuestStatus] = useState<string | null>(null);
   const [skillGap, setSkillGap] = useState<any>(null);
   const [skillGapStatus, setSkillGapStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,10 +51,11 @@ export default function InsightsQuickPanel({ compact = false, className = '' }: 
       if (silent && hasLoadedRef.current) setRefreshing(true);
       setError(null);
       try {
-        const [pgsData, streakData, achievementsData, matchesData, feedModeData, skillGapData] = await Promise.all([
+        const [pgsData, streakData, achievementsData, questsData, matchesData, feedModeData, skillGapData] = await Promise.all([
           InsightsService.getMyPgs(),
           InsightsService.getMyStreak(),
           InsightsService.getMyAchievements(),
+          InsightsService.getMyQuests(),
           InsightsService.getMatches('all'),
           InsightsService.getFeedMode(),
           InsightsService.getSkillGap()
@@ -59,6 +63,7 @@ export default function InsightsQuickPanel({ compact = false, className = '' }: 
         setPgs(pgsData);
         setStreak(streakData);
         setAchievements(achievementsData);
+        setQuests(questsData.slice(0, compact ? 2 : 4));
         setMatches(matchesData.slice(0, compact ? 2 : 3));
         setFeedMode((feedModeData?.mode || 'growth') as FeedMode);
         setSkillGap(skillGapData);
@@ -91,6 +96,10 @@ export default function InsightsQuickPanel({ compact = false, className = '' }: 
       'insights:pgs_updated',
       'insights:achievement_unlocked',
       'insights:streak_updated',
+      'insights:quests_assigned',
+      'insights:quests_progress',
+      'insights:quests_completed',
+      'insights:quest_reward_granted',
       'insights:opportunity_match_ready'
     ] as const;
     socketHandlers.forEach((eventName) => socket?.on(eventName, onRefresh));
@@ -146,6 +155,29 @@ export default function InsightsQuickPanel({ compact = false, className = '' }: 
       setSkillGapStatus('Skill gap generation failed. Please try again.');
     } finally {
       setSkillGapBusy(false);
+    }
+  };
+
+  const completeQuest = async (quest: UserQuest) => {
+    const questId = String(quest.id || '').trim();
+    if (!questId) return;
+    setQuestBusyId(questId);
+    setQuestStatus(null);
+    try {
+      const completed = await InsightsService.completeMyQuest(questId);
+      setQuests((current) =>
+        current.map((item) => {
+          if (item.id !== completed.id) return item;
+          return completed;
+        })
+      );
+      setQuestStatus('Quest completion updated.');
+      void refresh({ silent: true });
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to complete quest.');
+      setQuestStatus('Quest completion failed. Please try again.');
+    } finally {
+      setQuestBusyId(null);
     }
   };
 
@@ -233,6 +265,56 @@ export default function InsightsQuickPanel({ compact = false, className = '' }: 
                 ))}
               </div>
             )}
+          </div>
+
+          <div className="mt-3 rounded-xl border border-slate-200 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Career quests</p>
+              <span className="text-[11px] text-slate-400">{quests.length} active</span>
+            </div>
+            {quests.length === 0 ? (
+              <p className="mt-2 text-xs text-slate-500">No quests assigned yet. Stay active and refresh to receive new goals.</p>
+            ) : (
+              <div className="mt-2 space-y-2">
+                {quests.map((quest) => {
+                  const isCompleted = String(quest.status || '').toLowerCase() === 'completed';
+                  const isExpired = String(quest.status || '').toLowerCase() === 'expired';
+                  const progress = Math.max(0, Number(quest.progress || 0));
+                  const target = Math.max(1, Number(quest.target || 1));
+                  const progressPercent = clampPercent((progress / target) * 100);
+                  return (
+                    <div key={quest.id} className="rounded-xl border border-slate-200 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="line-clamp-1 text-sm font-semibold text-slate-800">
+                          {quest.quest?.title || quest.quest?.key || 'Quest'}
+                        </p>
+                        {isCompleted ? (
+                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-600">Completed</span>
+                        ) : isExpired ? (
+                          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">Expired</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void completeQuest(quest)}
+                            disabled={questBusyId === quest.id}
+                            className="rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-600 disabled:opacity-50"
+                          >
+                            {questBusyId === quest.id ? 'Checking...' : 'Complete'}
+                          </button>
+                        )}
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        {progress}/{target} progress
+                      </p>
+                      <div className="mt-1 h-1.5 rounded-full bg-slate-200">
+                        <div className="h-1.5 rounded-full bg-indigo-500 transition-[width] duration-300 ease-out" style={{ width: `${progressPercent}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {questStatus ? <p className="mt-2 text-xs text-slate-500">{questStatus}</p> : null}
           </div>
 
           <div className="mt-3 rounded-xl border border-slate-200 p-3">

@@ -29,6 +29,34 @@ export type ProfessionalScore = {
   updatedAt: string;
 };
 
+export type UserQuest = {
+  id: string;
+  userId: string;
+  questId: string;
+  status: 'assigned' | 'in_progress' | 'completed' | 'expired' | string;
+  progress: number;
+  target: number;
+  assignedAt?: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  expiresAt?: string | null;
+  rewardGranted?: boolean;
+  meta?: Record<string, any>;
+  quest?: {
+    id: string;
+    key: string;
+    title: string;
+    description?: string | null;
+    roleScope?: string[];
+    difficulty?: string;
+    verificationRules?: Record<string, any>;
+    reward?: Record<string, any>;
+    isWeekly?: boolean;
+    rotationWeight?: number;
+    isActive?: boolean;
+  } | null;
+};
+
 class InsightsService {
   static async getMyPgs(): Promise<ProfessionalScore | null> {
     const response = await api.get('/insights/pgs/me');
@@ -44,6 +72,17 @@ class InsightsService {
   static async getMyStreak(): Promise<any> {
     const response = await api.get('/insights/streak/me');
     return extractData<any>(response);
+  }
+
+  static async getMyQuests(): Promise<UserQuest[]> {
+    const response = await api.get('/insights/quests/me');
+    const data = extractData<any>(response);
+    return Array.isArray(data) ? data : [];
+  }
+
+  static async completeMyQuest(userQuestId: string): Promise<UserQuest> {
+    const response = await api.post(`/insights/quests/${encodeURIComponent(userQuestId)}/complete`, {});
+    return extractData<UserQuest>(response);
   }
 
   static async getLeaderboard(scope: 'global' | 'freelancer' | 'employer' = 'global'): Promise<any> {
@@ -127,6 +166,27 @@ class InsightsService {
 
   static async toggleAdminAchievement(id: string): Promise<any> {
     const response = await api.post(`/admin/insights/achievements/${encodeURIComponent(id)}/toggle`, {});
+    return extractData<any>(response);
+  }
+
+  static async getAdminQuests(): Promise<any[]> {
+    const response = await api.get('/admin/insights/quests');
+    const data = extractData<any>(response);
+    return Array.isArray(data) ? data : [];
+  }
+
+  static async createAdminQuest(payload: any): Promise<any> {
+    const response = await api.post('/admin/insights/quests', payload);
+    return extractData<any>(response);
+  }
+
+  static async updateAdminQuest(id: string, payload: any): Promise<any> {
+    const response = await api.put(`/admin/insights/quests/${encodeURIComponent(id)}`, payload);
+    return extractData<any>(response);
+  }
+
+  static async toggleAdminQuest(id: string): Promise<any> {
+    const response = await api.post(`/admin/insights/quests/${encodeURIComponent(id)}/toggle`, {});
     return extractData<any>(response);
   }
 

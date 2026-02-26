@@ -27,6 +27,20 @@ const prettyRules = (rules: any) => {
   }
 };
 
+const parseRoleScopeText = (raw: string) => {
+  const tokens = String(raw || '')
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  return Array.from(new Set(tokens.length ? tokens : ['all']));
+};
+
+const roleScopeTextFromValue = (value: any) => {
+  if (Array.isArray(value) && value.length) return value.join(', ');
+  if (typeof value === 'string' && value.trim()) return value;
+  return 'all';
+};
+
 const thisWeekKey = () => {
   const now = new Date();
   const utc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -44,8 +58,10 @@ const InsightsGrowth: React.FC = () => {
   const [recomputeBusy, setRecomputeBusy] = useState(false);
   const [rebuildBusy, setRebuildBusy] = useState(false);
   const [achievementBusy, setAchievementBusy] = useState(false);
+  const [questBusy, setQuestBusy] = useState(false);
   const [config, setConfig] = useState<any>(null);
   const [achievements, setAchievements] = useState<any[]>([]);
+  const [quests, setQuests] = useState<any[]>([]);
   const [leaderboardScope, setLeaderboardScope] = useState<'global' | 'freelancer' | 'employer'>('global');
   const [leaderboardWeekKey, setLeaderboardWeekKey] = useState(thisWeekKey());
   const [leaderboard, setLeaderboard] = useState<any>(null);
@@ -63,16 +79,40 @@ const InsightsGrowth: React.FC = () => {
     tier: 'bronze',
     rulesText: '{\n  "all": []\n}'
   });
+  const [newQuest, setNewQuest] = useState({
+    key: '',
+    title: '',
+    description: '',
+    roleScopeText: 'all',
+    difficulty: 'standard',
+    isWeekly: true,
+    rotationWeight: 100,
+    verificationRulesText: '{\n  "all": []\n}',
+    rewardText: '{\n  "type": "badge",\n  "points": 10\n}'
+  });
+  const [editingQuestId, setEditingQuestId] = useState<string | null>(null);
+  const [editingQuestDraft, setEditingQuestDraft] = useState({
+    title: '',
+    description: '',
+    roleScopeText: 'all',
+    difficulty: 'standard',
+    isWeekly: true,
+    rotationWeight: 100,
+    verificationRulesText: '{\n  "all": []\n}',
+    rewardText: '{\n  "type": "badge",\n  "points": 10\n}'
+  });
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [cfg, achievementRows] = await Promise.all([
+      const [cfg, achievementRows, questRows] = await Promise.all([
         InsightsService.getAdminConfig(),
-        InsightsService.getAdminAchievements()
+        InsightsService.getAdminAchievements(),
+        InsightsService.getAdminQuests()
       ]);
       setConfig(cfg || null);
       setAchievements(Array.isArray(achievementRows) ? achievementRows : []);
+      setQuests(Array.isArray(questRows) ? questRows : []);
     } catch (error: any) {
       showNotification('error', 'Insights', error?.message || 'Failed to load Insights configuration.');
     } finally {
@@ -271,6 +311,112 @@ const InsightsGrowth: React.FC = () => {
       showNotification('error', 'Achievements', error?.message || 'Failed to update achievement.');
     } finally {
       setAchievementBusy(false);
+    }
+  };
+
+  const createQuest = async () => {
+    const key = String(newQuest.key || '').trim().toUpperCase();
+    const title = String(newQuest.title || '').trim();
+    if (!key || !title) {
+      showNotification('warning', 'Quest Catalog', 'Key and title are required.');
+      return;
+    }
+    setQuestBusy(true);
+    try {
+      const payload = {
+        key,
+        title,
+        description: newQuest.description || null,
+        roleScope: parseRoleScopeText(newQuest.roleScopeText),
+        difficulty: String(newQuest.difficulty || 'standard').trim().toLowerCase() || 'standard',
+        isWeekly: Boolean(newQuest.isWeekly),
+        rotationWeight: Math.max(1, Math.floor(numberValue(newQuest.rotationWeight, 100))),
+        verificationRules: parseRulesInput(newQuest.verificationRulesText),
+        reward: parseRulesInput(newQuest.rewardText)
+      };
+      await InsightsService.createAdminQuest(payload);
+      setNewQuest({
+        key: '',
+        title: '',
+        description: '',
+        roleScopeText: 'all',
+        difficulty: 'standard',
+        isWeekly: true,
+        rotationWeight: 100,
+        verificationRulesText: '{\n  "all": []\n}',
+        rewardText: '{\n  "type": "badge",\n  "points": 10\n}'
+      });
+      setQuests(await InsightsService.getAdminQuests());
+      showNotification('success', 'Quest Catalog', 'Quest created.');
+    } catch (error: any) {
+      showNotification('error', 'Quest Catalog', error?.message || 'Failed to create quest.');
+    } finally {
+      setQuestBusy(false);
+    }
+  };
+
+  const toggleQuest = async (id: string) => {
+    try {
+      await InsightsService.toggleAdminQuest(id);
+      setQuests(await InsightsService.getAdminQuests());
+    } catch (error: any) {
+      showNotification('error', 'Quest Catalog', error?.message || 'Failed to toggle quest.');
+    }
+  };
+
+  const startEditQuest = (item: any) => {
+    setEditingQuestId(String(item.id));
+    setEditingQuestDraft({
+      title: String(item.title || ''),
+      description: String(item.description || ''),
+      roleScopeText: roleScopeTextFromValue(item.roleScope),
+      difficulty: String(item.difficulty || 'standard'),
+      isWeekly: Boolean(item.isWeekly),
+      rotationWeight: Math.max(1, Math.floor(numberValue(item.rotationWeight, 100))),
+      verificationRulesText: prettyRules(item.verificationRules || {}),
+      rewardText: prettyRules(item.reward || {})
+    });
+  };
+
+  const cancelEditQuest = () => {
+    setEditingQuestId(null);
+    setEditingQuestDraft({
+      title: '',
+      description: '',
+      roleScopeText: 'all',
+      difficulty: 'standard',
+      isWeekly: true,
+      rotationWeight: 100,
+      verificationRulesText: '{\n  "all": []\n}',
+      rewardText: '{\n  "type": "badge",\n  "points": 10\n}'
+    });
+  };
+
+  const saveEditQuest = async (id: string) => {
+    const title = String(editingQuestDraft.title || '').trim();
+    if (!title) {
+      showNotification('warning', 'Quest Catalog', 'Title is required.');
+      return;
+    }
+    setQuestBusy(true);
+    try {
+      await InsightsService.updateAdminQuest(id, {
+        title,
+        description: editingQuestDraft.description || null,
+        roleScope: parseRoleScopeText(editingQuestDraft.roleScopeText),
+        difficulty: String(editingQuestDraft.difficulty || 'standard').trim().toLowerCase() || 'standard',
+        isWeekly: Boolean(editingQuestDraft.isWeekly),
+        rotationWeight: Math.max(1, Math.floor(numberValue(editingQuestDraft.rotationWeight, 100))),
+        verificationRules: parseRulesInput(editingQuestDraft.verificationRulesText),
+        reward: parseRulesInput(editingQuestDraft.rewardText)
+      });
+      setQuests(await InsightsService.getAdminQuests());
+      cancelEditQuest();
+      showNotification('success', 'Quest Catalog', 'Quest updated.');
+    } catch (error: any) {
+      showNotification('error', 'Quest Catalog', error?.message || 'Failed to update quest.');
+    } finally {
+      setQuestBusy(false);
     }
   };
 
@@ -530,6 +676,205 @@ const InsightsGrowth: React.FC = () => {
             </div>
           ))}
           {achievements.length === 0 ? <p className="text-xs text-gray-500">No achievements yet.</p> : null}
+        </div>
+      </section>
+      <section className="rounded-xl border border-gray-200 bg-white p-5">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="text-base font-semibold text-gray-900">Career Quests Catalog</h3>
+          <span className="text-xs text-gray-500">{quests.length} total</span>
+        </div>
+
+        <div className="grid gap-2 md:grid-cols-4">
+          <input
+            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+            value={newQuest.key}
+            onChange={(e) => setNewQuest((prev) => ({ ...prev, key: e.target.value }))}
+            placeholder="QUEST_KEY"
+          />
+          <input
+            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+            value={newQuest.title}
+            onChange={(e) => setNewQuest((prev) => ({ ...prev, title: e.target.value }))}
+            placeholder="Title"
+          />
+          <input
+            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+            value={newQuest.roleScopeText}
+            onChange={(e) => setNewQuest((prev) => ({ ...prev, roleScopeText: e.target.value }))}
+            placeholder="Role scope: all, freelancer, employer"
+          />
+          <button
+            type="button"
+            onClick={() => void createQuest()}
+            disabled={questBusy}
+            className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+          >
+            {questBusy ? 'Adding...' : 'Add Quest'}
+          </button>
+        </div>
+        <textarea
+          className="mt-2 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+          value={newQuest.description}
+          onChange={(e) => setNewQuest((prev) => ({ ...prev, description: e.target.value }))}
+          placeholder="Description (optional)"
+          rows={2}
+        />
+        <div className="mt-2 grid gap-2 md:grid-cols-3">
+          <select
+            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+            value={newQuest.difficulty}
+            onChange={(e) => setNewQuest((prev) => ({ ...prev, difficulty: e.target.value }))}
+          >
+            <option value="starter">starter</option>
+            <option value="standard">standard</option>
+            <option value="milestone">milestone</option>
+            <option value="advanced">advanced</option>
+          </select>
+          <input
+            type="number"
+            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+            value={Math.floor(numberValue(newQuest.rotationWeight, 100))}
+            onChange={(e) => setNewQuest((prev) => ({ ...prev, rotationWeight: Math.max(1, Math.floor(numberValue(e.target.value, 100))) }))}
+            placeholder="Rotation weight"
+          />
+          <label className="flex items-center gap-2 rounded-md border border-gray-300 px-2 py-1.5 text-sm">
+            <input
+              type="checkbox"
+              checked={Boolean(newQuest.isWeekly)}
+              onChange={(e) => setNewQuest((prev) => ({ ...prev, isWeekly: e.target.checked }))}
+            />
+            Weekly quest
+          </label>
+        </div>
+        <textarea
+          className="mt-2 w-full rounded-md border border-gray-300 px-2 py-1.5 font-mono text-xs"
+          value={newQuest.verificationRulesText}
+          onChange={(e) => setNewQuest((prev) => ({ ...prev, verificationRulesText: e.target.value }))}
+          placeholder="Verification rules JSON"
+          rows={8}
+        />
+        <textarea
+          className="mt-2 w-full rounded-md border border-gray-300 px-2 py-1.5 font-mono text-xs"
+          value={newQuest.rewardText}
+          onChange={(e) => setNewQuest((prev) => ({ ...prev, rewardText: e.target.value }))}
+          placeholder="Reward JSON"
+          rows={5}
+        />
+
+        <div className="mt-3 space-y-2">
+          {quests.map((item) => (
+            <div key={item.id} className="rounded-md border border-gray-200 px-3 py-2 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-gray-800">{item.title}</p>
+                  <p className="truncate text-xs text-gray-500">
+                    {item.key} | scope: {roleScopeTextFromValue(item.roleScope)} | {item.difficulty || 'standard'} |{' '}
+                    {item.isWeekly ? 'weekly' : 'always'} | weight {Number(item.rotationWeight || 100)} |{' '}
+                    {item.isActive ? 'active' : 'inactive'}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => startEditQuest(item)}
+                    className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void toggleQuest(item.id)}
+                    className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700"
+                  >
+                    {item.isActive ? 'Disable' : 'Enable'}
+                  </button>
+                </div>
+              </div>
+
+              {editingQuestId === item.id ? (
+                <div className="mt-3 rounded-md border border-blue-100 bg-blue-50/40 p-3">
+                  <div className="grid gap-2 md:grid-cols-4">
+                    <input
+                      className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                      value={editingQuestDraft.title}
+                      onChange={(e) => setEditingQuestDraft((prev) => ({ ...prev, title: e.target.value }))}
+                      placeholder="Title"
+                    />
+                    <input
+                      className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                      value={editingQuestDraft.roleScopeText}
+                      onChange={(e) => setEditingQuestDraft((prev) => ({ ...prev, roleScopeText: e.target.value }))}
+                      placeholder="all, freelancer, employer"
+                    />
+                    <select
+                      className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                      value={editingQuestDraft.difficulty}
+                      onChange={(e) => setEditingQuestDraft((prev) => ({ ...prev, difficulty: e.target.value }))}
+                    >
+                      <option value="starter">starter</option>
+                      <option value="standard">standard</option>
+                      <option value="milestone">milestone</option>
+                      <option value="advanced">advanced</option>
+                    </select>
+                    <input
+                      type="number"
+                      className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                      value={Math.floor(numberValue(editingQuestDraft.rotationWeight, 100))}
+                      onChange={(e) => setEditingQuestDraft((prev) => ({ ...prev, rotationWeight: Math.max(1, Math.floor(numberValue(e.target.value, 100))) }))}
+                      placeholder="Rotation weight"
+                    />
+                  </div>
+                  <label className="mt-2 inline-flex items-center gap-2 text-xs font-semibold uppercase text-gray-500">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(editingQuestDraft.isWeekly)}
+                      onChange={(e) => setEditingQuestDraft((prev) => ({ ...prev, isWeekly: e.target.checked }))}
+                    />
+                    Weekly quest
+                  </label>
+                  <textarea
+                    className="mt-2 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                    value={editingQuestDraft.description}
+                    onChange={(e) => setEditingQuestDraft((prev) => ({ ...prev, description: e.target.value }))}
+                    placeholder="Description"
+                    rows={2}
+                  />
+                  <textarea
+                    className="mt-2 w-full rounded-md border border-gray-300 px-2 py-1.5 font-mono text-xs"
+                    value={editingQuestDraft.verificationRulesText}
+                    onChange={(e) => setEditingQuestDraft((prev) => ({ ...prev, verificationRulesText: e.target.value }))}
+                    placeholder="Verification rules JSON"
+                    rows={8}
+                  />
+                  <textarea
+                    className="mt-2 w-full rounded-md border border-gray-300 px-2 py-1.5 font-mono text-xs"
+                    value={editingQuestDraft.rewardText}
+                    onChange={(e) => setEditingQuestDraft((prev) => ({ ...prev, rewardText: e.target.value }))}
+                    placeholder="Reward JSON"
+                    rows={5}
+                  />
+                  <div className="mt-2 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => cancelEditQuest()}
+                      className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void saveEditQuest(item.id)}
+                      disabled={questBusy}
+                      className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ))}
+          {quests.length === 0 ? <p className="text-xs text-gray-500">No quests yet.</p> : null}
         </div>
       </section>
       <section className="rounded-xl border border-gray-200 bg-white p-5">
