@@ -26,7 +26,7 @@ import { SocketProvider } from './context/SocketContext';
 import { PreloaderProvider } from './context/PreloaderContext';
 import { I18nProvider } from './i18n/I18nProvider';
 import GlobalPreloader from './components/GlobalPreloader';
-import { AlertTriangleIcon, LoaderIcon } from './components/icons/ShellIcons';
+import { AlertTriangleIcon } from './components/icons/ShellIcons';
 import IntegrationsManager from './components/IntegrationsManager';
 import { registerDeepLinks } from './mobile/deeplinks';
 import { initPushNotifications, syncStoredPushToken } from './mobile/push';
@@ -533,14 +533,7 @@ const AppContent = () => {
       {!isAdminRoute && !isMobileShellRoute && <Navbar />}
       <main className="flex-grow">
         <ErrorBoundary>
-          <Suspense fallback={
-            <div className="h-screen flex items-center justify-center bg-white">
-              <div className="text-center">
-                <LoaderIcon className="w-10 h-10 animate-spin text-blue-600 mx-auto mb-4" />
-                <p className="text-gray-500 font-medium">Loading Scrolith...</p>
-              </div>
-            </div>
-          }>
+          <Suspense fallback={null}>
             <Routes>
               <Route path="/" element={<Landing />} />
 
@@ -718,7 +711,7 @@ const AppContent = () => {
                 path="/admin/settings/languages"
                 element={
                   <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
-                    <React.Suspense fallback={<div>Loading...</div>}>
+                    <React.Suspense fallback={null}>
                       <LanguagesAdmin />
                     </React.Suspense>
                   </ProtectedRoute>
@@ -884,11 +877,7 @@ const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const { user, isAuthenticated, isLoading } = useUser();
 
   if (isLoading) {
-    return (
-      <div className="h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto"></div>
-      </div>
-    );
+    return null;
   }
 
   if (isAuthenticated && user) {
@@ -904,11 +893,7 @@ const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) 
     const location = useLocation();
 
   if (isLoading) {
-    return (
-      <div className="h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto"></div>
-      </div>
-    );
+    return null;
   }
 
   if (!isAuthenticated || !user) {

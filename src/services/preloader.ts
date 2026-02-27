@@ -1,7 +1,7 @@
 import api from './api';
 
 export type PreloaderLoaderType = 'spinner' | 'progress' | 'logoPulse' | 'dots' | 'skeleton' | 'lottie';
-export type PreloaderBackgroundType = 'solid' | 'gradient';
+export type PreloaderBackgroundType = 'solid' | 'gradient' | 'image';
 export type PreloaderPosition = 'center' | 'bottom';
 export type PreloaderStatus = 'active' | 'inactive' | 'draft';
 
@@ -20,6 +20,8 @@ export interface PreloaderConfig {
   loaderType: PreloaderLoaderType;
   logoFileId?: string | null;
   logoUrl?: string | null;
+  backgroundFileId?: string | null;
+  backgroundImageUrl?: string | null;
   backgroundType: PreloaderBackgroundType;
   backgroundColor: string;
   gradientFrom?: string | null;

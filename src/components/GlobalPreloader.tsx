@@ -49,152 +49,40 @@ const GlobalPreloader: React.FC = () => {
   if (!isVisible) return null;
 
   const animationDuration = `${(1 / Math.max(config.animationSpeed, 0.2)).toFixed(2)}s`;
-  const overlayStyle: React.CSSProperties =
-    config.backgroundType === 'gradient'
-      ? {
-          backgroundImage: `linear-gradient(135deg, ${toRgba(config.gradientFrom || config.backgroundColor, config.overlayOpacity)}, ${toRgba(config.gradientTo || config.backgroundColor, config.overlayOpacity)})`,
-          backdropFilter: `blur(${config.blurPx}px)`,
-        }
-      : {
-          backgroundColor: toRgba(config.backgroundColor, config.overlayOpacity),
-          backdropFilter: `blur(${config.blurPx}px)`,
-        };
+  const overlayStyle: React.CSSProperties = (() => {
+    if (config.backgroundType === 'image' && config.backgroundImageUrl) {
+      return {
+        backgroundImage: `linear-gradient(135deg, ${toRgba(config.backgroundColor, config.overlayOpacity)}, ${toRgba(config.backgroundColor, config.overlayOpacity)}), url(${config.backgroundImageUrl})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backdropFilter: `blur(${config.blurPx}px)`,
+      };
+    }
+    if (config.backgroundType === 'gradient') {
+      return {
+        backgroundImage: `linear-gradient(135deg, ${toRgba(config.gradientFrom || config.backgroundColor, config.overlayOpacity)}, ${toRgba(config.gradientTo || config.backgroundColor, config.overlayOpacity)})`,
+        backdropFilter: `blur(${config.blurPx}px)`,
+      };
+    }
+    return {
+      backgroundColor: toRgba(config.backgroundColor, config.overlayOpacity),
+      backdropFilter: `blur(${config.blurPx}px)`,
+    };
+  })();
 
   const containerStyle: React.CSSProperties = {
     color: config.textColor,
     ...parseCustomCss(config.customCss),
   };
 
-  const renderLoader = () => {
-    switch (config.loaderType) {
-      case 'progress':
-        return (
-          <div className="w-64 max-w-full">
-            <div className="h-2 overflow-hidden rounded-full bg-white/25">
-              <div
-                className="h-full w-1/3 rounded-full"
-                style={{
-                  backgroundColor: config.accentColor,
-                  animation: `preloader-progress ${animationDuration} linear infinite`,
-                }}
-              />
-            </div>
-          </div>
-        );
-      case 'logoPulse':
-        if (config.logoUrl) {
-          return (
-            <img
-              src={config.logoUrl}
-              alt="Loading logo"
-              className="h-16 w-16 rounded-xl object-cover"
-              style={{ animation: `preloader-pulse ${animationDuration} ease-in-out infinite` }}
-            />
-          );
-        }
-        return (
-          <div
-            className="h-12 w-12 rounded-full border-2"
-            style={{
-              borderColor: `${config.accentColor}55`,
-              borderTopColor: config.accentColor,
-              animation: `preloader-spin ${animationDuration} linear infinite`,
-            }}
-          />
-        );
-      case 'dots':
-        return (
-          <div className="flex items-center gap-2">
-            {[0, 1, 2].map((dot) => (
-              <span
-                key={dot}
-                className="h-3 w-3 rounded-full"
-                style={{
-                  backgroundColor: config.accentColor,
-                  animation: `preloader-bounce ${animationDuration} ease-in-out infinite`,
-                  animationDelay: `${dot * 0.15}s`,
-                }}
-              />
-            ))}
-          </div>
-        );
-      case 'skeleton':
-        return (
-          <div className="w-64 max-w-full space-y-2">
-            {[0, 1, 2].map((line) => (
-              <div
-                key={line}
-                className="h-3 overflow-hidden rounded-full bg-white/20"
-                style={{
-                  width: line === 1 ? '80%' : '100%',
-                }}
-              >
-                <div
-                  className="h-full w-1/2"
-                  style={{
-                    background: `linear-gradient(90deg, transparent, ${config.accentColor}, transparent)`,
-                    animation: `preloader-progress ${animationDuration} linear infinite`,
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-        );
-      case 'lottie':
-        if (config.logoUrl) {
-          return (
-            <img
-              src={config.logoUrl}
-              alt="Loading media"
-              className="h-16 w-16 rounded-xl object-cover"
-              style={{ animation: `preloader-spin ${animationDuration} linear infinite` }}
-            />
-          );
-        }
-        return (
-          <div
-            className="h-12 w-12 rounded-full border-2"
-            style={{
-              borderColor: `${config.accentColor}55`,
-              borderTopColor: config.accentColor,
-              animation: `preloader-spin ${animationDuration} linear infinite`,
-            }}
-          />
-        );
-      case 'spinner':
-      default:
-        return (
-          <div
-            className="h-12 w-12 rounded-full border-2"
-            style={{
-              borderColor: `${config.accentColor}55`,
-              borderTopColor: config.accentColor,
-              animation: `preloader-spin ${animationDuration} linear infinite`,
-            }}
-          />
-        );
-    }
-  };
-
   return (
     <>
       <style>
         {`
-          @keyframes preloader-spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-          }
-          @keyframes preloader-progress {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(300%); }
-          }
-          @keyframes preloader-bounce {
-            0%, 80%, 100% { transform: scale(0.8); opacity: 0.4; }
-            40% { transform: scale(1); opacity: 1; }
-          }
-          @keyframes preloader-pulse {
-            0%, 100% { transform: scale(0.95); opacity: 0.85; }
-            50% { transform: scale(1.05); opacity: 1; }
+          @keyframes preloader-brand-pulse {
+            0%, 100% { transform: scale(0.98); opacity: 0.9; }
+            50% { transform: scale(1.02); opacity: 1; }
           }
         `}
       </style>
@@ -208,7 +96,22 @@ const GlobalPreloader: React.FC = () => {
           }`}
           style={containerStyle}
         >
-          {renderLoader()}
+          {config.logoUrl ? (
+            <img
+              src={config.logoUrl}
+              alt="Scrolith preloader logo"
+              className="h-24 w-24 rounded-3xl object-cover shadow-2xl"
+              style={{ animation: `preloader-brand-pulse ${animationDuration} ease-in-out infinite` }}
+            />
+          ) : (
+            <div
+              className="h-24 w-24 rounded-3xl shadow-2xl"
+              style={{
+                background: `linear-gradient(135deg, ${toRgba(config.accentColor, 0.2)}, ${toRgba(config.accentColor, 0.5)})`,
+                animation: `preloader-brand-pulse ${animationDuration} ease-in-out infinite`,
+              }}
+            />
+          )}
           {config.headlineText ? (
             <h3 className="text-lg font-semibold tracking-wide">{config.headlineText}</h3>
           ) : null}

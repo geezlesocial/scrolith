@@ -27,6 +27,8 @@ const DEFAULT_PRELOADER: PreloaderConfig = {
   loaderType: 'spinner',
   logoFileId: null,
   logoUrl: null,
+  backgroundFileId: null,
+  backgroundImageUrl: null,
   backgroundType: 'solid',
   backgroundColor: '#0f172a',
   gradientFrom: '#0f172a',
