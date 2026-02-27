@@ -3326,6 +3326,7 @@ model PreloaderConfig {
   subText           String?
   loaderType        PreloaderLoaderType     @default(SPINNER)
   logoFileId        String?
+  backgroundFileId  String?
   backgroundType    PreloaderBackgroundType @default(SOLID)
   backgroundColor   String                  @default("#0f172a")
   gradientFrom      String?
@@ -3397,6 +3398,7 @@ enum PreloaderLoaderType {
 enum PreloaderBackgroundType {
   SOLID
   GRADIENT
+  IMAGE
 }
 
 enum PreloaderPosition {

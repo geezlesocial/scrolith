@@ -8,7 +8,7 @@ import {
 import prisma from '../utils/prismaClient';
 
 type LoaderTypeClient = 'spinner' | 'progress' | 'logoPulse' | 'dots' | 'skeleton' | 'lottie';
-type BackgroundTypeClient = 'solid' | 'gradient';
+type BackgroundTypeClient = 'solid' | 'gradient' | 'image';
 type PositionTypeClient = 'center' | 'bottom';
 
 const DEFAULT_PRELOADER = {
@@ -26,6 +26,8 @@ const DEFAULT_PRELOADER = {
   loaderType: 'spinner' as LoaderTypeClient,
   logoFileId: null as string | null,
   logoUrl: null as string | null,
+  backgroundFileId: null as string | null,
+  backgroundImageUrl: null as string | null,
   backgroundType: 'solid' as BackgroundTypeClient,
   backgroundColor: '#0f172a',
   gradientFrom: '#0f172a',
@@ -136,6 +138,7 @@ const toBackgroundType = (value: any, fallback: PreloaderBackgroundType) => {
   const normalized = String(value ?? '').trim().toLowerCase();
   if (normalized === 'solid') return PreloaderBackgroundType.SOLID;
   if (normalized === 'gradient') return PreloaderBackgroundType.GRADIENT;
+  if (normalized === 'image') return PreloaderBackgroundType.IMAGE;
   return fallback;
 };
 
@@ -163,8 +166,11 @@ const loaderTypeToClient = (value: PreloaderLoaderType): LoaderTypeClient => {
   return 'spinner';
 };
 
-const backgroundTypeToClient = (value: PreloaderBackgroundType): BackgroundTypeClient =>
-  value === PreloaderBackgroundType.GRADIENT ? 'gradient' : 'solid';
+const backgroundTypeToClient = (value: PreloaderBackgroundType): BackgroundTypeClient => {
+  if (value === PreloaderBackgroundType.GRADIENT) return 'gradient';
+  if (value === PreloaderBackgroundType.IMAGE) return 'image';
+  return 'solid';
+};
 
 const positionToClient = (value: PreloaderPosition): PositionTypeClient =>
   value === PreloaderPosition.BOTTOM ? 'bottom' : 'center';
@@ -172,7 +178,7 @@ const positionToClient = (value: PreloaderPosition): PositionTypeClient =>
 const statusToClient = (value: PreloaderStatus, isActive: boolean) =>
   (isActive ? 'active' : String(value).toLowerCase());
 
-const serializeConfig = (config: any, logoUrlById?: Map<string, string>) => ({
+const serializeConfig = (config: any, fileUrlById?: Map<string, string>) => ({
   id: config.id,
   name: config.name,
   status: statusToClient(config.status, Boolean(config.isActive)),
@@ -186,7 +192,9 @@ const serializeConfig = (config: any, logoUrlById?: Map<string, string>) => ({
   subText: config.subText ?? null,
   loaderType: loaderTypeToClient(config.loaderType),
   logoFileId: config.logoFileId ?? null,
-  logoUrl: config.logoFileId ? logoUrlById?.get(config.logoFileId) ?? null : null,
+  logoUrl: config.logoFileId ? fileUrlById?.get(config.logoFileId) ?? null : null,
+  backgroundFileId: config.backgroundFileId ?? null,
+  backgroundImageUrl: config.backgroundFileId ? fileUrlById?.get(config.backgroundFileId) ?? null : null,
   backgroundType: backgroundTypeToClient(config.backgroundType),
   backgroundColor: config.backgroundColor ?? DEFAULT_PRELOADER.backgroundColor,
   gradientFrom: config.gradientFrom ?? null,
@@ -211,17 +219,17 @@ const serializeConfig = (config: any, logoUrlById?: Map<string, string>) => ({
 
 const fallbackPreloader = () => ({ ...DEFAULT_PRELOADER });
 
-const buildLogoUrlMap = async (configs: any[]) => {
-  const logoIds = Array.from(
+const buildFileUrlMap = async (configs: any[]) => {
+  const fileIds = Array.from(
     new Set(
       (configs || [])
-        .map((row) => row?.logoFileId)
+        .flatMap((row) => [row?.logoFileId, row?.backgroundFileId])
         .filter((id): id is string => Boolean(id))
     )
   );
-  if (!logoIds.length) return new Map<string, string>();
+  if (!fileIds.length) return new Map<string, string>();
   const files = await prisma.file.findMany({
-    where: { id: { in: logoIds } },
+    where: { id: { in: fileIds } },
     select: { id: true, url: true }
   });
   const pairs: Array<[string, string]> = files
@@ -237,9 +245,9 @@ const emitRealtimeUpdate = async (req: Request) => {
       include: { updatedByAdmin: { select: { id: true, name: true, email: true } } },
       orderBy: { updatedAt: 'desc' }
     });
-    const logoUrlById = active ? await buildLogoUrlMap([active]) : new Map<string, string>();
+    const fileUrlById = active ? await buildFileUrlMap([active]) : new Map<string, string>();
     const payload = {
-      active: active ? serializeConfig(active, logoUrlById) : null,
+      active: active ? serializeConfig(active, fileUrlById) : null,
       timestamp: new Date().toISOString()
     };
     const io = req.app.get('io');
@@ -307,6 +315,11 @@ const normalizeConfigInput = (payload: any, fallback?: any) => {
     ),
     loaderType: toLoaderType(pickFirst(payload, ['loaderType', 'loader_type']), current.loaderType ?? PreloaderLoaderType.SPINNER),
     logoFileId: toStringValue(pickFirst(payload, ['logoFileId', 'logo_file_id']), current.logoFileId ?? null, 80),
+    backgroundFileId: toStringValue(
+      pickFirst(payload, ['backgroundFileId', 'background_file_id']),
+      current.backgroundFileId ?? null,
+      80
+    ),
     backgroundType: toBackgroundType(
       pickFirst(payload, ['backgroundType', 'background_type']),
       current.backgroundType ?? PreloaderBackgroundType.SOLID
@@ -345,10 +358,10 @@ const normalizeConfigInput = (payload: any, fallback?: any) => {
   };
 };
 
-const validateLogoFile = async (logoFileId: string | null | undefined) => {
-  if (!logoFileId) return true;
+const validateFileExists = async (fileId: string | null | undefined) => {
+  if (!fileId) return true;
   const file = await prisma.file.findUnique({
-    where: { id: logoFileId },
+    where: { id: fileId },
     select: { id: true }
   });
   return Boolean(file);
@@ -361,10 +374,10 @@ export const getActivePreloaderPublic = async (_req: Request, res: Response) => 
       include: { updatedByAdmin: { select: { id: true, name: true, email: true } } },
       orderBy: { updatedAt: 'desc' }
     });
-    const logoUrlById = active ? await buildLogoUrlMap([active]) : new Map<string, string>();
+    const fileUrlById = active ? await buildFileUrlMap([active]) : new Map<string, string>();
     return res.json({
       success: true,
-      data: active ? serializeConfig(active, logoUrlById) : fallbackPreloader()
+      data: active ? serializeConfig(active, fileUrlById) : fallbackPreloader()
     });
   } catch (error: any) {
     console.error('[preloader] getActivePreloaderPublic failed', error);
@@ -378,8 +391,8 @@ export const adminListPreloaders = async (_req: Request, res: Response) => {
       include: { updatedByAdmin: { select: { id: true, name: true, email: true } } },
       orderBy: [{ isActive: 'desc' }, { updatedAt: 'desc' }]
     });
-    const logoUrlById = await buildLogoUrlMap(rows);
-    return res.json({ success: true, data: rows.map((row) => serializeConfig(row, logoUrlById)) });
+    const fileUrlById = await buildFileUrlMap(rows);
+    return res.json({ success: true, data: rows.map((row) => serializeConfig(row, fileUrlById)) });
   } catch (error: any) {
     console.error('[preloader] adminListPreloaders failed', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load preloaders' });
@@ -392,8 +405,14 @@ export const adminCreatePreloader = async (req: Request, res: Response) => {
     if (!normalized.name) {
       return res.status(400).json({ success: false, error: 'Name is required' });
     }
-    if (!(await validateLogoFile(normalized.logoFileId))) {
+    if (!(await validateFileExists(normalized.logoFileId))) {
       return res.status(400).json({ success: false, error: 'Selected logo file does not exist' });
+    }
+    if (
+      normalized.backgroundType === PreloaderBackgroundType.IMAGE &&
+      !(await validateFileExists(normalized.backgroundFileId))
+    ) {
+      return res.status(400).json({ success: false, error: 'Selected background image file does not exist' });
     }
 
     const adminId = (req as any).user?.id || null;
@@ -415,9 +434,9 @@ export const adminCreatePreloader = async (req: Request, res: Response) => {
       });
     });
 
-    const logoUrlById = await buildLogoUrlMap([created]);
+    const fileUrlById = await buildFileUrlMap([created]);
     await emitRealtimeUpdate(req);
-    return res.status(201).json({ success: true, data: serializeConfig(created, logoUrlById), message: 'Preloader created' });
+    return res.status(201).json({ success: true, data: serializeConfig(created, fileUrlById), message: 'Preloader created' });
   } catch (error: any) {
     console.error('[preloader] adminCreatePreloader failed', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to create preloader' });
@@ -436,8 +455,14 @@ export const adminUpdatePreloader = async (req: Request, res: Response) => {
     if (!normalized.name) {
       return res.status(400).json({ success: false, error: 'Name is required' });
     }
-    if (!(await validateLogoFile(normalized.logoFileId))) {
+    if (!(await validateFileExists(normalized.logoFileId))) {
       return res.status(400).json({ success: false, error: 'Selected logo file does not exist' });
+    }
+    if (
+      normalized.backgroundType === PreloaderBackgroundType.IMAGE &&
+      !(await validateFileExists(normalized.backgroundFileId))
+    ) {
+      return res.status(400).json({ success: false, error: 'Selected background image file does not exist' });
     }
 
     const adminId = (req as any).user?.id || null;
@@ -460,9 +485,9 @@ export const adminUpdatePreloader = async (req: Request, res: Response) => {
       });
     });
 
-    const logoUrlById = await buildLogoUrlMap([updated]);
+    const fileUrlById = await buildFileUrlMap([updated]);
     await emitRealtimeUpdate(req);
-    return res.json({ success: true, data: serializeConfig(updated, logoUrlById), message: 'Preloader updated' });
+    return res.json({ success: true, data: serializeConfig(updated, fileUrlById), message: 'Preloader updated' });
   } catch (error: any) {
     console.error('[preloader] adminUpdatePreloader failed', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to update preloader' });
@@ -494,9 +519,9 @@ export const adminActivatePreloader = async (req: Request, res: Response) => {
 
     if (!updated) return res.status(404).json({ success: false, error: 'Preloader not found' });
 
-    const logoUrlById = await buildLogoUrlMap([updated]);
+    const fileUrlById = await buildFileUrlMap([updated]);
     await emitRealtimeUpdate(req);
-    return res.json({ success: true, data: serializeConfig(updated, logoUrlById), message: 'Preloader activated' });
+    return res.json({ success: true, data: serializeConfig(updated, fileUrlById), message: 'Preloader activated' });
   } catch (error: any) {
     console.error('[preloader] adminActivatePreloader failed', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to activate preloader' });
@@ -520,9 +545,9 @@ export const adminDeactivatePreloader = async (req: Request, res: Response) => {
       include: { updatedByAdmin: { select: { id: true, name: true, email: true } } }
     });
 
-    const logoUrlById = await buildLogoUrlMap([updated]);
+    const fileUrlById = await buildFileUrlMap([updated]);
     await emitRealtimeUpdate(req);
-    return res.json({ success: true, data: serializeConfig(updated, logoUrlById), message: 'Preloader deactivated' });
+    return res.json({ success: true, data: serializeConfig(updated, fileUrlById), message: 'Preloader deactivated' });
   } catch (error: any) {
     console.error('[preloader] adminDeactivatePreloader failed', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to deactivate preloader' });
