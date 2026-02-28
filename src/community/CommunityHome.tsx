@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import DonateButton from '../components/DonateButton';
 import { CommunityService } from '../services/community';
+import { AdService } from '../services/ads';
 import PostHeader from './components/PostHeader';
 import PostEngagementBar from './components/PostEngagementBar';
 import MentionText from './components/MentionText';
