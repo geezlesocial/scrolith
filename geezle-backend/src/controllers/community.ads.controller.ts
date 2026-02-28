@@ -374,6 +374,96 @@ const estimateAdOutcomes = (
   return { pricingModel, estimatedImpressions: 0, estimatedClicks: Math.max(0, clicks) };
 };
 
+const normalizePromotionType = (value: any): 'post' | 'page' | null => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'post') return 'post';
+  if (normalized === 'page' || normalized === 'business-page' || normalized === 'business_page') return 'page';
+  return null;
+};
+
+const buildPlatformPromotionUrl = (type: 'post' | 'page', entityId: string, slug?: string | null) => {
+  if (type === 'post') return `${PLATFORM_ORIGIN}/community/posts/${encodeURIComponent(entityId)}`;
+  const safeSlug = String(slug || '').trim();
+  if (!safeSlug) throw createValidationError('Promotion page slug is required.', 'PROMOTION_PAGE_REQUIRED');
+  return `${PLATFORM_ORIGIN}/company/${encodeURIComponent(safeSlug)}`;
+};
+
+const resolvePromotionTargeting = async (rawTargeting: Record<string, any>, userId: string) => {
+  const targeting = rawTargeting && typeof rawTargeting === 'object' ? { ...rawTargeting } : {};
+  const promotionType = normalizePromotionType(targeting.promotionType);
+
+  if (!promotionType) {
+    delete targeting.promotionType;
+    delete targeting.promotionEntityId;
+    delete targeting.promotionEntitySlug;
+    delete targeting.promotionEntityUrl;
+    delete targeting.promotionTitle;
+    delete targeting.promotionSubtitle;
+    return targeting;
+  }
+
+  if (promotionType === 'post') {
+    const postId = String(targeting.promotionEntityId || '').trim();
+    if (!postId) throw createValidationError('Promotion post is required.', 'PROMOTION_POST_REQUIRED');
+
+    const post = await prisma.communityPost.findUnique({
+      where: { id: postId },
+      select: {
+        id: true,
+        authorId: true,
+        title: true,
+        content: true,
+        businessPage: { select: { name: true } }
+      }
+    });
+
+    if (!post || post.authorId !== userId) {
+      throw createValidationError('You can only promote posts you own.', 'PROMOTION_POST_INVALID');
+    }
+
+    targeting.promotionType = 'post';
+    targeting.promotionEntityId = post.id;
+    targeting.promotionEntitySlug = null;
+    targeting.promotionEntityUrl = buildPlatformPromotionUrl('post', post.id);
+    targeting.promotionTitle = String(post.title || '').trim() || 'Promoted Post';
+    targeting.promotionSubtitle = String(post.businessPage?.name || '').trim() || 'Community Post';
+    return targeting;
+  }
+
+  const pageId = String(targeting.promotionEntityId || '').trim();
+  const pageSlug = String(targeting.promotionEntitySlug || '').trim();
+  if (!pageId && !pageSlug) {
+    throw createValidationError('Promotion page is required.', 'PROMOTION_PAGE_REQUIRED');
+  }
+
+  const page = await prisma.communityBusinessPage.findFirst({
+    where: {
+      ownerId: userId,
+      ...(pageId ? { id: pageId } : { slug: pageSlug })
+    },
+    select: {
+      id: true,
+      ownerId: true,
+      name: true,
+      slug: true,
+      tagline: true,
+      category: true
+    }
+  });
+
+  if (!page) {
+    throw createValidationError('You can only promote pages you own.', 'PROMOTION_PAGE_INVALID');
+  }
+
+  targeting.promotionType = 'page';
+  targeting.promotionEntityId = page.id;
+  targeting.promotionEntitySlug = page.slug;
+  targeting.promotionEntityUrl = buildPlatformPromotionUrl('page', page.id, page.slug);
+  targeting.promotionTitle = String(page.name || '').trim() || 'Promoted Page';
+  targeting.promotionSubtitle = String(page.tagline || page.category || '').trim() || 'Business Page';
+  return targeting;
+};
+
 const notifyAdminsForNewAd = async (req: Request, ad: any, config: any) => {
   if (!config?.notifyAdminOnAdCreate) return;
   const admins = await prisma.user.findMany({
@@ -557,7 +647,7 @@ export const createAdDraft = async (req: Request, res: Response) => {
     const maxVideos = Math.max(1, Math.min(3, Number(adsConfig.maxVideoAssets ?? 1)));
     const normalizedMedia = await validateAndNormalizeMedia(payload.mediaFileIds || [], maxImages, maxVideos);
 
-    const incomingTargeting = parseTargeting(payload.targeting);
+    const incomingTargeting = await resolvePromotionTargeting(parseTargeting(payload.targeting), userId);
     const targetCountries = sanitizeTargetCountries(
       Array.isArray(payload.targetCountries) ? payload.targetCountries : incomingTargeting.targetCountries || [],
       adsConfig?.targetCountries
@@ -1119,9 +1209,22 @@ export const getMyAds = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const includeArchived =
+      String(req.query.includeArchived || '')
+        .trim()
+        .toLowerCase() === 'true' ||
+      String(req.query.includeArchived || '')
+        .trim()
+        .toLowerCase() === '1';
 
     const ads = await prisma.communityAd.findMany({ where: { creatorId: userId }, orderBy: { createdAt: 'desc' } });
-    const hydrated = await hydrateAdsWithMedia(ads);
+    const visibleAds = includeArchived
+      ? ads
+      : ads.filter((ad) => {
+          const targeting = parseTargeting(ad.targeting);
+          return !Boolean(targeting.userDeleted);
+        });
+    const hydrated = await hydrateAdsWithMedia(visibleAds);
     return res.json({ success: true, data: hydrated });
   } catch (error: any) {
     console.error('Get my ads error:', error);
@@ -1468,14 +1571,14 @@ export const updateAd = async (req: Request, res: Response) => {
     const minBudget = Math.max(0, Number(adsConfig.minBudget ?? 10));
     const maxBudget = Math.max(minBudget, Number(adsConfig.maxBudget ?? 10000));
     // Only allow updates when ad is in editable statuses
-    const editableStatuses = ['DRAFT', 'REJECTED', 'AWAITING_PAYMENT'];
+    const editableStatuses = ['DRAFT', 'REJECTED', 'AWAITING_PAYMENT', 'PAUSED', 'ENDED'];
     if (!editableStatuses.includes((existing.status || '').toString().toUpperCase())) {
       return res.status(403).json({ success: false, error: 'Ad cannot be edited in its current status' });
     }
 
     const allowed: any = {};
     const existingTargeting = parseTargeting(existing.targeting);
-    const nextTargeting = { ...existingTargeting };
+    let nextTargeting = { ...existingTargeting };
 
     const objective = payload.objective !== undefined
       ? (String(payload.objective || '').toLowerCase() === 'messages' ? 'messages' : 'traffic')
@@ -1506,6 +1609,7 @@ export const updateAd = async (req: Request, res: Response) => {
     if (payload.targeting !== undefined) {
       Object.assign(nextTargeting, parseTargeting(payload.targeting));
     }
+    nextTargeting = await resolvePromotionTargeting(nextTargeting, userId);
 
     const placementsFromPayload =
       payload.placements !== undefined || payload.placement !== undefined
@@ -1682,16 +1786,49 @@ export const deleteAd = async (req: Request, res: Response) => {
     if (!ad) return res.status(404).json({ success: false, error: 'Ad not found' });
     if (ad.creatorId !== userId) return res.status(403).json({ success: false, error: 'Forbidden' });
 
-    const deletable = ['DRAFT', 'REJECTED'];
-    if (!deletable.includes((ad.status || '').toString().toUpperCase())) {
+    const status = (ad.status || '').toString().toUpperCase();
+    const hardDeletable = ['DRAFT', 'REJECTED', 'AWAITING_PAYMENT'];
+    const archiveDeletable = ['PAUSED', 'ENDED', 'PAID', 'SUBMITTED_FOR_REVIEW', 'APPROVED'];
+
+    if (status === 'ACTIVE') {
+      return res.status(409).json({
+        success: false,
+        error: 'Pause the ad before deleting it.'
+      });
+    }
+
+    if (!hardDeletable.includes(status) && !archiveDeletable.includes(status)) {
       return res.status(403).json({ success: false, error: 'Ad cannot be deleted in its current status' });
     }
 
-    await prisma.communityAd.delete({ where: { id: adId } });
     const io = (req.app as any).get('io');
-    try { io?.emit('community:ad_deleted', { adId }); } catch (e) {}
-    try { realtime.emitToAd(adId, 'community:ad_deleted', { adId }); } catch (e) {}
-    return res.json({ success: true });
+    if (hardDeletable.includes(status)) {
+      await prisma.communityAd.delete({ where: { id: adId } });
+      try { io?.emit('community:ad_deleted', { adId }); } catch (e) {}
+      try { realtime.emitToAd(adId, 'community:ad_deleted', { adId }); } catch (e) {}
+      return res.json({ success: true, data: { id: adId, deleted: true } });
+    }
+
+    const targeting = parseTargeting(ad.targeting);
+    const archivedTargeting = sanitizeJsonValue({
+      ...targeting,
+      userDeleted: true,
+      userDeletedAt: new Date().toISOString(),
+      userDeletedBy: userId
+    }) || {};
+
+    await prisma.communityAd.update({
+      where: { id: adId },
+      data: {
+        status: 'ENDED',
+        targeting: archivedTargeting
+      }
+    });
+    try { io?.emit('community:ad_status_updated', { adId, status: 'ENDED' }); } catch (e) {}
+    try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: 'ENDED' }); } catch (e) {}
+    try { io?.emit('community:ad_deleted', { adId, archived: true }); } catch (e) {}
+    try { realtime.emitToAd(adId, 'community:ad_deleted', { adId, archived: true }); } catch (e) {}
+    return res.json({ success: true, data: { id: adId, archived: true } });
   } catch (error: any) {
     console.error('Delete ad error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to delete ad' });
