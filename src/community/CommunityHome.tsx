@@ -1673,7 +1673,7 @@ const CommunityHome = () => {
               <div className="bg-white rounded-xl shadow-sm">
               <div className="p-4 border-b border-gray-200 flex items-center justify-between">
                 <h2 className="text-lg font-bold">{getModuleTitle(modules, 'feed', 'Community Feed')}</h2>
-                <Link to="/community/new-post" className="text-sm text-blue-600 hover:text-blue-800">Create Post</Link>
+                <Link to="/community" className="text-sm text-blue-600 hover:text-blue-800">Create Post</Link>
               </div>
               <div className="divide-y divide-gray-200">
                 {posts.length === 0 && (

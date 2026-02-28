@@ -643,6 +643,22 @@ const AppContent = () => {
                 <Route path="resources" element={<KnowledgeHub />} />
                 <Route path="content" element={<KnowledgeHub />} />
               </Route>
+              <Route
+                path="/community/new-post"
+                element={
+                  <ProtectedRoute>
+                    <Navigate to="/community" replace />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/community/new"
+                element={
+                  <ProtectedRoute>
+                    <Navigate to="/community" replace />
+                  </ProtectedRoute>
+                }
+              />
 
               {/* My Ads - user-owned ads */}
               <Route path="/my-ads" element={
@@ -714,6 +730,14 @@ const AppContent = () => {
                     <React.Suspense fallback={null}>
                       <LanguagesAdmin />
                     </React.Suspense>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/community"
+                element={
+                  <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                    <Navigate to="/admin/dashboard?tab=community" replace />
                   </ProtectedRoute>
                 }
               />

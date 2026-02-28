@@ -276,7 +276,7 @@ export function usePostOptions({
   }, [post]);
 
   const enterModerationMode = useCallback(() => {
-    navigate('/admin/community?tab=moderation');
+    navigate('/admin/dashboard?tab=community');
   }, [navigate]);
 
   const modHidePost = useCallback(() => {
@@ -314,7 +314,7 @@ export function usePostOptions({
   }, [authorUserId, postId, run, showNotification]);
 
   const viewReports = useCallback(() => {
-    navigate('/admin/community?tab=moderation');
+    navigate('/admin/dashboard?tab=community');
   }, [navigate]);
 
   const authorName = resolveAuthorLabel(post);
