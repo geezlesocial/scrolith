@@ -2,6 +2,7 @@ import axios from 'axios';
 import { Capacitor } from '@capacitor/core';
 import { tokenStore } from './tokenStore';
 import { getApiBaseUrl } from '../utils/apiBase';
+import { resolveAssetUrl } from '../utils/assetUrl';
 
 const hasBackendEnv = Boolean(
   import.meta.env.VITE_API_URL ||
@@ -57,6 +58,40 @@ const wait = (ms: number) =>
     setTimeout(resolve, ms);
   });
 
+const shouldNormalizeAssetString = (value: string) => {
+  const lower = value.toLowerCase();
+  return (
+    lower.includes('/uploads') ||
+    lower.includes('/api/files/') ||
+    lower.includes('/files/content/') ||
+    lower.includes('localhost') ||
+    lower.includes('127.0.0.1') ||
+    lower.includes('0.0.0.0') ||
+    lower.includes('10.0.2.2')
+  );
+};
+
+const normalizeAssetUrls = (input: any, seen = new WeakSet()): any => {
+  if (typeof input === 'string') {
+    return shouldNormalizeAssetString(input) ? resolveAssetUrl(input) : input;
+  }
+  if (!input || typeof input !== 'object') return input;
+  if (seen.has(input)) return input;
+  seen.add(input);
+
+  if (Array.isArray(input)) {
+    for (let i = 0; i < input.length; i += 1) {
+      input[i] = normalizeAssetUrls(input[i], seen);
+    }
+    return input;
+  }
+
+  for (const key of Object.keys(input)) {
+    input[key] = normalizeAssetUrls(input[key], seen);
+  }
+  return input;
+};
+
 // Create axios instance with default config
 const api = axios.create({
   baseURL: API_URL,
@@ -96,7 +131,13 @@ api.interceptors.request.use(
 
 // Response interceptor to handle errors
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const responseType = String(response?.config?.responseType || '').toLowerCase();
+    if (!responseType || responseType === 'json') {
+      response.data = normalizeAssetUrls(response.data);
+    }
+    return response;
+  },
   async (error) => {
     if (error.response?.status === 401) {
       const headers = error.config?.headers || {};
