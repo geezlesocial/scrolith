@@ -4,7 +4,6 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import DonateButton from '../components/DonateButton';
 import { CommunityService } from '../services/community';
-import { AdService } from '../services/ads';
 import PostHeader from './components/PostHeader';
 import PostEngagementBar from './components/PostEngagementBar';
 import MentionText from './components/MentionText';
@@ -1140,37 +1139,17 @@ const CommunityHome = () => {
     }
   };
 
-  const promotePost = async (post: any) => {
+  const promotePost = (post: any) => {
     if (!user) {
       if (confirm('Log in to promote this post?')) window.location.href = '/auth/login';
       return;
     }
-    const budgetStr = prompt('Enter ad budget (USD)', '10');
-    if (!budgetStr) return;
-    const budget = Number(budgetStr);
-    if (!budget || budget <= 0) {
-      showNotification('error', 'Invalid Budget', 'Enter a valid budget amount.');
+    const postId = String(post?.id || '').trim();
+    if (!postId) {
+      showNotification('error', 'Promote this post', 'Post details are not available.');
       return;
     }
-    const placement = prompt('Placement (feed, forum_listing, thread_detail, chat)', 'feed') || 'feed';
-    try {
-      await AdService.saveCampaign({
-        id: '',
-        title: post.title || 'Promoted Post',
-        body: post.content || '',
-        placement,
-        targeting: {},
-        mediaFileIds: Array.isArray(post.attachments)
-          ? post.attachments.map((att: any) => att?.id || att?.fileId || att).filter(Boolean)
-          : [],
-        budget,
-        currency: 'USD',
-        status: 'DRAFT'
-      } as any);
-      showNotification('success', 'Ad Draft Created', 'Proceed to My Ads to pay and submit for review.');
-    } catch (e: any) {
-      showNotification('error', 'Failed to Create Ad', e?.message || 'Unable to create ad draft.');
-    }
+    navigate(`/my-ads?source=post&postId=${encodeURIComponent(postId)}`);
   };
 
   const resolveAuthorId = (post: any) => String(

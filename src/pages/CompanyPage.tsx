@@ -932,7 +932,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
                 </button>
               ) : (
                 <Link
-                  to={`/my-ads?source=business-page&pageId=${encodeURIComponent(page.id)}`}
+                  to={`/my-ads?source=business-page&pageId=${encodeURIComponent(page.id)}&pageSlug=${encodeURIComponent(page.slug || '')}`}
                   className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
                 >
                   <Megaphone className="h-4 w-4" />

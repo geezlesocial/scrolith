@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { AdService } from '../services/ads';
+import { CommunityService } from '../services/community';
 import AdCard from '../components/AdCard';
 import { AdCampaign } from '../types';
 import { useNotification } from '../context/NotificationContext';
@@ -118,6 +119,18 @@ type AdFormState = {
   media: { id: string; url?: string; name?: string; mimeType?: string; type?: string }[];
 };
 
+type PromotionSourceType = 'post' | 'page' | null;
+
+type PromotionSelection = {
+  type: PromotionSourceType;
+  entityId: string;
+  entitySlug?: string;
+  entityUrl: string;
+  title: string;
+  subtitle: string;
+  bodyDraft?: string;
+};
+
 const buildEmptyForm = (currency: string): AdFormState => ({
   title: '',
   body: '',
@@ -163,6 +176,8 @@ const MyAds = () => {
   const [adGatewaySelections, setAdGatewaySelections] = useState<Record<string, string>>({});
   const [formGatewayId, setFormGatewayId] = useState('');
   const [adsConfig, setAdsConfig] = useState<any>(null);
+  const [promotionSelection, setPromotionSelection] = useState<PromotionSelection | null>(null);
+  const [promotionLoading, setPromotionLoading] = useState(false);
 
   const [performanceOpen, setPerformanceOpen] = useState(false);
   const [performanceLoading, setPerformanceLoading] = useState(false);
@@ -373,6 +388,23 @@ const MyAds = () => {
     try {
       const params = new URLSearchParams(location.search);
       const keys = ['ad_payment', 'ad_payment_status', 'ad_id', 'adId', 'session_id'];
+      let changed = false;
+      keys.forEach((key) => {
+        if (params.has(key)) {
+          params.delete(key);
+          changed = true;
+        }
+      });
+      if (!changed) return;
+      const next = `${location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
+      window.history.replaceState({}, '', next);
+    } catch (e) {}
+  };
+
+  const clearPromotionSourceQuery = () => {
+    try {
+      const params = new URLSearchParams(location.search);
+      const keys = ['source', 'postId', 'pageId', 'pageSlug'];
       let changed = false;
       keys.forEach((key) => {
         if (params.has(key)) {
@@ -645,6 +677,113 @@ const MyAds = () => {
   }, [location.search, load, showNotification]);
 
   useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const sourceRaw = String(params.get('source') || '').trim().toLowerCase();
+    if (!sourceRaw) return;
+
+    const source: PromotionSourceType =
+      sourceRaw === 'post' ? 'post' : sourceRaw === 'business-page' || sourceRaw === 'page' ? 'page' : null;
+    if (!source) return;
+
+    let cancelled = false;
+
+    const applyPromotionSelection = async () => {
+      setPromotionLoading(true);
+      try {
+        if (source === 'post') {
+          const postId = String(params.get('postId') || '').trim();
+          if (!postId) throw new Error('Post details are missing.');
+          const post = await CommunityService.getPostById(postId);
+          const resolvedId = String(post?.id || postId).trim();
+          if (!resolvedId) throw new Error('Post details are not available.');
+          const selection: PromotionSelection = {
+            type: 'post',
+            entityId: resolvedId,
+            entityUrl: `${window.location.origin}/community/posts/${encodeURIComponent(resolvedId)}`,
+            title: String(post?.title || '').trim() || 'Promoted Post',
+            subtitle:
+              String(post?.businessPage?.name || post?.author?.name || '').trim() || 'Community Post',
+            bodyDraft: String(post?.content || '').trim()
+          };
+
+          if (cancelled) return;
+          setPromotionSelection(selection);
+          setFormMode('create');
+          setEditingAdId(null);
+          setForm({
+            ...buildEmptyForm(selectedCurrency.code),
+            title: selection.title,
+            body: selection.bodyDraft || '',
+            objective: 'traffic',
+            destinationType: 'url',
+            destinationUrl: selection.entityUrl,
+            ctaText: 'Learn more'
+          });
+          setFormGatewayId(getPreferredCheckoutGatewayId());
+          setFormOpen(true);
+          return;
+        }
+
+        const rawPageSlug = String(params.get('pageSlug') || '').trim();
+        const rawPageId = String(params.get('pageId') || '').trim();
+        let page: any = null;
+        if (rawPageSlug) {
+          page = await CommunityService.getBusinessPageBySlug(rawPageSlug);
+        } else if (rawPageId) {
+          const pages = await CommunityService.getMyBusinessPages();
+          page = (Array.isArray(pages) ? pages : []).find((entry: any) => String(entry?.id || '') === rawPageId) || null;
+        }
+
+        if (!page) throw new Error('Page details are not available.');
+        const resolvedPageId = String(page?.id || rawPageId || '').trim();
+        const resolvedPageSlug = String(page?.slug || rawPageSlug || '').trim();
+        if (!resolvedPageId || !resolvedPageSlug) {
+          throw new Error('Page details are incomplete.');
+        }
+        const selection: PromotionSelection = {
+          type: 'page',
+          entityId: resolvedPageId,
+          entitySlug: resolvedPageSlug,
+          entityUrl: `${window.location.origin}/company/${encodeURIComponent(resolvedPageSlug)}`,
+          title: String(page?.name || '').trim() || 'Promoted Page',
+          subtitle: String(page?.tagline || page?.category || '').trim() || 'Business Page',
+          bodyDraft: String(page?.description || '').trim()
+        };
+
+        if (cancelled) return;
+        setPromotionSelection(selection);
+        setFormMode('create');
+        setEditingAdId(null);
+        setForm({
+          ...buildEmptyForm(selectedCurrency.code),
+          title: selection.title,
+          body: selection.bodyDraft || '',
+          objective: 'traffic',
+          destinationType: 'url',
+          destinationUrl: selection.entityUrl,
+          ctaText: 'Visit page'
+        });
+        setFormGatewayId(getPreferredCheckoutGatewayId());
+        setFormOpen(true);
+      } catch (error: any) {
+        if (!cancelled) {
+          showNotification('error', 'Promote', error?.message || 'Unable to prepare promotion campaign.');
+        }
+      } finally {
+        if (!cancelled) {
+          setPromotionLoading(false);
+          clearPromotionSourceQuery();
+        }
+      }
+    };
+
+    applyPromotionSelection();
+    return () => {
+      cancelled = true;
+    };
+  }, [location.search, selectedCurrency.code, showNotification]);
+
+  useEffect(() => {
     const loadGateways = async () => {
       setGatewayLoading(true);
       try {
@@ -803,6 +942,8 @@ const MyAds = () => {
   const openCreate = () => {
     setFormMode('create');
     setEditingAdId(null);
+    setPromotionSelection(null);
+    setPromotionLoading(false);
     setForm(buildEmptyForm(selectedCurrency.code));
     setFormGatewayId(getPreferredCheckoutGatewayId());
     setFormOpen(true);
@@ -827,6 +968,45 @@ const MyAds = () => {
     const mediaFromAd = Array.isArray(ad.media) && ad.media.length > 0
       ? ad.media.map((m: any) => ({ id: m.id || '', url: m.url, name: m.name, mimeType: m.mimeType }))
       : (ad.mediaFileIds || []).map((id) => ({ id } as any));
+    const promotionType = String(targeting.promotionType || '').trim().toLowerCase();
+    if (promotionType === 'post') {
+      const entityId = String(targeting.promotionEntityId || '').trim();
+      if (entityId) {
+        setPromotionSelection({
+          type: 'post',
+          entityId,
+          entityUrl:
+            String(targeting.promotionEntityUrl || '').trim() ||
+            `${window.location.origin}/community/posts/${encodeURIComponent(entityId)}`,
+          title: String(targeting.promotionTitle || ad.title || 'Promoted Post').trim(),
+          subtitle: String(targeting.promotionSubtitle || 'Community Post').trim(),
+          bodyDraft: String(ad.body || '').trim()
+        });
+      } else {
+        setPromotionSelection(null);
+      }
+    } else if (promotionType === 'page') {
+      const entityId = String(targeting.promotionEntityId || '').trim();
+      const entitySlug = String(targeting.promotionEntitySlug || '').trim();
+      if (entityId && entitySlug) {
+        setPromotionSelection({
+          type: 'page',
+          entityId,
+          entitySlug,
+          entityUrl:
+            String(targeting.promotionEntityUrl || '').trim() ||
+            `${window.location.origin}/company/${encodeURIComponent(entitySlug)}`,
+          title: String(targeting.promotionTitle || ad.title || 'Promoted Page').trim(),
+          subtitle: String(targeting.promotionSubtitle || 'Business Page').trim(),
+          bodyDraft: String(ad.body || '').trim()
+        });
+      } else {
+        setPromotionSelection(null);
+      }
+    } else {
+      setPromotionSelection(null);
+    }
+    setPromotionLoading(false);
     setFormMode('edit');
     setEditingAdId(ad.id);
     setFormGatewayId(adGatewaySelections[ad.id] || getPreferredCheckoutGatewayId());
@@ -1004,6 +1184,18 @@ const MyAds = () => {
       const primaryPlacement = normalizedPlacements[0] || 'community_feed';
       const targetAudience = form.targetAudience || 'users';
       const dailySpend = toNumber(form.dailySpend) > 0 ? toNumber(form.dailySpend) : undefined;
+      const promotionTargeting =
+        promotionSelection && promotionSelection.type
+          ? {
+              promotionType: promotionSelection.type,
+              promotionEntityId: promotionSelection.entityId,
+              promotionEntitySlug:
+                promotionSelection.type === 'page' ? promotionSelection.entitySlug || undefined : undefined,
+              promotionEntityUrl: promotionSelection.entityUrl,
+              promotionTitle: promotionSelection.title,
+              promotionSubtitle: promotionSelection.subtitle
+            }
+          : {};
       const payload: Partial<AdCampaign> = {
         title: form.title,
         body: form.body,
@@ -1021,7 +1213,15 @@ const MyAds = () => {
         budget: form.budget,
         currency: form.currency,
         durationDays: form.durationDays,
-        mediaFileIds: form.media.map((m) => m.id).filter(Boolean)
+        mediaFileIds: form.media.map((m) => m.id).filter(Boolean),
+        targeting: {
+          ...promotionTargeting,
+          placements: normalizedPlacements,
+          pricingModel,
+          targetCountries,
+          targetAudience,
+          dailySpend
+        }
       };
 
       let adId = editingAdId || '';
@@ -1069,7 +1269,15 @@ const MyAds = () => {
             computeOption: pricingModel,
             budget: safeBudget,
             currency: form.currency || 'USD',
-            durationDays: safeDuration
+            durationDays: safeDuration,
+            targeting: {
+              ...promotionTargeting,
+              placements: normalizedPlacements,
+              pricingModel,
+              targetCountries,
+              targetAudience,
+              dailySpend
+            }
           };
 
           try {
@@ -1096,7 +1304,16 @@ const MyAds = () => {
               computeOption: pricingModel,
               budget: safeBudget,
               currency: form.currency || 'USD',
-              durationDays: safeDuration
+              durationDays: safeDuration,
+              targeting: {
+                ...promotionTargeting,
+                promotionType: (promotionTargeting as any).promotionType,
+                promotionEntityId: (promotionTargeting as any).promotionEntityId,
+                promotionEntitySlug: (promotionTargeting as any).promotionEntitySlug,
+                promotionEntityUrl: (promotionTargeting as any).promotionEntityUrl,
+                promotionTitle: (promotionTargeting as any).promotionTitle,
+                promotionSubtitle: (promotionTargeting as any).promotionSubtitle
+              }
             };
 
             await createDraftAndSelect(ultraMinimalPayload);
@@ -1448,6 +1665,33 @@ const MyAds = () => {
               </button>
             </div>
             <div className="p-6 space-y-4">
+              {promotionLoading ? (
+                <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700">
+                  Preparing promotion target...
+                </div>
+              ) : promotionSelection ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-800">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                        Promoting {promotionSelection.type === 'page' ? 'Page' : 'Post'}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-emerald-900">{promotionSelection.title}</p>
+                      {promotionSelection.subtitle ? (
+                        <p className="text-xs text-emerald-700">{promotionSelection.subtitle}</p>
+                      ) : null}
+                    </div>
+                    <a
+                      href={promotionSelection.entityUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex rounded-full border border-emerald-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 hover:bg-emerald-100"
+                    >
+                      View target
+                    </a>
+                  </div>
+                </div>
+              ) : null}
               <div className="grid gap-3 md:grid-cols-2">
                 <div>
                   <FieldLabel label="Ad title" help="A short headline users see first. Keep it clear and specific to your offer." />
