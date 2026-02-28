@@ -116,6 +116,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'insights:post_prediction_ready', fn: forward('insights:post_prediction_ready') }
       ,{ ev: 'insights:opportunity_match_ready', fn: forward('insights:opportunity_match_ready') }
       ,{ ev: 'insights:toxicity_flagged', fn: forward('insights:toxicity_flagged') }
+      ,{ ev: 'dev:link_status_updated', fn: forward('dev:link_status_updated') }
+      ,{ ev: 'dev:app_updated', fn: forward('dev:app_updated') }
+      ,{ ev: 'dev:config_updated', fn: forward('dev:config_updated') }
+      ,{ ev: 'dev:log_created', fn: forward('dev:log_created') }
     ];
 
     handlers.forEach(h => socket.on(h.ev, h.fn));

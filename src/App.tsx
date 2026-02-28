@@ -103,6 +103,8 @@ const GcoinDash = React.lazy(() => import('./community/GcoinDash'));
 const KnowledgeHub = React.lazy(() => import('./community/KnowledgeHub'));
 const CommunityDashboard = React.lazy(() => import('./dashboard/shared/CommunityDashboard'));
 const MyAds = React.lazy(() => import('./pages/MyAds'));
+const DeveloperPortal = React.lazy(() => import('./pages/DeveloperPortal'));
+const AdminDeveloperPlatform = React.lazy(() => import('./pages/AdminDeveloperPlatform'));
 
 // Error Boundary Component
 type ErrorBoundaryState = { hasError: boolean };
@@ -803,6 +805,32 @@ const AppContent = () => {
                     <DeveloperDocs />
                   </ProtectedRoute>
                 } 
+              />
+
+              {/* Developer Platform */}
+              <Route
+                path="/developer"
+                element={
+                  <ProtectedRoute>
+                    <DeveloperPortal />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/developer/apps"
+                element={
+                  <ProtectedRoute>
+                    <DeveloperPortal />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/developer-platform"
+                element={
+                  <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                    <AdminDeveloperPlatform />
+                  </ProtectedRoute>
+                }
               />
               
             </Routes>
