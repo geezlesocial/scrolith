@@ -651,6 +651,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const [profileViewers, setProfileViewers] = useState<ProfileCard[]>([]);
   const [profileViewing, setProfileViewing] = useState<ProfileCard[]>([]);
   const [sidebarTopAd, setSidebarTopAd] = useState<SidebarAdCard | null>(null);
+  const [sidebarFeaturedAd, setSidebarFeaturedAd] = useState<SidebarAdCard | null>(null);
   const [sidebarMiddleAd, setSidebarMiddleAd] = useState<SidebarAdCard | null>(null);
   const [viewersLoading, setViewersLoading] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -789,6 +790,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     resolveToggle(undefined, memberHomeAds.enabled, false) &&
     resolveToggle(undefined, memberHomeWidgets.rightSidebarAdsEnabled, true);
   const showTopSidebarAd = showSidebarAds && resolveToggle(undefined, memberHomeAds.rightSidebarTopEnabled, true);
+  const showFeaturedSidebarAd = showSidebarAds && resolveToggle(undefined, memberHomeAds.leftSidebarFeaturedEnabled, true);
   const showMiddleSidebarAd = showSidebarAds && resolveToggle(undefined, memberHomeAds.rightSidebarMiddleEnabled, true);
   const postDensity = String(memberHomeFeed.postDensity || 'comfortable').toLowerCase() === 'compact' ? 'compact' : 'comfortable';
 
@@ -1373,11 +1375,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
               .map((ad: any) => normalizeSidebarAd(ad))
               .filter(Boolean) as SidebarAdCard[]
           : [];
-      const topAd = showTopSidebarAd ? (normalizedAds[0] || null) : null;
-      const middleAd = showMiddleSidebarAd
-        ? (showTopSidebarAd ? normalizedAds[1] || null : normalizedAds[0] || null)
-        : null;
+      let sidebarAdCursor = 0;
+      const topAd = showTopSidebarAd ? (normalizedAds[sidebarAdCursor++] || null) : null;
+      const featuredAd = showFeaturedSidebarAd ? (normalizedAds[sidebarAdCursor++] || null) : null;
+      const middleAd = showMiddleSidebarAd ? (normalizedAds[sidebarAdCursor++] || null) : null;
       setSidebarTopAd(topAd);
+      setSidebarFeaturedAd(featuredAd);
       setSidebarMiddleAd(middleAd);
     } catch (error) {
       console.error('Failed to load member home sidebar data', error);
@@ -1403,6 +1406,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     listingPoolLimit,
     showSidebarAds,
     showTopSidebarAd,
+    showFeaturedSidebarAd,
     showMiddleSidebarAd,
     normalizeSidebarAd,
     normalizeRecommendedPage
@@ -2719,13 +2723,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   }, [cameraStream, storyCameraStream, isRecording, storyRecording]);
 
   useEffect(() => {
-    const currentAds = [sidebarTopAd, sidebarMiddleAd].filter(Boolean) as SidebarAdCard[];
+    const currentAds = [sidebarTopAd, sidebarFeaturedAd, sidebarMiddleAd].filter(Boolean) as SidebarAdCard[];
     currentAds.forEach((ad) => {
       if (!ad?.id || adImpressionsRef.current.has(ad.id)) return;
       adImpressionsRef.current.add(ad.id);
       CommunityService.recordAdImpression(ad.id).catch(() => null);
     });
-  }, [sidebarTopAd, sidebarMiddleAd]);
+  }, [sidebarTopAd, sidebarFeaturedAd, sidebarMiddleAd]);
 
   const handleFollow = async (target: ProfileCard) => {
     if (!user) return;
@@ -3443,6 +3447,37 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   </button>
                 </div>
               </div>
+              {showFeaturedSidebarAd && (
+                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-amber-600">Sponsored</div>
+                  {sidebarFeaturedAd ? (
+                    <>
+                      <p className="text-sm font-semibold text-slate-900">{sidebarFeaturedAd.title}</p>
+                      {sidebarFeaturedAd.body ? (
+                        <p className="mt-2 text-xs text-slate-600 line-clamp-3">{sidebarFeaturedAd.body}</p>
+                      ) : null}
+                      {sidebarFeaturedAd.mediaUrl ? (
+                        <div className="mt-3 overflow-hidden rounded-xl border border-amber-100 bg-white">
+                          <img
+                            src={sidebarFeaturedAd.mediaUrl}
+                            alt={sidebarFeaturedAd.title}
+                            className="h-24 w-full object-cover"
+                          />
+                        </div>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => handleSidebarAdClick(sidebarFeaturedAd)}
+                        className="mt-3 inline-flex rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white"
+                      >
+                        {sidebarFeaturedAd.ctaText || 'Learn more'}
+                      </button>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-600">Sponsored campaigns appear here once approved.</p>
+                  )}
+                </div>
+              )}
             </div>
           </aside>
 

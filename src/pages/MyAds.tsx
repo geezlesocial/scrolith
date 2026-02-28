@@ -1320,10 +1320,19 @@ const MyAds = () => {
             const remaining = toNumber(ad.remainingBudget ?? budget);
             const spent = Math.max(0, budget - remaining);
             const progress = budget > 0 ? Math.min(100, (spent / budget) * 100) : 0;
-            const canEdit = ['draft', 'rejected', 'awaiting_payment'].includes(status);
+            const canEdit = ['draft', 'rejected', 'awaiting_payment', 'paused', 'ended'].includes(status);
             const canPay = ['draft', 'rejected', 'awaiting_payment'].includes(status);
             const canSubmit = ['draft', 'rejected', 'awaiting_payment', 'paid'].includes(status);
-            const canDelete = ['draft', 'rejected'].includes(status);
+            const canDelete = [
+              'draft',
+              'rejected',
+              'awaiting_payment',
+              'paused',
+              'ended',
+              'paid',
+              'submitted_for_review',
+              'approved'
+            ].includes(status);
             const canPause = status === 'active';
             const canResume = status === 'paused';
 
