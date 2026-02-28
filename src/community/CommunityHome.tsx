@@ -1920,16 +1920,25 @@ const CommunityHome = () => {
                             </div>
                           ) : null}
                           {Array.isArray(post.attachments) && post.attachments.length > 0 && (
-                            <div className="mt-3 grid gap-3 md:grid-cols-2">
+                            <div
+                              className={`mt-3 grid gap-3 ${
+                                post.attachments.length === 1 ? 'grid-cols-1' : 'md:grid-cols-2'
+                              }`}
+                            >
                               {post.attachments.map((media: any) => {
                                 const type = inferMediaType(media || {});
+                                const mediaHeightClass =
+                                  post.attachments.length === 1 ? 'h-64 md:h-80' : 'h-44 md:h-52';
                                 if (type === 'video') {
                                   return (
-                                    <div key={media.id || media.url} className="overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+                                    <div
+                                      key={media.id || media.url}
+                                      className="mx-auto w-full overflow-hidden rounded-xl border border-gray-200 bg-gray-50"
+                                    >
                                       <InlineAutoplayVideo
                                         src={media.url}
                                         poster={media.thumbnailUrl || undefined}
-                                        className="h-40 w-full object-cover"
+                                        className={`${mediaHeightClass} w-full object-cover`}
                                         controls
                                         preload="metadata"
                                       />
@@ -1942,14 +1951,21 @@ const CommunityHome = () => {
                                       key={media.id || media.url}
                                       type="button"
                                       onClick={() => openPostDetail(post.id)}
-                                      className="overflow-hidden rounded-xl border border-gray-200 bg-gray-50 text-left"
+                                      className="mx-auto w-full overflow-hidden rounded-xl border border-gray-200 bg-gray-50 text-left"
                                     >
-                                      <img src={media.url} alt={media.name || 'Post media'} className="h-40 w-full object-cover" />
+                                      <img
+                                        src={media.url}
+                                        alt={media.name || 'Post media'}
+                                        className={`${mediaHeightClass} w-full object-cover`}
+                                      />
                                     </button>
                                   );
                                 }
                                 return (
-                                  <div key={media.id || media.url} className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
+                                  <div
+                                    key={media.id || media.url}
+                                    className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600"
+                                  >
                                     <a href={media.url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
                                       {media.name || media.url?.split('/').pop() || 'View attachment'}
                                     </a>

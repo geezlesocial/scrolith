@@ -3097,7 +3097,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const renderAttachments = (postId: string, attachments?: FeedPost['attachments']) => {
     if (!attachments?.length) return null;
     const isSingleAttachment = attachments.length === 1;
-    const mediaPreviewHeightClass = isSingleAttachment ? 'h-56 md:h-64' : 'h-44';
+    const mediaPreviewHeightClass = isSingleAttachment ? 'h-64 md:h-80' : 'h-44 md:h-52';
     return (
       <div className={`mt-3 grid gap-3 ${isSingleAttachment ? 'grid-cols-1' : 'md:grid-cols-2'}`}>
         {attachments.map((media) => {
