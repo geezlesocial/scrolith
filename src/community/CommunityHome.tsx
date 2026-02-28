@@ -5,6 +5,7 @@ import { useUser } from '../context/UserContext';
 import DonateButton from '../components/DonateButton';
 import { CommunityService } from '../services/community';
 import { AdService } from '../services/ads';
+import InlineAutoplayVideo from '../components/media/InlineAutoplayVideo';
 import PostHeader from './components/PostHeader';
 import PostEngagementBar from './components/PostEngagementBar';
 import MentionText from './components/MentionText';
@@ -1925,7 +1926,13 @@ const CommunityHome = () => {
                                 if (type === 'video') {
                                   return (
                                     <div key={media.id || media.url} className="overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
-                                      <video src={media.url} controls className="h-40 w-full object-cover" />
+                                      <InlineAutoplayVideo
+                                        src={media.url}
+                                        poster={media.thumbnailUrl || undefined}
+                                        className="h-40 w-full object-cover"
+                                        controls
+                                        preload="metadata"
+                                      />
                                     </div>
                                   );
                                 }

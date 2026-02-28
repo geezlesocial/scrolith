@@ -18,6 +18,7 @@ import PostEngagementBar from '../../../community/components/PostEngagementBar';
 import FollowButton from '../../../community/components/FollowButton';
 import PostOptionsButton from '../../../community/components/post-options/PostOptionsButton';
 import VerifiedBadge from '../../../components/common/VerifiedBadge';
+import InlineAutoplayVideo from '../../../components/media/InlineAutoplayVideo';
 import { resolveVerificationLevel } from '../../../utils/verification';
 import FeedAdCard from './FeedAdCard';
 import RecommendedListingCard from './RecommendedListingCard';
@@ -1103,7 +1104,13 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                             className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
                           >
                             {isVideo(file.mimeType) ? (
-                              <video src={file.url} className="h-56 w-full object-cover" controls preload="metadata" />
+                              <InlineAutoplayVideo
+                                src={file.url}
+                                poster={file.thumbnailUrl || undefined}
+                                className="h-56 w-full object-cover"
+                                controls
+                                preload="metadata"
+                              />
                             ) : isImage(file.mimeType) ? (
                               <button type="button" onClick={() => openPostDetail(postId)} className="block h-56 w-full text-left">
                                 <img

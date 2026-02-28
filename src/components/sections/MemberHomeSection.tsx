@@ -47,6 +47,7 @@ import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextT
 import { resolveAssetUrl } from '../../utils/assetUrl';
 import { resolveVerificationLevel } from '../../utils/verification';
 import MediaPreviewModal, { PreviewMedia } from '../media/MediaPreviewModal';
+import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
 import InsightsQuickPanel from '../insights/InsightsQuickPanel';
 
 type MemberHomeContent = {
@@ -3104,32 +3105,23 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
           const durationLabel = formatMediaDuration((media as any)?.duration);
           if (type === 'video') {
             return (
-              <button
+              <div
                 key={media.id || media.url}
-                type="button"
-                onClick={() => openPostDetail(postId)}
                 className="group relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
               >
-                {(media as any)?.thumbnailUrl ? (
-                  <img
-                    src={(media as any).thumbnailUrl}
-                    alt={media.name || 'Video preview'}
-                    className={`${mediaPreviewHeightClass} w-full object-cover`}
-                  />
-                ) : (
-                  <div className={`flex ${mediaPreviewHeightClass} w-full items-center justify-center bg-slate-200`}>
-                    <Video className="h-10 w-10 text-slate-500" />
-                  </div>
-                )}
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20">
-                  <div className="rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-slate-800">Open Post</div>
-                </div>
+                <InlineAutoplayVideo
+                  src={media.url}
+                  poster={(media as any)?.thumbnailUrl || undefined}
+                  className={`${mediaPreviewHeightClass} w-full object-cover`}
+                  controls
+                  preload="metadata"
+                />
                 {durationLabel && (
                   <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                     {durationLabel}
                   </span>
                 )}
-              </button>
+              </div>
             );
           }
           if (type === 'image') {
