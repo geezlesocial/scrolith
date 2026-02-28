@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNotification } from '../context/NotificationContext';
 import { DeveloperPlatformService } from '../services/developerPlatform';
+import { FileService } from '../services/files';
 
 type LinkMethod = 'SCROLITH_LOGIN_CONFIRM' | 'EMAIL_OTP';
 type LookupType = 'EMAIL' | 'USERNAME';
@@ -45,6 +46,11 @@ const DeveloperPortal: React.FC = () => {
   const [newAppTagline, setNewAppTagline] = useState('');
   const [newAppScopes, setNewAppScopes] = useState('profile:read email:read');
   const [newAppRedirectUris, setNewAppRedirectUris] = useState('https://example.com/oauth/callback');
+  const [newAppLogoFileId, setNewAppLogoFileId] = useState('');
+  const [newAppLogoUrl, setNewAppLogoUrl] = useState('');
+  const [newAppLogoName, setNewAppLogoName] = useState('');
+  const [uploadingAppLogo, setUploadingAppLogo] = useState(false);
+  const appLogoInputRef = useRef<HTMLInputElement | null>(null);
 
   const isLinked = String(me?.linkStatus || '').toUpperCase() === 'LINKED';
 
@@ -159,18 +165,49 @@ const DeveloperPortal: React.FC = () => {
       const data = await DeveloperPlatformService.createApp({
         name: newAppName.trim(),
         tagline: newAppTagline.trim(),
+        logoFileId: newAppLogoFileId || undefined,
         requestedScopes,
         redirectUris
       });
       setLastClientSecret(String(data?.clientSecret || ''));
       setNewAppName('');
       setNewAppTagline('');
+      setNewAppLogoFileId('');
+      setNewAppLogoUrl('');
+      setNewAppLogoName('');
       showNotification('success', 'App created', 'App client credentials generated successfully.');
       await loadDashboard();
     } catch (error: any) {
       showNotification('error', 'Create app failed', error?.message || 'Unable to create app.');
     } finally {
       setCreatingApp(false);
+    }
+  };
+
+  const handleChooseAppLogo = () => {
+    appLogoInputRef.current?.click();
+  };
+
+  const handleUploadAppLogo = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!String(file.type || '').toLowerCase().startsWith('image/')) {
+      showNotification('error', 'App logo', 'Only image files are supported.');
+      return;
+    }
+
+    setUploadingAppLogo(true);
+    try {
+      const uploaded = await FileService.uploadFile(file, 'portfolio', { visibility: 'public' });
+      setNewAppLogoFileId(String(uploaded.id || uploaded.fileId || '').trim());
+      setNewAppLogoUrl(String(uploaded.url || '').trim());
+      setNewAppLogoName(String(uploaded.name || file.name || 'App logo').trim());
+      showNotification('success', 'App logo uploaded', 'Logo is attached to this app draft.');
+    } catch (error: any) {
+      showNotification('error', 'Upload failed', error?.message || 'Unable to upload app logo.');
+    } finally {
+      setUploadingAppLogo(false);
     }
   };
 
@@ -308,6 +345,51 @@ const DeveloperPortal: React.FC = () => {
       <h3 className="text-base font-semibold text-slate-900">Create developer app</h3>
       <p className="mt-1 text-sm text-slate-600">Apps are automatically routed through approval policy configured by admin.</p>
       <div className="mt-4 space-y-3">
+        <label className="space-y-2 text-sm">
+          <span className="text-slate-600">App logo</span>
+          <div className="flex items-start gap-3 rounded-lg border border-slate-300 bg-slate-50 p-3">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-white">
+              {newAppLogoUrl ? (
+                <img src={newAppLogoUrl} alt="App logo preview" className="h-full w-full object-cover" />
+              ) : (
+                <span className="text-xs text-slate-400">No logo</span>
+              )}
+            </div>
+            <div className="min-w-0 flex-1 space-y-2">
+              <input
+                ref={appLogoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleUploadAppLogo}
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleChooseAppLogo}
+                  disabled={uploadingAppLogo}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                >
+                  {uploadingAppLogo ? 'Uploading...' : newAppLogoFileId ? 'Change Logo' : 'Upload Logo'}
+                </button>
+                {newAppLogoFileId ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewAppLogoFileId('');
+                      setNewAppLogoUrl('');
+                      setNewAppLogoName('');
+                    }}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </div>
+              <p className="truncate text-xs text-slate-500">{newAppLogoName || 'PNG/JPG/WebP recommended'}</p>
+            </div>
+          </div>
+        </label>
         <label className="space-y-1 text-sm">
           <span className="text-slate-600">App name</span>
           <input
@@ -346,7 +428,7 @@ const DeveloperPortal: React.FC = () => {
         <button
           type="button"
           onClick={handleCreateApp}
-          disabled={creatingApp || !isLinked}
+          disabled={creatingApp || uploadingAppLogo || !isLinked}
           className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {creatingApp ? 'Creating...' : isLinked ? 'Create App' : 'Link account first'}
