@@ -28,6 +28,7 @@ import scrolithaAdminRoutes from './scrolitha.routes';
 import appsAdminRoutes from './apps.routes';
 import i18nAdminRoutes from './i18n.routes';
 import insightsAdminRoutes from './insights.routes';
+import devAdminRoutes from './dev.routes';
 import { clearPlatformRuntimeCache } from '../../controllers/admin.cache.controller';
 import { getScrolithaAnalyticsForAdmin } from '../../services/scrolitha/scrolitha.orchestrator';
 
@@ -196,6 +197,7 @@ router.use('/scrolitha', scrolithaAdminRoutes);
 router.use('/apps', appsAdminRoutes);
 router.use('/i18n', i18nAdminRoutes);
 router.use('/insights', insightsAdminRoutes);
+router.use('/dev', devAdminRoutes);
 // Mount admin community routes (Gcoin + Ads admin panels)
 router.use('/community', adminCommunityRoutes);
 

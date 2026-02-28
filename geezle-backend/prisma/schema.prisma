@@ -202,6 +202,10 @@ model User {
   moderationCasesAuthored   ModerationCase[]      @relation("ModerationCaseAuthor")
   moderationCasesCreated    ModerationCase[]      @relation("ModerationCaseCreatedBy")
   moderationActions         ModerationAction[]    @relation("ModerationActionActor")
+
+  // Developer platform (developer.scrolith.com)
+  developerProfile   DeveloperUser?
+  developerOwnedApps DeveloperApp[] @relation("DeveloperOwnedApps")
 }
 
 model Profile {
@@ -599,6 +603,192 @@ model AppSetting {
   data      Json
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
+}
+
+model DeveloperPlatformConfig {
+  id                                     String   @id @default("default")
+  developerBaseUrl                       String   @default("https://developer.scrolith.com")
+  autoApproveEnabled                     Boolean  @default(false)
+  autoApproveRules                       Json?
+  authorizationCodeTtlSeconds            Int      @default(300)
+  accessTokenTtlSeconds                  Int      @default(3600)
+  refreshTokenTtlSeconds                 Int      @default(2592000)
+  rateLimitPerMinute                     Int      @default(120)
+  sensitiveScopes                        String[] @default([])
+  requireManualApprovalForSensitiveScope Boolean  @default(true)
+  updatedByAdminId                       String?
+  createdAt                              DateTime @default(now())
+  updatedAt                              DateTime @updatedAt
+}
+
+model DeveloperUser {
+  id               String        @id @default(cuid())
+  userId           String?       @unique
+  developerEmail   String        @unique
+  developerUsername String?
+  linkStatus       DevLinkStatus @default(UNLINKED)
+  linkedAt         DateTime?
+  lastSyncedAt     DateTime?
+  syncSnapshot     Json?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  user         User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  linkRequests DeveloperLinkRequest[]
+  apps         DeveloperApp[]
+  auditLogs    DeveloperAuditLog[]
+
+  @@index([developerUsername])
+  @@index([linkStatus])
+}
+
+model DeveloperLinkRequest {
+  id                 String               @id @default(cuid())
+  developerUserId    String
+  lookupType         DevLookupType
+  lookupValue        String
+  resolvedUserId     String?
+  verificationMethod DevVerificationMethod @default(SCROLITH_LOGIN_CONFIRM)
+  otpHash            String?
+  expiresAt          DateTime
+  verifiedAt         DateTime?
+  status             DevLinkRequestStatus @default(CREATED)
+  ip                 String?
+  userAgent          String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  developerUser DeveloperUser @relation(fields: [developerUserId], references: [id], onDelete: Cascade)
+
+  @@index([developerUserId, status])
+  @@index([resolvedUserId])
+  @@index([expiresAt])
+}
+
+model DeveloperApp {
+  id                  String       @id @default(cuid())
+  ownerUserId         String
+  developerUserId     String
+  name                String
+  tagline             String?
+  description         String?
+  appUrl              String?
+  termsUrl            String?
+  privacyUrl          String?
+  logoFileId          String?
+  clientId            String       @unique
+  clientSecretHash    String
+  platformType        DevPlatformType @default(WEB)
+  requestedScopes     String[]     @default([])
+  status              DevAppStatus @default(DRAFT)
+  approvedByAdminId   String?
+  approvedAt          DateTime?
+  disabledAt          DateTime?
+  lastSecretRotatedAt DateTime?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  ownerUser    User                    @relation("DeveloperOwnedApps", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  developerUser DeveloperUser          @relation(fields: [developerUserId], references: [id], onDelete: Cascade)
+  redirectUris DeveloperAppRedirectUri[]
+  authCodes    OAuthAuthorizationCode[]
+  tokens       OAuthToken[]
+  consents     OAuthConsent[]
+  auditLogs    DeveloperAuditLog[]
+
+  @@index([ownerUserId, status])
+  @@index([developerUserId, status])
+}
+
+model DeveloperAppRedirectUri {
+  id        String   @id @default(cuid())
+  appId     String
+  uri       String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  app DeveloperApp @relation(fields: [appId], references: [id], onDelete: Cascade)
+
+  @@unique([appId, uri])
+  @@index([appId, isActive])
+}
+
+model OAuthAuthorizationCode {
+  id                  String   @id @default(cuid())
+  appId               String
+  userId              String
+  codeHash            String   @unique
+  redirectUri         String
+  codeChallenge       String?
+  codeChallengeMethod String?
+  scopes              String[] @default([])
+  state               String?
+  expiresAt           DateTime
+  usedAt              DateTime?
+  revokedAt           DateTime?
+  createdAt           DateTime @default(now())
+
+  app DeveloperApp @relation(fields: [appId], references: [id], onDelete: Cascade)
+
+  @@index([appId, userId])
+  @@index([expiresAt])
+}
+
+model OAuthToken {
+  id                   String   @id @default(cuid())
+  appId                String
+  userId               String
+  accessTokenHash      String   @unique
+  refreshTokenHash     String?  @unique
+  scopes               String[] @default([])
+  issuedAt             DateTime @default(now())
+  accessTokenExpiresAt DateTime
+  refreshTokenExpiresAt DateTime?
+  revokedAt            DateTime?
+  lastUsedAt           DateTime?
+  ip                   String?
+  userAgent            String?
+
+  app DeveloperApp @relation(fields: [appId], references: [id], onDelete: Cascade)
+
+  @@index([appId, userId])
+  @@index([accessTokenExpiresAt])
+  @@index([refreshTokenExpiresAt])
+}
+
+model OAuthConsent {
+  id        String   @id @default(cuid())
+  appId     String
+  userId    String
+  scopes    String[] @default([])
+  grantedAt DateTime @default(now())
+  revokedAt DateTime?
+  updatedAt DateTime @updatedAt
+
+  app DeveloperApp @relation(fields: [appId], references: [id], onDelete: Cascade)
+
+  @@unique([appId, userId])
+}
+
+model DeveloperAuditLog {
+  id              String   @id @default(cuid())
+  developerUserId String?
+  appId           String?
+  actorUserId     String?
+  action          String
+  status          String?
+  metadata        Json?
+  ip              String?
+  userAgent       String?
+  createdAt       DateTime @default(now())
+
+  developerUser DeveloperUser? @relation(fields: [developerUserId], references: [id], onDelete: SetNull)
+  app           DeveloperApp?  @relation(fields: [appId], references: [id], onDelete: SetNull)
+
+  @@index([developerUserId, createdAt])
+  @@index([appId, createdAt])
+  @@index([action, createdAt])
 }
 
 model ProfessionalScore {
@@ -3350,6 +3540,45 @@ model PreloaderConfig {
 }
 
 // Community Enums
+enum DevLinkStatus {
+  UNLINKED
+  PENDING_VERIFICATION
+  LINKED
+  SUSPENDED
+}
+
+enum DevLookupType {
+  EMAIL
+  USERNAME
+}
+
+enum DevVerificationMethod {
+  SCROLITH_LOGIN_CONFIRM
+  EMAIL_OTP
+}
+
+enum DevLinkRequestStatus {
+  CREATED
+  OTP_SENT
+  VERIFIED
+  EXPIRED
+  FAILED
+}
+
+enum DevPlatformType {
+  WEB
+  MOBILE
+  SERVER
+}
+
+enum DevAppStatus {
+  DRAFT
+  PENDING_REVIEW
+  ACTIVE
+  DISABLED
+  REJECTED
+}
+
 enum ThreadStatus {
   OPEN
   SOLVED
