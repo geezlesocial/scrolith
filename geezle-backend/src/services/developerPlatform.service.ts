@@ -33,6 +33,18 @@ export const DEV_APP_STATUS = {
 
 const DEFAULT_SCOPE_SENSITIVE = ['email:read', 'phone:read'];
 
+const DEVELOPER_PLATFORM_TABLE_NAMES = [
+  'DeveloperPlatformConfig',
+  'DeveloperUser',
+  'DeveloperLinkRequest',
+  'DeveloperApp',
+  'DeveloperAppRedirectUri',
+  'OAuthAuthorizationCode',
+  'OAuthToken',
+  'OAuthConsent',
+  'DeveloperAuditLog'
+];
+
 export const normalizeEmail = (value: string) => String(value || '').trim().toLowerCase();
 
 export const maskEmail = (email: string) => {
@@ -75,17 +87,50 @@ export const sanitizeUrlOrNull = (value: unknown): string | null => {
   }
 };
 
-export const getOrCreateDeveloperPlatformConfig = async (): Promise<any> =>
-  prisma.developerPlatformConfig.upsert({
-    where: { id: 'default' },
-    update: {},
-    create: {
-      id: 'default',
-      developerBaseUrl: process.env.DEVELOPER_BASE_URL || 'https://developer.scrolith.com',
-      autoApproveEnabled: false,
-      sensitiveScopes: DEFAULT_SCOPE_SENSITIVE
+export const isDeveloperPlatformSchemaMissingError = (error: any) => {
+  const code = String(error?.code || '').toUpperCase();
+  const message = String(error?.message || '');
+  if (code !== 'P2021') return false;
+  return DEVELOPER_PLATFORM_TABLE_NAMES.some((tableName) => message.includes(tableName));
+};
+
+export const getDeveloperPlatformConfigFallback = () => ({
+  id: 'default',
+  developerBaseUrl: process.env.DEVELOPER_BASE_URL || 'https://developer.scrolith.com',
+  autoApproveEnabled: false,
+  autoApproveRules: null,
+  authorizationCodeTtlSeconds: 300,
+  accessTokenTtlSeconds: 3600,
+  refreshTokenTtlSeconds: 2592000,
+  rateLimitPerMinute: 120,
+  sensitiveScopes: [...DEFAULT_SCOPE_SENSITIVE],
+  requireManualApprovalForSensitiveScope: true,
+  updatedByAdminId: null,
+  createdAt: new Date(0),
+  updatedAt: new Date(0),
+  _schemaMissing: true
+});
+
+export const getOrCreateDeveloperPlatformConfig = async (): Promise<any> => {
+  try {
+    return await prisma.developerPlatformConfig.upsert({
+      where: { id: 'default' },
+      update: {},
+      create: {
+        id: 'default',
+        developerBaseUrl: process.env.DEVELOPER_BASE_URL || 'https://developer.scrolith.com',
+        autoApproveEnabled: false,
+        sensitiveScopes: DEFAULT_SCOPE_SENSITIVE
+      }
+    });
+  } catch (error: any) {
+    if (isDeveloperPlatformSchemaMissingError(error)) {
+      console.warn('[developer] schema missing, serving fallback config');
+      return getDeveloperPlatformConfigFallback();
     }
-  });
+    throw error;
+  }
+};
 
 export const getOrCreateDeveloperUserFromAuth = async (actor: AuthActor): Promise<any> => {
   const email = normalizeEmail(actor.email || '');

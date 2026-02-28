@@ -5,7 +5,8 @@ import {
   DEV_LINK_STATUS,
   createDeveloperAuditLog,
   emitDeveloperEvent,
-  getOrCreateDeveloperPlatformConfig
+  getOrCreateDeveloperPlatformConfig,
+  isDeveloperPlatformSchemaMissingError
 } from '../services/developerPlatform.service';
 
 const getRequestMeta = (req: Request) => ({
@@ -24,6 +25,13 @@ const parseScopes = (value: unknown): string[] => {
   );
 };
 
+const schemaNotReadyResponse = (res: Response) =>
+  res.status(503).json({
+    success: false,
+    code: 'DEV_PLATFORM_SCHEMA_MISSING',
+    error: 'Developer Platform database tables are not ready. Run the latest backend database migration.'
+  });
+
 export const getAdminDeveloperConfig = async (_req: Request, res: Response) => {
   try {
     const config = await getOrCreateDeveloperPlatformConfig();
@@ -36,6 +44,7 @@ export const getAdminDeveloperConfig = async (_req: Request, res: Response) => {
 export const updateAdminDeveloperConfig = async (req: Request, res: Response) => {
   try {
     const current = await getOrCreateDeveloperPlatformConfig();
+    if (current?._schemaMissing) return schemaNotReadyResponse(res);
     const developerBaseUrl = String(req.body?.developerBaseUrl || '').trim();
     const updated = await prisma.developerPlatformConfig.update({
       where: { id: current.id },
@@ -76,6 +85,7 @@ export const updateAdminDeveloperConfig = async (req: Request, res: Response) =>
 
     return res.json({ success: true, data: updated });
   } catch (error: any) {
+    if (isDeveloperPlatformSchemaMissingError(error)) return schemaNotReadyResponse(res);
     return res.status(500).json({ success: false, error: error?.message || 'Failed to update developer config.' });
   }
 };
@@ -98,6 +108,9 @@ export const listAdminDeveloperApps = async (req: Request, res: Response) => {
     });
     return res.json({ success: true, data: apps });
   } catch (error: any) {
+    if (isDeveloperPlatformSchemaMissingError(error)) {
+      return res.json({ success: true, data: [] });
+    }
     return res.status(500).json({ success: false, error: error?.message || 'Failed to list developer apps.' });
   }
 };
@@ -137,6 +150,7 @@ const updateAppAdminStatus = async (req: Request, res: Response, status: string)
 
     return res.json({ success: true, data: next });
   } catch (error: any) {
+    if (isDeveloperPlatformSchemaMissingError(error)) return schemaNotReadyResponse(res);
     return res.status(500).json({ success: false, error: error?.message || 'Failed to update app status.' });
   }
 };
@@ -168,6 +182,9 @@ export const listAdminDevelopers = async (_req: Request, res: Response) => {
     });
     return res.json({ success: true, data: developers });
   } catch (error: any) {
+    if (isDeveloperPlatformSchemaMissingError(error)) {
+      return res.json({ success: true, data: [] });
+    }
     return res.status(500).json({ success: false, error: error?.message || 'Failed to list developers.' });
   }
 };
@@ -212,6 +229,7 @@ const updateDeveloperLinkStatus = async (req: Request, res: Response, linkStatus
 
     return res.json({ success: true, data: updated });
   } catch (error: any) {
+    if (isDeveloperPlatformSchemaMissingError(error)) return schemaNotReadyResponse(res);
     return res.status(500).json({ success: false, error: error?.message || 'Failed to update developer status.' });
   }
 };
