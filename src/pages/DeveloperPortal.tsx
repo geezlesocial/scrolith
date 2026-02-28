@@ -226,6 +226,236 @@ const DeveloperPortal: React.FC = () => {
     }
   };
 
+  const connectPanel = (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h3 className="text-base font-semibold text-slate-900">Connect your Scrolith account</h3>
+      <p className="mt-1 text-sm text-slate-600">
+        Link is mandatory before creating apps, rotating secrets, or accessing logs.
+      </p>
+      <div className="mt-4 space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="space-y-1 text-sm">
+            <span className="text-slate-600">Lookup type</span>
+            <select
+              value={lookupType}
+              onChange={(event) => setLookupType(event.target.value as LookupType)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="EMAIL">Email</option>
+              <option value="USERNAME">Username</option>
+            </select>
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="text-slate-600">Verification method</span>
+            <select
+              value={linkMethod}
+              onChange={(event) => setLinkMethod(event.target.value as LinkMethod)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="SCROLITH_LOGIN_CONFIRM">Confirm by Scrolith login</option>
+              <option value="EMAIL_OTP">Email OTP (fallback)</option>
+            </select>
+          </label>
+        </div>
+        <label className="space-y-1 text-sm">
+          <span className="text-slate-600">{lookupType === 'EMAIL' ? 'Scrolith email' : 'Scrolith username'}</span>
+          <input
+            value={lookupValue}
+            onChange={(event) => setLookupValue(event.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder={lookupType === 'EMAIL' ? 'name@example.com' : 'username'}
+          />
+        </label>
+        <button
+          type="button"
+          disabled={requestingLink}
+          onClick={handleLinkRequest}
+          className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-60"
+        >
+          {requestingLink ? 'Requesting...' : 'Request Link'}
+        </button>
+        {linkRequestId ? (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
+            <p className="font-medium text-slate-900">Pending link request</p>
+            <p className="mt-1 break-all text-xs text-slate-600">{linkRequestId}</p>
+            {linkMethod === 'EMAIL_OTP' ? (
+              <div className="mt-3 space-y-2">
+                <input
+                  value={linkOtp}
+                  onChange={(event) => setLinkOtp(event.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  placeholder="Enter OTP"
+                />
+                {devOtpHint ? <p className="text-xs text-amber-700">Dev OTP: {devOtpHint}</p> : null}
+              </div>
+            ) : null}
+            <button
+              type="button"
+              onClick={handleConfirmLink}
+              disabled={requestingLink}
+              className="mt-3 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+            >
+              {requestingLink ? 'Verifying...' : 'Finalize Link'}
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  const createAppPanel = (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h3 className="text-base font-semibold text-slate-900">Create developer app</h3>
+      <p className="mt-1 text-sm text-slate-600">Apps are automatically routed through approval policy configured by admin.</p>
+      <div className="mt-4 space-y-3">
+        <label className="space-y-1 text-sm">
+          <span className="text-slate-600">App name</span>
+          <input
+            value={newAppName}
+            onChange={(event) => setNewAppName(event.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="Scrolith Productivity App"
+          />
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="text-slate-600">Tagline</span>
+          <input
+            value={newAppTagline}
+            onChange={(event) => setNewAppTagline(event.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="Automate creator workflows"
+          />
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="text-slate-600">Requested scopes (space/comma separated)</span>
+          <input
+            value={newAppScopes}
+            onChange={(event) => setNewAppScopes(event.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="text-slate-600">Redirect URIs (comma or newline separated)</span>
+          <textarea
+            value={newAppRedirectUris}
+            onChange={(event) => setNewAppRedirectUris(event.target.value)}
+            rows={3}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={handleCreateApp}
+          disabled={creatingApp || !isLinked}
+          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {creatingApp ? 'Creating...' : isLinked ? 'Create App' : 'Link account first'}
+        </button>
+      </div>
+    </div>
+  );
+
+  const myAppsPanel = (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-base font-semibold text-slate-900">My apps</h3>
+        <button
+          type="button"
+          onClick={() => void loadDashboard()}
+          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+        >
+          Refresh
+        </button>
+      </div>
+      {loading ? <p className="mt-3 text-sm text-slate-500">Loading...</p> : null}
+      {!loading && apps.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-500">No apps yet.</p>
+      ) : (
+        <div className="mt-4 space-y-3">
+          {apps.map((app) => (
+            <div key={app.id} className="rounded-xl border border-slate-200 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">{app.name}</p>
+                  <p className="text-xs text-slate-500">Client ID: {app.clientId}</p>
+                </div>
+                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(String(app.status || ''))}`}>
+                  {app.status}
+                </span>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleRotateSecret(app.id)}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  Rotate Secret
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleAppToggle(app)}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  {String(app.status || '').toUpperCase() === 'DISABLED' ? 'Enable' : 'Disable'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void loadLogs(app.id)}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  View Logs
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const logsPanel = (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-base font-semibold text-slate-900">Logs & Analytics</h3>
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          App:
+          <select
+            value={selectedAppId}
+            onChange={(event) => {
+              const nextId = event.target.value;
+              setSelectedAppId(nextId);
+              if (nextId) void loadLogs(nextId);
+              else setSelectedAppLogs([]);
+            }}
+            className="rounded-lg border border-slate-300 px-2 py-1"
+          >
+            <option value="">Select app</option>
+            {apps.map((app) => (
+              <option key={app.id} value={app.id}>
+                {app.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {!selectedAppId ? (
+        <p className="mt-3 text-sm text-slate-500">Select an app to view audit logs.</p>
+      ) : selectedAppLogs.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-500">No logs found for this app.</p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {selectedAppLogs.map((log) => (
+            <div key={log.id} className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs">
+              <p className="font-semibold text-slate-800">{log.action}</p>
+              <p className="text-slate-500">{new Date(log.createdAt).toLocaleString()}</p>
+              {log.status ? <p className="text-slate-600">Status: {log.status}</p> : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="mx-auto flex w-full max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <aside className="hidden w-72 shrink-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:block">
@@ -265,206 +495,76 @@ const DeveloperPortal: React.FC = () => {
             </div>
           ) : null}
         </div>
+        {activeSection === 'overview' ? (
+          <>
+            <div className="grid gap-6 xl:grid-cols-2">
+              {connectPanel}
+              {createAppPanel}
+            </div>
+            {myAppsPanel}
+          </>
+        ) : null}
 
-        <div className="grid gap-6 xl:grid-cols-2">
+        {activeSection === 'connect' ? connectPanel : null}
+
+        {activeSection === 'apps' ? (
+          <>
+            {createAppPanel}
+            {myAppsPanel}
+          </>
+        ) : null}
+
+        {activeSection === 'logs' ? logsPanel : null}
+
+        {activeSection === 'docs' ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h3 className="text-base font-semibold text-slate-900">Connect your Scrolith account</h3>
-            <p className="mt-1 text-sm text-slate-600">
-              Link is mandatory before creating apps, rotating secrets, or accessing logs.
-            </p>
-            <div className="mt-4 space-y-3">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="space-y-1 text-sm">
-                  <span className="text-slate-600">Lookup type</span>
-                  <select
-                    value={lookupType}
-                    onChange={(event) => setLookupType(event.target.value as LookupType)}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  >
-                    <option value="EMAIL">Email</option>
-                    <option value="USERNAME">Username</option>
-                  </select>
-                </label>
-                <label className="space-y-1 text-sm">
-                  <span className="text-slate-600">Verification method</span>
-                  <select
-                    value={linkMethod}
-                    onChange={(event) => setLinkMethod(event.target.value as LinkMethod)}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  >
-                    <option value="SCROLITH_LOGIN_CONFIRM">Confirm by Scrolith login</option>
-                    <option value="EMAIL_OTP">Email OTP (fallback)</option>
-                  </select>
-                </label>
-              </div>
-              <label className="space-y-1 text-sm">
-                <span className="text-slate-600">{lookupType === 'EMAIL' ? 'Scrolith email' : 'Scrolith username'}</span>
-                <input
-                  value={lookupValue}
-                  onChange={(event) => setLookupValue(event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder={lookupType === 'EMAIL' ? 'name@example.com' : 'username'}
-                />
-              </label>
-              <button
-                type="button"
-                disabled={requestingLink}
-                onClick={handleLinkRequest}
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-60"
+            <h3 className="text-base font-semibold text-slate-900">Developer Docs</h3>
+            <p className="mt-1 text-sm text-slate-600">Reference documentation, OAuth flows, and API usage guides.</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <a
+                href="https://developer.scrolith.com"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-xl border border-slate-200 p-3 text-sm text-slate-700 hover:bg-slate-50"
               >
-                {requestingLink ? 'Requesting...' : 'Request Link'}
-              </button>
-              {linkRequestId ? (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm">
-                  <p className="font-medium text-slate-900">Pending link request</p>
-                  <p className="mt-1 break-all text-xs text-slate-600">{linkRequestId}</p>
-                  {linkMethod === 'EMAIL_OTP' ? (
-                    <div className="mt-3 space-y-2">
-                      <input
-                        value={linkOtp}
-                        onChange={(event) => setLinkOtp(event.target.value)}
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                        placeholder="Enter OTP"
-                      />
-                      {devOtpHint ? <p className="text-xs text-amber-700">Dev OTP: {devOtpHint}</p> : null}
-                    </div>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={handleConfirmLink}
-                    disabled={requestingLink}
-                    className="mt-3 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
-                  >
-                    {requestingLink ? 'Verifying...' : 'Finalize Link'}
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h3 className="text-base font-semibold text-slate-900">Create developer app</h3>
-            <p className="mt-1 text-sm text-slate-600">Apps are automatically routed through approval policy configured by admin.</p>
-            <div className="mt-4 space-y-3">
-              <label className="space-y-1 text-sm">
-                <span className="text-slate-600">App name</span>
-                <input
-                  value={newAppName}
-                  onChange={(event) => setNewAppName(event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="Scrolith Productivity App"
-                />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-slate-600">Tagline</span>
-                <input
-                  value={newAppTagline}
-                  onChange={(event) => setNewAppTagline(event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="Automate creator workflows"
-                />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-slate-600">Requested scopes (space/comma separated)</span>
-                <input
-                  value={newAppScopes}
-                  onChange={(event) => setNewAppScopes(event.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="text-slate-600">Redirect URIs (comma or newline separated)</span>
-                <textarea
-                  value={newAppRedirectUris}
-                  onChange={(event) => setNewAppRedirectUris(event.target.value)}
-                  rows={3}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={handleCreateApp}
-                disabled={creatingApp || !isLinked}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+                <p className="font-semibold text-slate-900">Developer Portal Home</p>
+                <p className="mt-1 text-xs text-slate-500">Open the external developer portal domain.</p>
+              </a>
+              <a
+                href="/developer/docs"
+                className="rounded-xl border border-slate-200 p-3 text-sm text-slate-700 hover:bg-slate-50"
               >
-                {creatingApp ? 'Creating...' : isLinked ? 'Create App' : 'Link account first'}
-              </button>
+                <p className="font-semibold text-slate-900">Embedded Docs</p>
+                <p className="mt-1 text-xs text-slate-500">Read docs directly inside Scrolith.</p>
+              </a>
             </div>
           </div>
-        </div>
+        ) : null}
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-base font-semibold text-slate-900">My apps</h3>
-            <button
-              type="button"
-              onClick={() => void loadDashboard()}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Refresh
-            </button>
-          </div>
-          {loading ? <p className="mt-3 text-sm text-slate-500">Loading...</p> : null}
-          {!loading && apps.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-500">No apps yet.</p>
-          ) : (
-            <div className="mt-4 space-y-3">
-              {apps.map((app) => (
-                <div key={app.id} className="rounded-xl border border-slate-200 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">{app.name}</p>
-                      <p className="text-xs text-slate-500">Client ID: {app.clientId}</p>
-                    </div>
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(String(app.status || ''))}`}>
-                      {app.status}
-                    </span>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void handleRotateSecret(app.id)}
-                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      Rotate Secret
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleAppToggle(app)}
-                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      {String(app.status || '').toUpperCase() === 'DISABLED' ? 'Enable' : 'Disable'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void loadLogs(app.id)}
-                      className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      View Logs
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {activeSection === 'logs' ? (
+        {activeSection === 'settings' ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h3 className="text-base font-semibold text-slate-900">App logs {selectedAppId ? `(${selectedAppId})` : ''}</h3>
-            {selectedAppLogs.length === 0 ? (
-              <p className="mt-3 text-sm text-slate-500">No logs found for this app.</p>
-            ) : (
-              <div className="mt-3 space-y-2">
-                {selectedAppLogs.map((log) => (
-                  <div key={log.id} className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs">
-                    <p className="font-semibold text-slate-800">{log.action}</p>
-                    <p className="text-slate-500">{new Date(log.createdAt).toLocaleString()}</p>
-                    {log.status ? <p className="text-slate-600">Status: {log.status}</p> : null}
-                  </div>
-                ))}
+            <h3 className="text-base font-semibold text-slate-900">Developer Settings</h3>
+            <p className="mt-1 text-sm text-slate-600">Identity and connection status snapshot for your developer profile.</p>
+            <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 p-3">
+                <dt className="text-xs uppercase tracking-wide text-slate-500">Link status</dt>
+                <dd className="mt-1 text-sm font-semibold text-slate-900">{String(me?.linkStatus || 'UNLINKED')}</dd>
               </div>
-            )}
+              <div className="rounded-xl border border-slate-200 p-3">
+                <dt className="text-xs uppercase tracking-wide text-slate-500">Linked user id</dt>
+                <dd className="mt-1 break-all text-sm text-slate-700">{String(me?.userId || 'Not linked')}</dd>
+              </div>
+              <div className="rounded-xl border border-slate-200 p-3">
+                <dt className="text-xs uppercase tracking-wide text-slate-500">Developer email</dt>
+                <dd className="mt-1 break-all text-sm text-slate-700">{String(me?.developerEmail || 'Unavailable')}</dd>
+              </div>
+              <div className="rounded-xl border border-slate-200 p-3">
+                <dt className="text-xs uppercase tracking-wide text-slate-500">Last synced</dt>
+                <dd className="mt-1 text-sm text-slate-700">
+                  {me?.lastSyncedAt ? new Date(me.lastSyncedAt).toLocaleString() : 'Not synced yet'}
+                </dd>
+              </div>
+            </dl>
           </div>
         ) : null}
       </section>
