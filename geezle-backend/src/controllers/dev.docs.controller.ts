@@ -104,6 +104,18 @@ const defaultDocsConfig = (): DocsConfig => ({
       isPublished: true,
       updatedAt: nowIso(),
       updatedByAdminId: null
+    },
+    {
+      id: 'products',
+      slug: 'products',
+      title: 'Products & Scopes',
+      summary: 'Available scope products and advanced approval requirements.',
+      content:
+        'Developer products:\n- openid\n- username\n- avatar\n- followers.read\n- posts.read\n- jobs.read\n- gigs.read\n- notifications.read\n\nAdvanced scopes require admin approval before activation based on Developer Platform policy.',
+      order: 5,
+      isPublished: true,
+      updatedAt: nowIso(),
+      updatedByAdminId: null
     }
   ],
   updatedAt: nowIso(),

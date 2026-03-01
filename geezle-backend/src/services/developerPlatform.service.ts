@@ -31,7 +31,17 @@ export const DEV_APP_STATUS = {
   REJECTED: 'REJECTED'
 } as const;
 
-const DEFAULT_SCOPE_SENSITIVE = ['email:read', 'phone:read'];
+const ADVANCED_SCOPE_CATALOG = [
+  'openid',
+  'username',
+  'avatar',
+  'followers.read',
+  'posts.read',
+  'jobs.read',
+  'gigs.read',
+  'notifications.read'
+];
+const DEFAULT_SCOPE_SENSITIVE = Array.from(new Set(['email:read', 'phone:read', ...ADVANCED_SCOPE_CATALOG]));
 const DEFAULT_DEVELOPER_BASE_URL = 'https://scrolith.com/developer';
 const LEGACY_DEVELOPER_BASE_HOST = 'developer.scrolith.com';
 
@@ -67,10 +77,17 @@ export const generateOpaqueToken = (prefix: string, bytes = 32) =>
   `${prefix}_${randomBytes(bytes).toString('hex')}`;
 
 export const normalizeScopes = (value: unknown): string[] => {
-  if (!Array.isArray(value)) return [];
+  const source = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? String(value)
+          .split(/[\s,]+/g)
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      : [];
   return Array.from(
     new Set(
-      value
+      source
         .map((scope) => String(scope || '').trim())
         .filter(Boolean)
     )
@@ -335,8 +352,15 @@ export const evaluateAutoApprovalStatus = (
   config: any,
   requestedScopes: string[]
 ): string => {
-  const sensitiveScopes = Array.isArray(config.sensitiveScopes) ? config.sensitiveScopes : DEFAULT_SCOPE_SENSITIVE;
-  const hasSensitiveScope = requestedScopes.some((scope) => sensitiveScopes.includes(scope));
+  const sensitiveScopes = normalizeScopes(
+    Array.isArray(config?.sensitiveScopes)
+      ? [...config.sensitiveScopes, ...ADVANCED_SCOPE_CATALOG]
+      : DEFAULT_SCOPE_SENSITIVE
+  );
+  const sensitiveScopeSet = new Set(sensitiveScopes.map((scope) => String(scope || '').trim().toLowerCase()));
+  const hasSensitiveScope = requestedScopes.some((scope) =>
+    sensitiveScopeSet.has(String(scope || '').trim().toLowerCase())
+  );
   if (hasSensitiveScope && config.requireManualApprovalForSensitiveScope) return DEV_APP_STATUS.PENDING_REVIEW;
   return config.autoApproveEnabled ? DEV_APP_STATUS.ACTIVE : DEV_APP_STATUS.PENDING_REVIEW;
 };

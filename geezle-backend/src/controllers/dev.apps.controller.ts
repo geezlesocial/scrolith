@@ -93,6 +93,47 @@ const assertRedirectUrisWithinPlatformUrls = (redirectUris: string[], platformUr
   }
 };
 
+const normalizeBusinessPageSlug = (value: unknown) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const resolveConnectedBusinessPage = async (ownerUserId: string, body: any) => {
+  const pageId = String(body?.connectedPageId || '').trim();
+  const pageSlug = normalizeBusinessPageSlug(body?.connectedPageSlug);
+  if (!pageId && !pageSlug) return null;
+
+  const page = await prisma.communityBusinessPage.findFirst({
+    where: {
+      ownerId: ownerUserId,
+      status: { not: 'deleted' },
+      ...(pageId ? { id: pageId } : { slug: pageSlug })
+    },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      handle: true
+    }
+  });
+
+  if (!page) {
+    const error = new Error('Connected Scrolith page is invalid or not owned by this account.');
+    (error as any).statusCode = 400;
+    throw error;
+  }
+
+  const slugOrHandle = String(page.slug || page.handle || page.id).trim();
+  const connectedPageUrl = `https://scrolith.com/company/${encodeURIComponent(slugOrHandle)}`;
+  return {
+    id: page.id,
+    slug: slugOrHandle,
+    url: connectedPageUrl
+  };
+};
+
 const notifyDeveloper = async (params: {
   userId?: string | null;
   email?: string | null;
@@ -153,7 +194,11 @@ export const createDeveloperApp = async (req: Request, res: Response) => {
     const status = evaluateAutoApprovalStatus(config, requestedScopes);
     const platformType = parsePlatformType(req.body?.platformType);
     const redirectUris = sanitizeRedirectUris(req.body?.redirectUris);
-    const platformUrls = validatePlatformUrlsInput(req.body?.platformUrls);
+    const connectedPage = await resolveConnectedBusinessPage(ownerUserId, req.body);
+    const platformUrls = sanitizePlatformUrls([
+      ...validatePlatformUrlsInput(req.body?.platformUrls),
+      ...(connectedPage?.url ? [connectedPage.url] : [])
+    ]);
     assertRedirectUrisWithinPlatformUrls(redirectUris, platformUrls);
     const { clientId, clientSecret, clientSecretHash } = generateClientCredentials();
 
@@ -163,7 +208,7 @@ export const createDeveloperApp = async (req: Request, res: Response) => {
         name,
         tagline: String(req.body?.tagline || '').trim() || null,
         description: String(req.body?.description || '').trim() || null,
-        appUrl: sanitizeUrlOrNull(req.body?.appUrl),
+        appUrl: connectedPage?.url || sanitizeUrlOrNull(req.body?.appUrl),
         platformUrls,
         termsUrl: sanitizeUrlOrNull(req.body?.termsUrl),
         privacyUrl: sanitizeUrlOrNull(req.body?.privacyUrl),
@@ -198,6 +243,8 @@ export const createDeveloperApp = async (req: Request, res: Response) => {
       metadata: {
         requestedScopes,
         platformUrls,
+        connectedPageId: connectedPage?.id || null,
+        connectedPageSlug: connectedPage?.slug || null,
         autoApprovalEnabled: config.autoApproveEnabled,
         sensitiveScopes: config.sensitiveScopes
       },
@@ -258,16 +305,22 @@ export const getDeveloperApp = async (req: Request, res: Response) => {
 
 export const updateDeveloperApp = async (req: Request, res: Response) => {
   try {
+    const ownerUserId = req.developerOwnerUserId!;
     const app = await assertDeveloperAppOwnership({
       appId: String(req.params.id || ''),
-      ownerUserId: req.developerOwnerUserId!
+      ownerUserId
     });
 
     const config = await getOrCreateDeveloperPlatformConfig();
     const hasScopeUpdate = req.body?.requestedScopes !== undefined;
     const requestedScopes = hasScopeUpdate ? normalizeScopes(req.body?.requestedScopes) : app.requestedScopes;
     const hasPlatformUrlsUpdate = req.body?.platformUrls !== undefined;
-    const platformUrls = hasPlatformUrlsUpdate ? validatePlatformUrlsInput(req.body?.platformUrls) : app.platformUrls || [];
+    const hasConnectedPageUpdate = req.body?.connectedPageId !== undefined || req.body?.connectedPageSlug !== undefined;
+    const connectedPage = hasConnectedPageUpdate ? await resolveConnectedBusinessPage(ownerUserId, req.body) : null;
+    const platformUrls = sanitizePlatformUrls([
+      ...(hasPlatformUrlsUpdate ? validatePlatformUrlsInput(req.body?.platformUrls) : app.platformUrls || []),
+      ...(connectedPage?.url ? [connectedPage.url] : [])
+    ]);
     const nextStatus =
       hasScopeUpdate && app.status !== DEV_APP_STATUS.DISABLED && app.status !== DEV_APP_STATUS.REJECTED
         ? evaluateAutoApprovalStatus(config, requestedScopes)
@@ -276,6 +329,15 @@ export const updateDeveloperApp = async (req: Request, res: Response) => {
     const redirectUris = req.body?.redirectUris !== undefined ? sanitizeRedirectUris(req.body?.redirectUris) : null;
     const effectiveRedirectUris = redirectUris !== null ? redirectUris : (app.redirectUris || []).map((entry: any) => String(entry?.uri || '').trim()).filter(Boolean);
     assertRedirectUrisWithinPlatformUrls(effectiveRedirectUris, platformUrls);
+    const explicitAppUrl = req.body?.appUrl !== undefined ? sanitizeUrlOrNull(req.body.appUrl) : null;
+    const nextAppUrl =
+      connectedPage?.url
+        ? connectedPage.url
+        : hasConnectedPageUpdate
+          ? (req.body?.appUrl !== undefined ? explicitAppUrl : null)
+          : req.body?.appUrl !== undefined
+            ? explicitAppUrl
+            : undefined;
 
     await prisma.$transaction(async (tx) => {
       await tx.developerApp.update({
@@ -285,8 +347,8 @@ export const updateDeveloperApp = async (req: Request, res: Response) => {
           tagline: req.body?.tagline !== undefined ? String(req.body.tagline || '').trim() || null : undefined,
           description:
             req.body?.description !== undefined ? String(req.body.description || '').trim() || null : undefined,
-          appUrl: req.body?.appUrl !== undefined ? sanitizeUrlOrNull(req.body.appUrl) : undefined,
-          platformUrls: hasPlatformUrlsUpdate ? platformUrls : undefined,
+          appUrl: nextAppUrl,
+          platformUrls: hasPlatformUrlsUpdate || Boolean(connectedPage?.url) ? platformUrls : undefined,
           termsUrl: req.body?.termsUrl !== undefined ? sanitizeUrlOrNull(req.body.termsUrl) : undefined,
           privacyUrl: req.body?.privacyUrl !== undefined ? sanitizeUrlOrNull(req.body.privacyUrl) : undefined,
           logoFileId: req.body?.logoFileId !== undefined ? String(req.body.logoFileId || '').trim() || null : undefined,
@@ -325,6 +387,9 @@ export const updateDeveloperApp = async (req: Request, res: Response) => {
       metadata: {
         hasScopeUpdate,
         hasPlatformUrlsUpdate,
+        hasConnectedPageUpdate,
+        connectedPageId: connectedPage?.id || null,
+        connectedPageSlug: connectedPage?.slug || null,
         redirectUrisUpdated: redirectUris !== null
       },
       ...getRequestMeta(req)
