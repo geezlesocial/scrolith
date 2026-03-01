@@ -3577,7 +3577,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                             const mediaUrl = resolveStoryMediaUrl(story);
                             if (mediaUrl) {
                               return story.type === 'video' ? (
-                                <video src={mediaUrl} className="h-full w-full object-cover" />
+                                <video
+                                  src={mediaUrl}
+                                  className="h-full w-full object-cover"
+                                  autoPlay
+                                  muted
+                                  playsInline
+                                  loop
+                                  preload="metadata"
+                                />
                               ) : (
                                 <img src={mediaUrl} alt="Story" className="h-full w-full object-cover" />
                               );
@@ -4822,7 +4830,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                     return <div className="flex h-48 w-full items-center justify-center text-sm text-slate-600">Media preview not available.</div>;
                   }
                   return isVideo ? (
-                    <video src={url} className="h-56 w-full object-cover" controls preload="metadata" />
+                    <video
+                      src={url}
+                      className="h-56 w-full object-cover"
+                      controls
+                      autoPlay
+                      muted
+                      playsInline
+                      loop
+                      preload="metadata"
+                    />
                   ) : (
                     <img src={url} alt="Story preview" className="h-56 w-full object-cover" />
                   );
@@ -5096,7 +5113,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                     const mediaUrl = resolveStoryMediaUrl(editingStory);
                     if (mediaUrl) {
                       return editingStory.type === 'video' ? (
-                        <video src={mediaUrl} controls className="h-44 sm:h-48 w-full object-cover" />
+                        <video
+                          src={mediaUrl}
+                          controls
+                          autoPlay
+                          muted
+                          playsInline
+                          loop
+                          preload="metadata"
+                          className="h-44 sm:h-48 w-full object-cover"
+                        />
                       ) : (
                         <img src={mediaUrl} alt="Story media" className="h-44 sm:h-48 w-full object-cover" />
                       );
@@ -5309,7 +5335,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                 const mediaUrl = resolveStoryMediaUrl(activeStory);
                 if (mediaUrl) {
                   return activeStory.type === 'video' ? (
-                    <video src={mediaUrl} controls autoPlay muted playsInline className="h-64 sm:h-80 w-full object-contain bg-black" />
+                    <video
+                      src={mediaUrl}
+                      controls
+                      autoPlay
+                      muted
+                      playsInline
+                      loop
+                      preload="metadata"
+                      className="h-64 sm:h-80 w-full object-contain bg-black"
+                    />
                   ) : (
                     <img src={mediaUrl} alt="Story" className="h-64 sm:h-80 w-full object-cover" />
                   );

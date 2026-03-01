@@ -1600,7 +1600,15 @@ const CommunityHome = () => {
                       const mediaUrl = resolveStoryMediaUrl(story);
                       if (mediaUrl) {
                         return story.type === 'video' ? (
-                          <video src={mediaUrl} className="h-full w-full object-cover" />
+                          <video
+                            src={mediaUrl}
+                            className="h-full w-full object-cover"
+                            autoPlay
+                            muted
+                            playsInline
+                            loop
+                            preload="metadata"
+                          />
                         ) : (
                           <img src={mediaUrl} alt="Story" className="h-full w-full object-cover" />
                         );
@@ -2294,7 +2302,16 @@ const CommunityHome = () => {
                     const mediaUrl = resolveStoryMediaUrl(editingStory);
                     if (mediaUrl) {
                       return editingStory.type === 'video' ? (
-                        <video src={mediaUrl} controls className="h-48 w-full object-cover" />
+                        <video
+                          src={mediaUrl}
+                          controls
+                          autoPlay
+                          muted
+                          playsInline
+                          loop
+                          preload="metadata"
+                          className="h-48 w-full object-cover"
+                        />
                       ) : (
                         <img src={mediaUrl} alt="Story media" className="h-48 w-full object-cover" />
                       );
@@ -2472,7 +2489,16 @@ const CommunityHome = () => {
                 const mediaUrl = resolveStoryMediaUrl(activeStory);
                 if (mediaUrl) {
                   return activeStory.type === 'video' ? (
-                    <video src={mediaUrl} controls className="h-80 w-full object-cover" />
+                    <video
+                      src={mediaUrl}
+                      controls
+                      autoPlay
+                      muted
+                      playsInline
+                      loop
+                      preload="metadata"
+                      className="h-80 w-full object-cover"
+                    />
                   ) : (
                     <img src={mediaUrl} alt="Story" className="h-80 w-full object-cover" />
                   );
