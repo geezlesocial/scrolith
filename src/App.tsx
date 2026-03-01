@@ -104,6 +104,7 @@ const KnowledgeHub = React.lazy(() => import('./community/KnowledgeHub'));
 const CommunityDashboard = React.lazy(() => import('./dashboard/shared/CommunityDashboard'));
 const MyAds = React.lazy(() => import('./pages/MyAds'));
 const DeveloperPortal = React.lazy(() => import('./pages/DeveloperPortal'));
+const DeveloperDocsPortal = React.lazy(() => import('./pages/DeveloperDocsPage'));
 const AdminDeveloperPlatform = React.lazy(() => import('./pages/AdminDeveloperPlatform'));
 
 // Error Boundary Component
@@ -821,6 +822,14 @@ const AppContent = () => {
                 element={
                   <ProtectedRoute>
                     <DeveloperPortal />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/developer/docs"
+                element={
+                  <ProtectedRoute>
+                    <DeveloperDocsPortal />
                   </ProtectedRoute>
                 }
               />

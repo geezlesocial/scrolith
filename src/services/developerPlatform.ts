@@ -110,6 +110,17 @@ export const DeveloperPlatformService = {
     }
   },
 
+  getDocs: async (slug?: string) => {
+    try {
+      const response = await api.get('/dev/docs', {
+        params: slug ? { slug } : undefined
+      });
+      return extractData<any>(response);
+    } catch (error: any) {
+      throw new Error(extractErrorMessage(error, 'Failed to load developer docs.'));
+    }
+  },
+
   getAdminConfig: async () => {
     try {
       const response = await api.get('/admin/dev/config');
@@ -190,6 +201,51 @@ export const DeveloperPlatformService = {
       return extractData<any>(response);
     } catch (error: any) {
       throw new Error(extractErrorMessage(error, 'Failed to unsuspend developer.'));
+    }
+  },
+
+  getAdminDocs: async () => {
+    try {
+      const response = await api.get('/admin/dev/docs');
+      return extractData<any>(response);
+    } catch (error: any) {
+      throw new Error(extractErrorMessage(error, 'Failed to load developer docs admin config.'));
+    }
+  },
+
+  updateAdminDocs: async (payload: any) => {
+    try {
+      const response = await api.put('/admin/dev/docs', payload);
+      return extractData<any>(response);
+    } catch (error: any) {
+      throw new Error(extractErrorMessage(error, 'Failed to update developer docs.'));
+    }
+  },
+
+  createAdminDocPage: async (payload: any) => {
+    try {
+      const response = await api.post('/admin/dev/docs/pages', payload);
+      return extractData<any>(response);
+    } catch (error: any) {
+      throw new Error(extractErrorMessage(error, 'Failed to create docs page.'));
+    }
+  },
+
+  updateAdminDocPage: async (pageId: string, payload: any) => {
+    try {
+      const response = await api.put(`/admin/dev/docs/pages/${encodeURIComponent(pageId)}`, payload);
+      return extractData<any>(response);
+    } catch (error: any) {
+      throw new Error(extractErrorMessage(error, 'Failed to update docs page.'));
+    }
+  },
+
+  deleteAdminDocPage: async (pageId: string) => {
+    try {
+      const response = await api.delete(`/admin/dev/docs/pages/${encodeURIComponent(pageId)}`);
+      return extractData<any>(response);
+    } catch (error: any) {
+      throw new Error(extractErrorMessage(error, 'Failed to delete docs page.'));
     }
   }
 };

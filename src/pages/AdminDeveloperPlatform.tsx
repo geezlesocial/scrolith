@@ -14,7 +14,10 @@ const AdminDeveloperPlatform: React.FC = () => {
   const { showNotification } = useNotification();
   const [loading, setLoading] = useState(true);
   const [configSaving, setConfigSaving] = useState(false);
+  const [docsSaving, setDocsSaving] = useState(false);
+  const [pageSavingId, setPageSavingId] = useState('');
   const [config, setConfig] = useState<any>(null);
+  const [docsConfig, setDocsConfig] = useState<any>(null);
   const [apps, setApps] = useState<any[]>([]);
   const [developers, setDevelopers] = useState<any[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
@@ -22,6 +25,11 @@ const AdminDeveloperPlatform: React.FC = () => {
   const sensitiveScopesText = useMemo(
     () => (Array.isArray(config?.sensitiveScopes) ? config.sensitiveScopes.join(', ') : ''),
     [config?.sensitiveScopes]
+  );
+
+  const docsPages = useMemo(
+    () => (Array.isArray(docsConfig?.pages) ? docsConfig.pages : []),
+    [docsConfig?.pages]
   );
 
   const loadData = useCallback(async () => {
@@ -32,9 +40,11 @@ const AdminDeveloperPlatform: React.FC = () => {
         DeveloperPlatformService.getAdminApps(statusFilter || undefined),
         DeveloperPlatformService.getAdminDevelopers()
       ]);
+      const docs = await DeveloperPlatformService.getAdminDocs().catch(() => null);
       setConfig(cfg || null);
       setApps(Array.isArray(appRows) ? appRows : []);
       setDevelopers(Array.isArray(devRows) ? devRows : []);
+      setDocsConfig(docs || null);
     } catch (error: any) {
       showNotification('error', 'Developer Platform', error?.message || 'Failed to load admin developer platform.');
     } finally {
@@ -51,7 +61,7 @@ const AdminDeveloperPlatform: React.FC = () => {
       void loadData();
     };
 
-    const events = ['dev:config_updated', 'dev:app_updated', 'dev:link_status_updated', 'dev:log_created'];
+    const events = ['dev:config_updated', 'dev:app_updated', 'dev:link_status_updated', 'dev:log_created', 'dev:docs_updated'];
     events.forEach((eventName) => window.addEventListener(eventName, refresh as EventListener));
     const intervalId = window.setInterval(refresh, 45_000);
 
@@ -107,6 +117,91 @@ const AdminDeveloperPlatform: React.FC = () => {
       await loadData();
     } catch (error: any) {
       showNotification('error', 'Developer moderation', error?.message || 'Failed to update developer status.');
+    }
+  };
+
+  const updateLocalDocPage = (pageId: string, field: string, value: any) => {
+    setDocsConfig((prev: any) => {
+      const pages = Array.isArray(prev?.pages) ? prev.pages : [];
+      return {
+        ...(prev || {}),
+        pages: pages.map((page: any) => (String(page?.id) === pageId ? { ...page, [field]: value } : page))
+      };
+    });
+  };
+
+  const saveDocsConfig = async () => {
+    if (!docsConfig) return;
+    setDocsSaving(true);
+    try {
+      const payload = {
+        portalHomeUrl: String(docsConfig?.portalHomeUrl || '/developer'),
+        docsHomeUrl: String(docsConfig?.docsHomeUrl || '/developer/docs'),
+        landingTitle: String(docsConfig?.landingTitle || '').trim(),
+        landingSubtitle: String(docsConfig?.landingSubtitle || '').trim(),
+        pages: docsPages
+      };
+      const saved = await DeveloperPlatformService.updateAdminDocs(payload);
+      setDocsConfig(saved || payload);
+      showNotification('success', 'Developer Docs', 'Developer docs configuration updated.');
+      await loadData();
+    } catch (error: any) {
+      showNotification('error', 'Developer Docs', error?.message || 'Failed to update developer docs.');
+    } finally {
+      setDocsSaving(false);
+    }
+  };
+
+  const addDocsPage = async () => {
+    setDocsSaving(true);
+    try {
+      await DeveloperPlatformService.createAdminDocPage({
+        title: 'New Page',
+        summary: 'Add a short summary.',
+        content: 'Write your documentation content here.',
+        isPublished: true
+      });
+      showNotification('success', 'Developer Docs', 'Documentation page created.');
+      await loadData();
+    } catch (error: any) {
+      showNotification('error', 'Developer Docs', error?.message || 'Failed to create docs page.');
+    } finally {
+      setDocsSaving(false);
+    }
+  };
+
+  const saveDocPage = async (pageId: string) => {
+    const page = docsPages.find((entry: any) => String(entry?.id) === pageId);
+    if (!page) return;
+    setPageSavingId(pageId);
+    try {
+      await DeveloperPlatformService.updateAdminDocPage(pageId, {
+        title: page.title,
+        slug: page.slug,
+        summary: page.summary,
+        content: page.content,
+        order: Number(page.order || 0),
+        isPublished: Boolean(page.isPublished)
+      });
+      showNotification('success', 'Developer Docs', 'Documentation page updated.');
+      await loadData();
+    } catch (error: any) {
+      showNotification('error', 'Developer Docs', error?.message || 'Failed to update docs page.');
+    } finally {
+      setPageSavingId('');
+    }
+  };
+
+  const deleteDocPage = async (pageId: string) => {
+    setPageSavingId(pageId);
+    try {
+      await DeveloperPlatformService.deleteAdminDocPage(pageId);
+      showNotification('success', 'Developer Docs', 'Documentation page deleted.');
+      await loadData();
+    } catch (error: any) {
+      showNotification('error', 'Developer Docs', error?.message || 'Failed to delete docs page.');
+    } finally {
+      setPageSavingId('');
     }
   };
 
@@ -239,6 +334,9 @@ const AdminDeveloperPlatform: React.FC = () => {
                   <td className="px-2 py-2">
                     <p className="font-medium text-slate-900">{app.name}</p>
                     <p className="text-xs text-slate-500">{app.clientId}</p>
+                    {Array.isArray(app.platformUrls) && app.platformUrls.length ? (
+                      <p className="mt-1 text-xs text-slate-500">Platform URLs: {app.platformUrls.join(', ')}</p>
+                    ) : null}
                   </td>
                   <td className="px-2 py-2 text-slate-600">
                     {app.ownerUser?.name || app.ownerUser?.username || app.ownerUser?.email || '-'}
@@ -344,6 +442,161 @@ const AdminDeveloperPlatform: React.FC = () => {
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-base font-semibold text-slate-900">Developer Pages & Docs CMS</h2>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void addDocsPage()}
+              disabled={docsSaving}
+              className="rounded border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+            >
+              Add Page
+            </button>
+            <button
+              type="button"
+              onClick={() => void saveDocsConfig()}
+              disabled={docsSaving || !docsConfig}
+              className="rounded bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-60"
+            >
+              {docsSaving ? 'Saving...' : 'Save Docs Config'}
+            </button>
+          </div>
+        </div>
+
+        {loading && !docsConfig ? (
+          <p className="mt-4 text-sm text-slate-500">Loading docs configuration...</p>
+        ) : (
+          <>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <label className="space-y-1 text-sm">
+                <span className="text-slate-600">Developer portal URL path</span>
+                <input
+                  value={String(docsConfig?.portalHomeUrl || '/developer')}
+                  onChange={(event) =>
+                    setDocsConfig((prev: any) => ({ ...(prev || {}), portalHomeUrl: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-slate-600">Docs URL path</span>
+                <input
+                  value={String(docsConfig?.docsHomeUrl || '/developer/docs')}
+                  onChange={(event) =>
+                    setDocsConfig((prev: any) => ({ ...(prev || {}), docsHomeUrl: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-slate-600">Landing title</span>
+                <input
+                  value={String(docsConfig?.landingTitle || '')}
+                  onChange={(event) =>
+                    setDocsConfig((prev: any) => ({ ...(prev || {}), landingTitle: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-slate-600">Landing subtitle</span>
+                <input
+                  value={String(docsConfig?.landingSubtitle || '')}
+                  onChange={(event) =>
+                    setDocsConfig((prev: any) => ({ ...(prev || {}), landingSubtitle: event.target.value }))
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+              </label>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              {docsPages.map((page: any) => (
+                <div key={String(page.id)} className="rounded-xl border border-slate-200 p-4">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="space-y-1 text-sm">
+                      <span className="text-slate-600">Page title</span>
+                      <input
+                        value={String(page.title || '')}
+                        onChange={(event) => updateLocalDocPage(String(page.id), 'title', event.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-slate-600">Slug</span>
+                      <input
+                        value={String(page.slug || '')}
+                        onChange={(event) => updateLocalDocPage(String(page.id), 'slug', event.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-slate-600">Summary</span>
+                      <input
+                        value={String(page.summary || '')}
+                        onChange={(event) => updateLocalDocPage(String(page.id), 'summary', event.target.value)}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="text-slate-600">Order</span>
+                      <input
+                        type="number"
+                        value={Number(page.order || 0)}
+                        onChange={(event) => updateLocalDocPage(String(page.id), 'order', Number(event.target.value || 0))}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="mt-3 block space-y-1 text-sm">
+                    <span className="text-slate-600">Content</span>
+                    <textarea
+                      rows={8}
+                      value={String(page.content || '')}
+                      onChange={(event) => updateLocalDocPage(String(page.id), 'content', event.target.value)}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                    />
+                  </label>
+
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(page.isPublished)}
+                        onChange={(event) => updateLocalDocPage(String(page.id), 'isPublished', event.target.checked)}
+                      />
+                      Published
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void saveDocPage(String(page.id))}
+                        disabled={pageSavingId === String(page.id)}
+                        className="rounded border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                      >
+                        {pageSavingId === String(page.id) ? 'Saving...' : 'Save Page'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void deleteDocPage(String(page.id))}
+                        disabled={pageSavingId === String(page.id)}
+                        className="rounded border border-rose-300 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {!docsPages.length ? <p className="text-sm text-slate-500">No documentation pages yet.</p> : null}
+            </div>
+          </>
+        )}
       </section>
     </div>
   );

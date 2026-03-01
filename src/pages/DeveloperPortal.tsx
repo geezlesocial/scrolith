@@ -23,6 +23,21 @@ const statusBadgeClass = (status: string) => {
   return 'bg-slate-100 text-slate-700';
 };
 
+const normalizePlatformUrl = (value: string): string | null => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    const parsed = new URL(withScheme);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+    if (!parsed.hostname || !parsed.hostname.includes('.')) return null;
+    const port = parsed.port ? `:${parsed.port}` : '';
+    return `${parsed.protocol}//${parsed.hostname.toLowerCase()}${port}`;
+  } catch {
+    return null;
+  }
+};
+
 const DeveloperPortal: React.FC = () => {
   const { showNotification } = useNotification();
   const [activeSection, setActiveSection] = useState('overview');
@@ -44,11 +59,13 @@ const DeveloperPortal: React.FC = () => {
 
   const [newAppName, setNewAppName] = useState('');
   const [newAppTagline, setNewAppTagline] = useState('');
+  const [newAppPlatformUrls, setNewAppPlatformUrls] = useState('https://example.com');
   const [newAppScopes, setNewAppScopes] = useState('profile:read email:read');
   const [newAppRedirectUris, setNewAppRedirectUris] = useState('https://example.com/oauth/callback');
   const [newAppLogoFileId, setNewAppLogoFileId] = useState('');
   const [newAppLogoUrl, setNewAppLogoUrl] = useState('');
   const [newAppLogoName, setNewAppLogoName] = useState('');
+  const [docsConfig, setDocsConfig] = useState<any>(null);
   const [uploadingAppLogo, setUploadingAppLogo] = useState(false);
   const appLogoInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -57,9 +74,14 @@ const DeveloperPortal: React.FC = () => {
   const loadDashboard = useCallback(async () => {
     setLoading(true);
     try {
-      const [meData, appData] = await Promise.all([DeveloperPlatformService.getMe(), DeveloperPlatformService.getApps()]);
+      const [meData, appData, docsData] = await Promise.all([
+        DeveloperPlatformService.getMe(),
+        DeveloperPlatformService.getApps(),
+        DeveloperPlatformService.getDocs().catch(() => null)
+      ]);
       setMe(meData || null);
       setApps(Array.isArray(appData) ? appData : []);
+      setDocsConfig(docsData || null);
     } catch (error: any) {
       showNotification('error', 'Developer Portal', error?.message || 'Failed to load developer dashboard.');
     } finally {
@@ -84,6 +106,19 @@ const DeveloperPortal: React.FC = () => {
     [newAppScopes]
   );
 
+  const platformUrls = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          String(newAppPlatformUrls || '')
+            .split(/\r?\n|,/g)
+            .map((entry) => normalizePlatformUrl(entry))
+            .filter(Boolean) as string[]
+        )
+      ),
+    [newAppPlatformUrls]
+  );
+
   const redirectUris = useMemo(
     () =>
       Array.from(
@@ -95,6 +130,11 @@ const DeveloperPortal: React.FC = () => {
         )
       ),
     [newAppRedirectUris]
+  );
+
+  const docsPages = useMemo(
+    () => (Array.isArray(docsConfig?.pages) ? docsConfig.pages.filter((page: any) => page?.isPublished !== false) : []),
+    [docsConfig?.pages]
   );
 
   const handleLinkRequest = async () => {
@@ -160,11 +200,20 @@ const DeveloperPortal: React.FC = () => {
       showNotification('error', 'Developer app', 'App name is required.');
       return;
     }
+    if (String(newAppPlatformUrls || '').trim() && platformUrls.length === 0) {
+      showNotification(
+        'error',
+        'Developer app',
+        'Provide a valid app/platform URL (example: https://example.com or example.com).'
+      );
+      return;
+    }
     setCreatingApp(true);
     try {
       const data = await DeveloperPlatformService.createApp({
         name: newAppName.trim(),
         tagline: newAppTagline.trim(),
+        platformUrls,
         logoFileId: newAppLogoFileId || undefined,
         requestedScopes,
         redirectUris
@@ -172,6 +221,7 @@ const DeveloperPortal: React.FC = () => {
       setLastClientSecret(String(data?.clientSecret || ''));
       setNewAppName('');
       setNewAppTagline('');
+      setNewAppPlatformUrls('https://example.com');
       setNewAppLogoFileId('');
       setNewAppLogoUrl('');
       setNewAppLogoName('');
@@ -230,7 +280,7 @@ const DeveloperPortal: React.FC = () => {
       }
     };
 
-    const events = ['dev:link_status_updated', 'dev:app_updated', 'dev:log_created'];
+    const events = ['dev:link_status_updated', 'dev:app_updated', 'dev:log_created', 'dev:docs_updated'];
     events.forEach((eventName) => window.addEventListener(eventName, refresh as EventListener));
     const intervalId = window.setInterval(refresh, 45_000);
 
@@ -409,6 +459,19 @@ const DeveloperPortal: React.FC = () => {
           />
         </label>
         <label className="space-y-1 text-sm">
+          <span className="text-slate-600">App/platform URLs (comma or newline separated)</span>
+          <textarea
+            value={newAppPlatformUrls}
+            onChange={(event) => setNewAppPlatformUrls(event.target.value)}
+            rows={2}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder={'https://example.com\nhttps://www.example.com\nexample.com'}
+          />
+          <p className="text-xs text-slate-500">
+            Add trusted platform origins. Subdomains are supported and normalized automatically.
+          </p>
+        </label>
+        <label className="space-y-1 text-sm">
           <span className="text-slate-600">Requested scopes (space/comma separated)</span>
           <input
             value={newAppScopes}
@@ -460,6 +523,9 @@ const DeveloperPortal: React.FC = () => {
                 <div>
                   <p className="text-sm font-semibold text-slate-900">{app.name}</p>
                   <p className="text-xs text-slate-500">Client ID: {app.clientId}</p>
+                  {Array.isArray(app.platformUrls) && app.platformUrls.length ? (
+                    <p className="mt-1 text-xs text-slate-500">Platform URLs: {app.platformUrls.join(', ')}</p>
+                  ) : null}
                 </div>
                 <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(String(app.status || ''))}`}>
                   {app.status}
@@ -542,7 +608,7 @@ const DeveloperPortal: React.FC = () => {
     <div className="mx-auto flex w-full max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <aside className="hidden w-72 shrink-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:block">
         <h1 className="text-base font-semibold text-slate-900">Developer Platform</h1>
-        <p className="mt-1 text-xs text-slate-500">developer.scrolith.com</p>
+        <p className="mt-1 text-xs text-slate-500">scrolith.com/developer</p>
         <nav className="mt-4 space-y-1">
           {sectionItems.map((item) => (
             <button
@@ -600,26 +666,40 @@ const DeveloperPortal: React.FC = () => {
 
         {activeSection === 'docs' ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h3 className="text-base font-semibold text-slate-900">Developer Docs</h3>
-            <p className="mt-1 text-sm text-slate-600">Reference documentation, OAuth flows, and API usage guides.</p>
+            <h3 className="text-base font-semibold text-slate-900">{String(docsConfig?.landingTitle || 'Developer Docs')}</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              {String(docsConfig?.landingSubtitle || 'Reference documentation, OAuth flows, and API usage guides.')}
+            </p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <a
-                href="https://developer.scrolith.com"
-                target="_blank"
-                rel="noreferrer"
+                href={String(docsConfig?.portalHomeUrl || '/developer')}
                 className="rounded-xl border border-slate-200 p-3 text-sm text-slate-700 hover:bg-slate-50"
               >
                 <p className="font-semibold text-slate-900">Developer Portal Home</p>
-                <p className="mt-1 text-xs text-slate-500">Open the external developer portal domain.</p>
+                <p className="mt-1 text-xs text-slate-500">Open the primary developer dashboard.</p>
               </a>
               <a
-                href="/developer/docs"
+                href={String(docsConfig?.docsHomeUrl || '/developer/docs')}
                 className="rounded-xl border border-slate-200 p-3 text-sm text-slate-700 hover:bg-slate-50"
               >
                 <p className="font-semibold text-slate-900">Embedded Docs</p>
                 <p className="mt-1 text-xs text-slate-500">Read docs directly inside Scrolith.</p>
               </a>
             </div>
+            {docsPages.length ? (
+              <div className="mt-4 space-y-2">
+                {docsPages.slice(0, 6).map((page: any) => (
+                  <a
+                    key={String(page.id)}
+                    href={`/developer/docs?page=${encodeURIComponent(String(page.slug || page.id || ''))}`}
+                    className="block rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <p className="font-medium text-slate-900">{String(page.title || 'Untitled')}</p>
+                    {page.summary ? <p className="mt-0.5 text-xs text-slate-500">{String(page.summary)}</p> : null}
+                  </a>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
