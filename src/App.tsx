@@ -826,6 +826,14 @@ const AppContent = () => {
                 }
               />
               <Route
+                path="/developer/products"
+                element={
+                  <ProtectedRoute>
+                    <DeveloperPortal />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="/developer/docs"
                 element={
                   <ProtectedRoute>

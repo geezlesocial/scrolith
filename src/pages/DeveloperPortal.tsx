@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useNotification } from '../context/NotificationContext';
 import { DeveloperPlatformService } from '../services/developerPlatform';
+import { CommunityService } from '../services/community';
 import { FileService } from '../services/files';
+import { resolveAssetUrl } from '../utils/assetUrl';
 
 type LinkMethod = 'SCROLITH_LOGIN_CONFIRM' | 'EMAIL_OTP';
 type LookupType = 'EMAIL' | 'USERNAME';
@@ -11,9 +14,63 @@ const sectionItems = [
   { id: 'connect', label: 'Connect Scrolith Account' },
   { id: 'apps', label: 'My Apps' },
   { id: 'logs', label: 'Logs & Analytics' },
+  { id: 'products', label: 'Products' },
   { id: 'docs', label: 'Docs' },
   { id: 'settings', label: 'Settings' }
 ];
+
+const productScopeCatalog = [
+  {
+    scope: 'openid',
+    product: 'Identity',
+    description: 'OpenID authentication handshake for login and identity tokens.',
+    requiresApproval: false
+  },
+  {
+    scope: 'username',
+    product: 'Identity',
+    description: 'Read the connected user username.',
+    requiresApproval: false
+  },
+  {
+    scope: 'avatar',
+    product: 'Identity',
+    description: 'Read the connected user avatar.',
+    requiresApproval: false
+  },
+  {
+    scope: 'followers.read',
+    product: 'Community',
+    description: 'Read follower graphs and follower analytics.',
+    requiresApproval: true
+  },
+  {
+    scope: 'posts.read',
+    product: 'Community',
+    description: 'Read posts and post engagement analytics.',
+    requiresApproval: true
+  },
+  {
+    scope: 'jobs.read',
+    product: 'Jobs',
+    description: 'Read job listing data and status.',
+    requiresApproval: true
+  },
+  {
+    scope: 'gigs.read',
+    product: 'Gigs',
+    description: 'Read gig catalog data and performance.',
+    requiresApproval: true
+  },
+  {
+    scope: 'notifications.read',
+    product: 'Notifications',
+    description: 'Read user notification events.',
+    requiresApproval: true
+  }
+];
+
+const validSectionIds = new Set(sectionItems.map((item) => item.id));
 
 const statusBadgeClass = (status: string) => {
   const normalized = String(status || '').toUpperCase();
@@ -38,12 +95,39 @@ const normalizePlatformUrl = (value: string): string | null => {
   }
 };
 
+const normalizeHttpUrl = (value: string): string | null => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    const parsed = new URL(withScheme);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+    if (!parsed.hostname || !parsed.hostname.includes('.')) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+};
+
+const getSectionFromRoute = (pathname: string, search: string) => {
+  const path = String(pathname || '').toLowerCase();
+  if (path.endsWith('/developer/apps')) return 'apps';
+  if (path.endsWith('/developer/products')) return 'products';
+
+  const section = String(new URLSearchParams(search).get('section') || '').trim().toLowerCase();
+  if (section && validSectionIds.has(section)) return section;
+  return 'overview';
+};
+
 const DeveloperPortal: React.FC = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
   const { showNotification } = useNotification();
-  const [activeSection, setActiveSection] = useState('overview');
+  const [activeSection, setActiveSection] = useState(() => getSectionFromRoute(location.pathname, location.search));
   const [loading, setLoading] = useState(true);
   const [me, setMe] = useState<any>(null);
   const [apps, setApps] = useState<any[]>([]);
+  const [myBusinessPages, setMyBusinessPages] = useState<any[]>([]);
   const [selectedAppLogs, setSelectedAppLogs] = useState<any[]>([]);
   const [selectedAppId, setSelectedAppId] = useState('');
   const [requestingLink, setRequestingLink] = useState(false);
@@ -59,9 +143,12 @@ const DeveloperPortal: React.FC = () => {
 
   const [newAppName, setNewAppName] = useState('');
   const [newAppTagline, setNewAppTagline] = useState('');
+  const [newAppTermsUrl, setNewAppTermsUrl] = useState('');
+  const [newAppPrivacyUrl, setNewAppPrivacyUrl] = useState('');
   const [newAppPlatformUrls, setNewAppPlatformUrls] = useState('https://example.com');
-  const [newAppScopes, setNewAppScopes] = useState('profile:read email:read');
+  const [newAppScopes, setNewAppScopes] = useState('openid username avatar');
   const [newAppRedirectUris, setNewAppRedirectUris] = useState('https://example.com/oauth/callback');
+  const [newAppConnectedPageId, setNewAppConnectedPageId] = useState('');
   const [newAppLogoFileId, setNewAppLogoFileId] = useState('');
   const [newAppLogoUrl, setNewAppLogoUrl] = useState('');
   const [newAppLogoName, setNewAppLogoName] = useState('');
@@ -71,17 +158,47 @@ const DeveloperPortal: React.FC = () => {
 
   const isLinked = String(me?.linkStatus || '').toUpperCase() === 'LINKED';
 
+  useEffect(() => {
+    setActiveSection(getSectionFromRoute(location.pathname, location.search));
+  }, [location.pathname, location.search]);
+
+  const openSection = useCallback(
+    (sectionId: string) => {
+      const normalized = String(sectionId || '').trim().toLowerCase();
+      if (!validSectionIds.has(normalized)) return;
+      if (normalized === 'products') {
+        navigate('/developer/products');
+        return;
+      }
+      if (normalized === 'apps' && String(location.pathname || '').toLowerCase().endsWith('/developer/apps')) {
+        setActiveSection('apps');
+        return;
+      }
+
+      const params = new URLSearchParams(location.search);
+      if (normalized === 'overview') params.delete('section');
+      else params.set('section', normalized);
+      navigate({
+        pathname: normalized === 'apps' ? '/developer/apps' : '/developer',
+        search: params.toString() ? `?${params.toString()}` : ''
+      });
+    },
+    [location.pathname, location.search, navigate]
+  );
+
   const loadDashboard = useCallback(async () => {
     setLoading(true);
     try {
-      const [meData, appData, docsData] = await Promise.all([
+      const [meData, appData, docsData, pagesData] = await Promise.all([
         DeveloperPlatformService.getMe(),
         DeveloperPlatformService.getApps(),
-        DeveloperPlatformService.getDocs().catch(() => null)
+        DeveloperPlatformService.getDocs().catch(() => null),
+        CommunityService.getMyBusinessPages().catch(() => [])
       ]);
       setMe(meData || null);
       setApps(Array.isArray(appData) ? appData : []);
       setDocsConfig(docsData || null);
+      setMyBusinessPages(Array.isArray(pagesData) ? pagesData : []);
     } catch (error: any) {
       showNotification('error', 'Developer Portal', error?.message || 'Failed to load developer dashboard.');
     } finally {
@@ -105,6 +222,23 @@ const DeveloperPortal: React.FC = () => {
       ),
     [newAppScopes]
   );
+
+  const connectedPage = useMemo(() => {
+    if (!newAppConnectedPageId) return null;
+    return myBusinessPages.find((page) => String(page?.id || '') === String(newAppConnectedPageId || '')) || null;
+  }, [myBusinessPages, newAppConnectedPageId]);
+
+  const connectedPageSlug = useMemo(
+    () => String(connectedPage?.slug || connectedPage?.handle || connectedPage?.id || '').trim(),
+    [connectedPage]
+  );
+
+  const connectedPageUrl = useMemo(
+    () => (connectedPageSlug ? `https://scrolith.com/company/${encodeURIComponent(connectedPageSlug)}` : ''),
+    [connectedPageSlug]
+  );
+
+  const requestedScopeSet = useMemo(() => new Set(requestedScopes), [requestedScopes]);
 
   const platformUrls = useMemo(
     () =>
@@ -136,6 +270,22 @@ const DeveloperPortal: React.FC = () => {
     () => (Array.isArray(docsConfig?.pages) ? docsConfig.pages.filter((page: any) => page?.isPublished !== false) : []),
     [docsConfig?.pages]
   );
+
+  const setScopeState = useCallback((scope: string, enabled: boolean) => {
+    const targetScope = String(scope || '').trim();
+    if (!targetScope) return;
+    setNewAppScopes((prev) => {
+      const set = new Set(
+        String(prev || '')
+          .split(/[\s,]+/g)
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      );
+      if (enabled) set.add(targetScope);
+      else set.delete(targetScope);
+      return Array.from(set).join(' ');
+    });
+  }, []);
 
   const handleLinkRequest = async () => {
     if (!lookupValue.trim()) {
@@ -208,12 +358,35 @@ const DeveloperPortal: React.FC = () => {
       );
       return;
     }
+
+    const termsUrl = normalizeHttpUrl(newAppTermsUrl);
+    if (String(newAppTermsUrl || '').trim() && !termsUrl) {
+      showNotification('error', 'Developer app', 'Provide a valid App/platform Terms URL.');
+      return;
+    }
+
+    const privacyUrl = normalizeHttpUrl(newAppPrivacyUrl);
+    if (String(newAppPrivacyUrl || '').trim() && !privacyUrl) {
+      showNotification('error', 'Developer app', 'Provide a valid App/platform Privacy URL.');
+      return;
+    }
+
+    const pagePlatformOrigin = connectedPageUrl ? normalizePlatformUrl(connectedPageUrl) : null;
+    const effectivePlatformUrls = Array.from(
+      new Set([...(platformUrls || []), ...(pagePlatformOrigin ? [pagePlatformOrigin] : [])].filter(Boolean))
+    );
+
     setCreatingApp(true);
     try {
       const data = await DeveloperPlatformService.createApp({
         name: newAppName.trim(),
         tagline: newAppTagline.trim(),
-        platformUrls,
+        platformUrls: effectivePlatformUrls,
+        appUrl: connectedPageUrl || undefined,
+        connectedPageId: connectedPage ? connectedPage.id : undefined,
+        connectedPageSlug: connectedPageSlug || undefined,
+        termsUrl: termsUrl || undefined,
+        privacyUrl: privacyUrl || undefined,
         logoFileId: newAppLogoFileId || undefined,
         requestedScopes,
         redirectUris
@@ -221,7 +394,11 @@ const DeveloperPortal: React.FC = () => {
       setLastClientSecret(String(data?.clientSecret || ''));
       setNewAppName('');
       setNewAppTagline('');
+      setNewAppTermsUrl('');
+      setNewAppPrivacyUrl('');
       setNewAppPlatformUrls('https://example.com');
+      setNewAppScopes('openid username avatar');
+      setNewAppConnectedPageId('');
       setNewAppLogoFileId('');
       setNewAppLogoUrl('');
       setNewAppLogoName('');
@@ -459,6 +636,24 @@ const DeveloperPortal: React.FC = () => {
           />
         </label>
         <label className="space-y-1 text-sm">
+          <span className="text-slate-600">App/platform Terms URL</span>
+          <input
+            value={newAppTermsUrl}
+            onChange={(event) => setNewAppTermsUrl(event.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="https://example.com/terms"
+          />
+        </label>
+        <label className="space-y-1 text-sm">
+          <span className="text-slate-600">App/platform Privacy URL</span>
+          <input
+            value={newAppPrivacyUrl}
+            onChange={(event) => setNewAppPrivacyUrl(event.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            placeholder="https://example.com/privacy"
+          />
+        </label>
+        <label className="space-y-1 text-sm">
           <span className="text-slate-600">App/platform URLs (comma or newline separated)</span>
           <textarea
             value={newAppPlatformUrls}
@@ -472,12 +667,74 @@ const DeveloperPortal: React.FC = () => {
           </p>
         </label>
         <label className="space-y-1 text-sm">
+          <span className="text-slate-600">Connect Scrolith Page (optional)</span>
+          <select
+            value={newAppConnectedPageId}
+            onChange={(event) => setNewAppConnectedPageId(event.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="">No connected page</option>
+            {myBusinessPages.map((page: any) => (
+              <option key={String(page?.id || '')} value={String(page?.id || '')}>
+                {String(page?.name || 'Untitled Page')} ({String(page?.slug || page?.handle || page?.id || '').trim()})
+              </option>
+            ))}
+          </select>
+          {connectedPageUrl ? (
+            <p className="text-xs text-slate-500">
+              Connected page URL: <span className="font-medium text-slate-700">{connectedPageUrl}</span>
+            </p>
+          ) : (
+            <p className="text-xs text-slate-500">Connect one of your existing Scrolith pages to scope this app to your page brand.</p>
+          )}
+        </label>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-slate-900">Developer Products & Scopes</p>
+            <button
+              type="button"
+              onClick={() => openSection('products')}
+              className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            >
+              View Products
+            </button>
+          </div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {productScopeCatalog.map((entry) => {
+              const enabled = requestedScopeSet.has(entry.scope);
+              return (
+                <label key={entry.scope} className="flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(event) => setScopeState(entry.scope, event.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="font-semibold text-slate-800">{entry.scope}</span>{' '}
+                    <span className="text-slate-500">({entry.product})</span>
+                    <span className="mt-0.5 block text-slate-500">{entry.description}</span>
+                    {entry.requiresApproval ? (
+                      <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                        Admin approval required
+                      </span>
+                    ) : null}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+        <label className="space-y-1 text-sm">
           <span className="text-slate-600">Requested scopes (space/comma separated)</span>
           <input
             value={newAppScopes}
             onChange={(event) => setNewAppScopes(event.target.value)}
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
           />
+          <p className="text-xs text-slate-500">
+            Advanced scopes are routed through admin approval policy before activation.
+          </p>
         </label>
         <label className="space-y-1 text-sm">
           <span className="text-slate-600">Redirect URIs (comma or newline separated)</span>
@@ -520,11 +777,36 @@ const DeveloperPortal: React.FC = () => {
           {apps.map((app) => (
             <div key={app.id} className="rounded-xl border border-slate-200 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">{app.name}</p>
-                  <p className="text-xs text-slate-500">Client ID: {app.clientId}</p>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                      {app?.logoFileId ? (
+                        <img
+                          src={resolveAssetUrl(`/api/files/content/${encodeURIComponent(String(app.logoFileId))}`)}
+                          alt={`${String(app?.name || 'App')} logo`}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span className="text-xs font-semibold text-slate-500">
+                          {String(app?.name || 'A').trim().slice(0, 1).toUpperCase() || 'A'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-900">{app.name}</p>
+                      <p className="truncate text-xs text-slate-500">Client ID: {app.clientId}</p>
+                    </div>
+                  </div>
+                  {app?.appUrl ? (
+                    <p className="mt-1 truncate text-xs text-slate-500">Connected URL: {String(app.appUrl)}</p>
+                  ) : null}
+                  {app?.termsUrl ? <p className="mt-1 truncate text-xs text-slate-500">Terms: {String(app.termsUrl)}</p> : null}
+                  {app?.privacyUrl ? <p className="mt-1 truncate text-xs text-slate-500">Privacy: {String(app.privacyUrl)}</p> : null}
                   {Array.isArray(app.platformUrls) && app.platformUrls.length ? (
-                    <p className="mt-1 text-xs text-slate-500">Platform URLs: {app.platformUrls.join(', ')}</p>
+                    <p className="mt-1 truncate text-xs text-slate-500">Platform URLs: {app.platformUrls.join(', ')}</p>
+                  ) : null}
+                  {Array.isArray(app.requestedScopes) && app.requestedScopes.length ? (
+                    <p className="mt-1 truncate text-xs text-slate-500">Scopes: {app.requestedScopes.join(', ')}</p>
                   ) : null}
                 </div>
                 <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(String(app.status || ''))}`}>
@@ -614,7 +896,7 @@ const DeveloperPortal: React.FC = () => {
             <button
               key={item.id}
               type="button"
-              onClick={() => setActiveSection(item.id)}
+              onClick={() => openSection(item.id)}
               className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
                 activeSection === item.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
               }`}
@@ -664,6 +946,67 @@ const DeveloperPortal: React.FC = () => {
 
         {activeSection === 'logs' ? logsPanel : null}
 
+        {activeSection === 'products' ? (
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 className="text-base font-semibold text-slate-900">Developer Products</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Select product scopes for your app. Advanced scopes are routed through admin approval policy before activation.
+            </p>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {productScopeCatalog.map((entry) => {
+                const enabled = requestedScopeSet.has(entry.scope);
+                return (
+                  <div key={entry.scope} className="rounded-xl border border-slate-200 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">{entry.scope}</p>
+                        <p className="text-xs text-slate-500">{entry.product}</p>
+                      </div>
+                      {entry.requiresApproval ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                          Approval
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                          Standard
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-2 text-xs text-slate-600">{entry.description}</p>
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                      <span className={`text-xs font-medium ${enabled ? 'text-emerald-700' : 'text-slate-500'}`}>
+                        {enabled ? 'Added to request' : 'Not requested'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setScopeState(entry.scope, !enabled)}
+                        className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                      >
+                        {enabled ? 'Remove' : 'Request Scope'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => openSection('apps')}
+                className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-500"
+              >
+                Continue to Create App
+              </button>
+              <a
+                href="/developer/docs?page=products"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Read Products Docs
+              </a>
+            </div>
+          </div>
+        ) : null}
+
         {activeSection === 'docs' ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <h3 className="text-base font-semibold text-slate-900">{String(docsConfig?.landingTitle || 'Developer Docs')}</h3>
@@ -684,6 +1027,13 @@ const DeveloperPortal: React.FC = () => {
               >
                 <p className="font-semibold text-slate-900">Embedded Docs</p>
                 <p className="mt-1 text-xs text-slate-500">Read docs directly inside Scrolith.</p>
+              </a>
+              <a
+                href="/developer/products"
+                className="rounded-xl border border-slate-200 p-3 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                <p className="font-semibold text-slate-900">Products & Scopes</p>
+                <p className="mt-1 text-xs text-slate-500">Browse scope products and approval requirements.</p>
               </a>
             </div>
             {docsPages.length ? (
