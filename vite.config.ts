@@ -9,8 +9,10 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+  const publicBase = (env.VITE_PUBLIC_BASE || '/').trim() || '/';
   return {
-    base: mode === 'production' ? '/scrolith/' : '/', // Use repo base only for production (GH Pages); dev uses '/'
+    // scrolith.com serves the app at root; keep '/' unless explicitly overridden.
+    base: publicBase.startsWith('/') ? publicBase : `/${publicBase}`,
     server: {
       port: 3000,
       host: '0.0.0.0',
