@@ -10,7 +10,12 @@
       "DOM.Iterable"
     ],
     "skipLibCheck": true,
-    "types": [],
+    "types": [
+      "vite/client",
+      "node",
+      "react",
+      "react-dom"
+    ],
     "moduleResolution": "bundler",
     "isolatedModules": true,
     "moduleDetection": "force",
@@ -23,5 +28,41 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": [
+    "App.tsx",
+    "index.tsx",
+    "types.ts",
+    "constants.ts",
+    "auth/**/*",
+    "community/**/*",
+    "components/**/*",
+    "context/**/*",
+    "create-gig/**/*",
+    "create-job-post/**/*",
+    "dashboard/**/*",
+    "kyc/**/*",
+    "main/**/*",
+    "messages/**/*",
+    "pages/**/*",
+    "profile/**/*",
+    "routes/**/*",
+    "services/**/*",
+    "src/types.ts",
+    "src/context/NotificationContext.tsx",
+    "src/services/admin.ts",
+    "src/dashboard/admin/Profile.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tmp",
+    "tests",
+    "cypress",
+    "playwright-report",
+    "test-results",
+    "geezle-backend",
+    "mobile",
+    "**/*.cjs"
+  ]
 }

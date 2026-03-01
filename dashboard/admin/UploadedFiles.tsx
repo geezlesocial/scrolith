@@ -6,6 +6,13 @@ import { CMSService } from '../../services/cms';
 import { useNotification } from '../../context/NotificationContext';
 import { Upload, Eye, Trash2 } from 'lucide-react';
 
+const normalizeMediaType = (value: string): MediaItem['type'] => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'image' || normalized.startsWith('image/')) return 'image';
+    if (normalized === 'video' || normalized.startsWith('video/')) return 'video';
+    return 'document';
+};
+
 const UploadedFilesTab = () => {
     const [files, setFiles] = useState<MediaItem[]>([]);
     const { showNotification } = useNotification();
@@ -18,7 +25,7 @@ const UploadedFilesTab = () => {
                  id: f.id,
                  name: f.name,
                  url: f.url,
-                 type: f.type,
+                 type: normalizeMediaType(f.type),
                  size: f.size,
                  createdAt: f.createdAt
              }));
@@ -30,7 +37,15 @@ const UploadedFilesTab = () => {
         if (e.target.files?.[0]) {
             // Upload using CMSService wrapper (which now uses FileService) or directly
             CMSService.uploadMedia(e.target.files[0]).then(newItem => {
-                setFiles(prev => [newItem, ...prev]);
+                const mediaItem: MediaItem = {
+                    id: newItem.id,
+                    name: newItem.name,
+                    url: newItem.url,
+                    type: normalizeMediaType(newItem.type),
+                    size: newItem.size,
+                    createdAt: newItem.createdAt
+                };
+                setFiles(prev => [mediaItem, ...prev]);
                 showNotification('success', 'File Uploaded', 'New media added to library.');
             });
         }

@@ -214,53 +214,53 @@ const Navbar = () => {
                                                     ))}
                                                 </div>
                                             </div>
-                                            {/* Mobile collapsed panel */}
-                                            <div className={`md:hidden fixed inset-0 z-50 transition-opacity duration-200 ${mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
-                                                <div className="absolute inset-0 bg-black/40 transition-opacity duration-200" onClick={() => setMobileOpen(false)} />
-                                                <div id="mobile-panel" role="dialog" aria-modal="true" tabIndex={-1} className={`absolute right-0 top-0 w-72 h-full bg-white shadow-lg p-4 overflow-y-auto transform transition-transform duration-200 ${mobileOpen ? 'translate-x-0 ease-out' : 'translate-x-full ease-in'}`}>
-                                                    <div className="flex items-center justify-between mb-4">
-                                                        <Link to={headerConfig.homeUrl || '/'} className="flex items-center">
-                                                            {displayLogo ? <img src={displayLogo} alt="Logo" className="h-8 w-auto object-contain" /> : <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-lg text-white">G</div>}
-                                                        </Link>
-                                                        <button onClick={() => setMobileOpen(false)} className="p-2 rounded-md text-gray-600 hover:bg-gray-100"><X className="w-5 h-5" /></button>
-                                                    </div>
+                                        )}
+                                        {/* Mobile collapsed panel */}
+                                        <div className={`md:hidden fixed inset-0 z-50 transition-opacity duration-200 ${mobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
+                                            <div className="absolute inset-0 bg-black/40 transition-opacity duration-200" onClick={() => setMobileOpen(false)} />
+                                            <div id="mobile-panel" role="dialog" aria-modal="true" tabIndex={-1} className={`absolute right-0 top-0 w-72 h-full bg-white shadow-lg p-4 overflow-y-auto transform transition-transform duration-200 ${mobileOpen ? 'translate-x-0 ease-out' : 'translate-x-full ease-in'}`}>
+                                                <div className="flex items-center justify-between mb-4">
+                                                    <Link to={headerConfig.homeUrl || '/'} className="flex items-center">
+                                                        {displayLogo ? <img src={displayLogo} alt="Logo" className="h-8 w-auto object-contain" /> : <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center font-bold text-lg text-white">G</div>}
+                                                    </Link>
+                                                    <button onClick={() => setMobileOpen(false)} className="p-2 rounded-md text-gray-600 hover:bg-gray-100"><X className="w-5 h-5" /></button>
+                                                </div>
 
-                                                    <nav className="space-y-3">
-                                                        {headerConfig.navigation.map((item: any) => (
-                                                            <div key={item.id} className="">
-                                                                {item.visibility.includes(userRole) && (
-                                                                    <Link to={getResolvedPath(item)} onClick={() => setMobileOpen(false)} className="block px-3 py-2 rounded text-gray-700 hover:bg-gray-50">{item.label}</Link>
-                                                                )}
-                                                            </div>
-                                                        ))}
-
-                                                        <Link to="/community/gcoin" onClick={() => setMobileOpen(false)} className="block px-3 py-2 rounded text-gray-700 hover:bg-gray-50">Gcoin</Link>
-                                                        <Link to="/community/my-ads" onClick={() => setMobileOpen(false)} className="block px-3 py-2 rounded text-gray-700 hover:bg-gray-50">My Ads</Link>
-
-                                                        <div className="border-t border-gray-100 mt-4 pt-3">
-                                                            {isAuthenticated ? (
-                                                                <>
-                                                                    {headerConfig.profileMenu.map((pm: any) => pm.visibility.includes(userRole) && (
-                                                                        <Link key={pm.id} to={getResolvedPath(pm)} onClick={() => setMobileOpen(false)} className="block px-3 py-2 rounded text-gray-700 hover:bg-gray-50">{pm.label}</Link>
-                                                                    ))}
-                                                                    <button onClick={() => { setMobileOpen(false); handleLogout(); }} className="w-full text-left px-3 py-2 rounded text-red-600">Sign out</button>
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <Link to="/auth/login" onClick={() => setMobileOpen(false)} className="block px-3 py-2 rounded text-gray-700 hover:bg-gray-50">Log in</Link>
-                                                                    <Link to="/auth/signup" onClick={() => setMobileOpen(false)} className="block px-3 py-2 rounded bg-blue-600 text-white text-center">Sign up</Link>
-                                                                </>
+                                                <nav className="space-y-3">
+                                                    {headerConfig.navigation.map((item: any) => (
+                                                        <div key={item.id} className="">
+                                                            {item.visibility.includes(userRole) && (
+                                                                <Link to={getResolvedPath(item)} onClick={() => setMobileOpen(false)} className="block px-3 py-2 rounded text-gray-700 hover:bg-gray-50">{item.label}</Link>
                                                             )}
                                                         </div>
-                                                    </nav>
-                                                </div>
+                                                    ))}
 
-                                                {/* ARIA live region for screen readers */}
-                                                <div aria-live="polite" role="status" className="sr-only">
-                                                    {mobileOpen ? 'Mobile menu opened' : 'Mobile menu closed'}
-                                                </div>
+                                                    <Link to="/community/gcoin" onClick={() => setMobileOpen(false)} className="block px-3 py-2 rounded text-gray-700 hover:bg-gray-50">Gcoin</Link>
+                                                    <Link to="/community/my-ads" onClick={() => setMobileOpen(false)} className="block px-3 py-2 rounded text-gray-700 hover:bg-gray-50">My Ads</Link>
+
+                                                    <div className="border-t border-gray-100 mt-4 pt-3">
+                                                        {isAuthenticated ? (
+                                                            <>
+                                                                {headerConfig.profileMenu.map((pm: any) => pm.visibility.includes(userRole) && (
+                                                                    <Link key={pm.id} to={getResolvedPath(pm)} onClick={() => setMobileOpen(false)} className="block px-3 py-2 rounded text-gray-700 hover:bg-gray-50">{pm.label}</Link>
+                                                                ))}
+                                                                <button onClick={() => { setMobileOpen(false); handleLogout(); }} className="w-full text-left px-3 py-2 rounded text-red-600">Sign out</button>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Link to="/auth/login" onClick={() => setMobileOpen(false)} className="block px-3 py-2 rounded text-gray-700 hover:bg-gray-50">Log in</Link>
+                                                                <Link to="/auth/signup" onClick={() => setMobileOpen(false)} className="block px-3 py-2 rounded bg-blue-600 text-white text-center">Sign up</Link>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </nav>
                                             </div>
-                                        )}
+
+                                            {/* ARIA live region for screen readers */}
+                                            <div aria-live="polite" role="status" className="sr-only">
+                                                {mobileOpen ? 'Mobile menu opened' : 'Mobile menu closed'}
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
 

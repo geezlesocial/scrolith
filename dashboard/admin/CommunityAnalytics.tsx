@@ -1,11 +1,11 @@
 
 import React, { useEffect, useState } from 'react';
 import { CommunityService } from '../../services/community';
-import { CommunityAnalytics } from '../../types';
+import type { CommunityAnalytics as CommunityAnalyticsData } from '../../types';
 import { BarChart2, Activity, Users, ShieldAlert, MessageSquare, TrendingUp, AlertOctagon } from 'lucide-react';
 
 const CommunityAnalytics = () => {
-    const [data, setData] = useState<CommunityAnalytics | null>(null);
+    const [data, setData] = useState<CommunityAnalyticsData | null>(null);
 
     useEffect(() => {
         CommunityService.getCommunityAnalytics().then(setData);
