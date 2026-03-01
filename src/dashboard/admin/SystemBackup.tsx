@@ -60,6 +60,19 @@ const parseLines = (value: string) =>
     )
   );
 
+const getApiErrorMessage = (error: any, fallback: string) => {
+  const payload = error?.response?.data || {};
+  const candidates = [
+    payload?.error,
+    payload?.message,
+    payload?.data?.error,
+    payload?.data?.message,
+    error?.message
+  ];
+  const message = candidates.find((entry) => typeof entry === 'string' && entry.trim());
+  return String(message || fallback || 'Request failed');
+};
+
 const formatBytes = (bytes: number) => {
   const value = Number(bytes || 0);
   if (!Number.isFinite(value) || value <= 0) return '0 B';
@@ -133,7 +146,7 @@ const SystemBackup: React.FC = () => {
         setSections(resolvedSections);
         setBackups(Array.isArray(backupRows) ? backupRows : []);
       } catch (error: any) {
-        showNotification('error', 'System Backup', error?.message || 'Failed to load backups.');
+        showNotification('error', 'System Backup', getApiErrorMessage(error, 'Failed to load backups.'));
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -252,7 +265,7 @@ const SystemBackup: React.FC = () => {
       setCreateNotes('');
       await loadData(true);
     } catch (error: any) {
-      showNotification('error', 'System Backup', error?.message || 'Failed to create backup.');
+      showNotification('error', 'System Backup', getApiErrorMessage(error, 'Failed to create backup.'));
     } finally {
       setCreating(false);
     }
@@ -273,7 +286,7 @@ const SystemBackup: React.FC = () => {
       showNotification('success', 'System Backup', 'Backup file imported successfully.');
       await loadData(true);
     } catch (error: any) {
-      showNotification('error', 'System Backup', error?.message || 'Failed to import backup.');
+      showNotification('error', 'System Backup', getApiErrorMessage(error, 'Failed to import backup.'));
     } finally {
       setImporting(false);
     }
@@ -292,7 +305,7 @@ const SystemBackup: React.FC = () => {
       window.URL.revokeObjectURL(url);
       showNotification('success', 'Backup Download', 'Backup file download started.');
     } catch (error: any) {
-      showNotification('error', 'Backup Download', error?.message || 'Failed to download backup.');
+      showNotification('error', 'Backup Download', getApiErrorMessage(error, 'Failed to download backup.'));
     }
   };
 
@@ -320,7 +333,7 @@ const SystemBackup: React.FC = () => {
       showNotification('success', 'System Backup', 'Backup file(s) deleted.');
       await loadData(true);
     } catch (error: any) {
-      showNotification('error', 'System Backup', error?.message || 'Failed to delete backup file(s).');
+      showNotification('error', 'System Backup', getApiErrorMessage(error, 'Failed to delete backup file(s).'));
     } finally {
       setDeletingIds(new Set());
     }
@@ -375,7 +388,7 @@ const SystemBackup: React.FC = () => {
       resetRestoreState();
       await loadData(true);
     } catch (error: any) {
-      showNotification('error', 'Restore Failed', error?.message || 'Failed to restore backup.');
+      showNotification('error', 'Restore Failed', getApiErrorMessage(error, 'Failed to restore backup.'));
     } finally {
       setRestoring(false);
     }

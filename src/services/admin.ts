@@ -1078,8 +1078,12 @@ export const AdminService = {
     const form = new FormData();
     form.append('file', file);
     if (notes && notes.trim()) form.append('notes', notes.trim());
+    const headers = await getAuthHeaders();
     const response = await api.post(`${ADMIN_BASE}/system-backups/import`, form, {
-      headers: await getAuthHeaders()
+      headers: {
+        ...headers,
+        'Content-Type': 'multipart/form-data'
+      }
     });
     return extractData<any>(response);
   },
