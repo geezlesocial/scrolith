@@ -48,10 +48,11 @@ const RecommendationManagement = React.lazy(() => import('./admin/Recommendation
 const ScrolithaManagement = React.lazy(() => import('./admin/ScrolithaManagement'));
 const AppManagement = React.lazy(() => import('./admin/AppManagement'));
 const MobileHomepage = React.lazy(() => import('./admin/MobileHomepage'));
+const SystemBackup = React.lazy(() => import('./admin/SystemBackup'));
 const AdminDeveloperPlatform = React.lazy(() => import('../pages/AdminDeveloperPlatform'));
 
 // Define valid tab types
-type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps' | 'developer-platform';
+type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps' | 'developer-platform' | 'system-backup';
 
 // Define navigation item interface
 interface NavItem {
@@ -117,7 +118,7 @@ const AdminDashboard: React.FC = () => {
         const validTabs: Tab[] = [
             'overview', 'analytics', 'listings', 'engagement', 'finance', 'gateways', 'cms', 
             'homepage', 'mobile-homepage', 'blog', 'marketing', 'users', 'monetization', 'files', 'staff', 'role-management', 'moderator-console', 'message-records', 'kyc', 
-            'support', 'system', 'profile', 'messages', 'ai', 'atm', 'insights-growth', 'community', 'recommendations', 'navigation', 'reviews', 'languages', 'forms', 'google-settings', 'scrolitha', 'apps', 'developer-platform'
+            'support', 'system', 'profile', 'messages', 'ai', 'atm', 'insights-growth', 'community', 'recommendations', 'navigation', 'reviews', 'languages', 'forms', 'google-settings', 'scrolitha', 'apps', 'developer-platform', 'system-backup'
         ];
         return validTabs.includes(tab as Tab);
     };
@@ -325,6 +326,7 @@ const AdminDashboard: React.FC = () => {
             items: [
                 { id: 'apps', label: 'App Management', icon: Smartphone },
                 { id: 'developer-platform', label: 'Developer Platform', icon: ExternalLink },
+                { id: 'system-backup', label: 'System Backup', icon: HardDrive },
                 { id: 'navigation', label: 'Nav & Activity', icon: Navigation },
                 { id: 'system', label: 'System Settings', icon: Settings }
             ] 
@@ -377,6 +379,7 @@ const AdminDashboard: React.FC = () => {
             case 'system': return <SystemSettings />;
             case 'apps': return <AppManagement />;
             case 'developer-platform': return <AdminDeveloperPlatform />;
+            case 'system-backup': return <SystemBackup />;
             case 'languages': return <Languages />;
             case 'google-settings': return <GoogleSettings />;
             case 'profile': return <Profile />;
@@ -389,6 +392,7 @@ const AdminDashboard: React.FC = () => {
         if (tab === 'atm') return 'ATM Time Tracker';
         if (tab === 'google-settings') return 'Google Settings';
         if (tab === 'developer-platform') return 'Developer Platform';
+        if (tab === 'system-backup') return 'System Backup';
         return tab.replace(/([A-Z])/g, ' $1').trim().replace(/\b\w/g, l => l.toUpperCase());
     };
 

@@ -1046,6 +1046,67 @@ export const AdminService = {
     return adminPost<any>(`/apps/campaigns/${encodeURIComponent(id)}/resend`, payload || {});
   },
 
+  // ---- System Backup Module ----
+  async getSystemBackupMeta(): Promise<{ sections: string[] }> {
+    return adminGet<{ sections: string[] }>('/system-backups/meta');
+  },
+
+  async getSystemBackups(): Promise<any[]> {
+    const data = await adminGet<any[]>('/system-backups');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createSystemBackup(payload: {
+    mode: 'full' | 'partial';
+    sections?: string[];
+    customTables?: string[];
+    includeFiles?: boolean;
+    notes?: string;
+  }): Promise<any> {
+    return adminPost<any>('/system-backups/create', payload);
+  },
+
+  async downloadSystemBackup(backupId: string): Promise<Blob> {
+    const response = await api.get(`${ADMIN_BASE}/system-backups/${encodeURIComponent(backupId)}/download`, {
+      headers: await getAuthHeaders(),
+      responseType: 'blob'
+    });
+    return response.data as Blob;
+  },
+
+  async importSystemBackup(file: File, notes?: string): Promise<any> {
+    const form = new FormData();
+    form.append('file', file);
+    if (notes && notes.trim()) form.append('notes', notes.trim());
+    const response = await api.post(`${ADMIN_BASE}/system-backups/import`, form, {
+      headers: await getAuthHeaders()
+    });
+    return extractData<any>(response);
+  },
+
+  async restoreSystemBackup(
+    backupId: string,
+    payload: {
+      scrolithLicense: string;
+      adminEmail: string;
+      adminPassword: string;
+      mode?: 'replace' | 'append';
+      sections?: string[];
+      customTables?: string[];
+      includeFiles?: boolean;
+    }
+  ): Promise<any> {
+    return adminPost<any>(`/system-backups/${encodeURIComponent(backupId)}/restore`, payload);
+  },
+
+  async deleteSystemBackup(backupId: string): Promise<{ deletedCount: number; deleted: any[] }> {
+    return adminDelete<{ deletedCount: number; deleted: any[] }>(`/system-backups/${encodeURIComponent(backupId)}`);
+  },
+
+  async deleteSystemBackups(backupIds: string[]): Promise<{ deletedCount: number; deleted: any[] }> {
+    return adminPost<{ deletedCount: number; deleted: any[] }>('/system-backups/delete-batch', { backupIds });
+  },
+
   // ---- Form Builder ----
   async getFormConfig(): Promise<any> {
     return getAdminFormConfig<any>();

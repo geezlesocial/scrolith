@@ -121,6 +121,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'dev:config_updated', fn: forward('dev:config_updated') }
       ,{ ev: 'dev:log_created', fn: forward('dev:log_created') }
       ,{ ev: 'dev:docs_updated', fn: forward('dev:docs_updated') }
+      ,{ ev: 'admin:system_backup_updated', fn: forward('admin:system_backup_updated') }
     ];
 
     handlers.forEach(h => socket.on(h.ev, h.fn));
