@@ -9,9 +9,11 @@ import {
   generateClientCredentials,
   getOrCreateDeveloperPlatformConfig,
   normalizeScopes,
+  sanitizePlatformUrls,
   sanitizeUrlOrNull,
   toDeveloperAppResponse
 } from '../services/developerPlatform.service';
+import { sendSystemMessage } from '../services/systemMessaging';
 
 const getRequestMeta = (req: Request) => ({
   ip: String(req.ip || req.headers['x-forwarded-for'] || '').slice(0, 255) || null,
@@ -33,6 +35,91 @@ const sanitizeRedirectUris = (value: unknown): string[] => {
     if (url) unique.add(url);
   });
   return Array.from(unique);
+};
+
+const parsePlatformUrlEntries = (value: unknown): string[] => {
+  const entries = Array.isArray(value) ? value : String(value || '').split(/[\n,]/g);
+  return entries.map((entry) => String(entry || '').trim()).filter(Boolean);
+};
+
+const validatePlatformUrlsInput = (value: unknown) => {
+  const entries = parsePlatformUrlEntries(value);
+  const normalized = sanitizePlatformUrls(entries);
+  if (entries.length > 0 && normalized.length === 0) {
+    const error = new Error(
+      'Provide at least one valid app/platform URL (for example: https://example.com, https://www.example.com, example.com).'
+    );
+    (error as any).statusCode = 400;
+    throw error;
+  }
+  if (normalized.length > 50) {
+    const error = new Error('You can register up to 50 app/platform URLs.');
+    (error as any).statusCode = 400;
+    throw error;
+  }
+  return normalized;
+};
+
+const hostFromUrl = (value: string): string => {
+  try {
+    return String(new URL(value).hostname || '').trim().toLowerCase();
+  } catch {
+    return '';
+  }
+};
+
+const isHostAllowedByPlatformUrls = (host: string, platformUrls: string[]) => {
+  const candidate = String(host || '').trim().toLowerCase();
+  if (!candidate) return false;
+  return platformUrls.some((platformUrl) => {
+    const allowedHost = hostFromUrl(platformUrl);
+    if (!allowedHost) return false;
+    return candidate === allowedHost || candidate.endsWith(`.${allowedHost}`);
+  });
+};
+
+const assertRedirectUrisWithinPlatformUrls = (redirectUris: string[], platformUrls: string[]) => {
+  if (!platformUrls.length || !redirectUris.length) return;
+  const invalid = redirectUris.find((uri) => {
+    const redirectHost = hostFromUrl(uri);
+    return !isHostAllowedByPlatformUrls(redirectHost, platformUrls);
+  });
+  if (invalid) {
+    const error = new Error(
+      'All redirect URIs must use the app/platform URL domain or its subdomains.'
+    );
+    (error as any).statusCode = 400;
+    throw error;
+  }
+};
+
+const notifyDeveloper = async (params: {
+  userId?: string | null;
+  email?: string | null;
+  title: string;
+  message: string;
+  actionUrl?: string;
+  type?: string;
+}) => {
+  if (!params.userId && !params.email) return;
+  try {
+    await sendSystemMessage({
+      templateKey: 'system_notification',
+      userId: params.userId || null,
+      email: params.email || null,
+      actionUrl: params.actionUrl || '/developer',
+      typeOverride: params.type || 'developer_platform',
+      context: {
+        notification: {
+          title: params.title,
+          message: params.message,
+          link: params.actionUrl || '/developer'
+        }
+      }
+    });
+  } catch (error) {
+    console.warn('[developer] failed to send system message:', (error as any)?.message || error);
+  }
 };
 
 export const listDeveloperApps = async (req: Request, res: Response) => {
@@ -66,16 +153,18 @@ export const createDeveloperApp = async (req: Request, res: Response) => {
     const status = evaluateAutoApprovalStatus(config, requestedScopes);
     const platformType = parsePlatformType(req.body?.platformType);
     const redirectUris = sanitizeRedirectUris(req.body?.redirectUris);
+    const platformUrls = validatePlatformUrlsInput(req.body?.platformUrls);
+    assertRedirectUrisWithinPlatformUrls(redirectUris, platformUrls);
     const { clientId, clientSecret, clientSecretHash } = generateClientCredentials();
 
-    const app = await prisma.developerApp.create({
-      data: {
+    const createData: any = {
         ownerUserId,
         developerUserId: developerUser.id,
         name,
         tagline: String(req.body?.tagline || '').trim() || null,
         description: String(req.body?.description || '').trim() || null,
         appUrl: sanitizeUrlOrNull(req.body?.appUrl),
+        platformUrls,
         termsUrl: sanitizeUrlOrNull(req.body?.termsUrl),
         privacyUrl: sanitizeUrlOrNull(req.body?.privacyUrl),
         logoFileId: String(req.body?.logoFileId || '').trim() || null,
@@ -93,7 +182,10 @@ export const createDeveloperApp = async (req: Request, res: Response) => {
               }
             }
           : undefined
-      },
+      };
+
+    const app = await prisma.developerApp.create({
+      data: createData,
       include: { redirectUris: { where: { isActive: true }, orderBy: { createdAt: 'asc' } } }
     });
 
@@ -105,10 +197,31 @@ export const createDeveloperApp = async (req: Request, res: Response) => {
       status: app.status,
       metadata: {
         requestedScopes,
+        platformUrls,
         autoApprovalEnabled: config.autoApproveEnabled,
         sensitiveScopes: config.sensitiveScopes
       },
       ...getRequestMeta(req)
+    });
+
+    const createdStatus = String(app.status || '').toUpperCase();
+    const title =
+      createdStatus === DEV_APP_STATUS.ACTIVE
+        ? 'Developer app approved'
+        : createdStatus === DEV_APP_STATUS.PENDING_REVIEW
+          ? 'Developer app submitted for review'
+          : 'Developer app created';
+    const message =
+      createdStatus === DEV_APP_STATUS.ACTIVE
+        ? `${app.name} is active. You can now generate OAuth tokens and start API calls.`
+        : `${app.name} has been created and is waiting for admin approval.`;
+    await notifyDeveloper({
+      userId: ownerUserId,
+      email: req.user?.email || null,
+      title,
+      message,
+      actionUrl: '/developer?section=apps',
+      type: 'developer_app_created'
     });
 
     emitDeveloperEvent(req, 'dev:app_updated', {
@@ -125,7 +238,8 @@ export const createDeveloperApp = async (req: Request, res: Response) => {
       }
     });
   } catch (error: any) {
-    return res.status(500).json({ success: false, error: error?.message || 'Failed to create developer app.' });
+    const statusCode = Number(error?.statusCode || 500);
+    return res.status(statusCode).json({ success: false, error: error?.message || 'Failed to create developer app.' });
   }
 };
 
@@ -152,12 +266,16 @@ export const updateDeveloperApp = async (req: Request, res: Response) => {
     const config = await getOrCreateDeveloperPlatformConfig();
     const hasScopeUpdate = req.body?.requestedScopes !== undefined;
     const requestedScopes = hasScopeUpdate ? normalizeScopes(req.body?.requestedScopes) : app.requestedScopes;
+    const hasPlatformUrlsUpdate = req.body?.platformUrls !== undefined;
+    const platformUrls = hasPlatformUrlsUpdate ? validatePlatformUrlsInput(req.body?.platformUrls) : app.platformUrls || [];
     const nextStatus =
       hasScopeUpdate && app.status !== DEV_APP_STATUS.DISABLED && app.status !== DEV_APP_STATUS.REJECTED
         ? evaluateAutoApprovalStatus(config, requestedScopes)
         : app.status;
 
     const redirectUris = req.body?.redirectUris !== undefined ? sanitizeRedirectUris(req.body?.redirectUris) : null;
+    const effectiveRedirectUris = redirectUris !== null ? redirectUris : (app.redirectUris || []).map((entry: any) => String(entry?.uri || '').trim()).filter(Boolean);
+    assertRedirectUrisWithinPlatformUrls(effectiveRedirectUris, platformUrls);
 
     await prisma.$transaction(async (tx) => {
       await tx.developerApp.update({
@@ -168,6 +286,7 @@ export const updateDeveloperApp = async (req: Request, res: Response) => {
           description:
             req.body?.description !== undefined ? String(req.body.description || '').trim() || null : undefined,
           appUrl: req.body?.appUrl !== undefined ? sanitizeUrlOrNull(req.body.appUrl) : undefined,
+          platformUrls: hasPlatformUrlsUpdate ? platformUrls : undefined,
           termsUrl: req.body?.termsUrl !== undefined ? sanitizeUrlOrNull(req.body.termsUrl) : undefined,
           privacyUrl: req.body?.privacyUrl !== undefined ? sanitizeUrlOrNull(req.body.privacyUrl) : undefined,
           logoFileId: req.body?.logoFileId !== undefined ? String(req.body.logoFileId || '').trim() || null : undefined,
@@ -175,7 +294,7 @@ export const updateDeveloperApp = async (req: Request, res: Response) => {
           requestedScopes: hasScopeUpdate ? requestedScopes : undefined,
           status: nextStatus,
           approvedAt: nextStatus === DEV_APP_STATUS.ACTIVE ? new Date() : app.approvedAt
-        }
+        } as any
       });
 
       if (redirectUris !== null) {
@@ -205,6 +324,7 @@ export const updateDeveloperApp = async (req: Request, res: Response) => {
       status: updated.status,
       metadata: {
         hasScopeUpdate,
+        hasPlatformUrlsUpdate,
         redirectUrisUpdated: redirectUris !== null
       },
       ...getRequestMeta(req)
@@ -245,6 +365,15 @@ export const rotateDeveloperAppSecret = async (req: Request, res: Response) => {
       action: 'DEV_APP_SECRET_ROTATED',
       status: 'SUCCESS',
       ...getRequestMeta(req)
+    });
+
+    await notifyDeveloper({
+      userId: app.ownerUserId,
+      email: req.user?.email || null,
+      title: 'Developer API secret rotated',
+      message: `${app.name} generated a new client secret. The previous secret is now invalid.`,
+      actionUrl: '/developer?section=apps',
+      type: 'developer_app_secret_rotated'
     });
 
     emitDeveloperEvent(req, 'dev:app_updated', {
@@ -288,6 +417,15 @@ export const disableDeveloperApp = async (req: Request, res: Response) => {
       ...getRequestMeta(req)
     });
 
+    await notifyDeveloper({
+      userId: updated.ownerUserId,
+      email: req.user?.email || null,
+      title: 'Developer app disabled',
+      message: `${updated.name} has been disabled. OAuth token issuance is blocked until it is enabled again.`,
+      actionUrl: '/developer?section=apps',
+      type: 'developer_app_disabled'
+    });
+
     emitDeveloperEvent(req, 'dev:app_updated', {
       appId: updated.id,
       status: updated.status,
@@ -326,6 +464,21 @@ export const enableDeveloperApp = async (req: Request, res: Response) => {
       action: 'DEV_APP_ENABLED',
       status: updated.status,
       ...getRequestMeta(req)
+    });
+
+    const enabledStatus = String(updated.status || '').toUpperCase();
+    const title = enabledStatus === DEV_APP_STATUS.ACTIVE ? 'Developer app enabled' : 'Developer app awaiting review';
+    const message =
+      enabledStatus === DEV_APP_STATUS.ACTIVE
+        ? `${updated.name} is enabled and active.`
+        : `${updated.name} is enabled but still requires admin review before going live.`;
+    await notifyDeveloper({
+      userId: updated.ownerUserId,
+      email: req.user?.email || null,
+      title,
+      message,
+      actionUrl: '/developer?section=apps',
+      type: 'developer_app_enabled'
     });
 
     emitDeveloperEvent(req, 'dev:app_updated', {

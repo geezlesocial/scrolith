@@ -32,6 +32,8 @@ export const DEV_APP_STATUS = {
 } as const;
 
 const DEFAULT_SCOPE_SENSITIVE = ['email:read', 'phone:read'];
+const DEFAULT_DEVELOPER_BASE_URL = 'https://scrolith.com/developer';
+const LEGACY_DEVELOPER_BASE_HOST = 'developer.scrolith.com';
 
 const DEVELOPER_PLATFORM_TABLE_NAMES = [
   'DeveloperPlatformConfig',
@@ -87,6 +89,54 @@ export const sanitizeUrlOrNull = (value: unknown): string | null => {
   }
 };
 
+const normalizePlatformUrlOrNull = (value: unknown): string | null => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    const parsed = new URL(withScheme);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+    const host = String(parsed.hostname || '').trim().toLowerCase();
+    if (!host || !host.includes('.')) return null;
+    const port = parsed.port ? `:${parsed.port}` : '';
+    return `${parsed.protocol}//${host}${port}`;
+  } catch {
+    return null;
+  }
+};
+
+export const sanitizePlatformUrls = (value: unknown): string[] => {
+  const items = Array.isArray(value)
+    ? value
+    : String(value || '')
+        .split(/[\n,]/g)
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+
+  const unique = new Set<string>();
+  items.forEach((entry) => {
+    const normalized = normalizePlatformUrlOrNull(entry);
+    if (normalized) unique.add(normalized);
+  });
+  return Array.from(unique);
+};
+
+export const normalizeDeveloperBaseUrl = (value: unknown): string => {
+  const raw = String(value || '').trim();
+  if (!raw) return DEFAULT_DEVELOPER_BASE_URL;
+  try {
+    const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
+    if (String(parsed.hostname || '').toLowerCase() === LEGACY_DEVELOPER_BASE_HOST) {
+      return DEFAULT_DEVELOPER_BASE_URL;
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol)) return DEFAULT_DEVELOPER_BASE_URL;
+    const normalized = `${parsed.protocol}//${parsed.host}${parsed.pathname}`.replace(/\/+$/, '');
+    return normalized || DEFAULT_DEVELOPER_BASE_URL;
+  } catch {
+    return DEFAULT_DEVELOPER_BASE_URL;
+  }
+};
+
 export const isDeveloperPlatformSchemaMissingError = (error: any) => {
   const code = String(error?.code || '').toUpperCase();
   const message = String(error?.message || '');
@@ -96,7 +146,7 @@ export const isDeveloperPlatformSchemaMissingError = (error: any) => {
 
 export const getDeveloperPlatformConfigFallback = () => ({
   id: 'default',
-  developerBaseUrl: process.env.DEVELOPER_BASE_URL || 'https://developer.scrolith.com',
+  developerBaseUrl: normalizeDeveloperBaseUrl(process.env.DEVELOPER_BASE_URL || DEFAULT_DEVELOPER_BASE_URL),
   autoApproveEnabled: false,
   autoApproveRules: null,
   authorizationCodeTtlSeconds: 300,
@@ -113,16 +163,24 @@ export const getDeveloperPlatformConfigFallback = () => ({
 
 export const getOrCreateDeveloperPlatformConfig = async (): Promise<any> => {
   try {
-    return await prisma.developerPlatformConfig.upsert({
+    const config = await prisma.developerPlatformConfig.upsert({
       where: { id: 'default' },
       update: {},
       create: {
         id: 'default',
-        developerBaseUrl: process.env.DEVELOPER_BASE_URL || 'https://developer.scrolith.com',
+        developerBaseUrl: normalizeDeveloperBaseUrl(process.env.DEVELOPER_BASE_URL || DEFAULT_DEVELOPER_BASE_URL),
         autoApproveEnabled: false,
         sensitiveScopes: DEFAULT_SCOPE_SENSITIVE
       }
     });
+    const normalizedBaseUrl = normalizeDeveloperBaseUrl(config?.developerBaseUrl);
+    if (normalizedBaseUrl !== config?.developerBaseUrl) {
+      return prisma.developerPlatformConfig.update({
+        where: { id: config.id },
+        data: { developerBaseUrl: normalizedBaseUrl }
+      });
+    }
+    return config;
   } catch (error: any) {
     if (isDeveloperPlatformSchemaMissingError(error)) {
       console.warn('[developer] schema missing, serving fallback config');
@@ -313,6 +371,7 @@ export const toDeveloperAppResponse = (app: any) => ({
   tagline: app.tagline,
   description: app.description,
   appUrl: app.appUrl,
+  platformUrls: Array.isArray(app.platformUrls) ? app.platformUrls : [],
   termsUrl: app.termsUrl,
   privacyUrl: app.privacyUrl,
   logoFileId: app.logoFileId,

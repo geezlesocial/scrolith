@@ -6,8 +6,10 @@ import {
   createDeveloperAuditLog,
   emitDeveloperEvent,
   getOrCreateDeveloperPlatformConfig,
-  isDeveloperPlatformSchemaMissingError
+  isDeveloperPlatformSchemaMissingError,
+  normalizeDeveloperBaseUrl
 } from '../services/developerPlatform.service';
+import { sendSystemMessage } from '../services/systemMessaging';
 
 const getRequestMeta = (req: Request) => ({
   ip: String(req.ip || req.headers['x-forwarded-for'] || '').slice(0, 255) || null,
@@ -45,11 +47,11 @@ export const updateAdminDeveloperConfig = async (req: Request, res: Response) =>
   try {
     const current = await getOrCreateDeveloperPlatformConfig();
     if (current?._schemaMissing) return schemaNotReadyResponse(res);
-    const developerBaseUrl = String(req.body?.developerBaseUrl || '').trim();
+    const developerBaseUrl = normalizeDeveloperBaseUrl(req.body?.developerBaseUrl || current.developerBaseUrl);
     const updated = await prisma.developerPlatformConfig.update({
       where: { id: current.id },
       data: {
-        developerBaseUrl: developerBaseUrl || current.developerBaseUrl,
+        developerBaseUrl,
         autoApproveEnabled:
           req.body?.autoApproveEnabled !== undefined ? Boolean(req.body.autoApproveEnabled) : current.autoApproveEnabled,
         autoApproveRules: req.body?.autoApproveRules !== undefined ? req.body.autoApproveRules : current.autoApproveRules,
@@ -119,7 +121,17 @@ const updateAppAdminStatus = async (req: Request, res: Response, status: string)
   try {
     const appId = String(req.params.id || '').trim();
     if (!appId) return res.status(400).json({ success: false, error: 'App id is required.' });
-    const existing = await prisma.developerApp.findUnique({ where: { id: appId } });
+    const existing = await prisma.developerApp.findUnique({
+      where: { id: appId },
+      include: {
+        ownerUser: {
+          select: {
+            id: true,
+            email: true
+          }
+        }
+      }
+    });
     if (!existing) return res.status(404).json({ success: false, error: 'Developer app not found.' });
 
     const next = await prisma.developerApp.update({
@@ -141,6 +153,39 @@ const updateAppAdminStatus = async (req: Request, res: Response, status: string)
       metadata: { previousStatus: existing.status },
       ...getRequestMeta(req)
     });
+
+    const actionUrl = '/developer?section=apps';
+    const statusUpper = String(status || '').toUpperCase();
+    const title =
+      statusUpper === DEV_APP_STATUS.ACTIVE
+        ? 'Developer app approved'
+        : statusUpper === DEV_APP_STATUS.REJECTED
+          ? 'Developer app rejected'
+          : 'Developer app disabled';
+    const message =
+      statusUpper === DEV_APP_STATUS.ACTIVE
+        ? `${existing.name} has been approved by admin and is now live.`
+        : statusUpper === DEV_APP_STATUS.REJECTED
+          ? `${existing.name} was rejected during admin review. Update details and resubmit.`
+          : `${existing.name} was disabled by admin.`;
+    try {
+      await sendSystemMessage({
+        templateKey: 'system_notification',
+        userId: existing.ownerUserId,
+        email: existing.ownerUser?.email || null,
+        actionUrl,
+        typeOverride: 'developer_app_status',
+        context: {
+          notification: {
+            title,
+            message,
+            link: actionUrl
+          }
+        }
+      });
+    } catch (notifyError) {
+      console.warn('[developer-admin] app status notification failed', (notifyError as any)?.message || notifyError);
+    }
 
     emitDeveloperEvent(req, 'dev:app_updated', {
       appId: next.id,
@@ -195,7 +240,15 @@ const updateDeveloperLinkStatus = async (req: Request, res: Response, linkStatus
     if (!developerId) return res.status(400).json({ success: false, error: 'Developer id is required.' });
 
     const existing = await prisma.developerUser.findUnique({
-      where: { id: developerId }
+      where: { id: developerId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true
+          }
+        }
+      }
     });
     if (!existing) return res.status(404).json({ success: false, error: 'Developer profile not found.' });
 
@@ -220,6 +273,36 @@ const updateDeveloperLinkStatus = async (req: Request, res: Response, linkStatus
         where: { developerUserId: updated.id, status: { notIn: [DEV_APP_STATUS.DISABLED, DEV_APP_STATUS.REJECTED] } },
         data: { status: DEV_APP_STATUS.DISABLED, disabledAt: new Date() }
       });
+    }
+
+    if (existing.userId) {
+      const actionUrl = '/developer?section=settings';
+      const title = linkStatus === DEV_LINK_STATUS.SUSPENDED ? 'Developer account suspended' : 'Developer account restored';
+      const message =
+        linkStatus === DEV_LINK_STATUS.SUSPENDED
+          ? 'Admin suspended your developer account. App and OAuth operations are now restricted.'
+          : 'Admin restored your developer account access.';
+      try {
+        await sendSystemMessage({
+          templateKey: 'system_notification',
+          userId: existing.userId,
+          email: existing.user?.email || null,
+          actionUrl,
+          typeOverride: 'developer_account_status',
+          context: {
+            notification: {
+              title,
+              message,
+              link: actionUrl
+            }
+          }
+        });
+      } catch (notifyError) {
+        console.warn(
+          '[developer-admin] developer status notification failed',
+          (notifyError as any)?.message || notifyError
+        );
+      }
     }
 
     emitDeveloperEvent(req, 'dev:link_status_updated', {

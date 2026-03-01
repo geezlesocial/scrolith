@@ -203,7 +203,7 @@ model User {
   moderationCasesCreated    ModerationCase[]      @relation("ModerationCaseCreatedBy")
   moderationActions         ModerationAction[]    @relation("ModerationActionActor")
 
-  // Developer platform (developer.scrolith.com)
+  // Developer platform (https://scrolith.com/developer)
   developerProfile   DeveloperUser?
   developerOwnedApps DeveloperApp[] @relation("DeveloperOwnedApps")
 }
@@ -607,7 +607,7 @@ model AppSetting {
 
 model DeveloperPlatformConfig {
   id                                     String   @id @default("default")
-  developerBaseUrl                       String   @default("https://developer.scrolith.com")
+  developerBaseUrl                       String   @default("https://scrolith.com/developer")
   autoApproveEnabled                     Boolean  @default(false)
   autoApproveRules                       Json?
   authorizationCodeTtlSeconds            Int      @default(300)
@@ -673,6 +673,7 @@ model DeveloperApp {
   tagline             String?
   description         String?
   appUrl              String?
+  platformUrls        String[]     @default([])
   termsUrl            String?
   privacyUrl          String?
   logoFileId          String?

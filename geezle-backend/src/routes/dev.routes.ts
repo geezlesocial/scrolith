@@ -20,6 +20,7 @@ import {
   rotateDeveloperAppSecret,
   updateDeveloperApp
 } from '../controllers/dev.apps.controller';
+import { getDeveloperDocs } from '../controllers/dev.docs.controller';
 
 const router = express.Router();
 
@@ -29,6 +30,7 @@ router.get('/me', requireDeveloperProfile, getDevMe);
 router.post('/link/request', requireDeveloperProfile, requestDeveloperLink);
 router.post('/link/verify-otp', requireDeveloperProfile, verifyDeveloperLinkOtp);
 router.post('/link/confirm-scrolith-login', requireDeveloperProfile, confirmDeveloperLinkScrolithLogin);
+router.get('/docs', requireDeveloperProfile, getDeveloperDocs);
 
 router.use(requireLinkedDeveloper);
 
