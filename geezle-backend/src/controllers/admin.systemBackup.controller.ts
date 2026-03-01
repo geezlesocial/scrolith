@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import fs from 'fs';
 import {
   createSystemBackup,
   deleteSystemBackups,
@@ -101,13 +102,22 @@ export const downloadAdminSystemBackup = async (req: Request, res: Response) => 
 };
 
 export const importAdminSystemBackup = async (req: Request, res: Response) => {
+  const uploadFile = req.file;
+  let loadedFromPath = false;
   try {
     if (!req.user?.id) {
       return res.status(401).json({ success: false, error: 'Authentication required.' });
     }
 
-    const uploadFile = req.file;
-    if (!uploadFile?.buffer?.length) {
+    const fromMemory = uploadFile?.buffer;
+    const fromDisk =
+      !fromMemory?.length && uploadFile?.path && fs.existsSync(uploadFile.path)
+        ? fs.readFileSync(uploadFile.path)
+        : null;
+    const fileBuffer = fromMemory?.length ? fromMemory : fromDisk || undefined;
+    loadedFromPath = Boolean(fromDisk?.length);
+
+    if (!fileBuffer?.length) {
       return res.status(400).json({
         success: false,
         code: 'BACKUP_IMPORT_FILE_REQUIRED',
@@ -119,7 +129,7 @@ export const importAdminSystemBackup = async (req: Request, res: Response) => {
       adminId: req.user.id,
       adminEmail: req.user.email || null,
       fileName: uploadFile.originalname || uploadFile.filename || 'imported-backup.scrolith-backup.json.gz',
-      fileBuffer: uploadFile.buffer,
+      fileBuffer,
       notes: req.body?.notes
     });
 
@@ -131,7 +141,21 @@ export const importAdminSystemBackup = async (req: Request, res: Response) => {
 
     return res.status(201).json({ success: true, data: result });
   } catch (error: any) {
+    console.warn('[system-backup] import failed:', {
+      code: error?.code || 'SYSTEM_BACKUP_ERROR',
+      message: error?.message || 'Unknown error',
+      hasFile: Boolean(uploadFile),
+      fileName: uploadFile?.originalname || uploadFile?.filename || null
+    });
     return toErrorResponse(res, error, 'Failed to import backup file.');
+  } finally {
+    if (loadedFromPath && uploadFile?.path) {
+      try {
+        fs.unlinkSync(uploadFile.path);
+      } catch {
+        // temp file cleanup best effort
+      }
+    }
   }
 };
 
@@ -162,6 +186,11 @@ export const restoreAdminSystemBackup = async (req: Request, res: Response) => {
 
     return res.json({ success: true, data: result });
   } catch (error: any) {
+    console.warn('[system-backup] restore failed:', {
+      code: error?.code || 'SYSTEM_BACKUP_ERROR',
+      message: error?.message || 'Unknown error',
+      backupId: String(req.params?.id || '').trim() || null
+    });
     return toErrorResponse(res, error, 'Failed to restore backup.');
   }
 };

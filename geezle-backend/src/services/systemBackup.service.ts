@@ -85,7 +85,7 @@ const BACKUP_ROOT_DIR = path.resolve(__dirname, '../../data/system-backups');
 const BACKUP_CATALOG_FILE = path.join(BACKUP_ROOT_DIR, 'catalog.json');
 const BACKUP_IMPORT_LIMIT_BYTES = Math.max(
   10 * 1024 * 1024,
-  Number(process.env.BACKUP_IMPORT_LIMIT_BYTES || 250 * 1024 * 1024)
+  Number(process.env.BACKUP_IMPORT_LIMIT_BYTES || 512 * 1024 * 1024)
 );
 const BACKUP_MAX_FILE_BYTES = Math.max(
   64 * 1024,
@@ -394,8 +394,25 @@ const loadTableRows = async (client: Client, tableName: string) => {
 const parseBackupBuffer = (buffer: Buffer): BackupPackage => {
   if (!buffer?.length) throw toError('Backup file is empty.', 400, 'BACKUP_EMPTY_FILE');
   const isGzip = buffer.length > 2 && buffer[0] === 0x1f && buffer[1] === 0x8b;
-  const rawText = isGzip ? zlib.gunzipSync(buffer).toString('utf-8') : buffer.toString('utf-8');
-  const parsed = JSON.parse(rawText || '{}');
+
+  let rawText = '';
+  try {
+    rawText = isGzip ? zlib.gunzipSync(buffer).toString('utf-8') : buffer.toString('utf-8');
+  } catch {
+    throw toError(
+      'Backup file archive is invalid or corrupted. Upload a valid .scrolith-backup.json.gz file.',
+      400,
+      'BACKUP_INVALID_ARCHIVE'
+    );
+  }
+
+  let parsed: any = {};
+  try {
+    parsed = JSON.parse(rawText || '{}');
+  } catch {
+    throw toError('Backup file JSON payload is invalid.', 400, 'BACKUP_INVALID_JSON');
+  }
+
   if (!parsed || typeof parsed !== 'object') {
     throw toError('Invalid backup package format.', 400, 'BACKUP_INVALID_FORMAT');
   }
