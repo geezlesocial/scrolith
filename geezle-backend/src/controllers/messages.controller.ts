@@ -160,6 +160,8 @@ const mapAttachments = (fileIds: string[], fileMap: Map<string, any>) => {
         ? 'image'
         : mimeType.startsWith('video/')
           ? 'video'
+          : mimeType.startsWith('audio/')
+            ? 'audio'
           : 'document';
       return {
         id: file.id,
@@ -216,6 +218,8 @@ const formatReaction = (reaction: any) => ({
 });
 
 const resolveMessageSnippet = (message: any) => {
+  const messageType = String(message?.messageType || message?.message_type || '').toUpperCase();
+  if (messageType === 'VOICE_NOTE') return 'Voice note';
   const text = String(message?.text || '').trim();
   if (text) return text.slice(0, 160);
   const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
@@ -274,6 +278,10 @@ const formatConversationMessage = (
     viewerId && (message.senderId === viewerId || (lastReadAt && createdAt <= lastReadAt));
   const attachmentIds = Array.isArray(message.attachments) ? message.attachments : [];
   const replyPreview = buildReplyPreview(message);
+  const normalizedMessageType = String(message?.messageType || message?.message_type || '').trim().toLowerCase();
+  const messageType = normalizedMessageType || 'text';
+  const metadata = message?.metadata && typeof message.metadata === 'object' ? message.metadata : null;
+  const voiceNoteMetadata = metadata?.voiceNote && typeof metadata.voiceNote === 'object' ? metadata.voiceNote : null;
 
   return {
     id: message.id,
@@ -290,6 +298,25 @@ const formatConversationMessage = (
     edited_at: message.editedAt ? message.editedAt.toISOString() : null,
     editedAt: message.editedAt ? message.editedAt.toISOString() : null,
     reactions: message.reactions ? message.reactions.map(formatReaction) : [],
+    message_type: messageType,
+    messageType,
+    metadata,
+    voice_note: voiceNoteMetadata
+      ? {
+          id: voiceNoteMetadata.id || null,
+          fileId: voiceNoteMetadata.fileId || null,
+          durationMs: Number(voiceNoteMetadata.durationMs || 0) || 0,
+          url: voiceNoteMetadata.url || null
+        }
+      : null,
+    voiceNote: voiceNoteMetadata
+      ? {
+          id: voiceNoteMetadata.id || null,
+          fileId: voiceNoteMetadata.fileId || null,
+          durationMs: Number(voiceNoteMetadata.durationMs || 0) || 0,
+          url: voiceNoteMetadata.url || null
+        }
+      : null,
     attachments: attachmentIds,
     attachment_ids: attachmentIds,
     reply_to_message_id: message.replyToMessageId || null,

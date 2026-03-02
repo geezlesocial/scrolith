@@ -112,6 +112,9 @@ model User {
   // Direct messaging
   conversations        ConversationParticipant[]
   sentMessages         DirectMessage[]
+  initiatedVoiceCalls  VoiceCall[]             @relation("VoiceCallInitiator")
+  voiceCallParticipants VoiceCallParticipant[] @relation("VoiceCallParticipantUser")
+  voiceNotes           VoiceNote[]             @relation("VoiceNoteSender")
   messageReactions     MessageReaction[]
   messageRecordActions DirectMessageRecord[]     @relation("MessageRecordActor")
   messageRecordTargets DirectMessageRecord[]     @relation("MessageRecordTarget")
@@ -2169,6 +2172,7 @@ model File {
   visibility      FileVisibility @default(PUBLIC)
   createdAt       DateTime       @default(now()) @map("created_at")
   usages          FileUsage[]
+  voiceNotes      VoiceNote[]
 
   @@index([ownerId])
   @@index([ownerRole])
@@ -2309,6 +2313,37 @@ enum CategoryType {
 enum ConversationType {
   DIRECT
   GROUP
+}
+
+enum DirectMessageType {
+  TEXT
+  FILE
+  VOICE_NOTE
+  SYSTEM
+}
+
+enum VoiceCallStatus {
+  INITIATED
+  RINGING
+  ACTIVE
+  ENDED
+  REJECTED
+  MISSED
+  CANCELLED
+  FAILED
+}
+
+enum VoiceCallType {
+  DIRECT
+  CONFERENCE
+}
+
+enum VoiceCallParticipantStatus {
+  INVITED
+  JOINED
+  LEFT
+  REJECTED
+  MISSED
 }
 
 enum OrderStatus {
@@ -2630,6 +2665,8 @@ model Conversation {
   participants   ConversationParticipant[]
   messages       DirectMessage[]
   messageRecords DirectMessageRecord[]
+  voiceCalls     VoiceCall[]
+  voiceNotes     VoiceNote[]
 
   @@index([updatedAt])
   @@index([lastMessageAt])
@@ -2659,6 +2696,8 @@ model DirectMessage {
   conversationId   String
   senderId         String
   text             String    @db.Text
+  messageType      DirectMessageType @default(TEXT)
+  metadata         Json?
   attachments      String[]  @default([])
   replyToMessageId String?
   replyToSnapshot  Json?
@@ -2675,11 +2714,13 @@ model DirectMessage {
   replies        DirectMessage[]       @relation("MessageReplies")
   reactions      MessageReaction[]
   records        DirectMessageRecord[]
+  voiceNote      VoiceNote?
 
   @@index([conversationId])
   @@index([senderId])
   @@index([createdAt])
   @@index([replyToMessageId])
+  @@index([messageType])
 }
 
 model MessageReaction {
@@ -2721,6 +2762,77 @@ model DirectMessageRecord {
   @@index([action, createdAt])
   @@index([actorUserId])
   @@index([targetUserId])
+}
+
+model VoiceCall {
+  id             String          @id @default(cuid())
+  conversationId String
+  initiatorId    String
+  status         VoiceCallStatus @default(INITIATED)
+  callType       VoiceCallType   @default(DIRECT)
+  startedAt      DateTime?
+  endedAt        DateTime?
+  metadata       Json?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  conversation Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  initiator    User                 @relation("VoiceCallInitiator", fields: [initiatorId], references: [id], onDelete: Cascade)
+  participants VoiceCallParticipant[]
+
+  @@index([conversationId, createdAt])
+  @@index([initiatorId, createdAt])
+  @@index([status, createdAt])
+}
+
+model VoiceCallParticipant {
+  id        String                     @id @default(cuid())
+  callId    String
+  userId    String
+  status    VoiceCallParticipantStatus @default(INVITED)
+  invitedAt DateTime                   @default(now())
+  joinedAt  DateTime?
+  leftAt    DateTime?
+  createdAt DateTime                   @default(now())
+  updatedAt DateTime                   @updatedAt
+
+  call VoiceCall @relation(fields: [callId], references: [id], onDelete: Cascade)
+  user User      @relation("VoiceCallParticipantUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([callId, userId])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model VoiceNote {
+  id             String   @id @default(cuid())
+  senderId       String
+  conversationId String
+  messageId      String   @unique
+  fileId         String
+  durationMs     Int
+  createdAt      DateTime @default(now())
+
+  sender       User          @relation("VoiceNoteSender", fields: [senderId], references: [id], onDelete: Cascade)
+  conversation Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      DirectMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  file         File          @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([senderId, createdAt])
+}
+
+model MessengerVoiceConfig {
+  id                          String   @id @default("default")
+  enabledVoiceCalls           Boolean  @default(true)
+  enabledConferenceCalls      Boolean  @default(true)
+  enabledVoiceNotes           Boolean  @default(true)
+  maxParticipants             Int      @default(8)
+  maxVoiceNoteDurationSeconds Int      @default(180)
+  blockedUserIds              String[] @default([])
+  updatedById                 String?
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
 }
 
 model Reaction {

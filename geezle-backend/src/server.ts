@@ -89,6 +89,10 @@ import cron from 'node-cron';
 import { reconcileAdPayments } from './scripts/reconcileAdPayments';
 import { registerInsightsJobs } from './modules/insights/jobs/insights.jobs';
 import { insightsActionTrackerMiddleware } from './modules/insights/realtime/insights.tracker.middleware';
+import {
+  getOrCreateMessengerVoiceConfig,
+  isVoiceBlockedForUser
+} from './services/messengerVoice.service';
 // Restart trigger comment (no-op) to force ts-node-dev reload when modified during debugging
 
 
@@ -309,6 +313,85 @@ const markPresenceOffline = async (userId: string) => {
   }
 };
 
+const VOICE_CALL_INITIATE_LIMIT = 8;
+const VOICE_CALL_INITIATE_WINDOW_MS = 60_000;
+const voiceCallInitiationBuckets = new Map<string, number[]>();
+
+const isVoiceCallInitiationRateLimited = (userId: string) => {
+  const now = Date.now();
+  const key = String(userId || '').trim();
+  if (!key) return true;
+  const bucket = Array.isArray(voiceCallInitiationBuckets.get(key))
+    ? [...(voiceCallInitiationBuckets.get(key) as number[])]
+    : [];
+  const active = bucket.filter((timestamp) => now - timestamp <= VOICE_CALL_INITIATE_WINDOW_MS);
+  if (active.length >= VOICE_CALL_INITIATE_LIMIT) {
+    voiceCallInitiationBuckets.set(key, active);
+    return true;
+  }
+  active.push(now);
+  voiceCallInitiationBuckets.set(key, active);
+  return false;
+};
+
+const toUniqueIds = (input: any): string[] => {
+  const source = Array.isArray(input)
+    ? input
+    : Array.isArray(input?.participants)
+      ? input.participants
+      : [];
+  return Array.from(
+    new Set(
+      source
+        .map((entry: any) => {
+          if (typeof entry === 'string') return entry.trim();
+          if (entry && typeof entry === 'object') return String(entry.id || entry.userId || '').trim();
+          return '';
+        })
+        .filter(Boolean)
+    )
+  );
+};
+
+const emitVoiceEventToUsers = (userIds: string[], event: string, payload: Record<string, any>) => {
+  userIds.forEach((id) => {
+    communityNs.to(`community:user:${id}`).emit(event, payload);
+  });
+};
+
+const resolveSocketUserId = (socket: any) => String(socket?.data?.user?.id || '').trim();
+const resolveSocketRole = (socket: any) => String(socket?.data?.user?.role || '').trim().toLowerCase();
+const isAdminRoleValue = (role: string) =>
+  role.includes('admin') || role.includes('moderator') || role.includes('superadmin');
+
+const loadConversationForVoice = async (conversationId: string, userId: string) => {
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    include: { participants: true }
+  });
+  if (!conversation) return { conversation: null, participantIds: [] as string[] };
+  const participantIds = Array.isArray(conversation.participants)
+    ? conversation.participants.map((entry: any) => String(entry.userId || '').trim()).filter(Boolean)
+    : [];
+  if (!participantIds.includes(userId)) return { conversation: null, participantIds: [] as string[] };
+  return { conversation, participantIds };
+};
+
+const loadVoiceCallForUser = async (callId: string, userId: string) => {
+  const call = await (prisma as any).voiceCall.findUnique({
+    where: { id: callId },
+    include: {
+      participants: true
+    }
+  });
+  if (!call) return null;
+  const participantIds = Array.isArray(call.participants)
+    ? call.participants.map((entry: any) => String(entry.userId || '').trim()).filter(Boolean)
+    : [];
+  if (!participantIds.includes(userId)) return null;
+  return call;
+};
+
 communityNs.on('connection', async (socket) => {
   console.log('Client connected to /community namespace', { id: socket.id, handshake: socket.handshake.query });
   traceMessages('socket.connected', {
@@ -495,6 +578,490 @@ communityNs.on('connection', async (socket) => {
       return;
     };
     void handleJoinAd(payload);
+  });
+
+  socket.on('call:initiate', (payload: any, ack?: (result: any) => void) => {
+    const handleInitiate = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        if (!userId) {
+          const error = { success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' };
+          socket.emit('error', error);
+          if (ack) ack(error);
+          return;
+        }
+        if (isVoiceCallInitiationRateLimited(userId)) {
+          if (ack) {
+            ack({
+              success: false,
+              error: 'Too many call attempts. Please wait before starting another call.',
+              code: 'CALL_RATE_LIMITED'
+            });
+          }
+          return;
+        }
+
+        const config = await getOrCreateMessengerVoiceConfig();
+        if (!config.enabledVoiceCalls) {
+          const error = { success: false, error: 'Voice calls are disabled by admin.', code: 'VOICE_CALLS_DISABLED' };
+          if (ack) ack(error);
+          return;
+        }
+        if (isVoiceBlockedForUser(config, userId)) {
+          const error = { success: false, error: 'Voice features are blocked for this account.', code: 'VOICE_BLOCKED' };
+          if (ack) ack(error);
+          return;
+        }
+
+        const conversationId = String(payload?.conversationId || '').trim();
+        if (!conversationId) {
+          const error = { success: false, error: 'conversationId is required.', code: 'CONVERSATION_REQUIRED' };
+          if (ack) ack(error);
+          return;
+        }
+
+        const convo = await loadConversationForVoice(conversationId, userId);
+        if (!convo.conversation) {
+          const error = { success: false, error: 'Conversation not found or access denied.', code: 'CONVERSATION_ACCESS_DENIED' };
+          if (ack) ack(error);
+          return;
+        }
+
+        const requestedIds = toUniqueIds(payload?.participantIds ?? payload?.participants).filter((id) =>
+          convo.participantIds.includes(id)
+        );
+        const targetIds = Array.from(
+          new Set(
+            [...requestedIds, ...convo.participantIds.filter((id) => id !== userId)].filter(Boolean)
+          )
+        );
+
+        const totalParticipants = new Set([userId, ...targetIds]).size;
+        if (totalParticipants > Number(config.maxParticipants || 8)) {
+          const error = {
+            success: false,
+            error: `Maximum ${config.maxParticipants} participants allowed.`,
+            code: 'MAX_PARTICIPANTS_EXCEEDED'
+          };
+          if (ack) ack(error);
+          return;
+        }
+
+        const isConferenceRequested = String(payload?.callType || '').toLowerCase() === 'conference' || totalParticipants > 2;
+        if (isConferenceRequested && !config.enabledConferenceCalls) {
+          const error = {
+            success: false,
+            error: 'Conference calls are disabled by admin.',
+            code: 'CONFERENCE_DISABLED'
+          };
+          if (ack) ack(error);
+          return;
+        }
+
+        const call = await (prisma as any).voiceCall.create({
+          data: {
+            conversationId,
+            initiatorId: userId,
+            status: 'RINGING',
+            callType: isConferenceRequested ? 'CONFERENCE' : 'DIRECT',
+            metadata: {
+              initiatedVia: 'socket',
+              requestedParticipantIds: targetIds
+            }
+          }
+        });
+
+        const participantRows = Array.from(new Set([userId, ...targetIds])).map((id) => ({
+          callId: call.id,
+          userId: id,
+          status: id === userId ? 'JOINED' : 'INVITED',
+          invitedAt: new Date(),
+          joinedAt: id === userId ? new Date() : null
+        }));
+
+        await (prisma as any).voiceCallParticipant.createMany({
+          data: participantRows,
+          skipDuplicates: true
+        });
+
+        socket.join(`call:${call.id}`);
+
+        const eventPayload = {
+          callId: call.id,
+          conversationId,
+          initiatorId: userId,
+          participantIds: participantRows.map((entry) => entry.userId),
+          callType: isConferenceRequested ? 'conference' : 'direct',
+          status: 'ringing',
+          createdAt: new Date().toISOString()
+        };
+
+        targetIds.forEach((targetUserId) => {
+          communityNs.to(`community:user:${targetUserId}`).emit('call:ringing', eventPayload);
+        });
+
+        communityNs.to(`community:user:${userId}`).emit('call:initiate', eventPayload);
+        emitVoiceEventToUsers(participantRows.map((entry) => entry.userId), 'messenger:call_started', eventPayload);
+
+        if (ack) ack({ success: true, data: eventPayload });
+      } catch (error: any) {
+        console.error('call:initiate error', error);
+        if (ack) ack({ success: false, error: error?.message || 'Failed to initiate call.' });
+      }
+    };
+    void handleInitiate();
+  });
+
+  socket.on('call:accept', (payload: any, ack?: (result: any) => void) => {
+    const handleAccept = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        const callId = String(payload?.callId || '').trim();
+        if (!userId || !callId) {
+          if (ack) ack({ success: false, error: 'callId is required.' });
+          return;
+        }
+
+        const call = await loadVoiceCallForUser(callId, userId);
+        if (!call) {
+          if (ack) ack({ success: false, error: 'Call not found or access denied.' });
+          return;
+        }
+
+        await (prisma as any).voiceCallParticipant.updateMany({
+          where: { callId, userId },
+          data: { status: 'JOINED', joinedAt: new Date(), leftAt: null }
+        });
+
+        await (prisma as any).voiceCall.update({
+          where: { id: callId },
+          data: {
+            status: 'ACTIVE',
+            startedAt: call.startedAt || new Date()
+          }
+        });
+
+        socket.join(`call:${callId}`);
+
+        const participantIds = Array.isArray(call.participants)
+          ? call.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
+          : [];
+        const eventPayload = {
+          callId,
+          conversationId: call.conversationId,
+          userId,
+          status: 'active',
+          joinedAt: new Date().toISOString()
+        };
+
+        communityNs.to(`call:${callId}`).emit('call:participant:joined', eventPayload);
+        emitVoiceEventToUsers(participantIds, 'messenger:call_joined', eventPayload);
+        if (ack) ack({ success: true, data: eventPayload });
+      } catch (error: any) {
+        console.error('call:accept error', error);
+        if (ack) ack({ success: false, error: error?.message || 'Failed to accept call.' });
+      }
+    };
+    void handleAccept();
+  });
+
+  socket.on('call:reject', (payload: any, ack?: (result: any) => void) => {
+    const handleReject = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        const callId = String(payload?.callId || '').trim();
+        if (!userId || !callId) {
+          if (ack) ack({ success: false, error: 'callId is required.' });
+          return;
+        }
+
+        const call = await loadVoiceCallForUser(callId, userId);
+        if (!call) {
+          if (ack) ack({ success: false, error: 'Call not found or access denied.' });
+          return;
+        }
+
+        await (prisma as any).voiceCallParticipant.updateMany({
+          where: { callId, userId },
+          data: { status: 'REJECTED', leftAt: new Date() }
+        });
+
+        const participantIds = Array.isArray(call.participants)
+          ? call.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
+          : [];
+        const eventPayload = {
+          callId,
+          conversationId: call.conversationId,
+          userId,
+          status: 'rejected',
+          rejectedAt: new Date().toISOString()
+        };
+
+        communityNs.to(`call:${callId}`).emit('call:reject', eventPayload);
+        if (call.initiatorId && call.initiatorId !== userId) {
+          communityNs.to(`community:user:${call.initiatorId}`).emit('call:reject', eventPayload);
+        }
+        emitVoiceEventToUsers(participantIds, 'call:reject', eventPayload);
+        emitVoiceEventToUsers(participantIds, 'messenger:call_ended', eventPayload);
+        if (ack) ack({ success: true, data: eventPayload });
+      } catch (error: any) {
+        console.error('call:reject error', error);
+        if (ack) ack({ success: false, error: error?.message || 'Failed to reject call.' });
+      }
+    };
+    void handleReject();
+  });
+
+  socket.on('call:end', (payload: any, ack?: (result: any) => void) => {
+    const handleEnd = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        const callId = String(payload?.callId || '').trim();
+        if (!userId || !callId) {
+          if (ack) ack({ success: false, error: 'callId is required.' });
+          return;
+        }
+
+        const call = await loadVoiceCallForUser(callId, userId);
+        if (!call) {
+          if (ack) ack({ success: false, error: 'Call not found or access denied.' });
+          return;
+        }
+
+        const role = resolveSocketRole(socket);
+        const isAdmin = isAdminRoleValue(role);
+        const isParticipant = Array.isArray(call.participants)
+          ? call.participants.some((entry: any) => String(entry.userId || '') === userId)
+          : false;
+        if (!isParticipant && !isAdmin) {
+          if (ack) ack({ success: false, error: 'Not authorized to end call.' });
+          return;
+        }
+
+        await (prisma as any).voiceCall.update({
+          where: { id: callId },
+          data: {
+            status: 'ENDED',
+            endedAt: new Date()
+          }
+        });
+
+        await (prisma as any).voiceCallParticipant.updateMany({
+          where: {
+            callId,
+            status: { in: ['INVITED', 'JOINED'] }
+          },
+          data: {
+            status: 'LEFT',
+            leftAt: new Date()
+          }
+        });
+
+        const participantIds = Array.isArray(call.participants)
+          ? call.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
+          : [];
+        const eventPayload = {
+          callId,
+          conversationId: call.conversationId,
+          endedBy: userId,
+          status: 'ended',
+          endedAt: new Date().toISOString()
+        };
+
+        communityNs.to(`call:${callId}`).emit('call:end', eventPayload);
+        emitVoiceEventToUsers(participantIds, 'call:end', eventPayload);
+        emitVoiceEventToUsers(participantIds, 'messenger:call_ended', eventPayload);
+        if (ack) ack({ success: true, data: eventPayload });
+      } catch (error: any) {
+        console.error('call:end error', error);
+        if (ack) ack({ success: false, error: error?.message || 'Failed to end call.' });
+      }
+    };
+    void handleEnd();
+  });
+
+  socket.on('call:participant:add', (payload: any, ack?: (result: any) => void) => {
+    const handleAddParticipant = async () => {
+      try {
+        const callerId = resolveSocketUserId(socket);
+        const callId = String(payload?.callId || '').trim();
+        const targetUserId = String(payload?.userId || payload?.participantId || '').trim();
+        if (!callerId || !callId || !targetUserId) {
+          if (ack) ack({ success: false, error: 'callId and userId are required.' });
+          return;
+        }
+
+        const config = await getOrCreateMessengerVoiceConfig();
+        if (!config.enabledConferenceCalls) {
+          if (ack) ack({ success: false, error: 'Conference calls are disabled by admin.' });
+          return;
+        }
+
+        const call = await loadVoiceCallForUser(callId, callerId);
+        if (!call) {
+          if (ack) ack({ success: false, error: 'Call not found or access denied.' });
+          return;
+        }
+
+        const conversation = await prisma.conversation.findUnique({
+          where: { id: call.conversationId },
+          include: { participants: true }
+        });
+        const conversationParticipantIds = Array.isArray(conversation?.participants)
+          ? conversation!.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
+          : [];
+        if (!conversation || !conversationParticipantIds.includes(targetUserId)) {
+          if (ack) ack({ success: false, error: 'User is not a participant in this conversation.' });
+          return;
+        }
+
+        const existingParticipants = Array.isArray(call.participants) ? call.participants : [];
+        const activeCount = existingParticipants.filter((entry: any) =>
+          ['INVITED', 'JOINED'].includes(String(entry.status || '').toUpperCase())
+        ).length;
+        if (activeCount >= Number(config.maxParticipants || 8)) {
+          if (ack) ack({ success: false, error: `Maximum ${config.maxParticipants} participants allowed.` });
+          return;
+        }
+
+        await (prisma as any).voiceCallParticipant.upsert({
+          where: { callId_userId: { callId, userId: targetUserId } },
+          update: { status: 'INVITED', invitedAt: new Date(), leftAt: null },
+          create: { callId, userId: targetUserId, status: 'INVITED', invitedAt: new Date() }
+        });
+
+        const eventPayload = {
+          callId,
+          conversationId: call.conversationId,
+          addedBy: callerId,
+          userId: targetUserId,
+          status: 'invited',
+          invitedAt: new Date().toISOString()
+        };
+
+        communityNs.to(`call:${callId}`).emit('call:participant:add', eventPayload);
+        communityNs.to(`community:user:${targetUserId}`).emit('call:ringing', {
+          callId,
+          conversationId: call.conversationId,
+          initiatorId: call.initiatorId,
+          participantIds: [...conversationParticipantIds],
+          callType: 'conference',
+          status: 'ringing',
+          invitedBy: callerId
+        });
+
+        if (ack) ack({ success: true, data: eventPayload });
+      } catch (error: any) {
+        console.error('call:participant:add error', error);
+        if (ack) ack({ success: false, error: error?.message || 'Failed to add participant.' });
+      }
+    };
+    void handleAddParticipant();
+  });
+
+  socket.on('call:participant:left', (payload: any, ack?: (result: any) => void) => {
+    const handleParticipantLeft = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        const callId = String(payload?.callId || '').trim();
+        if (!userId || !callId) {
+          if (ack) ack({ success: false, error: 'callId is required.' });
+          return;
+        }
+
+        const call = await loadVoiceCallForUser(callId, userId);
+        if (!call) {
+          if (ack) ack({ success: false, error: 'Call not found or access denied.' });
+          return;
+        }
+
+        await (prisma as any).voiceCallParticipant.updateMany({
+          where: { callId, userId },
+          data: { status: 'LEFT', leftAt: new Date() }
+        });
+
+        socket.leave(`call:${callId}`);
+        const eventPayload = {
+          callId,
+          conversationId: call.conversationId,
+          userId,
+          leftAt: new Date().toISOString()
+        };
+        communityNs.to(`call:${callId}`).emit('call:participant:left', eventPayload);
+        if (ack) ack({ success: true, data: eventPayload });
+      } catch (error: any) {
+        console.error('call:participant:left error', error);
+        if (ack) ack({ success: false, error: error?.message || 'Failed to leave call.' });
+      }
+    };
+    void handleParticipantLeft();
+  });
+
+  socket.on('call:join', (payload: any, ack?: (result: any) => void) => {
+    const handleCallJoin = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        const callId = String(payload?.callId || '').trim();
+        if (!userId || !callId) {
+          if (ack) ack({ success: false, error: 'callId is required.' });
+          return;
+        }
+        const call = await loadVoiceCallForUser(callId, userId);
+        if (!call) {
+          if (ack) ack({ success: false, error: 'Call not found or access denied.' });
+          return;
+        }
+        socket.join(`call:${callId}`);
+        if (ack) ack({ success: true, data: { callId, room: `call:${callId}` } });
+      } catch (error: any) {
+        if (ack) ack({ success: false, error: error?.message || 'Failed to join call room.' });
+      }
+    };
+    void handleCallJoin();
+  });
+
+  socket.on('call:signal', (payload: any, ack?: (result: any) => void) => {
+    const handleSignal = async () => {
+      try {
+        const fromUserId = resolveSocketUserId(socket);
+        const callId = String(payload?.callId || '').trim();
+        const toUserId = String(payload?.toUserId || '').trim();
+        const signal = payload?.signal;
+
+        if (!fromUserId || !callId || !toUserId || !signal) {
+          if (ack) ack({ success: false, error: 'callId, toUserId and signal are required.' });
+          return;
+        }
+
+        const call = await loadVoiceCallForUser(callId, fromUserId);
+        if (!call) {
+          if (ack) ack({ success: false, error: 'Call not found or access denied.' });
+          return;
+        }
+
+        const participantIds = Array.isArray(call.participants)
+          ? call.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
+          : [];
+        if (!participantIds.includes(toUserId)) {
+          if (ack) ack({ success: false, error: 'Target user is not in this call.' });
+          return;
+        }
+
+        const relayPayload = {
+          callId,
+          fromUserId,
+          toUserId,
+          signal,
+          emittedAt: new Date().toISOString()
+        };
+        communityNs.to(`community:user:${toUserId}`).emit('call:signal', relayPayload);
+        if (ack) ack({ success: true });
+      } catch (error: any) {
+        console.error('call:signal error', error);
+        if (ack) ack({ success: false, error: error?.message || 'Failed to relay call signal.' });
+      }
+    };
+    void handleSignal();
   });
 
   socket.on('disconnect', () => {
