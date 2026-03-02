@@ -161,6 +161,40 @@ const resolveStoryContent = (story: any) =>
   story?.story_text ||
   '';
 
+const resolveStoryAuthorName = (story: any, fallback = 'Community') => {
+  const raw =
+    story?.authorName ||
+    story?.author?.displayName ||
+    story?.author?.name ||
+    story?.authorUsername ||
+    story?.author?.username ||
+    story?.userName ||
+    story?.user_name ||
+    '';
+  const normalized = String(raw || '').trim();
+  return normalized || fallback;
+};
+
+const resolveStoryAuthorAvatar = (story: any) => {
+  const raw =
+    story?.authorAvatar ||
+    story?.author?.avatarUrl ||
+    story?.author?.avatar ||
+    story?.authorPhoto ||
+    story?.userAvatar ||
+    story?.user_avatar ||
+    story?.user?.avatarUrl ||
+    story?.user?.avatar ||
+    '';
+  const normalized = String(raw || '').trim();
+  return normalized ? resolveAssetUrl(normalized) : '';
+};
+
+const resolveStoryAuthorInitial = (story: any) => {
+  const first = resolveStoryAuthorName(story, 'S').replace(/^@+/, '').trim().charAt(0).toUpperCase();
+  return first || 'S';
+};
+
 const isStoryActive = (story: any) => {
   if (!story?.expiresAt) return true;
   const expiresAt = new Date(story.expiresAt).getTime();
@@ -1634,8 +1668,22 @@ const CommunityHome = () => {
                         <div className="h-full w-full flex items-center justify-center text-xs text-gray-500">Story</div>
                       );
                     })()}
+                      {(() => {
+                        const authorName = resolveStoryAuthorName(story, 'Community');
+                        const authorAvatar = resolveStoryAuthorAvatar(story);
+                        const authorInitial = resolveStoryAuthorInitial(story);
+                        return (
+                          <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-white/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
+                            {authorAvatar ? (
+                              <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
+                            ) : (
+                              <span>{authorInitial}</span>
+                            )}
+                          </div>
+                        );
+                      })()}
                       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 text-left">
-                        <p className="text-[10px] text-white font-semibold line-clamp-1">{story.authorName || 'Community'}</p>
+                        <p className="text-[10px] text-white font-semibold line-clamp-1">{resolveStoryAuthorName(story, 'Community')}</p>
                       </div>
                     </button>
                   ))
@@ -2455,9 +2503,27 @@ const CommunityHome = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
             <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-gray-900">{activeStory.authorName || 'Community member'}</p>
-                <p className="text-xs text-gray-500">{activeStory.createdAt ? new Date(activeStory.createdAt).toLocaleString() : ''}</p>
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const authorName = resolveStoryAuthorName(activeStory, 'Community member');
+                  const authorAvatar = resolveStoryAuthorAvatar(activeStory);
+                  const authorInitial = resolveStoryAuthorInitial(activeStory);
+                  return (
+                    <>
+                      <div className="inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-gray-200 bg-slate-700 text-xs font-semibold text-white">
+                        {authorAvatar ? (
+                          <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
+                        ) : (
+                          <span>{authorInitial}</span>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">{authorName}</p>
+                        <p className="text-xs text-gray-500">{activeStory.createdAt ? new Date(activeStory.createdAt).toLocaleString() : ''}</p>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
               <div className="flex items-center gap-2">
                 {canManageStory(activeStory) && (
