@@ -5,6 +5,8 @@ import { Search, Clock, ExternalLink, Plus, Loader2 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
 import { AdminService } from '../../services/admin';
+import { useNotification } from '../../context/NotificationContext';
+import { MessengerVoiceConfig } from '../../types';
 
 const AdminMessages = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -15,9 +17,13 @@ const AdminMessages = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUserId, setSelectedUserId] = useState('');
   const [creating, setCreating] = useState(false);
+  const [voiceConfig, setVoiceConfig] = useState<MessengerVoiceConfig | null>(null);
+  const [voiceSaving, setVoiceSaving] = useState(false);
+  const [blockedUserIdsInput, setBlockedUserIdsInput] = useState('');
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useUser();
+  const { showNotification } = useNotification();
 
   useEffect(() => {
     if (!user) {
@@ -53,6 +59,17 @@ const AdminMessages = () => {
     AdminService.getUsers()
       .then(setUsers)
       .catch(() => setUsers([]));
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || user.role !== UserRole.ADMIN) return;
+    AdminService.getMessengerVoiceConfig()
+      .then((config) => {
+        setVoiceConfig(config);
+        const blocked = Array.isArray(config?.blockedUserIds) ? config.blockedUserIds : [];
+        setBlockedUserIdsInput(blocked.join(', '));
+      })
+      .catch(() => setVoiceConfig(null));
   }, [user]);
 
   const filteredConversations = useMemo(() => {
@@ -98,11 +115,129 @@ const AdminMessages = () => {
     }
   };
 
+  const updateVoiceConfigState = (patch: Partial<MessengerVoiceConfig>) => {
+    setVoiceConfig((prev) => {
+      const base: MessengerVoiceConfig = prev || {
+        enabledVoiceCalls: true,
+        enabledConferenceCalls: true,
+        enabledVoiceNotes: true,
+        maxParticipants: 8,
+        maxVoiceNoteDurationSeconds: 180,
+        blockedUserIds: []
+      };
+      return { ...base, ...patch };
+    });
+  };
+
+  const saveVoiceConfig = async () => {
+    if (!voiceConfig) return;
+    setVoiceSaving(true);
+    try {
+      const blockedUserIds = Array.from(
+        new Set(
+          String(blockedUserIdsInput || '')
+            .split(/[\n,\s]+/g)
+            .map((entry) => entry.trim())
+            .filter(Boolean)
+        )
+      );
+      const updated = await AdminService.updateMessengerVoiceConfig({
+        ...voiceConfig,
+        blockedUserIds
+      });
+      setVoiceConfig(updated);
+      setBlockedUserIdsInput((Array.isArray(updated?.blockedUserIds) ? updated.blockedUserIds : []).join(', '));
+      showNotification('success', 'Messenger Voice', 'Voice config saved.');
+    } catch (error: any) {
+      showNotification('error', 'Messenger Voice', error?.message || 'Failed to save voice config.');
+    } finally {
+      setVoiceSaving(false);
+    }
+  };
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex h-[calc(100vh-140px)] overflow-hidden">
       <div className="w-full flex flex-col">
         <div className="p-4 border-b border-gray-200">
           <h2 className="font-bold text-gray-900 mb-3">Platform Messages</h2>
+          {voiceConfig && (
+            <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-gray-900">Messenger Voice Settings</h3>
+                <button
+                  type="button"
+                  onClick={() => void saveVoiceConfig()}
+                  disabled={voiceSaving}
+                  className="rounded-md bg-gray-900 px-3 py-1 text-xs font-semibold text-white disabled:opacity-60"
+                >
+                  {voiceSaving ? 'Saving...' : 'Save Voice Config'}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2 text-sm">
+                <label className="flex items-center justify-between rounded-md bg-white px-2 py-1.5 border border-gray-200">
+                  Voice calls
+                  <input
+                    type="checkbox"
+                    checked={Boolean(voiceConfig.enabledVoiceCalls)}
+                    onChange={(event) => updateVoiceConfigState({ enabledVoiceCalls: event.target.checked })}
+                  />
+                </label>
+                <label className="flex items-center justify-between rounded-md bg-white px-2 py-1.5 border border-gray-200">
+                  Conference calls
+                  <input
+                    type="checkbox"
+                    checked={Boolean(voiceConfig.enabledConferenceCalls)}
+                    onChange={(event) => updateVoiceConfigState({ enabledConferenceCalls: event.target.checked })}
+                  />
+                </label>
+                <label className="flex items-center justify-between rounded-md bg-white px-2 py-1.5 border border-gray-200">
+                  Voice notes
+                  <input
+                    type="checkbox"
+                    checked={Boolean(voiceConfig.enabledVoiceNotes)}
+                    onChange={(event) => updateVoiceConfigState({ enabledVoiceNotes: event.target.checked })}
+                  />
+                </label>
+                <label className="flex items-center justify-between rounded-md bg-white px-2 py-1.5 border border-gray-200">
+                  Max participants
+                  <input
+                    type="number"
+                    min={2}
+                    max={32}
+                    className="w-20 rounded border border-gray-300 px-2 py-0.5 text-right"
+                    value={Number(voiceConfig.maxParticipants || 8)}
+                    onChange={(event) => updateVoiceConfigState({ maxParticipants: Number(event.target.value || 8) })}
+                  />
+                </label>
+                <label className="flex items-center justify-between rounded-md bg-white px-2 py-1.5 border border-gray-200 md:col-span-2">
+                  Max voice note duration (seconds)
+                  <input
+                    type="number"
+                    min={5}
+                    max={900}
+                    className="w-24 rounded border border-gray-300 px-2 py-0.5 text-right"
+                    value={Number(voiceConfig.maxVoiceNoteDurationSeconds || 180)}
+                    onChange={(event) =>
+                      updateVoiceConfigState({ maxVoiceNoteDurationSeconds: Number(event.target.value || 180) })
+                    }
+                  />
+                </label>
+                <label className="rounded-md bg-white px-2 py-2 border border-gray-200 md:col-span-2">
+                  <div className="mb-1 text-xs font-semibold text-gray-700">Blocked user IDs</div>
+                  <textarea
+                    rows={2}
+                    value={blockedUserIdsInput}
+                    onChange={(event) => setBlockedUserIdsInput(event.target.value)}
+                    placeholder="user-id-1, user-id-2"
+                    className="w-full rounded border border-gray-300 px-2 py-1.5 text-xs"
+                  />
+                  <div className="mt-1 text-[10px] text-gray-500">
+                    Enter user IDs separated by comma, space, or newline.
+                  </div>
+                </label>
+              </div>
+            </div>
+          )}
           <div className="relative mb-3">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <input

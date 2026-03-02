@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MessagingService } from '../services/messaging';
 import { Conversation, Message, UploadedFile, UserRole } from '../types';
-import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users } from 'lucide-react';
 import { AIService } from '../services/ai/ai.service';
 import { UserService } from '../services/user';
 import { useUser } from '../context/UserContext';
@@ -13,8 +13,120 @@ import { useNotification } from '../context/NotificationContext';
 import { useContent } from '../context/ContentContext';
 import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import ProBadge from '../components/ProBadge';
+import { FileService } from '../services/files';
+import VoiceRecorder from './VoiceRecorder';
+import VoiceCallModal from './VoiceCallModal';
+import { VoiceCallProvider, useVoiceCall } from './VoiceCallProvider';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+const VoiceCallControls: React.FC<{
+  disabled?: boolean;
+  canConference?: boolean;
+  onError: (message: string) => void;
+}> = ({ disabled, canConference, onError }) => {
+  const {
+    open,
+    incoming,
+    statusLabel,
+    muted,
+    addBusy,
+    participantUsers,
+    participants,
+    remoteStreams,
+    startCall,
+    acceptCall,
+    rejectCall,
+    endCall,
+    toggleMute,
+    addParticipant
+  } = useVoiceCall();
+
+  const handleStart = async (conference?: boolean) => {
+    try {
+      await startCall({ conference });
+    } catch (error: any) {
+      onError(error?.message || 'Unable to start voice call.');
+    }
+  };
+
+  const handleAccept = async () => {
+    try {
+      await acceptCall();
+    } catch (error: any) {
+      onError(error?.message || 'Unable to accept voice call.');
+    }
+  };
+
+  const handleReject = async () => {
+    try {
+      await rejectCall();
+    } catch (error: any) {
+      onError(error?.message || 'Unable to reject voice call.');
+    }
+  };
+
+  const handleEnd = async () => {
+    try {
+      await endCall();
+    } catch (error: any) {
+      onError(error?.message || 'Unable to end voice call.');
+    }
+  };
+
+  const handleAddParticipant = async (userId: string) => {
+    try {
+      await addParticipant(userId);
+    } catch (error: any) {
+      onError(error?.message || 'Unable to add participant.');
+    }
+  };
+
+  return (
+    <>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => void handleStart(false)}
+          className="rounded-full border border-gray-300 p-2 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          title="Start voice call"
+        >
+          <Phone className="h-4 w-4" />
+        </button>
+        {canConference ? (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => void handleStart(true)}
+            className="rounded-full border border-gray-300 p-2 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            title="Start conference call"
+          >
+            <Users className="h-4 w-4" />
+          </button>
+        ) : null}
+      </div>
+
+      <VoiceCallModal
+        open={open}
+        incoming={incoming}
+        statusLabel={statusLabel}
+        muted={muted}
+        addBusy={addBusy}
+        canAddParticipant={Boolean(canConference)}
+        participantUsers={participantUsers}
+        participants={participants}
+        remoteStreams={remoteStreams}
+        onClose={() => void handleEnd()}
+        onAccept={() => void handleAccept()}
+        onReject={() => void handleReject()}
+        onEnd={() => void handleEnd()}
+        onToggleMute={toggleMute}
+        onAddParticipant={(userId) => void handleAddParticipant(userId)}
+      />
+    </>
+  );
+};
 
 const Messages = () => {
   const { conversationId } = useParams<{ conversationId: string }>();
@@ -39,6 +151,15 @@ const Messages = () => {
       allowInMail: true
   });
   const [settingsBusy, setSettingsBusy] = useState(false);
+  const [voiceRuntimeConfig, setVoiceRuntimeConfig] = useState({
+      enabledVoiceCalls: true,
+      enabledConferenceCalls: true,
+      enabledVoiceNotes: true,
+      maxParticipants: 8,
+      maxVoiceNoteDurationSeconds: 180,
+      blockedForCurrentUser: false
+  });
+  const [voiceNoteBusy, setVoiceNoteBusy] = useState(false);
   
   // Advanced Features State
   const [typingUser, setTypingUser] = useState<string | null>(null);
@@ -100,6 +221,24 @@ const Messages = () => {
           MessagingService.getAllConversations(user.id, user.role).then(setConversations);
       }
   }, [user]);
+
+  useEffect(() => {
+      if (!user) return;
+      MessagingService.getVoiceRuntimeConfig()
+          .then((config) => {
+              setVoiceRuntimeConfig({
+                  enabledVoiceCalls: Boolean(config?.enabledVoiceCalls ?? true),
+                  enabledConferenceCalls: Boolean(config?.enabledConferenceCalls ?? true),
+                  enabledVoiceNotes: Boolean(config?.enabledVoiceNotes ?? true),
+                  maxParticipants: Number(config?.maxParticipants ?? 8),
+                  maxVoiceNoteDurationSeconds: Number(config?.maxVoiceNoteDurationSeconds ?? 180),
+                  blockedForCurrentUser: Boolean((config as any)?.blockedForCurrentUser ?? false)
+              });
+          })
+          .catch(() => {
+              setVoiceRuntimeConfig((prev) => ({ ...prev }));
+          });
+  }, [user?.id]);
 
   // Handle URL param for deep linking
   useEffect(() => {
@@ -205,6 +344,17 @@ const Messages = () => {
       isArchived: Boolean(activeConvo?.isArchived ?? activeConvo?.is_archived)
   };
   const messagingControls = (settings as any)?.messagingControls || {};
+  const voiceParticipantUsers = (activeConvo?.participants || [])
+      .filter((participant: any) => String(participant?.id || '') !== String(user?.id || ''))
+      .map((participant: any) => ({
+          id: String(participant?.id || ''),
+          name: String(participant?.name || participant?.username || 'Participant'),
+          avatar: String(participant?.avatar || '')
+      }))
+      .filter((participant) => Boolean(participant.id));
+  const voiceCallsBlocked =
+      Boolean(voiceRuntimeConfig.blockedForCurrentUser) ||
+      !Boolean(voiceRuntimeConfig.enabledVoiceCalls);
 
   useEffect(() => {
       if (!showMessageSettings || !user) return;
@@ -231,7 +381,9 @@ const Messages = () => {
       const normalized = (value || '').toLowerCase();
       if (normalized.startsWith('image/')) return 'image';
       if (normalized.startsWith('video/')) return 'video';
+      if (normalized.startsWith('audio/')) return 'audio';
       if (normalized === 'image' || normalized === 'video') return normalized;
+      if (normalized === 'audio') return 'audio';
       return 'document';
   };
 
@@ -361,6 +513,11 @@ const Messages = () => {
           text: raw?.text ?? '',
           timestamp,
           is_read: isRead,
+          message_type: raw?.message_type ?? raw?.messageType ?? 'text',
+          messageType: raw?.messageType ?? raw?.message_type ?? 'text',
+          metadata: raw?.metadata ?? null,
+          voice_note: raw?.voice_note ?? raw?.voiceNote ?? null,
+          voiceNote: raw?.voiceNote ?? raw?.voice_note ?? null,
           reactions: Array.isArray(raw?.reactions) ? raw.reactions : [],
           attachments,
           attachment_ids: rawAttachments,
@@ -666,6 +823,48 @@ const Messages = () => {
               conversationId: activeConvoId,
               error: String((error as any)?.message || error)
           });
+      }
+  };
+
+  const handleVoiceRecorded = async (blob: Blob, durationMs: number) => {
+      if (!activeConvoId || !user) return;
+      if (!voiceRuntimeConfig.enabledVoiceNotes || voiceRuntimeConfig.blockedForCurrentUser) {
+          showNotification('error', 'Voice notes', 'Voice notes are disabled for this account.');
+          return;
+      }
+      setVoiceNoteBusy(true);
+      try {
+          const extension = blob.type.includes('ogg') ? 'ogg' : 'webm';
+          const file = new File([blob], `voice-note-${Date.now()}.${extension}`, {
+              type: blob.type || 'audio/webm'
+          });
+          const uploaded = await FileService.uploadFile(file, 'community', {
+              role: user.role,
+              userId: user.id,
+              visibility: 'public'
+          });
+
+          const message = await MessagingService.sendVoiceNote(activeConvoId, {
+              fileId: String(uploaded.id || uploaded.fileId || '').trim(),
+              durationMs: Math.max(1, Math.trunc(durationMs))
+          });
+
+          setConversations(prev => prev.map(c => {
+              if (c.id !== activeConvoId) return c;
+              return {
+                  ...c,
+                  messages: [...c.messages, message],
+                  lastMessage: 'Voice note',
+                  last_message: 'Voice note',
+                  lastMessageAt: message.timestamp,
+                  last_message_at: message.timestamp
+              };
+          }));
+          refreshMessages();
+      } catch (error: any) {
+          showNotification('error', 'Voice notes', error?.message || 'Failed to send voice note.');
+      } finally {
+          setVoiceNoteBusy(false);
       }
   };
 
@@ -1042,7 +1241,12 @@ const Messages = () => {
       }
   };
                             return (
-    <>
+    <VoiceCallProvider
+        socket={socket}
+        userId={user?.id}
+        conversationId={activeConvoId || undefined}
+        participantUsers={voiceParticipantUsers}
+    >
     <div className="max-w-6xl mx-auto px-4 py-8 h-[calc(100dvh-64px)] md:h-[calc(100vh-64px)]">
         <div className="bg-white shadow rounded-lg h-full flex overflow-hidden border border-gray-200">
             {/* Sidebar */}
@@ -1261,6 +1465,11 @@ const Messages = () => {
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
+                                <VoiceCallControls
+                                    disabled={!activeConvoId || voiceCallsBlocked}
+                                    canConference={voiceRuntimeConfig.enabledConferenceCalls && voiceParticipantUsers.length > 1}
+                                    onError={(message) => showNotification('error', 'Voice Call', message)}
+                                />
                                 {user?.role === UserRole.ADMIN && (
                                     <button className="text-red-500 hover:bg-red-50 p-2 rounded" title="Admin Actions">
                                         <ShieldAlert className="w-5 h-5" />
@@ -1463,6 +1672,16 @@ const Messages = () => {
                                                 {msg.text || ''}
                                             </p>
                                         )}
+                                        {(String(msg.messageType || msg.message_type || '').toLowerCase() === 'voice_note' ||
+                                            msg.voiceNote ||
+                                            msg.voice_note) && (
+                                            <div className={`mt-1 text-[11px] ${msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-500'}`}>
+                                                Voice note
+                                                {Number(msg?.voiceNote?.durationMs || msg?.voice_note?.durationMs || 0) > 0
+                                                    ? ` · ${Math.round(Number(msg?.voiceNote?.durationMs || msg?.voice_note?.durationMs || 0) / 1000)}s`
+                                                    : ''}
+                                            </div>
+                                        )}
                                         {attachmentList.length > 0 && (
                                             <div className="mt-2 space-y-2">
                                                 {attachmentList.map((attachment) => (
@@ -1471,6 +1690,8 @@ const Messages = () => {
                                                             <img src={attachment.url} alt={attachment.name} className="w-full max-h-48 object-cover rounded-md" />
                                                         ) : attachment.type === 'video' ? (
                                                             <video controls src={attachment.url} className="w-full max-h-48 rounded-md" />
+                                                        ) : attachment.type === 'audio' ? (
+                                                            <audio controls preload="metadata" src={attachment.url} className="w-full" />
                                                         ) : (
                                                             <a
                                                                 href={attachment.url}
@@ -1664,6 +1885,17 @@ const Messages = () => {
                                 >
                                     <ImageIcon className="w-5 h-5" />
                                 </button>
+                                <VoiceRecorder
+                                    disabled={
+                                        voiceNoteBusy ||
+                                        !activeConvoId ||
+                                        !voiceRuntimeConfig.enabledVoiceNotes ||
+                                        voiceRuntimeConfig.blockedForCurrentUser
+                                    }
+                                    maxDurationSeconds={voiceRuntimeConfig.maxVoiceNoteDurationSeconds}
+                                    onRecorded={handleVoiceRecorded}
+                                    onError={(message) => showNotification('error', 'Voice notes', message)}
+                                />
                                 <input 
                                     type="text" 
                                     className="flex-1 min-w-0 border border-gray-300 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
@@ -1753,7 +1985,7 @@ const Messages = () => {
         role={user?.role}
         visibility="public"
     />
-    </>
+    </VoiceCallProvider>
   );
 };
 

@@ -22,7 +22,8 @@ import type {
   PlatformSettings,
   EmailProviderConfig,
   AdminDashboardStats,
-  ApiResponse
+  ApiResponse,
+  MessengerVoiceConfig
 } from '../types';
 
 const ADMIN_BASE = '/admin';
@@ -291,6 +292,30 @@ const normalizeFraudLog = (log: any): FraudLog => {
 };
 
 export const AdminService = {
+  getMessengerVoiceConfig: async (): Promise<MessengerVoiceConfig> => {
+    const data = await adminGet<MessengerVoiceConfig>('/messenger/voice/config');
+    return {
+      enabledVoiceCalls: Boolean(data?.enabledVoiceCalls ?? true),
+      enabledConferenceCalls: Boolean(data?.enabledConferenceCalls ?? true),
+      enabledVoiceNotes: Boolean(data?.enabledVoiceNotes ?? true),
+      maxParticipants: Number(data?.maxParticipants ?? 8),
+      maxVoiceNoteDurationSeconds: Number(data?.maxVoiceNoteDurationSeconds ?? 180),
+      blockedUserIds: Array.isArray(data?.blockedUserIds) ? data.blockedUserIds : []
+    } as MessengerVoiceConfig;
+  },
+
+  updateMessengerVoiceConfig: async (payload: Partial<MessengerVoiceConfig>): Promise<MessengerVoiceConfig> => {
+    const data = await adminPut<MessengerVoiceConfig>('/messenger/voice/config', payload);
+    return {
+      enabledVoiceCalls: Boolean(data?.enabledVoiceCalls ?? true),
+      enabledConferenceCalls: Boolean(data?.enabledConferenceCalls ?? true),
+      enabledVoiceNotes: Boolean(data?.enabledVoiceNotes ?? true),
+      maxParticipants: Number(data?.maxParticipants ?? 8),
+      maxVoiceNoteDurationSeconds: Number(data?.maxVoiceNoteDurationSeconds ?? 180),
+      blockedUserIds: Array.isArray(data?.blockedUserIds) ? data.blockedUserIds : []
+    } as MessengerVoiceConfig;
+  },
+
   getUsers: async (): Promise<User[]> => {
     const data = await adminGet<User[]>('/users');
     return Array.isArray(data) ? data.map(normalizeUser) : [];

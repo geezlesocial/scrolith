@@ -1,5 +1,5 @@
 import api from './api';
-import { Conversation, Message, UserRole, MessageReaction } from '../types';
+import { Conversation, Message, UserRole, MessageReaction, VoiceCall, MessengerVoiceConfig } from '../types';
 
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
@@ -33,13 +33,22 @@ const normalizeAttachment = (attachment: any) => {
       size: 0
     };
   }
+  const mimeType = safeString(attachment?.mimeType ?? attachment?.mime_type);
+  const rawType = safeString(attachment?.type ?? mimeType, 'document');
+  const normalizedType = rawType.startsWith('audio/')
+    ? 'audio'
+    : rawType.startsWith('video/')
+      ? 'video'
+      : rawType.startsWith('image/')
+        ? 'image'
+        : rawType;
   return {
     id: safeString(attachment?.id ?? attachment?.fileId ?? attachment?.file_id),
     url: safeString(attachment?.url),
     name: safeString(attachment?.name ?? attachment?.filename ?? attachment?.originalName),
-    type: safeString(attachment?.type ?? attachment?.mimeType ?? attachment?.mime_type, 'document'),
+    type: safeString(normalizedType, 'document'),
     size: safeNumber(attachment?.size, 0),
-    mimeType: attachment?.mimeType ?? attachment?.mime_type
+    mimeType
   };
 };
 
@@ -73,6 +82,11 @@ const normalizeMessage = (raw: any): Message => {
     text: safeString(raw?.text ?? raw?.body ?? ''),
     timestamp,
     is_read: isRead,
+    message_type: safeString(raw?.message_type ?? raw?.messageType ?? 'text').toLowerCase(),
+    messageType: safeString(raw?.messageType ?? raw?.message_type ?? 'text').toLowerCase(),
+    metadata: raw?.metadata ?? null,
+    voice_note: raw?.voice_note ?? raw?.voiceNote ?? null,
+    voiceNote: raw?.voiceNote ?? raw?.voice_note ?? null,
     sender_role: raw?.senderRole ?? raw?.sender_role,
     reactions: safeArray<any>(raw?.reactions).map(normalizeReaction),
     attachments: normalizeAttachments(raw?.attachments ?? raw?.attachment_ids ?? raw?.attachmentIds),
@@ -166,6 +180,20 @@ const RATE_LIMIT_COOLDOWN_MS = 30000;
 let rateLimitUntil = 0;
 
 export const MessagingService = {
+  getVoiceRuntimeConfig: async (): Promise<MessengerVoiceConfig & { blockedForCurrentUser?: boolean }> => {
+    const response = await api.get('/messages/voice/config');
+    const data = extractData<any>(response) || {};
+    return {
+      enabledVoiceCalls: Boolean(data.enabledVoiceCalls ?? true),
+      enabledConferenceCalls: Boolean(data.enabledConferenceCalls ?? true),
+      enabledVoiceNotes: Boolean(data.enabledVoiceNotes ?? true),
+      maxParticipants: Number(data.maxParticipants ?? 8),
+      maxVoiceNoteDurationSeconds: Number(data.maxVoiceNoteDurationSeconds ?? 180),
+      blockedUserIds: [],
+      blockedForCurrentUser: Boolean(data.blockedForCurrentUser ?? false)
+    };
+  },
+
   getAllConversations: async (
     userId: string,
     role: UserRole,
@@ -233,6 +261,28 @@ export const MessagingService = {
       replyToMessageId: replyToMessageId || null
     });
     return normalizeMessage(extractData<any>(response));
+  },
+
+  sendVoiceNote: async (
+    conversationId: string,
+    payload: { fileId: string; durationMs: number; text?: string }
+  ): Promise<Message> => {
+    const response = await api.post(`/messages/conversations/${conversationId}/voice-notes`, payload);
+    return normalizeMessage(extractData<any>(response));
+  },
+
+  getVoiceCallHistory: async (conversationId: string): Promise<VoiceCall[]> => {
+    const response = await api.get(`/messages/conversations/${conversationId}/voice-calls`);
+    const data = extractData<any>(response);
+    const items = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
+    return items.map((entry: any) => ({
+      ...entry,
+      id: safeString(entry?.id),
+      conversationId: safeString(entry?.conversationId ?? entry?.conversation_id),
+      initiatorId: safeString(entry?.initiatorId ?? entry?.initiator_id),
+      status: safeString(entry?.status).toLowerCase(),
+      callType: safeString(entry?.callType ?? entry?.call_type).toLowerCase()
+    })) as VoiceCall[];
   },
 
   markAsRead: async (conversationId: string, userId: string): Promise<void> => {

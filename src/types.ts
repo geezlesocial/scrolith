@@ -1127,6 +1127,60 @@ export interface MessageReplyPreview {
   unavailable?: boolean;
 }
 
+export interface VoiceNotePayload {
+  id?: string | null;
+  fileId?: string | null;
+  durationMs: number;
+  url?: string | null;
+}
+
+export interface VoiceCallParticipant {
+  id?: string;
+  userId: string;
+  status?: 'invited' | 'joined' | 'left' | 'rejected' | 'missed' | string;
+  invitedAt?: string;
+  joinedAt?: string | null;
+  leftAt?: string | null;
+  user?: {
+    id: string;
+    name?: string;
+    avatar?: string;
+    username?: string;
+  };
+}
+
+export interface VoiceCall {
+  id: string;
+  conversationId: string;
+  initiatorId: string;
+  status:
+    | 'initiated'
+    | 'ringing'
+    | 'active'
+    | 'ended'
+    | 'rejected'
+    | 'missed'
+    | 'cancelled'
+    | 'failed'
+    | string;
+  callType?: 'direct' | 'conference' | string;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  createdAt?: string;
+  participants?: VoiceCallParticipant[];
+  [key: string]: any;
+}
+
+export interface MessengerVoiceConfig {
+  enabledVoiceCalls: boolean;
+  enabledConferenceCalls: boolean;
+  enabledVoiceNotes: boolean;
+  maxParticipants: number;
+  maxVoiceNoteDurationSeconds: number;
+  blockedUserIds: string[];
+  [key: string]: any;
+}
+
 export interface Message {
   id: string;
   conversation_id?: string;
@@ -1142,6 +1196,11 @@ export interface Message {
   sentAt?: string;
   is_read?: boolean;
   isRead?: boolean;
+  message_type?: 'text' | 'file' | 'voice_note' | 'system' | string;
+  messageType?: 'text' | 'file' | 'voice_note' | 'system' | string;
+  metadata?: Record<string, any> | null;
+  voice_note?: VoiceNotePayload | null;
+  voiceNote?: VoiceNotePayload | null;
   reactions?: MessageReaction[];
   ai_flagged?: boolean;
   aiFlagged?: boolean;
