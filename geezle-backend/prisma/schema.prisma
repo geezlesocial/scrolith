@@ -3048,6 +3048,104 @@ model CommunityPostReaction {
   @@index([type])
 }
 
+model ScrollVideo {
+  id                        String   @id @default(cuid())
+  authorId                  String
+  fileId                    String
+  title                     String?
+  description               String?  @db.Text
+  location                  String?
+  visibility                String   @default("public")
+  isAIEnhanced              Boolean  @default(false)
+  filterPreset              String?  @default("none")
+  filterStrength            Float?
+  status                    String   @default("active")
+  impressions               Int      @default(0)
+  views3s                   Int      @default(0)
+  views10s                  Int      @default(0)
+  views25pct                Int      @default(0)
+  views50pct                Int      @default(0)
+  views95pct                Int      @default(0)
+  likesCount                Int      @default(0)
+  commentsCount             Int      @default(0)
+  repostsCount              Int      @default(0)
+  sharesCount               Int      @default(0)
+  sendCount                 Int      @default(0)
+  lastImpressionIncrementAt DateTime?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  tags        ScrollTag[]
+  engagements ScrollEngagement[]
+  reports     ScrollReport[]
+
+  @@index([authorId, createdAt])
+  @@index([visibility, status, createdAt])
+  @@index([fileId])
+}
+
+model ScrollTag {
+  id           String   @id @default(cuid())
+  scrollId     String
+  taggedUserId String?
+  taggedPageId String?
+  createdAt    DateTime @default(now())
+
+  scroll ScrollVideo @relation(fields: [scrollId], references: [id], onDelete: Cascade)
+
+  @@index([scrollId])
+  @@index([taggedUserId])
+  @@index([taggedPageId])
+}
+
+model ScrollEngagement {
+  id        String   @id @default(cuid())
+  scrollId  String
+  userId    String
+  type      String
+  createdAt DateTime @default(now())
+
+  scroll ScrollVideo @relation(fields: [scrollId], references: [id], onDelete: Cascade)
+
+  @@unique([scrollId, userId, type])
+  @@index([scrollId, createdAt])
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+}
+
+model ScrollReport {
+  id           String   @id @default(cuid())
+  scrollId     String
+  reportedById String
+  reason       String
+  status       String   @default("pending")
+  createdAt    DateTime @default(now())
+  reviewedAt   DateTime?
+  reviewedById String?
+  reviewNote   String?
+
+  scroll ScrollVideo @relation(fields: [scrollId], references: [id], onDelete: Cascade)
+
+  @@index([scrollId, status, createdAt])
+  @@index([reportedById, createdAt])
+  @@index([status, createdAt])
+}
+
+model ScrollConfig {
+  id                         String   @id @default("default")
+  enabled                    Boolean  @default(true)
+  maxDurationSeconds         Int      @default(90)
+  aiLabelRequired            Boolean  @default(false)
+  autoModeration             Boolean  @default(false)
+  monetizationEnabled        Boolean  @default(true)
+  defaultVisibility          String   @default("public")
+  impressionThresholdSeconds Int      @default(2)
+  allowedFilterPresets       String[] @default(["none", "vibrant", "cinematic", "bw", "sepia", "warm"])
+  updatedById                String?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+}
+
 model CommunityStory {
   id             String   @id @default(cuid())
   authorId       String
