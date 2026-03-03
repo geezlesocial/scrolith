@@ -23,8 +23,9 @@ const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 const VoiceCallControls: React.FC<{
   disabled?: boolean;
   canConference?: boolean;
+  meId?: string;
   onError: (message: string) => void;
-}> = ({ disabled, canConference, onError }) => {
+}> = ({ disabled, canConference, meId, onError }) => {
   const {
     open,
     incoming,
@@ -116,6 +117,7 @@ const VoiceCallControls: React.FC<{
         canAddParticipant={Boolean(canConference)}
         participantUsers={participantUsers}
         participants={participants}
+        meId={meId}
         remoteStreams={remoteStreams}
         onClose={() => void handleEnd()}
         onAccept={() => void handleAccept()}
@@ -200,6 +202,33 @@ const Messages = () => {
           socket?.emit?.('messages:debug_trace', payload);
       } catch {}
   };
+
+  useEffect(() => {
+      const handler = (event: Event) => {
+          const detail = (event as CustomEvent<any>)?.detail || {};
+          const type = String(detail?.type || '').trim().toLowerCase();
+          if (!type) return;
+          if (type === 'incoming') {
+              showNotification('info', 'Voice call', 'Incoming call...');
+              return;
+          }
+          if (type === 'missed') {
+              showNotification('warning', 'Voice call', 'Missed call.');
+              return;
+          }
+          if (type === 'failed') {
+              const message = String(detail?.error || 'Voice call failed.');
+              showNotification('error', 'Voice call', message);
+              return;
+          }
+          if (type === 'permission_denied') {
+              const message = String(detail?.message || 'Microphone permission denied.');
+              showNotification('error', 'Voice call', message);
+          }
+      };
+      window.addEventListener('voicecall:lifecycle', handler as EventListener);
+      return () => window.removeEventListener('voicecall:lifecycle', handler as EventListener);
+  }, [showNotification]);
 
   useEffect(() => {
       activeConvoIdRef.current = activeConvoId;
@@ -356,7 +385,14 @@ const Messages = () => {
       .filter((participant: any) => String(participant?.id || '') !== String(user?.id || ''))
       .map((participant: any) => ({
           id: String(participant?.id || ''),
-          name: String(participant?.name || participant?.username || 'Participant'),
+          name: (() => {
+              const participantId = String(participant?.id || '').trim();
+              const rawName = String(participant?.name || participant?.username || '').trim();
+              if (!rawName) return 'Participant';
+              if (rawName === participantId) return 'Participant';
+              if (/^[a-z0-9_-]{18,}$/i.test(rawName)) return 'Participant';
+              return rawName;
+          })(),
           avatar: String(participant?.avatar || '')
       }))
       .filter((participant) => Boolean(participant.id));
@@ -1491,6 +1527,7 @@ const Messages = () => {
                                 <VoiceCallControls
                                     disabled={!activeConvoId || voiceCallsBlocked}
                                     canConference={voiceRuntimeConfig.enabledConferenceCalls && voiceParticipantUsers.length > 1}
+                                    meId={user?.id}
                                     onError={(message) => showNotification('error', 'Voice Call', message)}
                                 />
                                 {user?.role === UserRole.ADMIN && (

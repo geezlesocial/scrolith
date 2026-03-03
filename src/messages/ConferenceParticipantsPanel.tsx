@@ -26,6 +26,12 @@ type ConferenceParticipantsPanelProps = {
 };
 
 const normalizeStatus = (value: string | undefined) => String(value || '').trim().toLowerCase() || 'invited';
+const looksLikeOpaqueId = (value: string, userId?: string) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return false;
+  if (userId && normalized === String(userId || '').trim()) return true;
+  return /^[a-z0-9_-]{18,}$/i.test(normalized);
+};
 
 const statusLabel = (value: string | undefined) => {
   const status = normalizeStatus(value);
@@ -71,7 +77,9 @@ const ConferenceParticipantsPanel: React.FC<ConferenceParticipantsPanelProps> = 
       <div className="space-y-2">
         {(participants || []).map((entry) => {
           const userId = String(entry?.userId || '');
-          const name = String(entry?.user?.name || 'Participant');
+          const rawName = String(entry?.user?.name || '').trim();
+          const me = Boolean(meId && userId && userId === meId);
+          const name = rawName && !looksLikeOpaqueId(rawName, userId) ? rawName : me ? 'You' : 'Participant';
           return (
             <div key={userId} className="flex items-center justify-between rounded-md bg-white px-2 py-1.5 text-sm">
               <div className="flex items-center gap-2">
@@ -84,7 +92,7 @@ const ConferenceParticipantsPanel: React.FC<ConferenceParticipantsPanelProps> = 
                 )}
                 <span className="font-medium text-gray-800">
                   {name}
-                  {meId && userId === meId ? ' (You)' : ''}
+                  {me && name !== 'You' ? ' (You)' : ''}
                 </span>
               </div>
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusColor(entry?.status)}`}>

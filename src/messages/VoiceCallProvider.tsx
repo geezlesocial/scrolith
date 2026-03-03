@@ -72,10 +72,29 @@ const normalizeParticipants = (ids: string[], users: ParticipantOption[], status
 
 const statusToLabel = (status: string, incoming: boolean) => {
   if (incoming && status === 'ringing') return 'Incoming voice call';
+  if (status === 'ringing') return 'Calling...';
   if (status === 'active') return 'Call in progress';
+  if (status === 'missed') return 'Missed call';
+  if (status === 'failed') return 'Call failed';
+  if (status === 'cancelled') return 'Call cancelled';
   if (status === 'ended') return 'Call ended';
   if (status === 'rejected') return 'Call rejected';
-  return 'Calling...';
+  return 'Connecting...';
+};
+
+const emitVoiceLifecycleEvent = (type: string, payload?: Record<string, any>) => {
+  try {
+    window.dispatchEvent(
+      new CustomEvent('voicecall:lifecycle', {
+        detail: {
+          type,
+          ...(payload || {})
+        }
+      })
+    );
+  } catch {
+    // noop
+  }
 };
 
 type VoiceCallProviderProps = {
@@ -105,6 +124,10 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   const callIdRef = useRef<string>('');
   const conversationIdRef = useRef<string>('');
   const userIdRef = useRef<string>('');
+  const ringAudioContextRef = useRef<AudioContext | null>(null);
+  const ringIntervalRef = useRef<number | null>(null);
+  const resetTimerRef = useRef<number | null>(null);
+  const permissionNoticeShownRef = useRef(false);
 
   useEffect(() => {
     callIdRef.current = callState?.callId || '';
@@ -124,6 +147,57 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     setRemoteStreams({});
   }, []);
 
+  const clearResetTimer = useCallback(() => {
+    if (resetTimerRef.current) {
+      window.clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = null;
+    }
+  }, []);
+
+  const playRingPulse = useCallback(() => {
+    try {
+      const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextCtor) return;
+      if (!ringAudioContextRef.current) {
+        ringAudioContextRef.current = new AudioContextCtor();
+      }
+      const ctx = ringAudioContextRef.current;
+      if (!ctx) return;
+      if (ctx.state === 'suspended') {
+        void ctx.resume();
+      }
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 920;
+      gain.gain.value = 0.0001;
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      const now = ctx.currentTime;
+      gain.gain.exponentialRampToValueAtTime(0.05, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+      oscillator.start(now);
+      oscillator.stop(now + 0.27);
+    } catch {
+      // noop
+    }
+  }, []);
+
+  const stopRingingAlert = useCallback(() => {
+    if (ringIntervalRef.current) {
+      window.clearInterval(ringIntervalRef.current);
+      ringIntervalRef.current = null;
+    }
+  }, []);
+
+  const startRingingAlert = useCallback(() => {
+    if (ringIntervalRef.current) return;
+    playRingPulse();
+    ringIntervalRef.current = window.setInterval(() => {
+      playRingPulse();
+    }, 1900);
+  }, [playRingPulse]);
+
   const clearLocalStream = useCallback(() => {
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
@@ -132,19 +206,34 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   }, []);
 
   const resetCallState = useCallback(() => {
+    clearResetTimer();
+    stopRingingAlert();
     setIncoming(false);
     setCallState(null);
     setParticipants([]);
     setMuted(false);
+    permissionNoticeShownRef.current = false;
     clearPeers();
     clearLocalStream();
-  }, [clearLocalStream, clearPeers]);
+  }, [clearLocalStream, clearPeers, clearResetTimer, stopRingingAlert]);
 
   const ensureLocalAudio = useCallback(async () => {
     if (localStreamRef.current) return localStreamRef.current;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    localStreamRef.current = stream;
-    return stream;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      localStreamRef.current = stream;
+      return stream;
+    } catch (error: any) {
+      const name = String(error?.name || '').toLowerCase();
+      const denied =
+        name.includes('notallowed') ||
+        name.includes('permissiondenied') ||
+        name.includes('securityerror');
+      if (denied) {
+        throw new Error('Microphone permission denied. Enable microphone access and try again.');
+      }
+      throw new Error(String(error?.message || 'Unable to access microphone.'));
+    }
   }, []);
 
   const sendSignal = useCallback(
@@ -162,12 +251,24 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       const existing = peerConnectionsRef.current.get(remoteUserId);
       if (existing) return existing;
 
-      const stream = await ensureLocalAudio();
+      let stream: MediaStream | null = null;
+      try {
+        stream = await ensureLocalAudio();
+      } catch (error: any) {
+        if (!permissionNoticeShownRef.current) {
+          permissionNoticeShownRef.current = true;
+          emitVoiceLifecycleEvent('permission_denied', {
+            message: String(error?.message || 'Microphone permission denied.')
+          });
+        }
+      }
       const peer = new RTCPeerConnection(RTC_CONFIG);
 
-      stream.getTracks().forEach((track) => {
-        peer.addTrack(track, stream);
-      });
+      if (stream) {
+        stream.getTracks().forEach((track) => {
+          peer.addTrack(track, stream as MediaStream);
+        });
+      }
 
       peer.ontrack = (event) => {
         const [remoteStream] = event.streams || [];
@@ -212,11 +313,20 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   const createOfferForUser = useCallback(
     async (remoteUserId: string) => {
       if (!remoteUserId || remoteUserId === userIdRef.current) return;
-      const peer = await createPeerConnection(remoteUserId);
-      if (!peer) return;
-      const offer = await peer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
-      await peer.setLocalDescription(offer);
-      await sendSignal(remoteUserId, { type: 'offer', sdp: offer });
+      try {
+        const peer = await createPeerConnection(remoteUserId);
+        if (!peer) return;
+        const offer = await peer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
+        await peer.setLocalDescription(offer);
+        await sendSignal(remoteUserId, { type: 'offer', sdp: offer });
+      } catch (error: any) {
+        setCallState((prev) => (prev ? { ...prev, status: 'failed' } : prev));
+        emitVoiceLifecycleEvent('failed', {
+          callId: callIdRef.current,
+          conversationId: conversationIdRef.current,
+          error: String(error?.message || 'Failed to establish voice call.')
+        });
+      }
     },
     [createPeerConnection, sendSignal]
   );
@@ -254,11 +364,33 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   useEffect(() => {
     if (!socket || !userId) return;
 
+    const finalizeCallState = (status: string, payload?: any, delayMs = 1200) => {
+      clearResetTimer();
+      stopRingingAlert();
+      setIncoming(false);
+      setCallState((prev) => (prev ? { ...prev, status } : prev));
+      if (status === 'missed' || status === 'failed' || status === 'rejected') {
+        emitVoiceLifecycleEvent(status, {
+          callId: String(payload?.callId || callIdRef.current || ''),
+          conversationId: String(payload?.conversationId || conversationIdRef.current || ''),
+          error: String(payload?.error || '')
+        });
+      }
+      if (delayMs <= 0) {
+        resetCallState();
+        return;
+      }
+      resetTimerRef.current = window.setTimeout(() => {
+        resetCallState();
+      }, delayMs);
+    };
+
     const onRinging = (payload: any) => {
       const payloadConversationId = String(payload?.conversationId || '').trim();
       const payloadCallId = String(payload?.callId || '').trim();
       const targetConversationId = String(conversationId || '').trim();
       if (!payloadCallId) return;
+      clearResetTimer();
       const sameConversation =
         !targetConversationId || !payloadConversationId || payloadConversationId === targetConversationId;
 
@@ -289,6 +421,22 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
           : [initiatorId, String(userId || '').trim()].filter((id) => Boolean(id) && knownIds.has(id));
       })();
       setParticipants(normalizeParticipants(fallbackIds, participantUsers, 'invited'));
+      if (incomingCall) {
+        startRingingAlert();
+        emitVoiceLifecycleEvent('incoming', {
+          callId: payloadCallId,
+          conversationId: payloadConversationId,
+          initiatorId
+        });
+      } else {
+        stopRingingAlert();
+      }
+    };
+
+    const onInitiated = (payload: any) => {
+      const initiatorId = String(payload?.initiatorId || '').trim();
+      if (!initiatorId || initiatorId !== String(userId || '').trim()) return;
+      onRinging(payload);
     };
 
     const onParticipantJoined = (payload: any) => {
@@ -297,6 +445,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       if (!callId || !joinedUserId || callId !== callIdRef.current) return;
       ensureParticipantEntry(joinedUserId, 'joined');
       setCallState((prev) => (prev ? { ...prev, status: 'active' } : prev));
+      stopRingingAlert();
       if (joinedUserId !== userIdRef.current) {
         void createOfferForUser(joinedUserId);
       }
@@ -319,7 +468,8 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     const onCallEnded = (payload: any) => {
       const callId = String(payload?.callId || '').trim();
       if (!callId || (callIdRef.current && callId !== callIdRef.current)) return;
-      resetCallState();
+      const status = String(payload?.status || 'ended').trim().toLowerCase() || 'ended';
+      finalizeCallState(status, payload, 1000);
     };
 
     const onCallRejected = (payload: any) => {
@@ -327,18 +477,53 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       const rejectedUserId = String(payload?.userId || '').trim();
       if (!callId || callId !== callIdRef.current) return;
       ensureParticipantEntry(rejectedUserId, 'rejected');
+      finalizeCallState('rejected', payload, 1400);
     };
 
     const onSignal = (payload: any) => {
       void handleIncomingSignal(payload);
     };
 
+    const onLifecycleJoined = (payload: any) => {
+      const callId = String(payload?.callId || '').trim();
+      const joinedUserId = String(payload?.userId || '').trim();
+      if (!callId || !joinedUserId || callId !== callIdRef.current) return;
+      ensureParticipantEntry(joinedUserId, 'joined');
+      setCallState((prev) => (prev ? { ...prev, status: 'active' } : prev));
+      stopRingingAlert();
+    };
+
+    const onLifecycleMissed = (payload: any) => {
+      const callId = String(payload?.callId || '').trim();
+      if (!callId || (callIdRef.current && callId !== callIdRef.current)) return;
+      finalizeCallState('missed', payload, 1600);
+    };
+
+    const onLifecycleFailed = (payload: any) => {
+      const callId = String(payload?.callId || '').trim();
+      if (callIdRef.current && callId && callId !== callIdRef.current) return;
+      setCallState((prev) => {
+        const nextCallId = callId || callIdRef.current || '';
+        if (!prev && !nextCallId) return prev;
+        return {
+          callId: nextCallId,
+          conversationId: String(payload?.conversationId || conversationIdRef.current || ''),
+          initiatorId: String(payload?.initiatorId || userIdRef.current || ''),
+          status: 'failed',
+          callType: String(payload?.callType || 'direct').toLowerCase()
+        };
+      });
+      finalizeCallState('failed', payload, 1800);
+    };
+
     const onLifecycleEnded = (payload: any) => {
       const callId = String(payload?.callId || '').trim();
       if (!callId || (callIdRef.current && callId !== callIdRef.current)) return;
-      resetCallState();
+      const status = String(payload?.status || 'ended').trim().toLowerCase() || 'ended';
+      finalizeCallState(status, payload, 900);
     };
 
+    socket.on('call:initiate', onInitiated);
     socket.on('call:ringing', onRinging);
     socket.on('call:participant:joined', onParticipantJoined);
     socket.on('call:participant:add', onParticipantAdded);
@@ -346,9 +531,13 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     socket.on('call:end', onCallEnded);
     socket.on('call:reject', onCallRejected);
     socket.on('call:signal', onSignal);
+    socket.on('messenger:call_joined', onLifecycleJoined);
+    socket.on('messenger:call_missed', onLifecycleMissed);
+    socket.on('messenger:call_failed', onLifecycleFailed);
     socket.on('messenger:call_ended', onLifecycleEnded);
 
     return () => {
+      socket.off('call:initiate', onInitiated);
       socket.off('call:ringing', onRinging);
       socket.off('call:participant:joined', onParticipantJoined);
       socket.off('call:participant:add', onParticipantAdded);
@@ -356,14 +545,28 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       socket.off('call:end', onCallEnded);
       socket.off('call:reject', onCallRejected);
       socket.off('call:signal', onSignal);
+      socket.off('messenger:call_joined', onLifecycleJoined);
+      socket.off('messenger:call_missed', onLifecycleMissed);
+      socket.off('messenger:call_failed', onLifecycleFailed);
       socket.off('messenger:call_ended', onLifecycleEnded);
     };
-  }, [socket, userId, conversationId, participantUsers, ensureParticipantEntry, createOfferForUser, handleIncomingSignal, resetCallState]);
+  }, [
+    socket,
+    userId,
+    conversationId,
+    participantUsers,
+    clearResetTimer,
+    ensureParticipantEntry,
+    createOfferForUser,
+    handleIncomingSignal,
+    resetCallState,
+    startRingingAlert,
+    stopRingingAlert
+  ]);
 
   const startCall = useCallback(
     async (options?: { conference?: boolean }) => {
       if (!socket || !userId || !conversationId) return;
-      await ensureLocalAudio();
       const participantIds = participantUsers.map((entry) => entry.id).filter(Boolean);
       const targetParticipantIds = options?.conference ? participantIds : participantIds.slice(0, 1);
       if (!targetParticipantIds.length) {
@@ -375,9 +578,14 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         callType: options?.conference ? 'conference' : 'direct'
       });
       if (response?.success === false) {
+        emitVoiceLifecycleEvent('failed', {
+          conversationId,
+          error: String(response?.error || 'Failed to initiate call.')
+        });
         throw new Error(String(response?.error || 'Failed to initiate call.'));
       }
       const data = response?.data || {};
+      stopRingingAlert();
       setIncoming(false);
       setCallState({
         callId: String(data.callId || ''),
@@ -391,20 +599,20 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         : [userId, ...targetParticipantIds];
       setParticipants(normalizeParticipants(Array.from(new Set(ids)), participantUsers, 'invited'));
     },
-    [socket, userId, conversationId, participantUsers, ensureLocalAudio]
+    [socket, userId, conversationId, participantUsers, stopRingingAlert]
   );
 
   const acceptCall = useCallback(async () => {
     if (!socket || !callState?.callId) return;
-    await ensureLocalAudio();
     const response = await emitWithAck(socket, 'call:accept', { callId: callState.callId });
     if (response?.success === false) {
       throw new Error(String(response?.error || 'Failed to accept call.'));
     }
+    stopRingingAlert();
     setIncoming(false);
     setCallState((prev) => (prev ? { ...prev, status: 'active' } : prev));
     ensureParticipantEntry(String(userId || ''), 'joined');
-  }, [socket, callState?.callId, ensureLocalAudio, ensureParticipantEntry, userId]);
+  }, [socket, callState?.callId, ensureParticipantEntry, userId, stopRingingAlert]);
 
   const rejectCall = useCallback(async () => {
     if (!socket || !callState?.callId) {
@@ -457,8 +665,18 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   useEffect(() => {
     return () => {
       resetCallState();
+      clearResetTimer();
+      stopRingingAlert();
+      if (ringAudioContextRef.current) {
+        try {
+          void ringAudioContextRef.current.close();
+        } catch {
+          // noop
+        }
+        ringAudioContextRef.current = null;
+      }
     };
-  }, [resetCallState]);
+  }, [resetCallState, clearResetTimer, stopRingingAlert]);
 
   const open = Boolean(callState?.callId);
   const statusLabel = statusToLabel(String(callState?.status || ''), incoming);
