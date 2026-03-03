@@ -93,7 +93,8 @@ import { insightsActionTrackerMiddleware } from './modules/insights/realtime/ins
 import {
   getOrCreateMessengerVoiceConfig,
   isMessengerVoiceSchemaMissingError,
-  isVoiceBlockedForUser
+  isVoiceBlockedForUser,
+  MAX_MESSENGER_VOICE_PARTICIPANTS
 } from './services/messengerVoice.service';
 // Restart trigger comment (no-op) to force ts-node-dev reload when modified during debugging
 
@@ -320,6 +321,8 @@ const VOICE_CALL_INITIATE_WINDOW_MS = 60_000;
 const voiceCallInitiationBuckets = new Map<string, number[]>();
 const VOICE_CALL_RING_TIMEOUT_MS = Math.max(15_000, Number(process.env.VOICE_CALL_RING_TIMEOUT_MS || 30_000));
 const VOICE_CALL_RING_SWEEP_MS = Math.max(5_000, Number(process.env.VOICE_CALL_RING_SWEEP_MS || 10_000));
+const VOICE_CALL_ACTIVE_STATUSES = ['INITIATED', 'RINGING', 'ACTIVE'];
+const VOICE_CALL_BUSY_PARTICIPANT_STATUSES = ['INVITED', 'JOINED'];
 let voiceCallSweepBusy = false;
 let voiceCallSchemaMissingWarned = false;
 
@@ -383,6 +386,207 @@ const toVoiceSocketError = (error: any, fallbackMessage: string) => {
   };
 };
 
+const resolveVoiceParticipantLimit = (config: any) => {
+  const configured = Number(config?.maxParticipants || MAX_MESSENGER_VOICE_PARTICIPANTS);
+  if (!Number.isFinite(configured)) return MAX_MESSENGER_VOICE_PARTICIPANTS;
+  return Math.max(2, Math.min(MAX_MESSENGER_VOICE_PARTICIPANTS, Math.trunc(configured)));
+};
+
+const formatCallDuration = (durationMs: number) => {
+  const normalized = Math.max(0, Math.trunc(Number(durationMs || 0)));
+  if (!normalized) return '0s';
+  const totalSeconds = Math.max(1, Math.round(normalized / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts: string[] = [];
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  if (!hours && !minutes) parts.push(`${seconds}s`);
+  if (hours && seconds) parts.push(`${seconds}s`);
+  return parts.join(' ');
+};
+
+const resolveVoiceCallDurationMs = (call: any, endedAt?: Date | null) => {
+  const start = call?.startedAt || call?.createdAt;
+  const end = endedAt || call?.endedAt || new Date();
+  if (!start || !end) return 0;
+  const startMs = new Date(start).getTime();
+  const endMs = new Date(end).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0;
+  return Math.max(0, endMs - startMs);
+};
+
+const buildCallSummaryText = (status: string, details?: { durationMs?: number; participantCount?: number; userName?: string }) => {
+  const normalized = String(status || '').trim().toLowerCase();
+  const durationMs = Math.max(0, Math.trunc(Number(details?.durationMs || 0)));
+  const participantCount = Math.max(0, Math.trunc(Number(details?.participantCount || 0)));
+  if (normalized === 'ended') {
+    const durationLabel = formatCallDuration(durationMs);
+    const participantLabel = participantCount > 1 ? ` · ${participantCount} participants` : '';
+    return `Call ended · ${durationLabel}${participantLabel}`;
+  }
+  if (normalized === 'missed') return 'Missed call';
+  if (normalized === 'rejected') return `${details?.userName || 'Participant'} declined the call`;
+  if (normalized === 'failed') return 'Call failed';
+  if (normalized === 'cancelled') return 'Call cancelled';
+  return 'Voice call update';
+};
+
+const emitMessagePayloadToUsers = (
+  conversation: any,
+  senderId: string,
+  payload: Record<string, any>
+) => {
+  const receiverIds = Array.isArray(conversation?.participants)
+    ? conversation.participants
+        .map((entry: any) => String(entry?.userId || '').trim())
+        .filter((id: string) => Boolean(id) && id !== senderId)
+    : [];
+  receiverIds.forEach((id: string) => emitVoiceEventToUsers([id], 'messages:new', payload));
+  emitVoiceEventToUsers([senderId], 'messages:sent', payload);
+};
+
+const persistVoiceCallSummaryMessage = async (params: {
+  conversationId: string;
+  senderId: string;
+  callId: string;
+  status: string;
+  text: string;
+  durationMs?: number;
+  participantCount?: number;
+  metadata?: Record<string, any>;
+}) => {
+  const conversationId = String(params.conversationId || '').trim();
+  const senderId = String(params.senderId || '').trim();
+  if (!conversationId || !senderId) return;
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    include: { participants: true }
+  });
+  if (!conversation) return;
+
+  const participantIds = Array.isArray(conversation.participants)
+    ? conversation.participants.map((entry: any) => String(entry?.userId || '').trim()).filter(Boolean)
+    : [];
+  if (!participantIds.includes(senderId)) return;
+
+  const metadata = {
+    voiceCall: {
+      callId: String(params.callId || '').trim() || null,
+      status: String(params.status || '').trim().toLowerCase() || 'ended',
+      durationMs: Math.max(0, Math.trunc(Number(params.durationMs || 0))),
+      participantCount: Math.max(0, Math.trunc(Number(params.participantCount || 0))),
+      ...(params.metadata || {})
+    }
+  };
+
+  const message = await prisma.directMessage.create({
+    data: {
+      conversationId,
+      senderId,
+      text: String(params.text || '').trim() || 'Voice call update',
+      messageType: 'SYSTEM' as any,
+      isSystem: true,
+      metadata,
+      attachments: []
+    },
+    include: { reactions: true }
+  });
+
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: {
+      lastMessageText: message.text,
+      lastMessageAt: message.createdAt,
+      lastMessageSenderId: senderId
+    }
+  });
+
+  const receiverId =
+    String(conversation?.type || '').toUpperCase() === 'DIRECT'
+      ? participantIds.find((id: string) => id !== senderId) || ''
+      : '';
+
+  const payload = {
+    id: message.id,
+    conversation_id: conversationId,
+    conversationId,
+    sender_id: senderId,
+    senderId,
+    receiver_id: receiverId,
+    receiverId,
+    text: message.text,
+    timestamp: message.createdAt ? message.createdAt.toISOString() : new Date().toISOString(),
+    is_read: false,
+    isRead: false,
+    message_type: 'system',
+    messageType: 'system',
+    metadata,
+    voice_note: null,
+    voiceNote: null,
+    attachments: [],
+    attachment_ids: [],
+    reactions: []
+  };
+
+  emitMessagePayloadToUsers(conversation, senderId, payload);
+};
+
+const findBusyCallParticipant = async (userIds: string[], excludeCallId?: string) => {
+  const ids = Array.from(new Set((userIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+  if (!ids.length) return null;
+  return (prisma as any).voiceCallParticipant.findFirst({
+    where: {
+      userId: { in: ids },
+      status: { in: VOICE_CALL_BUSY_PARTICIPANT_STATUSES },
+      call: {
+        status: { in: ['RINGING', 'ACTIVE'] },
+        ...(excludeCallId ? { id: { not: excludeCallId } } : {})
+      }
+    },
+    include: {
+      call: {
+        select: {
+          id: true,
+          conversationId: true,
+          status: true,
+          callType: true
+        }
+      },
+      user: {
+        select: {
+          id: true,
+          name: true,
+          username: true
+        }
+      }
+    },
+    orderBy: { updatedAt: 'desc' }
+  });
+};
+
+const resolveParticipantOptionsByIds = async (userIds: string[]) => {
+  const ids = Array.from(new Set((userIds || []).map((id) => String(id || '').trim()).filter(Boolean)));
+  if (!ids.length) return [] as Array<{ id: string; name: string; username?: string | null; avatar?: string | null }>;
+  const users = await prisma.user.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      name: true,
+      username: true,
+      avatar: true
+    }
+  });
+  return users.map((entry) => ({
+    id: String(entry.id || ''),
+    name: String(entry.name || entry.username || 'Participant'),
+    username: entry.username || null,
+    avatar: entry.avatar || null
+  }));
+};
+
 const loadConversationForVoice = async (conversationId: string, userId: string) => {
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
@@ -429,13 +633,14 @@ const markExpiredRingingCallsAsMissed = async () => {
 
     for (const call of expiredCalls || []) {
       const endedAt = new Date();
-      await (prisma as any).voiceCall.updateMany({
+      const finalizeResult = await (prisma as any).voiceCall.updateMany({
         where: { id: call.id, status: 'RINGING' },
         data: {
           status: 'MISSED',
           endedAt
         }
       });
+      if (!Number(finalizeResult?.count || 0)) continue;
 
       await (prisma as any).voiceCallParticipant.updateMany({
         where: { callId: call.id, status: 'INVITED' },
@@ -463,6 +668,7 @@ const markExpiredRingingCallsAsMissed = async () => {
         conversationId: String(call.conversationId || ''),
         initiatorId: String(call.initiatorId || ''),
         status: 'missed',
+        durationMs: 0,
         endedAt: endedAt.toISOString()
       };
 
@@ -470,6 +676,15 @@ const markExpiredRingingCallsAsMissed = async () => {
       emitVoiceEventToUsers(participantIds, 'call:end', payload);
       emitVoiceEventToUsers(participantIds, 'messenger:call_missed', payload);
       emitVoiceEventToUsers(participantIds, 'messenger:call_ended', payload);
+      await persistVoiceCallSummaryMessage({
+        conversationId: String(call.conversationId || ''),
+        senderId: String(call.initiatorId || ''),
+        callId: String(call.id || ''),
+        status: 'missed',
+        text: buildCallSummaryText('missed'),
+        durationMs: 0,
+        participantCount: participantIds.length
+      });
     }
     voiceCallSchemaMissingWarned = false;
   } catch (error) {
@@ -751,14 +966,63 @@ communityNs.on('connection', async (socket) => {
           return;
         }
 
+        const participantLimit = resolveVoiceParticipantLimit(config);
         const totalParticipants = new Set([userId, ...targetIds]).size;
-        if (totalParticipants > Number(config.maxParticipants || 8)) {
+        if (totalParticipants > participantLimit) {
           const error = {
             success: false,
-            error: `Maximum ${config.maxParticipants} participants allowed.`,
+            error: `Maximum ${participantLimit} participants allowed.`,
             code: 'MAX_PARTICIPANTS_EXCEEDED'
           };
           if (ack) ack(error);
+          return;
+        }
+
+        const busyEntry = await findBusyCallParticipant([userId, ...targetIds]);
+        if (busyEntry) {
+          const busyUserId = String(busyEntry?.userId || '').trim();
+          const busyUserName =
+            String(busyEntry?.user?.name || busyEntry?.user?.username || '').trim() ||
+            (busyUserId === userId ? 'You are' : 'This user is');
+          const busyError =
+            busyUserId === userId
+              ? 'You are already on another call.'
+              : `${busyUserName} is currently on another call.`;
+          const busyPayload = {
+            callId: null,
+            conversationId,
+            busyUserId,
+            busyUserName,
+            status: 'failed',
+            code: 'VOICE_USER_BUSY',
+            error: busyError,
+            failedAt: new Date().toISOString()
+          };
+          communityNs.to(`community:user:${userId}`).emit('call:busy', busyPayload);
+          emitVoiceEventToUsers([userId], 'messenger:call_failed', busyPayload);
+          await persistVoiceCallSummaryMessage({
+            conversationId,
+            senderId: userId,
+            callId: '',
+            status: 'failed',
+            text: `Call failed · ${busyError}`,
+            durationMs: 0,
+            participantCount: totalParticipants,
+            metadata: {
+              code: 'VOICE_USER_BUSY',
+              busyUserId,
+              busyUserName,
+              reason: 'user_busy'
+            }
+          });
+          if (ack) {
+            ack({
+              success: false,
+              error: busyError,
+              code: 'VOICE_USER_BUSY',
+              data: busyPayload
+            });
+          }
           return;
         }
 
@@ -802,34 +1066,52 @@ communityNs.on('connection', async (socket) => {
         });
 
         socket.join(`call:${call.id}`);
+        const participantUsers = await resolveParticipantOptionsByIds(
+          participantRows.map((entry) => String(entry.userId || ''))
+        );
 
         const eventPayload = {
           callId: call.id,
           conversationId,
           initiatorId: userId,
           participantIds: participantRows.map((entry) => entry.userId),
+          participants: participantUsers,
           callType: isConferenceRequested ? 'conference' : 'direct',
           status: 'ringing',
           createdAt: new Date().toISOString()
         };
 
-        targetIds.forEach((targetUserId) => {
-          communityNs.to(`community:user:${targetUserId}`).emit('call:ringing', eventPayload);
-        });
-
-        communityNs.to(`community:user:${userId}`).emit('call:initiate', eventPayload);
+        emitVoiceEventToUsers(targetIds, 'call:ringing', eventPayload);
+        emitVoiceEventToUsers([userId], 'call:initiate', eventPayload);
         emitVoiceEventToUsers(participantRows.map((entry) => entry.userId), 'messenger:call_started', eventPayload);
 
         if (ack) ack({ success: true, data: eventPayload });
       } catch (error: any) {
         console.error('call:initiate error', error);
         if (callerUserId) {
-          emitVoiceEventToUsers([callerUserId], 'messenger:call_failed', {
+          const failedPayload = {
             conversationId: String(payload?.conversationId || ''),
             status: 'failed',
             error: String(error?.message || 'Failed to initiate call.'),
             failedAt: new Date().toISOString()
-          });
+          };
+          emitVoiceEventToUsers([callerUserId], 'messenger:call_failed', failedPayload);
+          const fallbackConversationId = String(payload?.conversationId || '').trim();
+          if (fallbackConversationId) {
+            await persistVoiceCallSummaryMessage({
+              conversationId: fallbackConversationId,
+              senderId: callerUserId,
+              callId: '',
+              status: 'failed',
+              text: `Call failed · ${String(error?.message || 'Unable to start call.')}`,
+              durationMs: 0,
+              participantCount: 0,
+              metadata: {
+                reason: 'initiate_error',
+                error: String(error?.message || 'Failed to initiate call.')
+              }
+            });
+          }
         }
         if (ack) ack(toVoiceSocketError(error, 'Failed to initiate call.'));
       }
@@ -850,6 +1132,27 @@ communityNs.on('connection', async (socket) => {
         const call = await loadVoiceCallForUser(callId, userId);
         if (!call) {
           if (ack) ack({ success: false, error: 'Call not found or access denied.' });
+          return;
+        }
+        if (!VOICE_CALL_ACTIVE_STATUSES.includes(String(call.status || '').toUpperCase())) {
+          if (ack) ack({ success: false, error: 'This call is no longer active.' });
+          return;
+        }
+
+        const busyEntry = await findBusyCallParticipant([userId], callId);
+        if (busyEntry) {
+          const busyPayload = {
+            callId,
+            conversationId: call.conversationId,
+            busyUserId: userId,
+            status: 'failed',
+            code: 'VOICE_USER_BUSY',
+            error: 'You are already on another call.',
+            failedAt: new Date().toISOString()
+          };
+          communityNs.to(`community:user:${userId}`).emit('call:busy', busyPayload);
+          emitVoiceEventToUsers([userId], 'messenger:call_failed', busyPayload);
+          if (ack) ack({ success: false, error: busyPayload.error, code: 'VOICE_USER_BUSY' });
           return;
         }
 
@@ -907,6 +1210,20 @@ communityNs.on('connection', async (socket) => {
         }
 
         const rejectedAt = new Date();
+        const transitionResult = await (prisma as any).voiceCall.updateMany({
+          where: {
+            id: callId,
+            status: { in: VOICE_CALL_ACTIVE_STATUSES }
+          },
+          data: {
+            status: 'REJECTED',
+            endedAt: rejectedAt
+          }
+        });
+        if (!Number(transitionResult?.count || 0)) {
+          if (ack) ack({ success: true, data: { callId, status: String(call.status || '').toLowerCase() } });
+          return;
+        }
 
         await (prisma as any).voiceCallParticipant.updateMany({
           where: { callId, userId },
@@ -922,22 +1239,20 @@ communityNs.on('connection', async (socket) => {
           data: { status: 'LEFT', leftAt: rejectedAt }
         });
 
-        await (prisma as any).voiceCall.update({
-          where: { id: callId },
-          data: {
-            status: 'REJECTED',
-            endedAt: rejectedAt
-          }
-        });
-
         const participantIds = Array.isArray(call.participants)
           ? call.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
           : [];
+        const durationMs = resolveVoiceCallDurationMs(call, rejectedAt);
+        const rejectedByName = await prisma.user
+          .findUnique({ where: { id: userId }, select: { name: true, username: true } })
+          .then((profile) => String(profile?.name || profile?.username || '').trim())
+          .catch(() => '');
         const eventPayload = {
           callId,
           conversationId: call.conversationId,
           userId,
           status: 'rejected',
+          durationMs,
           rejectedAt: rejectedAt.toISOString(),
           endedAt: rejectedAt.toISOString()
         };
@@ -945,11 +1260,27 @@ communityNs.on('connection', async (socket) => {
         communityNs.to(`call:${callId}`).emit('call:reject', eventPayload);
         communityNs.to(`call:${callId}`).emit('call:end', eventPayload);
         if (call.initiatorId && call.initiatorId !== userId) {
-          communityNs.to(`community:user:${call.initiatorId}`).emit('call:reject', eventPayload);
+          emitVoiceEventToUsers([call.initiatorId], 'call:reject', eventPayload);
         }
         emitVoiceEventToUsers(participantIds, 'call:reject', eventPayload);
         emitVoiceEventToUsers(participantIds, 'call:end', eventPayload);
         emitVoiceEventToUsers(participantIds, 'messenger:call_ended', eventPayload);
+        await persistVoiceCallSummaryMessage({
+          conversationId: call.conversationId,
+          senderId: call.initiatorId || userId,
+          callId,
+          status: 'rejected',
+          text: buildCallSummaryText('rejected', {
+            userName: rejectedByName || 'Participant',
+            durationMs,
+            participantCount: participantIds.length
+          }),
+          durationMs,
+          participantCount: participantIds.length,
+          metadata: {
+            rejectedById: userId
+          }
+        });
         if (ack) ack({ success: true, data: eventPayload });
       } catch (error: any) {
         console.error('call:reject error', error);
@@ -994,13 +1325,21 @@ communityNs.on('connection', async (socket) => {
           return;
         }
 
-        await (prisma as any).voiceCall.update({
-          where: { id: callId },
+        const endedAt = new Date();
+        const transitionResult = await (prisma as any).voiceCall.updateMany({
+          where: {
+            id: callId,
+            status: { in: VOICE_CALL_ACTIVE_STATUSES }
+          },
           data: {
             status: 'ENDED',
-            endedAt: new Date()
+            endedAt
           }
         });
+        if (!Number(transitionResult?.count || 0)) {
+          if (ack) ack({ success: true, data: { callId, status: String(call.status || '').toLowerCase() } });
+          return;
+        }
 
         await (prisma as any).voiceCallParticipant.updateMany({
           where: {
@@ -1009,24 +1348,41 @@ communityNs.on('connection', async (socket) => {
           },
           data: {
             status: 'LEFT',
-            leftAt: new Date()
+            leftAt: endedAt
           }
         });
 
         const participantIds = Array.isArray(call.participants)
           ? call.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
           : [];
+        const durationMs = resolveVoiceCallDurationMs(call, endedAt);
         const eventPayload = {
           callId,
           conversationId: call.conversationId,
           endedBy: userId,
           status: 'ended',
-          endedAt: new Date().toISOString()
+          durationMs,
+          endedAt: endedAt.toISOString()
         };
 
         communityNs.to(`call:${callId}`).emit('call:end', eventPayload);
         emitVoiceEventToUsers(participantIds, 'call:end', eventPayload);
         emitVoiceEventToUsers(participantIds, 'messenger:call_ended', eventPayload);
+        await persistVoiceCallSummaryMessage({
+          conversationId: call.conversationId,
+          senderId: call.initiatorId || userId,
+          callId,
+          status: 'ended',
+          text: buildCallSummaryText('ended', {
+            durationMs,
+            participantCount: participantIds.length
+          }),
+          durationMs,
+          participantCount: participantIds.length,
+          metadata: {
+            endedBy: userId
+          }
+        });
         if (ack) ack({ success: true, data: eventPayload });
       } catch (error: any) {
         console.error('call:end error', error);
@@ -1068,25 +1424,77 @@ communityNs.on('connection', async (socket) => {
           if (ack) ack({ success: false, error: 'Call not found or access denied.' });
           return;
         }
+        if (!VOICE_CALL_ACTIVE_STATUSES.includes(String(call.status || '').toUpperCase())) {
+          if (ack) ack({ success: false, error: 'This call is no longer active.' });
+          return;
+        }
 
         const conversation = await prisma.conversation.findUnique({
           where: { id: call.conversationId },
           include: { participants: true }
         });
-        const conversationParticipantIds = Array.isArray(conversation?.participants)
+        if (!conversation) {
+          if (ack) ack({ success: false, error: 'Conversation not found for this call.' });
+          return;
+        }
+
+        let conversationParticipantIds = Array.isArray(conversation?.participants)
           ? conversation!.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
           : [];
-        if (!conversation || !conversationParticipantIds.includes(targetUserId)) {
-          if (ack) ack({ success: false, error: 'User is not a participant in this conversation.' });
-          return;
+
+        if (!conversationParticipantIds.includes(targetUserId)) {
+          await prisma.conversationParticipant.upsert({
+            where: {
+              conversationId_userId: {
+                conversationId: call.conversationId,
+                userId: targetUserId
+              }
+            },
+            update: {
+              deletedAt: null,
+              isArchived: false
+            },
+            create: {
+              conversationId: call.conversationId,
+              userId: targetUserId
+            }
+          });
+          conversationParticipantIds = Array.from(new Set([...conversationParticipantIds, targetUserId]));
+          if (conversationParticipantIds.length > 2 && String(conversation.type || '').toUpperCase() === 'DIRECT') {
+            await prisma.conversation.update({
+              where: { id: call.conversationId },
+              data: { type: 'GROUP' as any }
+            });
+          }
         }
 
         const existingParticipants = Array.isArray(call.participants) ? call.participants : [];
         const activeCount = existingParticipants.filter((entry: any) =>
           ['INVITED', 'JOINED'].includes(String(entry.status || '').toUpperCase())
         ).length;
-        if (activeCount >= Number(config.maxParticipants || 8)) {
-          if (ack) ack({ success: false, error: `Maximum ${config.maxParticipants} participants allowed.` });
+        const participantLimit = resolveVoiceParticipantLimit(config);
+        if (activeCount >= participantLimit) {
+          if (ack) ack({ success: false, error: `Maximum ${participantLimit} participants allowed.` });
+          return;
+        }
+
+        const busyEntry = await findBusyCallParticipant([targetUserId], callId);
+        if (busyEntry) {
+          const busyUserName =
+            String(busyEntry?.user?.name || busyEntry?.user?.username || '').trim() || 'This user';
+          const busyPayload = {
+            callId,
+            conversationId: call.conversationId,
+            busyUserId: targetUserId,
+            busyUserName,
+            status: 'failed',
+            code: 'VOICE_USER_BUSY',
+            error: `${busyUserName} is currently on another call.`,
+            failedAt: new Date().toISOString()
+          };
+          communityNs.to(`community:user:${callerId}`).emit('call:busy', busyPayload);
+          emitVoiceEventToUsers([callerId], 'messenger:call_failed', busyPayload);
+          if (ack) ack({ success: false, error: busyPayload.error, code: 'VOICE_USER_BUSY', data: busyPayload });
           return;
         }
 
@@ -1096,22 +1504,65 @@ communityNs.on('connection', async (socket) => {
           create: { callId, userId: targetUserId, status: 'INVITED', invitedAt: new Date() }
         });
 
+        const nextActiveParticipantIds = Array.from(
+          new Set(
+            [
+              ...existingParticipants
+                .filter((entry: any) => ['INVITED', 'JOINED'].includes(String(entry.status || '').toUpperCase()))
+                .map((entry: any) => String(entry.userId || '').trim())
+                .filter(Boolean),
+              targetUserId
+            ].filter(Boolean)
+          )
+        );
+        const shouldConference = nextActiveParticipantIds.length > 2;
+        if (shouldConference && String(call.callType || '').toUpperCase() !== 'CONFERENCE') {
+          await (prisma as any).voiceCall.update({
+            where: { id: callId },
+            data: { callType: 'CONFERENCE' }
+          });
+        }
+
+        const targetProfile = await prisma.user
+          .findUnique({
+            where: { id: targetUserId },
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              avatar: true
+            }
+          })
+          .catch(() => null);
+
         const eventPayload = {
           callId,
           conversationId: call.conversationId,
           addedBy: callerId,
           userId: targetUserId,
+          participantIds: Array.from(new Set([...conversationParticipantIds, callerId])),
+          participant: targetProfile
+            ? {
+                id: targetProfile.id,
+                name: targetProfile.name || targetProfile.username || 'Participant',
+                username: targetProfile.username || null,
+                avatar: targetProfile.avatar || null
+              }
+            : null,
           status: 'invited',
           invitedAt: new Date().toISOString()
         };
 
+        const participantUsers = await resolveParticipantOptionsByIds(eventPayload.participantIds);
+
         communityNs.to(`call:${callId}`).emit('call:participant:add', eventPayload);
-        communityNs.to(`community:user:${targetUserId}`).emit('call:ringing', {
+        emitVoiceEventToUsers([targetUserId], 'call:ringing', {
           callId,
           conversationId: call.conversationId,
           initiatorId: call.initiatorId,
-          participantIds: [...conversationParticipantIds],
-          callType: 'conference',
+          participantIds: eventPayload.participantIds,
+          participants: participantUsers,
+          callType: shouldConference ? 'conference' : String(call.callType || 'direct').toLowerCase(),
           status: 'ringing',
           invitedBy: callerId
         });
@@ -1220,7 +1671,7 @@ communityNs.on('connection', async (socket) => {
           signal,
           emittedAt: new Date().toISOString()
         };
-        communityNs.to(`community:user:${toUserId}`).emit('call:signal', relayPayload);
+        emitVoiceEventToUsers([toUserId], 'call:signal', relayPayload);
         if (ack) ack({ success: true });
       } catch (error: any) {
         console.error('call:signal error', error);

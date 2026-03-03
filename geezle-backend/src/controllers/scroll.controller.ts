@@ -215,7 +215,8 @@ const ensureScrollOwnership = (scroll: any, userId: string, isAdmin: boolean) =>
 const mapTypeToCounterField = (type: string): string | null => {
   if (type === 'comment') return 'commentsCount';
   if (type === 'repost') return 'repostsCount';
-  if (type === 'send' || type === 'dash') return 'sendCount';
+  if (type === 'send') return 'sendCount';
+  if (type === 'dash') return 'sharesCount';
   if (type === 'view_3s') return 'views3s';
   if (type === 'view_10s') return 'views10s';
   if (type === 'view_25') return 'views25pct';

@@ -90,7 +90,8 @@ import {
   deleteStory,
   viewStory,
   updateStory,
-  toggleStoryLike
+  toggleStoryLike,
+  engageStory
 } from '../controllers/community.stories.controller';
 import {
   getBusinessPageFeatureConfig,
@@ -223,6 +224,7 @@ router.put('/stories/:id', authMiddleware, updateStory);
 router.delete('/stories/:id', authMiddleware, deleteStory);
 router.post('/stories/:id/view', authMiddleware, viewStory);
 router.post('/stories/:id/like', authMiddleware, toggleStoryLike);
+router.post('/stories/:id/engage', authMiddleware, engageStory);
 
 // Business pages
 router.get('/business-pages/me', authMiddleware, getMyBusinessPages);

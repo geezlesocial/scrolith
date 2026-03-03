@@ -5,7 +5,7 @@ import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { createEngagementNotification } from '../services/engagementNotifications.service';
 
-type ReactionTargetType = 'POST' | 'COMMENT' | 'MESSAGE';
+type ReactionTargetType = 'POST' | 'COMMENT' | 'MESSAGE' | 'STORY' | 'SCROLL';
 
 type AllowedReaction = {
   key: string;
@@ -19,6 +19,8 @@ type ReactionSettings = {
   postsEnabled: boolean;
   commentsEnabled: boolean;
   messagesEnabled: boolean;
+  storiesEnabled: boolean;
+  scrollEnabled: boolean;
   showReactors: boolean;
   rateLimitPerMinute: number;
   allowed: AllowedReaction[];
@@ -60,6 +62,8 @@ const DEFAULT_SETTINGS: ReactionSettings = {
   postsEnabled: true,
   commentsEnabled: true,
   messagesEnabled: true,
+  storiesEnabled: true,
+  scrollEnabled: true,
   showReactors: true,
   rateLimitPerMinute: 40,
   allowed: DEFAULT_ALLOWED
@@ -102,6 +106,8 @@ const readReactionSettings = (): ReactionSettings => {
       postsEnabled: reactionsRaw.postsEnabled ?? reactionsRaw.posts_enabled ?? DEFAULT_SETTINGS.postsEnabled,
       commentsEnabled: reactionsRaw.commentsEnabled ?? reactionsRaw.comments_enabled ?? DEFAULT_SETTINGS.commentsEnabled,
       messagesEnabled: reactionsRaw.messagesEnabled ?? reactionsRaw.messages_enabled ?? DEFAULT_SETTINGS.messagesEnabled,
+      storiesEnabled: reactionsRaw.storiesEnabled ?? reactionsRaw.stories_enabled ?? DEFAULT_SETTINGS.storiesEnabled,
+      scrollEnabled: reactionsRaw.scrollEnabled ?? reactionsRaw.scroll_enabled ?? DEFAULT_SETTINGS.scrollEnabled,
       showReactors: reactionsRaw.showReactors ?? reactionsRaw.show_reactors ?? DEFAULT_SETTINGS.showReactors,
       rateLimitPerMinute: Number(
         reactionsRaw.rateLimitPerMinute ?? reactionsRaw.rate_limit_per_minute ?? DEFAULT_SETTINGS.rateLimitPerMinute
@@ -130,7 +136,15 @@ const assertRateLimit = (userId: string, settings: ReactionSettings) => {
 
 const normalizeTargetType = (value: any): ReactionTargetType | null => {
   const normalized = String(value || '').trim().toUpperCase();
-  if (normalized === 'POST' || normalized === 'COMMENT' || normalized === 'MESSAGE') return normalized;
+  if (
+    normalized === 'POST' ||
+    normalized === 'COMMENT' ||
+    normalized === 'MESSAGE' ||
+    normalized === 'STORY' ||
+    normalized === 'SCROLL'
+  ) {
+    return normalized;
+  }
   return null;
 };
 
@@ -146,7 +160,9 @@ const isFeatureEnabledForTarget = (targetType: ReactionTargetType, settings: Rea
   if (!settings.enabled) return false;
   if (targetType === 'POST') return settings.postsEnabled;
   if (targetType === 'COMMENT') return settings.commentsEnabled;
-  return settings.messagesEnabled;
+  if (targetType === 'MESSAGE') return settings.messagesEnabled;
+  if (targetType === 'STORY') return settings.storiesEnabled;
+  return settings.scrollEnabled;
 };
 
 const getAppIo = (req: Request) => (req.app as any).get('communityIo') || (req.app as any).get('io');
@@ -219,6 +235,43 @@ const ensureTargetAccess = async (
       return { ok: false, status: 403, error: 'Not authorized for this comment' };
     }
     return { ok: true, targetType, targetId, postId: comment.postId };
+  }
+
+  if (targetType === 'STORY') {
+    const story = await prisma.communityStory.findUnique({
+      where: { id: targetId },
+      select: { id: true, authorId: true, visibility: true, expiresAt: true }
+    });
+    if (!story || (story.expiresAt && story.expiresAt <= new Date())) {
+      return { ok: false, status: 404, error: 'Story not found' };
+    }
+    if (await hasBlockRelation(story.authorId)) {
+      return { ok: false, status: 403, error: 'Not authorized for this story' };
+    }
+    const visibility = String(story.visibility || '').toLowerCase();
+    if ((visibility === 'private' || visibility === 'custom') && String(story.authorId) !== String(userId)) {
+      return { ok: false, status: 403, error: 'Not authorized for this story' };
+    }
+    return { ok: true, targetType, targetId };
+  }
+
+  if (targetType === 'SCROLL') {
+    const prismaAny = prisma as any;
+    const scroll = await prismaAny.scrollVideo.findUnique({
+      where: { id: targetId },
+      select: { id: true, authorId: true, visibility: true, status: true }
+    });
+    if (!scroll || String(scroll.status || '').toLowerCase() !== 'active') {
+      return { ok: false, status: 404, error: 'Scroll not found' };
+    }
+    if (await hasBlockRelation(scroll.authorId)) {
+      return { ok: false, status: 403, error: 'Not authorized for this scroll' };
+    }
+    const visibility = String(scroll.visibility || '').toLowerCase();
+    if (visibility === 'private' && String(scroll.authorId) !== String(userId)) {
+      return { ok: false, status: 403, error: 'Not authorized for this scroll' };
+    }
+    return { ok: true, targetType, targetId };
   }
 
   const message = await prisma.directMessage.findUnique({
@@ -368,6 +421,18 @@ const emitReactionUpdate = async (
         realtime.emitToUser(participantId, 'messages:updated', messagePayload);
       } catch (e) {}
     });
+  }
+
+  if (details.targetType === 'STORY') {
+    try {
+      io?.emit?.('community:story_reactions_updated', payload);
+    } catch (e) {}
+  }
+
+  if (details.targetType === 'SCROLL') {
+    try {
+      io?.emit?.('scroll:reaction_updated', payload);
+    } catch (e) {}
   }
 };
 
@@ -595,12 +660,39 @@ export const getReactionSummaryBulk = async (req: Request, res: Response) => {
         select: { id: true }
       });
       scopedTargetIds = posts.map((post) => post.id);
-    } else {
+    } else if (targetType === 'COMMENT') {
       const comments = await prisma.communityPostComment.findMany({
         where: { id: { in: scopedTargetIds }, status: { not: 'deleted' }, post: { status: { not: 'deleted' } } },
         select: { id: true }
       });
       scopedTargetIds = comments.map((comment) => comment.id);
+    } else if (targetType === 'STORY') {
+      const stories = await prisma.communityStory.findMany({
+        where: { id: { in: scopedTargetIds }, expiresAt: { gt: new Date() } },
+        select: { id: true, authorId: true, visibility: true }
+      });
+      scopedTargetIds = stories
+        .filter((story) => {
+          const visibility = String(story.visibility || '').toLowerCase();
+          if (visibility === 'private' || visibility === 'custom') {
+            return String(story.authorId) === String(userId);
+          }
+          return true;
+        })
+        .map((story) => story.id);
+    } else if (targetType === 'SCROLL') {
+      const prismaAny = prisma as any;
+      const scrolls = await prismaAny.scrollVideo.findMany({
+        where: { id: { in: scopedTargetIds }, status: 'active' },
+        select: { id: true, authorId: true, visibility: true }
+      });
+      scopedTargetIds = scrolls
+        .filter((scroll: any) => {
+          const visibility = String(scroll.visibility || '').toLowerCase();
+          if (visibility === 'private') return String(scroll.authorId) === String(userId);
+          return true;
+        })
+        .map((scroll: any) => scroll.id);
     }
 
     if (!scopedTargetIds.length) {

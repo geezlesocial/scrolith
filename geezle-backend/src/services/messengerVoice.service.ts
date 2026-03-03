@@ -14,6 +14,8 @@ export type MessengerVoiceConfig = {
   _schemaMissing?: boolean;
 };
 
+export const MAX_MESSENGER_VOICE_PARTICIPANTS = 20;
+
 const MESSENGER_VOICE_TABLE_NAMES = [
   'MessengerVoiceConfig',
   'VoiceCall',
@@ -26,7 +28,7 @@ const DEFAULT_CONFIG: Omit<MessengerVoiceConfig, 'createdAt' | 'updatedAt'> = {
   enabledVoiceCalls: true,
   enabledConferenceCalls: true,
   enabledVoiceNotes: true,
-  maxParticipants: 8,
+  maxParticipants: MAX_MESSENGER_VOICE_PARTICIPANTS,
   maxVoiceNoteDurationSeconds: 180,
   blockedUserIds: [],
   updatedById: null
@@ -90,7 +92,7 @@ export const sanitizeMessengerVoiceConfigInput = (input: any) => {
     maxParticipants: clamp(
       toInt(payload.maxParticipants ?? payload.maxConferenceParticipants, DEFAULT_CONFIG.maxParticipants),
       2,
-      32
+      MAX_MESSENGER_VOICE_PARTICIPANTS
     ),
     maxVoiceNoteDurationSeconds: clamp(
       toInt(

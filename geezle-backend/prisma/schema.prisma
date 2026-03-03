@@ -3153,6 +3153,10 @@ model CommunityStory {
   content        String?
   mediaFileId    String?
   visibility     String   @default("public") // public, friends, network, private, custom
+  commentsCount  Int      @default(0)
+  repostsCount   Int      @default(0)
+  dashesCount    Int      @default(0)
+  sendsCount     Int      @default(0)
   textBackground String?  @map("text_background")
   textColor      String?  @map("text_color")
   textFont       String?  @map("text_font")
@@ -3818,6 +3822,8 @@ enum ReactionTargetType {
   POST
   COMMENT
   MESSAGE
+  STORY
+  SCROLL
 }
 
 enum PreloaderStatus {

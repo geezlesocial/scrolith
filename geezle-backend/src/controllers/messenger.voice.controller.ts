@@ -238,7 +238,7 @@ export const getVoiceRuntimeConfig = async (req: Request, res: Response) => {
         enabledVoiceCalls: Boolean(config.enabledVoiceCalls),
         enabledConferenceCalls: Boolean(config.enabledConferenceCalls),
         enabledVoiceNotes: Boolean(config.enabledVoiceNotes),
-        maxParticipants: Number(config.maxParticipants || 8),
+        maxParticipants: Number(config.maxParticipants || 20),
         maxVoiceNoteDurationSeconds: Number(config.maxVoiceNoteDurationSeconds || 180),
         blockedForCurrentUser: blocked
       }
@@ -280,7 +280,19 @@ export const listVoiceCalls = async (req: Request, res: Response) => {
       take: 50
     });
 
-    return res.json({ success: true, data: calls || [] });
+    const normalized = (calls || []).map((call: any) => {
+      const startedAt = call?.startedAt ? new Date(call.startedAt).getTime() : 0;
+      const endedAt = call?.endedAt ? new Date(call.endedAt).getTime() : 0;
+      const createdAt = call?.createdAt ? new Date(call.createdAt).getTime() : 0;
+      const baseline = startedAt || createdAt;
+      const durationMs = baseline && endedAt && endedAt > baseline ? Math.max(0, endedAt - baseline) : 0;
+      return {
+        ...call,
+        durationMs
+      };
+    });
+
+    return res.json({ success: true, data: normalized });
   } catch (error: any) {
     if (isMessengerVoiceSchemaMissingError(error)) {
       return res.status(503).json({

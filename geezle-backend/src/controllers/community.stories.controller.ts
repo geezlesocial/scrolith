@@ -148,6 +148,16 @@ const STORY_VISIBILITIES = new Set([
   'custom'
 ]);
 
+const STORY_ENGAGEMENT_TYPES = new Set(['comment', 'repost', 'dash', 'send']);
+
+const getStoryEngagementField = (type: string) => {
+  if (type === 'comment') return 'commentsCount';
+  if (type === 'repost') return 'repostsCount';
+  if (type === 'dash') return 'dashesCount';
+  if (type === 'send') return 'sendsCount';
+  return null;
+};
+
 const normalizeVisibility = (value?: string) => {
   const normalized = (value || '').toString().trim().toLowerCase();
   if (STORY_VISIBILITIES.has(normalized)) return normalized;
@@ -229,6 +239,17 @@ const buildStoryPayload = async (
     textFont: story.textFont,
     textAlign: story.textAlign,
     likesCount,
+    commentsCount: Number(story.commentsCount || 0),
+    repostsCount: Number(story.repostsCount || 0),
+    dashesCount: Number(story.dashesCount || 0),
+    sendsCount: Number(story.sendsCount || 0),
+    interactions: {
+      likes: likesCount,
+      comments: Number(story.commentsCount || 0),
+      reposts: Number(story.repostsCount || 0),
+      dashes: Number(story.dashesCount || 0),
+      sends: Number(story.sendsCount || 0)
+    },
     viewerLiked,
     createdAt: story.createdAt.toISOString(),
     expiresAt: story.expiresAt.toISOString()
@@ -731,5 +752,91 @@ export const toggleStoryLike = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Like story error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to like story' });
+  }
+};
+
+export const engageStory = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const storyId = String(req.params.id || '').trim();
+    const type = String(req.body?.type || '').trim().toLowerCase();
+    if (!storyId) return res.status(400).json({ success: false, error: 'Story ID is required' });
+    if (!STORY_ENGAGEMENT_TYPES.has(type)) {
+      return res.status(400).json({ success: false, error: 'Unsupported story engagement type' });
+    }
+
+    const prismaAny = prisma as any;
+    const story = await prismaAny.communityStory.findUnique({
+      where: { id: storyId },
+      select: {
+        id: true,
+        authorId: true,
+        visibility: true,
+        expiresAt: true,
+        commentsCount: true,
+        repostsCount: true,
+        dashesCount: true,
+        sendsCount: true
+      }
+    });
+    if (!story || (story.expiresAt && story.expiresAt <= new Date())) {
+      return res.status(404).json({ success: false, error: 'Story not found' });
+    }
+    const relations = await getFollowRelations(userId);
+    if (!canViewStory({ authorId: story.authorId, visibility: story.visibility }, userId, relations)) {
+      return res.status(403).json({ success: false, error: 'Not authorized to engage this story' });
+    }
+
+    const field = getStoryEngagementField(type);
+    if (!field) return res.status(400).json({ success: false, error: 'Unsupported story engagement type' });
+
+    const updated = await prismaAny.communityStory.update({
+      where: { id: storyId },
+      data: { [field]: { increment: 1 } },
+      select: {
+        id: true,
+        commentsCount: true,
+        repostsCount: true,
+        dashesCount: true,
+        sendsCount: true
+      }
+    });
+
+    const payload = {
+      storyId,
+      type,
+      userId,
+      interactions: {
+        comments: Number(updated.commentsCount || 0),
+        reposts: Number(updated.repostsCount || 0),
+        dashes: Number(updated.dashesCount || 0),
+        sends: Number(updated.sendsCount || 0)
+      },
+      story: {
+        id: storyId,
+        commentsCount: Number(updated.commentsCount || 0),
+        repostsCount: Number(updated.repostsCount || 0),
+        dashesCount: Number(updated.dashesCount || 0),
+        sendsCount: Number(updated.sendsCount || 0),
+        interactions: {
+          comments: Number(updated.commentsCount || 0),
+          reposts: Number(updated.repostsCount || 0),
+          dashes: Number(updated.dashesCount || 0),
+          sends: Number(updated.sendsCount || 0)
+        }
+      }
+    };
+
+    const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
+    try { io?.emit('community:story_engaged', payload); } catch (e) {}
+    try { io?.emit('community:story_updated', payload); } catch (e) {}
+    try { realtime.emitToUser(story.authorId, 'community:story_engaged', payload); } catch (e) {}
+    try { realtime.emitToUser(story.authorId, 'community:story_updated', payload); } catch (e) {}
+
+    return res.json({ success: true, data: payload });
+  } catch (error: any) {
+    console.error('Engage story error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to engage story' });
   }
 };
