@@ -26,6 +26,7 @@ import { useContent } from '../../context/ContentContext';
 import { useSocket } from '../../context/SocketContext';
 import { useNotification } from '../../context/NotificationContext';
 import { CommunityService } from '../../services/community';
+import { ScrollService, type ScrollVideo } from '../../services/scroll';
 import { FileService } from '../../services/files';
 import { UserService } from '../../services/user';
 import { AIService, type PostEnhanceMode } from '../../services/ai/ai.service';
@@ -409,6 +410,23 @@ const isStoryActive = (story: any) => {
   return Number.isNaN(expiresAt) ? true : expiresAt > Date.now();
 };
 
+const resolveReelMediaUrl = (scroll: ScrollVideo) => resolveAssetUrl(String(scroll?.media?.url || '').trim());
+
+const resolveReelAuthorName = (scroll: ScrollVideo, fallback = 'Scrolith') => {
+  const normalized = String(scroll?.author?.name || '').trim();
+  return normalized || fallback;
+};
+
+const resolveReelAuthorAvatar = (scroll: ScrollVideo) => {
+  const normalized = String(scroll?.author?.avatar || '').trim();
+  return normalized ? resolveAssetUrl(normalized) : '';
+};
+
+const resolveReelAuthorInitial = (scroll: ScrollVideo) => {
+  const first = resolveReelAuthorName(scroll, 'S').replace(/^@+/, '').trim().charAt(0).toUpperCase();
+  return first || 'S';
+};
+
 const dedupeLabels = (items: string[]) => {
   const seen = new Set<string>();
   return items.filter((item) => {
@@ -706,6 +724,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const [searchOpen, setSearchOpen] = useState(false);
   const [stories, setStories] = useState<any[]>([]);
   const [storiesLoading, setStoriesLoading] = useState(false);
+  const [reels, setReels] = useState<ScrollVideo[]>([]);
+  const [reelsLoading, setReelsLoading] = useState(false);
+  const [storyRailTab, setStoryRailTab] = useState<'stories' | 'reels'>('stories');
   const [activeStory, setActiveStory] = useState<any | null>(null);
   const [storyPickerOpen, setStoryPickerOpen] = useState(false);
   const [storyMediaPreviewOpen, setStoryMediaPreviewOpen] = useState(false);
@@ -844,6 +865,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
 
   const maxFeedItems = content?.maxFeedItems ?? 8;
   const maxStories = content?.maxStories ?? 12;
+  const maxReels = Math.max(6, Number((content as any)?.maxReels ?? content?.maxStories ?? 12) || 12);
   const maxMessages = content?.maxMessages ?? 4;
   const maxSearchResults = content?.maxSearchResults ?? 8;
   const maxProfiles = content?.maxProfiles ?? 5;
@@ -996,6 +1018,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     };
   }, []);
   const storyTitle = content?.storyTitle || 'Stories';
+  const reelsTitle = ((content as any)?.reelsTitle as string) || 'Reels';
   const feedTitle = content?.feedTitle || 'Home feed';
   const profilesTitle = content?.profilesTitle || 'Add to your feed';
   const pagesTitle = content?.pagesTitle || 'Pages to follow';
@@ -1470,6 +1493,23 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       setStoriesLoading(false);
     }
   }, [user, showStories, maxStories, filterActiveStories]);
+
+  const loadReels = useCallback(async () => {
+    if (!user || !showStories) return;
+    setReelsLoading(true);
+    try {
+      const feed = await ScrollService.getFeed({ limit: maxReels });
+      const nextReels = Array.isArray(feed?.items)
+        ? feed.items.filter((item) => String(item?.status || '').toUpperCase() !== 'REMOVED').slice(0, maxReels)
+        : [];
+      setReels(nextReels);
+    } catch (error) {
+      console.error('Failed to load reels', error);
+      setReels([]);
+    } finally {
+      setReelsLoading(false);
+    }
+  }, [user, showStories, maxReels]);
 
   const loadMessages = useCallback(async () => {
     if (!user || !showMessages) return;
@@ -2454,9 +2494,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   useEffect(() => {
     if (!user) return;
     if (showStories) loadStories();
+    if (showStories) loadReels();
     if (showMessages) loadMessages();
     if (showSlider) loadSlider();
-  }, [user, showStories, showMessages, showSlider, loadStories, loadMessages, loadSlider]);
+  }, [user, showStories, showMessages, showSlider, loadStories, loadReels, loadMessages, loadSlider]);
 
   useEffect(() => {
     if (!feedRegion && user) {
@@ -2711,6 +2752,28 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     }, 60000);
     return () => window.clearInterval(id);
   }, [filterActiveStories, showStories]);
+
+  useEffect(() => {
+    const onScrollNew = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail;
+      const created = detail?.scroll || detail;
+      if (!created?.id) return;
+      setReels((prev) => [created, ...prev.filter((item) => item.id !== created.id)].slice(0, maxReels));
+    };
+    const onScrollRemoved = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail;
+      const removedId = String(detail?.scrollId || detail?.id || '').trim();
+      if (!removedId) return;
+      setReels((prev) => prev.filter((item) => item.id !== removedId));
+    };
+
+    window.addEventListener('scroll:new', onScrollNew as EventListener);
+    window.addEventListener('scroll:removed', onScrollRemoved as EventListener);
+    return () => {
+      window.removeEventListener('scroll:new', onScrollNew as EventListener);
+      window.removeEventListener('scroll:removed', onScrollRemoved as EventListener);
+    };
+  }, [maxReels]);
 
   useEffect(() => {
     return () => {
@@ -3542,71 +3605,107 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
               <div className="rounded-3xl border border-white/70 bg-white p-3 sm:p-4 shadow-sm rise-fade-delay-1">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">{storyTitle}</p>
-                    <p className="text-sm text-slate-500">Share quick updates, photos, or videos with your community.</p>
+                    <div className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 p-1">
+                      <button
+                        type="button"
+                        onClick={() => setStoryRailTab('stories')}
+                        className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                          storyRailTab === 'stories' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-800'
+                        }`}
+                      >
+                        {storyTitle}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setStoryRailTab('reels')}
+                        className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                          storyRailTab === 'reels' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-800'
+                        }`}
+                      >
+                        {reelsTitle}
+                      </button>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-500">
+                      {storyRailTab === 'stories'
+                        ? 'Share quick updates, photos, or videos with your community.'
+                        : 'Watch short reels with autoplay preview and jump into the full Scroll feed.'}
+                    </p>
                   </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    <select
-                      value={storyDraft.visibility}
-                      onChange={(event) =>
-                        setStoryDraft((prev) => ({ ...prev, visibility: normalizeStoryVisibility(event.target.value) }))
-                      }
-                      className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
-                    >
-                      {storyVisibilityOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
+
+                  {storyRailTab === 'stories' ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={storyDraft.visibility}
+                        onChange={(event) =>
+                          setStoryDraft((prev) => ({ ...prev, visibility: normalizeStoryVisibility(event.target.value) }))
+                        }
+                        className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
+                      >
+                        {storyVisibilityOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setStoryTextOpen(true)}
+                        className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
+                        disabled={storyPosting}
+                      >
+                        Text story
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setStoryPickerOpen(true)}
+                        className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
+                        disabled={storyPosting}
+                      >
+                        Upload
+                      </button>
+                      <button
+                        type="button"
+                        onClick={startStoryCamera}
+                        className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white"
+                        disabled={storyPosting}
+                      >
+                        Camera
+                      </button>
+                    </div>
+                  ) : (
                     <button
                       type="button"
-                      onClick={() => setStoryTextOpen(true)}
-                      className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
-                      disabled={storyPosting}
+                      onClick={() => navigate('/scroll')}
+                      className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white"
                     >
-                      Text story
+                      Open Scroll
                     </button>
+                  )}
+                </div>
+
+                {storyRailTab === 'stories' ? (
+                  <div className="mt-4 flex gap-2 sm:gap-3 overflow-x-auto pb-2">
                     <button
                       type="button"
                       onClick={() => setStoryPickerOpen(true)}
-                      className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
+                      className="h-44 min-w-[110px] rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center text-xs text-slate-500 sm:min-w-[120px]"
                       disabled={storyPosting}
                     >
-                      Upload
+                      <Plus className="h-5 w-5 mb-2" />
+                      Your story
                     </button>
-                    <button
-                      type="button"
-                      onClick={startStoryCamera}
-                      className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white"
-                      disabled={storyPosting}
-                    >
-                      Camera
-                    </button>
-                  </div>
-                </div>
-                <div className="mt-4 flex gap-2 sm:gap-3 overflow-x-auto pb-2">
-                  <button
-                    type="button"
-                    onClick={() => setStoryPickerOpen(true)}
-                    className="h-44 min-w-[110px] rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center text-xs text-slate-500 sm:min-w-[120px]"
-                    disabled={storyPosting}
-                  >
-                    <Plus className="h-5 w-5 mb-2" />
-                    Your story
-                  </button>
-                  {storiesLoading ? (
-                    <div className="text-sm text-slate-400">Loading stories...</div>
-                  ) : stories.length === 0 ? (
-                    <div className="text-sm text-slate-400">No stories yet.</div>
-                  ) : (
-                    stories.map((story) => (
-                      <button
-                        key={story.id}
-                        type="button"
-                        onClick={() => openStory(story)}
-                        className="relative h-44 min-w-[110px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 sm:min-w-[120px]"
-                      >
+                    {storiesLoading ? (
+                      <div className="text-sm text-slate-400">Loading stories...</div>
+                    ) : stories.length === 0 ? (
+                      <div className="text-sm text-slate-400">No stories yet.</div>
+                    ) : (
+                      stories.map((story) => (
+                        <button
+                          key={story.id}
+                          type="button"
+                          onClick={() => openStory(story)}
+                          className="relative h-44 min-w-[110px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 sm:min-w-[120px]"
+                        >
                           {(() => {
                             const mediaUrl = resolveStoryMediaUrl(story);
                             if (mediaUrl) {
@@ -3645,27 +3744,93 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                               <div className="h-full w-full flex items-center justify-center text-sm text-slate-500">Story</div>
                             );
                           })()}
-                        {(() => {
-                          const authorName = resolveStoryAuthorName(story, 'Community');
-                          const authorAvatar = resolveStoryAuthorAvatar(story);
-                          const authorInitial = resolveStoryAuthorInitial(story);
-                          return (
-                            <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-white/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
-                              {authorAvatar ? (
-                                <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
-                              ) : (
-                                <span>{authorInitial}</span>
-                              )}
-                            </div>
-                          );
-                        })()}
-                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 text-left">
-                          <p className="text-[10px] text-white font-semibold line-clamp-1">{resolveStoryAuthorName(story, 'Community')}</p>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
+                          {(() => {
+                            const authorName = resolveStoryAuthorName(story, 'Community');
+                            const authorAvatar = resolveStoryAuthorAvatar(story);
+                            const authorInitial = resolveStoryAuthorInitial(story);
+                            return (
+                              <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-white/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
+                                {authorAvatar ? (
+                                  <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
+                                ) : (
+                                  <span>{authorInitial}</span>
+                                )}
+                              </div>
+                            );
+                          })()}
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 text-left">
+                            <p className="text-[10px] text-white font-semibold line-clamp-1">{resolveStoryAuthorName(story, 'Community')}</p>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                ) : (
+                  <div className="mt-4 flex gap-2 sm:gap-3 overflow-x-auto pb-2">
+                    <button
+                      type="button"
+                      onClick={() => navigate('/scroll')}
+                      className="h-44 min-w-[110px] rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center text-xs text-slate-500 sm:min-w-[120px]"
+                    >
+                      <Plus className="h-5 w-5 mb-2" />
+                      Create reel
+                    </button>
+                    {reelsLoading ? (
+                      <div className="text-sm text-slate-400">Loading reels...</div>
+                    ) : reels.length === 0 ? (
+                      <div className="text-sm text-slate-400">No reels yet.</div>
+                    ) : (
+                      reels.map((scroll) => (
+                        <button
+                          key={scroll.id}
+                          type="button"
+                          onClick={() => navigate(`/scroll?scroll=${encodeURIComponent(scroll.id)}`)}
+                          className="relative h-44 min-w-[110px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-900 sm:min-w-[120px]"
+                        >
+                          {(() => {
+                            const mediaUrl = resolveReelMediaUrl(scroll);
+                            if (!mediaUrl) {
+                              return (
+                                <div className="h-full w-full flex items-center justify-center text-xs text-white/75">
+                                  Reel
+                                </div>
+                              );
+                            }
+                            return (
+                              <video
+                                src={mediaUrl}
+                                className="h-full w-full object-cover"
+                                autoPlay
+                                muted
+                                playsInline
+                                loop
+                                preload="metadata"
+                              />
+                            );
+                          })()}
+                          {(() => {
+                            const authorName = resolveReelAuthorName(scroll, 'Scrolith');
+                            const authorAvatar = resolveReelAuthorAvatar(scroll);
+                            const authorInitial = resolveReelAuthorInitial(scroll);
+                            return (
+                              <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
+                                {authorAvatar ? (
+                                  <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
+                                ) : (
+                                  <span>{authorInitial}</span>
+                                )}
+                              </div>
+                            );
+                          })()}
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
+                            <p className="text-[10px] text-white font-semibold line-clamp-1">{resolveReelAuthorName(scroll, 'Scrolith')}</p>
+                            <p className="text-[10px] text-white/80 line-clamp-1">{scroll.title || scroll.description || 'Reel'}</p>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
