@@ -2689,6 +2689,7 @@ model ConversationParticipant {
 
   @@unique([conversationId, userId])
   @@index([userId])
+  @@index([userId, deletedAt, conversationId])
 }
 
 model DirectMessage {
@@ -2717,6 +2718,7 @@ model DirectMessage {
   voiceNote      VoiceNote?
 
   @@index([conversationId])
+  @@index([conversationId, createdAt])
   @@index([senderId])
   @@index([createdAt])
   @@index([replyToMessageId])
@@ -3373,6 +3375,8 @@ model UserFollow {
   @@unique([followerId, followeeId])
   @@index([followerId])
   @@index([followeeId])
+  @@index([followerId, createdAt])
+  @@index([followeeId, createdAt])
 }
 
 model UserBlock {
@@ -3405,6 +3409,8 @@ model Notification {
   actor User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([userId])
+  @@index([userId, createdAt])
+  @@index([userId, isRead, createdAt])
   @@index([actorId])
   @@index([isRead])
 }

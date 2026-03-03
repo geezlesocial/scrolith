@@ -119,6 +119,25 @@ const messagesIncludeBase: any = {
   }
 };
 
+const messagesPreviewIncludeWithReply: any = {
+  orderBy: { createdAt: 'asc' },
+  take: 60,
+  include: {
+    reactions: true,
+    replyToMessage: {
+      select: replyToMessageSelect
+    }
+  }
+};
+
+const messagesPreviewIncludeBase: any = {
+  orderBy: { createdAt: 'asc' },
+  take: 60,
+  include: {
+    reactions: true
+  }
+};
+
 const normalizeAttachmentIds = (input: any): string[] => {
   if (!Array.isArray(input)) return [];
   return Array.from(new Set(input.map((value) => String(value)).filter((value) => value.length > 0)));
@@ -524,11 +543,22 @@ export const listConversations = async (req: Request, res: Response) => {
           }
         };
 
+    const requestedLimit = Number.parseInt(String(req.query?.limit || ''), 10);
+    const limit = Number.isFinite(requestedLimit)
+      ? Math.max(10, Math.min(200, requestedLimit))
+      : 80;
+    const cursorId = String(req.query?.cursor || '').trim();
+    const queryBase: any = {
+      where,
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {})
+    };
+
     let conversations: any[] = [];
     try {
       conversations = await prisma.conversation.findMany({
-        where,
-        orderBy: { updatedAt: 'desc' },
+        ...queryBase,
         include: {
           participants: {
             include: {
@@ -537,14 +567,13 @@ export const listConversations = async (req: Request, res: Response) => {
               }
             }
           },
-          messages: messagesIncludeWithReply
+          messages: messagesPreviewIncludeWithReply
         }
       } as any);
     } catch (error: any) {
       if (!isReplyFeatureUnsupportedError(error)) throw error;
       conversations = await prisma.conversation.findMany({
-        where,
-        orderBy: { updatedAt: 'desc' },
+        ...queryBase,
         include: {
           participants: {
             include: {
@@ -553,15 +582,18 @@ export const listConversations = async (req: Request, res: Response) => {
               }
             }
           },
-          messages: messagesIncludeBase
+          messages: messagesPreviewIncludeBase
         }
       } as any);
     }
 
+    const hasMore = conversations.length > limit;
+    const pageConversations = hasMore ? conversations.slice(0, limit) : conversations;
+
     const hiddenMessageMap = !admin && userId
-      ? await getDeletedForMeMessageMap(userId, conversations.map((conversation) => String(conversation.id || '')))
+      ? await getDeletedForMeMessageMap(userId, pageConversations.map((conversation) => String(conversation.id || '')))
       : new Map<string, Set<string>>();
-    const basePayload = conversations.map((conversation) =>
+    const basePayload = pageConversations.map((conversation) =>
       buildConversationPayload(conversation, userId, {
         hiddenMessageIds: hiddenMessageMap.get(String(conversation.id || '')) || new Set<string>()
       })
@@ -577,7 +609,15 @@ export const listConversations = async (req: Request, res: Response) => {
         attachments: mapAttachments(msg.attachments || [], fileMap)
       }))
     }));
-    return res.json({ success: true, data: payload });
+    return res.json({
+      success: true,
+      data: payload,
+      pagination: {
+        limit,
+        hasMore,
+        nextCursor: hasMore ? String(pageConversations[pageConversations.length - 1]?.id || '') : null
+      }
+    });
   } catch (error: any) {
     console.error('List conversations error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load conversations' });

@@ -44,13 +44,43 @@ const toApiNotification = (notification: any) => {
   };
 };
 
+const parseLimit = (value: unknown, fallback: number, min: number, max: number) => {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+};
+
 export const listNotifications = async (req: Request, res: Response) => {
   try {
     const authId = ensureAuthId(req);
     if (!authId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
-    const notifications = await prisma.notification.findMany({ where: { userId: authId }, orderBy: { createdAt: 'desc' }, take: 100 });
-    return res.json({ success: true, data: notifications.map(toApiNotification) });
+    const limit = parseLimit(req.query?.limit, 50, 10, 100);
+    const cursorId = String(req.query?.cursor || '').trim();
+    const rows = await prisma.notification.findMany({
+      where: { userId: authId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        body: true,
+        actorId: true,
+        meta: true,
+        isRead: true,
+        createdAt: true
+      }
+    });
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore ? String(pageRows[pageRows.length - 1]?.id || '') : null;
+    return res.json({
+      success: true,
+      data: pageRows.map(toApiNotification),
+      pagination: { limit, hasMore, nextCursor }
+    });
   } catch (error: any) {
     console.error('List notifications error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load notifications' });
@@ -106,8 +136,32 @@ export const listNotificationsForUser = async (req: Request, res: Response) => {
     if (!role.toString().toLowerCase().includes('admin')) return res.status(403).json({ success: false, error: 'Forbidden' });
     const userId = req.params.userId;
     if (!userId) return res.status(400).json({ success: false, error: 'userId required' });
-    const notifications = await prisma.notification.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 200 });
-    return res.json({ success: true, data: notifications.map(toApiNotification) });
+    const limit = parseLimit(req.query?.limit, 80, 10, 200);
+    const cursorId = String(req.query?.cursor || '').trim();
+    const rows = await prisma.notification.findMany({
+      where: { userId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        body: true,
+        actorId: true,
+        meta: true,
+        isRead: true,
+        createdAt: true
+      }
+    });
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore ? String(pageRows[pageRows.length - 1]?.id || '') : null;
+    return res.json({
+      success: true,
+      data: pageRows.map(toApiNotification),
+      pagination: { limit, hasMore, nextCursor }
+    });
   } catch (error: any) {
     console.error('List notifications for user error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load notifications' });
