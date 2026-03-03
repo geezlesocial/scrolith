@@ -1,6 +1,6 @@
 import api from './api';
 
-export type ReactionTargetType = 'POST' | 'COMMENT' | 'MESSAGE';
+export type ReactionTargetType = 'POST' | 'COMMENT' | 'MESSAGE' | 'STORY' | 'SCROLL';
 
 export type ReactionSummaryResponse = {
   targetType: ReactionTargetType;

@@ -31,6 +31,7 @@ const VoiceCallControls: React.FC<{
     incoming,
     statusLabel,
     muted,
+    speakerOn,
     addBusy,
     participantUsers,
     participants,
@@ -40,6 +41,7 @@ const VoiceCallControls: React.FC<{
     rejectCall,
     endCall,
     toggleMute,
+    toggleSpeaker,
     addParticipant
   } = useVoiceCall();
 
@@ -113,6 +115,7 @@ const VoiceCallControls: React.FC<{
         incoming={incoming}
         statusLabel={statusLabel}
         muted={muted}
+        speakerOn={speakerOn}
         addBusy={addBusy}
         canAddParticipant={Boolean(canConference)}
         participantUsers={participantUsers}
@@ -124,6 +127,7 @@ const VoiceCallControls: React.FC<{
         onReject={() => void handleReject()}
         onEnd={() => void handleEnd()}
         onToggleMute={toggleMute}
+        onToggleSpeaker={toggleSpeaker}
         onAddParticipant={(userId) => void handleAddParticipant(userId)}
       />
     </>
@@ -157,7 +161,7 @@ const Messages = () => {
       enabledVoiceCalls: true,
       enabledConferenceCalls: true,
       enabledVoiceNotes: true,
-      maxParticipants: 8,
+      maxParticipants: 20,
       maxVoiceNoteDurationSeconds: 180,
       blockedForCurrentUser: false
   });
@@ -221,6 +225,12 @@ const Messages = () => {
               showNotification('error', 'Voice call', message);
               return;
           }
+          if (type === 'busy') {
+              const busyUserName = String(detail?.busyUserName || '').trim();
+              const message = String(detail?.error || (busyUserName ? `${busyUserName} is on another call.` : 'User is on another call.'));
+              showNotification('warning', 'Voice call', message);
+              return;
+          }
           if (type === 'permission_denied') {
               const message = String(detail?.message || 'Microphone permission denied.');
               showNotification('error', 'Voice call', message);
@@ -259,7 +269,7 @@ const Messages = () => {
                   enabledVoiceCalls: Boolean(config?.enabledVoiceCalls ?? true),
                   enabledConferenceCalls: Boolean(config?.enabledConferenceCalls ?? true),
                   enabledVoiceNotes: Boolean(config?.enabledVoiceNotes ?? true),
-                  maxParticipants: Number(config?.maxParticipants ?? 8),
+                  maxParticipants: Number(config?.maxParticipants ?? 20),
                   maxVoiceNoteDurationSeconds: Number(config?.maxVoiceNoteDurationSeconds ?? 180),
                   blockedForCurrentUser: Boolean((config as any)?.blockedForCurrentUser ?? false)
               });
@@ -381,7 +391,7 @@ const Messages = () => {
       isArchived: Boolean(activeConvo?.isArchived ?? activeConvo?.is_archived)
   };
   const messagingControls = (settings as any)?.messagingControls || {};
-  const allVoiceParticipantUsers = (activeConvo?.participants || [])
+  const activeConversationVoiceTargets = (activeConvo?.participants || [])
       .filter((participant: any) => String(participant?.id || '') !== String(user?.id || ''))
       .map((participant: any) => ({
           id: String(participant?.id || ''),
@@ -396,13 +406,29 @@ const Messages = () => {
           avatar: String(participant?.avatar || '')
       }))
       .filter((participant) => Boolean(participant.id));
-  const voiceParticipantUsers = (() => {
-      const conversationType = String((activeConvo as any)?.type || '').toLowerCase();
-      if (conversationType !== 'direct') return allVoiceParticipantUsers;
-      const directTargetId = String(otherParticipant?.id || '').trim();
-      if (!directTargetId) return allVoiceParticipantUsers.slice(0, 1);
-      const directTarget = allVoiceParticipantUsers.find((entry) => entry.id === directTargetId);
-      return directTarget ? [directTarget] : allVoiceParticipantUsers.slice(0, 1);
+  const voiceCallCandidateUsers = (() => {
+      const ordered: { id: string; name: string; avatar?: string }[] = [...activeConversationVoiceTargets];
+      const seen = new Set(ordered.map((entry) => entry.id));
+      conversations.forEach((conversation) => {
+          (conversation?.participants || []).forEach((participant: any) => {
+              const id = String(participant?.id || '').trim();
+              if (!id || id === String(user?.id || '').trim() || seen.has(id)) return;
+              const participantId = String(participant?.id || '').trim();
+              const rawName = String(participant?.name || participant?.username || '').trim();
+              ordered.push({
+                  id,
+                  name: (() => {
+                      if (!rawName) return 'Participant';
+                      if (rawName === participantId) return 'Participant';
+                      if (/^[a-z0-9_-]{18,}$/i.test(rawName)) return 'Participant';
+                      return rawName;
+                  })(),
+                  avatar: String(participant?.avatar || '')
+              });
+              seen.add(id);
+          });
+      });
+      return ordered;
   })();
   const voiceCallsBlocked =
       Boolean(voiceRuntimeConfig.blockedForCurrentUser) ||
@@ -437,6 +463,38 @@ const Messages = () => {
       if (normalized === 'image' || normalized === 'video') return normalized;
       if (normalized === 'audio') return 'audio';
       return 'document';
+  };
+
+  const extractVoiceCallRecord = (message: Message) => {
+      const metadata = message?.metadata && typeof message.metadata === 'object' ? message.metadata : null;
+      const voiceCall = metadata?.voiceCall && typeof metadata.voiceCall === 'object' ? metadata.voiceCall : null;
+      if (!voiceCall) return null;
+      const status = String(voiceCall.status || '').trim().toLowerCase();
+      if (!status) return null;
+      const durationMs = Number(voiceCall.durationMs || 0);
+      const participantCount = Number(voiceCall.participantCount || 0);
+      return {
+          status,
+          durationMs: Number.isFinite(durationMs) ? Math.max(0, Math.trunc(durationMs)) : 0,
+          participantCount: Number.isFinite(participantCount) ? Math.max(0, Math.trunc(participantCount)) : 0,
+          endedBy: String(voiceCall.endedBy || '').trim(),
+          rejectedById: String(voiceCall.rejectedById || '').trim()
+      };
+  };
+
+  const formatVoiceCallDuration = (durationMs: number) => {
+      const normalized = Math.max(0, Math.trunc(Number(durationMs || 0)));
+      if (!normalized) return '0s';
+      const totalSeconds = Math.max(1, Math.round(normalized / 1000));
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      const parts: string[] = [];
+      if (hours) parts.push(`${hours}h`);
+      if (minutes) parts.push(`${minutes}m`);
+      if (!hours && !minutes) parts.push(`${seconds}s`);
+      if (hours && seconds) parts.push(`${seconds}s`);
+      return parts.join(' ');
   };
 
   const normalizeAttachmentForDisplay = (attachment: any) => {
@@ -1302,7 +1360,8 @@ const Messages = () => {
         socket={socket}
         userId={user?.id}
         conversationId={activeConvoId || undefined}
-        participantUsers={voiceParticipantUsers}
+        participantUsers={voiceCallCandidateUsers}
+        callTargets={activeConversationVoiceTargets}
     >
     <div className="mx-auto h-[calc(100dvh-64px)] max-w-6xl px-2 py-3 sm:px-4 sm:py-6 md:h-[calc(100vh-64px)]">
         <div className="h-full overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg">
@@ -1526,7 +1585,7 @@ const Messages = () => {
                             <div className="flex items-center gap-1.5 sm:gap-2">
                                 <VoiceCallControls
                                     disabled={!activeConvoId || voiceCallsBlocked}
-                                    canConference={voiceRuntimeConfig.enabledConferenceCalls && voiceParticipantUsers.length > 1}
+                                    canConference={voiceRuntimeConfig.enabledConferenceCalls && voiceCallCandidateUsers.length > 1}
                                     meId={user?.id}
                                     onError={(message) => showNotification('error', 'Voice Call', message)}
                                 />
@@ -1664,6 +1723,7 @@ const Messages = () => {
                                 const isEditing = editingMessageId === msg.id;
                                 const showMessageControls = expandedMessageId === msg.id;
                                 const showReactionPanel = reactionPanelMessageId === msg.id && !isDeleted;
+                                const voiceCallRecord = extractVoiceCallRecord(msg);
                                 const messageReactions = Array.isArray(msg.reactions) ? msg.reactions : [];
                                 const myReaction = messageReactions.find(
                                     (reaction) => String(reaction.userId || reaction.user_id) === String(user?.id || '')
@@ -1721,6 +1781,33 @@ const Messages = () => {
                                                     >
                                                         Save
                                                     </button>
+                                                </div>
+                                            </div>
+                                        ) : voiceCallRecord ? (
+                                            <div
+                                                className={`rounded-xl border px-3 py-2 ${
+                                                    msg.senderId === user?.id
+                                                        ? 'border-white/35 bg-white/15 text-white'
+                                                        : 'border-emerald-100 bg-emerald-50 text-emerald-900'
+                                                }`}
+                                            >
+                                                <div className="text-sm font-semibold">
+                                                    {msg.text || 'Voice call update'}
+                                                </div>
+                                                <div
+                                                    className={`mt-1 flex flex-wrap items-center gap-2 text-[11px] ${
+                                                        msg.senderId === user?.id ? 'text-blue-100' : 'text-emerald-700'
+                                                    }`}
+                                                >
+                                                    <span className="rounded-full border border-current/20 px-2 py-0.5 uppercase tracking-wide">
+                                                        {voiceCallRecord.status}
+                                                    </span>
+                                                    {voiceCallRecord.durationMs > 0 ? (
+                                                        <span>Duration: {formatVoiceCallDuration(voiceCallRecord.durationMs)}</span>
+                                                    ) : null}
+                                                    {voiceCallRecord.participantCount > 1 ? (
+                                                        <span>Participants: {voiceCallRecord.participantCount}</span>
+                                                    ) : null}
                                                 </div>
                                             </div>
                                         ) : (

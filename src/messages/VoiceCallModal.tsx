@@ -1,5 +1,5 @@
 import React from 'react';
-import { Phone, PhoneOff, Mic, MicOff, UserPlus, X } from 'lucide-react';
+import { Phone, PhoneOff, Mic, MicOff, UserPlus, Volume2, VolumeX, X } from 'lucide-react';
 import ConferenceParticipantsPanel from './ConferenceParticipantsPanel';
 
 type ParticipantUser = {
@@ -22,6 +22,7 @@ type VoiceCallModalProps = {
   canAddParticipant?: boolean;
   addBusy?: boolean;
   muted?: boolean;
+  speakerOn?: boolean;
   participantUsers?: ParticipantUser[];
   participants?: CallParticipant[];
   meId?: string;
@@ -31,6 +32,7 @@ type VoiceCallModalProps = {
   onReject?: () => void;
   onEnd?: () => void;
   onToggleMute?: () => void;
+  onToggleSpeaker?: () => void;
   onAddParticipant?: (userId: string) => void;
 };
 
@@ -42,6 +44,7 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   canAddParticipant,
   addBusy,
   muted,
+  speakerOn = true,
   participantUsers = [],
   participants = [],
   meId,
@@ -51,6 +54,7 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   onReject,
   onEnd,
   onToggleMute,
+  onToggleSpeaker,
   onAddParticipant
 }) => {
   if (!open) return null;
@@ -78,10 +82,17 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
         />
 
         {Object.entries(remoteStreams).map(([userId, stream]) => (
-          <audio key={userId} autoPlay playsInline ref={(node) => {
-            if (!node) return;
-            if (node.srcObject !== stream) node.srcObject = stream;
-          }} />
+          <audio
+            key={userId}
+            autoPlay
+            playsInline
+            muted={!speakerOn}
+            ref={(node) => {
+              if (!node) return;
+              if (node.srcObject !== stream) node.srcObject = stream;
+              node.volume = speakerOn ? 1 : 0;
+            }}
+          />
         ))}
 
         <div className="mt-4 flex items-center justify-center gap-3">
@@ -104,6 +115,14 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
             </>
           ) : (
             <>
+              <button
+                type="button"
+                onClick={onToggleSpeaker}
+                className="inline-flex items-center gap-2 rounded-full border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                {speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                {speakerOn ? 'Speaker' : 'Earpiece'}
+              </button>
               <button
                 type="button"
                 onClick={onToggleMute}

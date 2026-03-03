@@ -740,6 +740,11 @@ class CommunityService {
     return response;
   }
 
+  static async engageStory(id: string, type: 'comment' | 'repost' | 'dash' | 'send'): Promise<any> {
+    const response = await this.post(`/community/stories/${id}/engage`, { type });
+    return response?.data ?? response;
+  }
+
   static async getMyBusinessPages(): Promise<any[]> {
     const data = await this.get('/community/business-pages/me');
     return Array.isArray(data) ? data : [];

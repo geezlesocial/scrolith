@@ -60,6 +60,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       { ev: 'community:story_deleted', fn: forward('community:story_deleted') },
       { ev: 'community:story_updated', fn: forward('community:story_updated') },
       { ev: 'community:story_liked', fn: forward('community:story_liked') },
+      { ev: 'community:story_engaged', fn: forward('community:story_engaged') },
       { ev: 'community:business_page_created', fn: forward('community:business_page_created') },
       { ev: 'community:business_page_updated', fn: forward('community:business_page_updated') },
       { ev: 'community:thread_pinned', fn: forward('community:thread_pinned') },

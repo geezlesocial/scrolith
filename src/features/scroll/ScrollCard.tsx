@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Volume2, VolumeX, Heart, MessageCircle, Repeat2, Send, Flag, Maximize2, Sparkles } from 'lucide-react';
+import { Volume2, VolumeX, MessageCircle, Repeat2, Send, Coins, Flag, Maximize2, Sparkles } from 'lucide-react';
 import type { ScrollEngagementType, ScrollVideo } from '../../services/scroll';
+import ReactionBar from '../../community/components/ReactionBar';
 
 type ScrollCardProps = {
   scroll: ScrollVideo;
@@ -29,15 +30,11 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const [liked, setLiked] = useState(Boolean(scroll.viewer?.liked));
-  const [localLikes, setLocalLikes] = useState(Number(scroll.metrics?.likes || 0));
   const marksRef = useRef<Record<string, boolean>>({});
 
   useEffect(() => {
-    setLiked(Boolean(scroll.viewer?.liked));
-    setLocalLikes(Number(scroll.metrics?.likes || 0));
     marksRef.current = {};
-  }, [scroll.id, scroll.metrics?.likes, scroll.viewer?.liked]);
+  }, [scroll.id]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -101,13 +98,6 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     }
   };
 
-  const handleLike = async () => {
-    const next = !liked;
-    setLiked(next);
-    setLocalLikes((prev) => Math.max(0, prev + (next ? 1 : -1)));
-    await onEngage(scroll.id, 'like');
-  };
-
   const handleExpand = async () => {
     const container = rootRef.current;
     if (!container) return;
@@ -154,12 +144,12 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
 
   const rightActions = useMemo(
     () => [
-      { key: 'like', label: 'Like', icon: Heart, onClick: handleLike, value: localLikes, active: liked },
       { key: 'comment', label: 'Comment', icon: MessageCircle, onClick: () => onEngage(scroll.id, 'comment'), value: scroll.metrics.comments },
       { key: 'repost', label: 'Repost', icon: Repeat2, onClick: () => onRepost(scroll), value: scroll.metrics.reposts },
+      { key: 'dash', label: 'Dash', icon: Coins, onClick: () => onEngage(scroll.id, 'dash'), value: scroll.metrics.shares },
       { key: 'send', label: 'Send', icon: Send, onClick: () => onSend(scroll), value: scroll.metrics.sends }
     ],
-    [liked, localLikes, onEngage, onRepost, onSend, scroll]
+    [onEngage, onRepost, onSend, scroll]
   );
 
   return (
@@ -246,12 +236,10 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
             key={action.key}
             type="button"
             onClick={action.onClick}
-            className={`inline-flex min-w-[64px] flex-col items-center rounded-2xl px-2 py-2 transition ${
-              action.active ? 'bg-rose-500/25 text-rose-100' : 'bg-black/40 text-white hover:bg-black/60'
-            }`}
+            className="inline-flex min-w-[64px] flex-col items-center rounded-2xl px-2 py-2 transition bg-black/40 text-white hover:bg-black/60"
             aria-label={action.label}
           >
-            <action.icon className={`h-5 w-5 ${action.active ? 'fill-rose-300 text-rose-200' : ''}`} />
+            <action.icon className="h-5 w-5" />
             <span className="mt-1 text-[11px] font-semibold">{Number(action.value || 0)}</span>
           </button>
         ))}
@@ -281,6 +269,11 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
           {description && title ? <p className="mt-1 text-sm text-white/85 line-clamp-3">{description}</p> : null}
           {scroll.location ? <p className="mt-1 text-xs text-white/80">Location: {scroll.location}</p> : null}
           <p className="mt-2 text-[11px] text-white/70">{new Date(scroll.createdAt).toLocaleString()}</p>
+          <ReactionBar
+            targetType="SCROLL"
+            targetId={scroll.id}
+            className="pointer-events-auto mt-3 rounded-2xl bg-black/35 p-2 backdrop-blur-md"
+          />
         </div>
       </div>
     </article>

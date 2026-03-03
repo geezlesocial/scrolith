@@ -187,7 +187,7 @@ export const MessagingService = {
       enabledVoiceCalls: Boolean(data.enabledVoiceCalls ?? true),
       enabledConferenceCalls: Boolean(data.enabledConferenceCalls ?? true),
       enabledVoiceNotes: Boolean(data.enabledVoiceNotes ?? true),
-      maxParticipants: Number(data.maxParticipants ?? 8),
+      maxParticipants: Number(data.maxParticipants ?? 20),
       maxVoiceNoteDurationSeconds: Number(data.maxVoiceNoteDurationSeconds ?? 180),
       blockedUserIds: [],
       blockedForCurrentUser: Boolean(data.blockedForCurrentUser ?? false)
@@ -281,7 +281,8 @@ export const MessagingService = {
       conversationId: safeString(entry?.conversationId ?? entry?.conversation_id),
       initiatorId: safeString(entry?.initiatorId ?? entry?.initiator_id),
       status: safeString(entry?.status).toLowerCase(),
-      callType: safeString(entry?.callType ?? entry?.call_type).toLowerCase()
+      callType: safeString(entry?.callType ?? entry?.call_type).toLowerCase(),
+      durationMs: safeNumber(entry?.durationMs ?? entry?.duration_ms, 0)
     })) as VoiceCall[];
   },
 

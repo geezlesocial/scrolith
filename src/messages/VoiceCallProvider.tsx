@@ -26,6 +26,7 @@ type VoiceCallContextValue = {
   incoming: boolean;
   statusLabel: string;
   muted: boolean;
+  speakerOn: boolean;
   addBusy: boolean;
   participantUsers: ParticipantOption[];
   participants: VoiceCallParticipant[];
@@ -35,6 +36,7 @@ type VoiceCallContextValue = {
   rejectCall: () => Promise<void>;
   endCall: () => Promise<void>;
   toggleMute: () => void;
+  toggleSpeaker: () => void;
   addParticipant: (userId: string) => Promise<void>;
 };
 
@@ -76,6 +78,7 @@ const statusToLabel = (status: string, incoming: boolean) => {
   if (status === 'active') return 'Call in progress';
   if (status === 'missed') return 'Missed call';
   if (status === 'failed') return 'Call failed';
+  if (status === 'busy') return 'User is busy';
   if (status === 'cancelled') return 'Call cancelled';
   if (status === 'ended') return 'Call ended';
   if (status === 'rejected') return 'Call rejected';
@@ -102,6 +105,7 @@ type VoiceCallProviderProps = {
   userId?: string;
   conversationId?: string;
   participantUsers: ParticipantOption[];
+  callTargets?: ParticipantOption[];
   children: React.ReactNode;
 };
 
@@ -110,11 +114,13 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   userId,
   conversationId,
   participantUsers,
+  callTargets,
   children
 }) => {
   const [callState, setCallState] = useState<CallState | null>(null);
   const [incoming, setIncoming] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [speakerOn, setSpeakerOn] = useState(true);
   const [participants, setParticipants] = useState<VoiceCallParticipant[]>([]);
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const [addBusy, setAddBusy] = useState(false);
@@ -299,13 +305,17 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     [ensureLocalAudio, sendSignal]
   );
 
-  const ensureParticipantEntry = useCallback((id: string, status?: string) => {
+  const ensureParticipantEntry = useCallback((id: string, status?: string, userOverride?: ParticipantOption) => {
     setParticipants((prev) => {
       const exists = prev.some((entry) => entry.userId === id);
       if (exists) {
-        return prev.map((entry) => (entry.userId === id ? { ...entry, status: status || entry.status } : entry));
+        return prev.map((entry) =>
+          entry.userId === id
+            ? { ...entry, status: status || entry.status, user: userOverride || entry.user }
+            : entry
+        );
       }
-      const user = participantUsers.find((entry) => entry.id === id);
+      const user = userOverride || participantUsers.find((entry) => entry.id === id);
       return [...prev, { userId: id, status: status || 'invited', user }];
     });
   }, [participantUsers]);
@@ -408,28 +418,58 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       const ids = Array.isArray(payload?.participantIds)
         ? payload.participantIds.map((id: any) => String(id || '').trim()).filter(Boolean)
         : [];
+      const payloadUsers = Array.isArray(payload?.participants)
+        ? payload.participants
+            .map((entry: any) => ({
+              id: String(entry?.id || '').trim(),
+              name: String(entry?.name || entry?.username || '').trim() || 'Participant',
+              avatar: String(entry?.avatar || '').trim() || undefined
+            }))
+            .filter((entry: ParticipantOption) => Boolean(entry.id))
+        : [];
+      const participantLookup = new Map<string, ParticipantOption>(
+        [...participantUsers, ...payloadUsers].map((entry) => [String(entry.id || '').trim(), entry])
+      );
       const fallbackIds = (() => {
         if (!sameConversation) {
           return [initiatorId, String(userId || '').trim()].filter(Boolean);
         }
         const knownIds = new Set(
-          [String(userId || '').trim(), ...participantUsers.map((entry) => String(entry?.id || '').trim())].filter(Boolean)
+          [
+            String(userId || '').trim(),
+            ...participantUsers.map((entry) => String(entry?.id || '').trim()),
+            ...payloadUsers.map((entry: ParticipantOption) => String(entry?.id || '').trim())
+          ].filter(Boolean)
         );
         const sanitizedIds = ids.filter((id) => knownIds.has(id));
         return sanitizedIds.length
           ? sanitizedIds
           : [initiatorId, String(userId || '').trim()].filter((id) => Boolean(id) && knownIds.has(id));
       })();
-      setParticipants(normalizeParticipants(fallbackIds, participantUsers, 'invited'));
-      if (incomingCall) {
+      setParticipants(
+        fallbackIds.map((participantId) => ({
+          userId: participantId,
+          status: 'invited',
+          user: participantLookup.get(participantId)
+        }))
+      );
+      if (String(payload?.status || 'ringing').toLowerCase() === 'ringing') {
         startRingingAlert();
+      } else {
+        stopRingingAlert();
+      }
+      if (incomingCall) {
         emitVoiceLifecycleEvent('incoming', {
           callId: payloadCallId,
           conversationId: payloadConversationId,
           initiatorId
         });
-      } else {
-        stopRingingAlert();
+      } else if (sameConversation) {
+        emitVoiceLifecycleEvent('ringing', {
+          callId: payloadCallId,
+          conversationId: payloadConversationId,
+          initiatorId
+        });
       }
     };
 
@@ -455,7 +495,14 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       const callId = String(payload?.callId || '').trim();
       const addedUserId = String(payload?.userId || payload?.participantId || '').trim();
       if (!callId || !addedUserId || callId !== callIdRef.current) return;
-      ensureParticipantEntry(addedUserId, 'invited');
+      const participant = payload?.participant && typeof payload.participant === 'object'
+        ? {
+            id: String(payload.participant.id || addedUserId).trim(),
+            name: String(payload.participant.name || payload.participant.username || '').trim() || 'Participant',
+            avatar: String(payload.participant.avatar || '').trim() || undefined
+          }
+        : undefined;
+      ensureParticipantEntry(addedUserId, 'invited', participant);
     };
 
     const onParticipantLeft = (payload: any) => {
@@ -516,6 +563,19 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       finalizeCallState('failed', payload, 1800);
     };
 
+    const onCallBusy = (payload: any) => {
+      const callId = String(payload?.callId || '').trim();
+      if (callIdRef.current && callId && callId !== callIdRef.current) return;
+      emitVoiceLifecycleEvent('busy', {
+        callId: callId || callIdRef.current || '',
+        conversationId: String(payload?.conversationId || conversationIdRef.current || ''),
+        busyUserId: String(payload?.busyUserId || '').trim(),
+        busyUserName: String(payload?.busyUserName || '').trim(),
+        error: String(payload?.error || 'User is currently on another call.')
+      });
+      finalizeCallState('failed', payload, 1200);
+    };
+
     const onLifecycleEnded = (payload: any) => {
       const callId = String(payload?.callId || '').trim();
       if (!callId || (callIdRef.current && callId !== callIdRef.current)) return;
@@ -530,6 +590,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     socket.on('call:participant:left', onParticipantLeft);
     socket.on('call:end', onCallEnded);
     socket.on('call:reject', onCallRejected);
+    socket.on('call:busy', onCallBusy);
     socket.on('call:signal', onSignal);
     socket.on('messenger:call_joined', onLifecycleJoined);
     socket.on('messenger:call_missed', onLifecycleMissed);
@@ -544,6 +605,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       socket.off('call:participant:left', onParticipantLeft);
       socket.off('call:end', onCallEnded);
       socket.off('call:reject', onCallRejected);
+      socket.off('call:busy', onCallBusy);
       socket.off('call:signal', onSignal);
       socket.off('messenger:call_joined', onLifecycleJoined);
       socket.off('messenger:call_missed', onLifecycleMissed);
@@ -567,7 +629,10 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   const startCall = useCallback(
     async (options?: { conference?: boolean }) => {
       if (!socket || !userId || !conversationId) return;
-      const participantIds = participantUsers.map((entry) => entry.id).filter(Boolean);
+      const startCandidates = (Array.isArray(callTargets) && callTargets.length ? callTargets : participantUsers)
+        .map((entry) => ({ ...entry, id: String(entry?.id || '').trim() }))
+        .filter((entry) => Boolean(entry.id));
+      const participantIds = startCandidates.map((entry) => entry.id);
       const targetParticipantIds = options?.conference ? participantIds : participantIds.slice(0, 1);
       if (!targetParticipantIds.length) {
         throw new Error('No valid participant available for this call.');
@@ -578,14 +643,25 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         callType: options?.conference ? 'conference' : 'direct'
       });
       if (response?.success === false) {
-        emitVoiceLifecycleEvent('failed', {
-          conversationId,
-          error: String(response?.error || 'Failed to initiate call.')
-        });
+        const errorMessage = String(response?.error || 'Failed to initiate call.');
+        const responseCode = String(response?.code || response?.data?.code || '').toLowerCase();
+        if (responseCode.includes('busy')) {
+          emitVoiceLifecycleEvent('busy', {
+            conversationId,
+            busyUserId: String(response?.data?.busyUserId || '').trim(),
+            busyUserName: String(response?.data?.busyUserName || '').trim(),
+            error: errorMessage
+          });
+        } else {
+          emitVoiceLifecycleEvent('failed', {
+            conversationId,
+            error: errorMessage
+          });
+        }
+        stopRingingAlert();
         throw new Error(String(response?.error || 'Failed to initiate call.'));
       }
       const data = response?.data || {};
-      stopRingingAlert();
       setIncoming(false);
       setCallState({
         callId: String(data.callId || ''),
@@ -594,12 +670,17 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         status: String(data.status || 'ringing'),
         callType: String(data.callType || (options?.conference ? 'conference' : 'direct'))
       });
+      if (String(data?.status || 'ringing').toLowerCase() === 'ringing') {
+        startRingingAlert();
+      } else {
+        stopRingingAlert();
+      }
       const ids = Array.isArray(data?.participantIds)
         ? data.participantIds.map((id: any) => String(id || '').trim()).filter(Boolean)
         : [userId, ...targetParticipantIds];
       setParticipants(normalizeParticipants(Array.from(new Set(ids)), participantUsers, 'invited'));
     },
-    [socket, userId, conversationId, participantUsers, stopRingingAlert]
+    [socket, userId, conversationId, callTargets, participantUsers, startRingingAlert, stopRingingAlert]
   );
 
   const acceptCall = useCallback(async () => {
@@ -662,6 +743,10 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     setMuted(nextMuted);
   }, [muted]);
 
+  const toggleSpeaker = useCallback(() => {
+    setSpeakerOn((prev) => !prev);
+  }, []);
+
   useEffect(() => {
     return () => {
       resetCallState();
@@ -687,6 +772,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       incoming,
       statusLabel,
       muted,
+      speakerOn,
       addBusy,
       participantUsers,
       participants,
@@ -696,6 +782,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       rejectCall,
       endCall,
       toggleMute,
+      toggleSpeaker,
       addParticipant
     }),
     [
@@ -703,6 +790,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       incoming,
       statusLabel,
       muted,
+      speakerOn,
       addBusy,
       participantUsers,
       participants,
@@ -712,6 +800,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       rejectCall,
       endCall,
       toggleMute,
+      toggleSpeaker,
       addParticipant
     ]
   );

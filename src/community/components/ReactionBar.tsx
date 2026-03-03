@@ -64,7 +64,9 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
     if (!master) return false;
     if (targetType === 'POST') return reactionsSettings?.postsEnabled ?? reactionsSettings?.posts_enabled ?? true;
     if (targetType === 'COMMENT') return reactionsSettings?.commentsEnabled ?? reactionsSettings?.comments_enabled ?? true;
-    return reactionsSettings?.messagesEnabled ?? reactionsSettings?.messages_enabled ?? true;
+    if (targetType === 'MESSAGE') return reactionsSettings?.messagesEnabled ?? reactionsSettings?.messages_enabled ?? true;
+    if (targetType === 'STORY') return reactionsSettings?.storiesEnabled ?? reactionsSettings?.stories_enabled ?? true;
+    return reactionsSettings?.scrollEnabled ?? reactionsSettings?.scroll_enabled ?? true;
   }, [reactionsSettings, targetType]);
 
   const allowed = useMemo(

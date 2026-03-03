@@ -21,6 +21,7 @@ import {
   VideoIcon as Video,
   XIcon as X
 } from '../icons/ShellIcons';
+import { ChevronLeft, ChevronRight, Coins, Repeat2, Send as SendIcon } from 'lucide-react';
 import { useUser } from '../../context/UserContext';
 import { useContent } from '../../context/ContentContext';
 import { useSocket } from '../../context/SocketContext';
@@ -41,6 +42,7 @@ import VerifiedBadge from '../common/VerifiedBadge';
 import PostHeader from '../../community/components/PostHeader';
 import PostOptionsButton from '../../community/components/post-options/PostOptionsButton';
 import PostEngagementBar from '../../community/components/PostEngagementBar';
+import ReactionBar from '../../community/components/ReactionBar';
 import MentionText from '../../community/components/MentionText';
 import MentionHashtagTextarea from '../../community/components/MentionHashtagTextarea';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from '../../community/followState';
@@ -453,6 +455,14 @@ const sumReactionCounts = (value: unknown): number => {
     if (!Number.isFinite(numeric)) return total;
     return total + Math.max(0, Math.trunc(numeric));
   }, 0);
+};
+
+const formatCompactMetric = (value: unknown) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return '0';
+  if (numeric >= 1_000_000) return `${(numeric / 1_000_000).toFixed(1).replace(/\.0$/, '')}M+`;
+  if (numeric >= 1_000) return `${(numeric / 1_000).toFixed(1).replace(/\.0$/, '')}k+`;
+  return String(Math.trunc(numeric));
 };
 
 const isPrivilegedRole = (role?: string) => {
@@ -2449,6 +2459,162 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     }
   }, []);
 
+  const engageStoryAndSync = useCallback(
+    async (story: any, type: 'comment' | 'repost' | 'dash' | 'send') => {
+      const storyId = String(story?.id || '').trim();
+      if (!storyId) return null;
+      const response = await CommunityService.engageStory(storyId, type);
+      const payload = response?.story || response;
+      const interactions = response?.interactions || payload?.interactions || {};
+      applyStoryUpdate({
+        ...story,
+        ...(payload || {}),
+        commentsCount: interactions.comments ?? payload?.commentsCount ?? story.commentsCount ?? 0,
+        repostsCount: interactions.reposts ?? payload?.repostsCount ?? story.repostsCount ?? 0,
+        dashesCount: interactions.dashes ?? payload?.dashesCount ?? story.dashesCount ?? 0,
+        sendsCount: interactions.sends ?? payload?.sendsCount ?? story.sendsCount ?? 0,
+        interactions: {
+          ...(story.interactions || {}),
+          comments: interactions.comments ?? payload?.commentsCount ?? story.interactions?.comments ?? story.commentsCount ?? 0,
+          reposts: interactions.reposts ?? payload?.repostsCount ?? story.interactions?.reposts ?? story.repostsCount ?? 0,
+          dashes: interactions.dashes ?? payload?.dashesCount ?? story.interactions?.dashes ?? story.dashesCount ?? 0,
+          sends: interactions.sends ?? payload?.sendsCount ?? story.interactions?.sends ?? story.sendsCount ?? 0
+        }
+      });
+      return response;
+    },
+    [applyStoryUpdate]
+  );
+
+  const handleStoryCommentAction = useCallback(
+    async (story: any) => {
+      if (!user) {
+        if (confirm('Log in to comment on stories?')) window.location.href = '/auth/login';
+        return;
+      }
+      const input = window.prompt('Write your story comment');
+      if (input === null) return;
+      const content = String(input || '').trim();
+      if (!content) {
+        showNotification('warning', 'Stories', 'Comment cannot be empty.');
+        return;
+      }
+      try {
+        await CommunityService.createPost({
+          content: `${content}\n\nCommented from story by ${resolveStoryAuthorName(story, 'Community member')}.`
+        });
+        await engageStoryAndSync(story, 'comment');
+        showNotification('success', 'Stories', 'Comment shared to your feed.');
+      } catch (error: any) {
+        showNotification('error', 'Stories', error?.message || 'Unable to comment on this story.');
+      }
+    },
+    [engageStoryAndSync, showNotification, user]
+  );
+
+  const handleStoryRepostAction = useCallback(
+    async (story: any) => {
+      if (!user) {
+        if (confirm('Log in to repost stories?')) window.location.href = '/auth/login';
+        return;
+      }
+      const authorName = resolveStoryAuthorName(story, 'Community member');
+      const text = String(resolveStoryContent(story) || '').trim();
+      try {
+        await CommunityService.createPost({
+          title: text ? `Story repost - ${authorName}` : undefined,
+          content: text || `Reposted a story by ${authorName}.`,
+          attachmentFileIds:
+            story?.mediaFileId && String(story?.authorId || '') === String(user?.id || '')
+              ? [story.mediaFileId]
+              : undefined
+        });
+        await engageStoryAndSync(story, 'repost');
+        showNotification('success', 'Stories', 'Story reposted.');
+      } catch (error: any) {
+        showNotification('error', 'Stories', error?.message || 'Unable to repost this story.');
+      }
+    },
+    [engageStoryAndSync, showNotification, user]
+  );
+
+  const handleStorySendAction = useCallback(
+    async (story: any) => {
+      const storyId = String(story?.id || '').trim();
+      if (!storyId) return;
+      const url = `${window.location.origin}/community?story=${encodeURIComponent(storyId)}`;
+      const title = resolveStoryAuthorName(story, 'Story');
+      const text = resolveStoryContent(story) || 'Check this story on Scrolith';
+      try {
+        const nav = navigator as any;
+        if (nav?.share) {
+          await nav.share({ title, text, url });
+        } else {
+          await navigator.clipboard.writeText(url);
+          showNotification('success', 'Stories', 'Story link copied.');
+        }
+        await engageStoryAndSync(story, 'send');
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          showNotification('error', 'Stories', error?.message || 'Unable to share this story.');
+        }
+      }
+    },
+    [engageStoryAndSync, showNotification]
+  );
+
+  const handleStoryDashAction = useCallback(
+    async (story: any) => {
+      if (!user) {
+        if (confirm('Log in to dash story creators?')) window.location.href = '/auth/login';
+        return;
+      }
+      try {
+        await engageStoryAndSync(story, 'dash');
+      } catch (error: any) {
+        showNotification('error', 'Stories', error?.message || 'Unable to send dash.');
+        return;
+      }
+      navigate('/community/gcoin');
+    },
+    [engageStoryAndSync, navigate, showNotification, user]
+  );
+
+  const activeStoryIndex = activeStory?.id ? stories.findIndex((story) => story.id === activeStory.id) : -1;
+  const hasPrevStory = activeStoryIndex > 0;
+  const hasNextStory = activeStoryIndex >= 0 && activeStoryIndex < stories.length - 1;
+
+  const goToStoryByOffset = useCallback(
+    (offset: number) => {
+      if (!activeStory?.id) return;
+      const index = stories.findIndex((story) => story.id === activeStory.id);
+      if (index < 0) return;
+      const nextIndex = index + offset;
+      if (nextIndex < 0 || nextIndex >= stories.length) return;
+      const target = stories[nextIndex];
+      if (target) void openStory(target);
+    },
+    [activeStory?.id, stories, openStory]
+  );
+
+  useEffect(() => {
+    if (!activeStory?.id) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        goToStoryByOffset(-1);
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        goToStoryByOffset(1);
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        setActiveStory(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeStory?.id, goToStoryByOffset]);
+
   useEffect(() => {
     if (!user) return;
     loadFeed();
@@ -2609,6 +2775,54 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
           : current
       );
     };
+    const handleStoryEngaged = (payload: any) => {
+      const detail = payload?.story || payload;
+      if (detail?.id) {
+        applyStoryUpdate(detail);
+        return;
+      }
+      const storyId = String(payload?.storyId || '').trim();
+      if (!storyId) return;
+      const interactions = payload?.interactions || {};
+      setStories((prev) =>
+        prev.map((story) =>
+          story.id === storyId
+            ? {
+                ...story,
+                commentsCount: interactions.comments ?? story.commentsCount ?? 0,
+                repostsCount: interactions.reposts ?? story.repostsCount ?? 0,
+                dashesCount: interactions.dashes ?? story.dashesCount ?? 0,
+                sendsCount: interactions.sends ?? story.sendsCount ?? 0,
+                interactions: {
+                  ...(story.interactions || {}),
+                  comments: interactions.comments ?? story.interactions?.comments ?? story.commentsCount ?? 0,
+                  reposts: interactions.reposts ?? story.interactions?.reposts ?? story.repostsCount ?? 0,
+                  dashes: interactions.dashes ?? story.interactions?.dashes ?? story.dashesCount ?? 0,
+                  sends: interactions.sends ?? story.interactions?.sends ?? story.sendsCount ?? 0
+                }
+              }
+            : story
+        )
+      );
+      setActiveStory((current) =>
+        current?.id === storyId
+          ? {
+              ...current,
+              commentsCount: interactions.comments ?? current.commentsCount ?? 0,
+              repostsCount: interactions.reposts ?? current.repostsCount ?? 0,
+              dashesCount: interactions.dashes ?? current.dashesCount ?? 0,
+              sendsCount: interactions.sends ?? current.sendsCount ?? 0,
+              interactions: {
+                ...(current.interactions || {}),
+                comments: interactions.comments ?? current.interactions?.comments ?? current.commentsCount ?? 0,
+                reposts: interactions.reposts ?? current.interactions?.reposts ?? current.repostsCount ?? 0,
+                dashes: interactions.dashes ?? current.interactions?.dashes ?? current.dashesCount ?? 0,
+                sends: interactions.sends ?? current.interactions?.sends ?? current.sendsCount ?? 0
+              }
+            }
+          : current
+      );
+    };
     socket.on('community:post_created', handlePostCreated);
     socket.on('community:post_updated', refreshFeed);
     socket.on('community:post_deleted', refreshFeed);
@@ -2616,6 +2830,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     socket.on('community:story_deleted', refreshStories);
     socket.on('community:story_updated', handleStoryUpdated);
     socket.on('community:story_liked', handleStoryLiked);
+    socket.on('community:story_engaged', handleStoryEngaged);
     socket.on('community:post_ai_insight_ready', handlePostAiInsightReady);
     socket.on('post:aiInsightReady', handlePostAiInsightReady);
     socket.on('community:homepage_updated', refreshSlider);
@@ -2632,6 +2847,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       socket.off('community:story_deleted', refreshStories);
       socket.off('community:story_updated', handleStoryUpdated);
       socket.off('community:story_liked', handleStoryLiked);
+      socket.off('community:story_engaged', handleStoryEngaged);
       socket.off('community:post_ai_insight_ready', handlePostAiInsightReady);
       socket.off('post:aiInsightReady', handlePostAiInsightReady);
       socket.off('community:homepage_updated', refreshSlider);
@@ -4758,7 +4974,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           <span className="break-words [overflow-wrap:anywhere]">{job.clientName || 'Employer'}</span>
                           {isClientVerified(job) ? <VerifiedBadge size={16} level={getClientVerificationLevel(job)} className="ml-1" /> : null}
                           <ProBadge role="employer" isPro={(job as any)?.clientIsPro} />
-                          <span>· {job.category}</span>
+                          <span>&middot; {job.category}</span>
                         </p>
                         <p className="text-sm text-slate-500 mt-1">
                           Budget:{' '}
@@ -4838,7 +5054,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           <span className="break-words [overflow-wrap:anywhere]">{gig.freelancerName || 'Freelancer'}</span>
                           {isFreelancerVerified(gig) ? <VerifiedBadge size={16} level={getFreelancerVerificationLevel(gig)} className="ml-1" /> : null}
                           <ProBadge role="freelancer" isPro={(gig as any)?.freelancerIsPro} />
-                          <span>· {gig.category}</span>
+                          <span>&middot; {gig.category}</span>
                         </p>
                         <p className="text-sm text-slate-500 mt-1">From ${gig.price?.amount ?? gig.price}</p>
                       </Link>
@@ -5577,14 +5793,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                 </button>
               </div>
             </div>
-            <div className="mt-4 overflow-hidden rounded-xl bg-slate-100">
+            <div className="relative mt-4 overflow-hidden rounded-xl bg-slate-100">
               {(() => {
                 const mediaUrl = resolveStoryMediaUrl(activeStory);
                 if (mediaUrl) {
                   return activeStory.type === 'video' ? (
                     <video
                       src={mediaUrl}
-                      controls
                       autoPlay
                       muted
                       playsInline
@@ -5615,8 +5830,71 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                 }
                 return <div className="flex h-64 sm:h-80 w-full items-center justify-center text-sm text-slate-500">No media</div>;
               })()}
+              <div className="pointer-events-none absolute inset-y-0 left-0 right-0 flex items-center justify-between px-2">
+                <button
+                  type="button"
+                  className={`pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white transition ${
+                    hasPrevStory ? 'hover:bg-black/65' : 'cursor-not-allowed opacity-35'
+                  }`}
+                  onClick={() => goToStoryByOffset(-1)}
+                  disabled={!hasPrevStory}
+                  aria-label="Previous story"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  className={`pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white transition ${
+                    hasNextStory ? 'hover:bg-black/65' : 'cursor-not-allowed opacity-35'
+                  }`}
+                  onClick={() => goToStoryByOffset(1)}
+                  disabled={!hasNextStory}
+                  aria-label="Next story"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </div>
             </div>
-            <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
+            <ReactionBar targetType="STORY" targetId={activeStory.id} className="mt-4" />
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <button
+                type="button"
+                onClick={() => handleStoryCommentAction(activeStory)}
+                className="inline-flex items-center justify-center gap-1 rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                disabled={Boolean(storyActionBusy[activeStory.id])}
+              >
+                <MessageCircle className="h-3.5 w-3.5" />
+                Comment
+              </button>
+              <button
+                type="button"
+                onClick={() => handleStoryRepostAction(activeStory)}
+                className="inline-flex items-center justify-center gap-1 rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                disabled={Boolean(storyActionBusy[activeStory.id])}
+              >
+                <Repeat2 className="h-3.5 w-3.5" />
+                Repost
+              </button>
+              <button
+                type="button"
+                onClick={() => handleStoryDashAction(activeStory)}
+                className="inline-flex items-center justify-center gap-1 rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                disabled={Boolean(storyActionBusy[activeStory.id])}
+              >
+                <Coins className="h-3.5 w-3.5" />
+                Dash
+              </button>
+              <button
+                type="button"
+                onClick={() => handleStorySendAction(activeStory)}
+                className="inline-flex items-center justify-center gap-1 rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                disabled={Boolean(storyActionBusy[activeStory.id])}
+              >
+                <SendIcon className="h-3.5 w-3.5" />
+                Send
+              </button>
+            </div>
+            <div className="mt-3 flex items-center justify-between text-sm text-slate-600 flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => handleStoryLike(activeStory)}
@@ -5630,7 +5908,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                 <Heart className={`h-4 w-4 ${activeStory.viewerLiked ? 'fill-rose-500 text-rose-500' : ''}`} />
                 {activeStory.likesCount ?? activeStory._count?.likes ?? 0}
               </button>
-              <span className="text-xs text-slate-400">{normalizeStoryVisibility(activeStory.visibility)}</span>
+              <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                <span>{formatCompactMetric(activeStory.commentsCount ?? activeStory.interactions?.comments)} comments</span>
+                <span>{formatCompactMetric(activeStory.repostsCount ?? activeStory.interactions?.reposts)} reposts</span>
+                <span>{formatCompactMetric(activeStory.sendsCount ?? activeStory.interactions?.sends)} sends</span>
+                <span>{normalizeStoryVisibility(activeStory.visibility)}</span>
+              </div>
             </div>
             {(() => {
               const text = resolveStoryContent(activeStory);

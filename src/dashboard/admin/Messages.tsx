@@ -121,7 +121,7 @@ const AdminMessages = () => {
         enabledVoiceCalls: true,
         enabledConferenceCalls: true,
         enabledVoiceNotes: true,
-        maxParticipants: 8,
+        maxParticipants: 20,
         maxVoiceNoteDurationSeconds: 180,
         blockedUserIds: []
       };
@@ -203,10 +203,10 @@ const AdminMessages = () => {
                   <input
                     type="number"
                     min={2}
-                    max={32}
+                    max={20}
                     className="w-20 rounded border border-gray-300 px-2 py-0.5 text-right"
-                    value={Number(voiceConfig.maxParticipants || 8)}
-                    onChange={(event) => updateVoiceConfigState({ maxParticipants: Number(event.target.value || 8) })}
+                    value={Number(voiceConfig.maxParticipants || 20)}
+                    onChange={(event) => updateVoiceConfigState({ maxParticipants: Number(event.target.value || 20) })}
                   />
                 </label>
                 <label className="flex items-center justify-between rounded-md bg-white px-2 py-1.5 border border-gray-200 md:col-span-2">

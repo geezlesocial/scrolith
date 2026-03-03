@@ -1,5 +1,21 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { TrendingUp, Calendar, Award, MessageCircle, Filter, Search, Plus, Camera as CameraIcon, X, Heart } from 'lucide-react';
+import {
+  TrendingUp,
+  Calendar,
+  Award,
+  MessageCircle,
+  Filter,
+  Search,
+  Plus,
+  Camera as CameraIcon,
+  X,
+  Heart,
+  Repeat2,
+  Send,
+  Coins,
+  ChevronLeft,
+  ChevronRight
+} from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import DonateButton from '../components/DonateButton';
@@ -11,6 +27,7 @@ import ScrollCreateModal from '../features/scroll/ScrollCreateModal';
 import PostHeader from './components/PostHeader';
 import PostEngagementBar from './components/PostEngagementBar';
 import MentionText from './components/MentionText';
+import ReactionBar from './components/ReactionBar';
 import MentionHashtagTextarea from './components/MentionHashtagTextarea';
 import PostOptionsButton from './components/post-options/PostOptionsButton';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from './followState';
@@ -722,6 +739,55 @@ const CommunityHome = () => {
           : current
       );
     };
+    const onStoryEngaged = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      const payload = detail?.story || detail;
+      if (payload?.id) {
+        applyStoryUpdate(payload);
+        return;
+      }
+      const storyId = String(detail?.storyId || '').trim();
+      if (!storyId) return;
+      const interactions = detail?.interactions || {};
+      setStories((prev) =>
+        prev.map((story) =>
+          story.id === storyId
+            ? {
+                ...story,
+                commentsCount: interactions.comments ?? story.commentsCount ?? 0,
+                repostsCount: interactions.reposts ?? story.repostsCount ?? 0,
+                dashesCount: interactions.dashes ?? story.dashesCount ?? 0,
+                sendsCount: interactions.sends ?? story.sendsCount ?? 0,
+                interactions: {
+                  ...(story.interactions || {}),
+                  comments: interactions.comments ?? story.interactions?.comments ?? story.commentsCount ?? 0,
+                  reposts: interactions.reposts ?? story.interactions?.reposts ?? story.repostsCount ?? 0,
+                  dashes: interactions.dashes ?? story.interactions?.dashes ?? story.dashesCount ?? 0,
+                  sends: interactions.sends ?? story.interactions?.sends ?? story.sendsCount ?? 0
+                }
+              }
+            : story
+        )
+      );
+      setActiveStory((current) =>
+        current?.id === storyId
+          ? {
+              ...current,
+              commentsCount: interactions.comments ?? current.commentsCount ?? 0,
+              repostsCount: interactions.reposts ?? current.repostsCount ?? 0,
+              dashesCount: interactions.dashes ?? current.dashesCount ?? 0,
+              sendsCount: interactions.sends ?? current.sendsCount ?? 0,
+              interactions: {
+                ...(current.interactions || {}),
+                comments: interactions.comments ?? current.interactions?.comments ?? current.commentsCount ?? 0,
+                reposts: interactions.reposts ?? current.interactions?.reposts ?? current.repostsCount ?? 0,
+                dashes: interactions.dashes ?? current.interactions?.dashes ?? current.dashesCount ?? 0,
+                sends: interactions.sends ?? current.interactions?.sends ?? current.sendsCount ?? 0
+              }
+            }
+          : current
+      );
+    };
     window.addEventListener('community:ad_status_updated', onAdEvent as EventListener);
     window.addEventListener('community:ad_created', onAdEvent as EventListener);
     window.addEventListener('community:homepage_updated', onHomepageUpdate as EventListener);
@@ -729,6 +795,7 @@ const CommunityHome = () => {
     window.addEventListener('community:story_deleted', onStoryUpdate as EventListener);
     window.addEventListener('community:story_updated', onStoryUpdated as EventListener);
     window.addEventListener('community:story_liked', onStoryLiked as EventListener);
+    window.addEventListener('community:story_engaged', onStoryEngaged as EventListener);
     window.addEventListener('community:event_registered', refreshCommunityOverview as EventListener);
     window.addEventListener('community:event_unregistered', refreshCommunityOverview as EventListener);
     window.addEventListener('community:event_created', refreshCommunityOverview as EventListener);
@@ -748,6 +815,7 @@ const CommunityHome = () => {
       window.removeEventListener('community:story_deleted', onStoryUpdate as EventListener);
       window.removeEventListener('community:story_updated', onStoryUpdated as EventListener);
       window.removeEventListener('community:story_liked', onStoryLiked as EventListener);
+      window.removeEventListener('community:story_engaged', onStoryEngaged as EventListener);
       window.removeEventListener('community:event_registered', refreshCommunityOverview as EventListener);
       window.removeEventListener('community:event_unregistered', refreshCommunityOverview as EventListener);
       window.removeEventListener('community:event_created', refreshCommunityOverview as EventListener);
@@ -1233,6 +1301,162 @@ const CommunityHome = () => {
       }
     }
   };
+
+  const engageStoryAndSync = useCallback(
+    async (story: any, type: 'comment' | 'repost' | 'dash' | 'send') => {
+      const storyId = String(story?.id || '').trim();
+      if (!storyId) return null;
+      const response = await CommunityService.engageStory(storyId, type);
+      const payload = response?.story || response;
+      const interactions = response?.interactions || payload?.interactions || {};
+      applyStoryUpdate({
+        ...story,
+        ...(payload || {}),
+        commentsCount: interactions.comments ?? payload?.commentsCount ?? story.commentsCount ?? 0,
+        repostsCount: interactions.reposts ?? payload?.repostsCount ?? story.repostsCount ?? 0,
+        dashesCount: interactions.dashes ?? payload?.dashesCount ?? story.dashesCount ?? 0,
+        sendsCount: interactions.sends ?? payload?.sendsCount ?? story.sendsCount ?? 0,
+        interactions: {
+          ...(story.interactions || {}),
+          comments: interactions.comments ?? payload?.commentsCount ?? story.interactions?.comments ?? story.commentsCount ?? 0,
+          reposts: interactions.reposts ?? payload?.repostsCount ?? story.interactions?.reposts ?? story.repostsCount ?? 0,
+          dashes: interactions.dashes ?? payload?.dashesCount ?? story.interactions?.dashes ?? story.dashesCount ?? 0,
+          sends: interactions.sends ?? payload?.sendsCount ?? story.interactions?.sends ?? story.sendsCount ?? 0
+        }
+      });
+      return response;
+    },
+    [applyStoryUpdate]
+  );
+
+  const handleStoryCommentAction = useCallback(
+    async (story: any) => {
+      if (!user) {
+        if (confirm('Log in to comment on stories?')) window.location.href = '/auth/login';
+        return;
+      }
+      const input = window.prompt('Write your story comment');
+      if (input === null) return;
+      const content = String(input || '').trim();
+      if (!content) {
+        showNotification('warning', 'Stories', 'Comment cannot be empty.');
+        return;
+      }
+      try {
+        await CommunityService.createPost({
+          content: `${content}\n\nCommented from story by ${resolveStoryAuthorName(story, 'Community member')}.`
+        });
+        await engageStoryAndSync(story, 'comment');
+        showNotification('success', 'Stories', 'Comment shared to your feed.');
+      } catch (error: any) {
+        showNotification('error', 'Stories', error?.message || 'Unable to comment on this story.');
+      }
+    },
+    [engageStoryAndSync, showNotification, user]
+  );
+
+  const handleStoryRepostAction = useCallback(
+    async (story: any) => {
+      if (!user) {
+        if (confirm('Log in to repost stories?')) window.location.href = '/auth/login';
+        return;
+      }
+      const authorName = resolveStoryAuthorName(story, 'Community member');
+      const text = String(resolveStoryContent(story) || '').trim();
+      try {
+        await CommunityService.createPost({
+          title: text ? `Story repost - ${authorName}` : undefined,
+          content: text || `Reposted a story by ${authorName}.`,
+          attachmentFileIds:
+            story?.mediaFileId && String(story?.authorId || '') === String(user?.id || '')
+              ? [story.mediaFileId]
+              : undefined
+        });
+        await engageStoryAndSync(story, 'repost');
+        showNotification('success', 'Stories', 'Story reposted.');
+      } catch (error: any) {
+        showNotification('error', 'Stories', error?.message || 'Unable to repost this story.');
+      }
+    },
+    [engageStoryAndSync, showNotification, user]
+  );
+
+  const handleStorySendAction = useCallback(
+    async (story: any) => {
+      const storyId = String(story?.id || '').trim();
+      if (!storyId) return;
+      const url = `${window.location.origin}/community?story=${encodeURIComponent(storyId)}`;
+      const title = resolveStoryAuthorName(story, 'Story');
+      const text = resolveStoryContent(story) || 'Check this story on Scrolith';
+      try {
+        const nav = navigator as any;
+        if (nav?.share) {
+          await nav.share({ title, text, url });
+        } else {
+          await navigator.clipboard.writeText(url);
+          showNotification('success', 'Stories', 'Story link copied.');
+        }
+        await engageStoryAndSync(story, 'send');
+      } catch (error: any) {
+        if (error?.name !== 'AbortError') {
+          showNotification('error', 'Stories', error?.message || 'Unable to share this story.');
+        }
+      }
+    },
+    [engageStoryAndSync, showNotification]
+  );
+
+  const handleStoryDashAction = useCallback(
+    async (story: any) => {
+      if (!user) {
+        if (confirm('Log in to dash story creators?')) window.location.href = '/auth/login';
+        return;
+      }
+      try {
+        await engageStoryAndSync(story, 'dash');
+      } catch (error: any) {
+        showNotification('error', 'Stories', error?.message || 'Unable to send dash.');
+        return;
+      }
+      navigate('/community/gcoin');
+    },
+    [engageStoryAndSync, navigate, showNotification, user]
+  );
+
+  const activeStoryIndex = activeStory?.id ? stories.findIndex((story) => story.id === activeStory.id) : -1;
+  const hasPrevStory = activeStoryIndex > 0;
+  const hasNextStory = activeStoryIndex >= 0 && activeStoryIndex < stories.length - 1;
+
+  const goToStoryByOffset = useCallback(
+    (offset: number) => {
+      if (!activeStory?.id) return;
+      const index = stories.findIndex((story) => story.id === activeStory.id);
+      if (index < 0) return;
+      const nextIndex = index + offset;
+      if (nextIndex < 0 || nextIndex >= stories.length) return;
+      const target = stories[nextIndex];
+      if (target) void openStory(target);
+    },
+    [activeStory?.id, stories, openStory]
+  );
+
+  useEffect(() => {
+    if (!activeStory?.id) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        goToStoryByOffset(-1);
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        goToStoryByOffset(1);
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        setActiveStory(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [activeStory?.id, goToStoryByOffset]);
 
   const promotePost = (post: any) => {
     if (!user) {
@@ -2235,7 +2459,7 @@ const CommunityHome = () => {
                         <h3 className="font-medium text-gray-900">{discussion.title}</h3>
                         <div className="flex items-center text-sm text-gray-500 mt-1">
                           <span>by {discussion.author}</span>
-                          <span className="mx-2">•</span>
+                          <span className="mx-2">&middot;</span>
                           <span>{discussion.lastReply}</span>
                         </div>
                       </div>
@@ -2718,14 +2942,13 @@ const CommunityHome = () => {
                 </button>
               </div>
             </div>
-            <div className="mt-4 overflow-hidden rounded-xl bg-gray-100">
+            <div className="relative mt-4 overflow-hidden rounded-xl bg-gray-100">
               {(() => {
                 const mediaUrl = resolveStoryMediaUrl(activeStory);
                 if (mediaUrl) {
                   return activeStory.type === 'video' ? (
                     <video
                       src={mediaUrl}
-                      controls
                       autoPlay
                       muted
                       playsInline
@@ -2756,6 +2979,30 @@ const CommunityHome = () => {
                 }
                 return <div className="h-80 w-full flex items-center justify-center text-sm text-gray-500">No media</div>;
               })()}
+              <div className="pointer-events-none absolute inset-y-0 left-0 right-0 flex items-center justify-between px-2">
+                <button
+                  type="button"
+                  className={`pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white transition ${
+                    hasPrevStory ? 'hover:bg-black/65' : 'cursor-not-allowed opacity-35'
+                  }`}
+                  onClick={() => goToStoryByOffset(-1)}
+                  disabled={!hasPrevStory}
+                  aria-label="Previous story"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  className={`pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white transition ${
+                    hasNextStory ? 'hover:bg-black/65' : 'cursor-not-allowed opacity-35'
+                  }`}
+                  onClick={() => goToStoryByOffset(1)}
+                  disabled={!hasNextStory}
+                  aria-label="Next story"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              </div>
             </div>
             {(() => {
               const text = resolveStoryContent(activeStory);
@@ -2765,7 +3012,46 @@ const CommunityHome = () => {
               }
               return null;
             })()}
-            <div className="mt-4 flex items-center justify-between">
+            <ReactionBar targetType="STORY" targetId={activeStory.id} className="mt-4" />
+            <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <button
+                type="button"
+                onClick={() => handleStoryCommentAction(activeStory)}
+                className="inline-flex items-center justify-center gap-1 rounded-full border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                disabled={Boolean(storyActionBusy[activeStory.id])}
+              >
+                <MessageCircle className="h-3.5 w-3.5" />
+                Comment
+              </button>
+              <button
+                type="button"
+                onClick={() => handleStoryRepostAction(activeStory)}
+                className="inline-flex items-center justify-center gap-1 rounded-full border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                disabled={Boolean(storyActionBusy[activeStory.id])}
+              >
+                <Repeat2 className="h-3.5 w-3.5" />
+                Repost
+              </button>
+              <button
+                type="button"
+                onClick={() => handleStoryDashAction(activeStory)}
+                className="inline-flex items-center justify-center gap-1 rounded-full border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                disabled={Boolean(storyActionBusy[activeStory.id])}
+              >
+                <Coins className="h-3.5 w-3.5" />
+                Dash
+              </button>
+              <button
+                type="button"
+                onClick={() => handleStorySendAction(activeStory)}
+                className="inline-flex items-center justify-center gap-1 rounded-full border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                disabled={Boolean(storyActionBusy[activeStory.id])}
+              >
+                <Send className="h-3.5 w-3.5" />
+                Send
+              </button>
+            </div>
+            <div className="mt-3 flex items-center justify-between flex-wrap gap-2">
               <button
                 onClick={() => handleStoryLike(activeStory)}
                 className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${activeStory.viewerLiked ? 'border-rose-200 text-rose-600' : 'border-gray-200 text-gray-500'}`}
@@ -2775,7 +3061,12 @@ const CommunityHome = () => {
                 <Heart className={`h-4 w-4 ${activeStory.viewerLiked ? 'fill-rose-500 text-rose-500' : ''}`} />
                 {activeStory.likesCount ?? activeStory._count?.likes ?? 0}
               </button>
-              <span className="text-xs text-gray-400">{normalizeStoryVisibility(activeStory.visibility)}</span>
+              <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                <span>{formatCompactCount(activeStory.commentsCount ?? activeStory.interactions?.comments)} comments</span>
+                <span>{formatCompactCount(activeStory.repostsCount ?? activeStory.interactions?.reposts)} reposts</span>
+                <span>{formatCompactCount(activeStory.sendsCount ?? activeStory.interactions?.sends)} sends</span>
+                <span>{normalizeStoryVisibility(activeStory.visibility)}</span>
+              </div>
             </div>
           </div>
         </div>
