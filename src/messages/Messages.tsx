@@ -838,7 +838,7 @@ const Messages = () => {
           const file = new File([blob], `voice-note-${Date.now()}.${extension}`, {
               type: blob.type || 'audio/webm'
           });
-          const uploaded = await FileService.uploadFile(file, 'community', {
+          const uploaded = await FileService.uploadFile(file, 'document', {
               role: user.role,
               userId: user.id,
               visibility: 'public'
@@ -862,7 +862,12 @@ const Messages = () => {
           }));
           refreshMessages();
       } catch (error: any) {
-          showNotification('error', 'Voice notes', error?.message || 'Failed to send voice note.');
+          const backendError =
+              error?.response?.data?.error ||
+              error?.response?.data?.message ||
+              error?.message ||
+              'Failed to send voice note.';
+          showNotification('error', 'Voice notes', String(backendError));
       } finally {
           setVoiceNoteBusy(false);
       }
