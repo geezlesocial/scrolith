@@ -651,13 +651,24 @@ communityNs.on('connection', async (socket) => {
         }
 
         const requestedIds = toUniqueIds(payload?.participantIds ?? payload?.participants).filter((id) =>
-          convo.participantIds.includes(id)
+          convo.participantIds.includes(id) && id !== userId
         );
-        const targetIds = Array.from(
-          new Set(
-            [...requestedIds, ...convo.participantIds.filter((id) => id !== userId)].filter(Boolean)
-          )
-        );
+        const conversationType = String((convo.conversation as any)?.type || '').trim().toUpperCase();
+        const isDirectConversation = conversationType === 'DIRECT';
+        const defaultTargetIds = convo.participantIds.filter((id) => id && id !== userId);
+        const targetIds = isDirectConversation
+          ? (requestedIds.length ? requestedIds.slice(0, 1) : defaultTargetIds.slice(0, 1))
+          : Array.from(new Set([...requestedIds, ...defaultTargetIds].filter(Boolean)));
+
+        if (!targetIds.length) {
+          const error = {
+            success: false,
+            error: 'No valid participant available for this call.',
+            code: 'PARTICIPANT_REQUIRED'
+          };
+          if (ack) ack(error);
+          return;
+        }
 
         const totalParticipants = new Set([userId, ...targetIds]).size;
         if (totalParticipants > Number(config.maxParticipants || 8)) {
@@ -670,7 +681,9 @@ communityNs.on('connection', async (socket) => {
           return;
         }
 
-        const isConferenceRequested = String(payload?.callType || '').toLowerCase() === 'conference' || totalParticipants > 2;
+        const isConferenceRequested =
+          !isDirectConversation &&
+          (String(payload?.callType || '').toLowerCase() === 'conference' || totalParticipants > 2);
         if (isConferenceRequested && !config.enabledConferenceCalls) {
           const error = {
             success: false,
