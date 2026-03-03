@@ -318,6 +318,10 @@ const markPresenceOffline = async (userId: string) => {
 const VOICE_CALL_INITIATE_LIMIT = 8;
 const VOICE_CALL_INITIATE_WINDOW_MS = 60_000;
 const voiceCallInitiationBuckets = new Map<string, number[]>();
+const VOICE_CALL_RING_TIMEOUT_MS = Math.max(15_000, Number(process.env.VOICE_CALL_RING_TIMEOUT_MS || 30_000));
+const VOICE_CALL_RING_SWEEP_MS = Math.max(5_000, Number(process.env.VOICE_CALL_RING_SWEEP_MS || 10_000));
+let voiceCallSweepBusy = false;
+let voiceCallSchemaMissingWarned = false;
 
 const isVoiceCallInitiationRateLimited = (userId: string) => {
   const now = Date.now();
@@ -405,6 +409,81 @@ const loadVoiceCallForUser = async (callId: string, userId: string) => {
     : [];
   if (!participantIds.includes(userId)) return null;
   return call;
+};
+
+const markExpiredRingingCallsAsMissed = async () => {
+  if (voiceCallSweepBusy) return;
+  voiceCallSweepBusy = true;
+  try {
+    const threshold = new Date(Date.now() - VOICE_CALL_RING_TIMEOUT_MS);
+    const expiredCalls = await (prisma as any).voiceCall.findMany({
+      where: {
+        status: 'RINGING',
+        createdAt: { lte: threshold }
+      },
+      include: {
+        participants: true
+      },
+      take: 100
+    });
+
+    for (const call of expiredCalls || []) {
+      const endedAt = new Date();
+      await (prisma as any).voiceCall.updateMany({
+        where: { id: call.id, status: 'RINGING' },
+        data: {
+          status: 'MISSED',
+          endedAt
+        }
+      });
+
+      await (prisma as any).voiceCallParticipant.updateMany({
+        where: { callId: call.id, status: 'INVITED' },
+        data: {
+          status: 'MISSED',
+          leftAt: endedAt
+        }
+      });
+
+      await (prisma as any).voiceCallParticipant.updateMany({
+        where: { callId: call.id, status: 'JOINED' },
+        data: {
+          status: 'LEFT',
+          leftAt: endedAt
+        }
+      });
+
+      const participantIds = Array.isArray(call?.participants)
+        ? call.participants.map((entry: any) => String(entry?.userId || '').trim()).filter(Boolean)
+        : [];
+      if (!participantIds.length) continue;
+
+      const payload = {
+        callId: String(call.id || ''),
+        conversationId: String(call.conversationId || ''),
+        initiatorId: String(call.initiatorId || ''),
+        status: 'missed',
+        endedAt: endedAt.toISOString()
+      };
+
+      communityNs.to(`call:${call.id}`).emit('call:end', payload);
+      emitVoiceEventToUsers(participantIds, 'call:end', payload);
+      emitVoiceEventToUsers(participantIds, 'messenger:call_missed', payload);
+      emitVoiceEventToUsers(participantIds, 'messenger:call_ended', payload);
+    }
+    voiceCallSchemaMissingWarned = false;
+  } catch (error) {
+    if (isMessengerVoiceSchemaMissingError(error)) {
+      if (!voiceCallSchemaMissingWarned) {
+        console.warn('[messenger-voice] voice call sweep skipped because schema is missing');
+        voiceCallSchemaMissingWarned = true;
+      }
+    } else {
+      console.error('voice call sweep error', error);
+    }
+  } finally {
+    voiceCallSweepBusy = false;
+  }
 };
 
 communityNs.on('connection', async (socket) => {
@@ -597,8 +676,9 @@ communityNs.on('connection', async (socket) => {
 
   socket.on('call:initiate', (payload: any, ack?: (result: any) => void) => {
     const handleInitiate = async () => {
+      const callerUserId = resolveSocketUserId(socket);
       try {
-        const userId = resolveSocketUserId(socket);
+        const userId = callerUserId;
         if (!userId) {
           const error = { success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' };
           socket.emit('error', error);
@@ -743,6 +823,14 @@ communityNs.on('connection', async (socket) => {
         if (ack) ack({ success: true, data: eventPayload });
       } catch (error: any) {
         console.error('call:initiate error', error);
+        if (callerUserId) {
+          emitVoiceEventToUsers([callerUserId], 'messenger:call_failed', {
+            conversationId: String(payload?.conversationId || ''),
+            status: 'failed',
+            error: String(error?.message || 'Failed to initiate call.'),
+            failedAt: new Date().toISOString()
+          });
+        }
         if (ack) ack(toVoiceSocketError(error, 'Failed to initiate call.'));
       }
     };
@@ -818,9 +906,28 @@ communityNs.on('connection', async (socket) => {
           return;
         }
 
+        const rejectedAt = new Date();
+
         await (prisma as any).voiceCallParticipant.updateMany({
           where: { callId, userId },
-          data: { status: 'REJECTED', leftAt: new Date() }
+          data: { status: 'REJECTED', leftAt: rejectedAt }
+        });
+
+        await (prisma as any).voiceCallParticipant.updateMany({
+          where: {
+            callId,
+            userId: { not: userId },
+            status: { in: ['INVITED', 'JOINED'] }
+          },
+          data: { status: 'LEFT', leftAt: rejectedAt }
+        });
+
+        await (prisma as any).voiceCall.update({
+          where: { id: callId },
+          data: {
+            status: 'REJECTED',
+            endedAt: rejectedAt
+          }
         });
 
         const participantIds = Array.isArray(call.participants)
@@ -831,18 +938,30 @@ communityNs.on('connection', async (socket) => {
           conversationId: call.conversationId,
           userId,
           status: 'rejected',
-          rejectedAt: new Date().toISOString()
+          rejectedAt: rejectedAt.toISOString(),
+          endedAt: rejectedAt.toISOString()
         };
 
         communityNs.to(`call:${callId}`).emit('call:reject', eventPayload);
+        communityNs.to(`call:${callId}`).emit('call:end', eventPayload);
         if (call.initiatorId && call.initiatorId !== userId) {
           communityNs.to(`community:user:${call.initiatorId}`).emit('call:reject', eventPayload);
         }
         emitVoiceEventToUsers(participantIds, 'call:reject', eventPayload);
+        emitVoiceEventToUsers(participantIds, 'call:end', eventPayload);
         emitVoiceEventToUsers(participantIds, 'messenger:call_ended', eventPayload);
         if (ack) ack({ success: true, data: eventPayload });
       } catch (error: any) {
         console.error('call:reject error', error);
+        const callerUserId = resolveSocketUserId(socket);
+        if (callerUserId) {
+          emitVoiceEventToUsers([callerUserId], 'messenger:call_failed', {
+            callId: String(payload?.callId || ''),
+            status: 'failed',
+            error: String(error?.message || 'Failed to reject call.'),
+            failedAt: new Date().toISOString()
+          });
+        }
         if (ack) ack(toVoiceSocketError(error, 'Failed to reject call.'));
       }
     };
@@ -1122,6 +1241,10 @@ communityNs.on('connection', async (socket) => {
     }
   });
 });
+
+setInterval(() => {
+  void markExpiredRingingCallsAsMissed();
+}, VOICE_CALL_RING_SWEEP_MS);
 
 // Socket auth: verify JWT if provided, attach user to socket.data.user
 io.use(async (socket, next) => {
