@@ -85,6 +85,21 @@ const ALLOWED_VIDEO_MIME_TYPES = new Set([
   'video/mpeg'
 ]);
 
+const ALLOWED_AUDIO_MIME_TYPES = new Set([
+  'audio/webm',
+  'audio/ogg',
+  'audio/ogg;codecs=opus',
+  'audio/mp4',
+  'audio/x-m4a',
+  'audio/m4a',
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/aac',
+  'audio/flac'
+]);
+
 const ALLOWED_DOCUMENT_MIME_TYPES = new Set([
   'application/pdf',
   'text/plain',
@@ -124,6 +139,17 @@ const ALLOWED_VIDEO_EXTENSIONS = new Set([
   '.flv'
 ]);
 
+const ALLOWED_AUDIO_EXTENSIONS = new Set([
+  '.webm',
+  '.ogg',
+  '.opus',
+  '.m4a',
+  '.mp3',
+  '.wav',
+  '.aac',
+  '.flac'
+]);
+
 const ALLOWED_DOCUMENT_EXTENSIONS = new Set([
   '.pdf',
   '.txt',
@@ -145,13 +171,14 @@ const ALLOWED_ADMIN_BINARY_MIME_TYPES = new Set([
 const ALLOWED_ADMIN_BINARY_EXTENSIONS = new Set(['.apk']);
 const MAX_ADMIN_BINARY_BYTES = 200 * 1024 * 1024;
 
-const MAX_UPLOAD_BYTES: Record<'image' | 'video' | 'document', number> = {
+const MAX_UPLOAD_BYTES: Record<'image' | 'video' | 'audio' | 'document', number> = {
   image: 15 * 1024 * 1024,
   video: 200 * 1024 * 1024,
+  audio: 50 * 1024 * 1024,
   document: 20 * 1024 * 1024
 };
 
-type UploadKind = 'image' | 'video' | 'document';
+type UploadKind = 'image' | 'video' | 'audio' | 'document';
 
 type MediaMetadata = {
   width: number | null;
@@ -319,14 +346,17 @@ const resolveUploadKind = (
   // can be uploaded without backend patching.
   if (normalizedMime.startsWith('image/')) return 'image';
   if (normalizedMime.startsWith('video/')) return 'video';
+  if (normalizedMime.startsWith('audio/')) return 'audio';
   if (ALLOWED_IMAGE_MIME_TYPES.has(normalizedMime)) return 'image';
   if (ALLOWED_VIDEO_MIME_TYPES.has(normalizedMime)) return 'video';
+  if (ALLOWED_AUDIO_MIME_TYPES.has(normalizedMime)) return 'audio';
   if (ALLOWED_DOCUMENT_MIME_TYPES.has(normalizedMime)) return 'document';
 
   // Some clients upload supported files as generic octet-stream.
   if (!normalizedMime || normalizedMime === 'application/octet-stream') {
     if (ALLOWED_IMAGE_EXTENSIONS.has(ext)) return 'image';
     if (ALLOWED_VIDEO_EXTENSIONS.has(ext)) return 'video';
+    if (ALLOWED_AUDIO_EXTENSIONS.has(ext)) return 'audio';
     if (ALLOWED_DOCUMENT_EXTENSIONS.has(ext)) return 'document';
   }
 

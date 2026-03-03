@@ -91,6 +91,7 @@ import { registerInsightsJobs } from './modules/insights/jobs/insights.jobs';
 import { insightsActionTrackerMiddleware } from './modules/insights/realtime/insights.tracker.middleware';
 import {
   getOrCreateMessengerVoiceConfig,
+  isMessengerVoiceSchemaMissingError,
   isVoiceBlockedForUser
 } from './services/messengerVoice.service';
 // Restart trigger comment (no-op) to force ts-node-dev reload when modified during debugging
@@ -363,6 +364,19 @@ const resolveSocketUserId = (socket: any) => String(socket?.data?.user?.id || ''
 const resolveSocketRole = (socket: any) => String(socket?.data?.user?.role || '').trim().toLowerCase();
 const isAdminRoleValue = (role: string) =>
   role.includes('admin') || role.includes('moderator') || role.includes('superadmin');
+const toVoiceSocketError = (error: any, fallbackMessage: string) => {
+  if (isMessengerVoiceSchemaMissingError(error)) {
+    return {
+      success: false,
+      error: 'Messenger voice tables are not ready. Run the latest backend migration for voice calls/notes.',
+      code: 'MESSENGER_VOICE_SCHEMA_MISSING'
+    };
+  }
+  return {
+    success: false,
+    error: String(error?.message || fallbackMessage)
+  };
+};
 
 const loadConversationForVoice = async (conversationId: string, userId: string) => {
   const conversation = await prisma.conversation.findUnique({
@@ -602,6 +616,15 @@ communityNs.on('connection', async (socket) => {
         }
 
         const config = await getOrCreateMessengerVoiceConfig();
+        if ((config as any)?._schemaMissing) {
+          const error = {
+            success: false,
+            error: 'Messenger voice tables are not ready. Run the latest backend migration for voice calls/notes.',
+            code: 'MESSENGER_VOICE_SCHEMA_MISSING'
+          };
+          if (ack) ack(error);
+          return;
+        }
         if (!config.enabledVoiceCalls) {
           const error = { success: false, error: 'Voice calls are disabled by admin.', code: 'VOICE_CALLS_DISABLED' };
           if (ack) ack(error);
@@ -706,7 +729,7 @@ communityNs.on('connection', async (socket) => {
         if (ack) ack({ success: true, data: eventPayload });
       } catch (error: any) {
         console.error('call:initiate error', error);
-        if (ack) ack({ success: false, error: error?.message || 'Failed to initiate call.' });
+        if (ack) ack(toVoiceSocketError(error, 'Failed to initiate call.'));
       }
     };
     void handleInitiate();
@@ -759,7 +782,7 @@ communityNs.on('connection', async (socket) => {
         if (ack) ack({ success: true, data: eventPayload });
       } catch (error: any) {
         console.error('call:accept error', error);
-        if (ack) ack({ success: false, error: error?.message || 'Failed to accept call.' });
+        if (ack) ack(toVoiceSocketError(error, 'Failed to accept call.'));
       }
     };
     void handleAccept();
@@ -806,7 +829,7 @@ communityNs.on('connection', async (socket) => {
         if (ack) ack({ success: true, data: eventPayload });
       } catch (error: any) {
         console.error('call:reject error', error);
-        if (ack) ack({ success: false, error: error?.message || 'Failed to reject call.' });
+        if (ack) ack(toVoiceSocketError(error, 'Failed to reject call.'));
       }
     };
     void handleReject();
@@ -874,7 +897,7 @@ communityNs.on('connection', async (socket) => {
         if (ack) ack({ success: true, data: eventPayload });
       } catch (error: any) {
         console.error('call:end error', error);
-        if (ack) ack({ success: false, error: error?.message || 'Failed to end call.' });
+        if (ack) ack(toVoiceSocketError(error, 'Failed to end call.'));
       }
     };
     void handleEnd();
@@ -892,6 +915,16 @@ communityNs.on('connection', async (socket) => {
         }
 
         const config = await getOrCreateMessengerVoiceConfig();
+        if ((config as any)?._schemaMissing) {
+          if (ack) {
+            ack({
+              success: false,
+              error: 'Messenger voice tables are not ready. Run the latest backend migration for voice calls/notes.',
+              code: 'MESSENGER_VOICE_SCHEMA_MISSING'
+            });
+          }
+          return;
+        }
         if (!config.enabledConferenceCalls) {
           if (ack) ack({ success: false, error: 'Conference calls are disabled by admin.' });
           return;
@@ -953,7 +986,7 @@ communityNs.on('connection', async (socket) => {
         if (ack) ack({ success: true, data: eventPayload });
       } catch (error: any) {
         console.error('call:participant:add error', error);
-        if (ack) ack({ success: false, error: error?.message || 'Failed to add participant.' });
+        if (ack) ack(toVoiceSocketError(error, 'Failed to add participant.'));
       }
     };
     void handleAddParticipant();
@@ -991,7 +1024,7 @@ communityNs.on('connection', async (socket) => {
         if (ack) ack({ success: true, data: eventPayload });
       } catch (error: any) {
         console.error('call:participant:left error', error);
-        if (ack) ack({ success: false, error: error?.message || 'Failed to leave call.' });
+        if (ack) ack(toVoiceSocketError(error, 'Failed to leave call.'));
       }
     };
     void handleParticipantLeft();
@@ -1014,7 +1047,7 @@ communityNs.on('connection', async (socket) => {
         socket.join(`call:${callId}`);
         if (ack) ack({ success: true, data: { callId, room: `call:${callId}` } });
       } catch (error: any) {
-        if (ack) ack({ success: false, error: error?.message || 'Failed to join call room.' });
+        if (ack) ack(toVoiceSocketError(error, 'Failed to join call room.'));
       }
     };
     void handleCallJoin();
@@ -1058,7 +1091,7 @@ communityNs.on('connection', async (socket) => {
         if (ack) ack({ success: true });
       } catch (error: any) {
         console.error('call:signal error', error);
-        if (ack) ack({ success: false, error: error?.message || 'Failed to relay call signal.' });
+        if (ack) ack(toVoiceSocketError(error, 'Failed to relay call signal.'));
       }
     };
     void handleSignal();
