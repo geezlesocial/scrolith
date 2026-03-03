@@ -6,13 +6,15 @@ type VoiceRecorderProps = {
   maxDurationSeconds?: number;
   onRecorded: (blob: Blob, durationMs: number) => Promise<void> | void;
   onError?: (message: string) => void;
+  className?: string;
 };
 
 const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   disabled,
   maxDurationSeconds = 180,
   onRecorded,
-  onError
+  onError,
+  className = ''
 }) => {
   const [recording, setRecording] = useState(false);
   const [processing, setProcessing] = useState(false);
@@ -115,7 +117,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
         recording
           ? 'bg-red-600 text-white hover:bg-red-700'
           : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
-      } disabled:opacity-50`}
+      } disabled:opacity-50 ${className}`}
       title={recording ? `Stop recording (${seconds}s)` : 'Record voice note'}
     >
       {processing ? (

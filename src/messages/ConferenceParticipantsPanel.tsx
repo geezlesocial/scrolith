@@ -71,7 +71,7 @@ const ConferenceParticipantsPanel: React.FC<ConferenceParticipantsPanelProps> = 
       <div className="space-y-2">
         {(participants || []).map((entry) => {
           const userId = String(entry?.userId || '');
-          const name = String(entry?.user?.name || userId || 'Participant');
+          const name = String(entry?.user?.name || 'Participant');
           return (
             <div key={userId} className="flex items-center justify-between rounded-md bg-white px-2 py-1.5 text-sm">
               <div className="flex items-center gap-2">

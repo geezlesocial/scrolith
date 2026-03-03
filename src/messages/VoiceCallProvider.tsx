@@ -259,7 +259,8 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       const payloadCallId = String(payload?.callId || '').trim();
       const targetConversationId = String(conversationId || '').trim();
       if (!payloadCallId) return;
-      if (targetConversationId && payloadConversationId && payloadConversationId !== targetConversationId) return;
+      const sameConversation =
+        !targetConversationId || !payloadConversationId || payloadConversationId === targetConversationId;
 
       const initiatorId = String(payload?.initiatorId || '').trim();
       const incomingCall = initiatorId && initiatorId !== String(userId || '').trim();
@@ -275,7 +276,18 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       const ids = Array.isArray(payload?.participantIds)
         ? payload.participantIds.map((id: any) => String(id || '').trim()).filter(Boolean)
         : [];
-      const fallbackIds = ids.length ? ids : [initiatorId, String(userId || '').trim()].filter(Boolean);
+      const fallbackIds = (() => {
+        if (!sameConversation) {
+          return [initiatorId, String(userId || '').trim()].filter(Boolean);
+        }
+        const knownIds = new Set(
+          [String(userId || '').trim(), ...participantUsers.map((entry) => String(entry?.id || '').trim())].filter(Boolean)
+        );
+        const sanitizedIds = ids.filter((id) => knownIds.has(id));
+        return sanitizedIds.length
+          ? sanitizedIds
+          : [initiatorId, String(userId || '').trim()].filter((id) => Boolean(id) && knownIds.has(id));
+      })();
       setParticipants(normalizeParticipants(fallbackIds, participantUsers, 'invited'));
     };
 
@@ -353,10 +365,14 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       if (!socket || !userId || !conversationId) return;
       await ensureLocalAudio();
       const participantIds = participantUsers.map((entry) => entry.id).filter(Boolean);
+      const targetParticipantIds = options?.conference ? participantIds : participantIds.slice(0, 1);
+      if (!targetParticipantIds.length) {
+        throw new Error('No valid participant available for this call.');
+      }
       const response = await emitWithAck(socket, 'call:initiate', {
         conversationId,
-        participantIds,
-        callType: options?.conference ? 'conference' : participantIds.length > 1 ? 'conference' : 'direct'
+        participantIds: targetParticipantIds,
+        callType: options?.conference ? 'conference' : 'direct'
       });
       if (response?.success === false) {
         throw new Error(String(response?.error || 'Failed to initiate call.'));
@@ -372,7 +388,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       });
       const ids = Array.isArray(data?.participantIds)
         ? data.participantIds.map((id: any) => String(id || '').trim()).filter(Boolean)
-        : [userId, ...participantIds];
+        : [userId, ...targetParticipantIds];
       setParticipants(normalizeParticipants(Array.from(new Set(ids)), participantUsers, 'invited'));
     },
     [socket, userId, conversationId, participantUsers, ensureLocalAudio]

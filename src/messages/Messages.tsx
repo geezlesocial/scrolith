@@ -89,7 +89,7 @@ const VoiceCallControls: React.FC<{
           type="button"
           disabled={disabled}
           onClick={() => void handleStart(false)}
-          className="rounded-full border border-gray-300 p-2 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50"
           title="Start voice call"
         >
           <Phone className="h-4 w-4" />
@@ -99,7 +99,7 @@ const VoiceCallControls: React.FC<{
             type="button"
             disabled={disabled}
             onClick={() => void handleStart(true)}
-            className="rounded-full border border-gray-300 p-2 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-50"
             title="Start conference call"
           >
             <Users className="h-4 w-4" />
@@ -304,7 +304,15 @@ const Messages = () => {
           if (!showStarredOnly) return true;
           return Boolean(conversation.isStarred ?? conversation.is_starred);
       });
-  const otherParticipant = activeConvo?.participants.find(p => p.id !== user?.id) || activeConvo?.participants[0];
+  const otherParticipant = (() => {
+      const others = (activeConvo?.participants || []).filter((participant: any) => String(participant?.id || '') !== String(user?.id || ''));
+      const withDisplayName = others.find((participant: any) => {
+          const id = String(participant?.id || '').trim();
+          const name = String(participant?.name || participant?.username || '').trim();
+          return Boolean(name) && name !== id;
+      });
+      return withDisplayName || others[0] || activeConvo?.participants[0];
+  })();
   const otherOnline = Boolean(otherParticipant?.isOnline ?? otherParticipant?.is_online);
   const otherLastSeen = otherParticipant?.lastSeenAt ?? otherParticipant?.last_seen_at;
   const resolveParticipantRole = (participant: any): 'freelancer' | 'employer' | null => {
@@ -344,7 +352,7 @@ const Messages = () => {
       isArchived: Boolean(activeConvo?.isArchived ?? activeConvo?.is_archived)
   };
   const messagingControls = (settings as any)?.messagingControls || {};
-  const voiceParticipantUsers = (activeConvo?.participants || [])
+  const allVoiceParticipantUsers = (activeConvo?.participants || [])
       .filter((participant: any) => String(participant?.id || '') !== String(user?.id || ''))
       .map((participant: any) => ({
           id: String(participant?.id || ''),
@@ -352,6 +360,14 @@ const Messages = () => {
           avatar: String(participant?.avatar || '')
       }))
       .filter((participant) => Boolean(participant.id));
+  const voiceParticipantUsers = (() => {
+      const conversationType = String((activeConvo as any)?.type || '').toLowerCase();
+      if (conversationType !== 'direct') return allVoiceParticipantUsers;
+      const directTargetId = String(otherParticipant?.id || '').trim();
+      if (!directTargetId) return allVoiceParticipantUsers.slice(0, 1);
+      const directTarget = allVoiceParticipantUsers.find((entry) => entry.id === directTargetId);
+      return directTarget ? [directTarget] : allVoiceParticipantUsers.slice(0, 1);
+  })();
   const voiceCallsBlocked =
       Boolean(voiceRuntimeConfig.blockedForCurrentUser) ||
       !Boolean(voiceRuntimeConfig.enabledVoiceCalls);
@@ -1252,8 +1268,9 @@ const Messages = () => {
         conversationId={activeConvoId || undefined}
         participantUsers={voiceParticipantUsers}
     >
-    <div className="max-w-6xl mx-auto px-4 py-8 h-[calc(100dvh-64px)] md:h-[calc(100vh-64px)]">
-        <div className="bg-white shadow rounded-lg h-full flex overflow-hidden border border-gray-200">
+    <div className="mx-auto h-[calc(100dvh-64px)] max-w-6xl px-2 py-3 sm:px-4 sm:py-6 md:h-[calc(100vh-64px)]">
+        <div className="h-full overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg">
+        <div className="flex h-full">
             {/* Sidebar */}
             <div className={`w-full md:w-1/3 min-w-0 border-r border-gray-200 flex flex-col ${activeConvo ? 'hidden md:flex' : 'flex'}`}>
                 <div className="p-4 border-b border-gray-200 bg-gray-50 space-y-3">
@@ -1397,13 +1414,14 @@ const Messages = () => {
             </div>
             
             {/* Chat Area */}
-            <div className={`flex-1 min-w-0 flex flex-col bg-gray-50 ${!activeConvo ? 'hidden md:flex' : 'flex'}`}>
+            <div className={`flex-1 min-w-0 flex flex-col bg-gradient-to-b from-gray-50 to-gray-100 ${!activeConvo ? 'hidden md:flex' : 'flex'}`}>
                 {activeConvo ? (
                     <>
                         {/* Chat Header */}
-                        <div className="p-4 bg-white border-b border-gray-200 flex justify-between items-center shadow-sm">
-                            <div className="flex items-center">
-                                <button onClick={handleBackToInbox} className="md:hidden mr-3 text-gray-500">
+                        <div className="sticky top-0 z-10 border-b border-gray-200 bg-white/95 px-3 py-3 shadow-sm backdrop-blur md:px-4">
+                            <div className="flex items-center justify-between gap-2">
+                            <div className="flex min-w-0 items-center">
+                                <button onClick={handleBackToInbox} className="mr-2 inline-flex h-9 w-9 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 md:hidden">
                                     <ArrowLeft className="w-5 h-5" />
                                 </button>
                                 <button
@@ -1413,16 +1431,16 @@ const Messages = () => {
                                 >
                                     <img
                                         src={otherParticipant?.avatar || 'https://ui-avatars.com/api/?name=User'}
-                                        className="w-8 h-8 rounded-full object-cover"
+                                        className="h-9 w-9 rounded-full border border-gray-200 object-cover md:h-10 md:w-10"
                                         alt={otherParticipant?.name || 'Profile'}
                                     />
                                 </button>
-                                <div>
+                                <div className="min-w-0">
                                     <div className="flex items-center gap-2">
                                         <button
                                             type="button"
                                             onClick={() => navigate(resolveParticipantProfileUrl(otherParticipant))}
-                                            className="text-left text-sm font-bold text-gray-900 hover:text-blue-600"
+                                            className="max-w-[9.5rem] truncate text-left text-sm font-bold text-gray-900 hover:text-blue-600 sm:max-w-xs"
                                         >
                                             {otherParticipant?.name || 'Conversation'}
                                         </button>
@@ -1469,20 +1487,20 @@ const Messages = () => {
                                     )}
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 sm:gap-2">
                                 <VoiceCallControls
                                     disabled={!activeConvoId || voiceCallsBlocked}
                                     canConference={voiceRuntimeConfig.enabledConferenceCalls && voiceParticipantUsers.length > 1}
                                     onError={(message) => showNotification('error', 'Voice Call', message)}
                                 />
                                 {user?.role === UserRole.ADMIN && (
-                                    <button className="text-red-500 hover:bg-red-50 p-2 rounded" title="Admin Actions">
+                                    <button className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-red-500 transition hover:bg-red-50" title="Admin Actions">
                                         <ShieldAlert className="w-5 h-5" />
                                     </button>
                                 )}
                                 <button
                                     onClick={() => refreshConversationData()}
-                                    className="text-gray-400 hover:text-gray-600 p-2 rounded"
+                                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
                                     title="Refresh"
                                     type="button"
                                 >
@@ -1492,12 +1510,12 @@ const Messages = () => {
                                     <button
                                         type="button"
                                         onClick={() => setShowConversationMenu((prev) => !prev)}
-                                        className="text-gray-400 hover:text-gray-600"
+                                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
                                     >
                                         <MoreVertical className="w-5 h-5" />
                                     </button>
                                     {showConversationMenu && (
-                                        <div className="absolute right-0 top-8 z-20 w-56 rounded-xl border border-gray-200 bg-white p-2 shadow-xl">
+                                        <div className="absolute right-0 top-11 z-20 w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white p-2 shadow-xl">
                                             {messagingControls.enableMoveToOther !== false && (
                                                 <button
                                                     type="button"
@@ -1589,11 +1607,12 @@ const Messages = () => {
                                     )}
                                 </div>
                             </div>
+                            </div>
                         </div>
 
                         {/* Messages List */}
                         <div
-                            className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto p-6 space-y-4"
+                            className="flex-1 min-w-0 space-y-3 overflow-x-hidden overflow-y-auto p-3 md:space-y-4 md:p-6"
                             ref={messagesContainerRef}
                             onScroll={handleMessagesScroll}
                         >
@@ -1622,10 +1641,10 @@ const Messages = () => {
                                 <div id={`message-${msg.id}`} key={msg.id} className={`flex min-w-0 ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
                                     <div className="min-w-0 max-w-[90%] md:max-w-[70%]">
                                     {/* Message Bubble */}
-                                    <div className={`max-w-full min-w-0 rounded-2xl px-4 py-2 shadow-sm text-sm relative ${
+                                    <div className={`relative max-w-full min-w-0 rounded-2xl px-4 py-2.5 text-sm shadow-sm transition ${
                                         msg.senderId === user?.id
-                                        ? 'bg-blue-600 text-white rounded-br-none'
-                                        : 'bg-white text-gray-800 border border-gray-200 rounded-bl-none'
+                                        ? 'rounded-br-none bg-gradient-to-br from-blue-600 to-blue-500 text-white'
+                                        : 'rounded-bl-none border border-gray-200 bg-white text-gray-800'
                                     }`}
                                     onClick={() => {
                                         if (isEditing) return;
@@ -1634,6 +1653,7 @@ const Messages = () => {
                                             setReactionPanelMessageId((prev) => (prev === msg.id ? null : msg.id));
                                         }
                                     }}
+                                    onContextMenu={(event) => event.preventDefault()}
                                     onDoubleClick={() => {
                                         if (isDeleted || isEditing) return;
                                         setExpandedMessageId(msg.id);
@@ -1690,11 +1710,15 @@ const Messages = () => {
                                         {attachmentList.length > 0 && (
                                             <div className="mt-2 space-y-2">
                                                 {attachmentList.map((attachment) => (
-                                                    <div key={attachment.id} className="rounded-lg border border-gray-200 bg-white/80 p-2 text-xs text-gray-700">
+                                                    <div key={attachment.id} className={`rounded-lg border p-2 text-xs ${
+                                                        msg.senderId === user?.id
+                                                            ? 'border-white/30 bg-white/15 text-white'
+                                                            : 'border-gray-200 bg-white/80 text-gray-700'
+                                                    }`}>
                                                         {attachment.type === 'image' ? (
-                                                            <img src={attachment.url} alt={attachment.name} className="w-full max-h-48 object-cover rounded-md" />
+                                                            <img src={attachment.url} alt={attachment.name} className="w-full max-h-56 object-cover rounded-md" />
                                                         ) : attachment.type === 'video' ? (
-                                                            <video controls src={attachment.url} className="w-full max-h-48 rounded-md" />
+                                                            <video controls src={attachment.url} className="w-full max-h-56 rounded-md" />
                                                         ) : attachment.type === 'audio' ? (
                                                             <audio controls preload="metadata" src={attachment.url} className="w-full" />
                                                         ) : (
@@ -1702,7 +1726,9 @@ const Messages = () => {
                                                                 href={attachment.url}
                                                                 target="_blank"
                                                                 rel="noreferrer"
-                                                                className="flex max-w-full min-w-0 items-center gap-2 overflow-hidden text-blue-600 hover:underline"
+                                                                className={`flex max-w-full min-w-0 items-center gap-2 overflow-hidden hover:underline ${
+                                                                    msg.senderId === user?.id ? 'text-blue-100' : 'text-blue-600'
+                                                                }`}
                                                             >
                                                                 <span className="font-semibold">Download</span>
                                                                 <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
@@ -1752,22 +1778,23 @@ const Messages = () => {
                                     </div>
 
                                     {/* Message Actions */}
-                                    <div className={`mt-1 flex items-center gap-1 ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`mt-1.5 flex max-w-full ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
+                                        <div className={`flex max-w-full flex-wrap items-center gap-1.5 ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
                                         <button
                                             type="button"
                                             onClick={() => setExpandedMessageId((prev) => (prev === msg.id ? null : msg.id))}
-                                            className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
+                                            className="inline-flex h-8 items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 text-[11px] font-medium text-gray-600 shadow-sm transition hover:bg-gray-100"
                                             title="Message actions"
                                         >
                                             <MoreVertical className="w-4 h-4" />
-                                            <span>Actions</span>
+                                            <span className="hidden sm:inline">Actions</span>
                                         </button>
                                         {showMessageControls && (
-                                            <div className="flex flex-wrap items-center gap-1">
+                                            <div className="flex max-w-full flex-nowrap items-center gap-1 overflow-x-auto rounded-xl border border-gray-200 bg-white/95 p-1.5 shadow-sm sm:flex-wrap">
                                                 <button
                                                     type="button"
                                                     onClick={() => setReplyToMessage(msg)}
-                                                    className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
+                                                    className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
                                                     title="Reply"
                                                     disabled={isDeleted}
                                                 >
@@ -1777,7 +1804,7 @@ const Messages = () => {
                                                 <button
                                                     type="button"
                                                     onClick={() => handleCopyMessage(msg)}
-                                                    className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
+                                                    className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
                                                     title="Copy"
                                                     disabled={messageActionBusyId === msg.id}
                                                 >
@@ -1788,7 +1815,7 @@ const Messages = () => {
                                                     <button
                                                         type="button"
                                                         onClick={() => handleStartEditMessage(msg)}
-                                                        className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
+                                                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
                                                         title="Edit"
                                                         disabled={isDeleted || messageActionBusyId === msg.id}
                                                     >
@@ -1800,7 +1827,7 @@ const Messages = () => {
                                                     <button
                                                         type="button"
                                                         onClick={() => handleDeleteMessage(msg, 'me')}
-                                                        className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-white px-2 py-1 text-[11px] text-red-600 hover:bg-red-50"
+                                                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-red-200 bg-white px-2 py-1 text-[11px] text-red-600 hover:bg-red-50"
                                                         title="Delete for me"
                                                         disabled={messageActionBusyId === msg.id}
                                                     >
@@ -1812,7 +1839,7 @@ const Messages = () => {
                                                     <button
                                                         type="button"
                                                         onClick={() => handleDeleteMessage(msg, 'everyone')}
-                                                        className="inline-flex items-center gap-1 rounded-full border border-red-300 bg-white px-2 py-1 text-[11px] text-red-700 hover:bg-red-50"
+                                                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-red-300 bg-white px-2 py-1 text-[11px] text-red-700 hover:bg-red-50"
                                                         title="Delete for everyone"
                                                         disabled={isDeleted || messageActionBusyId === msg.id}
                                                     >
@@ -1822,6 +1849,7 @@ const Messages = () => {
                                                 )}
                                             </div>
                                         )}
+                                        </div>
                                     </div>
                                     </div>
                                 </div>
@@ -1842,9 +1870,9 @@ const Messages = () => {
                         </div>
 
                         {/* Input Area */}
-                        <div className="p-4 bg-white border-t border-gray-200">
+                        <div className="sticky bottom-0 border-t border-gray-200 bg-white/95 p-3 backdrop-blur md:p-4">
                             {replyToMessage && (
-                                <div className="mb-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                                <div className="mb-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600 shadow-sm">
                                     <div className="flex items-center justify-between">
                                         <div className="font-semibold">
                                             Replying to {replyToMessage.senderId === user?.id ? 'yourself' : (otherParticipant?.name || 'message')}
@@ -1861,7 +1889,7 @@ const Messages = () => {
                                 <button 
                                     onClick={handleAiSuggest}
                                     disabled={isGettingAiSuggestion}
-                                    className="flex items-center text-xs font-medium text-purple-600 hover:bg-purple-50 px-3 py-1.5 rounded-full border border-purple-100 transition-colors shadow-sm disabled:opacity-50"
+                                    className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50/70 px-3 py-1.5 text-xs font-medium text-purple-700 shadow-sm transition-colors hover:bg-purple-100 disabled:opacity-50"
                                 >
                                     {isGettingAiSuggestion ? <Loader2 className="w-3 h-3 mr-2 animate-spin" /> : <Sparkles className="w-3 h-3 mr-2" />}
                                     {isGettingAiSuggestion ? 'Thinking...' : 'Suggest Reply'}
@@ -1881,10 +1909,10 @@ const Messages = () => {
                                 </div>
                             )}
 
-                            <form onSubmit={handleSendMessage} className="flex min-w-0 items-center gap-2">
+                            <form onSubmit={handleSendMessage} className="flex min-w-0 items-center gap-2 rounded-2xl border border-gray-200 bg-white px-2 py-1.5 shadow-sm">
                                 <button
                                     type="button"
-                                    className="text-gray-400 hover:text-blue-600 p-2"
+                                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 transition hover:bg-blue-50 hover:text-blue-600"
                                     onClick={() => setShowFilePicker(true)}
                                     title="Attach files"
                                 >
@@ -1900,17 +1928,18 @@ const Messages = () => {
                                     maxDurationSeconds={voiceRuntimeConfig.maxVoiceNoteDurationSeconds}
                                     onRecorded={handleVoiceRecorded}
                                     onError={(message) => showNotification('error', 'Voice notes', message)}
+                                    className="h-10 w-10 justify-center rounded-xl hover:bg-gray-100"
                                 />
                                 <input 
                                     type="text" 
-                                    className="flex-1 min-w-0 border border-gray-300 rounded-full px-4 py-2.5 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                                    className="h-10 flex-1 min-w-0 rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-gray-800 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
                                     placeholder="Type a message..."
                                     value={messageInput}
                                     onChange={e => {
                                         setMessageInput(e.target.value);
                                     }}
                                 />
-                                <button type="submit" className="bg-blue-600 text-white p-2.5 rounded-full hover:bg-blue-700 transition-colors shadow-sm">
+                                <button type="submit" className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition-colors hover:bg-blue-700">
                                     <Send className="w-4 h-4" />
                                 </button>
                             </form>
@@ -1926,6 +1955,7 @@ const Messages = () => {
                 )}
             </div>
         </div>
+    </div>
     </div>
     {showMessageSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
