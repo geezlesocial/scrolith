@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { Home, MessageSquare, Users, BookOpen, Calendar, Search, Bell, ChevronDown, Hash, HelpCircle, Trophy } from 'lucide-react';
+import { Home, MessageSquare, Users, BookOpen, Calendar, Search, Bell, ChevronDown, Hash, HelpCircle, Trophy, Clapperboard } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 
 const CommunityLayout = () => {
@@ -12,6 +12,7 @@ const CommunityLayout = () => {
 
     const navItems = [
         { label: 'Home', path: '/community', icon: Home },
+        { label: 'Scroll', path: '/scroll', icon: Clapperboard },
         { label: 'Forum', path: '/community/forum', icon: MessageSquare },
         { label: 'Chat', path: '/community/chat', icon: Hash },
         { label: 'Clubs', path: '/community/clubs', icon: Users },

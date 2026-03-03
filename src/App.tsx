@@ -106,6 +106,7 @@ const MyAds = React.lazy(() => import('./pages/MyAds'));
 const DeveloperPortal = React.lazy(() => import('./pages/DeveloperPortal'));
 const DeveloperDocsPortal = React.lazy(() => import('./pages/DeveloperDocsPage'));
 const AdminDeveloperPlatform = React.lazy(() => import('./pages/AdminDeveloperPlatform'));
+const ScrollFeed = React.lazy(() => import('./features/scroll/ScrollFeed'));
 
 // Error Boundary Component
 type ErrorBoundaryState = { hasError: boolean };
@@ -492,6 +493,7 @@ const AppContent = () => {
   const isAdminRoute = location.pathname.startsWith('/admin') || location.pathname.startsWith('/dev-docs');
   const isMessagesRoute = /^\/messages(\/|$)/.test(location.pathname);
   const isMobileShellRoute = /^\/m(\/|$)/.test(location.pathname);
+  const isScrollRoute = /^\/scroll(\/|$)/.test(location.pathname);
   const isGigDetailRoute = /^\/gigs\/[^/]+/.test(location.pathname);
   const activeTab = new URLSearchParams(location.search).get('tab')?.toLowerCase();
   const isMessagesTabRoute = activeTab === 'messages';
@@ -519,21 +521,24 @@ const AppContent = () => {
     isMobileShellRoute ||
     isMessagesRoute ||
     isMessagesTabRoute ||
-    isGigDetailRoute;
+    isGigDetailRoute ||
+    isScrollRoute;
   const shouldHideSupportWidget =
     isMobileShellRoute ||
     isMessagesRoute ||
     isMessagesTabRoute ||
     isGigDetailRoute ||
+    isScrollRoute ||
     isSupportWidgetSuppressedByRule;
-  const shouldHideFooter = isMobileShellRoute || isAdminRoute || isMessagesRoute || isFooterSuppressedByRule;
+  const shouldHideFooter =
+    isMobileShellRoute || isAdminRoute || isMessagesRoute || isScrollRoute || isFooterSuppressedByRule;
   
   return (
     <div className="flex flex-col min-h-screen relative">
       <IntegrationsManager />
       <OfflineBanner />
       {!shouldHideAppDistributionPrompt && <AppDistributionPrompt />}
-      {!isAdminRoute && !isMobileShellRoute && <Navbar />}
+      {!isAdminRoute && !isMobileShellRoute && !isScrollRoute && <Navbar />}
       <main className="flex-grow">
         <ErrorBoundary>
           <Suspense fallback={null}>
@@ -662,6 +667,22 @@ const AppContent = () => {
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/community/scroll"
+                element={
+                  <ProtectedRoute>
+                    <Navigate to="/scroll" replace />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/scroll"
+                element={
+                  <ProtectedRoute>
+                    <ScrollFeed />
+                  </ProtectedRoute>
+                }
+              />
 
               {/* My Ads - user-owned ads */}
               <Route path="/my-ads" element={
@@ -741,6 +762,14 @@ const AppContent = () => {
                 element={
                   <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
                     <Navigate to="/admin/dashboard?tab=community" replace />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/scroll"
+                element={
+                  <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                    <Navigate to="/admin/dashboard?tab=scroll" replace />
                   </ProtectedRoute>
                 }
               />

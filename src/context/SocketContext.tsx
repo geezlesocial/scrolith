@@ -72,6 +72,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       { ev: 'community:event_updated', fn: forward('community:event_updated') },
       { ev: 'community:event_deleted', fn: forward('community:event_deleted') },
       { ev: 'community:stats_updated', fn: forward('community:stats_updated') }
+      ,{ ev: 'scroll:new', fn: forward('scroll:new') }
+      ,{ ev: 'scroll:engagement_update', fn: forward('scroll:engagement_update') }
+      ,{ ev: 'scroll:impression_update', fn: forward('scroll:impression_update') }
+      ,{ ev: 'scroll:removed', fn: forward('scroll:removed') }
       ,{ ev: 'community:ad_created', fn: forward('community:ad_created') }
       ,{ ev: 'community:ad_status_updated', fn: forward('community:ad_status_updated') }
       ,{ ev: 'community:ad_payment_initiated', fn: forward('community:ad_payment_initiated') }
