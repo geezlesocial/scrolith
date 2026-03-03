@@ -5,8 +5,9 @@ import { useUser } from '../context/UserContext';
 import DonateButton from '../components/DonateButton';
 import { CommunityService } from '../services/community';
 import { AdService } from '../services/ads';
-import { ScrollService, type ScrollVideo } from '../services/scroll';
+import { ScrollService, type ScrollConfig, type ScrollVideo } from '../services/scroll';
 import InlineAutoplayVideo from '../components/media/InlineAutoplayVideo';
+import ScrollCreateModal from '../features/scroll/ScrollCreateModal';
 import PostHeader from './components/PostHeader';
 import PostEngagementBar from './components/PostEngagementBar';
 import MentionText from './components/MentionText';
@@ -267,6 +268,8 @@ const CommunityHome = () => {
   const [storiesLoading, setStoriesLoading] = useState(false);
   const [reels, setReels] = useState<ScrollVideo[]>([]);
   const [reelsLoading, setReelsLoading] = useState(false);
+  const [scrollConfig, setScrollConfig] = useState<ScrollConfig | null>(null);
+  const [scrollCreateOpen, setScrollCreateOpen] = useState(false);
   const [storyRailTab, setStoryRailTab] = useState<'stories' | 'reels'>('stories');
   const [storyPickerOpen, setStoryPickerOpen] = useState(false);
   const [storyTextOpen, setStoryTextOpen] = useState(false);
@@ -628,6 +631,7 @@ const CommunityHome = () => {
         const nextReels = Array.isArray(scrollFeed?.items)
           ? scrollFeed.items.filter((item: ScrollVideo) => String(item?.status || '').toUpperCase() !== 'REMOVED').slice(0, 18)
           : [];
+        setScrollConfig(scrollFeed?.config || null);
         setReels(nextReels);
       } catch (error) {
         console.error('Error loading community data:', error);
@@ -640,6 +644,7 @@ const CommunityHome = () => {
         setCommentCounts({});
         setHomepage(null);
         setStories([]);
+        setScrollConfig(null);
         setReels([]);
       } finally {
         if (!cancelled) {
@@ -1642,7 +1647,7 @@ const CommunityHome = () => {
                         storyRailTab === 'reels' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-800'
                       }`}
                     >
-                      Reels
+                      Scroll
                     </button>
                   </div>
 
@@ -1688,11 +1693,11 @@ const CommunityHome = () => {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => navigate('/scroll')}
+                      onClick={() => setScrollCreateOpen(true)}
                       className="inline-flex items-center gap-1 rounded-full bg-gray-900 px-3 py-1 text-xs font-semibold text-white"
                     >
                       <Plus className="h-3 w-3" />
-                      Open Scroll
+                      Create Scroll
                     </button>
                   )}
                 </div>
@@ -1780,16 +1785,16 @@ const CommunityHome = () => {
                   <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
                     <button
                       type="button"
-                      onClick={() => navigate('/scroll')}
+                      onClick={() => setScrollCreateOpen(true)}
                       className="min-w-[120px] h-44 rounded-2xl border border-dashed border-gray-300 flex flex-col items-center justify-center text-xs text-gray-500"
                     >
                       <Plus className="h-5 w-5 mb-2" />
-                      Create reel
+                      Create Scroll
                     </button>
                     {reelsLoading ? (
-                      <div className="text-xs text-gray-400">Loading reels...</div>
+                      <div className="text-xs text-gray-400">Loading Scroll videos...</div>
                     ) : reels.length === 0 ? (
-                      <div className="text-xs text-gray-400">No reels yet.</div>
+                      <div className="text-xs text-gray-400">No Scroll videos yet.</div>
                     ) : (
                       reels.map((scroll) => (
                         <button
@@ -1803,7 +1808,7 @@ const CommunityHome = () => {
                             if (!mediaUrl) {
                               return (
                                 <div className="h-full w-full flex items-center justify-center text-xs text-white/75">
-                                  Reel
+                                  Scroll
                                 </div>
                               );
                             }
@@ -1835,7 +1840,7 @@ const CommunityHome = () => {
                           })()}
                           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
                             <p className="text-[10px] font-semibold text-white line-clamp-1">{resolveReelAuthorName(scroll, 'Scrolith')}</p>
-                            <p className="text-[10px] text-white/80 line-clamp-1">{scroll.title || scroll.description || 'Reel'}</p>
+                            <p className="text-[10px] text-white/80 line-clamp-1">{scroll.title || scroll.description || 'Scroll'}</p>
                           </div>
                         </button>
                       ))
@@ -2355,6 +2360,16 @@ const CommunityHome = () => {
         title="Add to your story"
         role={user?.role}
         visibility={isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public'}
+      />
+
+      <ScrollCreateModal
+        open={scrollCreateOpen}
+        onClose={() => setScrollCreateOpen(false)}
+        config={scrollConfig}
+        onCreated={(created) => {
+          setReels((prev) => [created, ...prev.filter((item) => item.id !== created.id)].slice(0, 18));
+          setStoryRailTab('reels');
+        }}
       />
 
       {storyTextOpen && (

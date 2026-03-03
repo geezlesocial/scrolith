@@ -33,8 +33,7 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
   }, [config?.allowedFilterPresets]);
 
   const selectInputClassName =
-    'w-full appearance-none rounded-xl border border-white/20 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-cyan-300';
-  const selectOptionClassName = 'bg-white text-slate-900';
+    'w-full appearance-none rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-cyan-500';
 
   if (!open) return null;
 
@@ -159,11 +158,12 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
                 value={visibility}
                 onChange={(event) => setVisibility(event.target.value as any)}
                 className={selectInputClassName}
+                style={{ colorScheme: 'light' }}
               >
-                <option value="public" className={selectOptionClassName}>Public</option>
-                <option value="network" className={selectOptionClassName}>Network</option>
-                <option value="followers" className={selectOptionClassName}>Followers</option>
-                <option value="private" className={selectOptionClassName}>Private</option>
+                <option value="public">Public</option>
+                <option value="network">Network</option>
+                <option value="followers">Followers</option>
+                <option value="private">Private</option>
               </select>
             </label>
             <label className="block">
@@ -172,9 +172,10 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
                 value={filterPreset}
                 onChange={(event) => setFilterPreset(event.target.value)}
                 className={selectInputClassName}
+                style={{ colorScheme: 'light' }}
               >
                 {allowedFilters.map((filter) => (
-                  <option key={filter} value={filter} className={selectOptionClassName}>
+                  <option key={filter} value={filter}>
                     {filter}
                   </option>
                 ))}

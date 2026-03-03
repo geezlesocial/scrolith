@@ -19,9 +19,12 @@ import { useNavigate } from 'react-router-dom';
 import { useUser } from '../../../context/UserContext';
 import { useNotification } from '../../../context/NotificationContext';
 import { CommunityService } from '../../../services/community';
+import { ScrollService, type ScrollConfig, type ScrollVideo } from '../../../services/scroll';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../../community/storyStyles';
 import { UploadedFile } from '../../../types';
 import FilePickerModal from '../../../dashboard/shared/FilePickerModal';
+import ScrollCreateModal from '../../../features/scroll/ScrollCreateModal';
+import { resolveAssetUrl } from '../../../utils/assetUrl';
 
 type StoryKind = 'text' | 'image' | 'video';
 type StoryVisibility = 'public' | 'private';
@@ -69,6 +72,23 @@ const resolveStoryTypeFromFile = (file: UploadedFile): StoryKind | null => {
   if (explicit === 'video' || mime.startsWith('video/')) return 'video';
   if (explicit === 'image' || mime.startsWith('image/')) return 'image';
   return null;
+};
+
+const resolveScrollMediaUrl = (scroll: ScrollVideo) => resolveAssetUrl(String(scroll?.media?.url || '').trim());
+
+const resolveScrollAuthorName = (scroll: ScrollVideo, fallback = 'Scrolith') => {
+  const normalized = String(scroll?.author?.name || '').trim();
+  return normalized || fallback;
+};
+
+const resolveScrollAuthorAvatar = (scroll: ScrollVideo) => {
+  const normalized = String(scroll?.author?.avatar || '').trim();
+  return normalized ? resolveAssetUrl(normalized) : '';
+};
+
+const resolveScrollAuthorInitial = (scroll: ScrollVideo) => {
+  const first = resolveScrollAuthorName(scroll, 'S').replace(/^@+/, '').trim().charAt(0).toUpperCase();
+  return first || 'S';
 };
 
 const canManageStory = (story: any, user: any) => {
@@ -163,11 +183,18 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
 
   const enabled = settings?.stories?.enabled !== false;
   const maxItems = clamp(Number(settings?.stories?.maxItems ?? 12) || 12, 4, 40);
+  const maxScrollItems = clamp(Number(settings?.stories?.maxReels ?? settings?.stories?.maxItems ?? 12) || 12, 4, 40);
 
   const [stories, setStories] = useState<any[]>([]);
+  const [scrolls, setScrolls] = useState<ScrollVideo[]>([]);
   const [loading, setLoading] = useState(false);
+  const [scrollsLoading, setScrollsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scrollError, setScrollError] = useState<string | null>(null);
   const [activeStory, setActiveStory] = useState<any | null>(null);
+  const [storyRailTab, setStoryRailTab] = useState<'stories' | 'scroll'>('stories');
+  const [scrollCreateOpen, setScrollCreateOpen] = useState(false);
+  const [scrollConfig, setScrollConfig] = useState<ScrollConfig | null>(null);
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerStep, setComposerStep] = useState<'choose' | 'compose'>('choose');
@@ -269,6 +296,34 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
     };
   }, [enabled, maxItems]);
 
+  useEffect(() => {
+    if (!enabled) return;
+    let mounted = true;
+    setScrollsLoading(true);
+    setScrollError(null);
+    ScrollService.getFeed({ limit: maxScrollItems })
+      .then((feed) => {
+        if (!mounted) return;
+        const items = Array.isArray(feed?.items)
+          ? feed.items.filter((item) => String(item?.status || '').toUpperCase() !== 'REMOVED').slice(0, maxScrollItems)
+          : [];
+        setScrolls(items);
+        setScrollConfig(feed?.config || null);
+      })
+      .catch((e: any) => {
+        if (!mounted) return;
+        setScrollError(e?.response?.data?.error || e?.message || 'Failed to load Scroll videos');
+        setScrolls([]);
+        setScrollConfig(null);
+      })
+      .finally(() => {
+        if (mounted) setScrollsLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [enabled, maxScrollItems]);
+
   // Realtime: socket layer forwards socket events as window CustomEvents.
   useEffect(() => {
     if (!enabled) return;
@@ -301,6 +356,28 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
       window.removeEventListener('community:story_deleted', onDeleted as EventListener);
     };
   }, [enabled, maxItems]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const onScrollNew = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const created = detail?.scroll || detail;
+      if (!created?.id) return;
+      setScrolls((prev) => [created, ...prev.filter((item) => item.id !== created.id)].slice(0, maxScrollItems));
+    };
+    const onScrollRemoved = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const removedId = String(detail?.scrollId || detail?.id || '').trim();
+      if (!removedId) return;
+      setScrolls((prev) => prev.filter((item) => item.id !== removedId));
+    };
+    window.addEventListener('scroll:new', onScrollNew as EventListener);
+    window.addEventListener('scroll:removed', onScrollRemoved as EventListener);
+    return () => {
+      window.removeEventListener('scroll:new', onScrollNew as EventListener);
+      window.removeEventListener('scroll:removed', onScrollRemoved as EventListener);
+    };
+  }, [enabled, maxScrollItems]);
 
   const canPublish = (() => {
     if (draftType === 'text') return draftContent.trim().length > 0;
@@ -393,69 +470,170 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   return (
     <>
       <div className="mx-auto max-w-md px-3 pt-3">
-        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+        <div className="mb-2 inline-flex items-center rounded-full border border-slate-200 bg-white p-1">
           <button
             type="button"
-            onClick={openCreate}
-            className="flex w-[74px] shrink-0 flex-col items-center gap-1.5"
-            aria-label="Create story"
+            onClick={() => setStoryRailTab('stories')}
+            className={[
+              'rounded-full px-3 py-1 text-xs font-semibold transition',
+              storyRailTab === 'stories' ? 'bg-slate-900 text-white' : 'text-slate-600'
+            ].join(' ')}
           >
-            <div className="flex h-14 w-14 items-center justify-center rounded-full border border-dashed border-slate-300 bg-white">
-              <Plus className="h-5 w-5 text-slate-600" />
-            </div>
-            <div className="w-full truncate text-center text-[11px] font-semibold text-slate-700">Your story</div>
+            Stories
           </button>
+          <button
+            type="button"
+            onClick={() => setStoryRailTab('scroll')}
+            className={[
+              'rounded-full px-3 py-1 text-xs font-semibold transition',
+              storyRailTab === 'scroll' ? 'bg-slate-900 text-white' : 'text-slate-600'
+            ].join(' ')}
+          >
+            Scroll
+          </button>
+        </div>
 
-          {loading ? (
-            <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading...
-            </div>
-          ) : error ? (
-            <div className="rounded-2xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700">
-              {error}
-            </div>
-          ) : visibleStories.length === 0 ? (
-            <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
-              No stories yet.
-            </div>
-          ) : (
-            visibleStories.map((story) => {
-              const id = String(story?.id || '').trim();
-              const name = String(story?.authorName || story?.author?.name || 'Story').trim();
-              const avatar = story?.authorAvatar || story?.author?.avatar || null;
-              const media = resolveStoryMediaUrl(story);
-              const fallbackLetter = (name[0] || 'S').toUpperCase();
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => {
-                    setActiveStory(story);
-                    if (id) CommunityService.viewStory(id).catch(() => {});
-                  }}
-                  className="flex w-[74px] shrink-0 flex-col items-center gap-1.5"
-                  aria-label={`Open story by ${name}`}
-                >
-                  <div className="relative h-14 w-14 overflow-hidden rounded-full border-2 border-blue-600 bg-slate-100">
-                    {media.url ? (
-                      media.isVideo ? (
-                        <img src={media.thumbnailUrl || media.url} alt="Story" className="h-full w-full object-cover" />
-                      ) : (
-                        <img src={media.url} alt="Story" className="h-full w-full object-cover" />
-                      )
-                    ) : avatar ? (
-                      <img src={avatar} alt={name} className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-600">
-                        {fallbackLetter}
+        <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+          {storyRailTab === 'stories' ? (
+            <>
+              <button
+                type="button"
+                onClick={openCreate}
+                className="flex w-[74px] shrink-0 flex-col items-center gap-1.5"
+                aria-label="Create story"
+              >
+                <div className="flex h-14 w-14 items-center justify-center rounded-full border border-dashed border-slate-300 bg-white">
+                  <Plus className="h-5 w-5 text-slate-600" />
+                </div>
+                <div className="w-full truncate text-center text-[11px] font-semibold text-slate-700">Your story</div>
+              </button>
+
+              {loading ? (
+                <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading...
+                </div>
+              ) : error ? (
+                <div className="rounded-2xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700">
+                  {error}
+                </div>
+              ) : visibleStories.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
+                  No stories yet.
+                </div>
+              ) : (
+                visibleStories.map((story) => {
+                  const id = String(story?.id || '').trim();
+                  const name = String(story?.authorName || story?.author?.name || 'Story').trim();
+                  const avatar = story?.authorAvatar || story?.author?.avatar || null;
+                  const media = resolveStoryMediaUrl(story);
+                  const fallbackLetter = (name[0] || 'S').toUpperCase();
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => {
+                        setActiveStory(story);
+                        if (id) CommunityService.viewStory(id).catch(() => {});
+                      }}
+                      className="flex w-[74px] shrink-0 flex-col items-center gap-1.5"
+                      aria-label={`Open story by ${name}`}
+                    >
+                      <div className="relative h-14 w-14 overflow-hidden rounded-full border-2 border-blue-600 bg-slate-100">
+                        {media.url ? (
+                          media.isVideo ? (
+                            <img src={media.thumbnailUrl || media.url} alt="Story" className="h-full w-full object-cover" />
+                          ) : (
+                            <img src={media.url} alt="Story" className="h-full w-full object-cover" />
+                          )
+                        ) : avatar ? (
+                          <img src={avatar} alt={name} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-600">
+                            {fallbackLetter}
+                          </div>
+                        )}
                       </div>
-                    )}
+                      <div className="w-full truncate text-center text-[11px] font-semibold text-slate-700">{name}</div>
+                    </button>
+                  );
+                })
+              )}
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setScrollCreateOpen(true)}
+                className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-dashed border-slate-300 bg-white"
+                aria-label="Create Scroll"
+              >
+                <div className="absolute inset-0 bg-gradient-to-b from-fuchsia-500/15 via-indigo-500/10 to-cyan-500/15" />
+                <div className="relative z-10 flex h-full flex-col items-center justify-center gap-2 text-slate-700">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-300 bg-white">
+                    <Plus className="h-5 w-5" />
                   </div>
-                  <div className="w-full truncate text-center text-[11px] font-semibold text-slate-700">{name}</div>
-                </button>
-              );
-            })
+                  <div className="px-2 text-center text-[12px] font-semibold">Create Scroll</div>
+                </div>
+              </button>
+
+              {scrollsLoading ? (
+                <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading Scroll...
+                </div>
+              ) : scrollError ? (
+                <div className="rounded-2xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700">
+                  {scrollError}
+                </div>
+              ) : scrolls.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
+                  No Scroll videos yet.
+                </div>
+              ) : (
+                scrolls.map((scroll) => {
+                  const id = String(scroll?.id || '').trim();
+                  const mediaUrl = resolveScrollMediaUrl(scroll);
+                  const authorName = resolveScrollAuthorName(scroll, 'Scrolith');
+                  const authorAvatar = resolveScrollAuthorAvatar(scroll);
+                  const authorInitial = resolveScrollAuthorInitial(scroll);
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => navigate(`/scroll?scroll=${encodeURIComponent(id)}`)}
+                      className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
+                      aria-label={`Open Scroll by ${authorName}`}
+                    >
+                      {mediaUrl ? (
+                        <video
+                          src={mediaUrl}
+                          className="h-full w-full object-cover"
+                          autoPlay
+                          muted
+                          playsInline
+                          loop
+                          preload="metadata"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-xs text-white/80">Scroll</div>
+                      )}
+                      <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
+                        {authorAvatar ? (
+                          <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
+                        ) : (
+                          <span>{authorInitial}</span>
+                        )}
+                      </div>
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
+                        <p className="line-clamp-1 text-[10px] font-semibold text-white">{authorName}</p>
+                        <p className="line-clamp-1 text-[10px] text-white/80">{scroll.title || scroll.description || 'Scroll'}</p>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </>
           )}
         </div>
       </div>
@@ -686,6 +864,16 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
           </div>
         )}
       </Sheet>
+
+      <ScrollCreateModal
+        open={scrollCreateOpen}
+        onClose={() => setScrollCreateOpen(false)}
+        config={scrollConfig}
+        onCreated={(created) => {
+          setScrolls((prev) => [created, ...prev.filter((item) => item.id !== created.id)].slice(0, maxScrollItems));
+          setStoryRailTab('scroll');
+        }}
+      />
 
       <FilePickerModal
         isOpen={mediaPickerOpen}

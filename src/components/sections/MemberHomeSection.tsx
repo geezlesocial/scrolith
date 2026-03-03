@@ -26,7 +26,7 @@ import { useContent } from '../../context/ContentContext';
 import { useSocket } from '../../context/SocketContext';
 import { useNotification } from '../../context/NotificationContext';
 import { CommunityService } from '../../services/community';
-import { ScrollService, type ScrollVideo } from '../../services/scroll';
+import { ScrollService, type ScrollConfig, type ScrollVideo } from '../../services/scroll';
 import { FileService } from '../../services/files';
 import { UserService } from '../../services/user';
 import { AIService, type PostEnhanceMode } from '../../services/ai/ai.service';
@@ -45,6 +45,7 @@ import MentionText from '../../community/components/MentionText';
 import MentionHashtagTextarea from '../../community/components/MentionHashtagTextarea';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from '../../community/followState';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../community/storyStyles';
+import ScrollCreateModal from '../../features/scroll/ScrollCreateModal';
 import { resolveAssetUrl } from '../../utils/assetUrl';
 import { resolveVerificationLevel } from '../../utils/verification';
 import MediaPreviewModal, { PreviewMedia } from '../media/MediaPreviewModal';
@@ -726,6 +727,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const [storiesLoading, setStoriesLoading] = useState(false);
   const [reels, setReels] = useState<ScrollVideo[]>([]);
   const [reelsLoading, setReelsLoading] = useState(false);
+  const [scrollConfig, setScrollConfig] = useState<ScrollConfig | null>(null);
+  const [scrollCreateOpen, setScrollCreateOpen] = useState(false);
   const [storyRailTab, setStoryRailTab] = useState<'stories' | 'reels'>('stories');
   const [activeStory, setActiveStory] = useState<any | null>(null);
   const [storyPickerOpen, setStoryPickerOpen] = useState(false);
@@ -1018,7 +1021,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     };
   }, []);
   const storyTitle = content?.storyTitle || 'Stories';
-  const reelsTitle = ((content as any)?.reelsTitle as string) || 'Reels';
+  const reelsTitleRaw = String((content as any)?.reelsTitle || '').trim();
+  const reelsTitle = reelsTitleRaw ? reelsTitleRaw.replace(/\breels?\b/gi, 'Scroll') : 'Scroll';
   const feedTitle = content?.feedTitle || 'Home feed';
   const profilesTitle = content?.profilesTitle || 'Add to your feed';
   const pagesTitle = content?.pagesTitle || 'Pages to follow';
@@ -1502,9 +1506,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       const nextReels = Array.isArray(feed?.items)
         ? feed.items.filter((item) => String(item?.status || '').toUpperCase() !== 'REMOVED').slice(0, maxReels)
         : [];
+      setScrollConfig(feed?.config || null);
       setReels(nextReels);
     } catch (error) {
       console.error('Failed to load reels', error);
+      setScrollConfig(null);
       setReels([]);
     } finally {
       setReelsLoading(false);
@@ -3628,7 +3634,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                     <p className="mt-2 text-sm text-slate-500">
                       {storyRailTab === 'stories'
                         ? 'Share quick updates, photos, or videos with your community.'
-                        : 'Watch short reels with autoplay preview and jump into the full Scroll feed.'}
+                        : 'Watch short Scroll videos with autoplay preview and jump into the full Scroll feed.'}
                     </p>
                   </div>
 
@@ -3675,10 +3681,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   ) : (
                     <button
                       type="button"
-                      onClick={() => navigate('/scroll')}
+                      onClick={() => setScrollCreateOpen(true)}
                       className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white"
                     >
-                      Open Scroll
+                      Create Scroll
                     </button>
                   )}
                 </div>
@@ -3769,16 +3775,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   <div className="mt-4 flex gap-2 sm:gap-3 overflow-x-auto pb-2">
                     <button
                       type="button"
-                      onClick={() => navigate('/scroll')}
+                      onClick={() => setScrollCreateOpen(true)}
                       className="h-44 min-w-[110px] rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center text-xs text-slate-500 sm:min-w-[120px]"
                     >
                       <Plus className="h-5 w-5 mb-2" />
-                      Create reel
+                      Create Scroll
                     </button>
                     {reelsLoading ? (
-                      <div className="text-sm text-slate-400">Loading reels...</div>
+                      <div className="text-sm text-slate-400">Loading Scroll videos...</div>
                     ) : reels.length === 0 ? (
-                      <div className="text-sm text-slate-400">No reels yet.</div>
+                      <div className="text-sm text-slate-400">No Scroll videos yet.</div>
                     ) : (
                       reels.map((scroll) => (
                         <button
@@ -3792,7 +3798,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                             if (!mediaUrl) {
                               return (
                                 <div className="h-full w-full flex items-center justify-center text-xs text-white/75">
-                                  Reel
+                                  Scroll
                                 </div>
                               );
                             }
@@ -3824,7 +3830,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           })()}
                           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
                             <p className="text-[10px] text-white font-semibold line-clamp-1">{resolveReelAuthorName(scroll, 'Scrolith')}</p>
-                            <p className="text-[10px] text-white/80 line-clamp-1">{scroll.title || scroll.description || 'Reel'}</p>
+                            <p className="text-[10px] text-white/80 line-clamp-1">{scroll.title || scroll.description || 'Scroll'}</p>
                           </div>
                         </button>
                       ))
@@ -5008,6 +5014,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         title="Add to your story"
         role={user?.role}
         visibility={isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public'}
+      />
+
+      <ScrollCreateModal
+        open={scrollCreateOpen}
+        onClose={() => setScrollCreateOpen(false)}
+        config={scrollConfig}
+        onCreated={(created) => {
+          setReels((prev) => [created, ...prev.filter((item) => item.id !== created.id)].slice(0, maxReels));
+          setStoryRailTab('reels');
+        }}
       />
 
       {storyMediaPreviewOpen && storyMediaDraftFile?.id && (
