@@ -70,9 +70,17 @@ export const notificationsApi = {
 };
 
 export const NotificationService = {
-  getAll: async () => {
-    const res = await api.get('/notifications');
-    return res.data?.data || [];
+  getAll: async (options?: { limit?: number; cursor?: string }) => {
+    const res = await api.get('/notifications', {
+      params: {
+        limit: Math.max(20, Math.min(100, Number(options?.limit || 80))),
+        ...(options?.cursor ? { cursor: options.cursor } : {})
+      }
+    });
+    const payload = res.data?.data;
+    if (Array.isArray(payload)) return payload;
+    if (payload && Array.isArray(payload.items)) return payload.items;
+    return [];
   },
   getUnread: async () => {
     const res = await api.get('/notifications');

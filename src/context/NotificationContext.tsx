@@ -146,7 +146,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
     const request = (async () => {
       try {
-        const raw = await NotificationService.getAll();
+        const raw = await NotificationService.getAll({ limit: 80 });
         const serverList = Array.isArray(raw) ? raw.map((n: any) => normalizeNotification(n)) : [];
         setNotifications(prev => {
           const locals = prev.filter(n => n.localOnly);

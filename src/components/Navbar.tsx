@@ -153,6 +153,7 @@ const Navbar = () => {
   const [loading, setLoading] = useState(true);
 
   const notifRef = useRef<HTMLDivElement>(null);
+  const notificationListRef = useRef<HTMLDivElement>(null);
   const msgRef = useRef<HTMLDivElement>(null);
   const helpRef = useRef<HTMLDivElement>(null);
   const currencyRef = useRef<HTMLDivElement>(null);
@@ -160,6 +161,8 @@ const Navbar = () => {
   const guestPrimaryRef = useRef<HTMLDivElement>(null);
   const guestExploreRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
+  const [notificationScrollTop, setNotificationScrollTop] = useState(0);
+  const [notificationViewportHeight, setNotificationViewportHeight] = useState(0);
 
   const _asRecord = (v: unknown) => (v && typeof v === 'object' ? (v as Record<string, unknown>) : null);
   const hc = _asRecord(headerConfig);
@@ -394,6 +397,46 @@ const Navbar = () => {
   const visibleUnreadCount =
     notificationTab === 'community' ? unreadNotificationCounts.community : unreadNotificationCounts.home;
   const notificationTabLabel = notificationTab === 'community' ? 'Community' : 'Home';
+  const notificationItemHeight = 86;
+  const notificationOverscan = 4;
+  const notificationWindow = useMemo(() => {
+    const itemCount = visibleNotifications.length;
+    if (itemCount === 0) return { start: 0, end: 0, top: 0, bottom: 0 };
+    const viewport = Math.max(notificationViewportHeight, 320);
+    const start = Math.max(0, Math.floor(notificationScrollTop / notificationItemHeight) - notificationOverscan);
+    const end = Math.min(
+      itemCount,
+      Math.ceil((notificationScrollTop + viewport) / notificationItemHeight) + notificationOverscan
+    );
+    return {
+      start,
+      end,
+      top: start * notificationItemHeight,
+      bottom: Math.max(0, (itemCount - end) * notificationItemHeight)
+    };
+  }, [notificationItemHeight, notificationOverscan, notificationScrollTop, notificationViewportHeight, visibleNotifications.length]);
+  const virtualNotifications = useMemo(
+    () => visibleNotifications.slice(notificationWindow.start, notificationWindow.end),
+    [visibleNotifications, notificationWindow.start, notificationWindow.end]
+  );
+
+  useEffect(() => {
+    if (!showNotifications) return;
+    const node = notificationListRef.current;
+    if (!node) return;
+    const syncMetrics = () => {
+      setNotificationViewportHeight(node.clientHeight || 0);
+      setNotificationScrollTop(node.scrollTop || 0);
+    };
+    syncMetrics();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', syncMetrics);
+      return () => window.removeEventListener('resize', syncMetrics);
+    }
+    const observer = new ResizeObserver(syncMetrics);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [showNotifications, notificationTab, visibleNotifications.length]);
   const isPathActive = (path: string) => {
     if (!path) return false;
     if (location.pathname === path) return true;
@@ -1024,11 +1067,19 @@ const Navbar = () => {
                                   </button>
                                 </div>
                               </div>
-                              <div className="max-h-96 overflow-y-auto">
+                              <div
+                                ref={notificationListRef}
+                                className="max-h-96 overflow-y-auto"
+                                onScroll={(event) => setNotificationScrollTop(event.currentTarget.scrollTop)}
+                              >
                                 {visibleNotifications.length === 0 ? (
                                   <div className="p-6 text-center text-gray-400 text-sm">No new notifications</div>
                                 ) : (
-                                  visibleNotifications.map((notif) => {
+                                  <>
+                                  {notificationWindow.top > 0 ? (
+                                    <div aria-hidden className="pointer-events-none" style={{ height: notificationWindow.top }} />
+                                  ) : null}
+                                  {virtualNotifications.map((notif) => {
                                     const actorName =
                                       (pick(notif as any, 'actorName', 'actor_name') as string | undefined) ||
                                       ((pick(notif as any, 'metadata') as any)?.actorName as string | undefined);
@@ -1070,7 +1121,11 @@ const Navbar = () => {
                                       {!notif.isRead && <span className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500"></span>}
                                     </div>
                                   );
-                                  })
+                                  })}
+                                  {notificationWindow.bottom > 0 ? (
+                                    <div aria-hidden className="pointer-events-none" style={{ height: notificationWindow.bottom }} />
+                                  ) : null}
+                                  </>
                                 )}
                               </div>
                             </div>

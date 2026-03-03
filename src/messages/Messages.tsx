@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MessagingService } from '../services/messaging';
 import { Conversation, Message, UploadedFile, UserRole } from '../types';
@@ -183,10 +183,13 @@ const Messages = () => {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const conversationListRef = useRef<HTMLUListElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const activeConvoIdRef = useRef<string | null>(null);
   const userIdRef = useRef<string | null>(null);
   const refreshingRef = useRef(false);
+  const [conversationScrollTop, setConversationScrollTop] = useState(0);
+  const [conversationViewportHeight, setConversationViewportHeight] = useState(0);
   const messagesTraceEnabled =
       ['1', 'true', 'yes', 'on'].includes(String((import.meta as any)?.env?.VITE_MESSAGES_TRACE_DEBUG || '').toLowerCase());
 
@@ -249,6 +252,23 @@ const Messages = () => {
       window.addEventListener('resize', onResize);
       return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  useEffect(() => {
+      const node = conversationListRef.current;
+      if (!node) return;
+      const syncMetrics = () => {
+          setConversationViewportHeight(node.clientHeight || 0);
+          setConversationScrollTop(node.scrollTop || 0);
+      };
+      syncMetrics();
+      if (typeof ResizeObserver === 'undefined') {
+          window.addEventListener('resize', syncMetrics);
+          return () => window.removeEventListener('resize', syncMetrics);
+      }
+      const observer = new ResizeObserver(syncMetrics);
+      observer.observe(node);
+      return () => observer.disconnect();
+  }, [conversations.length, showStarredOnly, isMobileViewport]);
 
   useEffect(() => {
       userIdRef.current = user?.id || null;
@@ -343,6 +363,30 @@ const Messages = () => {
           if (!showStarredOnly) return true;
           return Boolean(conversation.isStarred ?? conversation.is_starred);
       });
+  const conversationItemHeight = isMobileViewport ? 88 : 92;
+  const conversationOverscan = 5;
+  const conversationWindow = useMemo(() => {
+      const itemCount = visibleConversations.length;
+      if (itemCount === 0) {
+          return { start: 0, end: 0, top: 0, bottom: 0 };
+      }
+      const viewport = Math.max(conversationViewportHeight, conversationItemHeight * 8);
+      const start = Math.max(0, Math.floor(conversationScrollTop / conversationItemHeight) - conversationOverscan);
+      const end = Math.min(
+          itemCount,
+          Math.ceil((conversationScrollTop + viewport) / conversationItemHeight) + conversationOverscan
+      );
+      return {
+          start,
+          end,
+          top: start * conversationItemHeight,
+          bottom: Math.max(0, (itemCount - end) * conversationItemHeight)
+      };
+  }, [conversationItemHeight, conversationOverscan, conversationScrollTop, conversationViewportHeight, visibleConversations.length]);
+  const virtualConversations = useMemo(
+      () => visibleConversations.slice(conversationWindow.start, conversationWindow.end),
+      [visibleConversations, conversationWindow.start, conversationWindow.end]
+  );
   const otherParticipant = (() => {
       const others = (activeConvo?.participants || []).filter((participant: any) => String(participant?.id || '') !== String(user?.id || ''));
       const withDisplayName = others.find((participant: any) => {
@@ -1405,11 +1449,19 @@ const Messages = () => {
                         </button>
                     </div>
                 </div>
-                <ul className="flex-1 overflow-y-auto">
+                <ul
+                    ref={conversationListRef}
+                    className="flex-1 overflow-y-auto"
+                    onScroll={(event) => setConversationScrollTop(event.currentTarget.scrollTop)}
+                >
                     {visibleConversations.length === 0 ? (
                         <li className="p-4 text-center text-gray-500 text-sm">No conversations yet.</li>
                     ) : (
-                        visibleConversations.map((convo) => {
+                        <>
+                        {conversationWindow.top > 0 ? (
+                            <li aria-hidden className="pointer-events-none border-b-0 p-0" style={{ height: conversationWindow.top }} />
+                        ) : null}
+                        {virtualConversations.map((convo) => {
                             const participant = convo.participants.find(p => p.id !== user?.id) || convo.participants[0];
                             const participantRole = resolveParticipantRole(participant);
                             const participantIsPro = isParticipantPro(participant);
@@ -1503,7 +1555,11 @@ const Messages = () => {
                                     </div>
                                 </li>
                             );
-                        })
+                        })}
+                        {conversationWindow.bottom > 0 ? (
+                            <li aria-hidden className="pointer-events-none border-b-0 p-0" style={{ height: conversationWindow.bottom }} />
+                        ) : null}
+                        </>
                     )}
                 </ul>
             </div>

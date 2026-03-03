@@ -197,7 +197,7 @@ export const MessagingService = {
   getAllConversations: async (
     userId: string,
     role: UserRole,
-    options?: { force?: boolean }
+    options?: { force?: boolean; limit?: number; cursor?: string }
   ): Promise<Conversation[]> => {
     const cacheKey = `${userId}:${role}`;
     const cached = conversationCache.get(cacheKey);
@@ -217,7 +217,14 @@ export const MessagingService = {
     }
 
     const requestPromise = api
-      .get('/messages/conversations', { params: { userId, role } })
+      .get('/messages/conversations', {
+        params: {
+          userId,
+          role,
+          limit: Math.max(20, Math.min(200, Number(options?.limit || 120))),
+          ...(options?.cursor ? { cursor: options.cursor } : {})
+        }
+      })
       .then(response => {
         const data = extractData<any>(response);
         const normalized = normalizeList(data);
