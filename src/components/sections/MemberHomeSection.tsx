@@ -5892,7 +5892,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   <ChevronRight className="h-5 w-5" />
                 </button>
               </div>
-              <div className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-92px)] text-white">
+              <div className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-80px)] text-white">
                 <div className="rounded-xl bg-black/40 px-3 py-2 text-[11px] font-semibold backdrop-blur-sm">
                   <div className="flex items-center gap-2">
                     <span>{formatCompactMetric(activeStory.likesCount ?? activeStory._count?.likes ?? 0)} likes</span>
@@ -5901,53 +5901,53 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   </div>
                 </div>
               </div>
-              <div className="absolute right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-2 pointer-events-auto">
-                <ReactionBar targetType="STORY" targetId={activeStory.id} layout="rail" compact className="w-[64px]" />
+              <div className="absolute right-2.5 top-[58%] z-30 flex -translate-y-1/2 flex-col items-center gap-1.5 pointer-events-auto">
+                <ReactionBar targetType="STORY" targetId={activeStory.id} layout="rail" compact className="w-[54px]" />
                 <button
                   type="button"
                   onClick={() => handleStoryCommentAction(activeStory)}
-                  className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/45 px-2 py-2 text-white transition hover:bg-black/65"
+                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
                   disabled={Boolean(storyActionBusy[activeStory.id])}
                 >
-                  <MessageCircle className="h-4 w-4" />
+                  <MessageCircle className="h-3.5 w-3.5" />
                   <span className="mt-1 text-[10px] font-semibold">{formatCompactMetric(activeStory.commentsCount ?? activeStory.interactions?.comments)}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleStoryRepostAction(activeStory)}
-                  className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/45 px-2 py-2 text-white transition hover:bg-black/65"
+                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
                   disabled={Boolean(storyActionBusy[activeStory.id])}
                 >
-                  <Repeat2 className="h-4 w-4" />
+                  <Repeat2 className="h-3.5 w-3.5" />
                   <span className="mt-1 text-[10px] font-semibold">{formatCompactMetric(activeStory.repostsCount ?? activeStory.interactions?.reposts)}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleStoryDashAction(activeStory)}
-                  className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/45 px-2 py-2 text-white transition hover:bg-black/65"
+                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
                   disabled={Boolean(storyActionBusy[activeStory.id])}
                 >
-                  <Coins className="h-4 w-4" />
+                  <Coins className="h-3.5 w-3.5" />
                   <span className="mt-1 text-[10px] font-semibold">Dash</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleStorySendAction(activeStory)}
-                  className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/45 px-2 py-2 text-white transition hover:bg-black/65"
+                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
                   disabled={Boolean(storyActionBusy[activeStory.id])}
                 >
-                  <SendIcon className="h-4 w-4" />
+                  <SendIcon className="h-3.5 w-3.5" />
                   <span className="mt-1 text-[10px] font-semibold">{formatCompactMetric(activeStory.sendsCount ?? activeStory.interactions?.sends)}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleStoryLike(activeStory)}
-                  className={`inline-flex min-w-[64px] flex-col items-center rounded-2xl px-2 py-2 text-white transition ${
+                  className={`inline-flex min-w-[52px] flex-col items-center rounded-xl px-1.5 py-1.5 text-white transition ${
                     activeStory.viewerLiked ? 'bg-rose-600/85' : 'bg-black/45 hover:bg-black/65'
                   }`}
                   disabled={storyActionBusy[activeStory.id]}
                 >
-                  <Heart className={`h-4 w-4 ${activeStory.viewerLiked ? 'fill-white text-white' : ''}`} />
+                  <Heart className={`h-3.5 w-3.5 ${activeStory.viewerLiked ? 'fill-white text-white' : ''}`} />
                   <span className="mt-1 text-[10px] font-semibold">{formatCompactMetric(activeStory.likesCount ?? activeStory._count?.likes ?? 0)}</span>
                 </button>
               </div>

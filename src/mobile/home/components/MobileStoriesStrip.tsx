@@ -14,7 +14,7 @@ import {
   VideoIcon as Video,
   XIcon as X
 } from '../../../components/icons/ShellIcons';
-import { ChevronLeft, ChevronRight, Coins, Repeat2, Send, Volume2, VolumeX } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Coins, MessageCircle, Repeat2, Send, Volume2, VolumeX } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import { useUser } from '../../../context/UserContext';
@@ -1358,7 +1358,7 @@ function StoryViewer({
             </button>
           </div>
 
-          <div className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-92px)] text-white">
+          <div className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-80px)] text-white">
             <div className="rounded-xl bg-black/40 px-3 py-2 text-[11px] font-semibold backdrop-blur-sm">
               <div className="flex items-center gap-2">
                 <span>{formatCompactCount(story?.likesCount ?? story?._count?.likes ?? 0)} likes</span>
@@ -1368,42 +1368,42 @@ function StoryViewer({
             </div>
           </div>
 
-          <div className="absolute right-2.5 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-2 pointer-events-auto">
-            <ReactionBar targetType="STORY" targetId={String(story?.id || '')} layout="rail" compact className="w-[64px]" />
+          <div className="absolute right-2.5 top-[58%] z-30 flex -translate-y-1/2 flex-col items-center gap-1.5 pointer-events-auto">
+            <ReactionBar targetType="STORY" targetId={String(story?.id || '')} layout="rail" compact className="w-[54px]" />
             <button
               type="button"
               onClick={onComment}
-              className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/45 px-2 py-2 text-white transition hover:bg-black/65"
+              className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
               disabled={storyBusy}
             >
-              <MessageCircle className="h-4 w-4" />
+              <MessageCircle className="h-3.5 w-3.5" />
               <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(story?.commentsCount ?? story?.interactions?.comments)}</span>
             </button>
             <button
               type="button"
               onClick={onRepost}
-              className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/45 px-2 py-2 text-white transition hover:bg-black/65"
+              className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
               disabled={storyBusy}
             >
-              <Repeat2 className="h-4 w-4" />
+              <Repeat2 className="h-3.5 w-3.5" />
               <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(story?.repostsCount ?? story?.interactions?.reposts)}</span>
             </button>
             <button
               type="button"
               onClick={onDash}
-              className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/45 px-2 py-2 text-white transition hover:bg-black/65"
+              className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
               disabled={storyBusy}
             >
-              <Coins className="h-4 w-4" />
+              <Coins className="h-3.5 w-3.5" />
               <span className="mt-1 text-[10px] font-semibold">Dash</span>
             </button>
             <button
               type="button"
               onClick={onSend}
-              className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/45 px-2 py-2 text-white transition hover:bg-black/65"
+              className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
               disabled={storyBusy}
             >
-              <Send className="h-4 w-4" />
+              <Send className="h-3.5 w-3.5" />
               <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(story?.sendsCount ?? story?.interactions?.sends)}</span>
             </button>
           </div>

@@ -24,15 +24,15 @@ type ReactionBarProps = {
 };
 
 const DEFAULT_ALLOWED: AllowedReaction[] = [
-  { key: 'like', label: 'Like', emoji: '👍', enabled: true },
-  { key: 'love', label: 'Love', emoji: '❤️', enabled: true },
-  { key: 'good', label: 'Good', emoji: '✅', enabled: true },
-  { key: 'happy', label: 'Happy', emoji: '😄', enabled: true },
-  { key: 'handwave', label: 'Handwave', emoji: '👋', enabled: true },
-  { key: 'angry', label: 'Angry', emoji: '😡', enabled: true },
-  { key: 'cry', label: 'Cry', emoji: '😢', enabled: true },
-  { key: 'mad', label: 'Mad', emoji: '🤬', enabled: true },
-  { key: 'sorry', label: 'Sorry', emoji: '🙏', enabled: true }
+  { key: 'like', label: 'Like', emoji: '\u{1F44D}', enabled: true },
+  { key: 'love', label: 'Love', emoji: '\u2764\uFE0F', enabled: true },
+  { key: 'good', label: 'Good', emoji: '\u2705', enabled: true },
+  { key: 'happy', label: 'Happy', emoji: '\u{1F604}', enabled: true },
+  { key: 'handwave', label: 'Handwave', emoji: '\u{1F44B}', enabled: true },
+  { key: 'angry', label: 'Angry', emoji: '\u{1F621}', enabled: true },
+  { key: 'cry', label: 'Cry', emoji: '\u{1F622}', enabled: true },
+  { key: 'mad', label: 'Mad', emoji: '\u{1F92C}', enabled: true },
+  { key: 'sorry', label: 'Sorry', emoji: '\u{1F64F}', enabled: true }
 ];
 
 const normalizeAllowed = (value: any): AllowedReaction[] => {
@@ -172,6 +172,12 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
   const more = allowed.slice(safeQuickLimit);
 
   if (layout === 'rail') {
+    const railBaseClass = compact
+      ? 'inline-flex min-h-[38px] min-w-[52px] flex-col items-center justify-center rounded-xl px-1.5 py-1'
+      : 'inline-flex min-h-[46px] min-w-[64px] flex-col items-center justify-center rounded-2xl px-2 py-1.5';
+    const railEmojiClass = compact ? 'text-sm leading-none' : 'text-lg';
+    const railIconClass = compact ? 'h-3.5 w-3.5' : 'h-4 w-4';
+
     return (
       <div className={`relative flex flex-col items-center gap-2 ${className}`} onClick={(event) => event.stopPropagation()}>
         {quick.map((item) => {
@@ -183,12 +189,12 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
               type="button"
               disabled={busy || disabled}
               onClick={(event) => react(event, item.key)}
-              className={`inline-flex min-h-[46px] min-w-[64px] flex-col items-center justify-center rounded-2xl px-2 py-1.5 text-white transition ${
+              className={`${railBaseClass} text-white transition ${
                 selected ? 'bg-blue-600/85 ring-1 ring-blue-200/60' : 'bg-black/45 hover:bg-black/65'
               } disabled:cursor-not-allowed disabled:opacity-60`}
               title={item.label}
             >
-              <span className={compact ? 'text-base' : 'text-lg'}>{item.emoji}</span>
+              <span className={railEmojiClass}>{item.emoji}</span>
               {showCounts && count > 0 ? <span className="text-[10px] font-semibold">{count}</span> : null}
             </button>
           );
@@ -203,13 +209,17 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
                 event.stopPropagation();
                 setOpenMore((prev) => !prev);
               }}
-              className="inline-flex min-h-[46px] min-w-[64px] flex-col items-center justify-center rounded-2xl bg-black/45 px-2 py-1.5 text-white transition hover:bg-black/65"
+              className={`${railBaseClass} bg-black/45 text-white transition hover:bg-black/65`}
             >
-              <SmilePlus className="h-4 w-4" />
+              <SmilePlus className={railIconClass} />
               <span className="text-[10px] font-semibold">More</span>
             </button>
             {openMore ? (
-              <div className="absolute right-[72px] top-0 z-[80] flex max-w-[220px] flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+              <div
+                className={`absolute top-0 z-[80] flex max-w-[220px] flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl ${
+                  compact ? 'right-[58px]' : 'right-[72px]'
+                }`}
+              >
                 {more.map((item) => (
                   <button
                     key={item.key}

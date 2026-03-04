@@ -242,12 +242,12 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         </div>
       </div>
 
-      <div className="absolute bottom-28 right-3 z-30 pointer-events-auto flex flex-col items-center gap-3">
+      <div className="absolute right-2.5 top-[58%] z-30 pointer-events-auto flex -translate-y-1/2 flex-col items-center gap-1.5">
         <ReactionBar
           targetType="SCROLL"
           targetId={scroll.id}
           layout="rail"
-          className="w-[64px]"
+          className="w-[54px]"
           compact
         />
         {rightActions.map((action) => (
@@ -255,29 +255,29 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
             key={action.key}
             type="button"
             onClick={action.onClick}
-            className="inline-flex min-w-[64px] flex-col items-center rounded-2xl px-2 py-2 transition bg-black/40 text-white hover:bg-black/60"
+            className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/40 px-1.5 py-1.5 text-white transition hover:bg-black/60"
             aria-label={action.label}
           >
-            <action.icon className="h-5 w-5" />
+            <action.icon className="h-3.5 w-3.5" />
             <span className="mt-1 text-[11px] font-semibold">{Number(action.value || 0)}</span>
           </button>
         ))}
         <button
           type="button"
           onClick={() => onShareToStory(scroll)}
-          className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/40 px-2 py-2 text-white hover:bg-black/60 transition"
+          className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/40 px-1.5 py-1.5 text-white transition hover:bg-black/60"
           aria-label="Share to Story"
         >
-          <Sparkles className="h-5 w-5" />
+          <Sparkles className="h-3.5 w-3.5" />
           <span className="mt-1 text-[11px] font-semibold">Story</span>
         </button>
         <button
           type="button"
           onClick={() => onReport(scroll)}
-          className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/40 px-2 py-2 text-white hover:bg-black/60 transition"
+          className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/40 px-1.5 py-1.5 text-white transition hover:bg-black/60"
           aria-label="Report"
         >
-          <Flag className="h-5 w-5" />
+          <Flag className="h-3.5 w-3.5" />
           <span className="mt-1 text-[11px] font-semibold">Report</span>
         </button>
       </div>
