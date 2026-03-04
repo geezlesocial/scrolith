@@ -10,12 +10,24 @@ type TabKey = 'message' | 'link' | 'network';
 type Props = {
   isOpen: boolean;
   onClose: () => void;
-  postId: string;
+  postId?: string;
   postUrl: string;
+  shareText?: string;
+  entityLabel?: string;
   onShareToNetwork?: () => void;
+  onTrackedShare?: (channel: 'copy' | 'dm' | 'network') => Promise<void> | void;
 };
 
-const PostShareModal: React.FC<Props> = ({ isOpen, onClose, postId, postUrl, onShareToNetwork }) => {
+const PostShareModal: React.FC<Props> = ({
+  isOpen,
+  onClose,
+  postId,
+  postUrl,
+  shareText,
+  entityLabel = 'post',
+  onShareToNetwork,
+  onTrackedShare
+}) => {
   const { user } = useUser();
   const { showNotification } = useNotification();
   const [tab, setTab] = useState<TabKey>('message');
@@ -89,9 +101,10 @@ const PostShareModal: React.FC<Props> = ({ isOpen, onClose, postId, postUrl, onS
     try {
       await navigator.clipboard.writeText(postUrl);
       showNotification('success', 'Share', 'Link copied.');
-      if (user?.id) {
+      if (user?.id && postId) {
         await CommunityService.postShare(postId, 'copy');
       }
+      await onTrackedShare?.('copy');
     } catch (error: any) {
       console.warn(error);
       showNotification('error', 'Share', 'Failed to copy the link.');
@@ -111,11 +124,14 @@ const PostShareModal: React.FC<Props> = ({ isOpen, onClose, postId, postUrl, onS
     }
     setBusy(true);
     try {
-      const text = `Check this post on Scrolith: ${postUrl}`;
+      const text = shareText || `Check this ${entityLabel} on Scrolith: ${postUrl}`;
       for (const conversationId of selectedIds) {
         await MessagingService.sendMessage(conversationId, user.id, text, String(user.role || 'guest'));
       }
-      await CommunityService.postShare(postId, 'dm');
+      if (postId) {
+        await CommunityService.postShare(postId, 'dm');
+      }
+      await onTrackedShare?.('dm');
       showNotification('success', 'Share', `Sent to ${selectedIds.length} conversation(s).`);
       onClose();
     } catch (error: any) {
@@ -284,18 +300,22 @@ const PostShareModal: React.FC<Props> = ({ isOpen, onClose, postId, postUrl, onS
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <div className="text-sm font-semibold text-slate-900">Share to your network</div>
             <div className="mt-1 text-sm text-slate-600">
-              Repost this content so your followers can see it in their feed.
+              Repost this {entityLabel} so your followers can see it in their feed.
             </div>
             <div className="mt-3">
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   onClose();
                   onShareToNetwork?.();
+                  if (postId) {
+                    await CommunityService.postShare(postId, 'network');
+                  }
+                  await onTrackedShare?.('network');
                 }}
                 className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase text-white"
               >
-                Repost to network
+                Repost {entityLabel}
               </button>
             </div>
           </div>

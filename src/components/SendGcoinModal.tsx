@@ -6,9 +6,20 @@ interface Props {
   onClose: () => void;
   prefillRecipientId?: string; // recipientId or email
   donatePostId?: string;
+  titleOverride?: string;
+  subtitleOverride?: string;
+  onSuccess?: (result: any) => void;
 }
 
-const SendGcoinModal: React.FC<Props> = ({ isOpen, onClose, prefillRecipientId, donatePostId }) => {
+const SendGcoinModal: React.FC<Props> = ({
+  isOpen,
+  onClose,
+  prefillRecipientId,
+  donatePostId,
+  titleOverride,
+  subtitleOverride,
+  onSuccess
+}) => {
   const [recipient, setRecipient] = useState(prefillRecipientId || '');
   const [amount, setAmount] = useState<number | ''>('');
   const [note, setNote] = useState('');
@@ -89,6 +100,7 @@ const SendGcoinModal: React.FC<Props> = ({ isOpen, onClose, prefillRecipientId, 
       if (donatePostId) {
         const resp = await GcoinService.donate(donatePostId, Number(amount), note || undefined);
         if (resp?.success) {
+          onSuccess?.(resp);
           onClose();
         } else {
           setError(resp?.message || 'Donation failed');
@@ -101,7 +113,8 @@ const SendGcoinModal: React.FC<Props> = ({ isOpen, onClose, prefillRecipientId, 
         }
         const resp = await GcoinService.transfer(target, Number(amount), note || undefined);
         if (resp?.success) {
-        onClose();
+          onSuccess?.(resp);
+          onClose();
         } else {
           setError(resp?.message || 'Transfer failed');
         }
@@ -118,10 +131,12 @@ const SendGcoinModal: React.FC<Props> = ({ isOpen, onClose, prefillRecipientId, 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
       <div className="bg-white rounded-lg max-w-md w-full p-6 shadow-lg">
-        <h3 className="text-lg font-bold mb-1">{donatePostId ? 'Dash Gcoin' : 'Send Gcoin'}</h3>
-        {donatePostId && (
+        <h3 className="text-lg font-bold mb-1">
+          {titleOverride || (donatePostId ? 'Dash Gcoin' : 'Send Gcoin')}
+        </h3>
+        {(subtitleOverride || donatePostId) && (
           <p className="text-xs text-gray-600 mb-3">
-            Dash lets you gift Gcoin to support creators and posts instantly.
+            {subtitleOverride || 'Dash lets you gift Gcoin to support creators and posts instantly.'}
           </p>
         )}
         {error && <div className="text-sm text-red-600 mb-2">{error}</div>}

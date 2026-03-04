@@ -6,11 +6,14 @@ import ReactionBar from '../../community/components/ReactionBar';
 type ScrollCardProps = {
   scroll: ScrollVideo;
   isActive: boolean;
+  autoplayEnabled: boolean;
   muted: boolean;
   onToggleMute: () => void;
   onEngage: (scrollId: string, type: ScrollEngagementType, payload?: { watchedSeconds?: number }) => Promise<void> | void;
+  onComment: (scroll: ScrollVideo) => Promise<void> | void;
   onShareToStory: (scroll: ScrollVideo) => Promise<void> | void;
   onRepost: (scroll: ScrollVideo) => Promise<void> | void;
+  onDash: (scroll: ScrollVideo) => Promise<void> | void;
   onSend: (scroll: ScrollVideo) => Promise<void> | void;
   onReport: (scroll: ScrollVideo) => Promise<void> | void;
 };
@@ -20,11 +23,14 @@ const authorInitial = (name?: string | null) => String(name || 'S').trim().charA
 const ScrollCard: React.FC<ScrollCardProps> = ({
   scroll,
   isActive,
+  autoplayEnabled,
   muted,
   onToggleMute,
   onEngage,
+  onComment,
   onShareToStory,
   onRepost,
+  onDash,
   onSend,
   onReport
 }) => {
@@ -52,13 +58,18 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
       return;
     }
 
+    if (!autoplayEnabled) {
+      video.pause();
+      return;
+    }
+
     const playPromise = video.play();
     if (playPromise && typeof playPromise.catch === 'function') {
       playPromise.catch(() => {
         // autoplay failures are expected on some devices until user interaction
       });
     }
-  }, [isActive, muted, scroll.id]);
+  }, [autoplayEnabled, isActive, muted, scroll.id]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -68,13 +79,13 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         video.pause();
         return;
       }
-      if (isActive) {
+      if (isActive && autoplayEnabled) {
         void video.play().catch(() => undefined);
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [isActive]);
+  }, [autoplayEnabled, isActive]);
 
   const handleTimeUpdate = async () => {
     if (!isActive || !videoRef.current) return;
@@ -144,12 +155,12 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
 
   const rightActions = useMemo(
     () => [
-      { key: 'comment', label: 'Comment', icon: MessageCircle, onClick: () => onEngage(scroll.id, 'comment'), value: scroll.metrics.comments },
+      { key: 'comment', label: 'Comment', icon: MessageCircle, onClick: () => onComment(scroll), value: scroll.metrics.comments },
       { key: 'repost', label: 'Repost', icon: Repeat2, onClick: () => onRepost(scroll), value: scroll.metrics.reposts },
-      { key: 'dash', label: 'Dash', icon: Coins, onClick: () => onEngage(scroll.id, 'dash'), value: scroll.metrics.shares },
+      { key: 'dash', label: 'Dash', icon: Coins, onClick: () => onDash(scroll), value: scroll.metrics.shares },
       { key: 'send', label: 'Send', icon: Send, onClick: () => onSend(scroll), value: scroll.metrics.sends }
     ],
-    [onEngage, onRepost, onSend, scroll]
+    [onComment, onDash, onRepost, onSend, scroll]
   );
 
   return (
@@ -176,7 +187,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
             muted={muted}
             loop
             playsInline
-            preload={isActive ? 'auto' : 'metadata'}
+            controls={!autoplayEnabled}
+            preload={isActive ? (autoplayEnabled ? 'auto' : 'metadata') : 'none'}
             onTimeUpdate={handleTimeUpdate}
             poster={scroll.media?.thumbnailUrl || undefined}
           />

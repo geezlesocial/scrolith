@@ -28,16 +28,20 @@ import PostHeader from './components/PostHeader';
 import PostEngagementBar from './components/PostEngagementBar';
 import MentionText from './components/MentionText';
 import ReactionBar from './components/ReactionBar';
+import RepostModal from './components/RepostModal';
+import PostShareModal from './components/PostShareModal';
 import MentionHashtagTextarea from './components/MentionHashtagTextarea';
 import PostOptionsButton from './components/post-options/PostOptionsButton';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from './followState';
 import { useNotification } from '../context/NotificationContext';
 import FilePickerModal from '../dashboard/shared/FilePickerModal';
+import SendGcoinModal from '../components/SendGcoinModal';
 import { FileService } from '../services/files';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from './storyStyles';
 import { resolveAssetUrl } from '../utils/assetUrl';
 import { Capacitor } from '@capacitor/core';
 import { captureAndUpload } from '../mobile/uploads';
+import { usePerformanceProfile } from '../hooks/usePerformanceProfile';
 
 const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
   const explicit = String(media.type || '').toLowerCase();
@@ -296,6 +300,12 @@ const CommunityHome = () => {
   const [editingStory, setEditingStory] = useState<any | null>(null);
   const [storyEditSaving, setStoryEditSaving] = useState(false);
   const [storyActionBusy, setStoryActionBusy] = useState<Record<string, boolean>>({});
+  const [storyActionTarget, setStoryActionTarget] = useState<any | null>(null);
+  const [storyCommentOpen, setStoryCommentOpen] = useState(false);
+  const [storyCommentDraft, setStoryCommentDraft] = useState('');
+  const [storyRepostOpen, setStoryRepostOpen] = useState(false);
+  const [storySendOpen, setStorySendOpen] = useState(false);
+  const [storyDashOpen, setStoryDashOpen] = useState(false);
   const [storyCameraOpen, setStoryCameraOpen] = useState(false);
   const [storyCameraStream, setStoryCameraStream] = useState<MediaStream | null>(null);
   const storyVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -321,6 +331,7 @@ const CommunityHome = () => {
   });
   const { user } = useUser();
   const { showNotification } = useNotification();
+  const { profile } = usePerformanceProfile();
   const followStateMap = useFollowStateMap();
   const impressionTracked = useRef<Set<string>>(new Set());
   const viewTracked = useRef<Set<string>>(new Set());
@@ -599,12 +610,14 @@ const CommunityHome = () => {
       try {
         setStoriesLoading(true);
         setReelsLoading(true);
+        const postsLimit = Math.max(6, Math.min(40, Number(profile.feedPageSize || 20)));
+        const reelsLimit = Math.max(6, Math.min(24, Number(profile.feedPageSize || 18)));
         const [feedPosts, ads, homepageConfig, storiesFeed, scrollFeed] = await Promise.all([
-          CommunityService.getPosts({ limit: 20 }),
+          CommunityService.getPosts({ limit: postsLimit }),
           AdService.getAds(user?.role),
           CommunityService.getCommunityHomepage(),
           CommunityService.getStoriesFeed(),
-          ScrollService.getFeed({ limit: 18 }).catch((error) => {
+          ScrollService.getFeed({ limit: reelsLimit }).catch((error) => {
             console.warn('Failed to load reels feed on community home:', error);
             return { items: [] as ScrollVideo[] };
           }),
@@ -646,7 +659,7 @@ const CommunityHome = () => {
         setHomepage(homepageConfig);
         setStories(filterActiveStories(Array.isArray(storiesFeed) ? storiesFeed : []));
         const nextReels = Array.isArray(scrollFeed?.items)
-          ? scrollFeed.items.filter((item: ScrollVideo) => String(item?.status || '').toUpperCase() !== 'REMOVED').slice(0, 18)
+          ? scrollFeed.items.filter((item: ScrollVideo) => String(item?.status || '').toUpperCase() !== 'REMOVED').slice(0, reelsLimit)
           : [];
         setScrollConfig(scrollFeed?.config || null);
         setReels(nextReels);
@@ -826,7 +839,7 @@ const CommunityHome = () => {
       window.removeEventListener('community:thread_deleted', refreshCommunityOverview as EventListener);
       window.removeEventListener('community:comment_created', refreshCommunityOverview as EventListener);
     };
-  }, [applyStoryUpdate, filterActiveStories, normalizePost, sortPosts, user?.id, user?.role]);
+  }, [applyStoryUpdate, filterActiveStories, normalizePost, profile.feedPageSize, sortPosts, user?.id, user?.role]);
 
   useEffect(() => {
     const onPostCreated = (event: Event) => {
@@ -1329,98 +1342,114 @@ const CommunityHome = () => {
     [applyStoryUpdate]
   );
 
+  const buildStoryUrl = useCallback((storyId: string) => {
+    if (typeof window === 'undefined') return `/community?story=${encodeURIComponent(storyId)}`;
+    return `${window.location.origin}/community?story=${encodeURIComponent(storyId)}`;
+  }, []);
+
+  const ensureStoryAuth = useCallback(
+    (promptMessage: string) => {
+      if (user?.id) return true;
+      if (confirm(promptMessage)) window.location.href = '/auth/login';
+      return false;
+    },
+    [user?.id]
+  );
+
   const handleStoryCommentAction = useCallback(
     async (story: any) => {
-      if (!user) {
-        if (confirm('Log in to comment on stories?')) window.location.href = '/auth/login';
-        return;
-      }
-      const input = window.prompt('Write your story comment');
-      if (input === null) return;
-      const content = String(input || '').trim();
-      if (!content) {
-        showNotification('warning', 'Stories', 'Comment cannot be empty.');
-        return;
-      }
-      try {
-        await CommunityService.createPost({
-          content: `${content}\n\nCommented from story by ${resolveStoryAuthorName(story, 'Community member')}.`
-        });
-        await engageStoryAndSync(story, 'comment');
-        showNotification('success', 'Stories', 'Comment shared to your feed.');
-      } catch (error: any) {
-        showNotification('error', 'Stories', error?.message || 'Unable to comment on this story.');
-      }
+      if (!ensureStoryAuth('Log in to comment on stories?')) return;
+      if (!story?.id) return;
+      setStoryActionTarget(story);
+      setStoryCommentDraft('');
+      setStoryCommentOpen(true);
     },
-    [engageStoryAndSync, showNotification, user]
+    [ensureStoryAuth]
   );
 
   const handleStoryRepostAction = useCallback(
     async (story: any) => {
-      if (!user) {
-        if (confirm('Log in to repost stories?')) window.location.href = '/auth/login';
-        return;
-      }
+      if (!ensureStoryAuth('Log in to repost stories?')) return;
+      if (!story?.id) return;
+      setStoryActionTarget(story);
+      setStoryRepostOpen(true);
+    },
+    [ensureStoryAuth]
+  );
+
+  const handleStorySendAction = useCallback(
+    async (story: any) => {
+      if (!story?.id) return;
+      setStoryActionTarget(story);
+      setStorySendOpen(true);
+    },
+    []
+  );
+
+  const handleStoryDashAction = useCallback(
+    async (story: any) => {
+      if (!ensureStoryAuth('Log in to dash story creators?')) return;
+      if (!story?.id) return;
+      setStoryActionTarget(story);
+      setStoryDashOpen(true);
+    },
+    [ensureStoryAuth]
+  );
+
+  const submitStoryComment = useCallback(async () => {
+    const story = storyActionTarget;
+    const storyId = String(story?.id || '').trim();
+    if (!storyId || storyActionBusy[storyId]) return;
+    const content = String(storyCommentDraft || '').trim();
+    if (!content) {
+      showNotification('warning', 'Stories', 'Comment cannot be empty.');
+      return;
+    }
+    setStoryActionBusy((prev) => ({ ...prev, [storyId]: true }));
+    try {
+      await CommunityService.createPost({
+        content: `${content}\n\nCommented on story by ${resolveStoryAuthorName(story, 'Community member')}.\n${buildStoryUrl(storyId)}`
+      });
+      await engageStoryAndSync(story, 'comment');
+      setStoryCommentOpen(false);
+      setStoryCommentDraft('');
+      showNotification('success', 'Stories', 'Comment shared to your feed.');
+    } catch (error: any) {
+      showNotification('error', 'Stories', error?.message || 'Unable to comment on this story.');
+    } finally {
+      setStoryActionBusy((prev) => ({ ...prev, [storyId]: false }));
+    }
+  }, [buildStoryUrl, engageStoryAndSync, showNotification, storyActionBusy, storyActionTarget, storyCommentDraft]);
+
+  const repostStory = useCallback(
+    async (comment?: string) => {
+      const story = storyActionTarget;
+      const storyId = String(story?.id || '').trim();
+      if (!storyId || storyActionBusy[storyId]) return;
       const authorName = resolveStoryAuthorName(story, 'Community member');
-      const text = String(resolveStoryContent(story) || '').trim();
+      const storyText = String(resolveStoryContent(story) || '').trim();
+      const link = buildStoryUrl(storyId);
+      const wrapperComment = String(comment || '').trim();
+      setStoryActionBusy((prev) => ({ ...prev, [storyId]: true }));
       try {
         await CommunityService.createPost({
-          title: text ? `Story repost - ${authorName}` : undefined,
-          content: text || `Reposted a story by ${authorName}.`,
+          title: storyText ? `Story repost - ${authorName}` : undefined,
+          content: wrapperComment ? `${wrapperComment}\n\n${link}` : `${storyText || `Reposted a story by ${authorName}.`}\n\n${link}`,
           attachmentFileIds:
             story?.mediaFileId && String(story?.authorId || '') === String(user?.id || '')
               ? [story.mediaFileId]
               : undefined
         });
         await engageStoryAndSync(story, 'repost');
+        setStoryRepostOpen(false);
         showNotification('success', 'Stories', 'Story reposted.');
       } catch (error: any) {
         showNotification('error', 'Stories', error?.message || 'Unable to repost this story.');
+      } finally {
+        setStoryActionBusy((prev) => ({ ...prev, [storyId]: false }));
       }
     },
-    [engageStoryAndSync, showNotification, user]
-  );
-
-  const handleStorySendAction = useCallback(
-    async (story: any) => {
-      const storyId = String(story?.id || '').trim();
-      if (!storyId) return;
-      const url = `${window.location.origin}/community?story=${encodeURIComponent(storyId)}`;
-      const title = resolveStoryAuthorName(story, 'Story');
-      const text = resolveStoryContent(story) || 'Check this story on Scrolith';
-      try {
-        const nav = navigator as any;
-        if (nav?.share) {
-          await nav.share({ title, text, url });
-        } else {
-          await navigator.clipboard.writeText(url);
-          showNotification('success', 'Stories', 'Story link copied.');
-        }
-        await engageStoryAndSync(story, 'send');
-      } catch (error: any) {
-        if (error?.name !== 'AbortError') {
-          showNotification('error', 'Stories', error?.message || 'Unable to share this story.');
-        }
-      }
-    },
-    [engageStoryAndSync, showNotification]
-  );
-
-  const handleStoryDashAction = useCallback(
-    async (story: any) => {
-      if (!user) {
-        if (confirm('Log in to dash story creators?')) window.location.href = '/auth/login';
-        return;
-      }
-      try {
-        await engageStoryAndSync(story, 'dash');
-      } catch (error: any) {
-        showNotification('error', 'Stories', error?.message || 'Unable to send dash.');
-        return;
-      }
-      navigate('/community/gcoin');
-    },
-    [engageStoryAndSync, navigate, showNotification, user]
+    [buildStoryUrl, engageStoryAndSync, showNotification, storyActionBusy, storyActionTarget, user?.id]
   );
 
   const activeStoryIndex = activeStory?.id ? stories.findIndex((story) => story.id === activeStory.id) : -1;
@@ -1457,6 +1486,13 @@ const CommunityHome = () => {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activeStory?.id, goToStoryByOffset]);
+
+  const activeStoryShareUrl = storyActionTarget?.id
+    ? buildStoryUrl(String(storyActionTarget.id))
+    : (typeof window === 'undefined' ? '/community' : `${window.location.origin}/community`);
+  const activeStoryDashRecipient = String(
+    storyActionTarget?.authorId || storyActionTarget?.author?.id || storyActionTarget?.userId || ''
+  ).trim();
 
   const promotePost = (post: any) => {
     if (!user) {
@@ -2378,6 +2414,7 @@ const CommunityHome = () => {
                                         poster={media.thumbnailUrl || undefined}
                                         className={`${mediaHeightClass} w-full object-cover`}
                                         controls
+                                        autoplayEnabled={profile.autoplayEnabled}
                                         preload="metadata"
                                       />
                                     </div>
@@ -2892,8 +2929,8 @@ const CommunityHome = () => {
       )}
 
       {activeStory && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-6">
+          <div className="w-full max-w-xl max-h-[94dvh] overflow-y-auto rounded-2xl bg-white p-4 sm:p-5 shadow-2xl">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 {(() => {
@@ -2942,7 +2979,7 @@ const CommunityHome = () => {
                 </button>
               </div>
             </div>
-            <div className="relative mt-4 overflow-hidden rounded-xl bg-gray-100">
+            <div className="relative mt-4 overflow-hidden rounded-2xl bg-gray-100 aspect-[9/16] sm:aspect-[9/14]">
               {(() => {
                 const mediaUrl = resolveStoryMediaUrl(activeStory);
                 if (mediaUrl) {
@@ -2954,18 +2991,18 @@ const CommunityHome = () => {
                       playsInline
                       loop
                       preload="metadata"
-                      className="h-80 w-full object-cover"
-                    />
-                  ) : (
-                    <img src={mediaUrl} alt="Story" className="h-80 w-full object-cover" />
-                  );
-                }
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <img src={mediaUrl} alt="Story" className="h-full w-full object-cover" />
+                    );
+                  }
                 const text = resolveStoryContent(activeStory);
                 if (text) {
                   const style = getStoryTextStyle(activeStory);
                   return (
                     <div
-                      className="flex h-80 w-full items-center justify-center px-6 text-center"
+                      className="flex h-full w-full items-center justify-center px-4 sm:px-6 text-center"
                       style={{
                         background: style.background,
                         color: style.color,
@@ -2977,7 +3014,7 @@ const CommunityHome = () => {
                     </div>
                   );
                 }
-                return <div className="h-80 w-full flex items-center justify-center text-sm text-gray-500">No media</div>;
+                return <div className="h-full w-full flex items-center justify-center text-sm text-gray-500">No media</div>;
               })()}
               <div className="pointer-events-none absolute inset-y-0 left-0 right-0 flex items-center justify-between px-2">
                 <button
@@ -3071,6 +3108,85 @@ const CommunityHome = () => {
           </div>
         </div>
       )}
+
+      {storyCommentOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setStoryCommentOpen(false)}
+          />
+          <div className="relative w-full max-w-lg rounded-2xl bg-white p-5 text-gray-900 shadow-2xl">
+            <h3 className="text-base font-semibold">Comment on story</h3>
+            <p className="mt-1 text-xs text-gray-500">Your comment will be shared to your feed and linked to this story.</p>
+            <textarea
+              value={storyCommentDraft}
+              onChange={(event) => setStoryCommentDraft(event.target.value)}
+              rows={4}
+              placeholder="Write your comment..."
+              className="mt-4 w-full rounded-xl border border-gray-200 p-3 text-sm text-gray-700"
+            />
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setStoryCommentOpen(false)}
+                className="rounded-full border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitStoryComment()}
+                className="rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold uppercase text-white"
+                disabled={Boolean(storyActionBusy[String(storyActionTarget?.id || '')])}
+              >
+                {storyActionBusy[String(storyActionTarget?.id || '')] ? 'Posting...' : 'Comment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <RepostModal
+        isOpen={storyRepostOpen}
+        onClose={() => setStoryRepostOpen(false)}
+        busy={Boolean(storyActionBusy[String(storyActionTarget?.id || '')])}
+        onRepostNow={async () => repostStory()}
+        onRepostWithComment={async (comment) => repostStory(comment)}
+      />
+
+      <PostShareModal
+        isOpen={storySendOpen}
+        onClose={() => setStorySendOpen(false)}
+        postUrl={activeStoryShareUrl}
+        entityLabel="story"
+        shareText={
+          storyActionTarget?.id
+            ? `Check this story on Scrolith: ${activeStoryShareUrl}`
+            : 'Check this story on Scrolith'
+        }
+        onShareToNetwork={() => {
+          if (!storyActionTarget?.id) return;
+          setStorySendOpen(false);
+          setStoryRepostOpen(true);
+        }}
+        onTrackedShare={async () => {
+          if (!storyActionTarget?.id) return;
+          await engageStoryAndSync(storyActionTarget, 'send');
+        }}
+      />
+
+      <SendGcoinModal
+        isOpen={storyDashOpen}
+        onClose={() => setStoryDashOpen(false)}
+        prefillRecipientId={activeStoryDashRecipient || undefined}
+        titleOverride="Dash Story Creator"
+        subtitleOverride="Support this story creator instantly with your Gcoin balance."
+        onSuccess={async () => {
+          if (!storyActionTarget?.id) return;
+          await engageStoryAndSync(storyActionTarget, 'dash');
+        }}
+      />
     </div>
   );
 };

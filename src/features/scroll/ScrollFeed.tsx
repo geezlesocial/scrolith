@@ -6,6 +6,11 @@ import ScrollCreateModal from './ScrollCreateModal';
 import { ScrollService, type ScrollConfig, type ScrollVideo, type ScrollEngagementType } from '../../services/scroll';
 import { useNotification } from '../../context/NotificationContext';
 import { CommunityService } from '../../services/community';
+import { usePerformanceProfile } from '../../hooks/usePerformanceProfile';
+import { useUser } from '../../context/UserContext';
+import RepostModal from '../../community/components/RepostModal';
+import PostShareModal from '../../community/components/PostShareModal';
+import SendGcoinModal from '../../components/SendGcoinModal';
 
 const LAST_SCROLL_INDEX_KEY = 'scroll:lastIndex';
 const GLOBAL_SCROLL_MUTED_KEY = 'scroll:muted';
@@ -23,7 +28,9 @@ const readMutedPreference = () => {
 
 const ScrollFeed: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useUser();
   const { showNotification } = useNotification();
+  const { profile } = usePerformanceProfile();
   const [items, setItems] = useState<ScrollVideo[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,20 +40,17 @@ const ScrollFeed: React.FC = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [config, setConfig] = useState<ScrollConfig | null>(null);
   const [reportBusyId, setReportBusyId] = useState<string | null>(null);
+  const [activeActionScroll, setActiveActionScroll] = useState<ScrollVideo | null>(null);
+  const [commentOpen, setCommentOpen] = useState(false);
+  const [repostOpen, setRepostOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [dashOpen, setDashOpen] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [commentDraft, setCommentDraft] = useState('');
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const observerRef = useRef<IntersectionObserver | null>(null);
-
-  const lowDataMode = useMemo(() => {
-    try {
-      const nav = navigator as any;
-      const connection = nav?.connection || nav?.mozConnection || nav?.webkitConnection;
-      return Boolean(connection?.saveData) || /2g/i.test(String(connection?.effectiveType || ''));
-    } catch {
-      return false;
-    }
-  }, []);
 
   const patchMetrics = useCallback((scrollId: string, metrics: Partial<ScrollVideo['metrics']>) => {
     setItems((prev) =>
@@ -64,6 +68,20 @@ const ScrollFeed: React.FC = () => {
     );
   }, []);
 
+  const ensureAuth = useCallback(
+    (promptMessage: string) => {
+      if (user?.id) return true;
+      if (window.confirm(promptMessage)) window.location.href = '/auth/login';
+      return false;
+    },
+    [user?.id]
+  );
+
+  const buildScrollUrl = useCallback((scrollId: string) => {
+    if (typeof window === 'undefined') return `https://scrolith.com/scroll?scroll=${encodeURIComponent(scrollId)}`;
+    return `${window.location.origin}/scroll?scroll=${encodeURIComponent(scrollId)}`;
+  }, []);
+
   const loadFeed = useCallback(
     async (cursor?: string | null) => {
       try {
@@ -74,7 +92,7 @@ const ScrollFeed: React.FC = () => {
         }
         const data = await ScrollService.getFeed({
           cursor: cursor || undefined,
-          limit: lowDataMode ? 10 : 20
+          limit: profile.feedPageSize
         });
         const nextItems = Array.isArray(data?.items) ? data.items : [];
         setConfig((data?.config as ScrollConfig) || null);
@@ -100,7 +118,7 @@ const ScrollFeed: React.FC = () => {
         setLoadingMore(false);
       }
     },
-    [lowDataMode, showNotification]
+    [profile.feedPageSize, showNotification]
   );
 
   useEffect(() => {
@@ -160,10 +178,11 @@ const ScrollFeed: React.FC = () => {
   }, [loading]);
 
   useEffect(() => {
-    const shouldPrefetch = activeIndex >= items.length - 3;
+    const threshold = Math.max(1, profile.prefetchWindow);
+    const shouldPrefetch = activeIndex >= items.length - threshold;
     if (!shouldPrefetch || !nextCursor || loadingMore) return;
     void loadFeed(nextCursor);
-  }, [activeIndex, items.length, nextCursor, loadingMore, loadFeed]);
+  }, [activeIndex, items.length, nextCursor, loadingMore, loadFeed, profile.prefetchWindow]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -248,42 +267,38 @@ const ScrollFeed: React.FC = () => {
 
   const handleRepost = useCallback(
     async (scroll: ScrollVideo) => {
-      try {
-        await CommunityService.createPost({
-          title: scroll.title || 'Scroll repost',
-          content: `${scroll.description || ''}\n\nhttps://scrolith.com/scroll?scroll=${encodeURIComponent(scroll.id)}`
-        });
-        await handleEngage(scroll.id, 'repost');
-        showNotification('success', 'Scroll', 'Shared as post.');
-      } catch (error: any) {
-        const message = error?.response?.data?.error || error?.message || 'Failed to repost.';
-        showNotification('error', 'Scroll', message);
-      }
+      if (!ensureAuth('Log in to repost Scroll videos?')) return;
+      setActiveActionScroll(scroll);
+      setRepostOpen(true);
     },
-    [handleEngage, showNotification]
+    [ensureAuth]
   );
 
   const handleSend = useCallback(
     async (scroll: ScrollVideo) => {
-      const url = `https://scrolith.com/scroll?scroll=${encodeURIComponent(scroll.id)}`;
-      try {
-        const nav = navigator as any;
-        if (nav?.share) {
-          await nav.share({
-            title: scroll.title || 'Scrolith Scroll',
-            text: scroll.description || 'Check this Scroll on Scrolith',
-            url
-          });
-        } else {
-          await navigator.clipboard.writeText(url);
-          showNotification('success', 'Scroll', 'Link copied. Open a chat to send.');
-        }
-        await handleEngage(scroll.id, 'send');
-      } catch {
-        // ignore aborted share
-      }
+      setActiveActionScroll(scroll);
+      setShareOpen(true);
     },
-    [handleEngage, showNotification]
+    []
+  );
+
+  const handleComment = useCallback(
+    async (scroll: ScrollVideo) => {
+      if (!ensureAuth('Log in to comment on Scroll videos?')) return;
+      setActiveActionScroll(scroll);
+      setCommentDraft('');
+      setCommentOpen(true);
+    },
+    [ensureAuth]
+  );
+
+  const handleDash = useCallback(
+    async (scroll: ScrollVideo) => {
+      if (!ensureAuth('Log in to dash Scroll creators?')) return;
+      setActiveActionScroll(scroll);
+      setDashOpen(true);
+    },
+    [ensureAuth]
   );
 
   const handleReport = useCallback(
@@ -303,6 +318,57 @@ const ScrollFeed: React.FC = () => {
     },
     [showNotification]
   );
+
+  const submitScrollComment = useCallback(async () => {
+    if (!activeActionScroll?.id || actionBusy) return;
+    const content = String(commentDraft || '').trim();
+    if (!content) {
+      showNotification('warning', 'Scroll', 'Comment cannot be empty.');
+      return;
+    }
+    setActionBusy(true);
+    try {
+      await CommunityService.createPost({
+        content: `${content}\n\nCommented on Scroll by ${activeActionScroll.author?.name || 'creator'}.\n${buildScrollUrl(activeActionScroll.id)}`
+      });
+      await handleEngage(activeActionScroll.id, 'comment');
+      setCommentOpen(false);
+      setCommentDraft('');
+      showNotification('success', 'Scroll', 'Comment shared to your feed.');
+    } catch (error: any) {
+      const message = error?.response?.data?.error || error?.message || 'Failed to comment on Scroll.';
+      showNotification('error', 'Scroll', message);
+    } finally {
+      setActionBusy(false);
+    }
+  }, [actionBusy, activeActionScroll, buildScrollUrl, commentDraft, handleEngage, showNotification]);
+
+  const repostScroll = useCallback(
+    async (withComment?: string) => {
+      if (!activeActionScroll?.id || actionBusy) return;
+      setActionBusy(true);
+      try {
+        const text = withComment
+          ? `${withComment.trim()}\n\n${buildScrollUrl(activeActionScroll.id)}`
+          : `${activeActionScroll.description || activeActionScroll.title || 'Shared from Scroll'}\n\n${buildScrollUrl(activeActionScroll.id)}`;
+        await CommunityService.createPost({
+          title: activeActionScroll.title || 'Scroll repost',
+          content: text
+        });
+        await handleEngage(activeActionScroll.id, 'repost');
+        setRepostOpen(false);
+        showNotification('success', 'Scroll', 'Shared to your feed.');
+      } catch (error: any) {
+        const message = error?.response?.data?.error || error?.message || 'Failed to repost Scroll.';
+        showNotification('error', 'Scroll', message);
+      } finally {
+        setActionBusy(false);
+      }
+    },
+    [actionBusy, activeActionScroll, buildScrollUrl, handleEngage, showNotification]
+  );
+
+  const activeScrollUrl = activeActionScroll?.id ? buildScrollUrl(activeActionScroll.id) : '';
 
   return (
     <div className="relative h-screen bg-black text-white">
@@ -367,11 +433,14 @@ const ScrollFeed: React.FC = () => {
                 <ScrollCard
                   scroll={scroll}
                   isActive={index === activeIndex}
+                  autoplayEnabled={profile.autoplayEnabled}
                   muted={muted}
                   onToggleMute={() => setMuted((prev) => !prev)}
                   onEngage={handleEngage}
+                  onComment={handleComment}
                   onShareToStory={handleShareToStory}
                   onRepost={handleRepost}
+                  onDash={handleDash}
                   onSend={handleSend}
                   onReport={handleReport}
                 />
@@ -391,6 +460,94 @@ const ScrollFeed: React.FC = () => {
           <div className="rounded-full bg-white/15 px-3 py-1 text-xs text-white/90 backdrop-blur">Submitting report...</div>
         </div>
       ) : null}
+
+      {commentOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60"
+            onClick={() => {
+              if (actionBusy) return;
+              setCommentOpen(false);
+            }}
+          />
+          <div className="relative w-full max-w-lg rounded-2xl bg-white p-5 text-slate-900 shadow-2xl">
+            <h3 className="text-base font-semibold">Comment on Scroll</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Your comment will be shared as a post and linked to this Scroll.
+            </p>
+            <textarea
+              value={commentDraft}
+              onChange={(event) => setCommentDraft(event.target.value)}
+              rows={4}
+              placeholder="Write your comment..."
+              className="mt-4 w-full rounded-xl border border-slate-200 p-3 text-sm text-slate-700"
+            />
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setCommentOpen(false)}
+                className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600"
+                disabled={actionBusy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitScrollComment()}
+                className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase text-white disabled:opacity-60"
+                disabled={actionBusy}
+              >
+                {actionBusy ? 'Posting...' : 'Comment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <RepostModal
+        isOpen={repostOpen}
+        onClose={() => {
+          if (actionBusy) return;
+          setRepostOpen(false);
+        }}
+        busy={actionBusy}
+        onRepostNow={async () => repostScroll()}
+        onRepostWithComment={async (comment) => repostScroll(comment)}
+      />
+
+      <PostShareModal
+        isOpen={shareOpen}
+        onClose={() => setShareOpen(false)}
+        postUrl={activeScrollUrl || (typeof window === 'undefined' ? 'https://scrolith.com/scroll' : `${window.location.origin}/scroll`)}
+        entityLabel="scroll"
+        shareText={
+          activeActionScroll
+            ? `Check this Scroll on Scrolith: ${activeScrollUrl}`
+            : 'Check this Scroll on Scrolith'
+        }
+        onShareToNetwork={() => {
+          if (!activeActionScroll) return;
+          setShareOpen(false);
+          setRepostOpen(true);
+        }}
+        onTrackedShare={async () => {
+          if (!activeActionScroll?.id) return;
+          await handleEngage(activeActionScroll.id, 'send');
+        }}
+      />
+
+      <SendGcoinModal
+        isOpen={dashOpen}
+        onClose={() => setDashOpen(false)}
+        prefillRecipientId={activeActionScroll?.authorId}
+        titleOverride="Dash Scroll Creator"
+        subtitleOverride="Support this Scroll creator instantly with your Gcoin balance."
+        onSuccess={async () => {
+          if (!activeActionScroll?.id) return;
+          await handleEngage(activeActionScroll.id, 'dash');
+        }}
+      />
 
       <ScrollCreateModal
         open={createOpen}
