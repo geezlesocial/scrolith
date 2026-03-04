@@ -3016,7 +3016,8 @@ const CommunityHome = () => {
                 }
                 return <div className="h-full w-full flex items-center justify-center text-sm text-gray-500">No media</div>;
               })()}
-              <div className="pointer-events-none absolute inset-y-0 left-0 right-0 flex items-center justify-between px-2">
+              <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/70 via-black/15 to-black/45" />
+              <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-30 flex items-center justify-between px-2">
                 <button
                   type="button"
                   className={`pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white transition ${
@@ -3040,6 +3041,65 @@ const CommunityHome = () => {
                   <ChevronRight className="h-5 w-5" />
                 </button>
               </div>
+              <div className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-92px)] text-white">
+                <div className="rounded-xl bg-black/40 px-3 py-2 text-[11px] font-semibold backdrop-blur-sm">
+                  <div className="flex items-center gap-2">
+                    <span>{formatCompactCount(activeStory.likesCount ?? activeStory._count?.likes ?? 0)} likes</span>
+                    <span>{formatCompactCount(activeStory.commentsCount ?? activeStory.interactions?.comments)} comments</span>
+                    <span>{formatCompactCount(activeStory.repostsCount ?? activeStory.interactions?.reposts)} reposts</span>
+                  </div>
+                </div>
+              </div>
+              <div className="absolute right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-2 pointer-events-auto">
+                <ReactionBar targetType="STORY" targetId={activeStory.id} layout="rail" compact className="w-[64px]" />
+                <button
+                  type="button"
+                  onClick={() => handleStoryCommentAction(activeStory)}
+                  className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/45 px-2 py-2 text-white transition hover:bg-black/65"
+                  disabled={Boolean(storyActionBusy[activeStory.id])}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(activeStory.commentsCount ?? activeStory.interactions?.comments)}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleStoryRepostAction(activeStory)}
+                  className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/45 px-2 py-2 text-white transition hover:bg-black/65"
+                  disabled={Boolean(storyActionBusy[activeStory.id])}
+                >
+                  <Repeat2 className="h-4 w-4" />
+                  <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(activeStory.repostsCount ?? activeStory.interactions?.reposts)}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleStoryDashAction(activeStory)}
+                  className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/45 px-2 py-2 text-white transition hover:bg-black/65"
+                  disabled={Boolean(storyActionBusy[activeStory.id])}
+                >
+                  <Coins className="h-4 w-4" />
+                  <span className="mt-1 text-[10px] font-semibold">Dash</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleStorySendAction(activeStory)}
+                  className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/45 px-2 py-2 text-white transition hover:bg-black/65"
+                  disabled={Boolean(storyActionBusy[activeStory.id])}
+                >
+                  <Send className="h-4 w-4" />
+                  <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(activeStory.sendsCount ?? activeStory.interactions?.sends)}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleStoryLike(activeStory)}
+                  className={`inline-flex min-w-[64px] flex-col items-center rounded-2xl px-2 py-2 text-white transition ${
+                    activeStory.viewerLiked ? 'bg-rose-600/85' : 'bg-black/45 hover:bg-black/65'
+                  }`}
+                  disabled={storyActionBusy[activeStory.id]}
+                >
+                  <Heart className={`h-4 w-4 ${activeStory.viewerLiked ? 'fill-white text-white' : ''}`} />
+                  <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(activeStory.likesCount ?? activeStory._count?.likes ?? 0)}</span>
+                </button>
+              </div>
             </div>
             {(() => {
               const text = resolveStoryContent(activeStory);
@@ -3049,61 +3109,9 @@ const CommunityHome = () => {
               }
               return null;
             })()}
-            <ReactionBar targetType="STORY" targetId={activeStory.id} className="mt-4" />
-            <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <button
-                type="button"
-                onClick={() => handleStoryCommentAction(activeStory)}
-                className="inline-flex items-center justify-center gap-1 rounded-full border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-                disabled={Boolean(storyActionBusy[activeStory.id])}
-              >
-                <MessageCircle className="h-3.5 w-3.5" />
-                Comment
-              </button>
-              <button
-                type="button"
-                onClick={() => handleStoryRepostAction(activeStory)}
-                className="inline-flex items-center justify-center gap-1 rounded-full border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-                disabled={Boolean(storyActionBusy[activeStory.id])}
-              >
-                <Repeat2 className="h-3.5 w-3.5" />
-                Repost
-              </button>
-              <button
-                type="button"
-                onClick={() => handleStoryDashAction(activeStory)}
-                className="inline-flex items-center justify-center gap-1 rounded-full border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-                disabled={Boolean(storyActionBusy[activeStory.id])}
-              >
-                <Coins className="h-3.5 w-3.5" />
-                Dash
-              </button>
-              <button
-                type="button"
-                onClick={() => handleStorySendAction(activeStory)}
-                className="inline-flex items-center justify-center gap-1 rounded-full border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50"
-                disabled={Boolean(storyActionBusy[activeStory.id])}
-              >
-                <Send className="h-3.5 w-3.5" />
-                Send
-              </button>
-            </div>
-            <div className="mt-3 flex items-center justify-between flex-wrap gap-2">
-              <button
-                onClick={() => handleStoryLike(activeStory)}
-                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${activeStory.viewerLiked ? 'border-rose-200 text-rose-600' : 'border-gray-200 text-gray-500'}`}
-                disabled={storyActionBusy[activeStory.id]}
-                type="button"
-              >
-                <Heart className={`h-4 w-4 ${activeStory.viewerLiked ? 'fill-rose-500 text-rose-500' : ''}`} />
-                {activeStory.likesCount ?? activeStory._count?.likes ?? 0}
-              </button>
-              <div className="flex items-center gap-2 text-[11px] text-gray-500">
-                <span>{formatCompactCount(activeStory.commentsCount ?? activeStory.interactions?.comments)} comments</span>
-                <span>{formatCompactCount(activeStory.repostsCount ?? activeStory.interactions?.reposts)} reposts</span>
-                <span>{formatCompactCount(activeStory.sendsCount ?? activeStory.interactions?.sends)} sends</span>
-                <span>{normalizeStoryVisibility(activeStory.visibility)}</span>
-              </div>
+            <div className="mt-3 flex items-center gap-2 text-[11px] text-gray-500">
+              <span>{normalizeStoryVisibility(activeStory.visibility)}</span>
+              <span>{activeStory.createdAt ? new Date(activeStory.createdAt).toLocaleString() : ''}</span>
             </div>
           </div>
         </div>

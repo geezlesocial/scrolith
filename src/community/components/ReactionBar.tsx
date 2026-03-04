@@ -17,6 +17,9 @@ type ReactionBarProps = {
   initialCounts?: Record<string, number>;
   initialUserReaction?: string | null;
   disabled?: boolean;
+  layout?: 'inline' | 'rail';
+  quickLimit?: number;
+  compact?: boolean;
   className?: string;
 };
 
@@ -51,6 +54,9 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
   initialCounts,
   initialUserReaction,
   disabled,
+  layout = 'inline',
+  quickLimit = 4,
+  compact = false,
   className = ''
 }) => {
   const { user } = useUser();
@@ -69,10 +75,7 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
     return reactionsSettings?.scrollEnabled ?? reactionsSettings?.scroll_enabled ?? true;
   }, [reactionsSettings, targetType]);
 
-  const allowed = useMemo(
-    () => normalizeAllowed(reactionsSettings?.allowed),
-    [reactionsSettings?.allowed]
-  );
+  const allowed = useMemo(() => normalizeAllowed(reactionsSettings?.allowed), [reactionsSettings?.allowed]);
 
   const [counts, setCounts] = useState<Record<string, number>>(initialCounts || {});
   const [userReaction, setUserReaction] = useState<string | null>(initialUserReaction || null);
@@ -164,8 +167,72 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
     }
   };
 
-  const quick = allowed.slice(0, 4);
-  const more = allowed.slice(4);
+  const safeQuickLimit = Math.max(1, Math.min(8, Number(quickLimit) || 4));
+  const quick = allowed.slice(0, safeQuickLimit);
+  const more = allowed.slice(safeQuickLimit);
+
+  if (layout === 'rail') {
+    return (
+      <div className={`relative flex flex-col items-center gap-2 ${className}`} onClick={(event) => event.stopPropagation()}>
+        {quick.map((item) => {
+          const count = counts[item.key] || 0;
+          const selected = userReaction === item.key;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              disabled={busy || disabled}
+              onClick={(event) => react(event, item.key)}
+              className={`inline-flex min-h-[46px] min-w-[64px] flex-col items-center justify-center rounded-2xl px-2 py-1.5 text-white transition ${
+                selected ? 'bg-blue-600/85 ring-1 ring-blue-200/60' : 'bg-black/45 hover:bg-black/65'
+              } disabled:cursor-not-allowed disabled:opacity-60`}
+              title={item.label}
+            >
+              <span className={compact ? 'text-base' : 'text-lg'}>{item.emoji}</span>
+              {showCounts && count > 0 ? <span className="text-[10px] font-semibold">{count}</span> : null}
+            </button>
+          );
+        })}
+
+        {more.length ? (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setOpenMore((prev) => !prev);
+              }}
+              className="inline-flex min-h-[46px] min-w-[64px] flex-col items-center justify-center rounded-2xl bg-black/45 px-2 py-1.5 text-white transition hover:bg-black/65"
+            >
+              <SmilePlus className="h-4 w-4" />
+              <span className="text-[10px] font-semibold">More</span>
+            </button>
+            {openMore ? (
+              <div className="absolute right-[72px] top-0 z-[80] flex max-w-[220px] flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                {more.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={(event) => {
+                      void react(event, item.key);
+                      setOpenMore(false);
+                    }}
+                    className={`rounded-lg px-2 py-1 text-sm transition ${
+                      userReaction === item.key ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-100'
+                    }`}
+                    title={item.label}
+                  >
+                    {item.emoji}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className={`mt-3 flex flex-wrap items-center gap-1.5 ${className}`}>
@@ -179,9 +246,7 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
             disabled={busy || disabled}
             onClick={(event) => react(event, item.key)}
             className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition ${
-              selected
-                ? 'border-blue-200 bg-blue-50 text-blue-700'
-                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+              selected ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
             } disabled:cursor-not-allowed disabled:opacity-60`}
             title={item.label}
           >
@@ -206,7 +271,7 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
             More
           </button>
           {openMore ? (
-            <div className="absolute left-0 top-9 z-20 flex max-w-[260px] flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+            <div className="absolute left-0 top-9 z-[80] flex max-w-[260px] flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
               {more.map((item) => (
                 <button
                   key={item.key}
@@ -232,4 +297,3 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
 };
 
 export default ReactionBar;
-

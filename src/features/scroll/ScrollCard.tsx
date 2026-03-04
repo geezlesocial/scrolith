@@ -182,7 +182,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
           <video
             ref={videoRef}
             src={mediaUrl}
-            className="relative z-10 h-full w-full object-contain"
+            className="relative z-0 h-full w-full object-contain"
             style={mediaFilterStyle}
             muted={muted}
             loop
@@ -199,10 +199,10 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         </div>
       )}
 
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/40" />
+      <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/80 via-black/20 to-black/40" />
 
-      <div className="absolute left-4 top-4 right-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="pointer-events-none absolute left-4 right-4 top-4 z-30 flex items-center justify-between">
+        <div className="pointer-events-auto flex items-center gap-3">
           <div className="h-10 w-10 rounded-full bg-white/15 ring-2 ring-white/70 overflow-hidden flex items-center justify-center text-sm font-semibold">
             {scroll.author?.avatar ? (
               <img src={scroll.author.avatar} alt={authorName} className="h-full w-full object-cover" />
@@ -242,7 +242,14 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         </div>
       </div>
 
-      <div className="absolute right-3 bottom-28 pointer-events-auto flex flex-col items-center gap-4">
+      <div className="absolute bottom-28 right-3 z-30 pointer-events-auto flex flex-col items-center gap-3">
+        <ReactionBar
+          targetType="SCROLL"
+          targetId={scroll.id}
+          layout="rail"
+          className="w-[64px]"
+          compact
+        />
         {rightActions.map((action) => (
           <button
             key={action.key}
@@ -275,17 +282,12 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         </button>
       </div>
 
-      <div className="absolute inset-x-4 bottom-6 pointer-events-none">
+      <div className="pointer-events-none absolute inset-x-4 bottom-6 z-20">
         <div className="max-w-[70%] md:max-w-[60%]">
           <p className="text-base font-semibold leading-snug">{topLine}</p>
           {description && title ? <p className="mt-1 text-sm text-white/85 line-clamp-3">{description}</p> : null}
           {scroll.location ? <p className="mt-1 text-xs text-white/80">Location: {scroll.location}</p> : null}
           <p className="mt-2 text-[11px] text-white/70">{new Date(scroll.createdAt).toLocaleString()}</p>
-          <ReactionBar
-            targetType="SCROLL"
-            targetId={scroll.id}
-            className="pointer-events-auto mt-3 rounded-2xl bg-black/35 p-2 backdrop-blur-md"
-          />
         </div>
       </div>
     </article>

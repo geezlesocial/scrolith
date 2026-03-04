@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlignCenterIcon as AlignCenter,
   AlignLeftIcon as AlignLeft,
@@ -14,6 +14,7 @@ import {
   VideoIcon as Video,
   XIcon as X
 } from '../../../components/icons/ShellIcons';
+import { ChevronLeft, ChevronRight, Coins, Repeat2, Send, Volume2, VolumeX } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import { useUser } from '../../../context/UserContext';
@@ -25,6 +26,10 @@ import { UploadedFile } from '../../../types';
 import FilePickerModal from '../../../dashboard/shared/FilePickerModal';
 import ScrollCreateModal from '../../../features/scroll/ScrollCreateModal';
 import { resolveAssetUrl } from '../../../utils/assetUrl';
+import ReactionBar from '../../../community/components/ReactionBar';
+import RepostModal from '../../../community/components/RepostModal';
+import PostShareModal from '../../../community/components/PostShareModal';
+import SendGcoinModal from '../../../components/SendGcoinModal';
 
 type StoryKind = 'text' | 'image' | 'video';
 type StoryVisibility = 'public' | 'private';
@@ -64,6 +69,29 @@ const resolveStoryMediaUrl = (story: any) => {
   const isVideo = type === 'video' || mime.startsWith('video/');
   if (isVideo) return { isVideo: true, url: url || thumb || null, thumbnailUrl: thumb || url || null };
   return { isVideo: false, url: url || thumb || null, thumbnailUrl: null };
+};
+
+const resolveStoryAuthorName = (story: any, fallback = 'Story') => {
+  const normalized = String(story?.authorName || story?.author?.name || '').trim();
+  return normalized || fallback;
+};
+
+const resolveStoryAuthorAvatar = (story: any) => {
+  const normalized = String(story?.authorAvatar || story?.author?.avatar || '').trim();
+  return normalized ? resolveAssetUrl(normalized) : '';
+};
+
+const resolveStoryAuthorInitial = (story: any) => {
+  const first = resolveStoryAuthorName(story, 'S').replace(/^@+/, '').trim().charAt(0).toUpperCase();
+  return first || 'S';
+};
+
+const formatCompactCount = (value: unknown) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return '0';
+  if (numeric >= 1_000_000) return `${(numeric / 1_000_000).toFixed(1).replace(/\.0$/, '')}M+`;
+  if (numeric >= 1_000) return `${(numeric / 1_000).toFixed(1).replace(/\.0$/, '')}k+`;
+  return String(Math.trunc(numeric));
 };
 
 const resolveStoryTypeFromFile = (file: UploadedFile): StoryKind | null => {
@@ -207,6 +235,13 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   const [draftTextStyle, setDraftTextStyle] = useState(() => getDefaultStoryTextDraft());
   const [publishing, setPublishing] = useState(false);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
+  const [storyActionTarget, setStoryActionTarget] = useState<any | null>(null);
+  const [storyCommentOpen, setStoryCommentOpen] = useState(false);
+  const [storyCommentDraft, setStoryCommentDraft] = useState('');
+  const [storyRepostOpen, setStoryRepostOpen] = useState(false);
+  const [storySendOpen, setStorySendOpen] = useState(false);
+  const [storyDashOpen, setStoryDashOpen] = useState(false);
+  const [storyActionBusy, setStoryActionBusy] = useState<Record<string, boolean>>({});
 
   const visibleStories = useMemo(() => {
     const list = Array.isArray(stories) ? stories : [];
@@ -271,6 +306,134 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
     }
     setComposerStep('compose');
     setComposerOpen(true);
+  };
+
+  const buildStoryUrl = (storyId: string) => {
+    if (typeof window === 'undefined') return `https://scrolith.com/community/stories/${encodeURIComponent(storyId)}`;
+    return `${window.location.origin}/community/stories/${encodeURIComponent(storyId)}`;
+  };
+
+  const patchStoryInState = (storyId: string, patch: Record<string, any>) => {
+    if (!storyId) return;
+    setStories((prev) =>
+      prev.map((entry) => {
+        if (String(entry?.id) !== String(storyId)) return entry;
+        return { ...entry, ...patch };
+      })
+    );
+    setActiveStory((current) => (String(current?.id) === String(storyId) ? { ...current, ...patch } : current));
+  };
+
+  const engageStoryAndSync = async (story: any, type: 'comment' | 'repost' | 'dash' | 'send') => {
+    const storyId = String(story?.id || '').trim();
+    if (!storyId) return;
+    setStoryActionBusy((prev) => ({ ...prev, [storyId]: true }));
+    try {
+      const response = await CommunityService.engageStory(storyId, type);
+      const nextStory = response?.story || response?.data?.story || null;
+      const interactions = response?.interactions || response?.data?.interactions || null;
+      if (nextStory && typeof nextStory === 'object') {
+        patchStoryInState(storyId, nextStory);
+      } else if (interactions && typeof interactions === 'object') {
+        patchStoryInState(storyId, {
+          commentsCount: interactions.comments,
+          repostsCount: interactions.reposts,
+          dashesCount: interactions.dashes,
+          sendsCount: interactions.sends,
+          interactions: {
+            comments: interactions.comments,
+            reposts: interactions.reposts,
+            dashes: interactions.dashes,
+            sends: interactions.sends
+          }
+        });
+      } else {
+        const increments: Record<string, number> = {};
+        if (type === 'comment') increments.commentsCount = Number(story?.commentsCount || story?.interactions?.comments || 0) + 1;
+        if (type === 'repost') increments.repostsCount = Number(story?.repostsCount || story?.interactions?.reposts || 0) + 1;
+        if (type === 'dash') increments.dashesCount = Number(story?.dashesCount || story?.interactions?.dashes || 0) + 1;
+        if (type === 'send') increments.sendsCount = Number(story?.sendsCount || story?.interactions?.sends || 0) + 1;
+        patchStoryInState(storyId, increments);
+      }
+      window.dispatchEvent(
+        new CustomEvent('community:story_engaged', {
+          detail: { storyId, type }
+        })
+      );
+    } finally {
+      setStoryActionBusy((prev) => {
+        const next = { ...prev };
+        delete next[storyId];
+        return next;
+      });
+    }
+  };
+
+  const handleStoryCommentAction = (story: any) => {
+    if (!story?.id) return;
+    setStoryActionTarget(story);
+    setStoryCommentDraft('');
+    setStoryCommentOpen(true);
+  };
+
+  const handleStoryRepostAction = (story: any) => {
+    if (!story?.id) return;
+    setStoryActionTarget(story);
+    setStoryRepostOpen(true);
+  };
+
+  const handleStorySendAction = (story: any) => {
+    if (!story?.id) return;
+    setStoryActionTarget(story);
+    setStorySendOpen(true);
+  };
+
+  const handleStoryDashAction = (story: any) => {
+    if (!story?.id) return;
+    setStoryActionTarget(story);
+    setStoryDashOpen(true);
+  };
+
+  const submitStoryComment = async () => {
+    const story = storyActionTarget;
+    const storyId = String(story?.id || '').trim();
+    if (!storyId) return;
+    const content = String(storyCommentDraft || '').trim();
+    if (!content) {
+      showNotification('warning', 'Stories', 'Comment cannot be empty.');
+      return;
+    }
+    try {
+      await CommunityService.createPost({
+        content: `${content}\n\nCommented on story by ${resolveStoryAuthorName(story, 'Community member')}.\n${buildStoryUrl(storyId)}`
+      });
+      await engageStoryAndSync(story, 'comment');
+      setStoryCommentOpen(false);
+      setStoryCommentDraft('');
+      showNotification('success', 'Stories', 'Comment shared to your feed.');
+    } catch (e: any) {
+      showNotification('error', 'Stories', e?.response?.data?.error || e?.message || 'Unable to comment on story.');
+    }
+  };
+
+  const repostStory = async (comment?: string) => {
+    const story = storyActionTarget;
+    const storyId = String(story?.id || '').trim();
+    if (!storyId) return;
+    const link = buildStoryUrl(storyId);
+    const authorName = resolveStoryAuthorName(story, 'Community member');
+    const storyText = resolveStoryContent(story);
+    const wrapperComment = String(comment || '').trim();
+    try {
+      await CommunityService.createPost({
+        content: wrapperComment ? `${wrapperComment}\n\n${link}` : `${storyText || `Reposted a story by ${authorName}.`}\n\n${link}`
+      });
+      await engageStoryAndSync(story, 'repost');
+      setStoryRepostOpen(false);
+      showNotification('success', 'Stories', 'Story reposted.');
+    } catch (e: any) {
+      showNotification('error', 'Stories', e?.response?.data?.error || e?.message || 'Unable to repost story.');
+    }
   };
 
   useEffect(() => {
@@ -347,13 +510,25 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
       setStories((prev) => removeStoryFromList(prev, storyId));
       setActiveStory((current) => (String(current?.id) === storyId ? null : current));
     };
+    const onEngaged = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const storyId = String(detail?.storyId || detail?.id || '').trim();
+      const story = detail?.story || null;
+      if (!storyId && !story?.id) return;
+      const normalizedId = storyId || String(story.id);
+      if (story && typeof story === 'object') {
+        patchStoryInState(normalizedId, story);
+      }
+    };
     window.addEventListener('community:story_created', onCreated as EventListener);
     window.addEventListener('community:story_updated', onUpdated as EventListener);
     window.addEventListener('community:story_deleted', onDeleted as EventListener);
+    window.addEventListener('community:story_engaged', onEngaged as EventListener);
     return () => {
       window.removeEventListener('community:story_created', onCreated as EventListener);
       window.removeEventListener('community:story_updated', onUpdated as EventListener);
       window.removeEventListener('community:story_deleted', onDeleted as EventListener);
+      window.removeEventListener('community:story_engaged', onEngaged as EventListener);
     };
   }, [enabled, maxItems]);
 
@@ -499,13 +674,16 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
               <button
                 type="button"
                 onClick={openCreate}
-                className="flex w-[74px] shrink-0 flex-col items-center gap-1.5"
+                className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-dashed border-slate-300 bg-white"
                 aria-label="Create story"
               >
-                <div className="flex h-14 w-14 items-center justify-center rounded-full border border-dashed border-slate-300 bg-white">
-                  <Plus className="h-5 w-5 text-slate-600" />
+                <div className="absolute inset-0 bg-gradient-to-b from-blue-500/10 via-indigo-500/10 to-cyan-500/15" />
+                <div className="relative z-10 flex h-full flex-col items-center justify-center gap-2 text-slate-700">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-300 bg-white">
+                    <Plus className="h-5 w-5 text-slate-600" />
+                  </div>
+                  <div className="px-2 text-center text-[12px] font-semibold">Your story</div>
                 </div>
-                <div className="w-full truncate text-center text-[11px] font-semibold text-slate-700">Your story</div>
               </button>
 
               {loading ? (
@@ -524,10 +702,10 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
               ) : (
                 visibleStories.map((story) => {
                   const id = String(story?.id || '').trim();
-                  const name = String(story?.authorName || story?.author?.name || 'Story').trim();
-                  const avatar = story?.authorAvatar || story?.author?.avatar || null;
+                  const name = resolveStoryAuthorName(story, 'Story');
+                  const avatar = resolveStoryAuthorAvatar(story);
                   const media = resolveStoryMediaUrl(story);
-                  const fallbackLetter = (name[0] || 'S').toUpperCase();
+                  const fallbackLetter = resolveStoryAuthorInitial(story);
                   return (
                     <button
                       key={id}
@@ -536,25 +714,43 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                         setActiveStory(story);
                         if (id) CommunityService.viewStory(id).catch(() => {});
                       }}
-                      className="flex w-[74px] shrink-0 flex-col items-center gap-1.5"
+                      className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
                       aria-label={`Open story by ${name}`}
                     >
-                      <div className="relative h-14 w-14 overflow-hidden rounded-full border-2 border-blue-600 bg-slate-100">
-                        {media.url ? (
-                          media.isVideo ? (
-                            <img src={media.thumbnailUrl || media.url} alt="Story" className="h-full w-full object-cover" />
-                          ) : (
-                            <img src={media.url} alt="Story" className="h-full w-full object-cover" />
-                          )
-                        ) : avatar ? (
+                      {media.url ? (
+                        media.isVideo ? (
+                          <video
+                            src={media.url}
+                            className="h-full w-full object-cover"
+                            autoPlay
+                            muted
+                            playsInline
+                            loop
+                            preload="metadata"
+                          />
+                        ) : (
+                          <img src={media.url} alt="Story" className="h-full w-full object-cover" />
+                        )
+                      ) : avatar ? (
+                        <img src={avatar} alt={name} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-white">
+                          {fallbackLetter}
+                        </div>
+                      )}
+                      <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
+                        {avatar ? (
                           <img src={avatar} alt={name} className="h-full w-full object-cover" />
                         ) : (
-                          <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-600">
-                            {fallbackLetter}
-                          </div>
+                          <span>{fallbackLetter}</span>
                         )}
                       </div>
-                      <div className="w-full truncate text-center text-[11px] font-semibold text-slate-700">{name}</div>
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
+                        <p className="line-clamp-1 text-[10px] font-semibold text-white">{name}</p>
+                        <p className="line-clamp-1 text-[10px] text-white/80">
+                          {resolveStoryContent(story) || (media.isVideo ? 'Video story' : 'Photo story')}
+                        </p>
+                      </div>
                     </button>
                   );
                 })
@@ -641,10 +837,21 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
       {activeStory ? (
         <StoryViewer
           story={activeStory}
+          stories={visibleStories}
           viewer={user}
           onClose={() => setActiveStory(null)}
+          onNavigate={(story) => {
+            if (!story?.id) return;
+            setActiveStory(story);
+            CommunityService.viewStory(String(story.id)).catch(() => {});
+          }}
           onEdit={() => openEdit(activeStory)}
           onDelete={() => void deleteStory(activeStory)}
+          onComment={() => handleStoryCommentAction(activeStory)}
+          onRepost={() => handleStoryRepostAction(activeStory)}
+          onDash={() => handleStoryDashAction(activeStory)}
+          onSend={() => handleStorySendAction(activeStory)}
+          storyBusy={Boolean(storyActionBusy[String(activeStory?.id || '')])}
         />
       ) : null}
 
@@ -900,33 +1107,140 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
           setComposerOpen(true);
         }}
       />
+
+      {storyCommentOpen ? (
+        <div className="fixed inset-0 z-[1100] flex items-end justify-center p-3">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60"
+            onClick={() => {
+              const storyId = String(storyActionTarget?.id || '');
+              if (storyActionBusy[storyId]) return;
+              setStoryCommentOpen(false);
+            }}
+          />
+          <div className="relative w-full max-w-md rounded-3xl bg-white p-4 shadow-2xl">
+            <h3 className="text-sm font-semibold text-slate-900">Comment on story</h3>
+            <textarea
+              value={storyCommentDraft}
+              onChange={(event) => setStoryCommentDraft(event.target.value)}
+              rows={4}
+              placeholder="Write your comment..."
+              className="mt-3 w-full resize-none rounded-2xl border border-slate-200 p-3 text-sm text-slate-700"
+            />
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setStoryCommentOpen(false)}
+                className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitStoryComment()}
+                className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white"
+                disabled={storyActionBusy[String(storyActionTarget?.id || '')]}
+              >
+                {storyActionBusy[String(storyActionTarget?.id || '')] ? 'Posting...' : 'Comment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <RepostModal
+        isOpen={storyRepostOpen}
+        onClose={() => setStoryRepostOpen(false)}
+        busy={storyActionBusy[String(storyActionTarget?.id || '')]}
+        onRepostNow={async () => repostStory()}
+        onRepostWithComment={async (comment) => repostStory(comment)}
+      />
+
+      <PostShareModal
+        isOpen={storySendOpen}
+        onClose={() => setStorySendOpen(false)}
+        postUrl={storyActionTarget?.id ? buildStoryUrl(String(storyActionTarget.id)) : 'https://scrolith.com/community'}
+        entityLabel="story"
+        shareText={
+          storyActionTarget?.id
+            ? `Check this story on Scrolith: ${buildStoryUrl(String(storyActionTarget.id))}`
+            : 'Check this story on Scrolith'
+        }
+        onShareToNetwork={() => {
+          setStorySendOpen(false);
+          setStoryRepostOpen(true);
+        }}
+        onTrackedShare={async () => {
+          if (!storyActionTarget?.id) return;
+          await engageStoryAndSync(storyActionTarget, 'send');
+        }}
+      />
+
+      <SendGcoinModal
+        isOpen={storyDashOpen}
+        onClose={() => setStoryDashOpen(false)}
+        prefillRecipientId={resolveStoryOwnerId(storyActionTarget)}
+        titleOverride="Dash Story Creator"
+        subtitleOverride="Support this story creator instantly with your Gcoin balance."
+        onSuccess={async () => {
+          if (!storyActionTarget?.id) return;
+          await engageStoryAndSync(storyActionTarget, 'dash');
+        }}
+      />
     </>
   );
 }
 
 function StoryViewer({
   story,
+  stories,
   viewer,
   onClose,
+  onNavigate,
   onEdit,
-  onDelete
+  onDelete,
+  onComment,
+  onRepost,
+  onDash,
+  onSend,
+  storyBusy
 }: {
   story: any;
+  stories: any[];
   viewer: any;
   onClose: () => void;
+  onNavigate: (nextStory: any) => void;
   onEdit: () => void;
   onDelete: () => void;
+  onComment: () => void;
+  onRepost: () => void;
+  onDash: () => void;
+  onSend: () => void;
+  storyBusy: boolean;
 }) {
   const { showNotification } = useNotification();
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [muted, setMuted] = useState(true);
+  const touchStartX = useRef<number | null>(null);
 
-  const name = String(story?.authorName || story?.author?.name || 'Story').trim();
-  const avatar = story?.authorAvatar || story?.author?.avatar || null;
+  const name = resolveStoryAuthorName(story, 'Story');
+  const avatar = resolveStoryAuthorAvatar(story);
   const type = resolveStoryType(story);
   const media = resolveStoryMediaUrl(story);
   const content = resolveStoryContent(story);
   const canManage = canManageStory(story, viewer);
   const style = getStoryTextStyle(story);
+  const activeIndex = story?.id ? stories.findIndex((entry) => String(entry?.id) === String(story.id)) : -1;
+  const hasPrev = activeIndex > 0;
+  const hasNext = activeIndex >= 0 && activeIndex < stories.length - 1;
+
+  const goToOffset = (offset: number) => {
+    if (activeIndex < 0) return;
+    const next = stories[activeIndex + offset];
+    if (!next) return;
+    onNavigate(next);
+  };
 
   return (
     <div className="fixed inset-0 z-[950] bg-black">
@@ -950,6 +1264,14 @@ function StoryViewer({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setMuted((prev) => !prev)}
+            className="rounded-full border border-white/20 bg-white/10 p-2"
+            aria-label={muted ? 'Unmute story' : 'Mute story'}
+          >
+            {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+          </button>
           {canManage ? (
             <button
               type="button"
@@ -971,28 +1293,121 @@ function StoryViewer({
         </div>
       </div>
 
-      <div className="flex h-[calc(100%-56px)] items-center justify-center px-4 pb-6">
-        {type === 'text' ? (
-          <div
-            className="flex h-full w-full max-w-md items-center justify-center rounded-3xl px-6 text-center text-base font-semibold"
-            style={{
-              background: style.background,
-              color: style.color,
-              fontFamily: style.fontFamily,
-              textAlign: style.textAlign as any
-            }}
-          >
-            <span className="whitespace-pre-wrap">{content || 'Story'}</span>
-          </div>
-        ) : media.url ? (
-          type === 'video' || media.isVideo ? (
-            <video src={media.url} className="h-full w-full max-w-md rounded-3xl object-contain" controls autoPlay playsInline />
+      <div className="relative flex h-[calc(100%-56px)] items-center justify-center px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+        <div
+          className="relative h-full w-full max-w-md overflow-hidden rounded-3xl bg-slate-900"
+          onTouchStart={(event) => {
+            touchStartX.current = event.changedTouches?.[0]?.clientX ?? null;
+          }}
+          onTouchEnd={(event) => {
+            const start = touchStartX.current;
+            const end = event.changedTouches?.[0]?.clientX ?? null;
+            touchStartX.current = null;
+            if (start == null || end == null) return;
+            const delta = end - start;
+            if (Math.abs(delta) < 45) return;
+            if (delta > 0) goToOffset(-1);
+            if (delta < 0) goToOffset(1);
+          }}
+        >
+          {type === 'text' ? (
+            <div
+              className="flex h-full w-full items-center justify-center px-6 text-center text-base font-semibold"
+              style={{
+                background: style.background,
+                color: style.color,
+                fontFamily: style.fontFamily,
+                textAlign: style.textAlign as any
+              }}
+            >
+              <span className="whitespace-pre-wrap">{content || 'Story'}</span>
+            </div>
+          ) : media.url ? (
+            type === 'video' || media.isVideo ? (
+              <video src={media.url} className="h-full w-full object-cover" controls autoPlay muted={muted} playsInline loop preload="metadata" />
+            ) : (
+              <img src={media.url} alt="Story" className="h-full w-full object-cover" />
+            )
           ) : (
-            <img src={media.url} alt="Story" className="h-full w-full max-w-md rounded-3xl object-contain" />
-          )
-        ) : (
-          <div className="text-sm text-white/80">Story media not available.</div>
-        )}
+            <div className="flex h-full w-full items-center justify-center text-sm text-white/80">Story media not available.</div>
+          )}
+          <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/70 via-black/10 to-black/45" />
+
+          <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-30 flex items-center justify-between px-2">
+            <button
+              type="button"
+              className={`pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white transition ${
+                hasPrev ? 'hover:bg-black/65' : 'cursor-not-allowed opacity-35'
+              }`}
+              onClick={() => goToOffset(-1)}
+              disabled={!hasPrev}
+              aria-label="Previous story"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              className={`pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white transition ${
+                hasNext ? 'hover:bg-black/65' : 'cursor-not-allowed opacity-35'
+              }`}
+              onClick={() => goToOffset(1)}
+              disabled={!hasNext}
+              aria-label="Next story"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-92px)] text-white">
+            <div className="rounded-xl bg-black/40 px-3 py-2 text-[11px] font-semibold backdrop-blur-sm">
+              <div className="flex items-center gap-2">
+                <span>{formatCompactCount(story?.likesCount ?? story?._count?.likes ?? 0)} likes</span>
+                <span>{formatCompactCount(story?.commentsCount ?? story?.interactions?.comments)} comments</span>
+                <span>{formatCompactCount(story?.repostsCount ?? story?.interactions?.reposts)} reposts</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="absolute right-2.5 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-2 pointer-events-auto">
+            <ReactionBar targetType="STORY" targetId={String(story?.id || '')} layout="rail" compact className="w-[64px]" />
+            <button
+              type="button"
+              onClick={onComment}
+              className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/45 px-2 py-2 text-white transition hover:bg-black/65"
+              disabled={storyBusy}
+            >
+              <MessageCircle className="h-4 w-4" />
+              <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(story?.commentsCount ?? story?.interactions?.comments)}</span>
+            </button>
+            <button
+              type="button"
+              onClick={onRepost}
+              className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/45 px-2 py-2 text-white transition hover:bg-black/65"
+              disabled={storyBusy}
+            >
+              <Repeat2 className="h-4 w-4" />
+              <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(story?.repostsCount ?? story?.interactions?.reposts)}</span>
+            </button>
+            <button
+              type="button"
+              onClick={onDash}
+              className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/45 px-2 py-2 text-white transition hover:bg-black/65"
+              disabled={storyBusy}
+            >
+              <Coins className="h-4 w-4" />
+              <span className="mt-1 text-[10px] font-semibold">Dash</span>
+            </button>
+            <button
+              type="button"
+              onClick={onSend}
+              className="inline-flex min-w-[64px] flex-col items-center rounded-2xl bg-black/45 px-2 py-2 text-white transition hover:bg-black/65"
+              disabled={storyBusy}
+            >
+              <Send className="h-4 w-4" />
+              <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(story?.sendsCount ?? story?.interactions?.sends)}</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       <Sheet open={actionsOpen} title="Story options" onClose={() => setActionsOpen(false)}>
