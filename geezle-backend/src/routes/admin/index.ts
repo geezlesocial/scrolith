@@ -171,6 +171,261 @@ const DEFAULT_MOBILE_HOME_LAYOUT = {
   }
 };
 
+const DEFAULT_GUEST_HOMEPAGE_SECTIONS = [
+  {
+    id: 'guest-hero-auth',
+    type: 'guest_hero_auth',
+    name: 'Guest Hero + Auth',
+    isActive: true,
+    position: 1,
+    content: {
+      headline: 'The All-in-One Platform for Work, Talent, and Community',
+      subheadline:
+        'Scrolith combines professional networking, freelance marketplace, messaging, payments, and AI workflows.',
+      description:
+        'Join millions building careers, growing businesses, and collaborating in real time.',
+      primaryCtaLabel: 'Create account',
+      primaryCtaUrl: '/auth/signup',
+      secondaryCtaLabel: 'Log in',
+      secondaryCtaUrl: '/auth/login',
+      heroBackgroundUrl: '',
+      authPanelTitle: 'Welcome to Scrolith',
+      authPanelSubtitle: 'Sign in or create an account to start working and growing.',
+      defaultTab: 'signup',
+      enableSocialLogin: true,
+      loginCtaLabel: 'Login',
+      signupCtaLabel: 'Sign up'
+    }
+  },
+  {
+    id: 'guest-what-is-scrolith',
+    type: 'guest_what_is_scrolith',
+    name: 'What is Scrolith',
+    isActive: true,
+    position: 2,
+    content: {
+      title: 'What is Scrolith?',
+      subtitle: 'A complete ecosystem for professionals and businesses.',
+      cards: [
+        { id: 'social', title: 'Social Network', description: 'Build your network, publish updates, and grow visibility.' },
+        { id: 'marketplace', title: 'Freelance Marketplace', description: 'Offer services or hire verified professionals.' },
+        { id: 'messaging', title: 'Messaging', description: 'Real-time chat, voice notes, and collaborative communication.' },
+        { id: 'payments', title: 'Wallet & Payments', description: 'Secure transactions and enterprise-grade payment flow.' },
+        { id: 'ai', title: 'AI Assistant', description: 'Automate content, insights, and productivity workflows.' },
+        { id: 'pages', title: 'Business Pages', description: 'Grow your brand with dedicated page presence and community.' }
+      ]
+    }
+  },
+  {
+    id: 'guest-paths',
+    type: 'guest_paths',
+    name: 'Freelancer vs Employer',
+    isActive: true,
+    position: 3,
+    content: {
+      title: 'Choose your path',
+      subtitle: 'Scrolith supports both talent and businesses at scale.',
+      freelancerTitle: 'Freelancer',
+      freelancerBullets: ['Create gigs', 'Apply to jobs', 'Earn income'],
+      freelancerCtaLabel: 'Start freelancing',
+      freelancerCtaUrl: '/auth/signup',
+      employerTitle: 'Employer',
+      employerBullets: ['Post jobs', 'Hire talent', 'Manage projects'],
+      employerCtaLabel: 'Start hiring',
+      employerCtaUrl: '/auth/signup'
+    }
+  },
+  {
+    id: 'guest-feature-showcase',
+    type: 'guest_feature_showcase',
+    name: 'Feature Showcase',
+    isActive: true,
+    position: 4,
+    content: {
+      title: 'Explore Scrolith features',
+      subtitle: 'Everything needed to work, hire, and scale in one platform.',
+      tabs: [
+        { id: 'marketplace', label: 'Marketplace', title: 'Professional services marketplace', description: 'Discover and deliver high-value services globally.' },
+        { id: 'community', label: 'Community', title: 'High-engagement community feed', description: 'Share updates, stories, and scroll content in real time.' },
+        { id: 'messaging', label: 'Messaging', title: 'Instant communication tools', description: 'Reliable chat infrastructure for teams and clients.' },
+        { id: 'ai', label: 'AI Assistant', title: 'Productivity with AI', description: 'Generate ideas, optimize content, and automate repetitive tasks.' },
+        { id: 'payments', label: 'Payments', title: 'Secure wallet and payout stack', description: 'Enterprise-grade checkout, payouts, and fund management.' },
+        { id: 'trust', label: 'Trust & Verification', title: 'Verified quality at scale', description: 'KYC, moderation, and safety-first controls for confidence.' }
+      ]
+    }
+  },
+  {
+    id: 'guest-trending-preview',
+    type: 'guest_trending_preview',
+    name: 'Trending Preview',
+    isActive: true,
+    position: 5,
+    content: {
+      title: 'Trending on Scrolith',
+      subtitle: 'Preview opportunities and content before joining.',
+      jobsTitle: 'Trending Jobs',
+      gigsTitle: 'Trending Gigs',
+      postsTitle: 'Popular Posts',
+      jobs: [],
+      gigs: [],
+      posts: []
+    }
+  },
+  {
+    id: 'guest-community-preview',
+    type: 'guest_community_preview',
+    name: 'Community Preview',
+    isActive: true,
+    position: 6,
+    content: {
+      title: 'Community preview',
+      subtitle: 'See what professionals are talking about right now.',
+      ctaLabel: 'Sign up to interact',
+      ctaUrl: '/auth/signup',
+      posts: []
+    }
+  },
+  {
+    id: 'guest-final-cta',
+    type: 'guest_final_cta',
+    name: 'Final CTA',
+    isActive: true,
+    position: 7,
+    content: {
+      title: 'Join Scrolith today',
+      subtitle: 'Create your professional profile and unlock marketplace + community access.',
+      primaryCtaLabel: 'Sign up',
+      primaryCtaUrl: '/auth/signup',
+      secondaryCtaLabel: 'Login',
+      secondaryCtaUrl: '/auth/login'
+    }
+  }
+];
+
+const DEFAULT_GUEST_SEO = {
+  title: 'Scrolith | Professional Network, Marketplace, and Messaging',
+  metaDescription:
+    'Scrolith is an enterprise-grade platform for professionals and businesses to connect, hire, collaborate, and grow.',
+  keywords: [
+    'Scrolith',
+    'freelance marketplace',
+    'professional network',
+    'jobs',
+    'gigs',
+    'messaging',
+    'AI assistant'
+  ],
+  ogImage: ''
+};
+
+const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
+
+const normalizeGuestSection = (section: any, fallbackPosition: number) => {
+  const raw = isObjectLike(section) ? section : {};
+  const fallback = DEFAULT_GUEST_HOMEPAGE_SECTIONS[fallbackPosition] || DEFAULT_GUEST_HOMEPAGE_SECTIONS[0];
+  const positionValue = Number(raw.position ?? raw.sortOrder ?? fallbackPosition + 1);
+  return {
+    id: String(raw.id || fallback.id || `guest-section-${fallbackPosition + 1}`),
+    type: String(raw.type || fallback.type || 'guest_hero_auth'),
+    name: String(raw.name || fallback.name || 'Guest Section'),
+    isActive: raw.isActive !== undefined ? Boolean(raw.isActive) : true,
+    position: Number.isFinite(positionValue) ? positionValue : fallbackPosition + 1,
+    content: isObjectLike(raw.content) ? raw.content : {}
+  };
+};
+
+const normalizeGuestSeo = (seo: any) => {
+  const source = isObjectLike(seo) ? seo : {};
+  const keywordsRaw = source.keywords;
+  const keywords = Array.isArray(keywordsRaw)
+    ? keywordsRaw.map((entry: any) => String(entry || '').trim()).filter(Boolean)
+    : String(keywordsRaw || '')
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+  return {
+    title: String(source.title || DEFAULT_GUEST_SEO.title),
+    metaDescription: String(source.metaDescription || source.description || DEFAULT_GUEST_SEO.metaDescription),
+    keywords: keywords.length ? keywords : clone(DEFAULT_GUEST_SEO.keywords),
+    ogImage: String(source.ogImage || source.og_image || '')
+  };
+};
+
+const normalizeGuestHomepagePayload = (raw: any) => {
+  const source = isObjectLike(raw) ? raw : {};
+  const draftSource = isObjectLike(source.draft) ? source.draft : {};
+  const publishedSource = isObjectLike(source.published) ? source.published : {};
+  const draftSectionsRaw =
+    Array.isArray(draftSource.sections) && draftSource.sections.length > 0
+      ? draftSource.sections
+      : clone(DEFAULT_GUEST_HOMEPAGE_SECTIONS);
+  const publishedSectionsRaw =
+    Array.isArray(publishedSource.sections) && publishedSource.sections.length > 0
+      ? publishedSource.sections
+      : draftSectionsRaw;
+
+  const draftSections = draftSectionsRaw
+    .map((section: any, index: number) => normalizeGuestSection(section, index))
+    .sort((a: any, b: any) => a.position - b.position);
+  const publishedSections = publishedSectionsRaw
+    .map((section: any, index: number) => normalizeGuestSection(section, index))
+    .sort((a: any, b: any) => a.position - b.position);
+
+  return {
+    draft: {
+      sections: draftSections,
+      seo: normalizeGuestSeo(draftSource.seo),
+      updatedAt: String(draftSource.updatedAt || source.updatedAt || new Date().toISOString())
+    },
+    published: {
+      sections: publishedSections,
+      seo: normalizeGuestSeo(publishedSource.seo || draftSource.seo),
+      publishedAt: String(publishedSource.publishedAt || source.updatedAt || new Date().toISOString())
+    },
+    updatedAt: String(source.updatedAt || new Date().toISOString())
+  };
+};
+
+const getHomepageConfigRecord = async () =>
+  prisma.cMSConfig.findFirst({
+    where: { target: 'HOMEPAGE' as any },
+    orderBy: { version: 'desc' }
+  });
+
+const getGuestHomepageState = async () => {
+  const config = await getHomepageConfigRecord();
+  const data = isObjectLike(config?.data) ? (config!.data as Record<string, any>) : {};
+  return normalizeGuestHomepagePayload(data.guestHomepage || data.guest_homepage || {});
+};
+
+const saveGuestHomepageState = async (nextState: any, userId?: string) => {
+  const existing = await getHomepageConfigRecord();
+  const existingData = isObjectLike(existing?.data) ? (existing!.data as Record<string, any>) : {};
+  const mergedGuest = normalizeGuestHomepagePayload(nextState);
+  const nextData = {
+    ...existingData,
+    guestHomepage: mergedGuest
+  };
+
+  await prisma.cMSConfig.create({
+    data: {
+      target: 'HOMEPAGE' as any,
+      version: (existing?.version || 0) + 1,
+      data: nextData as any,
+      updatedById: userId || null
+    }
+  });
+
+  return mergedGuest;
+};
+
+const emitGuestHomepageUpdated = (req: Request, payload: any) => {
+  const io = req.app.get('io');
+  const communityIo = req.app.get('communityIo');
+  io?.emit('homepage:guest_updated', payload);
+  communityIo?.emit('homepage:guest_updated', payload);
+};
+
 // Apply auth and admin middleware to all admin routes
 router.use(authMiddleware);
 router.use(adminMiddleware);
@@ -518,6 +773,185 @@ router.put('/homepage/mobile-settings', async (req, res) => {
   } catch (error: any) {
     console.error('[admin] Failed to save mobile homepage settings', error);
     return res.status(500).json({ success: false, error: error?.message || 'Failed to save mobile homepage settings' });
+  }
+});
+
+// ============ GUEST HOMEPAGE BUILDER (ADMIN) ============
+// GET /api/admin/homepage/draft
+router.get('/homepage/draft', async (_req, res) => {
+  try {
+    const state = await getGuestHomepageState();
+    return res.json({
+      success: true,
+      data: {
+        draft: state.draft,
+        published: state.published,
+        updatedAt: state.updatedAt
+      }
+    });
+  } catch (error: any) {
+    console.error('[admin] Failed to load guest homepage draft', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to load guest homepage draft' });
+  }
+});
+
+// PUT /api/admin/homepage/section
+router.put('/homepage/section', async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const body = isObjectLike(req.body) ? req.body : {};
+    const state = await getGuestHomepageState();
+    const draft = clone(state.draft);
+    const remove = Boolean(body.remove || body.delete);
+    const sectionInput = isObjectLike(body.section) ? body.section : body;
+    const sectionId = String(body.sectionId || sectionInput.id || '').trim();
+
+    if (!sectionId) {
+      return res.status(400).json({ success: false, error: 'sectionId is required' });
+    }
+
+    const currentSections = Array.isArray(draft.sections) ? [...draft.sections] : [];
+    const existingIndex = currentSections.findIndex((section: any) => String(section.id) === sectionId);
+
+    if (remove) {
+      if (existingIndex >= 0) {
+        currentSections.splice(existingIndex, 1);
+      }
+    } else {
+      const normalizedSection = normalizeGuestSection(
+        {
+          ...(existingIndex >= 0 ? currentSections[existingIndex] : {}),
+          ...sectionInput,
+          id: sectionId
+        },
+        existingIndex >= 0 ? existingIndex : currentSections.length
+      );
+
+      if (existingIndex >= 0) {
+        currentSections[existingIndex] = normalizedSection;
+      } else {
+        currentSections.push(normalizedSection);
+      }
+    }
+
+    draft.sections = currentSections
+      .map((section: any, index: number) => normalizeGuestSection(section, index))
+      .sort((a: any, b: any) => a.position - b.position);
+
+    if (isObjectLike(body.seo)) {
+      draft.seo = normalizeGuestSeo({ ...(draft.seo || {}), ...body.seo });
+    }
+
+    draft.updatedAt = new Date().toISOString();
+    const nextState = {
+      ...state,
+      draft,
+      updatedAt: new Date().toISOString()
+    };
+    const saved = await saveGuestHomepageState(nextState, userId);
+
+    emitGuestHomepageUpdated(req as Request, {
+      mode: 'draft',
+      updatedAt: saved.updatedAt,
+      sections: saved.draft.sections
+    });
+
+    return res.json({ success: true, data: saved });
+  } catch (error: any) {
+    console.error('[admin] Failed to save guest homepage section', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to save guest homepage section' });
+  }
+});
+
+// POST /api/admin/homepage/reorder
+router.post('/homepage/reorder', async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const body = isObjectLike(req.body) ? req.body : {};
+    const order = Array.isArray(body.order) ? body.order.map((id: any) => String(id)) : [];
+    const sectionsInput = Array.isArray(body.sections) ? body.sections : [];
+
+    const state = await getGuestHomepageState();
+    const draft = clone(state.draft);
+    const currentSections = Array.isArray(draft.sections) ? [...draft.sections] : [];
+    let nextSections = currentSections;
+
+    if (sectionsInput.length > 0) {
+      nextSections = sectionsInput.map((section: any, index: number) =>
+        normalizeGuestSection({ ...section, position: index + 1 }, index)
+      );
+    } else if (order.length > 0) {
+      const rank = new Map<string, number>();
+      order.forEach((id: string, index: number) => rank.set(id, index));
+      nextSections = [...currentSections]
+        .sort((a: any, b: any) => {
+          const ai = rank.has(String(a.id)) ? Number(rank.get(String(a.id))) : Number.MAX_SAFE_INTEGER;
+          const bi = rank.has(String(b.id)) ? Number(rank.get(String(b.id))) : Number.MAX_SAFE_INTEGER;
+          if (ai !== bi) return ai - bi;
+          return Number(a.position || 0) - Number(b.position || 0);
+        })
+        .map((section: any, index: number) => normalizeGuestSection({ ...section, position: index + 1 }, index));
+    }
+
+    draft.sections = nextSections;
+    draft.updatedAt = new Date().toISOString();
+
+    if (isObjectLike(body.seo)) {
+      draft.seo = normalizeGuestSeo({ ...(draft.seo || {}), ...body.seo });
+    }
+
+    const nextState = {
+      ...state,
+      draft,
+      updatedAt: new Date().toISOString()
+    };
+    const saved = await saveGuestHomepageState(nextState, userId);
+
+    emitGuestHomepageUpdated(req as Request, {
+      mode: 'draft',
+      updatedAt: saved.updatedAt,
+      sections: saved.draft.sections
+    });
+
+    return res.json({ success: true, data: saved });
+  } catch (error: any) {
+    console.error('[admin] Failed to reorder guest homepage sections', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to reorder guest homepage sections' });
+  }
+});
+
+// POST /api/admin/homepage/publish
+router.post('/homepage/publish', async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const state = await getGuestHomepageState();
+    const now = new Date().toISOString();
+    const nextState = {
+      ...state,
+      published: {
+        sections: clone(state.draft.sections || []),
+        seo: normalizeGuestSeo(state.draft.seo || {}),
+        publishedAt: now
+      },
+      updatedAt: now
+    };
+
+    const saved = await saveGuestHomepageState(nextState, userId);
+
+    emitGuestHomepageUpdated(req as Request, {
+      mode: 'published',
+      updatedAt: saved.updatedAt,
+      sections: saved.published.sections
+    });
+
+    return res.json({
+      success: true,
+      message: 'Guest homepage published',
+      data: saved
+    });
+  } catch (error: any) {
+    console.error('[admin] Failed to publish guest homepage', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to publish guest homepage' });
   }
 });
 
