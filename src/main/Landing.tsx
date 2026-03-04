@@ -9,7 +9,6 @@ import { CMSService } from '../services/cms';
 import {
   HomepageSection,
   HeroContent,
-  HeroSearchConfig,
   ProjectBriefContent,
   TopProServicesContent,
   TrustSecurityContent,
@@ -25,13 +24,15 @@ import {
   GuidesGridContent,
   MadeOnScrolithContent,
   FooterCtaStripContent,
-  HomeSlide,
-  HeaderConfig,
-  UserRole
+  GuestCommunityPreviewContent,
+  GuestFeatureShowcaseContent,
+  GuestFinalCtaContent,
+  GuestHeroAuthContent,
+  GuestPathsContent,
+  GuestTrendingPreviewContent,
+  GuestWhatIsScrolithContent
 } from '../types';
 import Recommendations from '../components/Recommendations';
-import TrendingCategoriesStrip from '../components/TrendingCategoriesStrip';
-import HomeSlider from '../components/HomeSlider';
 import {
   PopularServicesSection,
   PromoBannersSection,
@@ -41,6 +42,13 @@ import {
   GuidesGridSection,
   MadeOnScrolithSection,
   FooterCtaStripSection,
+  GuestHeroAuthSection,
+  GuestWhatIsScrolithSection,
+  GuestPathsSection,
+  GuestFeatureShowcaseSection,
+  GuestTrendingPreviewSection,
+  GuestCommunityPreviewSection,
+  GuestFinalCtaSection
 } from '../components/sections/GuestSections';
 
 // Modular Sections (Lazy Loaded)
@@ -137,43 +145,53 @@ const normalizeSectionType = (value: any): string => {
     case 'footer-cta-strip':
     case 'footerctastrip':
       return 'footer_cta_strip';
+    case 'guestheroauth':
+    case 'guest_hero_auth':
+      return 'guest_hero_auth';
+    case 'guestwhatisscrolith':
+    case 'guest_what_is_scrolith':
+    case 'guest_what_is_scrolith_section':
+      return 'guest_what_is_scrolith';
+    case 'guestpaths':
+    case 'guest_paths':
+      return 'guest_paths';
+    case 'guestfeatureshowcase':
+    case 'guest_feature_showcase':
+      return 'guest_feature_showcase';
+    case 'guesttrendingpreview':
+    case 'guest_trending_preview':
+      return 'guest_trending_preview';
+    case 'guestcommunitypreview':
+    case 'guest_community_preview':
+      return 'guest_community_preview';
+    case 'guestfinalcta':
+    case 'guest_final_cta':
+      return 'guest_final_cta';
     default:
       return cleaned;
   }
 };
 
 const Landing = () => {
-  const location = useLocation();
   const t = useT();
   const [sections, setSections] = useState<HomepageSection[]>([]);
-  const [slides, setSlides] = useState<HomeSlide[]>([]);
-  const [heroConfig, setHeroConfig] = useState<HeroSearchConfig | null>(null);
-  const [headerConfig, setHeaderConfig] = useState<HeaderConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const { user } = useUser();
   const { settings } = useContent();
   const { socket } = useSocket();
-  const [isMobileViewport, setIsMobileViewport] = useState(
-    () => (typeof window !== 'undefined' ? window.innerWidth < 900 : false)
-  );
+  const [guestSeo, setGuestSeo] = useState<Record<string, any> | null>(null);
+  const location = useLocation();
 
-  useEffect(() => {
-    const onResize = () => setIsMobileViewport(window.innerWidth < 900);
-    window.addEventListener('resize', onResize, { passive: true });
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-
-  const allowDesktopOverride =
-    new URLSearchParams(location.search).get('desktop') === '1' ||
-    new URLSearchParams(location.search).get('view') === 'desktop';
-
-  // Logged-in mobile home uses the dedicated LinkedIn-style shell for best UX.
-  if (user && isMobileViewport && !allowDesktopOverride) {
-    return <Navigate to="/m/home" replace />;
+  if (user) {
+    const searchParams = new URLSearchParams(location.search);
+    const memberHomeDesktopOverride =
+      searchParams.get('desktop') === '1' || searchParams.get('view') === 'desktop';
+    const isMobileViewport = typeof window !== 'undefined' ? window.innerWidth < 900 : false;
+    if (isMobileViewport && !memberHomeDesktopOverride) {
+      return <Navigate to="/m/home" replace />;
+    }
+    return <MemberHomeSection />;
   }
-
-  const userRole = user?.role;
-  const effectiveRole = userRole || UserRole.GUEST;
 
   const normalizeSections = useCallback((data: HomepageSection[]) => {
     return data
@@ -237,48 +255,74 @@ const Landing = () => {
   }, []);
 
   const loadData = useCallback(async () => {
-    const [sectionsResult, slidesResult, heroResult, headerResult] = await Promise.allSettled([
-      CMSService.getHomepageSections({ role: effectiveRole }),
-      CMSService.getHomeSlides(),
-      CMSService.getHeroSearchConfig(),
-      CMSService.getHeaderConfig()
-    ]);
+    const [sectionsResult] = await Promise.allSettled([CMSService.getGuestHomepage()]);
 
     if (sectionsResult.status === 'fulfilled') {
-      const nextSections = Array.isArray(sectionsResult.value) ? sectionsResult.value : [];
+      const payload = sectionsResult.value as any;
+      const nextSections =
+        (Array.isArray(payload?.sections) ? payload.sections : null) ||
+        (Array.isArray(payload?.data?.sections) ? payload.data.sections : null) ||
+        [];
+      const nextSeo = payload?.seo || payload?.data?.seo || null;
       setSections(normalizeSections(nextSections));
+      setGuestSeo(nextSeo);
     } else {
-      console.error('Failed to load homepage sections', sectionsResult.reason);
+      console.error('Failed to load guest homepage sections', sectionsResult.reason);
       setSections([]);
-    }
-
-    if (slidesResult.status === 'fulfilled') {
-      setSlides(Array.isArray(slidesResult.value) ? slidesResult.value : []);
-    } else {
-      console.error('Failed to load homepage slides', slidesResult.reason);
-      setSlides([]);
-    }
-
-    if (heroResult.status === 'fulfilled') {
-      setHeroConfig(heroResult.value as any as HeroSearchConfig);
-    } else {
-      console.error('Failed to load hero search config', heroResult.reason);
-      setHeroConfig(null);
-    }
-
-    if (headerResult.status === 'fulfilled') {
-      setHeaderConfig(headerResult.value as any as HeaderConfig);
-    } else {
-      console.error('Failed to load header config', headerResult.reason);
-      setHeaderConfig(null);
+      setGuestSeo(null);
     }
 
     setLoading(false);
-  }, [effectiveRole, normalizeSections]);
+  }, [normalizeSections]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!guestSeo) return;
+    const title = String(guestSeo.title || '').trim();
+    const metaDescription = String(guestSeo.metaDescription || '').trim();
+    const keywords = Array.isArray(guestSeo.keywords)
+      ? guestSeo.keywords.join(', ')
+      : String(guestSeo.keywords || '').trim();
+    const ogImage = String(guestSeo.ogImage || '').trim();
+
+    if (title) document.title = title;
+
+    const ensureMeta = (selector: string, attr: 'name' | 'property', value: string) => {
+      if (!value) return;
+      let node = document.querySelector(selector) as HTMLMetaElement | null;
+      if (!node) {
+        node = document.createElement('meta');
+        node.setAttribute(attr, selector.includes('og:') ? selector.replace('meta[property="', '').replace('"]', '') : selector.replace('meta[name="', '').replace('"]', ''));
+        document.head.appendChild(node);
+      }
+      node.setAttribute('content', value);
+    };
+
+    if (metaDescription) {
+      let descriptionNode = document.querySelector('meta[name="description"]') as HTMLMetaElement | null;
+      if (!descriptionNode) {
+        descriptionNode = document.createElement('meta');
+        descriptionNode.setAttribute('name', 'description');
+        document.head.appendChild(descriptionNode);
+      }
+      descriptionNode.setAttribute('content', metaDescription);
+    }
+    if (keywords) {
+      let keywordsNode = document.querySelector('meta[name="keywords"]') as HTMLMetaElement | null;
+      if (!keywordsNode) {
+        keywordsNode = document.createElement('meta');
+        keywordsNode.setAttribute('name', 'keywords');
+        document.head.appendChild(keywordsNode);
+      }
+      keywordsNode.setAttribute('content', keywords);
+    }
+    if (ogImage) {
+      ensureMeta('meta[property="og:image"]', 'property', ogImage);
+    }
+  }, [guestSeo]);
 
   useEffect(() => {
     if (!socket) return;
@@ -291,30 +335,13 @@ const Landing = () => {
       }
     });
 
-    socket.on('cms:slides_updated', (updatedSlides: HomeSlide[]) => {
-      if (Array.isArray(updatedSlides)) {
-        setSlides(updatedSlides);
-      } else {
-        loadData();
-      }
-    });
-
-    socket.on('cms:hero_updated', () => {
-      loadData();
-    });
-    socket.on('cms:hero_search_updated', () => {
-      loadData();
-    });
-    socket.on('cms:header_updated', () => {
+    socket.on('homepage:guest_updated', () => {
       loadData();
     });
 
     return () => {
       socket.off('cms:sections_updated');
-      socket.off('cms:slides_updated');
-      socket.off('cms:hero_updated');
-      socket.off('cms:hero_search_updated');
-      socket.off('cms:header_updated');
+      socket.off('homepage:guest_updated');
     };
   }, [socket, loadData, normalizeSections]);
 
@@ -397,26 +424,6 @@ const Landing = () => {
         <div className="absolute top-24 right-[-12%] h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle_at_center,#d8f1e5,transparent_65%)] opacity-80" />
       </div>
 
-      {!user ? (
-        <>
-          <div className="relative z-20">
-            <TrendingCategoriesStrip />
-          </div>
-
-          <div className="relative z-10">
-            <HomeSlider
-              slides={slides}
-              heroConfig={heroConfig}
-              searchMode={(() => {
-                if (!headerConfig) return 'keyword';
-                const h = headerConfig as Record<string, unknown>;
-                return (h['searchMode'] as string) || (h['search_mode'] as string) || 'keyword';
-              })()}
-            />
-          </div>
-        </>
-      ) : null}
-
       <Suspense fallback={<div className="py-24 text-center"><LoaderIcon className="animate-spin mx-auto w-8 h-8 text-gray-400" /></div>}>
         {renderSections.filter(s => s.isActive).map((section) => (
           <React.Fragment key={section.id}>
@@ -457,6 +464,13 @@ const SectionRenderer: React.FC<{ section: RenderSection; userId?: string }> = (
     case 'guides_grid': return <GuidesGridSection content={section.content as GuidesGridContent} style={section.style} />;
     case 'made_on_Scrolith': return <MadeOnScrolithSection content={section.content as MadeOnScrolithContent} style={section.style} />;
     case 'footer_cta_strip': return <FooterCtaStripSection content={section.content as FooterCtaStripContent} style={section.style} />;
+    case 'guest_hero_auth': return <GuestHeroAuthSection content={section.content as GuestHeroAuthContent} style={section.style} />;
+    case 'guest_what_is_scrolith': return <GuestWhatIsScrolithSection content={section.content as GuestWhatIsScrolithContent} style={section.style} />;
+    case 'guest_paths': return <GuestPathsSection content={section.content as GuestPathsContent} style={section.style} />;
+    case 'guest_feature_showcase': return <GuestFeatureShowcaseSection content={section.content as GuestFeatureShowcaseContent} style={section.style} />;
+    case 'guest_trending_preview': return <GuestTrendingPreviewSection content={section.content as GuestTrendingPreviewContent} style={section.style} />;
+    case 'guest_community_preview': return <GuestCommunityPreviewSection content={section.content as GuestCommunityPreviewContent} style={section.style} />;
+    case 'guest_final_cta': return <GuestFinalCtaSection content={section.content as GuestFinalCtaContent} style={section.style} />;
     case 'member_home': return <MemberHomeSection content={section.content as any} />;
     case 'recommendations': return userId ? <Recommendations userId={userId} /> : null;
     default: return null;
