@@ -9,6 +9,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useSocket } from '../../../context/SocketContext';
 import { useUser } from '../../../context/UserContext';
 import { CommunityService } from '../../../services/community';
+import { ReactionsService } from '../../../services/reactions';
 import { jobsApi, Job } from '../../../services/jobs';
 import { gigsApi, Gig } from '../../../services/gigs';
 import { RecoService } from '../../../services/reco';
@@ -23,6 +24,7 @@ import { resolveVerificationLevel } from '../../../utils/verification';
 import FeedAdCard from './FeedAdCard';
 import RecommendedListingCard from './RecommendedListingCard';
 import SuggestedCard from './SuggestedCard';
+import { usePerformanceProfile } from '../../../hooks/usePerformanceProfile';
 
 type MobileHomeLayoutSettings = {
   feed?: {
@@ -183,6 +185,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const navigate = useNavigate();
   const { user } = useUser();
   const { isConnected } = useSocket();
+  const { profile } = usePerformanceProfile();
 
   const feedSettings = settings?.feed ?? {};
   const postCardSettings = settings?.postCard ?? {};
@@ -192,11 +195,12 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const graphicWarningBlurMedia = composerSettings.graphicWarningBlurMedia !== false;
   const showRecommendedGigsJobs = feedSettings.showRecommendedGigsJobs !== false;
   const [isConstrainedConnection, setIsConstrainedConnection] = useState<boolean>(() => isConstrainedNetwork());
+  const constrainedForFeed = isConstrainedConnection || profile.lowBandwidth || profile.dataSaver;
   const listingCardEveryPosts = clamp(Number((feedSettings as any).listingCardEveryPosts ?? 2) || 2, 1, 6);
   const maxListingCardsPerFeed = clamp(Number((feedSettings as any).maxListingCardsPerFeed ?? 8) || 8, 1, 16);
   const listingPoolLimit = Math.max(
-    isConstrainedConnection ? 4 : 8,
-    maxListingCardsPerFeed * (isConstrainedConnection ? 2 : 3)
+    constrainedForFeed ? 4 : 8,
+    maxListingCardsPerFeed * (constrainedForFeed ? 2 : 3)
   );
 
   const promotedFrequency = clamp(Number(feedSettings.promotedFrequency ?? 6) || 6, 2, 20);
@@ -305,6 +309,8 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const rateLimitUntilRef = useRef<number>(0);
   const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
   const viewTrackedRef = useRef<Set<string>>(new Set());
+  const postMediaTapTimersRef = useRef<Record<string, number>>({});
+  const postMediaLastTapAtRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     const connection = getNavigatorConnection();
@@ -374,6 +380,88 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
     [openPostDetail]
   );
 
+  const triggerPostDoubleTapLike = useCallback(
+    async (post: any) => {
+      const postId = String(post?.id || '').trim();
+      if (!postId) return;
+      if (!user?.id) {
+        if (confirm('Log in to like posts?')) window.location.href = '/auth/login';
+        return;
+      }
+      try {
+        const summary = await ReactionsService.react('POST', postId, 'like');
+        window.dispatchEvent(
+          new CustomEvent('community:post_reaction_updated', {
+            detail: {
+              postId,
+              reactions: summary?.counts || {},
+              actorId: user.id,
+              userReaction: summary?.userReaction || null
+            }
+          })
+        );
+      } catch (error) {
+        console.error('Failed to apply double-tap like', error);
+      }
+    },
+    [user?.id]
+  );
+
+  const queueOpenPostFromMediaTap = useCallback(
+    (postId: string, mediaKey: string) => {
+      const timerKey = `${postId}:${mediaKey}`;
+      const existing = postMediaTapTimersRef.current[timerKey];
+      if (existing) window.clearTimeout(existing);
+      postMediaTapTimersRef.current[timerKey] = window.setTimeout(() => {
+        delete postMediaTapTimersRef.current[timerKey];
+        openPostDetail(postId);
+      }, 220);
+    },
+    [openPostDetail]
+  );
+
+  const onPostMediaDoubleClick = useCallback(
+    (event: React.MouseEvent<HTMLElement>, post: any, mediaKey: string) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const postId = String(post?.id || '').trim();
+      if (!postId) return;
+      const timerKey = `${postId}:${mediaKey}`;
+      const existing = postMediaTapTimersRef.current[timerKey];
+      if (existing) {
+        window.clearTimeout(existing);
+        delete postMediaTapTimersRef.current[timerKey];
+      }
+      void triggerPostDoubleTapLike(post);
+    },
+    [triggerPostDoubleTapLike]
+  );
+
+  const onPostMediaTouchEnd = useCallback(
+    (event: React.TouchEvent<HTMLElement>, post: any, mediaKey: string) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('button, a, input, textarea, select, label')) return;
+      const postId = String(post?.id || '').trim();
+      if (!postId) return;
+      const tapKey = `${postId}:${mediaKey}`;
+      const now = Date.now();
+      const previousTap = postMediaLastTapAtRef.current[tapKey] || 0;
+      postMediaLastTapAtRef.current[tapKey] = now;
+      if (previousTap && now - previousTap <= 320) {
+        event.preventDefault();
+        event.stopPropagation();
+        const existing = postMediaTapTimersRef.current[tapKey];
+        if (existing) {
+          window.clearTimeout(existing);
+          delete postMediaTapTimersRef.current[tapKey];
+        }
+        postMediaLastTapAtRef.current[tapKey] = 0;
+        void triggerPostDoubleTapLike(post);
+      }
+    },
+    [triggerPostDoubleTapLike]
+  );
+
   const load = useCallback(async (mode: 'initial' | 'more') => {
     const now = Date.now();
     if (rateLimitUntilRef.current && now < rateLimitUntilRef.current) {
@@ -390,7 +478,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
         setLoadingMore(true);
       }
 
-      const feedLimit = isConstrainedConnection ? 8 : 12;
+      const feedLimit = Math.max(6, Math.min(24, Number(profile.feedPageSize || (constrainedForFeed ? 8 : 12))));
       const resp = await CommunityService.getFeed({
         cursor: mode === 'more' ? cursorRef.current || undefined : undefined,
         limit: feedLimit,
@@ -439,7 +527,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       setLoadingMore(false);
       loadInFlightRef.current = false;
     }
-  }, [isConstrainedConnection]);
+  }, [constrainedForFeed, profile.feedPageSize]);
 
   useEffect(() => {
     void load('initial');
@@ -449,9 +537,9 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
     if (feedSettings.showPromoted === false) return;
     if (loading || error) return;
     let cancelled = false;
-    const delayMs = isConstrainedConnection ? 1800 : 900;
+    const delayMs = constrainedForFeed ? 1800 : 900;
     const timer = window.setTimeout(() => {
-      CommunityService.getPublicAds({ placement: 'feed', limit: isConstrainedConnection ? 4 : 8 })
+      CommunityService.getPublicAds({ placement: 'feed', limit: constrainedForFeed ? 4 : 8 })
         .then((items) => {
           if (cancelled) return;
           setAds(shuffle(Array.isArray(items) ? items : []));
@@ -465,7 +553,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [feedSettings.showPromoted, loading, error, isConstrainedConnection]);
+  }, [feedSettings.showPromoted, loading, error, constrainedForFeed]);
 
   useEffect(() => {
     if (!showRecommendedGigsJobs || !user?.id) {
@@ -487,7 +575,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
         gigsApi.getGigs({ status: 'active', limit: requestLimit, recommended: true }),
         gigsApi.getGigs({ status: 'active', limit: requestLimit })
       ];
-      if (!isConstrainedConnection) {
+      if (!constrainedForFeed) {
         jobRequests.push(jobsApi.getJobs({ status: 'active', limit: requestLimit, random: true }));
         gigRequests.push(gigsApi.getGigs({ status: 'active', limit: requestLimit, random: true }));
       }
@@ -527,13 +615,13 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [showRecommendedGigsJobs, user?.id, loading, error, listingPoolLimit, isConstrainedConnection]);
+  }, [showRecommendedGigsJobs, user?.id, loading, error, listingPoolLimit, constrainedForFeed]);
 
   useEffect(() => {
     if (feedSettings.showTrendingTags === false) return;
     if (loading || error) return;
     let cancelled = false;
-    const delayMs = isConstrainedConnection ? 2200 : 1400;
+    const delayMs = constrainedForFeed ? 2200 : 1400;
     const timer = window.setTimeout(() => {
       CommunityService.getTrendingTags(10, 7)
         .then((items) => {
@@ -554,12 +642,12 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [feedSettings.showTrendingTags, loading, error, isConstrainedConnection]);
+  }, [feedSettings.showTrendingTags, loading, error, constrainedForFeed]);
 
   useEffect(() => {
     if (feedSettings.showSuggestedPeople === false) return;
     if (!user?.id) return;
-    if (isConstrainedConnection) {
+    if (constrainedForFeed) {
       setSuggestedPeople([]);
       return;
     }
@@ -598,12 +686,12 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [feedSettings.showSuggestedPeople, user?.id, loading, error, isConstrainedConnection]);
+  }, [feedSettings.showSuggestedPeople, user?.id, loading, error, constrainedForFeed]);
 
   useEffect(() => {
     if (feedSettings.showSuggestedPages === false) return;
     if (!user?.id) return;
-    if (isConstrainedConnection) {
+    if (constrainedForFeed) {
       setSuggestedPages([]);
       return;
     }
@@ -635,7 +723,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [feedSettings.showSuggestedPages, user?.id, loading, error, isConstrainedConnection]);
+  }, [feedSettings.showSuggestedPages, user?.id, loading, error, constrainedForFeed]);
 
   useEffect(() => {
     if (isConnected) return;
@@ -757,7 +845,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
   useEffect(() => {
     if (!user?.id || !posts.length) return;
-    if (isConstrainedConnection) return;
+    if (constrainedForFeed) return;
     if (loading || error) return;
 
     const pending = posts
@@ -785,7 +873,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       cancelled = true;
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [posts, user?.id, loading, error, isConstrainedConnection]);
+  }, [posts, user?.id, loading, error, constrainedForFeed]);
 
   useEffect(() => {
     if (!sentinelRef.current) return;
@@ -1098,39 +1186,52 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                   {showMedia && attachments.length ? (
                     <div className="relative grid gap-2">
                       <div className={shouldBlurMedia ? 'pointer-events-none blur-sm' : ''}>
-                        {attachments.slice(0, 3).map((file: any) => (
-                          <div
-                            key={`${postId}_att_${file.id || file.url}`}
-                            className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
-                          >
-                            {isVideo(file.mimeType) ? (
-                              <InlineAutoplayVideo
-                                src={file.url}
-                                poster={file.thumbnailUrl || undefined}
-                                className="h-56 w-full object-cover"
-                                controls
-                                preload="metadata"
-                              />
-                            ) : isImage(file.mimeType) ? (
-                              <button type="button" onClick={() => openPostDetail(postId)} className="block h-56 w-full text-left">
-                                <img
+                        {attachments.slice(0, 3).map((file: any) => {
+                          const mediaKey = String(file.id || file.url || '');
+                          return (
+                            <div
+                              key={`${postId}_att_${file.id || file.url}`}
+                              className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
+                            >
+                              {isVideo(file.mimeType) ? (
+                                <InlineAutoplayVideo
                                   src={file.url}
-                                  alt={file.name || 'Attachment'}
+                                  poster={file.thumbnailUrl || undefined}
                                   className="h-56 w-full object-cover"
-                                  loading="lazy"
-                                  decoding="async"
+                                  controls
+                                  autoplayEnabled={profile.autoplayEnabled}
+                                  preload="metadata"
+                                  onDoubleTapLike={() => {
+                                    void triggerPostDoubleTapLike(post);
+                                  }}
                                 />
-                              </button>
-                            ) : (
-                              <a
-                                href={file.url}
-                                className="block p-4 text-sm font-semibold text-slate-700 hover:underline"
-                              >
-                                {file.name || file.url}
-                              </a>
-                            )}
-                          </div>
-                        ))}
+                              ) : isImage(file.mimeType) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => queueOpenPostFromMediaTap(postId, mediaKey)}
+                                  onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
+                                  onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
+                                  className="block h-56 w-full text-left"
+                                >
+                                  <img
+                                    src={file.url}
+                                    alt={file.name || 'Attachment'}
+                                    className="h-56 w-full object-cover"
+                                    loading="lazy"
+                                    decoding="async"
+                                  />
+                                </button>
+                              ) : (
+                                <a
+                                  href={file.url}
+                                  className="block p-4 text-sm font-semibold text-slate-700 hover:underline"
+                                >
+                                  {file.name || file.url}
+                                </a>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
 
                       {shouldBlurMedia ? (

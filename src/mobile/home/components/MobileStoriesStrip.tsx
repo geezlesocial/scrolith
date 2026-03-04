@@ -369,6 +369,39 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
     }
   };
 
+  const likeStoryAndSync = async (story: any) => {
+    const storyId = String(story?.id || '').trim();
+    if (!storyId) return;
+    if (!user?.id) {
+      navigate('/auth/login');
+      return;
+    }
+    if (storyActionBusy[storyId]) return;
+    setStoryActionBusy((prev) => ({ ...prev, [storyId]: true }));
+    try {
+      const response = await CommunityService.toggleStoryLike(storyId);
+      const payload = response?.data ?? response ?? {};
+      const liked = payload?.liked ?? payload?.viewerLiked ?? !Boolean(story?.viewerLiked);
+      const likesCount =
+        payload?.likesCount ??
+        payload?.likes ??
+        Math.max(0, Number(story?.likesCount ?? story?._count?.likes ?? 0) + (liked ? 1 : -1));
+      patchStoryInState(storyId, {
+        likesCount,
+        viewerLiked: liked,
+        _count: { ...(story?._count || {}), likes: likesCount }
+      });
+    } catch (error) {
+      console.error('Failed to like story', error);
+    } finally {
+      setStoryActionBusy((prev) => {
+        const next = { ...prev };
+        delete next[storyId];
+        return next;
+      });
+    }
+  };
+
   const handleStoryCommentAction = (story: any) => {
     if (!story?.id) return;
     setStoryActionTarget(story);
@@ -851,6 +884,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
           onRepost={() => handleStoryRepostAction(activeStory)}
           onDash={() => handleStoryDashAction(activeStory)}
           onSend={() => handleStorySendAction(activeStory)}
+          onLike={() => void likeStoryAndSync(activeStory)}
           storyBusy={Boolean(storyActionBusy[String(activeStory?.id || '')])}
         />
       ) : null}
@@ -1204,6 +1238,7 @@ function StoryViewer({
   onRepost,
   onDash,
   onSend,
+  onLike,
   storyBusy
 }: {
   story: any;
@@ -1217,12 +1252,14 @@ function StoryViewer({
   onRepost: () => void;
   onDash: () => void;
   onSend: () => void;
+  onLike: () => void;
   storyBusy: boolean;
 }) {
   const { showNotification } = useNotification();
   const [actionsOpen, setActionsOpen] = useState(false);
   const [muted, setMuted] = useState(true);
-  const touchStartX = useRef<number | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const lastTapAtRef = useRef(0);
 
   const name = resolveStoryAuthorName(story, 'Story');
   const avatar = resolveStoryAuthorAvatar(story);
@@ -1297,17 +1334,49 @@ function StoryViewer({
         <div
           className="relative h-full w-full max-w-md overflow-hidden rounded-3xl bg-slate-900"
           onTouchStart={(event) => {
-            touchStartX.current = event.changedTouches?.[0]?.clientX ?? null;
+            const target = event.target as HTMLElement | null;
+            if (target?.closest('button, a, input, textarea, select, label')) {
+              touchStartRef.current = null;
+              return;
+            }
+            const touch = event.changedTouches?.[0];
+            if (!touch) {
+              touchStartRef.current = null;
+              return;
+            }
+            touchStartRef.current = { x: touch.clientX, y: touch.clientY };
           }}
           onTouchEnd={(event) => {
-            const start = touchStartX.current;
-            const end = event.changedTouches?.[0]?.clientX ?? null;
-            touchStartX.current = null;
-            if (start == null || end == null) return;
-            const delta = end - start;
-            if (Math.abs(delta) < 45) return;
-            if (delta > 0) goToOffset(-1);
-            if (delta < 0) goToOffset(1);
+            const target = event.target as HTMLElement | null;
+            if (target?.closest('button, a, input, textarea, select, label')) return;
+            const start = touchStartRef.current;
+            const touch = event.changedTouches?.[0];
+            touchStartRef.current = null;
+            if (!start || !touch) return;
+            const deltaX = touch.clientX - start.x;
+            const deltaY = touch.clientY - start.y;
+            if (Math.abs(deltaX) >= 45 && Math.abs(deltaX) > Math.abs(deltaY)) {
+              if (deltaX > 0) goToOffset(-1);
+              if (deltaX < 0) goToOffset(1);
+              return;
+            }
+            if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) > 18) return;
+            const now = Date.now();
+            if (lastTapAtRef.current && now - lastTapAtRef.current <= 320) {
+              event.preventDefault();
+              event.stopPropagation();
+              lastTapAtRef.current = 0;
+              onLike();
+              return;
+            }
+            lastTapAtRef.current = now;
+          }}
+          onDoubleClick={(event) => {
+            const target = event.target as HTMLElement | null;
+            if (target?.closest('button, a, input, textarea, select, label')) return;
+            event.preventDefault();
+            event.stopPropagation();
+            onLike();
           }}
         >
           {type === 'text' ? (

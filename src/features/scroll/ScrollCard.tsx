@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Volume2, VolumeX, MessageCircle, Repeat2, Send, Coins, Flag, Maximize2, Sparkles } from 'lucide-react';
 import type { ScrollEngagementType, ScrollVideo } from '../../services/scroll';
 import ReactionBar from '../../community/components/ReactionBar';
+import { ReactionsService } from '../../services/reactions';
+import { useUser } from '../../context/UserContext';
 
 type ScrollCardProps = {
   scroll: ScrollVideo;
@@ -34,9 +36,12 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   onSend,
   onReport
 }) => {
+  const { user } = useUser();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const marksRef = useRef<Record<string, boolean>>({});
+  const mediaGestureStartRef = useRef<{ x: number; y: number } | null>(null);
+  const mediaLastTapAtRef = useRef(0);
 
   useEffect(() => {
     marksRef.current = {};
@@ -127,6 +132,31 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     }
   };
 
+  const triggerDoubleTapLike = useCallback(async () => {
+    const scrollId = String(scroll?.id || '').trim();
+    if (!scrollId) return;
+    if (!user?.id) {
+      if (confirm('Log in to like scroll videos?')) window.location.href = '/auth/login';
+      return;
+    }
+    try {
+      const summary = await ReactionsService.react('SCROLL', scrollId, 'like');
+      window.dispatchEvent(
+        new CustomEvent('reactions:updated', {
+          detail: {
+            targetType: 'SCROLL',
+            targetId: scrollId,
+            counts: summary?.counts || {},
+            userReaction: summary?.userReaction || null,
+            actorUserId: user.id
+          }
+        })
+      );
+    } catch (error) {
+      console.error('Failed to apply scroll double-tap like', error);
+    }
+  }, [scroll?.id, user?.id]);
+
   const mediaUrl = scroll.media?.url || '';
   const authorName = scroll.author?.name || 'Community member';
   const description = String(scroll.description || '').trim();
@@ -168,6 +198,46 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
       ref={rootRef}
       className="relative h-screen w-full snap-start bg-black text-white overflow-hidden"
       aria-label={`Scroll by ${authorName}`}
+      onTouchStart={(event) => {
+        const target = event.target as HTMLElement | null;
+        if (target?.closest('button, a, input, textarea, select, label')) {
+          mediaGestureStartRef.current = null;
+          return;
+        }
+        const touch = event.changedTouches?.[0];
+        if (!touch) {
+          mediaGestureStartRef.current = null;
+          return;
+        }
+        mediaGestureStartRef.current = { x: touch.clientX, y: touch.clientY };
+      }}
+      onTouchEnd={(event) => {
+        const target = event.target as HTMLElement | null;
+        if (target?.closest('button, a, input, textarea, select, label')) return;
+        const start = mediaGestureStartRef.current;
+        const touch = event.changedTouches?.[0];
+        mediaGestureStartRef.current = null;
+        if (!start || !touch) return;
+        const deltaX = touch.clientX - start.x;
+        const deltaY = touch.clientY - start.y;
+        if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) > 18) return;
+        const now = Date.now();
+        if (mediaLastTapAtRef.current && now - mediaLastTapAtRef.current <= 320) {
+          event.preventDefault();
+          event.stopPropagation();
+          mediaLastTapAtRef.current = 0;
+          void triggerDoubleTapLike();
+          return;
+        }
+        mediaLastTapAtRef.current = now;
+      }}
+      onDoubleClick={(event) => {
+        const target = event.target as HTMLElement | null;
+        if (target?.closest('button, a, input, textarea, select, label')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void triggerDoubleTapLike();
+      }}
     >
       {mediaUrl ? (
         <div className="relative h-full w-full bg-black">

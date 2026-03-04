@@ -7,6 +7,8 @@ type InlineAutoplayVideoProps = {
   controls?: boolean;
   loop?: boolean;
   preload?: 'none' | 'metadata' | 'auto';
+  autoplayEnabled?: boolean;
+  onDoubleTapLike?: () => void;
 };
 
 const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
@@ -15,12 +17,15 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
   className = '',
   controls = true,
   loop = false,
-  preload = 'metadata'
+  preload = 'metadata',
+  autoplayEnabled = true,
+  onDoubleTapLike
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [isMuted, setIsMuted] = useState(true);
   const [isInView, setIsInView] = useState(false);
   const userPausedRef = useRef(false);
+  const lastTapAtRef = useRef(0);
 
   useEffect(() => {
     const node = videoRef.current;
@@ -55,7 +60,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
     const node = videoRef.current;
     if (!node) return;
 
-    if (!isInView || document.hidden) {
+    if (!autoplayEnabled || !isInView || document.hidden) {
       if (!node.paused) node.pause();
       return;
     }
@@ -65,7 +70,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
     if (playAttempt && typeof playAttempt.catch === 'function') {
       playAttempt.catch(() => {});
     }
-  }, [isInView, src]);
+  }, [autoplayEnabled, isInView, src]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -77,7 +82,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
         return;
       }
 
-      if (!isInView || userPausedRef.current) return;
+      if (!autoplayEnabled || !isInView || userPausedRef.current) return;
       const playAttempt = node.play();
       if (playAttempt && typeof playAttempt.catch === 'function') {
         playAttempt.catch(() => {});
@@ -86,7 +91,9 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
 
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
-  }, [isInView]);
+  }, [autoplayEnabled, isInView]);
+
+  const effectivePreload: 'none' | 'metadata' | 'auto' = autoplayEnabled ? preload : 'none';
 
   useEffect(() => {
     const node = videoRef.current;
@@ -125,11 +132,30 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
         poster={poster || undefined}
         className={className}
         controls={controls}
-        autoPlay
+        autoPlay={autoplayEnabled}
         playsInline
         muted={isMuted}
         loop={loop}
-        preload={preload}
+        preload={effectivePreload}
+        onDoubleClick={(event) => {
+          if (!onDoubleTapLike) return;
+          event.preventDefault();
+          event.stopPropagation();
+          onDoubleTapLike();
+        }}
+        onTouchEnd={(event) => {
+          if (!onDoubleTapLike) return;
+          const now = Date.now();
+          const lastTap = lastTapAtRef.current;
+          if (lastTap && now - lastTap <= 320) {
+            event.preventDefault();
+            event.stopPropagation();
+            lastTapAtRef.current = 0;
+            onDoubleTapLike();
+            return;
+          }
+          lastTapAtRef.current = now;
+        }}
       />
       <button
         type="button"

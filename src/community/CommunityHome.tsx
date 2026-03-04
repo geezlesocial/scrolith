@@ -22,6 +22,7 @@ import DonateButton from '../components/DonateButton';
 import { CommunityService } from '../services/community';
 import { AdService } from '../services/ads';
 import { ScrollService, type ScrollConfig, type ScrollVideo } from '../services/scroll';
+import { ReactionsService } from '../services/reactions';
 import InlineAutoplayVideo from '../components/media/InlineAutoplayVideo';
 import ScrollCreateModal from '../features/scroll/ScrollCreateModal';
 import PostHeader from './components/PostHeader';
@@ -335,6 +336,10 @@ const CommunityHome = () => {
   const followStateMap = useFollowStateMap();
   const impressionTracked = useRef<Set<string>>(new Set());
   const viewTracked = useRef<Set<string>>(new Set());
+  const postMediaTapTimersRef = useRef<Record<string, number>>({});
+  const postMediaLastTapAtRef = useRef<Record<string, number>>({});
+  const storyGestureStartRef = useRef<{ x: number; y: number } | null>(null);
+  const storyLastTapAtRef = useRef(0);
   const storyPreviewStyle = getStoryTextStyle(storyDraft);
   const storyEditPreviewStyle = getStoryTextStyle(storyEditDraft);
 
@@ -354,6 +359,88 @@ const CommunityHome = () => {
       openPostDetail(postId);
     },
     [openPostDetail]
+  );
+
+  const triggerPostDoubleTapLike = useCallback(
+    async (post: any) => {
+      const postId = String(post?.id || '').trim();
+      if (!postId) return;
+      if (!user?.id) {
+        if (confirm('Log in to like posts?')) window.location.href = '/auth/login';
+        return;
+      }
+      try {
+        const summary = await ReactionsService.react('POST', postId, 'like');
+        window.dispatchEvent(
+          new CustomEvent('community:post_reaction_updated', {
+            detail: {
+              postId,
+              reactions: summary?.counts || {},
+              actorId: user.id,
+              userReaction: summary?.userReaction || null
+            }
+          })
+        );
+      } catch (error) {
+        console.error('Failed to apply double-tap like', error);
+      }
+    },
+    [user?.id]
+  );
+
+  const queueOpenPostFromMediaTap = useCallback(
+    (postId: string, mediaKey: string) => {
+      const timerKey = `${postId}:${mediaKey}`;
+      const existing = postMediaTapTimersRef.current[timerKey];
+      if (existing) window.clearTimeout(existing);
+      postMediaTapTimersRef.current[timerKey] = window.setTimeout(() => {
+        delete postMediaTapTimersRef.current[timerKey];
+        openPostDetail(postId);
+      }, 220);
+    },
+    [openPostDetail]
+  );
+
+  const onPostMediaDoubleClick = useCallback(
+    (event: React.MouseEvent<HTMLElement>, post: any, mediaKey: string) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const postId = String(post?.id || '').trim();
+      if (!postId) return;
+      const timerKey = `${postId}:${mediaKey}`;
+      const existing = postMediaTapTimersRef.current[timerKey];
+      if (existing) {
+        window.clearTimeout(existing);
+        delete postMediaTapTimersRef.current[timerKey];
+      }
+      void triggerPostDoubleTapLike(post);
+    },
+    [triggerPostDoubleTapLike]
+  );
+
+  const onPostMediaTouchEnd = useCallback(
+    (event: React.TouchEvent<HTMLElement>, post: any, mediaKey: string) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('button, a, input, textarea, select, label')) return;
+      const postId = String(post?.id || '').trim();
+      if (!postId) return;
+      const tapKey = `${postId}:${mediaKey}`;
+      const now = Date.now();
+      const previousTap = postMediaLastTapAtRef.current[tapKey] || 0;
+      postMediaLastTapAtRef.current[tapKey] = now;
+      if (previousTap && now - previousTap <= 320) {
+        event.preventDefault();
+        event.stopPropagation();
+        const existing = postMediaTapTimersRef.current[tapKey];
+        if (existing) {
+          window.clearTimeout(existing);
+          delete postMediaTapTimersRef.current[tapKey];
+        }
+        postMediaLastTapAtRef.current[tapKey] = 0;
+        void triggerPostDoubleTapLike(post);
+      }
+    },
+    [triggerPostDoubleTapLike]
   );
 
   useEffect(() => {
@@ -1469,6 +1556,62 @@ const CommunityHome = () => {
     [activeStory?.id, stories, openStory]
   );
 
+  const onStoryGestureStart = useCallback((event: React.TouchEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('button, a, input, textarea, select, label')) {
+      storyGestureStartRef.current = null;
+      return;
+    }
+    const touch = event.changedTouches?.[0];
+    if (!touch) {
+      storyGestureStartRef.current = null;
+      return;
+    }
+    storyGestureStartRef.current = { x: touch.clientX, y: touch.clientY };
+  }, []);
+
+  const onStoryGestureEnd = useCallback(
+    (event: React.TouchEvent<HTMLElement>) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('button, a, input, textarea, select, label')) return;
+      const start = storyGestureStartRef.current;
+      const touch = event.changedTouches?.[0];
+      storyGestureStartRef.current = null;
+      if (!start || !touch) return;
+      const deltaX = touch.clientX - start.x;
+      const deltaY = touch.clientY - start.y;
+      if (Math.abs(deltaX) >= 45 && Math.abs(deltaX) > Math.abs(deltaY)) {
+        if (deltaX > 0) goToStoryByOffset(-1);
+        if (deltaX < 0) goToStoryByOffset(1);
+        return;
+      }
+      if (!activeStory) return;
+      if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) > 18) return;
+      const now = Date.now();
+      if (storyLastTapAtRef.current && now - storyLastTapAtRef.current <= 320) {
+        event.preventDefault();
+        event.stopPropagation();
+        storyLastTapAtRef.current = 0;
+        void handleStoryLike(activeStory);
+        return;
+      }
+      storyLastTapAtRef.current = now;
+    },
+    [activeStory, goToStoryByOffset, handleStoryLike]
+  );
+
+  const onStoryMediaDoubleClick = useCallback(
+    (event: React.MouseEvent<HTMLElement>) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('button, a, input, textarea, select, label')) return;
+      if (!activeStory) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void handleStoryLike(activeStory);
+    },
+    [activeStory, handleStoryLike]
+  );
+
   useEffect(() => {
     if (!activeStory?.id) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -2401,6 +2544,7 @@ const CommunityHome = () => {
                             >
                               {post.attachments.map((media: any) => {
                                 const type = inferMediaType(media || {});
+                                const mediaKey = String(media.id || media.url || '');
                                 const mediaHeightClass =
                                   post.attachments.length === 1 ? 'h-64 md:h-80' : 'h-44 md:h-52';
                                 if (type === 'video') {
@@ -2416,6 +2560,9 @@ const CommunityHome = () => {
                                         controls
                                         autoplayEnabled={profile.autoplayEnabled}
                                         preload="metadata"
+                                        onDoubleTapLike={() => {
+                                          void triggerPostDoubleTapLike(post);
+                                        }}
                                       />
                                     </div>
                                   );
@@ -2425,7 +2572,9 @@ const CommunityHome = () => {
                                     <button
                                       key={media.id || media.url}
                                       type="button"
-                                      onClick={() => openPostDetail(post.id)}
+                                      onClick={() => queueOpenPostFromMediaTap(post.id, mediaKey)}
+                                      onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
+                                      onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
                                       className="mx-auto w-full overflow-hidden rounded-xl border border-gray-200 bg-gray-50 text-left"
                                     >
                                       <img
@@ -2979,7 +3128,12 @@ const CommunityHome = () => {
                 </button>
               </div>
             </div>
-            <div className="relative mt-4 overflow-hidden rounded-2xl bg-gray-100 aspect-[9/16] sm:aspect-[9/14]">
+            <div
+              className="relative mt-4 overflow-hidden rounded-2xl bg-gray-100 aspect-[9/16] sm:aspect-[9/14]"
+              onTouchStart={onStoryGestureStart}
+              onTouchEnd={onStoryGestureEnd}
+              onDoubleClick={onStoryMediaDoubleClick}
+            >
               {(() => {
                 const mediaUrl = resolveStoryMediaUrl(activeStory);
                 if (mediaUrl) {

@@ -28,6 +28,7 @@ import { useSocket } from '../../context/SocketContext';
 import { useNotification } from '../../context/NotificationContext';
 import { CommunityService } from '../../services/community';
 import { ScrollService, type ScrollConfig, type ScrollVideo } from '../../services/scroll';
+import { ReactionsService } from '../../services/reactions';
 import { FileService } from '../../services/files';
 import { UserService } from '../../services/user';
 import { AIService, type PostEnhanceMode } from '../../services/ai/ai.service';
@@ -819,6 +820,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const searchRef = useRef<HTMLDivElement | null>(null);
   const sidebarRefreshTimeoutRef = useRef<number | null>(null);
   const adImpressionsRef = useRef<Set<string>>(new Set());
+  const postMediaTapTimersRef = useRef<Record<string, number>>({});
+  const postMediaLastTapAtRef = useRef<Record<string, number>>({});
+  const storyGestureStartRef = useRef<{ x: number; y: number } | null>(null);
+  const storyLastTapAtRef = useRef(0);
   const [selfProfileCover, setSelfProfileCover] = useState('');
 
   const openPostDetail = useCallback(
@@ -837,6 +842,88 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       openPostDetail(postId);
     },
     [openPostDetail]
+  );
+
+  const triggerPostDoubleTapLike = useCallback(
+    async (post: any) => {
+      const postId = String(post?.id || '').trim();
+      if (!postId) return;
+      if (!user?.id) {
+        if (confirm('Log in to like posts?')) window.location.href = '/auth/login';
+        return;
+      }
+      try {
+        const summary = await ReactionsService.react('POST', postId, 'like');
+        window.dispatchEvent(
+          new CustomEvent('community:post_reaction_updated', {
+            detail: {
+              postId,
+              reactions: summary?.counts || {},
+              actorId: user.id,
+              userReaction: summary?.userReaction || null
+            }
+          })
+        );
+      } catch (error) {
+        console.error('Failed to apply double-tap like', error);
+      }
+    },
+    [user?.id]
+  );
+
+  const queueOpenPostFromMediaTap = useCallback(
+    (postId: string, mediaKey: string) => {
+      const timerKey = `${postId}:${mediaKey}`;
+      const existing = postMediaTapTimersRef.current[timerKey];
+      if (existing) window.clearTimeout(existing);
+      postMediaTapTimersRef.current[timerKey] = window.setTimeout(() => {
+        delete postMediaTapTimersRef.current[timerKey];
+        openPostDetail(postId);
+      }, 220);
+    },
+    [openPostDetail]
+  );
+
+  const onPostMediaDoubleClick = useCallback(
+    (event: React.MouseEvent<HTMLElement>, post: any, mediaKey: string) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const postId = String(post?.id || '').trim();
+      if (!postId) return;
+      const timerKey = `${postId}:${mediaKey}`;
+      const existing = postMediaTapTimersRef.current[timerKey];
+      if (existing) {
+        window.clearTimeout(existing);
+        delete postMediaTapTimersRef.current[timerKey];
+      }
+      void triggerPostDoubleTapLike(post);
+    },
+    [triggerPostDoubleTapLike]
+  );
+
+  const onPostMediaTouchEnd = useCallback(
+    (event: React.TouchEvent<HTMLElement>, post: any, mediaKey: string) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('button, a, input, textarea, select, label')) return;
+      const postId = String(post?.id || '').trim();
+      if (!postId) return;
+      const tapKey = `${postId}:${mediaKey}`;
+      const now = Date.now();
+      const previousTap = postMediaLastTapAtRef.current[tapKey] || 0;
+      postMediaLastTapAtRef.current[tapKey] = now;
+      if (previousTap && now - previousTap <= 320) {
+        event.preventDefault();
+        event.stopPropagation();
+        const existing = postMediaTapTimersRef.current[tapKey];
+        if (existing) {
+          window.clearTimeout(existing);
+          delete postMediaTapTimersRef.current[tapKey];
+        }
+        postMediaLastTapAtRef.current[tapKey] = 0;
+        void triggerPostDoubleTapLike(post);
+      }
+    },
+    [triggerPostDoubleTapLike]
   );
 
   const memberHomeSettings = (settings as any)?.memberHome || {};
@@ -2626,6 +2713,62 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     [activeStory?.id, stories, openStory]
   );
 
+  const onStoryGestureStart = useCallback((event: React.TouchEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('button, a, input, textarea, select, label')) {
+      storyGestureStartRef.current = null;
+      return;
+    }
+    const touch = event.changedTouches?.[0];
+    if (!touch) {
+      storyGestureStartRef.current = null;
+      return;
+    }
+    storyGestureStartRef.current = { x: touch.clientX, y: touch.clientY };
+  }, []);
+
+  const onStoryGestureEnd = useCallback(
+    (event: React.TouchEvent<HTMLElement>) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('button, a, input, textarea, select, label')) return;
+      const start = storyGestureStartRef.current;
+      const touch = event.changedTouches?.[0];
+      storyGestureStartRef.current = null;
+      if (!start || !touch) return;
+      const deltaX = touch.clientX - start.x;
+      const deltaY = touch.clientY - start.y;
+      if (Math.abs(deltaX) >= 45 && Math.abs(deltaX) > Math.abs(deltaY)) {
+        if (deltaX > 0) goToStoryByOffset(-1);
+        if (deltaX < 0) goToStoryByOffset(1);
+        return;
+      }
+      if (!activeStory) return;
+      if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) > 18) return;
+      const now = Date.now();
+      if (storyLastTapAtRef.current && now - storyLastTapAtRef.current <= 320) {
+        event.preventDefault();
+        event.stopPropagation();
+        storyLastTapAtRef.current = 0;
+        void handleStoryLike(activeStory);
+        return;
+      }
+      storyLastTapAtRef.current = now;
+    },
+    [activeStory, goToStoryByOffset, handleStoryLike]
+  );
+
+  const onStoryMediaDoubleClick = useCallback(
+    (event: React.MouseEvent<HTMLElement>) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('button, a, input, textarea, select, label')) return;
+      if (!activeStory) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void handleStoryLike(activeStory);
+    },
+    [activeStory, handleStoryLike]
+  );
+
   useEffect(() => {
     if (!activeStory?.id) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -3449,7 +3592,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     [handleMessage, listingImageErrors, markListingImageError]
   );
 
-  const renderAttachments = (postId: string, attachments?: FeedPost['attachments']) => {
+  const renderAttachments = (post: any, attachments?: FeedPost['attachments']) => {
+    const postId = String(post?.id || '').trim();
+    if (!postId) return null;
     if (!attachments?.length) return null;
     const isSingleAttachment = attachments.length === 1;
     const mediaPreviewHeightClass = isSingleAttachment ? 'h-64 md:h-80' : 'h-44 md:h-52';
@@ -3457,6 +3602,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       <div className={`mt-3 grid gap-3 ${isSingleAttachment ? 'grid-cols-1' : 'md:grid-cols-2'}`}>
         {attachments.map((media) => {
           const type = inferMediaType(media || {});
+          const mediaKey = String(media.id || media.url || '');
           const durationLabel = formatMediaDuration((media as any)?.duration);
           if (type === 'video') {
             return (
@@ -3471,6 +3617,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   controls
                   autoplayEnabled={profile.autoplayEnabled}
                   preload="metadata"
+                  onDoubleTapLike={() => {
+                    void triggerPostDoubleTapLike(post);
+                  }}
                 />
                 {durationLabel && (
                   <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
@@ -3485,7 +3634,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
               <button
                 key={media.id || media.url}
                 type="button"
-                onClick={() => openPostDetail(postId)}
+                onClick={() => queueOpenPostFromMediaTap(postId, mediaKey)}
+                onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
+                onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
                 className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
               >
                 <img src={media.url} alt={media.name || 'Post media'} className={`${mediaPreviewHeightClass} w-full object-cover`} />
@@ -4667,7 +4818,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                                 ) : null}
                               </div>
                             ) : null}
-                            {renderAttachments(post.id, post.attachments)}
+                            {renderAttachments(post, post.attachments)}
                             <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                               {post.topic ? <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">Topic: {post.topic}</span> : null}
                               {post.location ? <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">Location: {post.location}</span> : null}
@@ -5830,7 +5981,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                 </button>
               </div>
             </div>
-            <div className="relative mt-4 overflow-hidden rounded-2xl bg-slate-100 aspect-[9/16] sm:aspect-[9/14]">
+            <div
+              className="relative mt-4 overflow-hidden rounded-2xl bg-slate-100 aspect-[9/16] sm:aspect-[9/14]"
+              onTouchStart={onStoryGestureStart}
+              onTouchEnd={onStoryGestureEnd}
+              onDoubleClick={onStoryMediaDoubleClick}
+            >
               {(() => {
                 const mediaUrl = resolveStoryMediaUrl(activeStory);
                 if (mediaUrl) {
