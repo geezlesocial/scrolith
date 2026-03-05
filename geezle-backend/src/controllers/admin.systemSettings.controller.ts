@@ -142,7 +142,9 @@ export const validateSystem = (obj: any) => {
         { key: 'htmlCollapseWhitespace', aliases: ['html_collapse_whitespace'] },
         { key: 'htmlRemoveComments', aliases: ['html_remove_comments'] },
         { key: 'jsonMinifyEnabled', aliases: ['json_minify_enabled'] },
-        { key: 'speedHintsEnabled', aliases: ['speed_hints_enabled'] }
+        { key: 'speedHintsEnabled', aliases: ['speed_hints_enabled'] },
+        { key: 'dataSaverModeEnabled', aliases: ['data_saver_mode_enabled'] },
+        { key: 'autoplayEnabled', aliases: ['autoplay_enabled'] }
       ];
       for (const rule of booleanRules) {
         const value = pickFirstDefined(optimization, [rule.key, ...(rule.aliases || [])]);
@@ -157,7 +159,10 @@ export const validateSystem = (obj: any) => {
         { key: 'compressionThresholdKb', aliases: ['compression_threshold_kb'], min: 0, max: 2048 },
         { key: 'apiResponseCacheSeconds', aliases: ['api_response_cache_seconds'], min: 5, max: 3600 },
         { key: 'apiResponseCacheMaxEntries', aliases: ['api_response_cache_max_entries'], min: 50, max: 5000 },
-        { key: 'staticAssetCacheSeconds', aliases: ['static_asset_cache_seconds'], min: 60, max: 31536000 }
+        { key: 'staticAssetCacheSeconds', aliases: ['static_asset_cache_seconds'], min: 60, max: 31536000 },
+        { key: 'feedPageSize', aliases: ['feed_page_size'], min: 5, max: 80 },
+        { key: 'lowBandwidthFeedPageSize', aliases: ['low_bandwidth_feed_page_size'], min: 3, max: 40 },
+        { key: 'realtimeThrottleMs', aliases: ['realtime_throttle_ms'], min: 0, max: 10000 }
       ];
       for (const rule of numericRules) {
         const value = pickFirstDefined(optimization, [rule.key, ...(rule.aliases || [])]);
@@ -199,6 +204,14 @@ export const validateSystem = (obj: any) => {
               .filter(Boolean);
         if (paths.length > 100) {
           errors.push('optimization.apiCacheExcludePaths supports at most 100 entries');
+        }
+      }
+
+      const mediaQualityPreset = pickFirstDefined(optimization, ['mediaQualityPreset', 'media_quality_preset']);
+      if (mediaQualityPreset !== undefined) {
+        const normalized = String(mediaQualityPreset || '').trim().toLowerCase();
+        if (!['auto', 'low', 'balanced', 'high'].includes(normalized)) {
+          errors.push('optimization.mediaQualityPreset must be one of auto, low, balanced, high');
         }
       }
     }

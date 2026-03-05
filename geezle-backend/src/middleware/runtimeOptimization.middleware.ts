@@ -94,8 +94,11 @@ export const resolveStaticAssetCacheControl = (
   const ttl = isFavicon
     ? Math.min(Math.max(60, cfg.staticAssetCacheSeconds), 3600)
     : Math.max(60, cfg.staticAssetCacheSeconds);
-  const swr = Math.min(Math.max(0, Math.trunc(ttl / 2)), 86400);
-  return `public, max-age=${ttl}, stale-while-revalidate=${swr}`;
+  if (isFavicon) {
+    const swr = Math.min(Math.max(0, Math.trunc(ttl / 2)), 86400);
+    return `public, max-age=${ttl}, stale-while-revalidate=${swr}`;
+  }
+  return `public, max-age=${ttl}, immutable`;
 };
 
 export interface RuntimeOptimizationMiddlewareBundle {

@@ -17,6 +17,12 @@ export interface RuntimeOptimizationConfig {
   speedHintsEnabled: boolean;
   preconnectOrigins: string[];
   apiCacheExcludePaths: string[];
+  dataSaverModeEnabled: boolean;
+  autoplayEnabled: boolean;
+  feedPageSize: number;
+  lowBandwidthFeedPageSize: number;
+  realtimeThrottleMs: number;
+  mediaQualityPreset: 'auto' | 'low' | 'balanced' | 'high';
 }
 
 const DEFAULT_API_CACHE_EXCLUDE_PATHS = [
@@ -49,7 +55,13 @@ export const DEFAULT_RUNTIME_OPTIMIZATION_CONFIG: RuntimeOptimizationConfig = {
   jsonMinifyEnabled: false,
   speedHintsEnabled: false,
   preconnectOrigins: [],
-  apiCacheExcludePaths: [...DEFAULT_API_CACHE_EXCLUDE_PATHS]
+  apiCacheExcludePaths: [...DEFAULT_API_CACHE_EXCLUDE_PATHS],
+  dataSaverModeEnabled: false,
+  autoplayEnabled: true,
+  feedPageSize: 20,
+  lowBandwidthFeedPageSize: 10,
+  realtimeThrottleMs: 300,
+  mediaQualityPreset: 'auto'
 };
 
 const asObject = (value: unknown): MaybeRecord => {
@@ -125,6 +137,12 @@ const normalizeCacheExcludePaths = (value: unknown): string[] => {
   return paths;
 };
 
+const normalizeMediaQualityPreset = (value: unknown): RuntimeOptimizationConfig['mediaQualityPreset'] => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'low' || normalized === 'balanced' || normalized === 'high') return normalized;
+  return 'auto';
+};
+
 export const normalizeRuntimeOptimizationConfig = (raw: unknown): RuntimeOptimizationConfig => {
   const source = asObject(raw) || {};
   const defaults = DEFAULT_RUNTIME_OPTIMIZATION_CONFIG;
@@ -134,6 +152,21 @@ export const normalizeRuntimeOptimizationConfig = (raw: unknown): RuntimeOptimiz
   );
   const apiCacheExcludePaths = normalizeCacheExcludePaths(
     source.apiCacheExcludePaths ?? source.api_cache_exclude_paths
+  );
+
+  const feedPageSize = clampNumber(
+    source.feedPageSize ?? source.feed_page_size,
+    defaults.feedPageSize,
+    5,
+    80,
+    true
+  );
+  const lowBandwidthFeedPageSize = clampNumber(
+    source.lowBandwidthFeedPageSize ?? source.low_bandwidth_feed_page_size,
+    defaults.lowBandwidthFeedPageSize,
+    3,
+    40,
+    true
   );
 
   return {
@@ -206,7 +239,27 @@ export const normalizeRuntimeOptimizationConfig = (raw: unknown): RuntimeOptimiz
       defaults.speedHintsEnabled
     ),
     preconnectOrigins,
-    apiCacheExcludePaths
+    apiCacheExcludePaths,
+    dataSaverModeEnabled: parseBoolean(
+      source.dataSaverModeEnabled ?? source.data_saver_mode_enabled,
+      defaults.dataSaverModeEnabled
+    ),
+    autoplayEnabled: parseBoolean(
+      source.autoplayEnabled ?? source.autoplay_enabled,
+      defaults.autoplayEnabled
+    ),
+    feedPageSize,
+    lowBandwidthFeedPageSize: Math.min(feedPageSize, lowBandwidthFeedPageSize),
+    realtimeThrottleMs: clampNumber(
+      source.realtimeThrottleMs ?? source.realtime_throttle_ms,
+      defaults.realtimeThrottleMs,
+      0,
+      10000,
+      true
+    ),
+    mediaQualityPreset: normalizeMediaQualityPreset(
+      source.mediaQualityPreset ?? source.media_quality_preset
+    )
   };
 };
 
@@ -228,5 +281,11 @@ export const serializeRuntimeOptimizationConfig = (
   json_minify_enabled: config.jsonMinifyEnabled,
   speed_hints_enabled: config.speedHintsEnabled,
   preconnect_origins: config.preconnectOrigins,
-  api_cache_exclude_paths: config.apiCacheExcludePaths
+  api_cache_exclude_paths: config.apiCacheExcludePaths,
+  data_saver_mode_enabled: config.dataSaverModeEnabled,
+  autoplay_enabled: config.autoplayEnabled,
+  feed_page_size: config.feedPageSize,
+  low_bandwidth_feed_page_size: config.lowBandwidthFeedPageSize,
+  realtime_throttle_ms: config.realtimeThrottleMs,
+  media_quality_preset: config.mediaQualityPreset
 });
