@@ -128,6 +128,16 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'dev:docs_updated', fn: forward('dev:docs_updated') }
       ,{ ev: 'admin:system_backup_updated', fn: forward('admin:system_backup_updated') }
       ,{ ev: 'homepage:guest_updated', fn: forward('homepage:guest_updated') }
+      ,{ ev: 'live:session_created', fn: forward('live:session_created') }
+      ,{ ev: 'live:started', fn: forward('live:started') }
+      ,{ ev: 'live:ended', fn: forward('live:ended') }
+      ,{ ev: 'live:participant_invited', fn: forward('live:participant_invited') }
+      ,{ ev: 'live:participant_joined', fn: forward('live:participant_joined') }
+      ,{ ev: 'live:participant_left', fn: forward('live:participant_left') }
+      ,{ ev: 'live:reaction', fn: forward('live:reaction') }
+      ,{ ev: 'live:gift_sent', fn: forward('live:gift_sent') }
+      ,{ ev: 'live:viewer_count_updated', fn: forward('live:viewer_count_updated') }
+      ,{ ev: 'live:signal', fn: forward('live:signal') }
     ];
 
     handlers.forEach(h => socket.on(h.ev, h.fn));

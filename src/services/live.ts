@@ -1,0 +1,208 @@
+import api from './api';
+
+export type LiveVisibility = 'public' | 'network' | 'followers' | 'private';
+export type LiveReactionType = 'like' | 'love';
+
+export interface LiveUserPreview {
+  id: string;
+  name: string;
+  username?: string | null;
+  avatar?: string | null;
+  isVerified?: boolean;
+}
+
+export interface LiveParticipant {
+  id: string;
+  userId: string;
+  role: string;
+  micState: boolean;
+  cameraState: boolean;
+  status: string;
+  joinedAt?: string | null;
+  leftAt?: string | null;
+  user?: LiveUserPreview;
+}
+
+export interface LiveGift {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  amountGcoin: number;
+  message?: string | null;
+  createdAt: string;
+  fromUser?: LiveUserPreview;
+  toUser?: LiveUserPreview;
+}
+
+export interface LiveSession {
+  id: string;
+  hostUserId: string;
+  host: LiveUserPreview;
+  title?: string | null;
+  description?: string | null;
+  visibility: LiveVisibility | string;
+  status: string;
+  roomName?: string | null;
+  streamUrl?: string | null;
+  hlsUrl?: string | null;
+  recordingFileId?: string | null;
+  viewerCount: number;
+  peakViewerCount: number;
+  likesCount: number;
+  lovesCount: number;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  metadata?: Record<string, any>;
+  participants: LiveParticipant[];
+  invites?: Array<{
+    id: string;
+    inviterId: string;
+    inviteeId: string;
+    status: string;
+    createdAt: string;
+    respondedAt?: string | null;
+    inviter?: LiveUserPreview;
+    invitee?: LiveUserPreview;
+  }>;
+  gifts?: LiveGift[];
+  viewer?: {
+    userId?: string | null;
+    role?: string | null;
+    status?: string | null;
+    isHost?: boolean;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LiveConfig {
+  id: string;
+  enabled: boolean;
+  enableConference: boolean;
+  maxParticipants: number;
+  maxGuests: number;
+  enableGifts: boolean;
+  minGiftGcoin: number;
+  maxGiftGcoin: number;
+  enableRecording: boolean;
+  defaultVisibility: LiveVisibility | string;
+  rateLimitReactionsPerMinute: number;
+  rateLimitChatPerMinute: number;
+  updatedById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  _schemaMissing?: boolean;
+}
+
+const extractData = <T>(response: any): T => {
+  if (response?.data?.data !== undefined) return response.data.data as T;
+  if (response?.data !== undefined) return response.data as T;
+  return response as T;
+};
+
+export class LiveService {
+  static async createSession(payload: {
+    title?: string;
+    description?: string;
+    visibility?: LiveVisibility | string;
+    streamUrl?: string;
+    hlsUrl?: string;
+    roomName?: string;
+    metadata?: Record<string, any>;
+  }) {
+    const response = await api.post('/live/sessions', payload);
+    return extractData<LiveSession>(response);
+  }
+
+  static async startSession(sessionId: string) {
+    const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/start`);
+    return extractData<LiveSession>(response);
+  }
+
+  static async endSession(sessionId: string) {
+    const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/end`);
+    return extractData<LiveSession>(response);
+  }
+
+  static async invite(sessionId: string, inviteeIds: string[]) {
+    const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/invite`, { inviteeIds });
+    return extractData<any>(response);
+  }
+
+  static async acceptInvite(inviteId: string) {
+    const response = await api.post(`/live/invites/${encodeURIComponent(inviteId)}/accept`);
+    return extractData<LiveSession>(response);
+  }
+
+  static async react(sessionId: string, type: LiveReactionType) {
+    const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/reactions`, { type });
+    return extractData<any>(response);
+  }
+
+  static async sendGift(sessionId: string, payload: { amountGcoin: number; message?: string; toUserId?: string }) {
+    const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/gifts`, payload);
+    return extractData<any>(response);
+  }
+
+  static async reportSession(sessionId: string, reason: string) {
+    const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/report`, { reason });
+    return extractData<any>(response);
+  }
+
+  static async getSession(sessionId: string) {
+    const response = await api.get(`/live/sessions/${encodeURIComponent(sessionId)}`);
+    return extractData<LiveSession>(response);
+  }
+
+  static async getMyLive() {
+    const response = await api.get('/live/me');
+    return extractData<{
+      hosted: LiveSession[];
+      participating: LiveSession[];
+      invites: Array<{
+        id: string;
+        sessionId: string;
+        inviterId: string;
+        inviteeId: string;
+        status: string;
+        createdAt: string;
+      }>;
+    }>(response);
+  }
+
+  static async getAdminConfig() {
+    const response = await api.get('/admin/live/config');
+    return extractData<LiveConfig>(response);
+  }
+
+  static async saveAdminConfig(payload: Partial<LiveConfig>) {
+    const response = await api.put('/admin/live/config', payload);
+    return extractData<LiveConfig>(response);
+  }
+
+  static async getAdminSessions(params?: { status?: string; limit?: number }) {
+    const query = new URLSearchParams();
+    if (params?.status) query.set('status', String(params.status));
+    if (typeof params?.limit !== 'undefined') query.set('limit', String(params.limit));
+    const response = await api.get(`/admin/live/sessions${query.toString() ? `?${query.toString()}` : ''}`);
+    return extractData<LiveSession[]>(response);
+  }
+
+  static async endAdminSession(sessionId: string) {
+    const response = await api.post(`/admin/live/sessions/${encodeURIComponent(sessionId)}/end`);
+    return extractData<LiveSession>(response);
+  }
+
+  static async getAdminReports(params?: { status?: string; limit?: number }) {
+    const query = new URLSearchParams();
+    if (params?.status) query.set('status', String(params.status));
+    if (typeof params?.limit !== 'undefined') query.set('limit', String(params.limit));
+    const response = await api.get(`/admin/live/reports${query.toString() ? `?${query.toString()}` : ''}`);
+    return extractData<any[]>(response);
+  }
+
+  static async resolveAdminReport(reportId: string, payload?: { status?: string; note?: string }) {
+    const response = await api.post(`/admin/live/reports/${encodeURIComponent(reportId)}/resolve`, payload || {});
+    return extractData<any>(response);
+  }
+}

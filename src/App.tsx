@@ -106,7 +106,10 @@ const MyAds = React.lazy(() => import('./pages/MyAds'));
 const DeveloperPortal = React.lazy(() => import('./pages/DeveloperPortal'));
 const DeveloperDocsPortal = React.lazy(() => import('./pages/DeveloperDocsPage'));
 const AdminDeveloperPlatform = React.lazy(() => import('./pages/AdminDeveloperPlatform'));
+const AdminLivePlatform = React.lazy(() => import('./pages/AdminLivePlatform'));
 const ScrollFeed = React.lazy(() => import('./features/scroll/ScrollFeed'));
+const LiveStudio = React.lazy(() => import('./features/live/LiveStudio'));
+const LiveViewer = React.lazy(() => import('./features/live/LiveViewer'));
 const MemberHomeSection = React.lazy(() => import('./components/sections/MemberHomeSection'));
 
 // Error Boundary Component
@@ -708,6 +711,30 @@ const AppContent = () => {
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/live"
+                element={
+                  <ProtectedRoute>
+                    <Navigate to="/live/studio" replace />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/live/studio"
+                element={
+                  <ProtectedRoute>
+                    <LiveStudio />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/live/:id"
+                element={
+                  <ProtectedRoute>
+                    <LiveViewer />
+                  </ProtectedRoute>
+                }
+              />
 
               {/* My Ads - user-owned ads */}
               <Route path="/my-ads" element={
@@ -795,6 +822,14 @@ const AppContent = () => {
                 element={
                   <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
                     <Navigate to="/admin/dashboard?tab=scroll" replace />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/live"
+                element={
+                  <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                    <AdminLivePlatform />
                   </ProtectedRoute>
                 }
               />
