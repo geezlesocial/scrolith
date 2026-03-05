@@ -761,26 +761,35 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   return (
     <>
       <div className="mx-auto max-w-md px-3 pt-3">
-        <div className="mb-2 inline-flex items-center rounded-full border border-slate-200 bg-white p-1">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="inline-flex items-center rounded-full border border-slate-200 bg-white p-1">
+            <button
+              type="button"
+              onClick={() => setStoryRailTab('stories')}
+              className={[
+                'rounded-full px-3 py-1 text-xs font-semibold transition',
+                storyRailTab === 'stories' ? 'bg-slate-900 text-white' : 'text-slate-600'
+              ].join(' ')}
+            >
+              Stories
+            </button>
+            <button
+              type="button"
+              onClick={() => setStoryRailTab('scroll')}
+              className={[
+                'rounded-full px-3 py-1 text-xs font-semibold transition',
+                storyRailTab === 'scroll' ? 'bg-slate-900 text-white' : 'text-slate-600'
+              ].join(' ')}
+            >
+              Scroll
+            </button>
+          </div>
           <button
             type="button"
-            onClick={() => setStoryRailTab('stories')}
-            className={[
-              'rounded-full px-3 py-1 text-xs font-semibold transition',
-              storyRailTab === 'stories' ? 'bg-slate-900 text-white' : 'text-slate-600'
-            ].join(' ')}
+            onClick={() => navigate('/live/studio')}
+            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-rose-700"
           >
-            Stories
-          </button>
-          <button
-            type="button"
-            onClick={() => setStoryRailTab('scroll')}
-            className={[
-              'rounded-full px-3 py-1 text-xs font-semibold transition',
-              storyRailTab === 'scroll' ? 'bg-slate-900 text-white' : 'text-slate-600'
-            ].join(' ')}
-          >
-            Scroll
+            Go Live
           </button>
         </div>
 

@@ -2092,16 +2092,32 @@ const CommunityHome = () => {
                         <CameraIcon className="h-3 w-3" />
                         Camera
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => navigate('/live/studio')}
+                        className="inline-flex items-center gap-1 rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-rose-700"
+                      >
+                        Go Live
+                      </button>
                     </div>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => setScrollCreateOpen(true)}
-                      className="inline-flex items-center gap-1 rounded-full bg-gray-900 px-3 py-1 text-xs font-semibold text-white"
-                    >
-                      <Plus className="h-3 w-3" />
-                      Create Scroll
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setScrollCreateOpen(true)}
+                        className="inline-flex items-center gap-1 rounded-full bg-gray-900 px-3 py-1 text-xs font-semibold text-white"
+                      >
+                        <Plus className="h-3 w-3" />
+                        Create Scroll
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => navigate('/live/studio')}
+                        className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-100"
+                      >
+                        Go Live
+                      </button>
+                    </div>
                   )}
                 </div>
 
