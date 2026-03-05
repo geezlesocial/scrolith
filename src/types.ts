@@ -93,7 +93,14 @@ export type HomepageSectionType =
   | 'marketplace_tiles'
   | 'guides_grid'
   | 'made_on_Scrolith'
-  | 'footer_cta_strip';
+  | 'footer_cta_strip'
+  | 'guest_hero_auth'
+  | 'guest_what_is_scrolith'
+  | 'guest_paths'
+  | 'guest_feature_showcase'
+  | 'guest_trending_preview'
+  | 'guest_community_preview'
+  | 'guest_final_cta';
 export type ContentBlockType = 'text' | 'heading' | 'image' | 'video' | 'quote' | 'code';
 export type MediaType = 'image' | 'video' | 'document';
 export type FileCategory = 'portfolio' | 'document' | 'verification' | 'chat';
@@ -1404,6 +1411,18 @@ export interface OptimizationConfig {
   preconnect_origins?: string[];
   apiCacheExcludePaths?: string[];
   api_cache_exclude_paths?: string[];
+  dataSaverModeEnabled?: boolean;
+  data_saver_mode_enabled?: boolean;
+  autoplayEnabled?: boolean;
+  autoplay_enabled?: boolean;
+  feedPageSize?: number;
+  feed_page_size?: number;
+  lowBandwidthFeedPageSize?: number;
+  low_bandwidth_feed_page_size?: number;
+  realtimeThrottleMs?: number;
+  realtime_throttle_ms?: number;
+  mediaQualityPreset?: 'auto' | 'low' | 'balanced' | 'high';
+  media_quality_preset?: 'auto' | 'low' | 'balanced' | 'high';
 }
 
 export interface SystemConfig {
@@ -1944,6 +1963,118 @@ export interface FooterCtaStripContent {
   secondaryCtaUrl?: string;
   background?: string;
   textColor?: string;
+}
+
+export interface GuestHeroAuthContent {
+  headline?: string;
+  subheadline?: string;
+  description?: string;
+  primaryCtaLabel?: string;
+  primaryCtaUrl?: string;
+  secondaryCtaLabel?: string;
+  secondaryCtaUrl?: string;
+  heroBackgroundUrl?: string;
+  authPanelTitle?: string;
+  authPanelSubtitle?: string;
+  defaultTab?: 'login' | 'signup' | string;
+  enableSocialLogin?: boolean;
+  loginCtaLabel?: string;
+  signupCtaLabel?: string;
+  compactMode?: boolean;
+  maxSections?: number;
+  sideImageUrl?: string;
+  sideImageAlt?: string;
+  sideBanners?: {
+    id?: string;
+    title?: string;
+    subtitle?: string;
+    image?: string;
+    icon?: string;
+    url?: string;
+  }[];
+  trustPoints?: string[];
+  brandLogos?: {
+    id?: string;
+    label?: string;
+    image?: string;
+    url?: string;
+  }[];
+}
+
+export interface GuestWhatIsScrolithContent {
+  title?: string;
+  subtitle?: string;
+  compactMode?: boolean;
+  maxCards?: number;
+  cards?: { id?: string; title?: string; description?: string; icon?: string; image?: string }[];
+}
+
+export interface GuestPathsContent {
+  title?: string;
+  subtitle?: string;
+  freelancerTitle?: string;
+  freelancerBullets?: string[];
+  freelancerCtaLabel?: string;
+  freelancerCtaUrl?: string;
+  employerTitle?: string;
+  employerBullets?: string[];
+  employerCtaLabel?: string;
+  employerCtaUrl?: string;
+}
+
+export interface GuestFeatureShowcaseContent {
+  title?: string;
+  subtitle?: string;
+  compactMode?: boolean;
+  maxTabs?: number;
+  tabs?: {
+    id?: string;
+    label?: string;
+    title?: string;
+    description?: string;
+    image?: string;
+  }[];
+}
+
+export interface GuestTrendingPreviewContent {
+  title?: string;
+  subtitle?: string;
+  compactMode?: boolean;
+  showEmptyState?: boolean;
+  maxItems?: number;
+  jobsTitle?: string;
+  gigsTitle?: string;
+  postsTitle?: string;
+  jobs?: { id: string; title?: string; type?: string; budget?: string; postedTime?: string }[];
+  gigs?: { id: string; title?: string; slug?: string; price?: number; rating?: number; image?: string }[];
+  posts?: {
+    id: string;
+    title?: string;
+    content?: string;
+    likesCount?: number;
+    commentsCount?: number;
+    author?: { id?: string; name?: string; username?: string; avatar?: string };
+  }[];
+}
+
+export interface GuestCommunityPreviewContent {
+  title?: string;
+  subtitle?: string;
+  compactMode?: boolean;
+  showEmptyState?: boolean;
+  maxItems?: number;
+  ctaLabel?: string;
+  ctaUrl?: string;
+  posts?: GuestTrendingPreviewContent['posts'];
+}
+
+export interface GuestFinalCtaContent {
+  title?: string;
+  subtitle?: string;
+  primaryCtaLabel?: string;
+  primaryCtaUrl?: string;
+  secondaryCtaLabel?: string;
+  secondaryCtaUrl?: string;
 }
 
 export interface HomepageSection {

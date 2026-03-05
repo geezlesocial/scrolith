@@ -125,6 +125,18 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
   const backgroundImage = content?.heroBackgroundUrl ? `url('${content.heroBackgroundUrl}')` : undefined;
   const sideBanners = ensureArray<any>((content as any)?.sideBanners);
   const trustPoints = ensureArray<string>((content as any)?.trustPoints);
+  const sideImageUrl = String((content as any)?.sideImageUrl || '').trim();
+  const sideImageAlt = String((content as any)?.sideImageAlt || 'Scrolith platform preview').trim();
+  const brandLogos = ensureArray<any>((content as any)?.brandLogos);
+  const compactMode = (content as any)?.compactMode !== false;
+  const displayedTrustPoints = (trustPoints.length ? trustPoints : ['Realtime marketplace', 'Secure payments', 'Verified talent'])
+    .slice(0, compactMode ? 3 : 6);
+  const displayedBanners = (sideBanners.length
+    ? sideBanners
+    : [
+        { title: 'Smart Hiring Pipeline', subtitle: 'Post, screen, and hire with automated workflows.' },
+        { title: 'Creator Growth Engine', subtitle: 'Publish once and distribute across network, stories, and scroll.' }
+      ]).slice(0, compactMode ? 2 : 3);
 
   React.useEffect(() => {
     let mounted = true;
@@ -224,14 +236,14 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
   };
 
   return (
-    <section className="py-10 sm:py-14" style={{ background: style?.background }}>
-      <div className="mx-auto grid w-full max-w-7xl gap-6 px-4 sm:px-6 lg:grid-cols-2 lg:gap-10 lg:px-8">
+    <section className="py-8 sm:py-10" style={{ background: style?.background }}>
+      <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 sm:px-6 lg:grid-cols-2 lg:gap-8 lg:px-8">
         <div
-          className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8"
+          className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7"
           style={backgroundImage ? { backgroundImage, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
         >
           <div className={backgroundImage ? 'relative z-10 rounded-2xl bg-white/90 p-5 backdrop-blur' : ''}>
-            <h1 className="text-3xl font-bold leading-tight text-slate-900 sm:text-4xl">
+            <h1 className="text-2xl font-bold leading-tight text-slate-900 sm:text-3xl xl:text-4xl">
               {content?.headline || 'Build your next opportunity on Scrolith'}
             </h1>
             {content?.subheadline ? (
@@ -252,32 +264,63 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                 className="inline-flex items-center rounded-full border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               />
             </div>
-            <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              {(trustPoints.length ? trustPoints : ['Realtime marketplace', 'Trusted payments', 'Verified talent']).map((point, index) => (
+            <div className="mt-5 grid gap-2 sm:grid-cols-3">
+              {displayedTrustPoints.map((point, index) => (
                 <div key={`trust-point-${index}`} className="rounded-xl border border-white/60 bg-white/75 px-3 py-2 text-xs font-semibold text-slate-700 backdrop-blur-sm">
                   {point}
                 </div>
               ))}
             </div>
-            <div className="mt-6 grid gap-3 sm:grid-cols-2">
-              {(sideBanners.length ? sideBanners : [
-                { title: 'Hiring Pipeline', subtitle: 'Post, screen, and hire in one workflow.' },
-                { title: 'Creator Network', subtitle: 'Build authority with communities and business pages.' }
-              ]).slice(0, 2).map((banner, index) => (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {displayedBanners.map((banner, index) => (
                 <div
                   key={banner.id || `side-banner-${index}`}
-                  className="rounded-2xl border border-slate-200/70 bg-white/80 p-4 backdrop-blur-sm"
+                  className="rounded-2xl border border-slate-200/70 bg-white/80 p-3.5 backdrop-blur-sm"
                 >
+                  {banner.image ? (
+                    <div className="mb-2 overflow-hidden rounded-xl border border-slate-200 bg-white/60">
+                      <img src={banner.image} alt={banner.title || `Scrolith highlight ${index + 1}`} className="h-20 w-full object-cover" />
+                    </div>
+                  ) : null}
                   <p className="text-sm font-semibold text-slate-900">{banner.title || `Scrolith Advantage ${index + 1}`}</p>
                   {banner.subtitle ? <p className="mt-1 text-xs text-slate-600">{banner.subtitle}</p> : null}
                 </div>
               ))}
             </div>
+            {sideImageUrl ? (
+              <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 p-2 backdrop-blur-sm">
+                <img
+                  src={sideImageUrl}
+                  alt={sideImageAlt}
+                  className="h-40 w-full rounded-xl object-cover sm:h-48"
+                />
+              </div>
+            ) : null}
+            {brandLogos.length ? (
+              <div className="mt-4 rounded-2xl border border-slate-200/70 bg-white/80 p-3 backdrop-blur-sm">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Trusted by teams worldwide</p>
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                  {brandLogos.slice(0, 8).map((logo, index) => (
+                    <Wrapper
+                      key={logo.id || `brand-logo-${index}`}
+                      url={logo.url}
+                      className="flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-2"
+                    >
+                      {logo.image ? (
+                        <img src={logo.image} alt={logo.label || `Brand ${index + 1}`} className="max-h-6 w-auto object-contain" />
+                      ) : (
+                        <span className="text-[11px] font-semibold text-slate-600">{logo.label || `Brand ${index + 1}`}</span>
+                      )}
+                    </Wrapper>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
           {backgroundImage ? <div className="absolute inset-0 bg-gradient-to-t from-white/40 to-white/10" /> : null}
         </div>
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7 lg:sticky lg:top-24 lg:self-start">
           <div className="mb-4">
             <h2 className="text-xl font-semibold text-slate-900">{content?.authPanelTitle || 'Welcome back'}</h2>
             {content?.authPanelSubtitle ? <p className="mt-1 text-sm text-slate-500">{content.authPanelSubtitle}</p> : null}
@@ -516,9 +559,14 @@ export const GuestWhatIsScrolithSection: React.FC<{ content: GuestWhatIsScrolith
   style
 }) => {
   const cards = ensureArray(content?.cards);
-  if (!content?.title && !content?.subtitle && cards.length === 0) return null;
+  const compactMode = content?.compactMode !== false;
+  const maxCards = Number.isFinite(Number(content?.maxCards))
+    ? Math.max(3, Math.min(8, Math.trunc(Number(content?.maxCards))))
+    : 4;
+  const visibleCards = compactMode ? cards.slice(0, maxCards) : cards;
+  if (!content?.title && !content?.subtitle && visibleCards.length === 0) return null;
   return (
-    <section className="py-12 sm:py-16" style={{ background: style?.background }}>
+    <section className="py-10 sm:py-12" style={{ background: style?.background }}>
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         {(content?.title || content?.subtitle) && (
           <div className="mb-8 text-center">
@@ -526,9 +574,14 @@ export const GuestWhatIsScrolithSection: React.FC<{ content: GuestWhatIsScrolith
             {content?.subtitle ? <p className="mt-2 text-sm text-slate-600 sm:text-base">{content.subtitle}</p> : null}
           </div>
         )}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {cards.map((card, index) => (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {visibleCards.map((card, index) => (
             <div key={card.id || `guest-card-${index}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              {card.icon || card.image ? (
+                <div className="mb-3 flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                  <img src={card.icon || card.image} alt={card.title || `Feature ${index + 1}`} className="h-6 w-6 object-contain" />
+                </div>
+              ) : null}
               {card.title ? <h3 className="text-sm font-semibold text-slate-900">{card.title}</h3> : null}
               {card.description ? <p className="mt-2 text-sm text-slate-600">{card.description}</p> : null}
             </div>
@@ -595,11 +648,16 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
   style
 }) => {
   const tabs = ensureArray(content?.tabs);
+  const compactMode = content?.compactMode !== false;
+  const maxTabs = Number.isFinite(Number(content?.maxTabs))
+    ? Math.max(3, Math.min(8, Math.trunc(Number(content?.maxTabs))))
+    : 5;
+  const visibleTabs = compactMode ? tabs.slice(0, maxTabs) : tabs;
   const [activeIndex, setActiveIndex] = React.useState(0);
-  const activeTab = tabs[activeIndex] || tabs[0];
-  if (!content?.title && tabs.length === 0) return null;
+  const activeTab = visibleTabs[activeIndex] || visibleTabs[0];
+  if (!content?.title && visibleTabs.length === 0) return null;
   return (
-    <section className="py-12 sm:py-16" style={{ background: style?.background }}>
+    <section className="py-10 sm:py-12" style={{ background: style?.background }}>
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         {(content?.title || content?.subtitle) && (
           <div className="mb-6 text-center">
@@ -609,7 +667,7 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
         )}
         <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
           <div className="mb-5 flex flex-wrap gap-2">
-            {tabs.map((tab, index) => (
+            {visibleTabs.map((tab, index) => (
               <button
                 key={tab.id || `showcase-tab-${index}`}
                 type="button"
@@ -652,8 +710,16 @@ export const GuestTrendingPreviewSection: React.FC<{ content: GuestTrendingPrevi
   const jobs = ensureArray(content?.jobs);
   const gigs = ensureArray(content?.gigs);
   const posts = ensureArray(content?.posts);
+  const compactMode = content?.compactMode !== false;
+  const maxItems = Number.isFinite(Number(content?.maxItems))
+    ? Math.max(2, Math.min(6, Math.trunc(Number(content?.maxItems))))
+    : 3;
+  const showEmptyState = content?.showEmptyState === true;
+  const hasData = jobs.length > 0 || gigs.length > 0 || posts.length > 0;
+  if (!hasData && !showEmptyState) return null;
+
   return (
-    <section className="py-12 sm:py-16" style={{ background: style?.background }}>
+    <section className="py-10 sm:py-12" style={{ background: style?.background }}>
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         {(content?.title || content?.subtitle) && (
           <div className="mb-6 text-center">
@@ -665,37 +731,42 @@ export const GuestTrendingPreviewSection: React.FC<{ content: GuestTrendingPrevi
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <h3 className="text-sm font-semibold text-slate-900">{content?.jobsTitle || 'Trending Jobs'}</h3>
             <div className="mt-3 space-y-3">
-              {jobs.slice(0, 4).map((job, index) => (
+              {jobs.slice(0, compactMode ? maxItems : 6).map((job, index) => (
                 <Link key={`${job.id || 'job'}-${index}`} to="/auth/login" className="block rounded-xl border border-slate-100 p-3 hover:bg-slate-50">
                   <p className="text-sm font-medium text-slate-800">{job.title || 'Job opening'}</p>
-                  <p className="mt-1 text-xs text-slate-500">{job.type || 'Role'}{job.budget ? ` • ${job.budget}` : ''}</p>
+                  <p className="mt-1 text-xs text-slate-500">{job.type || 'Role'}{job.budget ? ` | ${job.budget}` : ''}</p>
                 </Link>
               ))}
+              {jobs.length === 0 ? <p className="text-xs text-slate-500">No live jobs yet.</p> : null}
             </div>
           </div>
+
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <h3 className="text-sm font-semibold text-slate-900">{content?.gigsTitle || 'Trending Gigs'}</h3>
             <div className="mt-3 space-y-3">
-              {gigs.slice(0, 4).map((gig, index) => (
+              {gigs.slice(0, compactMode ? maxItems : 6).map((gig, index) => (
                 <Link key={`${gig.id || 'gig'}-${index}`} to="/auth/login" className="block rounded-xl border border-slate-100 p-3 hover:bg-slate-50">
                   <p className="text-sm font-medium text-slate-800">{gig.title || 'Professional service'}</p>
                   <p className="mt-1 text-xs text-slate-500">
                     {typeof gig.price === 'number' ? `$${gig.price}` : 'Price on request'}
-                    {gig.rating ? ` • ${gig.rating.toFixed ? gig.rating.toFixed(1) : gig.rating}★` : ''}
+                    {gig.rating ? ` | ${gig.rating.toFixed ? gig.rating.toFixed(1) : gig.rating}*` : ''}
                   </p>
                 </Link>
               ))}
+              {gigs.length === 0 ? <p className="text-xs text-slate-500">No live gigs yet.</p> : null}
             </div>
           </div>
+
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <h3 className="text-sm font-semibold text-slate-900">{content?.postsTitle || 'Popular Posts'}</h3>
             <div className="mt-3 space-y-3">
-              {posts.slice(0, 4).map((post, index) => (
+              {posts.slice(0, compactMode ? maxItems : 6).map((post, index) => (
                 <Link key={`${post.id || 'post'}-${index}`} to="/auth/login" className="block rounded-xl border border-slate-100 p-3 hover:bg-slate-50">
                   <p className="text-sm font-medium text-slate-800">{post.title || 'Community discussion'}</p>
                   <p className="mt-1 line-clamp-2 text-xs text-slate-500">{post.content || ''}</p>
                 </Link>
               ))}
+              {posts.length === 0 ? <p className="text-xs text-slate-500">No live community posts yet.</p> : null}
             </div>
           </div>
         </div>
@@ -709,8 +780,15 @@ export const GuestCommunityPreviewSection: React.FC<{ content: GuestCommunityPre
   style
 }) => {
   const posts = ensureArray(content?.posts);
+  const compactMode = content?.compactMode !== false;
+  const maxItems = Number.isFinite(Number(content?.maxItems))
+    ? Math.max(2, Math.min(8, Math.trunc(Number(content?.maxItems))))
+    : 4;
+  const showEmptyState = content?.showEmptyState === true;
+  if (posts.length === 0 && !showEmptyState) return null;
+
   return (
-    <section className="py-12 sm:py-16" style={{ background: style?.background }}>
+    <section className="py-10 sm:py-12" style={{ background: style?.background }}>
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         {(content?.title || content?.subtitle) && (
           <div className="mb-6 text-center">
@@ -719,7 +797,7 @@ export const GuestCommunityPreviewSection: React.FC<{ content: GuestCommunityPre
           </div>
         )}
         <div className="grid gap-4 md:grid-cols-2">
-          {posts.slice(0, 4).map((post, index) => (
+          {posts.slice(0, compactMode ? maxItems : 8).map((post, index) => (
             <div key={`${post.id || 'community-post'}-${index}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="mb-3 flex items-center gap-3">
                 {post.author?.avatar ? (
@@ -742,6 +820,11 @@ export const GuestCommunityPreviewSection: React.FC<{ content: GuestCommunityPre
               </div>
             </div>
           ))}
+          {posts.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-white/70 p-6 text-sm text-slate-500">
+              Community preview is updating. Sign up to unlock live discussions and interactions.
+            </div>
+          ) : null}
         </div>
         <div className="mt-6 text-center">
           <ActionLink
@@ -1159,4 +1242,5 @@ export const FooterCtaStripSection: React.FC<{ content: FooterCtaStripContent; s
     </section>
   );
 };
+
 

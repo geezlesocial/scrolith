@@ -4,6 +4,7 @@ import { AdminService } from "../../services/admin";
 import { SearchService } from "../../services/search";
 import { AIService } from "../../services/ai/ai.service";
 import PreloaderManagement from "./PreloaderManagement";
+import GuestHomepageBuilder from "./GuestHomepageBuilder";
 
 import type {
   HomepageSection,
@@ -280,7 +281,16 @@ function normalizeHeaderConfig(raw: any) {
 // -------------------------
 const HomepageSettings = () => {
   const [activeTab, setActiveTab] = useState<
-    "header" | "trending" | "slider" | "sections" | "footer" | "ai" | "engagement" | "preloader" | "analytics"
+    | "header"
+    | "trending"
+    | "slider"
+    | "sections"
+    | "guest_builder"
+    | "footer"
+    | "ai"
+    | "engagement"
+    | "preloader"
+    | "analytics"
   >("header");
 
   return (
@@ -305,6 +315,7 @@ const HomepageSettings = () => {
         <TabButton id="trending" label="Trending Categories" icon={TrendingUp} activeTab={activeTab} setActiveTab={setActiveTab} />
         <TabButton id="slider" label="Home Slider (Media)" icon={GalleryHorizontal} activeTab={activeTab} setActiveTab={setActiveTab} />
         <TabButton id="sections" label="Sections Manager" icon={Layers} activeTab={activeTab} setActiveTab={setActiveTab} />
+        <TabButton id="guest_builder" label="Guest Homepage Builder" icon={Globe} activeTab={activeTab} setActiveTab={setActiveTab} />
         <TabButton id="footer" label="Footer Builder" icon={Columns} activeTab={activeTab} setActiveTab={setActiveTab} />
         <TabButton id="ai" label="AI Optimization" icon={Cpu} activeTab={activeTab} setActiveTab={setActiveTab} />
         <TabButton id="engagement" label="Reactions & Feed" icon={Settings} activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -317,6 +328,7 @@ const HomepageSettings = () => {
         {activeTab === "trending" && <TrendingManager />}
         {activeTab === "slider" && <SliderManager />}
         {activeTab === "sections" && <LayoutManager />}
+        {activeTab === "guest_builder" && <GuestHomepageBuilder />}
         {activeTab === "footer" && <FooterBuilder />}
         {activeTab === "ai" && <AIOptimization />}
         {activeTab === "engagement" && <ReactionsEngagementManager />}
@@ -3868,6 +3880,13 @@ const LayoutManager = () => {
     "guides_grid",
     "made_on_Scrolith",
     "footer_cta_strip",
+    "guest_hero_auth",
+    "guest_what_is_scrolith",
+    "guest_paths",
+    "guest_feature_showcase",
+    "guest_trending_preview",
+    "guest_community_preview",
+    "guest_final_cta",
   ];
 
   const memberHomeContent = editingSection?.type === "member_home"

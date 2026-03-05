@@ -172,6 +172,71 @@ const normalizeSectionType = (value: any): string => {
   }
 };
 
+const GUEST_SECTION_PRIORITY: string[] = [
+  'guest_hero_auth',
+  'guest_what_is_scrolith',
+  'guest_feature_showcase',
+  'guest_paths',
+  'guest_trending_preview',
+  'guest_community_preview',
+  'guest_final_cta'
+];
+
+const isGuestSectionType = (type: any) => GUEST_SECTION_PRIORITY.includes(String(type || '').trim());
+
+const hasRenderableGuestContent = (section: any) => {
+  const type = String(section?.type || '').trim();
+  const content = section?.content && typeof section.content === 'object' ? section.content : {};
+
+  if (type === 'guest_hero_auth') {
+    return Boolean(
+      String(content.headline || '').trim() ||
+      String(content.subheadline || '').trim() ||
+      String(content.authPanelTitle || '').trim()
+    );
+  }
+  if (type === 'guest_what_is_scrolith') {
+    return Boolean(
+      String(content.title || '').trim() ||
+      String(content.subtitle || '').trim() ||
+      (Array.isArray(content.cards) && content.cards.length)
+    );
+  }
+  if (type === 'guest_paths') {
+    const freelancerBullets = Array.isArray(content.freelancerBullets) ? content.freelancerBullets : [];
+    const employerBullets = Array.isArray(content.employerBullets) ? content.employerBullets : [];
+    return Boolean(
+      String(content.title || '').trim() ||
+      String(content.subtitle || '').trim() ||
+      freelancerBullets.length ||
+      employerBullets.length
+    );
+  }
+  if (type === 'guest_feature_showcase') {
+    return Boolean(
+      String(content.title || '').trim() ||
+      String(content.subtitle || '').trim() ||
+      (Array.isArray(content.tabs) && content.tabs.length)
+    );
+  }
+  if (type === 'guest_trending_preview') {
+    const hasPreviewData = Boolean(
+      (Array.isArray(content.jobs) && content.jobs.length) ||
+      (Array.isArray(content.gigs) && content.gigs.length) ||
+      (Array.isArray(content.posts) && content.posts.length)
+    );
+    return hasPreviewData || content.showEmptyState === true;
+  }
+  if (type === 'guest_community_preview') {
+    const hasPosts = Array.isArray(content.posts) && content.posts.length > 0;
+    return hasPosts || content.showEmptyState === true;
+  }
+  if (type === 'guest_final_cta') {
+    return Boolean(String(content.title || '').trim() || String(content.subtitle || '').trim());
+  }
+  return true;
+};
+
 const Landing = () => {
   const t = useT();
   const [sections, setSections] = useState<HomepageSection[]>([]);
@@ -180,6 +245,7 @@ const Landing = () => {
   const { settings } = useContent();
   const { socket } = useSocket();
   const [guestSeo, setGuestSeo] = useState<Record<string, any> | null>(null);
+  const [loadError, setLoadError] = useState('');
   const location = useLocation();
 
   if (user) {
@@ -255,10 +321,8 @@ const Landing = () => {
   }, []);
 
   const loadData = useCallback(async () => {
-    const [sectionsResult] = await Promise.allSettled([CMSService.getGuestHomepage()]);
-
-    if (sectionsResult.status === 'fulfilled') {
-      const payload = sectionsResult.value as any;
+    try {
+      const payload = await CMSService.getGuestHomepage();
       const nextSections =
         (Array.isArray(payload?.sections) ? payload.sections : null) ||
         (Array.isArray(payload?.data?.sections) ? payload.data.sections : null) ||
@@ -266,13 +330,15 @@ const Landing = () => {
       const nextSeo = payload?.seo || payload?.data?.seo || null;
       setSections(normalizeSections(nextSections));
       setGuestSeo(nextSeo);
-    } else {
-      console.error('Failed to load guest homepage sections', sectionsResult.reason);
+      setLoadError('');
+    } catch (error: any) {
+      console.error('Failed to load guest homepage sections', error);
       setSections([]);
       setGuestSeo(null);
+      setLoadError(error?.message || 'Unable to load guest homepage.');
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }, [normalizeSections]);
 
   useEffect(() => {
@@ -349,11 +415,48 @@ const Landing = () => {
     if (socket) return;
     const id = window.setInterval(() => {
       loadData();
-    }, 5000);
+    }, 30000);
     return () => window.clearInterval(id);
   }, [socket, loadData]);
 
   const activeSections = useMemo(() => sections.filter((section) => section.isActive), [sections]);
+
+  const curatedGuestSections = useMemo(() => {
+    if (user) return activeSections;
+    const guestOnly = activeSections.filter((section) => isGuestSectionType(section.type));
+    const source = guestOnly.length ? guestOnly : activeSections;
+    const heroSection = source.find((section) => String(section.type) === 'guest_hero_auth');
+    const heroContent = heroSection?.content && typeof heroSection.content === 'object' ? heroSection.content : {};
+    const compactMode = heroContent?.compactMode !== false;
+    const rawMaxSections = Number(heroContent?.maxSections);
+    const maxSections = Number.isFinite(rawMaxSections)
+      ? Math.max(3, Math.min(8, Math.trunc(rawMaxSections)))
+      : 5;
+
+    const meaningful = source.filter((section) => hasRenderableGuestContent(section));
+    const ranked = [...meaningful].sort((a, b) => {
+      const aType = String(a.type || '');
+      const bType = String(b.type || '');
+      const aRank = GUEST_SECTION_PRIORITY.indexOf(aType);
+      const bRank = GUEST_SECTION_PRIORITY.indexOf(bType);
+      if (aRank !== bRank) {
+        return (aRank === -1 ? Number.MAX_SAFE_INTEGER : aRank) - (bRank === -1 ? Number.MAX_SAFE_INTEGER : bRank);
+      }
+      return Number(a.position || 0) - Number(b.position || 0);
+    });
+
+    if (!compactMode) return ranked;
+
+    const deduped: HomepageSection[] = [];
+    const seenTypes = new Set<string>();
+    ranked.forEach((section) => {
+      const type = String(section.type || '');
+      if (seenTypes.has(type)) return;
+      seenTypes.add(type);
+      deduped.push(section);
+    });
+    return deduped.slice(0, maxSections);
+  }, [activeSections, user]);
 
   const hasMemberHome = useMemo(
     () => activeSections.some((section) => section.type === 'member_home'),
@@ -361,7 +464,7 @@ const Landing = () => {
   );
 
   const effectiveSections = useMemo<RenderSection[]>(() => {
-    if (!user) return activeSections;
+    if (!user) return curatedGuestSections;
     if (hasMemberHome) return activeSections;
 
     const memberHomeSettings = (settings as any)?.memberHome || {};
@@ -381,7 +484,7 @@ const Landing = () => {
       } as any
     };
     return [syntheticMemberHome];
-  }, [user, activeSections, hasMemberHome, settings]);
+  }, [user, activeSections, curatedGuestSections, hasMemberHome, settings]);
 
   const renderSections = useMemo<RenderSection[]>(() => {
     const active = effectiveSections;
@@ -432,7 +535,17 @@ const Landing = () => {
         ))}
         {renderSections.length === 0 && (
           <div className="py-20 text-center text-gray-400">
-            <p>{t('landing.no_sections_configured', 'No content sections configured. Please configure via Admin Dashboard.')}</p>
+            <p>{loadError || t('landing.no_sections_configured', 'No content sections configured. Please configure via Admin Dashboard.')}</p>
+            <button
+              type="button"
+              onClick={() => {
+                setLoading(true);
+                loadData();
+              }}
+              className="mt-4 inline-flex rounded-full border border-gray-300 px-4 py-2 text-xs font-semibold text-gray-700 transition hover:bg-gray-50"
+            >
+              Retry
+            </button>
           </div>
         )}
       </Suspense>

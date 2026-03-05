@@ -818,6 +818,57 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
         }
 },
 
+    getGuestHomepage: async (): Promise<any> => {
+        try {
+            const direct = await fetch(`${API_URL}/homepage/guest`, {
+                cache: 'no-store',
+                headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' }
+            });
+            if (direct.ok) {
+                const raw = await direct.json();
+                return normalizeAssetUrls(unwrap(raw));
+            }
+        } catch (error) {
+            devWarn('Guest homepage direct fetch failed:', error);
+        }
+
+        try {
+            const data = unwrap(await api.get('/homepage/guest'));
+            return normalizeAssetUrls(data);
+        } catch (error) {
+            console.error('Failed to fetch guest homepage:', error);
+            return {
+                sections: [],
+                seo: {
+                    title: 'Scrolith',
+                    metaDescription: '',
+                    keywords: [],
+                    ogImage: ''
+                },
+                updatedAt: new Date().toISOString()
+            };
+        }
+    },
+
+    getGuestHomepageDraft: async (): Promise<any> => {
+        try {
+            const data = unwrap(await api.get('/admin/homepage/draft'));
+            return data || null;
+        } catch (error) {
+            console.error('Failed to fetch guest homepage draft:', error);
+            return null;
+        }
+    },
+
+    saveGuestHomepageSection: async (payload: any): Promise<any> =>
+        unwrap(await api.put('/admin/homepage/section', payload)),
+
+    reorderGuestHomepageSections: async (payload: { order?: string[]; sections?: any[]; seo?: any }): Promise<any> =>
+        unwrap(await api.post('/admin/homepage/reorder', payload)),
+
+    publishGuestHomepage: async (): Promise<any> =>
+        unwrap(await api.post('/admin/homepage/publish', {})),
+
     getHomepageSections: async (options?: { role?: UserRole; location?: string }) => {
         let rawSections: any[] = [];
         try {
@@ -2246,6 +2297,69 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             marketplace_tiles: { title: '', subtitle: '', items: [] },
             guides_grid: { title: '', subtitle: '', items: [] },
             made_on_Scrolith: { title: '', subtitle: '', items: [] },
+            guest_hero_auth: {
+                headline: '',
+                subheadline: '',
+                description: '',
+                primaryCtaLabel: 'Create account',
+                primaryCtaUrl: '/auth/signup',
+                secondaryCtaLabel: 'Log in',
+                secondaryCtaUrl: '/auth/login',
+                heroBackgroundUrl: '',
+                authPanelTitle: '',
+                authPanelSubtitle: '',
+                defaultTab: 'signup',
+                enableSocialLogin: true,
+                loginCtaLabel: 'Login',
+                signupCtaLabel: 'Sign up'
+            },
+            guest_what_is_scrolith: {
+                title: '',
+                subtitle: '',
+                cards: []
+            },
+            guest_paths: {
+                title: '',
+                subtitle: '',
+                freelancerTitle: 'Freelancer',
+                freelancerBullets: [],
+                freelancerCtaLabel: '',
+                freelancerCtaUrl: '/auth/signup',
+                employerTitle: 'Employer',
+                employerBullets: [],
+                employerCtaLabel: '',
+                employerCtaUrl: '/auth/signup'
+            },
+            guest_feature_showcase: {
+                title: '',
+                subtitle: '',
+                tabs: []
+            },
+            guest_trending_preview: {
+                title: '',
+                subtitle: '',
+                jobsTitle: 'Trending Jobs',
+                gigsTitle: 'Trending Gigs',
+                postsTitle: 'Popular Posts',
+                jobs: [],
+                gigs: [],
+                posts: []
+            },
+            guest_community_preview: {
+                title: '',
+                subtitle: '',
+                ctaLabel: 'Sign up to interact',
+                ctaUrl: '/auth/signup',
+                posts: []
+            },
+            guest_final_cta: {
+                title: '',
+                subtitle: '',
+                primaryCtaLabel: 'Sign up',
+                primaryCtaUrl: '/auth/signup',
+                secondaryCtaLabel: 'Login',
+                secondaryCtaUrl: '/auth/login'
+            },
             footer_cta_strip: {
                 title: '',
                 subtitle: '',
@@ -2265,7 +2379,14 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             'marketplace_tiles',
             'guides_grid',
             'made_on_Scrolith',
-            'footer_cta_strip'
+            'footer_cta_strip',
+            'guest_hero_auth',
+            'guest_what_is_scrolith',
+            'guest_paths',
+            'guest_feature_showcase',
+            'guest_trending_preview',
+            'guest_community_preview',
+            'guest_final_cta'
         ]);
         const targetingRoles = guestOnlyTypes.has(type) ? [UserRole.GUEST] : [];
         const newSection = {
