@@ -1580,7 +1580,7 @@ const CommunityHome = () => {
       if (!start || !touch) return;
       const deltaX = touch.clientX - start.x;
       const deltaY = touch.clientY - start.y;
-      if (Math.abs(deltaX) >= 45 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      if (Math.abs(deltaX) >= 20 && Math.abs(deltaX) > Math.abs(deltaY) + 6) {
         if (deltaX > 0) goToStoryByOffset(-1);
         if (deltaX < 0) goToStoryByOffset(1);
         return;
@@ -3130,9 +3130,33 @@ const CommunityHome = () => {
             </div>
             <div
               className="relative mt-4 overflow-hidden rounded-2xl bg-gray-100 aspect-[9/16] sm:aspect-[9/14]"
+              style={{ touchAction: 'pan-y' }}
               onTouchStart={onStoryGestureStart}
               onTouchEnd={onStoryGestureEnd}
               onDoubleClick={onStoryMediaDoubleClick}
+              onPointerDown={(event) => {
+                if (event.pointerType !== 'touch') return;
+                const target = event.target as HTMLElement | null;
+                if (target?.closest('button, a, input, textarea, select, label')) {
+                  storyGestureStartRef.current = null;
+                  return;
+                }
+                storyGestureStartRef.current = { x: event.clientX, y: event.clientY };
+              }}
+              onPointerUp={(event) => {
+                if (event.pointerType !== 'touch') return;
+                const target = event.target as HTMLElement | null;
+                if (target?.closest('button, a, input, textarea, select, label')) return;
+                const start = storyGestureStartRef.current;
+                storyGestureStartRef.current = null;
+                if (!start) return;
+                const deltaX = event.clientX - start.x;
+                const deltaY = event.clientY - start.y;
+                if (Math.abs(deltaX) >= 20 && Math.abs(deltaX) > Math.abs(deltaY) + 6) {
+                  if (deltaX > 0) void goToStoryByOffset(-1);
+                  if (deltaX < 0) void goToStoryByOffset(1);
+                }
+              }}
             >
               {(() => {
                 const mediaUrl = resolveStoryMediaUrl(activeStory);

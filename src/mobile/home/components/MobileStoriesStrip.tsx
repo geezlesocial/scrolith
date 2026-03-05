@@ -1333,6 +1333,7 @@ function StoryViewer({
       <div className="relative flex h-[calc(100%-56px)] items-center justify-center px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
         <div
           className="relative h-full w-full max-w-md overflow-hidden rounded-3xl bg-slate-900"
+          style={{ touchAction: 'pan-y' }}
           onTouchStart={(event) => {
             const target = event.target as HTMLElement | null;
             if (target?.closest('button, a, input, textarea, select, label')) {
@@ -1355,7 +1356,7 @@ function StoryViewer({
             if (!start || !touch) return;
             const deltaX = touch.clientX - start.x;
             const deltaY = touch.clientY - start.y;
-            if (Math.abs(deltaX) >= 45 && Math.abs(deltaX) > Math.abs(deltaY)) {
+            if (Math.abs(deltaX) >= 20 && Math.abs(deltaX) > Math.abs(deltaY) + 6) {
               if (deltaX > 0) goToOffset(-1);
               if (deltaX < 0) goToOffset(1);
               return;
@@ -1378,6 +1379,29 @@ function StoryViewer({
             event.stopPropagation();
             onLike();
           }}
+          onPointerDown={(event) => {
+            if (event.pointerType !== 'touch') return;
+            const target = event.target as HTMLElement | null;
+            if (target?.closest('button, a, input, textarea, select, label')) {
+              touchStartRef.current = null;
+              return;
+            }
+            touchStartRef.current = { x: event.clientX, y: event.clientY };
+          }}
+          onPointerUp={(event) => {
+            if (event.pointerType !== 'touch') return;
+            const target = event.target as HTMLElement | null;
+            if (target?.closest('button, a, input, textarea, select, label')) return;
+            const start = touchStartRef.current;
+            touchStartRef.current = null;
+            if (!start) return;
+            const deltaX = event.clientX - start.x;
+            const deltaY = event.clientY - start.y;
+            if (Math.abs(deltaX) >= 20 && Math.abs(deltaX) > Math.abs(deltaY) + 6) {
+              if (deltaX > 0) goToOffset(-1);
+              if (deltaX < 0) goToOffset(1);
+            }
+          }}
         >
           {type === 'text' ? (
             <div
@@ -1393,7 +1417,7 @@ function StoryViewer({
             </div>
           ) : media.url ? (
             type === 'video' || media.isVideo ? (
-              <video src={media.url} className="h-full w-full object-cover" controls autoPlay muted={muted} playsInline loop preload="metadata" />
+              <video src={media.url} className="h-full w-full object-cover" autoPlay muted={muted} playsInline loop preload="metadata" />
             ) : (
               <img src={media.url} alt="Story" className="h-full w-full object-cover" />
             )
