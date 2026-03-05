@@ -291,7 +291,13 @@ const DEFAULT_OPTIMIZATION_CONFIG: OptimizationConfig = {
         '/api/contracts',
         '/api/wallet',
         '/api/notifications'
-    ]
+    ],
+    dataSaverModeEnabled: false,
+    autoplayEnabled: true,
+    feedPageSize: 20,
+    lowBandwidthFeedPageSize: 10,
+    realtimeThrottleMs: 300,
+    mediaQualityPreset: 'auto'
 };
 
 const normalizeOptimizationArray = (value: any, fallback: string[] = []) => {
@@ -315,6 +321,25 @@ const normalizeOptimizationArray = (value: any, fallback: string[] = []) => {
 
 const normalizeOptimizationConfig = (raw: any): OptimizationConfig => {
     const source = raw || {};
+    const feedPageSize = Math.max(
+        5,
+        Math.min(80, Math.round(normalizeNumber(source.feedPageSize ?? source.feed_page_size, DEFAULT_OPTIMIZATION_CONFIG.feedPageSize || 20)))
+    );
+    const lowBandwidthFeedPageSize = Math.max(
+        3,
+        Math.min(40, Math.round(normalizeNumber(
+            source.lowBandwidthFeedPageSize ?? source.low_bandwidth_feed_page_size,
+            DEFAULT_OPTIMIZATION_CONFIG.lowBandwidthFeedPageSize || 10
+        )))
+    );
+    const mediaQualityPresetRaw = String(source.mediaQualityPreset ?? source.media_quality_preset ?? DEFAULT_OPTIMIZATION_CONFIG.mediaQualityPreset ?? 'auto')
+        .trim()
+        .toLowerCase();
+    const mediaQualityPreset: 'auto' | 'low' | 'balanced' | 'high' =
+        mediaQualityPresetRaw === 'low' || mediaQualityPresetRaw === 'balanced' || mediaQualityPresetRaw === 'high'
+            ? mediaQualityPresetRaw
+            : 'auto';
+
     return {
         enabled: normalizeBoolean(source.enabled, DEFAULT_OPTIMIZATION_CONFIG.enabled || false),
         compressionEnabled: normalizeBoolean(
@@ -416,7 +441,30 @@ const normalizeOptimizationConfig = (raw: any): OptimizationConfig => {
         apiCacheExcludePaths: normalizeOptimizationArray(
             source.apiCacheExcludePaths ?? source.api_cache_exclude_paths,
             DEFAULT_OPTIMIZATION_CONFIG.apiCacheExcludePaths
-        )
+        ),
+        dataSaverModeEnabled: normalizeBoolean(
+            source.dataSaverModeEnabled ?? source.data_saver_mode_enabled,
+            DEFAULT_OPTIMIZATION_CONFIG.dataSaverModeEnabled || false
+        ),
+        autoplayEnabled: normalizeBoolean(
+            source.autoplayEnabled ?? source.autoplay_enabled,
+            DEFAULT_OPTIMIZATION_CONFIG.autoplayEnabled !== false
+        ),
+        feedPageSize,
+        lowBandwidthFeedPageSize: Math.min(feedPageSize, lowBandwidthFeedPageSize),
+        realtimeThrottleMs: Math.max(
+            0,
+            Math.min(
+                10000,
+                Math.round(
+                    normalizeNumber(
+                        source.realtimeThrottleMs ?? source.realtime_throttle_ms,
+                        DEFAULT_OPTIMIZATION_CONFIG.realtimeThrottleMs || 300
+                    )
+                )
+            )
+        ),
+        mediaQualityPreset
     };
 };
 
@@ -438,7 +486,13 @@ const serializeOptimizationConfig = (raw: OptimizationConfig) => {
         json_minify_enabled: config.jsonMinifyEnabled,
         speed_hints_enabled: config.speedHintsEnabled,
         preconnect_origins: config.preconnectOrigins,
-        api_cache_exclude_paths: config.apiCacheExcludePaths
+        api_cache_exclude_paths: config.apiCacheExcludePaths,
+        data_saver_mode_enabled: config.dataSaverModeEnabled,
+        autoplay_enabled: config.autoplayEnabled,
+        feed_page_size: config.feedPageSize,
+        low_bandwidth_feed_page_size: config.lowBandwidthFeedPageSize,
+        realtime_throttle_ms: config.realtimeThrottleMs,
+        media_quality_preset: config.mediaQualityPreset
     };
 };
 
@@ -1752,6 +1806,109 @@ const SystemSettings = () => {
                                         onChange={(e) => setOptimizationConfig((prev) => ({ ...prev, speedHintsEnabled: e.target.checked }))}
                                     />
                                 </label>
+                            </div>
+                        </div>
+
+                        <div className="bg-white p-6 rounded-xl border border-gray-200 space-y-4">
+                            <h4 className="font-semibold text-gray-900">Performance & Delivery</h4>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <label className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                                    <span className="text-sm text-gray-700">Enable global Data Saver mode</span>
+                                    <input
+                                        type="checkbox"
+                                        className="rounded text-blue-600"
+                                        checked={Boolean(optimizationConfig.dataSaverModeEnabled)}
+                                        onChange={(e) =>
+                                            setOptimizationConfig((prev) => ({ ...prev, dataSaverModeEnabled: e.target.checked }))
+                                        }
+                                    />
+                                </label>
+                                <label className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">
+                                    <span className="text-sm text-gray-700">Allow media autoplay</span>
+                                    <input
+                                        type="checkbox"
+                                        className="rounded text-blue-600"
+                                        checked={Boolean(optimizationConfig.autoplayEnabled)}
+                                        onChange={(e) => setOptimizationConfig((prev) => ({ ...prev, autoplayEnabled: e.target.checked }))}
+                                    />
+                                </label>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Feed Page Size</label>
+                                    <input
+                                        type="number"
+                                        min={5}
+                                        max={80}
+                                        className="w-full border-gray-300 rounded-md p-2"
+                                        value={optimizationConfig.feedPageSize || 20}
+                                        onChange={(e) =>
+                                            setOptimizationConfig((prev) => ({
+                                                ...prev,
+                                                feedPageSize: Math.max(5, Math.min(80, Number.parseInt(e.target.value, 10) || 20))
+                                            }))
+                                        }
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Low-bandwidth Page Size</label>
+                                    <input
+                                        type="number"
+                                        min={3}
+                                        max={40}
+                                        className="w-full border-gray-300 rounded-md p-2"
+                                        value={optimizationConfig.lowBandwidthFeedPageSize || 10}
+                                        onChange={(e) =>
+                                            setOptimizationConfig((prev) => ({
+                                                ...prev,
+                                                lowBandwidthFeedPageSize: Math.max(
+                                                    3,
+                                                    Math.min(
+                                                        Number(prev.feedPageSize || 20),
+                                                        Number.parseInt(e.target.value, 10) || 10
+                                                    )
+                                                )
+                                            }))
+                                        }
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Realtime Throttle (ms)</label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        max={10000}
+                                        className="w-full border-gray-300 rounded-md p-2"
+                                        value={optimizationConfig.realtimeThrottleMs || 300}
+                                        onChange={(e) =>
+                                            setOptimizationConfig((prev) => ({
+                                                ...prev,
+                                                realtimeThrottleMs: Math.max(0, Math.min(10000, Number.parseInt(e.target.value, 10) || 300))
+                                            }))
+                                        }
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Media Quality Preset</label>
+                                <select
+                                    className="w-full border-gray-300 rounded-md p-2"
+                                    value={optimizationConfig.mediaQualityPreset || 'auto'}
+                                    onChange={(e) =>
+                                        setOptimizationConfig((prev) => ({
+                                            ...prev,
+                                            mediaQualityPreset: (e.target.value || 'auto') as 'auto' | 'low' | 'balanced' | 'high'
+                                        }))
+                                    }
+                                >
+                                    <option value="auto">Auto</option>
+                                    <option value="low">Low bandwidth</option>
+                                    <option value="balanced">Balanced</option>
+                                    <option value="high">High quality</option>
+                                </select>
                             </div>
                         </div>
 

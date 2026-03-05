@@ -5,7 +5,8 @@ import { UserService } from '../../services/user';
 import { useNotification } from '../../context/NotificationContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import { UserSettings } from '../../types';
-import { Bell, Lock, Globe, Shield, Save, Moon, Sun, Smartphone, Mail, AlertTriangle, Eye, EyeOff, Loader2, Fingerprint, Users, MessageCircle, Heart } from 'lucide-react';
+import { Bell, Lock, Globe, Shield, Save, Moon, Sun, Smartphone, Mail, AlertTriangle, Eye, EyeOff, Loader2, Fingerprint, Users, MessageCircle, Heart, Gauge } from 'lucide-react';
+import { usePerformanceProfile } from '../../hooks/usePerformanceProfile';
 import {
     authenticateBiometrics,
     checkBiometrics,
@@ -200,6 +201,7 @@ const SettingsModule = () => {
     const { user, updateUser } = useUser();
     const { showNotification } = useNotification();
     const { currency, setCurrency, availableCurrencies } = useCurrency();
+    const { profile, userDataSaver, setUserDataSaver } = usePerformanceProfile();
     const [activeSection, setActiveSection] = useState<'notifications' | 'security' | 'account'>('notifications');
     const [settings, setSettings] = useState<UserSettings | null>(null);
     const [loading, setLoading] = useState(true);
@@ -850,6 +852,32 @@ const SettingsModule = () => {
                                                 <Moon className="w-4 h-4 mr-2" /> Dark
                                             </button>
                                         </div>
+                                    </div>
+                                </div>
+
+                                <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div>
+                                            <p className="font-medium text-gray-900 flex items-center">
+                                                <Gauge className="mr-2 h-4 w-4 text-indigo-600" />
+                                                Data Saver Mode
+                                            </p>
+                                            <p className="mt-1 text-xs text-gray-600">
+                                                Reduces autoplay and media payloads on unstable or low-bandwidth networks.
+                                            </p>
+                                            <p className="mt-1 text-[11px] text-gray-500">
+                                                Live profile: {profile.dataSaver ? 'Data Saver On' : 'Normal'} • Autoplay {profile.autoplayEnabled ? 'On' : 'Off'} • Quality {profile.mediaQuality}
+                                            </p>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                className="sr-only peer"
+                                                checked={Boolean(userDataSaver)}
+                                                onChange={(event) => setUserDataSaver(event.target.checked)}
+                                            />
+                                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                        </label>
                                     </div>
                                 </div>
 

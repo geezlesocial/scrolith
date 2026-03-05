@@ -157,6 +157,18 @@ export interface OptimizationConfig {
   preconnect_origins?: string[];
   apiCacheExcludePaths?: string[];
   api_cache_exclude_paths?: string[];
+  dataSaverModeEnabled?: boolean;
+  data_saver_mode_enabled?: boolean;
+  autoplayEnabled?: boolean;
+  autoplay_enabled?: boolean;
+  feedPageSize?: number;
+  feed_page_size?: number;
+  lowBandwidthFeedPageSize?: number;
+  low_bandwidth_feed_page_size?: number;
+  realtimeThrottleMs?: number;
+  realtime_throttle_ms?: number;
+  mediaQualityPreset?: 'auto' | 'low' | 'balanced' | 'high';
+  media_quality_preset?: 'auto' | 'low' | 'balanced' | 'high';
 }
 
 export interface SystemConfig {
