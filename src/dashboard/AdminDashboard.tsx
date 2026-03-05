@@ -50,10 +50,11 @@ const AppManagement = React.lazy(() => import('./admin/AppManagement'));
 const MobileHomepage = React.lazy(() => import('./admin/MobileHomepage'));
 const SystemBackup = React.lazy(() => import('./admin/SystemBackup'));
 const AdminDeveloperPlatform = React.lazy(() => import('../pages/AdminDeveloperPlatform'));
+const AdminLivePlatform = React.lazy(() => import('../pages/AdminLivePlatform'));
 const ScrollAdminPanel = React.lazy(() => import('../features/scroll/ScrollAdminPanel'));
 
 // Define valid tab types
-type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'scroll' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps' | 'developer-platform' | 'system-backup';
+type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'scroll' | 'live' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps' | 'developer-platform' | 'system-backup';
 
 // Define navigation item interface
 interface NavItem {
@@ -118,7 +119,7 @@ const AdminDashboard: React.FC = () => {
     const isValidTab = (tab: string): tab is Tab => {
         const validTabs: Tab[] = [
             'overview', 'analytics', 'listings', 'engagement', 'finance', 'gateways', 'cms', 
-            'homepage', 'mobile-homepage', 'blog', 'scroll', 'marketing', 'users', 'monetization', 'files', 'staff', 'role-management', 'moderator-console', 'message-records', 'kyc', 
+            'homepage', 'mobile-homepage', 'blog', 'scroll', 'live', 'marketing', 'users', 'monetization', 'files', 'staff', 'role-management', 'moderator-console', 'message-records', 'kyc', 
             'support', 'system', 'profile', 'messages', 'ai', 'atm', 'insights-growth', 'community', 'recommendations', 'navigation', 'reviews', 'languages', 'forms', 'google-settings', 'scrolitha', 'apps', 'developer-platform', 'system-backup'
         ];
         return validTabs.includes(tab as Tab);
@@ -283,7 +284,8 @@ const AdminDashboard: React.FC = () => {
                 { id: 'homepage', label: 'Homepage Settings', icon: LayoutTemplate },
                 { id: 'mobile-homepage', label: 'Mobile Homepage', icon: Smartphone },
                 { id: 'blog', label: 'Blog', icon: BookOpen },
-                { id: 'scroll', label: 'Scroll Management', icon: Sparkles }
+                { id: 'scroll', label: 'Scroll Management', icon: Sparkles },
+                { id: 'live', label: 'Live Streaming', icon: Sparkles }
             ] 
         },
         { 
@@ -365,6 +367,7 @@ const AdminDashboard: React.FC = () => {
             case 'mobile-homepage': return <MobileHomepage />;
             case 'blog': return <BlogManagement />;
             case 'scroll': return <ScrollAdminPanel />;
+            case 'live': return <AdminLivePlatform />;
             case 'community': return <CommunityManagement />;
             case 'recommendations': return <RecommendationManagement />;
             case 'reviews': return <AdminReviews />;
