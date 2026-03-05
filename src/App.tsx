@@ -107,6 +107,7 @@ const DeveloperPortal = React.lazy(() => import('./pages/DeveloperPortal'));
 const DeveloperDocsPortal = React.lazy(() => import('./pages/DeveloperDocsPage'));
 const AdminDeveloperPlatform = React.lazy(() => import('./pages/AdminDeveloperPlatform'));
 const ScrollFeed = React.lazy(() => import('./features/scroll/ScrollFeed'));
+const MemberHomeSection = React.lazy(() => import('./components/sections/MemberHomeSection'));
 
 // Error Boundary Component
 type ErrorBoundaryState = { hasError: boolean };
@@ -134,6 +135,17 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBo
     return this.props.children as React.ReactElement;
   }
 }
+
+const RouteLoadingFallback = () => (
+  <div className="flex min-h-[48vh] items-center justify-center px-4">
+    <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
+        <div className="text-sm font-medium text-slate-700">Loading Scrolith...</div>
+      </div>
+    </div>
+  </div>
+);
 
 const normalizeRouteRule = (value: string) => {
   let normalized = String(value || '').trim();
@@ -532,6 +544,11 @@ const AppContent = () => {
     isSupportWidgetSuppressedByRule;
   const shouldHideFooter =
     isMobileShellRoute || isAdminRoute || isMessagesRoute || isScrollRoute || isFooterSuppressedByRule;
+  const memberHomeDesktopOverride =
+    new URLSearchParams(location.search).get('desktop') === '1' ||
+    new URLSearchParams(location.search).get('view') === 'desktop';
+  const isMobileViewport = typeof window !== 'undefined' ? window.innerWidth < 900 : false;
+  const shouldUseMobileMemberHome = isMobileViewport && !memberHomeDesktopOverride;
   
   return (
     <div className="flex flex-col min-h-screen relative">
@@ -541,9 +558,17 @@ const AppContent = () => {
       {!isAdminRoute && !isMobileShellRoute && !isScrollRoute && <Navbar />}
       <main className="flex-grow">
         <ErrorBoundary>
-          <Suspense fallback={null}>
+          <Suspense fallback={<RouteLoadingFallback />}>
             <Routes>
               <Route path="/" element={<Landing />} />
+              <Route
+                path="/member_home"
+                element={
+                  <ProtectedRoute>
+                    {shouldUseMobileMemberHome ? <Navigate to="/m/home" replace /> : <MemberHomeSection />}
+                  </ProtectedRoute>
+                }
+              />
 
               {/* Mobile logged-in shell (LinkedIn-style) */}
               <Route

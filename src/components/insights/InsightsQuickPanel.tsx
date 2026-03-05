@@ -20,6 +20,20 @@ const clampPercent = (value: number) => {
   return Math.max(0, Math.min(100, value));
 };
 
+const withFastFail = async <T,>(promise: Promise<T>, timeoutMs: number, fallbackMessage: string): Promise<T> => {
+  let timer: number | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error(fallbackMessage)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer !== null) window.clearTimeout(timer);
+  }
+};
+
 export default function InsightsQuickPanel({ compact = false, className = '' }: Props) {
   const { socket } = useSocket();
   const { user } = useUser();
@@ -51,15 +65,19 @@ export default function InsightsQuickPanel({ compact = false, className = '' }: 
       if (silent && hasLoadedRef.current) setRefreshing(true);
       setError(null);
       try {
-        const [pgsData, streakData, achievementsData, questsData, matchesData, feedModeData, skillGapData] = await Promise.all([
-          InsightsService.getMyPgs(),
-          InsightsService.getMyStreak(),
-          InsightsService.getMyAchievements(),
-          InsightsService.getMyQuests(),
-          InsightsService.getMatches('all'),
-          InsightsService.getFeedMode(),
-          InsightsService.getSkillGap()
-        ]);
+        const [pgsData, streakData, achievementsData, questsData, matchesData, feedModeData, skillGapData] = await withFastFail(
+          Promise.all([
+            InsightsService.getMyPgs(),
+            InsightsService.getMyStreak(),
+            InsightsService.getMyAchievements(),
+            InsightsService.getMyQuests(),
+            InsightsService.getMatches('all'),
+            InsightsService.getFeedMode(),
+            InsightsService.getSkillGap()
+          ]),
+          9000,
+          'Insights request timed out. Please retry.'
+        );
         setPgs(pgsData);
         setStreak(streakData);
         setAchievements(achievementsData);
@@ -201,7 +219,16 @@ export default function InsightsQuickPanel({ compact = false, className = '' }: 
       {loading ? (
         <p className="mt-3 text-sm text-slate-500">Loading insights...</p>
       ) : error ? (
-        <p className="mt-3 text-sm text-rose-600">{error}</p>
+        <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 p-3">
+          <p className="text-sm text-rose-700">{error}</p>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="mt-2 rounded-xl bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white"
+          >
+            Retry insights
+          </button>
+        </div>
       ) : (
         <>
           <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">

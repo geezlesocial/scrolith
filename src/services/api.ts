@@ -29,16 +29,61 @@ const parseTimeoutMs = (value: unknown, fallback: number) => {
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(5000, Math.min(60000, Math.floor(parsed)));
 };
-const DEFAULT_TIMEOUT_MS = parseTimeoutMs(import.meta.env.VITE_API_TIMEOUT_MS, isNative() ? 25000 : 15000);
-const GET_RETRY_LIMIT = 1;
-const RETRY_BASE_DELAY_MS = 350;
+type NavigatorConnection = {
+  effectiveType?: string;
+  saveData?: boolean;
+  downlink?: number;
+};
+const getNavigatorConnection = (): NavigatorConnection | null => {
+  if (typeof navigator === 'undefined') return null;
+  const nav = navigator as any;
+  return (nav.connection || nav.mozConnection || nav.webkitConnection || null) as NavigatorConnection | null;
+};
+const isConstrainedNetwork = () => {
+  const connection = getNavigatorConnection();
+  if (!connection) return false;
+  if (connection.saveData) return true;
+  const effectiveType = String(connection.effectiveType || '').toLowerCase();
+  if (effectiveType === 'slow-2g' || effectiveType === '2g') return true;
+  const downlink = Number(connection.downlink || 0);
+  if (Number.isFinite(downlink) && downlink > 0 && downlink < 1.2) return true;
+  return false;
+};
+const DEFAULT_TIMEOUT_MS = parseTimeoutMs(
+  import.meta.env.VITE_API_TIMEOUT_MS,
+  isNative() ? (isConstrainedNetwork() ? 9000 : 12000) : 10000
+);
+const RETRY_BASE_DELAY_MS = 280;
+const MAX_RETRY_DELAY_MS = 2500;
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const parseRetryAfterMs = (error: any) => {
+  const headers = (error?.response?.headers || {}) as Record<string, any>;
+  const retryAfterRaw = headers['retry-after'];
+  const seconds = Number.parseInt(String(retryAfterRaw || ''), 10);
+  if (Number.isFinite(seconds) && seconds > 0) return clamp(seconds * 1000, 400, 4000);
+  return null;
+};
+const getRetryLimit = (error: any) => {
+  const status = Number(error?.response?.status || 0);
+  if (status === 429) return 1;
+  return isConstrainedNetwork() ? 1 : 2;
+};
+const computeRetryDelayMs = (error: any, attempt: number) => {
+  const retryAfterMs = parseRetryAfterMs(error);
+  if (retryAfterMs) return retryAfterMs;
+  const jitter = 120 + Math.floor(Math.random() * 320);
+  const multiplier = Math.max(1, attempt);
+  const constrainedFactor = isConstrainedNetwork() ? 0.7 : 1;
+  const exponential = RETRY_BASE_DELAY_MS * Math.pow(2, multiplier - 1) * constrainedFactor;
+  return clamp(Math.floor(exponential + jitter), 250, MAX_RETRY_DELAY_MS);
+};
 const shouldRetryRequest = (error: any) => {
   const config = (error?.config || {}) as any;
   const method = String(config?.method || 'get').toLowerCase();
   if (method !== 'get') return false;
 
   const retries = Number(config.__retryCount || 0);
-  if (retries >= GET_RETRY_LIMIT) return false;
+  if (retries >= getRetryLimit(error)) return false;
 
   const status = Number(error?.response?.status || 0);
   if (status && status < 500 && status !== 408 && status !== 429) return false;
@@ -176,8 +221,7 @@ api.interceptors.response.use(
     if (shouldRetryRequest(error)) {
       const config = (error?.config || {}) as any;
       config.__retryCount = Number(config.__retryCount || 0) + 1;
-      const jitter = Math.floor(Math.random() * 120);
-      await wait(RETRY_BASE_DELAY_MS * config.__retryCount + jitter);
+      await wait(computeRetryDelayMs(error, config.__retryCount));
       return api.request(config);
     }
 

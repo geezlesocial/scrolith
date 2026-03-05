@@ -150,6 +150,22 @@ const pickSlotIndexes = (count: number, slots: number, seed: string) => {
     .sort((a, b) => a - b);
 };
 
+const FEED_CACHE_VERSION = 'v1';
+const FEED_CACHE_TTL_MS = 4 * 60 * 1000;
+const withFastFail = async <T,>(promise: Promise<T>, timeoutMs: number, fallbackMessage: string): Promise<T> => {
+  let timer: number | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error(fallbackMessage)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer !== null) window.clearTimeout(timer);
+  }
+};
+
 const extractJobsFromPayload = (payload: any): Job[] => {
   if (Array.isArray(payload?.jobs)) return payload.jobs as Job[];
   if (Array.isArray(payload)) return payload as Job[];
@@ -186,6 +202,8 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const { user } = useUser();
   const { isConnected } = useSocket();
   const { profile } = usePerformanceProfile();
+  const currentUserId = String(user?.id || 'guest').trim() || 'guest';
+  const feedCacheKey = useMemo(() => `mobile_feed_cache:${FEED_CACHE_VERSION}:${currentUserId}`, [currentUserId]);
 
   const feedSettings = settings?.feed ?? {};
   const postCardSettings = settings?.postCard ?? {};
@@ -306,11 +324,38 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const loadMoreArmedRef = useRef(false);
   const cursorRef = useRef<string | null>(null);
   const loadInFlightRef = useRef(false);
+  const postsRef = useRef<any[]>([]);
   const rateLimitUntilRef = useRef<number>(0);
   const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
   const viewTrackedRef = useRef<Set<string>>(new Set());
   const postMediaTapTimersRef = useRef<Record<string, number>>({});
   const postMediaLastTapAtRef = useRef<Record<string, number>>({});
+
+  useEffect(() => {
+    postsRef.current = posts;
+  }, [posts]);
+
+  useEffect(() => {
+    if (!feedCacheKey) return;
+    try {
+      const raw = localStorage.getItem(feedCacheKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { ts?: number; items?: any[]; cursor?: string | null };
+      const ts = Number(parsed?.ts || 0);
+      const age = Date.now() - ts;
+      const cachedPosts = Array.isArray(parsed?.items) ? parsed.items : [];
+      if (!cachedPosts.length || age > FEED_CACHE_TTL_MS) return;
+      setPosts(cachedPosts);
+      postsRef.current = cachedPosts;
+      const cachedCursor = parsed?.cursor ? String(parsed.cursor) : null;
+      cursorRef.current = cachedCursor;
+      setCursor(cachedCursor);
+      setLoading(false);
+      setError(null);
+    } catch {
+      // Ignore cache parse errors and continue network-first.
+    }
+  }, [feedCacheKey]);
 
   useEffect(() => {
     const connection = getNavigatorConnection();
@@ -472,18 +517,22 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
     try {
       if (mode === 'initial') {
-        setLoading(true);
+        setLoading(postsRef.current.length === 0);
         setError(null);
       } else {
         setLoadingMore(true);
       }
 
       const feedLimit = Math.max(6, Math.min(24, Number(profile.feedPageSize || (constrainedForFeed ? 8 : 12))));
-      const resp = await CommunityService.getFeed({
-        cursor: mode === 'more' ? cursorRef.current || undefined : undefined,
-        limit: feedLimit,
-        scope: 'discover'
-      });
+      const resp = await withFastFail(
+        CommunityService.getFeed({
+          cursor: mode === 'more' ? cursorRef.current || undefined : undefined,
+          limit: feedLimit,
+          scope: 'discover'
+        }),
+        constrainedForFeed ? 7000 : 9000,
+        'Feed request timed out. Please retry.'
+      );
       const nextPosts = Array.isArray(resp?.items) ? resp.items : [];
       const nextCursor = resp?.nextCursor ? String(resp.nextCursor) : null;
 
@@ -491,7 +540,21 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       setRateLimitUntil(null);
       cursorRef.current = nextCursor;
       setCursor(nextCursor);
-      setPosts((prev) => (mode === 'more' ? [...prev, ...nextPosts] : nextPosts));
+      const mergedPosts = mode === 'more' ? [...postsRef.current, ...nextPosts] : nextPosts;
+      postsRef.current = mergedPosts;
+      setPosts(mergedPosts);
+      try {
+        localStorage.setItem(
+          feedCacheKey,
+          JSON.stringify({
+            ts: Date.now(),
+            cursor: nextCursor,
+            items: mergedPosts.slice(0, 80)
+          })
+        );
+      } catch {
+        // Ignore cache write errors.
+      }
     } catch (e: any) {
       const status = Number(e?.response?.status || 0);
       const backendError = e?.response?.data?.error ?? e?.message ?? 'Failed to load feed.';
@@ -527,7 +590,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       setLoadingMore(false);
       loadInFlightRef.current = false;
     }
-  }, [constrainedForFeed, profile.feedPageSize]);
+  }, [constrainedForFeed, profile.feedPageSize, feedCacheKey]);
 
   useEffect(() => {
     void load('initial');
@@ -900,7 +963,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const showPeopleCard = feedSettings.showSuggestedPeople !== false && suggestedPeople.length > 0;
   const showPagesCard = feedSettings.showSuggestedPages !== false && suggestedPages.length > 0;
 
-  if (loading) {
+  if (loading && posts.length === 0) {
     return (
       <div className="mx-auto max-w-md px-3 py-4">
         <div className="flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white p-6">
@@ -911,7 +974,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
     );
   }
 
-  if (error) {
+  if (error && posts.length === 0) {
     return (
       <div className="mx-auto max-w-md px-3 py-4">
         <div className="rounded-2xl border border-red-200 bg-white p-4">
@@ -946,6 +1009,24 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
   return (
     <div className="mx-auto max-w-md px-3 py-4">
+      {error ? (
+        <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+          <div className="text-xs font-semibold text-amber-800">{error}</div>
+          <button
+            type="button"
+            onClick={() => void load('initial')}
+            className="mt-2 rounded-xl bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white"
+          >
+            Retry feed
+          </button>
+        </div>
+      ) : null}
+      {loading ? (
+        <div className="mb-3 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Updating feed...
+        </div>
+      ) : null}
       <div className="space-y-3">
         {posts.map((post, idx) => {
           const postId = String(post?.id || '');

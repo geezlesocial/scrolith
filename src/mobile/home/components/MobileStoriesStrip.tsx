@@ -140,6 +140,23 @@ const removeStoryFromList = (prev: any[], storyId: string) => {
   return list.filter((s) => String(s?.id) !== String(storyId));
 };
 
+const STORIES_CACHE_VERSION = 'v1';
+const STORIES_CACHE_TTL_MS = 4 * 60 * 1000;
+const SCROLL_CACHE_TTL_MS = 6 * 60 * 1000;
+const withFastFail = async <T,>(promise: Promise<T>, timeoutMs: number, fallbackMessage: string): Promise<T> => {
+  let timer: number | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error(fallbackMessage)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer !== null) window.clearTimeout(timer);
+  }
+};
+
 const Sheet = ({
   open,
   title,
@@ -208,6 +225,9 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   const navigate = useNavigate();
   const { user } = useUser();
   const { showNotification } = useNotification();
+  const currentUserId = String(user?.id || 'guest').trim() || 'guest';
+  const storiesCacheKey = useMemo(() => `mobile_stories:${STORIES_CACHE_VERSION}:${currentUserId}`, [currentUserId]);
+  const scrollCacheKey = useMemo(() => `mobile_scrolls:${STORIES_CACHE_VERSION}:${currentUserId}`, [currentUserId]);
 
   const enabled = settings?.stories?.enabled !== false;
   const maxItems = clamp(Number(settings?.stories?.maxItems ?? 12) || 12, 4, 40);
@@ -223,6 +243,8 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   const [storyRailTab, setStoryRailTab] = useState<'stories' | 'scroll'>('stories');
   const [scrollCreateOpen, setScrollCreateOpen] = useState(false);
   const [scrollConfig, setScrollConfig] = useState<ScrollConfig | null>(null);
+  const [storiesReloadTick, setStoriesReloadTick] = useState(0);
+  const [scrollReloadTick, setScrollReloadTick] = useState(0);
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerStep, setComposerStep] = useState<'choose' | 'compose'>('choose');
@@ -472,17 +494,46 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   useEffect(() => {
     if (!enabled) return;
     let mounted = true;
-    setLoading(true);
+    let hasCachedStories = false;
+    try {
+      const raw = localStorage.getItem(storiesCacheKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { ts?: number; items?: any[] };
+        const ts = Number(parsed?.ts || 0);
+        const age = Date.now() - ts;
+        const cachedStories = Array.isArray(parsed?.items) ? parsed.items.filter(isStoryActive).slice(0, maxItems) : [];
+        if (cachedStories.length && age <= STORIES_CACHE_TTL_MS) {
+          hasCachedStories = true;
+          setStories(cachedStories);
+          setError(null);
+        }
+      }
+    } catch {
+      // Ignore cache parse errors.
+    }
+    setLoading(!hasCachedStories);
     setError(null);
-    CommunityService.getStoriesFeed()
+    withFastFail(CommunityService.getStoriesFeed(), 8000, 'Stories request timed out. Tap retry.')
       .then((items) => {
         if (!mounted) return;
-        setStories(Array.isArray(items) ? items.filter(isStoryActive).slice(0, maxItems) : []);
+        const nextStories = Array.isArray(items) ? items.filter(isStoryActive).slice(0, maxItems) : [];
+        setStories(nextStories);
+        try {
+          localStorage.setItem(
+            storiesCacheKey,
+            JSON.stringify({
+              ts: Date.now(),
+              items: nextStories
+            })
+          );
+        } catch {
+          // Ignore cache write errors.
+        }
       })
       .catch((e: any) => {
         if (!mounted) return;
         setError(e?.response?.data?.error || e?.message || 'Failed to load stories');
-        setStories([]);
+        if (!hasCachedStories) setStories([]);
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -490,14 +541,32 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
     return () => {
       mounted = false;
     };
-  }, [enabled, maxItems]);
+  }, [enabled, maxItems, storiesCacheKey, storiesReloadTick]);
 
   useEffect(() => {
     if (!enabled) return;
     let mounted = true;
-    setScrollsLoading(true);
+    let hasCachedScrolls = false;
+    try {
+      const raw = localStorage.getItem(scrollCacheKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { ts?: number; items?: ScrollVideo[]; config?: ScrollConfig | null };
+        const ts = Number(parsed?.ts || 0);
+        const age = Date.now() - ts;
+        const cachedScrolls = Array.isArray(parsed?.items) ? parsed.items.slice(0, maxScrollItems) : [];
+        if (cachedScrolls.length && age <= SCROLL_CACHE_TTL_MS) {
+          hasCachedScrolls = true;
+          setScrolls(cachedScrolls);
+          setScrollConfig(parsed?.config || null);
+          setScrollError(null);
+        }
+      }
+    } catch {
+      // Ignore cache parse errors.
+    }
+    setScrollsLoading(!hasCachedScrolls);
     setScrollError(null);
-    ScrollService.getFeed({ limit: maxScrollItems })
+    withFastFail(ScrollService.getFeed({ limit: maxScrollItems }), 8500, 'Scroll request timed out. Tap retry.')
       .then((feed) => {
         if (!mounted) return;
         const items = Array.isArray(feed?.items)
@@ -505,12 +574,26 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
           : [];
         setScrolls(items);
         setScrollConfig(feed?.config || null);
+        try {
+          localStorage.setItem(
+            scrollCacheKey,
+            JSON.stringify({
+              ts: Date.now(),
+              items,
+              config: feed?.config || null
+            })
+          );
+        } catch {
+          // Ignore cache write errors.
+        }
       })
       .catch((e: any) => {
         if (!mounted) return;
         setScrollError(e?.response?.data?.error || e?.message || 'Failed to load Scroll videos');
-        setScrolls([]);
-        setScrollConfig(null);
+        if (!hasCachedScrolls) {
+          setScrolls([]);
+          setScrollConfig(null);
+        }
       })
       .finally(() => {
         if (mounted) setScrollsLoading(false);
@@ -518,7 +601,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
     return () => {
       mounted = false;
     };
-  }, [enabled, maxScrollItems]);
+  }, [enabled, maxScrollItems, scrollCacheKey, scrollReloadTick]);
 
   // Realtime: socket layer forwards socket events as window CustomEvents.
   useEffect(() => {
@@ -719,18 +802,21 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                 </div>
               </button>
 
-              {loading ? (
+              {loading && visibleStories.length === 0 ? (
                 <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading...
                 </div>
-              ) : error ? (
-                <div className="rounded-2xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700">
-                  {error}
-                </div>
               ) : visibleStories.length === 0 ? (
-                <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
-                  No stories yet.
+                <div className="rounded-2xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700">
+                  {error || 'No stories yet.'}
+                  <button
+                    type="button"
+                    onClick={() => setStoriesReloadTick((prev) => prev + 1)}
+                    className="ml-2 rounded-lg bg-red-600 px-2 py-1 text-[10px] font-semibold text-white"
+                  >
+                    Retry
+                  </button>
                 </div>
               ) : (
                 visibleStories.map((story) => {
@@ -788,6 +874,15 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                   );
                 })
               )}
+              {error && visibleStories.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setStoriesReloadTick((prev) => prev + 1)}
+                  className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800"
+                >
+                  Network issue. Retry stories
+                </button>
+              ) : null}
             </>
           ) : (
             <>
@@ -806,18 +901,21 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                 </div>
               </button>
 
-              {scrollsLoading ? (
+              {scrollsLoading && scrolls.length === 0 ? (
                 <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading Scroll...
                 </div>
-              ) : scrollError ? (
-                <div className="rounded-2xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700">
-                  {scrollError}
-                </div>
               ) : scrolls.length === 0 ? (
-                <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600">
-                  No Scroll videos yet.
+                <div className="rounded-2xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700">
+                  {scrollError || 'No Scroll videos yet.'}
+                  <button
+                    type="button"
+                    onClick={() => setScrollReloadTick((prev) => prev + 1)}
+                    className="ml-2 rounded-lg bg-red-600 px-2 py-1 text-[10px] font-semibold text-white"
+                  >
+                    Retry
+                  </button>
                 </div>
               ) : (
                 scrolls.map((scroll) => {
@@ -862,6 +960,15 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                   );
                 })
               )}
+              {scrollError && scrolls.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setScrollReloadTick((prev) => prev + 1)}
+                  className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800"
+                >
+                  Network issue. Retry Scroll
+                </button>
+              ) : null}
             </>
           )}
         </div>
