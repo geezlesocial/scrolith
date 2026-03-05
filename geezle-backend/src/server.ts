@@ -41,6 +41,7 @@ import escrowRoutes from './routes/escrow.routes';
 import withdrawalRoutes from './routes/withdrawal.routes';
 import communityRoutes from './routes/community';
 import scrollRoutes from './routes/scroll.routes';
+import liveRoutes from './routes/live.routes';
 import postsRoutes from './routes/posts.routes';
 import contractsRoutes from './routes/contracts.routes';
 import messagesRoutes from './routes/messages.routes';
@@ -887,6 +888,183 @@ communityNs.on('connection', async (socket) => {
       return;
     };
     void handleJoinAd(payload);
+  });
+
+  socket.on('live:join', (payload: any, ack?: (result: any) => void) => {
+    const handleLiveJoin = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        const role = String((socket as any)?.data?.user?.role || '').toLowerCase();
+        const sessionId = String(payload?.sessionId || '').trim();
+        if (!userId || !sessionId) {
+          if (ack) ack({ success: false, error: 'sessionId is required.' });
+          return;
+        }
+        const session = await (prisma as any).liveSession.findUnique({
+          where: { id: sessionId },
+          include: {
+            participants: true,
+            invites: true
+          }
+        });
+        if (!session) {
+          if (ack) ack({ success: false, error: 'Livestream session not found.' });
+          return;
+        }
+        const isAdmin = role.includes('admin') || role.includes('moderator');
+        const isHost = String(session.hostUserId || '') === userId;
+        const isParticipant = Array.isArray(session.participants)
+          ? session.participants.some((entry: any) => String(entry.userId || '') === userId)
+          : false;
+        const isInvited = Array.isArray(session.invites)
+          ? session.invites.some(
+              (entry: any) =>
+                String(entry.inviteeId || '') === userId &&
+                ['PENDING', 'ACCEPTED'].includes(String(entry.status || '').toUpperCase())
+            )
+          : false;
+        const isPrivate = String(session.visibility || 'public').toLowerCase() === 'private';
+        if (isPrivate && !isAdmin && !isHost && !isParticipant && !isInvited) {
+          if (ack) ack({ success: false, error: 'Session is private.' });
+          return;
+        }
+
+        socket.join(`live:session:${sessionId}`);
+        await (prisma as any).liveParticipant.upsert({
+          where: {
+            sessionId_userId: {
+              sessionId,
+              userId
+            }
+          },
+          update: {
+            status: 'JOINED',
+            leftAt: null,
+            joinedAt: new Date()
+          },
+          create: {
+            sessionId,
+            userId,
+            role: isHost ? 'HOST' : 'VIEWER',
+            status: 'JOINED',
+            micState: true,
+            cameraState: true,
+            joinedAt: new Date()
+          }
+        });
+
+        const activeViewerCount = await (prisma as any).liveParticipant.count({
+          where: {
+            sessionId,
+            status: 'JOINED',
+            leftAt: null
+          }
+        });
+        const updated = await (prisma as any).liveSession.update({
+          where: { id: sessionId },
+          data: {
+            viewerCount: activeViewerCount,
+            peakViewerCount: Math.max(Number(session.peakViewerCount || 0), Number(activeViewerCount || 0))
+          },
+          select: {
+            id: true,
+            viewerCount: true,
+            peakViewerCount: true
+          }
+        });
+
+        const updatePayload = {
+          sessionId,
+          viewerCount: Number(updated.viewerCount || 0),
+          peakViewerCount: Number(updated.peakViewerCount || 0),
+          emittedAt: new Date().toISOString()
+        };
+        communityNs.to(`live:session:${sessionId}`).emit('live:viewer_count_updated', updatePayload);
+        if (ack) ack({ success: true, data: { room: `live:session:${sessionId}`, ...updatePayload } });
+      } catch (error: any) {
+        console.error('live:join error', error);
+        if (ack) ack({ success: false, error: error?.message || 'Failed to join livestream.' });
+      }
+    };
+    void handleLiveJoin();
+  });
+
+  socket.on('live:leave', (payload: any, ack?: (result: any) => void) => {
+    const handleLiveLeave = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        const sessionId = String(payload?.sessionId || '').trim();
+        if (!userId || !sessionId) {
+          if (ack) ack({ success: false, error: 'sessionId is required.' });
+          return;
+        }
+
+        socket.leave(`live:session:${sessionId}`);
+        await (prisma as any).liveParticipant.updateMany({
+          where: {
+            sessionId,
+            userId
+          },
+          data: {
+            status: 'LEFT',
+            leftAt: new Date()
+          }
+        });
+
+        const activeViewerCount = await (prisma as any).liveParticipant.count({
+          where: {
+            sessionId,
+            status: 'JOINED',
+            leftAt: null
+          }
+        });
+        await (prisma as any).liveSession.update({
+          where: { id: sessionId },
+          data: { viewerCount: activeViewerCount }
+        });
+        const updatePayload = {
+          sessionId,
+          userId,
+          viewerCount: Number(activeViewerCount || 0),
+          emittedAt: new Date().toISOString()
+        };
+        communityNs.to(`live:session:${sessionId}`).emit('live:participant_left', updatePayload);
+        communityNs.to(`live:session:${sessionId}`).emit('live:viewer_count_updated', updatePayload);
+        if (ack) ack({ success: true, data: updatePayload });
+      } catch (error: any) {
+        console.error('live:leave error', error);
+        if (ack) ack({ success: false, error: error?.message || 'Failed to leave livestream.' });
+      }
+    };
+    void handleLiveLeave();
+  });
+
+  socket.on('live:signal', (payload: any, ack?: (result: any) => void) => {
+    const handleLiveSignal = async () => {
+      try {
+        const fromUserId = resolveSocketUserId(socket);
+        const sessionId = String(payload?.sessionId || '').trim();
+        const toUserId = String(payload?.toUserId || '').trim();
+        const signal = payload?.signal;
+        if (!fromUserId || !sessionId || !toUserId || !signal) {
+          if (ack) ack({ success: false, error: 'sessionId, toUserId and signal are required.' });
+          return;
+        }
+        const relayPayload = {
+          sessionId,
+          fromUserId,
+          toUserId,
+          signal,
+          emittedAt: new Date().toISOString()
+        };
+        communityNs.to(`community:user:${toUserId}`).emit('live:signal', relayPayload);
+        if (ack) ack({ success: true });
+      } catch (error: any) {
+        console.error('live:signal error', error);
+        if (ack) ack({ success: false, error: error?.message || 'Failed to relay signal.' });
+      }
+    };
+    void handleLiveSignal();
   });
 
   socket.on('call:initiate', (payload: any, ack?: (result: any) => void) => {
@@ -2123,6 +2301,7 @@ app.use('/api/escrow', escrowRoutes);
 app.use('/api/withdrawal', withdrawalRoutes);
 app.use('/api/community', communityRoutes);
 app.use('/api/scroll', scrollRoutes);
+app.use('/api/live', liveRoutes);
 app.use('/api/posts', postsRoutes);
 
 // Explicit admin config endpoints (ensure runtime availability even when nested routers vary)

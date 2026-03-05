@@ -3148,6 +3148,142 @@ model ScrollConfig {
   updatedAt                  DateTime @updatedAt
 }
 
+model LiveSession {
+  id             String   @id @default(cuid())
+  hostUserId     String
+  title          String?
+  description    String?  @db.Text
+  visibility     String   @default("public")
+  status         String   @default("SCHEDULED")
+  roomName       String?
+  streamUrl      String?
+  hlsUrl         String?
+  recordingFileId String?
+  viewerCount    Int      @default(0)
+  peakViewerCount Int     @default(0)
+  likesCount     Int      @default(0)
+  lovesCount     Int      @default(0)
+  metadata       Json?
+  startedAt      DateTime?
+  endedAt        DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  participants   LiveParticipant[]
+  invites        LiveInvite[]
+  gifts          LiveGift[]
+  reactionCounters LiveReactionCounter[]
+  reports        LiveReport[]
+
+  @@index([hostUserId, createdAt])
+  @@index([status, createdAt])
+  @@index([visibility, status, createdAt])
+}
+
+model LiveParticipant {
+  id         String      @id @default(cuid())
+  sessionId  String
+  userId     String
+  role       String      @default("VIEWER")
+  micState   Boolean     @default(true)
+  cameraState Boolean    @default(true)
+  status     String      @default("INVITED")
+  joinedAt   DateTime?
+  leftAt     DateTime?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  session LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, userId])
+  @@index([sessionId, status, createdAt])
+  @@index([userId, status, createdAt])
+}
+
+model LiveInvite {
+  id          String      @id @default(cuid())
+  sessionId   String
+  inviterId   String
+  inviteeId   String
+  status      String      @default("PENDING")
+  respondedAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  session LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, inviteeId])
+  @@index([inviteeId, status, createdAt])
+  @@index([sessionId, status, createdAt])
+}
+
+model LiveGift {
+  id          String      @id @default(cuid())
+  sessionId   String
+  fromUserId  String
+  toUserId    String
+  amountGcoin Int
+  message     String?
+  createdAt   DateTime    @default(now())
+
+  session LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@index([fromUserId, createdAt])
+  @@index([toUserId, createdAt])
+}
+
+model LiveReactionCounter {
+  id           String      @id @default(cuid())
+  sessionId    String
+  userId       String?
+  reactionType String
+  count        Int         @default(1)
+  createdAt    DateTime    @default(now())
+
+  session LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, reactionType, createdAt])
+  @@index([userId, createdAt])
+}
+
+model LiveReport {
+  id           String      @id @default(cuid())
+  sessionId    String
+  reportedById String
+  reason       String
+  status       String      @default("PENDING")
+  note         String?
+  reviewedById String?
+  reviewedAt   DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  session LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, status, createdAt])
+  @@index([reportedById, createdAt])
+  @@index([status, createdAt])
+}
+
+model LiveConfig {
+  id                         String   @id @default("default")
+  enabled                    Boolean  @default(true)
+  enableConference           Boolean  @default(true)
+  maxParticipants            Int      @default(20)
+  maxGuests                  Int      @default(6)
+  enableGifts                Boolean  @default(true)
+  minGiftGcoin               Int      @default(1)
+  maxGiftGcoin               Int      @default(50000)
+  enableRecording            Boolean  @default(true)
+  defaultVisibility          String   @default("public")
+  rateLimitReactionsPerMinute Int     @default(80)
+  rateLimitChatPerMinute     Int      @default(40)
+  updatedById                String?
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+}
+
 model CommunityStory {
   id             String   @id @default(cuid())
   authorId       String

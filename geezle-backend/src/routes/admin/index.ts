@@ -32,6 +32,7 @@ import devAdminRoutes from './dev.routes';
 import systemBackupRoutes from './system-backups.routes';
 import messengerVoiceAdminRoutes from './messenger.voice.routes';
 import scrollAdminRoutes from './scroll.routes';
+import liveAdminRoutes from './live.routes';
 import { clearPlatformRuntimeCache } from '../../controllers/admin.cache.controller';
 import { getScrolithaAnalyticsForAdmin } from '../../services/scrolitha/scrolitha.orchestrator';
 
@@ -459,6 +460,7 @@ router.use('/dev', devAdminRoutes);
 router.use('/system-backups', systemBackupRoutes);
 router.use('/messenger/voice', messengerVoiceAdminRoutes);
 router.use('/scroll', scrollAdminRoutes);
+router.use('/live', liveAdminRoutes);
 // Mount admin community routes (Gcoin + Ads admin panels)
 router.use('/community', adminCommunityRoutes);
 
