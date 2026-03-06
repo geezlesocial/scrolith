@@ -76,8 +76,7 @@ const FreelancerPage = () => {
     const routing = aiConfig?.routing || {};
     const scrolitha = aiConfig?.providers?.scrolitha || aiConfig?.scrolitha || {};
     if (scrolitha?.enabled) {
-      const model = scrolitha?.model ? String(scrolitha.model) : '';
-      return `SCROLITHA${model ? ` • ${model}` : ''}`;
+      return 'SCROLITHA';
     }
 
     const provider =

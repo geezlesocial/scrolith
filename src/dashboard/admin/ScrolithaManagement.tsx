@@ -52,6 +52,12 @@ const formatDate = (value?: string | Date | null) => {
   return date.toLocaleString();
 };
 
+const toScrolithaModelLabel = (value: any) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return '-';
+  return 'Scrolitha';
+};
+
 const ScrolithaManagement: React.FC = () => {
   const { showNotification } = useNotification();
   const { socket, isConnected } = useSocket();
@@ -750,7 +756,7 @@ const ScrolithaManagement: React.FC = () => {
                       >
                         <option value="">Select from server...</option>
                         {llmModels.map((m) => (
-                          <option key={m} value={m}>{m}</option>
+                          <option key={m} value={m}>{toScrolithaModelLabel(m)}</option>
                         ))}
                       </select>
                     ) : null}
@@ -825,7 +831,7 @@ const ScrolithaManagement: React.FC = () => {
                       Status: <span className={llmHealth.ok ? 'text-green-700' : 'text-red-700'}>{llmHealth.ok ? 'OK' : 'ERROR'}</span>
                     </div>
                     <div className="mt-1">Host: {llmHealth.host || '-'}</div>
-                    <div>Model: {llmHealth.model || '-'}</div>
+                    <div>Model: {toScrolithaModelLabel(llmHealth.model)}</div>
                     {llmHealth.error ? <div className="mt-1 text-red-700">Error: {String(llmHealth.error)}</div> : null}
                   </div>
                 ) : null}
