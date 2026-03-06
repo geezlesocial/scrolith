@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { App as CapacitorApp } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -24,6 +26,7 @@ import { useUser } from '../../context/UserContext';
 import ParticipantGrid from './components/ParticipantGrid';
 import GiftPanel from './components/GiftPanel';
 import ReactionOverlay from './components/ReactionOverlay';
+import { requestLiveMediaStream, stopStreamTracks } from './liveMedia';
 
 type FloatingReaction = {
   id: string;
@@ -47,7 +50,7 @@ const SAFETY_NOTICE_TEXT =
 const toCompactErrorMessage = (error: any) => {
   const code = String(error?.name || '').toLowerCase();
   if (code.includes('notallowed') || code.includes('permission')) {
-    return 'Camera or microphone permission was denied. Allow access and retry.';
+    return 'Camera or microphone permission was denied. Allow access in app settings and retry.';
   }
   if (code.includes('notfound') || code.includes('devicesnotfound')) {
     return 'No camera/microphone device was found on this device.';
@@ -56,11 +59,6 @@ const toCompactErrorMessage = (error: any) => {
     return 'Camera is already in use by another app. Close other camera apps and retry.';
   }
   return String(error?.message || 'Unable to access camera and microphone.');
-};
-
-const stopStream = (stream: MediaStream | null) => {
-  if (!stream) return;
-  stream.getTracks().forEach((track) => track.stop());
 };
 
 const ensureTrackSenders = (pc: RTCPeerConnection, stream: MediaStream) => {
@@ -160,31 +158,36 @@ const LiveViewer: React.FC = () => {
     [isConnected, sessionId, socket]
   );
 
+  const openDeviceSettings = useCallback(async () => {
+    if (!Capacitor.isNativePlatform()) return;
+    try {
+      if (typeof (CapacitorApp as any)?.openSettings === 'function') {
+        await (CapacitorApp as any).openSettings();
+      } else {
+        showNotification('warning', 'Livestream', 'Open Android app settings and allow Camera + Microphone permissions.');
+      }
+    } catch {
+      showNotification('warning', 'Livestream', 'Open Android app settings and allow Camera + Microphone permissions.');
+    }
+  }, [showNotification]);
+
   const ensureLocalMedia = useCallback(async () => {
     if (localStreamRef.current) return localStreamRef.current;
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('This browser does not support camera capture.');
-    }
     setMediaInitBusy(true);
     setMediaError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'user',
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
+      const { stream, audioLimited } = await requestLiveMediaStream();
       localStreamRef.current = stream;
       setLocalStream(stream);
       setMicEnabled(Boolean(stream.getAudioTracks()[0]?.enabled ?? true));
       setCameraEnabled(Boolean(stream.getVideoTracks()[0]?.enabled ?? true));
       setConnectionState('connecting');
+      if (audioLimited) {
+        const warning =
+          'Microphone access is unavailable in app mode. Video is running without audio. Enable microphone in app settings and tap Retry Camera.';
+        setMediaError(warning);
+        showNotification('warning', 'Livestream', warning);
+      }
       return stream;
     } catch (error: any) {
       const message = toCompactErrorMessage(error);
@@ -194,7 +197,7 @@ const LiveViewer: React.FC = () => {
     } finally {
       setMediaInitBusy(false);
     }
-  }, []);
+  }, [showNotification]);
 
   const createHostPeer = useCallback(
     async (viewerUserId: string) => {
@@ -629,7 +632,7 @@ const LiveViewer: React.FC = () => {
         connectionRetryTimerRef.current = null;
       }
       closeAllPeers();
-      stopStream(localStreamRef.current);
+      stopStreamTracks(localStreamRef.current);
       localStreamRef.current = null;
     };
   }, [closeAllPeers]);
@@ -892,16 +895,29 @@ const LiveViewer: React.FC = () => {
                     </span>
                   ) : null}
                   {isHost ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void ensureLocalMedia().catch(() => {});
-                      }}
-                      className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/20"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                      Retry Camera
-                    </button>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void ensureLocalMedia().catch(() => {});
+                        }}
+                        className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/20"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        Retry Camera
+                      </button>
+                      {Capacitor.isNativePlatform() ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void openDeviceSettings();
+                          }}
+                          className="inline-flex items-center gap-2 rounded-xl border border-white/30 bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/20"
+                        >
+                          Open Settings
+                        </button>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
               )}

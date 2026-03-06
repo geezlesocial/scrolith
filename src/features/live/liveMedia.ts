@@ -1,0 +1,89 @@
+import { Camera } from '@capacitor/camera';
+import { Capacitor } from '@capacitor/core';
+
+type LiveMediaResult = {
+  stream: MediaStream;
+  audioLimited: boolean;
+};
+
+const VIDEO_CONSTRAINTS: MediaTrackConstraints = {
+  facingMode: 'user',
+  width: { ideal: 1280 },
+  height: { ideal: 720 }
+};
+
+const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true
+};
+
+const toLower = (value: any) => String(value || '').trim().toLowerCase();
+
+const isPermissionLikeError = (error: any) => {
+  const name = toLower(error?.name);
+  const message = toLower(error?.message);
+  return (
+    name.includes('notallowed') ||
+    name.includes('permission') ||
+    message.includes('not allowed') ||
+    message.includes('permission') ||
+    message.includes('denied')
+  );
+};
+
+const ensureNativeCameraPermission = async () => {
+  if (!Capacitor.isNativePlatform()) return;
+
+  try {
+    const current = await Camera.checkPermissions();
+    const cameraState = toLower((current as any)?.camera);
+    if (cameraState === 'granted' || cameraState === 'limited') return;
+
+    const requested = await Camera.requestPermissions({ permissions: ['camera'] as any });
+    const nextState = toLower((requested as any)?.camera);
+    if (nextState !== 'granted' && nextState !== 'limited') {
+      const denied = new Error('Camera permission was denied by Android.');
+      (denied as any).name = 'NotAllowedError';
+      throw denied;
+    }
+  } catch (error: any) {
+    if (isPermissionLikeError(error)) throw error;
+  }
+};
+
+export const stopStreamTracks = (stream: MediaStream | null | undefined) => {
+  if (!stream) return;
+  stream.getTracks().forEach((track) => track.stop());
+};
+
+export const requestLiveMediaStream = async (): Promise<LiveMediaResult> => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error('This device/browser does not support live camera capture.');
+  }
+
+  await ensureNativeCameraPermission();
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: VIDEO_CONSTRAINTS,
+      audio: AUDIO_CONSTRAINTS
+    });
+    return { stream, audioLimited: false };
+  } catch (primaryError: any) {
+    // On some Android WebView builds, camera+mic can be denied together
+    // even when camera is granted. Fall back to camera-only to unblock video.
+    if (!Capacitor.isNativePlatform()) throw primaryError;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: VIDEO_CONSTRAINTS,
+        audio: false
+      });
+      return { stream, audioLimited: true };
+    } catch {
+      throw primaryError;
+    }
+  }
+};
+

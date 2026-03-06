@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { PlusCircle, Radio, RefreshCw, Video } from 'lucide-react';
 import { LiveService, type LiveSession, type LiveVisibility } from '../../services/live';
 import { useNotification } from '../../context/NotificationContext';
+import { requestLiveMediaStream, stopStreamTracks } from './liveMedia';
 
 const VISIBILITY_OPTIONS: Array<{ value: LiveVisibility; label: string }> = [
   { value: 'public', label: 'Public' },
@@ -12,28 +13,15 @@ const VISIBILITY_OPTIONS: Array<{ value: LiveVisibility; label: string }> = [
 ];
 
 const requestMediaPreflight = async () => {
-  if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error('This device/browser does not support live camera capture.');
-  }
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: {
-      facingMode: 'user',
-      width: { ideal: 1280 },
-      height: { ideal: 720 }
-    },
-    audio: {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true
-    }
-  });
-  stream.getTracks().forEach((track) => track.stop());
+  const { stream, audioLimited } = await requestLiveMediaStream();
+  stopStreamTracks(stream);
+  return { audioLimited };
 };
 
 const toMediaPreflightMessage = (error: any) => {
   const code = String(error?.name || '').toLowerCase();
   if (code.includes('notallowed') || code.includes('permission')) {
-    return 'Camera/microphone permission was denied. Allow access and retry.';
+    return 'Camera/microphone permission was denied. Allow access in app settings and retry.';
   }
   if (code.includes('notfound') || code.includes('devicesnotfound')) {
     return 'No camera or microphone was found on this device.';
@@ -100,9 +88,16 @@ const LiveStudio: React.FC = () => {
   const startSession = useCallback(
     async (session: LiveSession) => {
       try {
-        await requestMediaPreflight();
+        const media = await requestMediaPreflight();
         const updated = await LiveService.startSession(session.id);
         setSessions((prev) => prev.map((entry) => (entry.id === updated.id ? updated : entry)));
+        if (media.audioLimited) {
+          showNotification(
+            'warning',
+            'Live Studio',
+            'Microphone access is unavailable in app mode. Live started with camera only. Enable microphone in app permissions, then tap Retry Camera in viewer.'
+          );
+        }
         showNotification('success', 'Live Studio', 'Livestream started.');
         navigate(`/live/${encodeURIComponent(updated.id)}`);
       } catch (error: any) {
