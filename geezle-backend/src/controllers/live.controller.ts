@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import gcoinService from '../services/gcoinService';
+import { addFileUsage, removeUsage } from '../utils/fileUsage';
 import {
   getLiveConfigFallback,
   getOrCreateLiveConfig,
@@ -11,6 +12,8 @@ import {
 
 const LIVE_VISIBILITIES = new Set(['public', 'network', 'followers', 'private']);
 const LIVE_REACTION_TYPES = new Set(['like', 'love']);
+const LIVE_RESTRICTION_TYPES = new Set(['LIVE_BAN', 'LIVE_SUSPEND']);
+const LIVE_COMMENT_MAX = 200;
 
 const resolveUserId = (req: Request) => String((req as any)?.user?.id || '').trim();
 const resolveRole = (req: Request) => String((req as any)?.user?.role || '').trim().toLowerCase();
@@ -44,6 +47,114 @@ const toUniqueIds = (value: any): string[] => {
         .filter(Boolean)
     )
   );
+};
+
+const parseDateValue = (value: any): Date | null => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const getSessionMetadata = (session: any): Record<string, any> => {
+  if (session?.metadata && typeof session.metadata === 'object' && !Array.isArray(session.metadata)) {
+    return { ...(session.metadata as Record<string, any>) };
+  }
+  return {};
+};
+
+const getLiveCommentsFromMetadata = (metadata: Record<string, any>) => {
+  const source = metadata?.comments;
+  if (!Array.isArray(source)) return [];
+  return source
+    .map((entry: any) => ({
+      id: String(entry?.id || '').trim(),
+      userId: String(entry?.userId || '').trim(),
+      message: String(entry?.message || '').trim(),
+      createdAt: entry?.createdAt || null,
+      user: {
+        id: String(entry?.user?.id || entry?.userId || '').trim(),
+        name: String(entry?.user?.name || '').trim() || 'Scrolith user',
+        username: String(entry?.user?.username || '').trim() || null,
+        avatar: String(entry?.user?.avatar || '').trim() || null,
+        isVerified: Boolean(entry?.user?.isVerified)
+      }
+    }))
+    .filter((entry: any) => entry.id && entry.userId && entry.message && entry.createdAt)
+    .slice(-LIVE_COMMENT_MAX);
+};
+
+const getRecordingStateFromMetadata = (metadata: Record<string, any>) => {
+  const raw = metadata?.recording;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return { ...(raw as Record<string, any>) };
+};
+
+const readRestrictionExpiresAt = (violation: any): Date | null => {
+  const metadata = violation?.metadata && typeof violation.metadata === 'object' ? violation.metadata : {};
+  return parseDateValue((metadata as any)?.expiresAt);
+};
+
+const resolveActiveLiveRestriction = async (userId: string) => {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) return null;
+  const rows = await (prisma as any).accountViolation.findMany({
+    where: {
+      userId: normalizedUserId,
+      resolvedAt: null,
+      type: { in: Array.from(LIVE_RESTRICTION_TYPES) }
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 12
+  });
+  const now = Date.now();
+  for (const row of rows) {
+    const type = String(row?.type || '').trim().toUpperCase();
+    const expiresAt = readRestrictionExpiresAt(row);
+    if (type === 'LIVE_SUSPEND' && expiresAt && expiresAt.getTime() <= now) {
+      try {
+        await (prisma as any).accountViolation.update({
+          where: { id: row.id },
+          data: { resolvedAt: new Date() }
+        });
+      } catch {}
+      continue;
+    }
+    return {
+      id: String(row?.id || ''),
+      type,
+      reason: String(row?.reason || '').trim() || null,
+      expiresAt: expiresAt ? expiresAt.toISOString() : null,
+      createdAt: row?.createdAt || null
+    };
+  }
+  return null;
+};
+
+const enforceLivePrivileges = async (res: Response, userId: string) => {
+  const restriction = await resolveActiveLiveRestriction(userId);
+  if (!restriction) return true;
+  const isBan = restriction.type === 'LIVE_BAN';
+  const suffix = restriction.expiresAt ? ` Restriction ends at ${restriction.expiresAt}.` : '';
+  const reason = restriction.reason ? ` Reason: ${restriction.reason}.` : '';
+  fail(
+    res,
+    403,
+    isBan
+      ? `Livestream privileges are suspended by admin.${reason}`
+      : `Livestream access is temporarily restricted by admin.${reason}${suffix}`,
+    isBan ? 'LIVE_BANNED' : 'LIVE_RESTRICTED'
+  );
+  return false;
+};
+
+const hasRelayParticipant = (session: any, excludeUserId: string) => {
+  const rows = Array.isArray(session?.participants) ? session.participants : [];
+  return rows.some((entry: any) => {
+    const status = String(entry?.status || '').toUpperCase();
+    const userId = String(entry?.userId || '').trim();
+    if (!userId || userId === excludeUserId) return false;
+    return status === 'JOINED';
+  });
 };
 
 const emitLiveEvent = (req: Request, event: string, payload: any, opts?: { sessionId?: string; userIds?: string[] }) => {
@@ -114,6 +225,9 @@ const buildSessionPayload = async (session: any, viewerId?: string | null) => {
   const participantRows = Array.isArray(session.participants) ? session.participants : [];
   const inviteRows = Array.isArray(session.invites) ? session.invites : [];
   const giftRows = Array.isArray(session.gifts) ? session.gifts : [];
+  const metadata = getSessionMetadata(session);
+  const recording = getRecordingStateFromMetadata(metadata);
+  const comments = getLiveCommentsFromMetadata(metadata);
 
   const userIds = [
     String(session.hostUserId || ''),
@@ -147,7 +261,22 @@ const buildSessionPayload = async (session: any, viewerId?: string | null) => {
     lovesCount: Number(session.lovesCount || 0),
     startedAt: session.startedAt || null,
     endedAt: session.endedAt || null,
-    metadata: session.metadata || {},
+    metadata,
+    recording: {
+      fileId: session.recordingFileId || String(recording.fileId || '').trim() || null,
+      title: String(recording.title || session.title || '').trim() || null,
+      description: String(recording.description || session.description || '').trim() || null,
+      thumbnailFileId: String(recording.thumbnailFileId || '').trim() || null,
+      published: Boolean(recording.published),
+      publishTarget: String(recording.publishTarget || '').trim() || null,
+      postId: String(recording.postId || '').trim() || null,
+      scrollId: String(recording.scrollId || '').trim() || null,
+      downloadUrl:
+        session.recordingFileId || recording.fileId
+          ? `/api/files/content/${encodeURIComponent(String(session.recordingFileId || recording.fileId))}`
+          : null
+    },
+    commentsCount: comments.length,
     participants: participantRows.map((entry: any) => ({
       id: String(entry.id || ''),
       userId: String(entry.userId || ''),
@@ -217,6 +346,7 @@ export const createLiveSession = async (req: Request, res: Response) => {
   try {
     const hostUserId = resolveUserId(req);
     if (!hostUserId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
+    if (!(await enforceLivePrivileges(res, hostUserId))) return res;
 
     const config = await ensureLiveSchema();
     if (!config.enabled) {
@@ -286,6 +416,7 @@ export const startLiveSession = async (req: Request, res: Response) => {
     const userId = resolveUserId(req);
     const role = resolveRole(req);
     if (!userId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
+    if (!isAdminRole(role) && !(await enforceLivePrivileges(res, userId))) return res;
     if (!sessionId) return fail(res, 400, 'Session ID is required.');
 
     await ensureLiveSchema();
@@ -404,12 +535,624 @@ export const endLiveSession = async (req: Request, res: Response) => {
   }
 };
 
+export const leaveLiveSession = async (req: Request, res: Response) => {
+  try {
+    const sessionId = String(req.params.id || '').trim();
+    const userId = resolveUserId(req);
+    const role = resolveRole(req);
+    if (!userId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
+    if (!sessionId) return fail(res, 400, 'Session ID is required.');
+
+    await ensureLiveSchema();
+    const session = await fetchSessionById(sessionId);
+    const access = ensureSessionAccess(session, userId, role);
+    if (!access.ok) return fail(res, access.status, access.message);
+
+    const isHost = String(session.hostUserId || '') === userId;
+    const isLive = String(session.status || '').toUpperCase() === 'LIVE';
+    if (isHost && isLive && !isAdminRole(role) && !hasRelayParticipant(session, userId)) {
+      return fail(
+        res,
+        400,
+        'Host cannot leave while no other active participant is present. End the livestream instead.',
+        'HOST_EXIT_REQUIRES_RELAY'
+      );
+    }
+
+    const leftAt = new Date();
+    const existingParticipant = Array.isArray(session.participants)
+      ? session.participants.find((entry: any) => String(entry.userId || '') === userId)
+      : null;
+
+    await (prisma as any).liveParticipant.upsert({
+      where: { sessionId_userId: { sessionId, userId } },
+      update: {
+        status: 'LEFT',
+        leftAt
+      },
+      create: {
+        sessionId,
+        userId,
+        role: existingParticipant?.role || (isHost ? 'HOST' : 'VIEWER'),
+        status: 'LEFT',
+        joinedAt: existingParticipant?.joinedAt || null,
+        leftAt,
+        micState: Boolean(existingParticipant?.micState),
+        cameraState: Boolean(existingParticipant?.cameraState)
+      }
+    });
+
+    const joinedCount = await (prisma as any).liveParticipant.count({
+      where: { sessionId, status: 'JOINED', leftAt: null }
+    });
+
+    const currentMetadata = getSessionMetadata(session);
+    const nextMetadata = isHost
+      ? {
+          ...currentMetadata,
+          hostLeftAt: leftAt.toISOString(),
+          hostLeftById: userId
+        }
+      : currentMetadata;
+
+    await (prisma as any).liveSession.update({
+      where: { id: sessionId },
+      data: {
+        viewerCount: Number(joinedCount || 0),
+        peakViewerCount: Math.max(Number(session.peakViewerCount || 0), Number(joinedCount || 0)),
+        metadata: nextMetadata
+      }
+    });
+
+    const payload = await buildSessionPayload(await fetchSessionById(sessionId), userId);
+    const leavePayload = {
+      sessionId,
+      userId,
+      role: String(existingParticipant?.role || (isHost ? 'HOST' : 'VIEWER')).toLowerCase(),
+      leftAt: leftAt.toISOString(),
+      viewerCount: Number(joinedCount || 0)
+    };
+    emitLiveEvent(req, 'live:participant_left', leavePayload, { sessionId });
+    emitLiveEvent(
+      req,
+      'live:viewer_count_updated',
+      {
+        sessionId,
+        viewerCount: Number(joinedCount || 0),
+        peakViewerCount: Math.max(Number(session.peakViewerCount || 0), Number(joinedCount || 0))
+      },
+      { sessionId }
+    );
+    return ok(res, payload);
+  } catch (error: any) {
+    if (error?.code === 'LIVE_SCHEMA_MISSING' || isLiveSchemaMissingError(error)) {
+      return fail(
+        res,
+        503,
+        'Livestream module tables are not ready. Run the latest backend migration.',
+        'LIVE_SCHEMA_MISSING'
+      );
+    }
+    console.error('leaveLiveSession error:', error);
+    return fail(res, 500, error?.message || 'Failed to leave livestream.');
+  }
+};
+
+export const getLiveActiveSessions = async (req: Request, res: Response) => {
+  try {
+    await ensureLiveSchema();
+    const viewerId = resolveUserId(req) || null;
+    const role = resolveRole(req);
+    const limit = Math.max(1, Math.min(60, toInt(req.query?.limit, 20)));
+    const rows = await (prisma as any).liveSession.findMany({
+      where: { status: 'LIVE' },
+      orderBy: [{ startedAt: 'desc' }, { createdAt: 'desc' }],
+      take: limit,
+      include: {
+        participants: true,
+        invites: true,
+        gifts: true
+      }
+    });
+    const visibleRows = rows.filter((session: any) => ensureSessionAccess(session, viewerId || '', role).ok);
+    const payload = await Promise.all(visibleRows.map((session: any) => buildSessionPayload(session, viewerId)));
+    return ok(res, {
+      items: payload.filter(Boolean),
+      count: payload.filter(Boolean).length,
+      limit
+    });
+  } catch (error: any) {
+    if (error?.code === 'LIVE_SCHEMA_MISSING' || isLiveSchemaMissingError(error)) {
+      return fail(
+        res,
+        503,
+        'Livestream module tables are not ready. Run the latest backend migration.',
+        'LIVE_SCHEMA_MISSING'
+      );
+    }
+    console.error('getLiveActiveSessions error:', error);
+    return fail(res, 500, error?.message || 'Failed to load active livestreams.');
+  }
+};
+
+export const getLiveSessionComments = async (req: Request, res: Response) => {
+  try {
+    const sessionId = String(req.params.id || '').trim();
+    const userId = resolveUserId(req);
+    const role = resolveRole(req);
+    if (!userId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
+    if (!sessionId) return fail(res, 400, 'Session ID is required.');
+
+    await ensureLiveSchema();
+    const session = await fetchSessionById(sessionId);
+    const access = ensureSessionAccess(session, userId, role);
+    if (!access.ok) return fail(res, access.status, access.message);
+    const metadata = getSessionMetadata(session);
+    const comments = getLiveCommentsFromMetadata(metadata);
+    return ok(res, comments);
+  } catch (error: any) {
+    if (error?.code === 'LIVE_SCHEMA_MISSING' || isLiveSchemaMissingError(error)) {
+      return fail(
+        res,
+        503,
+        'Livestream module tables are not ready. Run the latest backend migration.',
+        'LIVE_SCHEMA_MISSING'
+      );
+    }
+    console.error('getLiveSessionComments error:', error);
+    return fail(res, 500, error?.message || 'Failed to load live comments.');
+  }
+};
+
+export const addLiveSessionComment = async (req: Request, res: Response) => {
+  try {
+    const sessionId = String(req.params.id || '').trim();
+    const userId = resolveUserId(req);
+    const role = resolveRole(req);
+    if (!userId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
+    if (!sessionId) return fail(res, 400, 'Session ID is required.');
+    const message = String(req.body?.message || '').trim();
+    if (!message) return fail(res, 400, 'Comment message is required.', 'LIVE_COMMENT_REQUIRED');
+    if (message.length > 500) return fail(res, 400, 'Comment is too long (max 500 chars).', 'LIVE_COMMENT_TOO_LONG');
+
+    await ensureLiveSchema();
+    const session = await fetchSessionById(sessionId);
+    const access = ensureSessionAccess(session, userId, role);
+    if (!access.ok) return fail(res, access.status, access.message);
+
+    const userMap = await fetchUsers([userId]);
+    const comment = {
+      id: `lc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      userId,
+      message,
+      createdAt: nowIso(),
+      user: mapUserPreview(userMap, userId)
+    };
+    const metadata = getSessionMetadata(session);
+    const comments = [...getLiveCommentsFromMetadata(metadata), comment].slice(-LIVE_COMMENT_MAX);
+    const nextMetadata = {
+      ...metadata,
+      comments
+    };
+    await (prisma as any).liveSession.update({
+      where: { id: sessionId },
+      data: { metadata: nextMetadata }
+    });
+
+    emitLiveEvent(
+      req,
+      'live:comment',
+      {
+        sessionId,
+        comment,
+        commentsCount: comments.length
+      },
+      { sessionId }
+    );
+    return ok(res, {
+      comment,
+      commentsCount: comments.length
+    });
+  } catch (error: any) {
+    if (error?.code === 'LIVE_SCHEMA_MISSING' || isLiveSchemaMissingError(error)) {
+      return fail(
+        res,
+        503,
+        'Livestream module tables are not ready. Run the latest backend migration.',
+        'LIVE_SCHEMA_MISSING'
+      );
+    }
+    console.error('addLiveSessionComment error:', error);
+    return fail(res, 500, error?.message || 'Failed to send comment.');
+  }
+};
+
+export const saveLiveRecording = async (req: Request, res: Response) => {
+  try {
+    const sessionId = String(req.params.id || '').trim();
+    const actorUserId = resolveUserId(req);
+    const role = resolveRole(req);
+    if (!actorUserId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
+    if (!sessionId) return fail(res, 400, 'Session ID is required.');
+
+    await ensureLiveSchema();
+    const session = await fetchSessionById(sessionId);
+    const access = ensureSessionAccess(session, actorUserId, role);
+    if (!access.ok) return fail(res, access.status, access.message);
+    if (!isAdminRole(role) && String(session.hostUserId || '') !== actorUserId) {
+      return fail(res, 403, 'Only host can manage stream recording.', 'HOST_REQUIRED');
+    }
+
+    const inputFileId = String(req.body?.recordingFileId || req.body?.fileId || '').trim() || null;
+    const previousRecordingFileId = String(session.recordingFileId || '').trim() || null;
+    const recordingFileId = inputFileId || previousRecordingFileId;
+    if (!recordingFileId) {
+      return fail(res, 400, 'Recording file ID is required.', 'LIVE_RECORDING_FILE_REQUIRED');
+    }
+
+    const file = await (prisma as any).file.findUnique({
+      where: { id: recordingFileId },
+      select: { id: true, ownerId: true, mimeType: true }
+    });
+    if (!file) return fail(res, 404, 'Recording file was not found.', 'LIVE_RECORDING_FILE_NOT_FOUND');
+    if (!String(file.mimeType || '').toLowerCase().startsWith('video/')) {
+      return fail(res, 400, 'Recording file must be a video.', 'LIVE_RECORDING_INVALID_FILE');
+    }
+    if (!isAdminRole(role) && String(file.ownerId || '') !== actorUserId && String(file.ownerId || '') !== String(session.hostUserId || '')) {
+      return fail(res, 403, 'You can only attach your own uploaded recording.', 'LIVE_RECORDING_OWNERSHIP');
+    }
+
+    const metadata = getSessionMetadata(session);
+    const previousRecording = getRecordingStateFromMetadata(metadata);
+    const nextRecording = {
+      ...previousRecording,
+      fileId: recordingFileId,
+      title: String(req.body?.title ?? previousRecording.title ?? session.title ?? '').trim() || null,
+      description: String(req.body?.description ?? previousRecording.description ?? session.description ?? '').trim() || null,
+      thumbnailFileId: String(req.body?.thumbnailFileId ?? previousRecording.thumbnailFileId ?? '').trim() || null,
+      updatedAt: nowIso()
+    };
+    const nextMetadata = {
+      ...metadata,
+      recording: nextRecording
+    };
+
+    await (prisma as any).liveSession.update({
+      where: { id: sessionId },
+      data: {
+        recordingFileId,
+        metadata: nextMetadata
+      }
+    });
+
+    if (previousRecordingFileId && previousRecordingFileId !== recordingFileId) {
+      try {
+        await removeUsage('live_recording', sessionId);
+      } catch {}
+    }
+    try {
+      await addFileUsage({
+        fileId: recordingFileId,
+        usageType: 'live_recording',
+        usageId: sessionId,
+        label: 'Live Stream Recording'
+      });
+    } catch {}
+
+    const payload = await buildSessionPayload(await fetchSessionById(sessionId), actorUserId);
+    emitLiveEvent(req, 'live:recording_updated', { sessionId, recording: payload?.recording || null }, { sessionId });
+    return ok(res, payload);
+  } catch (error: any) {
+    if (error?.code === 'LIVE_SCHEMA_MISSING' || isLiveSchemaMissingError(error)) {
+      return fail(
+        res,
+        503,
+        'Livestream module tables are not ready. Run the latest backend migration.',
+        'LIVE_SCHEMA_MISSING'
+      );
+    }
+    console.error('saveLiveRecording error:', error);
+    return fail(res, 500, error?.message || 'Failed to save live recording.');
+  }
+};
+
+export const getLiveRecording = async (req: Request, res: Response) => {
+  try {
+    const sessionId = String(req.params.id || '').trim();
+    const userId = resolveUserId(req);
+    const role = resolveRole(req);
+    if (!userId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
+    if (!sessionId) return fail(res, 400, 'Session ID is required.');
+
+    await ensureLiveSchema();
+    const session = await fetchSessionById(sessionId);
+    const access = ensureSessionAccess(session, userId, role);
+    if (!access.ok) return fail(res, access.status, access.message);
+    const payload = await buildSessionPayload(session, userId);
+    return ok(res, payload?.recording || null);
+  } catch (error: any) {
+    if (error?.code === 'LIVE_SCHEMA_MISSING' || isLiveSchemaMissingError(error)) {
+      return fail(
+        res,
+        503,
+        'Livestream module tables are not ready. Run the latest backend migration.',
+        'LIVE_SCHEMA_MISSING'
+      );
+    }
+    console.error('getLiveRecording error:', error);
+    return fail(res, 500, error?.message || 'Failed to load recording details.');
+  }
+};
+
+export const publishLiveRecording = async (req: Request, res: Response) => {
+  try {
+    const sessionId = String(req.params.id || '').trim();
+    const actorUserId = resolveUserId(req);
+    const role = resolveRole(req);
+    if (!actorUserId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
+    if (!sessionId) return fail(res, 400, 'Session ID is required.');
+
+    await ensureLiveSchema();
+    const session = await fetchSessionById(sessionId);
+    const access = ensureSessionAccess(session, actorUserId, role);
+    if (!access.ok) return fail(res, access.status, access.message);
+    if (!isAdminRole(role) && String(session.hostUserId || '') !== actorUserId) {
+      return fail(res, 403, 'Only host can publish this recording.', 'HOST_REQUIRED');
+    }
+
+    const metadata = getSessionMetadata(session);
+    const recording = getRecordingStateFromMetadata(metadata);
+    const recordingFileId = String(session.recordingFileId || recording.fileId || '').trim();
+    if (!recordingFileId) return fail(res, 400, 'No recording is attached yet.', 'LIVE_RECORDING_MISSING');
+
+    const publishTarget = String(req.body?.target || recording.publishTarget || 'post').trim().toLowerCase();
+    const publishVisibility = normalizeVisibility(req.body?.visibility, session.visibility || 'public');
+    const title = String(req.body?.title || recording.title || session.title || 'Livestream replay').trim();
+    const description = String(req.body?.description || recording.description || session.description || '').trim();
+
+    let postId: string | null = null;
+    let scrollId: string | null = null;
+    if (publishTarget === 'scroll') {
+      const createdScroll = await (prisma as any).scrollVideo.create({
+        data: {
+          authorId: String(session.hostUserId || actorUserId),
+          fileId: recordingFileId,
+          title: title || null,
+          description: description || null,
+          visibility: publishVisibility,
+          status: 'active'
+        }
+      });
+      scrollId = String(createdScroll.id);
+      try {
+        await addFileUsage({
+          fileId: recordingFileId,
+          usageType: 'live_recording_scroll',
+          usageId: scrollId,
+          label: 'Live Recording Scroll Publish'
+        });
+      } catch {}
+    } else {
+      const createdPost = await (prisma as any).communityPost.create({
+        data: {
+          authorId: String(session.hostUserId || actorUserId),
+          title: title || null,
+          content: description || `Livestream replay: ${title || 'Untitled stream'}`,
+          attachments: [recordingFileId],
+          visibility: publishVisibility,
+          status: 'active'
+        }
+      });
+      postId = String(createdPost.id);
+      try {
+        await addFileUsage({
+          fileId: recordingFileId,
+          usageType: 'live_recording_post',
+          usageId: postId,
+          label: 'Live Recording Post Publish'
+        });
+      } catch {}
+    }
+
+    const nextRecording = {
+      ...recording,
+      fileId: recordingFileId,
+      title: title || null,
+      description: description || null,
+      published: true,
+      publishTarget: publishTarget === 'scroll' ? 'scroll' : 'post',
+      postId,
+      scrollId,
+      publishedAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    const nextMetadata = {
+      ...metadata,
+      recording: nextRecording
+    };
+
+    await (prisma as any).liveSession.update({
+      where: { id: sessionId },
+      data: {
+        metadata: nextMetadata
+      }
+    });
+
+    const payload = await buildSessionPayload(await fetchSessionById(sessionId), actorUserId);
+    emitLiveEvent(
+      req,
+      'live:recording_published',
+      {
+        sessionId,
+        postId,
+        scrollId,
+        publishTarget: nextRecording.publishTarget
+      },
+      { sessionId, userIds: [String(session.hostUserId || '')] }
+    );
+    return ok(res, payload);
+  } catch (error: any) {
+    if (error?.code === 'LIVE_SCHEMA_MISSING' || isLiveSchemaMissingError(error)) {
+      return fail(
+        res,
+        503,
+        'Livestream module tables are not ready. Run the latest backend migration.',
+        'LIVE_SCHEMA_MISSING'
+      );
+    }
+    console.error('publishLiveRecording error:', error);
+    return fail(res, 500, error?.message || 'Failed to publish livestream recording.');
+  }
+};
+
+export const unpublishLiveRecording = async (req: Request, res: Response) => {
+  try {
+    const sessionId = String(req.params.id || '').trim();
+    const actorUserId = resolveUserId(req);
+    const role = resolveRole(req);
+    if (!actorUserId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
+    if (!sessionId) return fail(res, 400, 'Session ID is required.');
+
+    await ensureLiveSchema();
+    const session = await fetchSessionById(sessionId);
+    const access = ensureSessionAccess(session, actorUserId, role);
+    if (!access.ok) return fail(res, access.status, access.message);
+    if (!isAdminRole(role) && String(session.hostUserId || '') !== actorUserId) {
+      return fail(res, 403, 'Only host can unpublish this recording.', 'HOST_REQUIRED');
+    }
+
+    const metadata = getSessionMetadata(session);
+    const recording = getRecordingStateFromMetadata(metadata);
+    const target = String(req.body?.target || recording.publishTarget || '').trim().toLowerCase();
+    const postId = String(req.body?.postId || recording.postId || '').trim();
+    const scrollId = String(req.body?.scrollId || recording.scrollId || '').trim();
+
+    if (target === 'post' && postId) {
+      try {
+        await (prisma as any).communityPost.updateMany({
+          where: {
+            id: postId,
+            ...(isAdminRole(role) ? {} : { authorId: String(session.hostUserId || actorUserId) })
+          },
+          data: { status: 'draft' }
+        });
+      } catch {}
+    }
+    if (target === 'scroll' && scrollId) {
+      try {
+        await (prisma as any).scrollVideo.updateMany({
+          where: {
+            id: scrollId,
+            ...(isAdminRole(role) ? {} : { authorId: String(session.hostUserId || actorUserId) })
+          },
+          data: { status: 'removed' }
+        });
+      } catch {}
+    }
+
+    const nextMetadata = {
+      ...metadata,
+      recording: {
+        ...recording,
+        published: false,
+        publishTarget: null,
+        unpublishedAt: nowIso(),
+        updatedAt: nowIso()
+      }
+    };
+    await (prisma as any).liveSession.update({
+      where: { id: sessionId },
+      data: { metadata: nextMetadata }
+    });
+    const payload = await buildSessionPayload(await fetchSessionById(sessionId), actorUserId);
+    emitLiveEvent(req, 'live:recording_unpublished', { sessionId }, { sessionId });
+    return ok(res, payload);
+  } catch (error: any) {
+    if (error?.code === 'LIVE_SCHEMA_MISSING' || isLiveSchemaMissingError(error)) {
+      return fail(
+        res,
+        503,
+        'Livestream module tables are not ready. Run the latest backend migration.',
+        'LIVE_SCHEMA_MISSING'
+      );
+    }
+    console.error('unpublishLiveRecording error:', error);
+    return fail(res, 500, error?.message || 'Failed to unpublish livestream recording.');
+  }
+};
+
+export const deleteLiveRecording = async (req: Request, res: Response) => {
+  try {
+    const sessionId = String(req.params.id || '').trim();
+    const actorUserId = resolveUserId(req);
+    const role = resolveRole(req);
+    if (!actorUserId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
+    if (!sessionId) return fail(res, 400, 'Session ID is required.');
+
+    await ensureLiveSchema();
+    const session = await fetchSessionById(sessionId);
+    const access = ensureSessionAccess(session, actorUserId, role);
+    if (!access.ok) return fail(res, access.status, access.message);
+    if (!isAdminRole(role) && String(session.hostUserId || '') !== actorUserId) {
+      return fail(res, 403, 'Only host can delete this recording.', 'HOST_REQUIRED');
+    }
+
+    const metadata = getSessionMetadata(session);
+    const recording = getRecordingStateFromMetadata(metadata);
+    const recordingFileId = String(session.recordingFileId || recording.fileId || '').trim();
+    if (!recordingFileId) {
+      return fail(res, 404, 'Recording is not attached to this session.', 'LIVE_RECORDING_NOT_FOUND');
+    }
+
+    try {
+      await removeUsage('live_recording', sessionId);
+    } catch {}
+
+    const nextMetadata = {
+      ...metadata,
+      recording: {
+        ...recording,
+        fileId: null,
+        published: false,
+        publishTarget: null,
+        postId: null,
+        scrollId: null,
+        deletedAt: nowIso(),
+        updatedAt: nowIso()
+      }
+    };
+
+    await (prisma as any).liveSession.update({
+      where: { id: sessionId },
+      data: {
+        recordingFileId: null,
+        metadata: nextMetadata
+      }
+    });
+    const payload = await buildSessionPayload(await fetchSessionById(sessionId), actorUserId);
+    emitLiveEvent(req, 'live:recording_deleted', { sessionId }, { sessionId });
+    return ok(res, payload);
+  } catch (error: any) {
+    if (error?.code === 'LIVE_SCHEMA_MISSING' || isLiveSchemaMissingError(error)) {
+      return fail(
+        res,
+        503,
+        'Livestream module tables are not ready. Run the latest backend migration.',
+        'LIVE_SCHEMA_MISSING'
+      );
+    }
+    console.error('deleteLiveRecording error:', error);
+    return fail(res, 500, error?.message || 'Failed to delete livestream recording.');
+  }
+};
+
 export const inviteLiveParticipant = async (req: Request, res: Response) => {
   try {
     const sessionId = String(req.params.id || '').trim();
     const inviterId = resolveUserId(req);
     const role = resolveRole(req);
     if (!inviterId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
+    if (!isAdminRole(role) && !(await enforceLivePrivileges(res, inviterId))) return res;
     if (!sessionId) return fail(res, 400, 'Session ID is required.');
 
     const config = await ensureLiveSchema();
@@ -508,6 +1251,7 @@ export const acceptLiveInvite = async (req: Request, res: Response) => {
     const inviteId = String(req.params.inviteId || '').trim();
     const userId = resolveUserId(req);
     if (!userId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
+    if (!(await enforceLivePrivileges(res, userId))) return res;
     if (!inviteId) return fail(res, 400, 'Invite ID is required.');
 
     await ensureLiveSchema();
@@ -1016,5 +1760,273 @@ export const resolveLiveAdminReport = async (req: Request, res: Response) => {
       );
     }
     return fail(res, 500, error?.message || 'Failed to resolve report.');
+  }
+};
+
+const parseRestrictionType = (value: any): 'LIVE_SUSPEND' | 'LIVE_BAN' | null => {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (normalized === 'LIVE_BAN') return 'LIVE_BAN';
+  if (normalized === 'LIVE_SUSPEND') return 'LIVE_SUSPEND';
+  return null;
+};
+
+const sanitizeRestrictionReason = (value: any) => {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  return text.slice(0, 1000);
+};
+
+const sanitizeRestrictionDurationMinutes = (value: any) => {
+  const raw = Number(value);
+  if (!Number.isFinite(raw)) return 60;
+  return Math.max(5, Math.min(60 * 24 * 30, Math.trunc(raw)));
+};
+
+export const getLiveAdminRestrictions = async (req: Request, res: Response) => {
+  try {
+    await ensureLiveSchema();
+    const userId = String(req.query?.userId || '').trim();
+    const status = String(req.query?.status || 'active').trim().toLowerCase();
+    const type = parseRestrictionType(req.query?.type);
+    const limit = Math.max(1, Math.min(300, toInt(req.query?.limit, 120)));
+
+    const where: any = {
+      type: { in: Array.from(LIVE_RESTRICTION_TYPES) }
+    };
+    if (userId) where.userId = userId;
+    if (type) where.type = type;
+    if (status === 'resolved') {
+      where.resolvedAt = { not: null };
+    } else if (status !== 'all') {
+      where.resolvedAt = null;
+    }
+
+    const rows = await (prisma as any).accountViolation.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: limit
+    });
+
+    const userMap = await fetchUsers(rows.map((row: any) => String(row?.userId || '')));
+    const payload = rows.map((row: any) => ({
+      id: String(row?.id || ''),
+      userId: String(row?.userId || ''),
+      type: String(row?.type || '').toUpperCase(),
+      reason: String(row?.reason || '').trim() || null,
+      metadata: row?.metadata || {},
+      createdAt: row?.createdAt || null,
+      resolvedAt: row?.resolvedAt || null,
+      user: mapUserPreview(userMap, String(row?.userId || ''))
+    }));
+    return ok(res, payload);
+  } catch (error: any) {
+    if (error?.code === 'LIVE_SCHEMA_MISSING' || isLiveSchemaMissingError(error)) {
+      return fail(
+        res,
+        503,
+        'Livestream module tables are not ready. Run the latest backend migration.',
+        'LIVE_SCHEMA_MISSING'
+      );
+    }
+    console.error('getLiveAdminRestrictions error:', error);
+    return fail(res, 500, error?.message || 'Failed to load live restrictions.');
+  }
+};
+
+export const restrictLiveAdminUser = async (req: Request, res: Response) => {
+  try {
+    await ensureLiveSchema();
+    const targetUserId = String(req.params.id || req.body?.userId || '').trim();
+    if (!targetUserId) return fail(res, 400, 'Target user ID is required.', 'LIVE_USER_REQUIRED');
+
+    const targetUser = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true }
+    });
+    if (!targetUser) return fail(res, 404, 'Target user was not found.', 'LIVE_USER_NOT_FOUND');
+
+    const actorUserId = resolveUserId(req) || null;
+    const reason = sanitizeRestrictionReason(req.body?.reason);
+    const minutes = sanitizeRestrictionDurationMinutes(req.body?.minutes ?? req.body?.durationMinutes);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + minutes * 60 * 1000);
+
+    await (prisma as any).accountViolation.updateMany({
+      where: {
+        userId: targetUserId,
+        type: 'LIVE_SUSPEND',
+        resolvedAt: null
+      },
+      data: {
+        resolvedAt: now
+      }
+    });
+
+    const created = await (prisma as any).accountViolation.create({
+      data: {
+        userId: targetUserId,
+        type: 'LIVE_SUSPEND',
+        severity: 'high',
+        reason,
+        metadata: {
+          expiresAt: expiresAt.toISOString(),
+          issuedBy: actorUserId,
+          issuedAt: now.toISOString()
+        }
+      }
+    });
+
+    emitLiveEvent(req, 'live:restriction_updated', {
+      userId: targetUserId,
+      restriction: {
+        id: String(created?.id || ''),
+        type: 'LIVE_SUSPEND',
+        reason: reason || null,
+        expiresAt: expiresAt.toISOString(),
+        resolvedAt: null
+      }
+    }, { userIds: [targetUserId] });
+
+    return ok(res, {
+      id: String(created?.id || ''),
+      userId: targetUserId,
+      type: 'LIVE_SUSPEND',
+      reason: reason || null,
+      expiresAt: expiresAt.toISOString(),
+      resolvedAt: null
+    });
+  } catch (error: any) {
+    if (error?.code === 'LIVE_SCHEMA_MISSING' || isLiveSchemaMissingError(error)) {
+      return fail(
+        res,
+        503,
+        'Livestream module tables are not ready. Run the latest backend migration.',
+        'LIVE_SCHEMA_MISSING'
+      );
+    }
+    console.error('restrictLiveAdminUser error:', error);
+    return fail(res, 500, error?.message || 'Failed to restrict livestream privileges.');
+  }
+};
+
+export const banLiveAdminUser = async (req: Request, res: Response) => {
+  try {
+    await ensureLiveSchema();
+    const targetUserId = String(req.params.id || req.body?.userId || '').trim();
+    if (!targetUserId) return fail(res, 400, 'Target user ID is required.', 'LIVE_USER_REQUIRED');
+
+    const targetUser = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true }
+    });
+    if (!targetUser) return fail(res, 404, 'Target user was not found.', 'LIVE_USER_NOT_FOUND');
+
+    const actorUserId = resolveUserId(req) || null;
+    const reason = sanitizeRestrictionReason(req.body?.reason);
+    const now = new Date();
+
+    await (prisma as any).accountViolation.updateMany({
+      where: {
+        userId: targetUserId,
+        type: { in: ['LIVE_SUSPEND', 'LIVE_BAN'] },
+        resolvedAt: null
+      },
+      data: {
+        resolvedAt: now
+      }
+    });
+
+    const created = await (prisma as any).accountViolation.create({
+      data: {
+        userId: targetUserId,
+        type: 'LIVE_BAN',
+        severity: 'critical',
+        reason,
+        metadata: {
+          issuedBy: actorUserId,
+          issuedAt: now.toISOString()
+        }
+      }
+    });
+
+    emitLiveEvent(req, 'live:restriction_updated', {
+      userId: targetUserId,
+      restriction: {
+        id: String(created?.id || ''),
+        type: 'LIVE_BAN',
+        reason: reason || null,
+        expiresAt: null,
+        resolvedAt: null
+      }
+    }, { userIds: [targetUserId] });
+
+    return ok(res, {
+      id: String(created?.id || ''),
+      userId: targetUserId,
+      type: 'LIVE_BAN',
+      reason: reason || null,
+      resolvedAt: null
+    });
+  } catch (error: any) {
+    if (error?.code === 'LIVE_SCHEMA_MISSING' || isLiveSchemaMissingError(error)) {
+      return fail(
+        res,
+        503,
+        'Livestream module tables are not ready. Run the latest backend migration.',
+        'LIVE_SCHEMA_MISSING'
+      );
+    }
+    console.error('banLiveAdminUser error:', error);
+    return fail(res, 500, error?.message || 'Failed to ban livestream privileges.');
+  }
+};
+
+export const clearLiveAdminRestriction = async (req: Request, res: Response) => {
+  try {
+    await ensureLiveSchema();
+    const targetUserId = String(req.params.id || req.body?.userId || '').trim();
+    if (!targetUserId) return fail(res, 400, 'Target user ID is required.', 'LIVE_USER_REQUIRED');
+    const type = parseRestrictionType(req.body?.type);
+    const now = new Date();
+
+    const where: any = {
+      userId: targetUserId,
+      resolvedAt: null,
+      type: { in: Array.from(LIVE_RESTRICTION_TYPES) }
+    };
+    if (type) where.type = type;
+
+    const result = await (prisma as any).accountViolation.updateMany({
+      where,
+      data: {
+        resolvedAt: now
+      }
+    });
+
+    emitLiveEvent(req, 'live:restriction_updated', {
+      userId: targetUserId,
+      restriction: {
+        type: type || 'ALL',
+        resolvedAt: now.toISOString()
+      }
+    }, { userIds: [targetUserId] });
+
+    return ok(res, {
+      userId: targetUserId,
+      type: type || 'ALL',
+      resolvedCount: Number(result?.count || 0),
+      resolvedAt: now.toISOString()
+    });
+  } catch (error: any) {
+    if (error?.code === 'LIVE_SCHEMA_MISSING' || isLiveSchemaMissingError(error)) {
+      return fail(
+        res,
+        503,
+        'Livestream module tables are not ready. Run the latest backend migration.',
+        'LIVE_SCHEMA_MISSING'
+      );
+    }
+    console.error('clearLiveAdminRestriction error:', error);
+    return fail(res, 500, error?.message || 'Failed to clear livestream restriction.');
   }
 };
