@@ -21,6 +21,8 @@ const withError = (res: Response, message: string, error: any, status = 500) =>
     error: String(error?.message || 'Unknown error')
   });
 
+const asScrolithaModelLabel = (_value?: any) => 'Scrolitha';
+
 export const scrolithaRewriteController = async (req: Request, res: Response) => {
   try {
     const actor = resolveActorFromRequest(req);
@@ -42,7 +44,7 @@ export const scrolithaRewriteController = async (req: Request, res: Response) =>
       data: {
         rewrittenText: result.text,
         provider: result.provider,
-        model: result.model
+        model: asScrolithaModelLabel(result.model)
       },
       message: 'Rewrite completed'
     });
@@ -76,7 +78,7 @@ export const scrolithaHashtagsController = async (req: Request, res: Response) =
       data: {
         hashtags,
         provider: result.provider,
-        model: result.model
+        model: asScrolithaModelLabel(result.model)
       },
       message: 'Hashtag suggestions ready'
     });
@@ -107,7 +109,7 @@ export const scrolithaCommentSuggestionsController = async (req: Request, res: R
       data: {
         suggestions,
         provider: result.provider,
-        model: result.model
+        model: asScrolithaModelLabel(result.model)
       },
       message: 'Comment suggestions ready'
     });
@@ -144,7 +146,7 @@ export const scrolithaProposalDraftController = async (req: Request, res: Respon
       data: {
         draft: result.text,
         provider: result.provider,
-        model: result.model
+        model: asScrolithaModelLabel(result.model)
       },
       message: 'Proposal draft ready'
     });
@@ -175,7 +177,7 @@ export const scrolithaGigImproveController = async (req: Request, res: Response)
       data: {
         improved: result.text,
         provider: result.provider,
-        model: result.model
+        model: asScrolithaModelLabel(result.model)
       },
       message: 'Gig improvement generated'
     });
@@ -206,7 +208,7 @@ export const scrolithaJobImproveController = async (req: Request, res: Response)
       data: {
         improved: result.text,
         provider: result.provider,
-        model: result.model
+        model: asScrolithaModelLabel(result.model)
       },
       message: 'Job improvement generated'
     });
@@ -229,4 +231,3 @@ export const scrolithaToxicityCheckController = async (req: Request, res: Respon
     return withError(res, 'Failed to run toxicity check', error);
   }
 };
-

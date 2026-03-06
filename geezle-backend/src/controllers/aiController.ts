@@ -16,6 +16,15 @@ import {
 } from '../services/postAi.service';
 
 type AiProvider = 'scrolitha' | 'google' | 'openai';
+const SCROLITHA_MODEL_LABEL = 'Scrolitha';
+
+const brandModelLabel = (provider: AiProvider | string, model: unknown) => {
+  if (String(provider || '').toLowerCase() === 'scrolitha') {
+    return SCROLITHA_MODEL_LABEL;
+  }
+  const normalized = String(model || '').trim();
+  return normalized || null;
+};
 
 const getSystemAiConfig = async () => {
   const record = await prisma.appSetting.findUnique({ where: { scope: 'system' } });
@@ -64,7 +73,7 @@ const askScrolithaOllama = async (prompt: string, options?: { system?: string })
     timeoutMs: runtime.timeoutMs
   });
 
-  return { provider: 'scrolitha' as const, model: runtime.model, text: result.text || '' };
+  return { provider: 'scrolitha' as const, model: SCROLITHA_MODEL_LABEL, text: result.text || '' };
 };
 
 const askOpenAI = async (apiKey: string, model: string, prompt: string, maxTokens: number, temperature: number) => {
@@ -139,7 +148,7 @@ export const getAIConfig = async (_req: Request, res: Response) => {
         scrolitha: {
           enabled: Boolean(runtime.enabled),
           provider: 'ollama',
-          model: runtime.model || 'llama3.1'
+          model: SCROLITHA_MODEL_LABEL
         },
         google: {
           enabled: Boolean(aiConfig?.providers?.google?.enabled),
@@ -158,7 +167,7 @@ export const getAIConfig = async (_req: Request, res: Response) => {
       scrolitha: {
         enabled: Boolean(runtime.enabled),
         provider: runtime.provider,
-        model: runtime.model || null,
+        model: SCROLITHA_MODEL_LABEL,
         allowGeminiFallback: Boolean(runtime.allowGeminiFallback)
       }
     };
@@ -175,7 +184,14 @@ export const answerQuestion = async (req: Request, res: Response) => {
     // Default + preferred: Scrolitha (Ollama).
     try {
       const result = await askScrolithaOllama(prompt);
-      return res.json({ success: true, data: { provider: result.provider, model: result.model, answer: result.text } });
+      return res.json({
+        success: true,
+        data: {
+          provider: result.provider,
+          model: brandModelLabel(result.provider, result.model),
+          answer: result.text
+        }
+      });
     } catch (scrolithaError) {
       // Optional fallback to legacy providers when explicitly enabled.
       const runtime = await resolveScrolithaLlmRuntime('user');
@@ -222,7 +238,14 @@ export const generateGuide = async (req: Request, res: Response) => {
     // Default + preferred: Scrolitha (Ollama).
     try {
       const result = await askScrolithaOllama(prompt);
-      return res.json({ success: true, data: { provider: result.provider, model: result.model, guide: result.text } });
+      return res.json({
+        success: true,
+        data: {
+          provider: result.provider,
+          model: brandModelLabel(result.provider, result.model),
+          guide: result.text
+        }
+      });
     } catch (scrolithaError) {
       // Optional fallback to legacy providers when explicitly enabled.
       const runtime = await resolveScrolithaLlmRuntime('user');
@@ -291,7 +314,11 @@ export const supportChat = async (req: Request, res: Response) => {
     const result = await askScrolithaOllama(prompt, { system });
     return res.json({
       success: true,
-      data: { provider: result.provider, model: result.model, reply: result.text },
+      data: {
+        provider: result.provider,
+        model: brandModelLabel(result.provider, result.model),
+        reply: result.text
+      },
       message: 'Support reply ready'
     });
   } catch (error: any) {

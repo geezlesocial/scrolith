@@ -29,6 +29,12 @@ const emit = (req: Request, eventName: string, payload: any) => {
   }
 };
 
+const asScrolithaModelLabel = (value: any) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return null;
+  return 'Scrolitha';
+};
+
 export const getAdminScrolithaConfigController = async (req: Request, res: Response) => {
   try {
     const data = await getScrolithaConfigForAdmin(req.query.scope);
@@ -47,7 +53,8 @@ export const getAdminScrolithaHealthController = async (req: Request, res: Respo
   try {
     const scope = String(req.query.scope || 'admin').trim().toLowerCase();
     const data = await getScrolithaOllamaHealth(scope === 'user' ? 'user' : 'admin');
-    return res.json({ success: true, data, message: 'Scrolitha LLM health loaded' });
+    const branded = data && typeof data === 'object' ? { ...data, model: asScrolithaModelLabel((data as any).model) } : data;
+    return res.json({ success: true, data: branded, message: 'Scrolitha LLM health loaded' });
   } catch (error: any) {
     return res.status(500).json({
       success: false,
@@ -68,7 +75,7 @@ export const getAdminScrolithaModelsController = async (req: Request, res: Respo
         provider: runtime.provider,
         enabled: runtime.enabled,
         host: runtime.host || null,
-        model: runtime.model || null,
+        model: asScrolithaModelLabel(runtime.model),
         models
       },
       message: 'Scrolitha model list loaded'
