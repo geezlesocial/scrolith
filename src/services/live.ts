@@ -3,6 +3,38 @@ import api from './api';
 export type LiveVisibility = 'public' | 'network' | 'followers' | 'private';
 export type LiveReactionType = 'like' | 'love';
 
+export interface LiveRecordingState {
+  fileId?: string | null;
+  title?: string | null;
+  description?: string | null;
+  thumbnailFileId?: string | null;
+  published?: boolean;
+  publishTarget?: 'post' | 'scroll' | string | null;
+  postId?: string | null;
+  scrollId?: string | null;
+  downloadUrl?: string | null;
+}
+
+export interface LiveComment {
+  id: string;
+  userId: string;
+  message: string;
+  createdAt: string;
+  user?: LiveUserPreview;
+}
+
+export interface LiveRestriction {
+  id?: string;
+  userId: string;
+  type: 'LIVE_BAN' | 'LIVE_SUSPEND' | string;
+  reason?: string | null;
+  expiresAt?: string | null;
+  resolvedAt?: string | null;
+  createdAt?: string | null;
+  metadata?: Record<string, any>;
+  user?: LiveUserPreview;
+}
+
 export interface LiveUserPreview {
   id: string;
   name: string;
@@ -53,6 +85,8 @@ export interface LiveSession {
   startedAt?: string | null;
   endedAt?: string | null;
   metadata?: Record<string, any>;
+  recording?: LiveRecordingState;
+  commentsCount?: number;
   participants: LiveParticipant[];
   invites?: Array<{
     id: string;
@@ -124,6 +158,11 @@ export class LiveService {
     return extractData<LiveSession>(response);
   }
 
+  static async leaveSession(sessionId: string) {
+    const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/leave`);
+    return extractData<LiveSession>(response);
+  }
+
   static async invite(sessionId: string, inviteeIds: string[]) {
     const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/invite`, { inviteeIds });
     return extractData<any>(response);
@@ -147,6 +186,54 @@ export class LiveService {
   static async reportSession(sessionId: string, reason: string) {
     const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/report`, { reason });
     return extractData<any>(response);
+  }
+
+  static async getActiveSessions(limit = 20) {
+    const query = new URLSearchParams();
+    query.set('limit', String(Math.max(1, Math.min(60, Number(limit) || 20))));
+    const response = await api.get(`/live/sessions/active?${query.toString()}`);
+    return extractData<{ items: LiveSession[]; count: number; limit: number }>(response);
+  }
+
+  static async getComments(sessionId: string) {
+    const response = await api.get(`/live/sessions/${encodeURIComponent(sessionId)}/comments`);
+    return extractData<LiveComment[]>(response);
+  }
+
+  static async addComment(sessionId: string, message: string) {
+    const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/comments`, { message });
+    return extractData<{ comment: LiveComment; commentsCount: number }>(response);
+  }
+
+  static async getRecording(sessionId: string) {
+    const response = await api.get(`/live/sessions/${encodeURIComponent(sessionId)}/recording`);
+    return extractData<LiveRecordingState | null>(response);
+  }
+
+  static async saveRecording(
+    sessionId: string,
+    payload: { recordingFileId: string; title?: string; description?: string; thumbnailFileId?: string }
+  ) {
+    const response = await api.put(`/live/sessions/${encodeURIComponent(sessionId)}/recording`, payload);
+    return extractData<LiveSession>(response);
+  }
+
+  static async publishRecording(
+    sessionId: string,
+    payload?: { target?: 'post' | 'scroll'; visibility?: LiveVisibility | string; title?: string; description?: string }
+  ) {
+    const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/recording/publish`, payload || {});
+    return extractData<LiveSession>(response);
+  }
+
+  static async unpublishRecording(sessionId: string, payload?: { target?: 'post' | 'scroll'; postId?: string; scrollId?: string }) {
+    const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/recording/unpublish`, payload || {});
+    return extractData<LiveSession>(response);
+  }
+
+  static async deleteRecording(sessionId: string) {
+    const response = await api.delete(`/live/sessions/${encodeURIComponent(sessionId)}/recording`);
+    return extractData<LiveSession>(response);
   }
 
   static async getSession(sessionId: string) {
@@ -203,6 +290,31 @@ export class LiveService {
 
   static async resolveAdminReport(reportId: string, payload?: { status?: string; note?: string }) {
     const response = await api.post(`/admin/live/reports/${encodeURIComponent(reportId)}/resolve`, payload || {});
+    return extractData<any>(response);
+  }
+
+  static async getAdminRestrictions(params?: { status?: 'active' | 'resolved' | 'all'; type?: 'LIVE_BAN' | 'LIVE_SUSPEND'; userId?: string; limit?: number }) {
+    const query = new URLSearchParams();
+    if (params?.status) query.set('status', params.status);
+    if (params?.type) query.set('type', params.type);
+    if (params?.userId) query.set('userId', params.userId);
+    if (typeof params?.limit !== 'undefined') query.set('limit', String(params.limit));
+    const response = await api.get(`/admin/live/restrictions${query.toString() ? `?${query.toString()}` : ''}`);
+    return extractData<LiveRestriction[]>(response);
+  }
+
+  static async restrictAdminUser(userId: string, payload?: { reason?: string; minutes?: number }) {
+    const response = await api.post(`/admin/live/users/${encodeURIComponent(userId)}/restrict`, payload || {});
+    return extractData<LiveRestriction>(response);
+  }
+
+  static async banAdminUser(userId: string, payload?: { reason?: string }) {
+    const response = await api.post(`/admin/live/users/${encodeURIComponent(userId)}/ban`, payload || {});
+    return extractData<LiveRestriction>(response);
+  }
+
+  static async restoreAdminUser(userId: string, payload?: { type?: 'LIVE_BAN' | 'LIVE_SUSPEND' }) {
+    const response = await api.post(`/admin/live/users/${encodeURIComponent(userId)}/restore`, payload || {});
     return extractData<any>(response);
   }
 }

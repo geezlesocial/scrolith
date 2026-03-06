@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { LiveService, type LiveConfig, type LiveSession } from '../services/live';
+import { LiveService, type LiveConfig, type LiveRestriction, type LiveSession } from '../services/live';
 import { useNotification } from '../context/NotificationContext';
 
 const AdminLivePlatform: React.FC = () => {
@@ -8,16 +8,21 @@ const AdminLivePlatform: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState<LiveConfig | null>(null);
   const [sessions, setSessions] = useState<LiveSession[]>([]);
+  const [restrictions, setRestrictions] = useState<LiveRestriction[]>([]);
+  const [moderationBusyUserId, setModerationBusyUserId] = useState<string | null>(null);
+  const [moderationReason, setModerationReason] = useState('');
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [nextConfig, nextSessions] = await Promise.all([
+      const [nextConfig, nextSessions, nextRestrictions] = await Promise.all([
         LiveService.getAdminConfig(),
-        LiveService.getAdminSessions({ limit: 80 })
+        LiveService.getAdminSessions({ limit: 80 }),
+        LiveService.getAdminRestrictions({ status: 'active', limit: 120 })
       ]);
       setConfig(nextConfig);
       setSessions(Array.isArray(nextSessions) ? nextSessions : []);
+      setRestrictions(Array.isArray(nextRestrictions) ? nextRestrictions : []);
     } catch (error: any) {
       const message = error?.response?.data?.error || error?.message || 'Failed to load live admin panel.';
       showNotification('error', 'Admin Live', message);
@@ -57,6 +62,65 @@ const AdminLivePlatform: React.FC = () => {
       }
     },
     [showNotification]
+  );
+
+  const restrictUser = useCallback(
+    async (userId: string) => {
+      const normalized = String(userId || '').trim();
+      if (!normalized || moderationBusyUserId) return;
+      const reason = String(moderationReason || '').trim() || undefined;
+      try {
+        setModerationBusyUserId(normalized);
+        await LiveService.restrictAdminUser(normalized, { reason, minutes: 120 });
+        showNotification('success', 'Admin Live', 'User livestream restricted for 120 minutes.');
+        await load();
+      } catch (error: any) {
+        const message = error?.response?.data?.error || error?.message || 'Failed to restrict livestream user.';
+        showNotification('error', 'Admin Live', message);
+      } finally {
+        setModerationBusyUserId(null);
+      }
+    },
+    [load, moderationBusyUserId, moderationReason, showNotification]
+  );
+
+  const banUser = useCallback(
+    async (userId: string) => {
+      const normalized = String(userId || '').trim();
+      if (!normalized || moderationBusyUserId) return;
+      const reason = String(moderationReason || '').trim() || undefined;
+      try {
+        setModerationBusyUserId(normalized);
+        await LiveService.banAdminUser(normalized, { reason });
+        showNotification('success', 'Admin Live', 'User livestream privileges banned.');
+        await load();
+      } catch (error: any) {
+        const message = error?.response?.data?.error || error?.message || 'Failed to ban livestream user.';
+        showNotification('error', 'Admin Live', message);
+      } finally {
+        setModerationBusyUserId(null);
+      }
+    },
+    [load, moderationBusyUserId, moderationReason, showNotification]
+  );
+
+  const restoreUser = useCallback(
+    async (userId: string) => {
+      const normalized = String(userId || '').trim();
+      if (!normalized || moderationBusyUserId) return;
+      try {
+        setModerationBusyUserId(normalized);
+        await LiveService.restoreAdminUser(normalized);
+        showNotification('success', 'Admin Live', 'User livestream permissions restored.');
+        await load();
+      } catch (error: any) {
+        const message = error?.response?.data?.error || error?.message || 'Failed to restore livestream user.';
+        showNotification('error', 'Admin Live', message);
+      } finally {
+        setModerationBusyUserId(null);
+      }
+    },
+    [load, moderationBusyUserId, showNotification]
   );
 
   if (loading) {
@@ -149,6 +213,15 @@ const AdminLivePlatform: React.FC = () => {
 
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-base font-semibold text-slate-900">Live Sessions</h2>
+        <div className="mt-3">
+          <input
+            type="text"
+            value={moderationReason}
+            onChange={(event) => setModerationReason(event.target.value)}
+            placeholder="Moderation reason (for restrict/ban actions)"
+            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-700"
+          />
+        </div>
         <div className="mt-4 space-y-3">
           {sessions.length === 0 ? (
             <div className="text-sm text-slate-500">No sessions found.</div>
@@ -161,15 +234,63 @@ const AdminLivePlatform: React.FC = () => {
                     <p className="text-xs text-slate-500">
                       {String(session.status || 'scheduled').toUpperCase()} • Viewers {Number(session.viewerCount || 0)}
                     </p>
+                    <p className="text-[11px] text-slate-500">Host: {session.host?.name || session.hostUserId}</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void forceEnd(session)}
-                    className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"
-                  >
-                    Force End
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void forceEnd(session)}
+                      className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"
+                    >
+                      Force End
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void restrictUser(session.hostUserId)}
+                      disabled={moderationBusyUserId === session.hostUserId}
+                      className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60"
+                    >
+                      Restrict
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void banUser(session.hostUserId)}
+                      disabled={moderationBusyUserId === session.hostUserId}
+                      className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                    >
+                      Ban
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void restoreUser(session.hostUserId)}
+                      disabled={moderationBusyUserId === session.hostUserId}
+                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+                    >
+                      Restore
+                    </button>
+                  </div>
                 </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-base font-semibold text-slate-900">Active Livestream Restrictions</h2>
+        <div className="mt-3 space-y-2">
+          {restrictions.length === 0 ? (
+            <p className="text-sm text-slate-500">No active restrictions.</p>
+          ) : (
+            restrictions.map((row) => (
+              <div key={row.id || `${row.userId}-${row.type}`} className="rounded-xl border border-slate-200 px-3 py-2">
+                <p className="text-sm font-semibold text-slate-800">
+                  {row.user?.name || row.userId} • {String(row.type || '').toUpperCase()}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {row.reason || 'No reason provided.'}
+                  {row.expiresAt ? ` Expires: ${new Date(row.expiresAt).toLocaleString()}` : ''}
+                </p>
               </div>
             ))
           )}

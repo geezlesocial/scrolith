@@ -3,12 +3,16 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowLeft,
+  Download,
   Heart,
+  LogOut,
   Loader2,
   Mic,
   MicOff,
   Radio,
   RefreshCw,
+  SendHorizontal,
+  Square,
   ThumbsUp,
   Video,
   VideoOff
@@ -36,6 +40,9 @@ const RTC_CONFIG: RTCConfiguration = {
   iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }],
   iceCandidatePoolSize: 8
 };
+
+const SAFETY_NOTICE_TEXT =
+  'Warning: Illegal activity, nudity/explicit content, and illegal product promotion are prohibited. All livestreams must follow Scrolith Terms and Community Guidelines.';
 
 const toCompactErrorMessage = (error: any) => {
   const code = String(error?.name || '').toLowerCase();
@@ -91,6 +98,14 @@ const LiveViewer: React.FC = () => {
   const [micEnabled, setMicEnabled] = useState(true);
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [connectionState, setConnectionState] = useState<'idle' | 'connecting' | 'connected' | 'failed'>('idle');
+  const [comments, setComments] = useState<any[]>([]);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [commentSending, setCommentSending] = useState(false);
+  const [showSafetyNotice, setShowSafetyNotice] = useState(false);
+  const [recordingFileIdDraft, setRecordingFileIdDraft] = useState('');
+  const [recordingTitleDraft, setRecordingTitleDraft] = useState('');
+  const [recordingDescriptionDraft, setRecordingDescriptionDraft] = useState('');
+  const [recordingBusy, setRecordingBusy] = useState(false);
 
   const status = String(session?.status || '').toLowerCase();
   const canPlayVideo = useMemo(() => Boolean(session?.hlsUrl || session?.streamUrl), [session?.hlsUrl, session?.streamUrl]);
@@ -101,6 +116,7 @@ const LiveViewer: React.FC = () => {
   }, [session, user?.id]);
 
   const hostUserId = String(session?.hostUserId || '').trim();
+  const canManageRecording = isHost || String(user?.role || '').toLowerCase().includes('admin');
 
   const loadSession = useCallback(async () => {
     if (!sessionId) return;
@@ -113,6 +129,20 @@ const LiveViewer: React.FC = () => {
       showNotification('error', 'Livestream', message);
     } finally {
       setLoading(false);
+    }
+  }, [sessionId, showNotification]);
+
+  const loadComments = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      const data = await LiveService.getComments(sessionId);
+      setComments(Array.isArray(data) ? data : []);
+    } catch (error: any) {
+      const statusCode = Number(error?.response?.status || 0);
+      if (statusCode !== 403 && statusCode !== 404) {
+        const message = error?.response?.data?.error || error?.message || 'Failed to load live chat.';
+        showNotification('warning', 'Livestream', message);
+      }
     }
   }, [sessionId, showNotification]);
 
@@ -291,6 +321,10 @@ const LiveViewer: React.FC = () => {
   }, [loadSession]);
 
   useEffect(() => {
+    void loadComments();
+  }, [loadComments]);
+
+  useEffect(() => {
     if (!socket || !isConnected || !sessionId) return;
     socket.emit('live:join', { sessionId });
     return () => {
@@ -304,6 +338,25 @@ const LiveViewer: React.FC = () => {
     }, 1200);
     return () => clearInterval(pruneTimer);
   }, []);
+
+  useEffect(() => {
+    if (status !== 'live') {
+      setShowSafetyNotice(false);
+      return;
+    }
+    let hideTimer: number | null = null;
+    const showAndScheduleHide = () => {
+      setShowSafetyNotice(true);
+      if (hideTimer) window.clearTimeout(hideTimer);
+      hideTimer = window.setTimeout(() => setShowSafetyNotice(false), 15000);
+    };
+    showAndScheduleHide();
+    const interval = window.setInterval(showAndScheduleHide, 90000);
+    return () => {
+      window.clearInterval(interval);
+      if (hideTimer) window.clearTimeout(hideTimer);
+    };
+  }, [status]);
 
   useEffect(() => {
     const onReaction = (event: Event) => {
@@ -357,12 +410,53 @@ const LiveViewer: React.FC = () => {
       void loadSession();
     };
 
+    const onComment = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail || {};
+      if (String(detail.sessionId || '') !== sessionId) return;
+      const nextComment = detail.comment;
+      if (!nextComment?.id) return;
+      setComments((prev) => {
+        const exists = prev.some((entry) => String(entry?.id) === String(nextComment.id));
+        if (exists) return prev;
+        return [...prev, nextComment].slice(-200);
+      });
+      setSession((prev) =>
+        prev
+          ? {
+              ...prev,
+              commentsCount: Number(detail.commentsCount ?? prev.commentsCount ?? 0)
+            }
+          : prev
+      );
+    };
+
+    const onRecordingChange = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail || {};
+      if (String(detail.sessionId || detail.session?.id || '') !== sessionId) return;
+      void loadSession();
+    };
+
+    const onRestriction = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail || {};
+      if (String(detail.userId || '') !== String(user?.id || '')) return;
+      const restrictionType = String(detail?.restriction?.type || '').toUpperCase();
+      if (restrictionType === 'LIVE_BAN' || restrictionType === 'LIVE_SUSPEND') {
+        showNotification('warning', 'Livestream', 'Livestream access is restricted by admin policy.');
+      }
+    };
+
     window.addEventListener('live:reaction', onReaction as EventListener);
     window.addEventListener('live:viewer_count_updated', onViewer as EventListener);
     window.addEventListener('live:ended', onEnded as EventListener);
     window.addEventListener('live:participant_joined', onJoined as EventListener);
     window.addEventListener('live:participant_left', onJoined as EventListener);
     window.addEventListener('live:gift_sent', onJoined as EventListener);
+    window.addEventListener('live:comment', onComment as EventListener);
+    window.addEventListener('live:recording_updated', onRecordingChange as EventListener);
+    window.addEventListener('live:recording_published', onRecordingChange as EventListener);
+    window.addEventListener('live:recording_unpublished', onRecordingChange as EventListener);
+    window.addEventListener('live:recording_deleted', onRecordingChange as EventListener);
+    window.addEventListener('live:restriction_updated', onRestriction as EventListener);
     return () => {
       window.removeEventListener('live:reaction', onReaction as EventListener);
       window.removeEventListener('live:viewer_count_updated', onViewer as EventListener);
@@ -370,8 +464,14 @@ const LiveViewer: React.FC = () => {
       window.removeEventListener('live:participant_joined', onJoined as EventListener);
       window.removeEventListener('live:participant_left', onJoined as EventListener);
       window.removeEventListener('live:gift_sent', onJoined as EventListener);
+      window.removeEventListener('live:comment', onComment as EventListener);
+      window.removeEventListener('live:recording_updated', onRecordingChange as EventListener);
+      window.removeEventListener('live:recording_published', onRecordingChange as EventListener);
+      window.removeEventListener('live:recording_unpublished', onRecordingChange as EventListener);
+      window.removeEventListener('live:recording_deleted', onRecordingChange as EventListener);
+      window.removeEventListener('live:restriction_updated', onRestriction as EventListener);
     };
-  }, [loadSession, sessionId]);
+  }, [loadSession, sessionId, showNotification, user?.id]);
 
   useEffect(() => {
     const onSignal = async (event: Event) => {
@@ -576,6 +676,137 @@ const LiveViewer: React.FC = () => {
     [sessionId, showNotification]
   );
 
+  const leaveStream = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      await LiveService.leaveSession(sessionId);
+      showNotification('success', 'Livestream', 'You left the stream.');
+      navigate('/live/studio');
+    } catch (error: any) {
+      const message = error?.response?.data?.error || error?.message || 'Failed to leave livestream.';
+      showNotification('error', 'Livestream', message);
+    }
+  }, [navigate, sessionId, showNotification]);
+
+  const endStream = useCallback(async () => {
+    if (!sessionId) return;
+    if (!window.confirm('End this live stream for all participants and viewers?')) return;
+    try {
+      const updated = await LiveService.endSession(sessionId);
+      setSession(updated);
+      showNotification('success', 'Livestream', 'Live stream ended for all participants.');
+    } catch (error: any) {
+      const message = error?.response?.data?.error || error?.message || 'Failed to end livestream.';
+      showNotification('error', 'Livestream', message);
+    }
+  }, [sessionId, showNotification]);
+
+  const sendComment = useCallback(async () => {
+    if (!sessionId || commentSending) return;
+    const messageText = String(commentDraft || '').trim();
+    if (!messageText) return;
+    try {
+      setCommentSending(true);
+      const result = await LiveService.addComment(sessionId, messageText);
+      setComments((prev) => [...prev, result.comment].slice(-200));
+      setCommentDraft('');
+      setSession((prev) =>
+        prev
+          ? {
+              ...prev,
+              commentsCount: Number(result.commentsCount ?? prev.commentsCount ?? 0)
+            }
+          : prev
+      );
+    } catch (error: any) {
+      const message = error?.response?.data?.error || error?.message || 'Failed to send comment.';
+      showNotification('error', 'Livestream', message);
+    } finally {
+      setCommentSending(false);
+    }
+  }, [commentDraft, commentSending, sessionId, showNotification]);
+
+  const saveRecording = useCallback(async () => {
+    if (!sessionId || recordingBusy) return;
+    const fileId = String(recordingFileIdDraft || '').trim();
+    if (!fileId) {
+      showNotification('warning', 'Livestream', 'Recording file ID is required.');
+      return;
+    }
+    try {
+      setRecordingBusy(true);
+      const updated = await LiveService.saveRecording(sessionId, {
+        recordingFileId: fileId,
+        title: String(recordingTitleDraft || '').trim() || undefined,
+        description: String(recordingDescriptionDraft || '').trim() || undefined
+      });
+      setSession(updated);
+      showNotification('success', 'Livestream', 'Recording details saved.');
+    } catch (error: any) {
+      const message = error?.response?.data?.error || error?.message || 'Failed to save recording.';
+      showNotification('error', 'Livestream', message);
+    } finally {
+      setRecordingBusy(false);
+    }
+  }, [recordingBusy, recordingDescriptionDraft, recordingFileIdDraft, recordingTitleDraft, sessionId, showNotification]);
+
+  const publishRecording = useCallback(
+    async (target: 'post' | 'scroll') => {
+      if (!sessionId || recordingBusy) return;
+      try {
+        setRecordingBusy(true);
+        const updated = await LiveService.publishRecording(sessionId, { target });
+        setSession(updated);
+        showNotification('success', 'Livestream', `Recording published to ${target === 'scroll' ? 'Scroll' : 'Posts'}.`);
+      } catch (error: any) {
+        const message = error?.response?.data?.error || error?.message || 'Failed to publish recording.';
+        showNotification('error', 'Livestream', message);
+      } finally {
+        setRecordingBusy(false);
+      }
+    },
+    [recordingBusy, sessionId, showNotification]
+  );
+
+  const unpublishRecording = useCallback(async () => {
+    if (!sessionId || recordingBusy) return;
+    try {
+      setRecordingBusy(true);
+      const updated = await LiveService.unpublishRecording(sessionId);
+      setSession(updated);
+      showNotification('success', 'Livestream', 'Recording unpublished.');
+    } catch (error: any) {
+      const message = error?.response?.data?.error || error?.message || 'Failed to unpublish recording.';
+      showNotification('error', 'Livestream', message);
+    } finally {
+      setRecordingBusy(false);
+    }
+  }, [recordingBusy, sessionId, showNotification]);
+
+  const deleteRecording = useCallback(async () => {
+    if (!sessionId || recordingBusy) return;
+    if (!window.confirm('Delete this saved recording from the live session?')) return;
+    try {
+      setRecordingBusy(true);
+      const updated = await LiveService.deleteRecording(sessionId);
+      setSession(updated);
+      showNotification('success', 'Livestream', 'Recording removed.');
+    } catch (error: any) {
+      const message = error?.response?.data?.error || error?.message || 'Failed to delete recording.';
+      showNotification('error', 'Livestream', message);
+    } finally {
+      setRecordingBusy(false);
+    }
+  }, [recordingBusy, sessionId, showNotification]);
+
+  useEffect(() => {
+    if (!session) return;
+    const recording = session.recording || {};
+    setRecordingFileIdDraft(String(recording.fileId || session.recordingFileId || '').trim());
+    setRecordingTitleDraft(String(recording.title || session.title || '').trim());
+    setRecordingDescriptionDraft(String(recording.description || session.description || '').trim());
+  }, [session]);
+
   const handleShare = useCallback(() => {
     const href = window.location.href;
     if (navigator.clipboard?.writeText) {
@@ -608,9 +839,29 @@ const LiveViewer: React.FC = () => {
           <ArrowLeft className="h-4 w-4" />
           Back to Studio
         </button>
-        <div className="inline-flex items-center gap-2 rounded-full bg-slate-900/90 px-3 py-1 text-xs font-semibold text-white">
-          <Radio className="h-3.5 w-3.5 text-rose-300" />
-          {status === 'live' ? 'LIVE' : status ? status.toUpperCase() : 'SESSION'}
+        <div className="flex items-center gap-2">
+          <div className="inline-flex items-center gap-2 rounded-full bg-slate-900/90 px-3 py-1 text-xs font-semibold text-white">
+            <Radio className="h-3.5 w-3.5 text-rose-300" />
+            {status === 'live' ? 'LIVE' : status ? status.toUpperCase() : 'SESSION'}
+          </div>
+          <button
+            type="button"
+            onClick={() => void leaveStream()}
+            className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            Exit Stream
+          </button>
+          {isHost && status === 'live' ? (
+            <button
+              type="button"
+              onClick={() => void endStream()}
+              className="inline-flex items-center gap-1 rounded-xl bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-700"
+            >
+              <Square className="h-3.5 w-3.5" />
+              End Live Stream
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -661,6 +912,11 @@ const LiveViewer: React.FC = () => {
                 Viewers {Number(session.viewerCount || 0)}
               </div>
               <ReactionOverlay items={floatingReactions} />
+              {showSafetyNotice ? (
+                <div className="pointer-events-none absolute inset-x-3 bottom-3 z-20 rounded-xl border border-amber-300/60 bg-amber-500/20 px-3 py-2 text-[11px] font-semibold text-amber-100 backdrop-blur">
+                  {SAFETY_NOTICE_TEXT}
+                </div>
+              ) : null}
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -733,6 +989,127 @@ const LiveViewer: React.FC = () => {
                 await sendGift(payload);
               }}
             />
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="text-sm font-semibold text-slate-900">Live Chat</p>
+              <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+                {comments.length === 0 ? (
+                  <p className="text-xs text-slate-500">No comments yet. Start the conversation.</p>
+                ) : (
+                  comments.map((comment: any) => (
+                    <div key={String(comment?.id || Math.random())} className="rounded-xl bg-slate-50 px-3 py-2">
+                      <p className="text-[11px] font-semibold text-slate-700">
+                        {String(comment?.user?.name || comment?.user?.username || 'Scrolith user')}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-700">{String(comment?.message || '')}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div className="mt-3 flex items-center gap-2">
+                <input
+                  type="text"
+                  value={commentDraft}
+                  onChange={(event) => setCommentDraft(event.target.value)}
+                  placeholder="Write a comment..."
+                  className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-700 outline-none focus:border-blue-400"
+                  maxLength={500}
+                />
+                <button
+                  type="button"
+                  onClick={() => void sendComment()}
+                  disabled={commentSending || !String(commentDraft || '').trim()}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+                  aria-label="Send comment"
+                >
+                  {commentSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <SendHorizontal className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {canManageRecording ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p className="text-sm font-semibold text-slate-900">Recording Management</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Save, publish, unpublish, download, or delete stream recordings after or during session.
+                </p>
+                <div className="mt-3 space-y-2">
+                  <input
+                    type="text"
+                    value={recordingFileIdDraft}
+                    onChange={(event) => setRecordingFileIdDraft(event.target.value)}
+                    placeholder="Recording file ID"
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-700"
+                  />
+                  <input
+                    type="text"
+                    value={recordingTitleDraft}
+                    onChange={(event) => setRecordingTitleDraft(event.target.value)}
+                    placeholder="Recording title"
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-700"
+                  />
+                  <textarea
+                    value={recordingDescriptionDraft}
+                    onChange={(event) => setRecordingDescriptionDraft(event.target.value)}
+                    placeholder="Recording description"
+                    rows={3}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-700"
+                  />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void saveRecording()}
+                    disabled={recordingBusy}
+                    className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                  >
+                    {recordingBusy ? 'Saving...' : 'Save Recording'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void publishRecording('post')}
+                    disabled={recordingBusy}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                  >
+                    Publish to Post
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void publishRecording('scroll')}
+                    disabled={recordingBusy}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                  >
+                    Publish to Scroll
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void unpublishRecording()}
+                    disabled={recordingBusy}
+                    className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60"
+                  >
+                    Unpublish
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void deleteRecording()}
+                    disabled={recordingBusy}
+                    className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                  >
+                    Delete Recording
+                  </button>
+                </div>
+                {session?.recording?.downloadUrl ? (
+                  <a
+                    href={String(session.recording.downloadUrl)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Download Recording
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <p className="text-sm font-semibold text-slate-900">Realtime events</p>
               <p className="mt-1 text-xs text-slate-500">

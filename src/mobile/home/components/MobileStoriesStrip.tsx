@@ -14,7 +14,7 @@ import {
   VideoIcon as Video,
   XIcon as X
 } from '../../../components/icons/ShellIcons';
-import { ChevronLeft, ChevronRight, Coins, MessageCircle, Repeat2, Send, Volume2, VolumeX } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Coins, MessageCircle, Radio, Repeat2, Send, Volume2, VolumeX } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import { useUser } from '../../../context/UserContext';
@@ -30,6 +30,7 @@ import ReactionBar from '../../../community/components/ReactionBar';
 import RepostModal from '../../../community/components/RepostModal';
 import PostShareModal from '../../../community/components/PostShareModal';
 import SendGcoinModal from '../../../components/SendGcoinModal';
+import { LiveService, type LiveSession } from '../../../services/live';
 
 type StoryKind = 'text' | 'image' | 'video';
 type StoryVisibility = 'public' | 'private';
@@ -240,11 +241,15 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   const [error, setError] = useState<string | null>(null);
   const [scrollError, setScrollError] = useState<string | null>(null);
   const [activeStory, setActiveStory] = useState<any | null>(null);
-  const [storyRailTab, setStoryRailTab] = useState<'stories' | 'scroll'>('stories');
+  const [storyRailTab, setStoryRailTab] = useState<'stories' | 'scroll' | 'live'>('stories');
   const [scrollCreateOpen, setScrollCreateOpen] = useState(false);
   const [scrollConfig, setScrollConfig] = useState<ScrollConfig | null>(null);
   const [storiesReloadTick, setStoriesReloadTick] = useState(0);
   const [scrollReloadTick, setScrollReloadTick] = useState(0);
+  const [liveReloadTick, setLiveReloadTick] = useState(0);
+  const [liveSessions, setLiveSessions] = useState<LiveSession[]>([]);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerStep, setComposerStep] = useState<'choose' | 'compose'>('choose');
@@ -603,6 +608,30 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
     };
   }, [enabled, maxScrollItems, scrollCacheKey, scrollReloadTick]);
 
+  useEffect(() => {
+    if (!enabled) return;
+    let mounted = true;
+    setLiveLoading(true);
+    setLiveError(null);
+    withFastFail(LiveService.getActiveSessions(20), 8500, 'Live streams request timed out. Tap retry.')
+      .then((result) => {
+        if (!mounted) return;
+        const next = Array.isArray(result?.items) ? result.items : [];
+        setLiveSessions(next);
+      })
+      .catch((error: any) => {
+        if (!mounted) return;
+        setLiveError(error?.response?.data?.error || error?.message || 'Failed to load active live streams');
+        setLiveSessions([]);
+      })
+      .finally(() => {
+        if (mounted) setLiveLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [enabled, liveReloadTick]);
+
   // Realtime: socket layer forwards socket events as window CustomEvents.
   useEffect(() => {
     if (!enabled) return;
@@ -669,6 +698,21 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
       window.removeEventListener('scroll:removed', onScrollRemoved as EventListener);
     };
   }, [enabled, maxScrollItems]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const onLiveChanged = () => {
+      setLiveReloadTick((prev) => prev + 1);
+    };
+    window.addEventListener('live:started', onLiveChanged as EventListener);
+    window.addEventListener('live:ended', onLiveChanged as EventListener);
+    window.addEventListener('live:viewer_count_updated', onLiveChanged as EventListener);
+    return () => {
+      window.removeEventListener('live:started', onLiveChanged as EventListener);
+      window.removeEventListener('live:ended', onLiveChanged as EventListener);
+      window.removeEventListener('live:viewer_count_updated', onLiveChanged as EventListener);
+    };
+  }, [enabled]);
 
   const canPublish = (() => {
     if (draftType === 'text') return draftContent.trim().length > 0;
@@ -783,6 +827,16 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
             >
               Scroll
             </button>
+            <button
+              type="button"
+              onClick={() => setStoryRailTab('live')}
+              className={[
+                'rounded-full px-3 py-1 text-xs font-semibold transition',
+                storyRailTab === 'live' ? 'bg-slate-900 text-white' : 'text-slate-600'
+              ].join(' ')}
+            >
+              Live
+            </button>
           </div>
           <button
             type="button"
@@ -893,7 +947,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                 </button>
               ) : null}
             </>
-          ) : (
+          ) : storyRailTab === 'scroll' ? (
             <>
               <button
                 type="button"
@@ -976,6 +1030,73 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                   className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800"
                 >
                   Network issue. Retry Scroll
+                </button>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => navigate('/live/studio')}
+                className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-dashed border-rose-300 bg-white"
+                aria-label="Create Live Stream"
+              >
+                <div className="absolute inset-0 bg-gradient-to-b from-rose-500/20 via-fuchsia-500/10 to-indigo-500/15" />
+                <div className="relative z-10 flex h-full flex-col items-center justify-center gap-2 text-slate-700">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-full border border-rose-300 bg-white">
+                    <Radio className="h-5 w-5 text-rose-600" />
+                  </div>
+                  <div className="px-2 text-center text-[12px] font-semibold">Go Live</div>
+                </div>
+              </button>
+
+              {liveLoading && liveSessions.length === 0 ? (
+                <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading Live...
+                </div>
+              ) : liveSessions.length === 0 ? (
+                <div className="rounded-2xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700">
+                  {liveError || 'No active livestreams right now.'}
+                  <button
+                    type="button"
+                    onClick={() => setLiveReloadTick((prev) => prev + 1)}
+                    className="ml-2 rounded-lg bg-red-600 px-2 py-1 text-[10px] font-semibold text-white"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                liveSessions.map((live) => (
+                  <button
+                    key={live.id}
+                    type="button"
+                    onClick={() => navigate(`/live/${encodeURIComponent(live.id)}`)}
+                    className="relative h-[154px] w-[116px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
+                    aria-label={`Open live stream ${live.title || 'stream'}`}
+                  >
+                    <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80" />
+                    <div className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-rose-600/90 px-2 py-0.5 text-[10px] font-semibold text-white">
+                      <Radio className="h-3 w-3" />
+                      LIVE
+                    </div>
+                    <div className="absolute right-2 top-2 rounded-full bg-black/45 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                      {Number(live.viewerCount || 0)}
+                    </div>
+                    <div className="absolute inset-x-0 bottom-0 p-2 text-left">
+                      <p className="line-clamp-1 text-[11px] font-semibold text-white">{live.title || 'Live session'}</p>
+                      <p className="line-clamp-1 text-[10px] text-white/80">{live.host?.name || 'Scrolith host'}</p>
+                    </div>
+                  </button>
+                ))
+              )}
+              {liveError && liveSessions.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setLiveReloadTick((prev) => prev + 1)}
+                  className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800"
+                >
+                  Network issue. Retry Live
                 </button>
               ) : null}
             </>
