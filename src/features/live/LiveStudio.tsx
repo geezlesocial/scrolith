@@ -11,6 +11,39 @@ const VISIBILITY_OPTIONS: Array<{ value: LiveVisibility; label: string }> = [
   { value: 'private', label: 'Private' }
 ];
 
+const requestMediaPreflight = async () => {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error('This device/browser does not support live camera capture.');
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: {
+      facingMode: 'user',
+      width: { ideal: 1280 },
+      height: { ideal: 720 }
+    },
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    }
+  });
+  stream.getTracks().forEach((track) => track.stop());
+};
+
+const toMediaPreflightMessage = (error: any) => {
+  const code = String(error?.name || '').toLowerCase();
+  if (code.includes('notallowed') || code.includes('permission')) {
+    return 'Camera/microphone permission was denied. Allow access and retry.';
+  }
+  if (code.includes('notfound') || code.includes('devicesnotfound')) {
+    return 'No camera or microphone was found on this device.';
+  }
+  if (code.includes('notreadable') || code.includes('trackstart')) {
+    return 'Camera is in use by another app. Close other camera apps and retry.';
+  }
+  return String(error?.message || 'Unable to access camera and microphone.');
+};
+
 const LiveStudio: React.FC = () => {
   const navigate = useNavigate();
   const { showNotification } = useNotification();
@@ -67,12 +100,17 @@ const LiveStudio: React.FC = () => {
   const startSession = useCallback(
     async (session: LiveSession) => {
       try {
+        await requestMediaPreflight();
         const updated = await LiveService.startSession(session.id);
         setSessions((prev) => prev.map((entry) => (entry.id === updated.id ? updated : entry)));
         showNotification('success', 'Live Studio', 'Livestream started.');
         navigate(`/live/${encodeURIComponent(updated.id)}`);
       } catch (error: any) {
-        const message = error?.response?.data?.error || error?.message || 'Failed to start livestream.';
+        const message =
+          error?.response?.data?.error ||
+          (error?.name ? toMediaPreflightMessage(error) : null) ||
+          error?.message ||
+          'Failed to start livestream.';
         showNotification('error', 'Live Studio', message);
       }
     },
