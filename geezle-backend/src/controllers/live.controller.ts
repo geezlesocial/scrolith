@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import gcoinService from '../services/gcoinService';
 import { addFileUsage, removeUsage } from '../utils/fileUsage';
+import { notifyUser } from '../utils/notify';
 import {
   getLiveConfigFallback,
   getOrCreateLiveConfig,
@@ -13,6 +14,7 @@ import {
 const LIVE_VISIBILITIES = new Set(['public', 'network', 'followers', 'private']);
 const LIVE_REACTION_TYPES = new Set(['like', 'love']);
 const LIVE_RESTRICTION_TYPES = new Set(['LIVE_BAN', 'LIVE_SUSPEND']);
+const LIVE_FILTER_PRESETS = new Set(['none', 'vibrant', 'cinematic', 'bw', 'sepia', 'warm', 'cool', 'contrast']);
 const LIVE_COMMENT_MAX = 200;
 
 const resolveUserId = (req: Request) => String((req as any)?.user?.id || '').trim();
@@ -53,6 +55,221 @@ const parseDateValue = (value: any): Date | null => {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const toUniqueTextList = (value: any, opts?: { stripAt?: boolean }) => {
+  const source = Array.isArray(value) ? value : [value];
+  return Array.from(
+    new Set(
+      source
+        .flatMap((entry) => String(entry || '').split(/[,\n\s]+/g))
+        .map((entry) => String(entry || '').trim())
+        .map((entry) => (opts?.stripAt && entry.startsWith('@') ? entry.slice(1).trim() : entry))
+        .filter(Boolean)
+    )
+  ).slice(0, 30);
+};
+
+const clampLiveFilterStrength = (value: any) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 70;
+  return Math.max(0, Math.min(100, Math.round(parsed)));
+};
+
+const normalizeLiveFilterPreset = (value: any) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (LIVE_FILTER_PRESETS.has(normalized)) return normalized;
+  return 'none';
+};
+
+const parseLiveFilterPayload = (value: any) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { preset: 'none', strength: 70 };
+  }
+  return {
+    preset: normalizeLiveFilterPreset((value as any)?.preset),
+    strength: clampLiveFilterStrength((value as any)?.strength)
+  };
+};
+
+const resolveMentionedUsers = async (value: any) => {
+  const refs = toUniqueTextList(value, { stripAt: true });
+  if (!refs.length) return [];
+  const rows = await prisma.user.findMany({
+    where: {
+      OR: refs.map((ref) => ({
+        username: { equals: ref, mode: 'insensitive' as const }
+      }))
+    },
+    select: {
+      id: true,
+      name: true,
+      username: true,
+      avatar: true,
+      isVerified: true
+    },
+    take: refs.length
+  });
+  const byUsername = new Map(rows.map((row) => [String(row.username || '').toLowerCase(), row]));
+  const ordered = refs
+    .map((ref) => byUsername.get(String(ref).toLowerCase()))
+    .filter(Boolean)
+    .map((row: any) => ({
+      id: String(row.id || ''),
+      userId: String(row.id || ''),
+      name: String(row.name || row.username || 'Scrolith user'),
+      username: String(row.username || '').trim() || null,
+      avatar: String(row.avatar || '').trim() || null,
+      isVerified: Boolean(row.isVerified)
+    }));
+  return Array.from(new Map(ordered.map((row: any) => [row.id, row])).values());
+};
+
+const resolveTaggedPages = async (value: any) => {
+  const refs = toUniqueTextList(value, { stripAt: true });
+  if (!refs.length) return [];
+  const rows = await (prisma as any).communityBusinessPage.findMany({
+    where: {
+      OR: refs.flatMap((ref) => [
+        { id: ref },
+        { slug: { equals: ref, mode: 'insensitive' } },
+        { handle: { equals: ref, mode: 'insensitive' } },
+        { name: { equals: ref, mode: 'insensitive' } }
+      ])
+    },
+    select: {
+      id: true,
+      ownerId: true,
+      name: true,
+      slug: true,
+      handle: true
+    },
+    take: refs.length
+  });
+  const rowsByRef = new Map<string, any>();
+  rows.forEach((row: any) => {
+    rowsByRef.set(String(row.id || '').toLowerCase(), row);
+    rowsByRef.set(String(row.slug || '').toLowerCase(), row);
+    rowsByRef.set(String(row.handle || '').toLowerCase(), row);
+    rowsByRef.set(String(row.name || '').toLowerCase(), row);
+  });
+  const ordered = refs
+    .map((ref) => rowsByRef.get(String(ref).toLowerCase()))
+    .filter(Boolean)
+    .map((row: any) => ({
+      id: String(row.id || ''),
+      pageId: String(row.id || ''),
+      ownerId: String(row.ownerId || ''),
+      name: String(row.name || '').trim() || 'Page',
+      slug: String(row.slug || '').trim() || null,
+      handle: String(row.handle || '').trim() || null
+    }));
+  return Array.from(new Map(ordered.map((row: any) => [row.id, row])).values());
+};
+
+const normalizeLiveMetadata = async (value: any) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? { ...(value as Record<string, any>) } : {};
+  const mentionUsernames = toUniqueTextList(source.mentionUsernames || source.mentions, { stripAt: true });
+  const taggedPageRefs = toUniqueTextList(source.taggedPageRefs || source.taggedPages, { stripAt: true });
+  const mentionedUsers = await resolveMentionedUsers(mentionUsernames);
+  const taggedPages = await resolveTaggedPages(taggedPageRefs);
+  const liveFilter = parseLiveFilterPayload(source.liveFilter || source.filter || null);
+  return {
+    ...source,
+    mentionUsernames,
+    taggedPageRefs,
+    mentionedUsers,
+    taggedPages,
+    notifyFollowersOnLive: Boolean(source.notifyFollowersOnLive),
+    notifyNetworkOnLive: Boolean(source.notifyNetworkOnLive),
+    liveFilter
+  };
+};
+
+const notifyLiveStartRecipients = async (req: Request, session: any) => {
+  const metadata = getSessionMetadata(session);
+  const visible = String(session?.visibility || 'public').toLowerCase() !== 'private';
+  const hostUserId = String(session?.hostUserId || '').trim();
+  if (!hostUserId) return;
+
+  const hostUser = await prisma.user.findUnique({
+    where: { id: hostUserId },
+    select: { id: true, name: true, username: true }
+  });
+  const hostLabel = String(hostUser?.name || hostUser?.username || 'Someone');
+  const title = String(session?.title || '').trim() || `${hostLabel} is live`;
+  const body = `${hostLabel} started a live stream${session?.title ? `: ${session.title}` : '.'}`;
+  const actionUrl = `/live/${encodeURIComponent(String(session.id || ''))}`;
+
+  const recipientIds = new Set<string>();
+  if (visible && metadata.notifyFollowersOnLive) {
+    const followers = await prisma.userFollow.findMany({
+      where: { followeeId: hostUserId },
+      select: { followerId: true }
+    });
+    followers.forEach((row) => recipientIds.add(String(row.followerId || '').trim()));
+  }
+  if (visible && metadata.notifyNetworkOnLive) {
+    const network = await prisma.userFollow.findMany({
+      where: {
+        OR: [{ followeeId: hostUserId }, { followerId: hostUserId }]
+      },
+      select: { followerId: true, followeeId: true }
+    });
+    network.forEach((row) => {
+      const followerId = String(row.followerId || '').trim();
+      const followeeId = String(row.followeeId || '').trim();
+      if (followerId && followerId !== hostUserId) recipientIds.add(followerId);
+      if (followeeId && followeeId !== hostUserId) recipientIds.add(followeeId);
+    });
+  }
+
+  const mentionedUsers = Array.isArray(metadata.mentionedUsers) ? metadata.mentionedUsers : [];
+  mentionedUsers.forEach((entry: any) => {
+    const userId = String(entry?.id || entry?.userId || '').trim();
+    if (userId && userId !== hostUserId) recipientIds.add(userId);
+  });
+
+  const taggedPages = Array.isArray(metadata.taggedPages) ? metadata.taggedPages : [];
+  const pageOwnerIds = taggedPages.map((entry: any) => String(entry?.ownerId || '').trim()).filter(Boolean);
+  pageOwnerIds.forEach((userId: string) => {
+    if (userId !== hostUserId) recipientIds.add(userId);
+  });
+
+  const recipients = Array.from(recipientIds).filter(Boolean);
+  if (!recipients.length) return;
+
+  await prisma.notification.createMany({
+    data: recipients.map((userId) => ({
+      userId,
+      actorId: hostUserId,
+      type: 'live_started',
+      title,
+      body,
+      isRead: false,
+      meta: {
+        sessionId: String(session.id || ''),
+        hostUserId,
+        actionUrl,
+        action_url: actionUrl,
+        visibility: String(session.visibility || 'public').toLowerCase()
+      } as any
+    }))
+  });
+
+  recipients.forEach((userId) => {
+    notifyUser(userId, {
+      type: 'live_started',
+      title,
+      body,
+      actionUrl,
+      meta: {
+        sessionId: String(session.id || ''),
+        hostUserId,
+        visibility: String(session.visibility || 'public').toLowerCase()
+      }
+    });
+  });
 };
 
 const getSessionMetadata = (session: any): Record<string, any> => {
@@ -357,6 +574,7 @@ export const createLiveSession = async (req: Request, res: Response) => {
     const title = String(req.body?.title || '').trim() || null;
     const description = String(req.body?.description || '').trim() || null;
     const roomName = String(req.body?.roomName || '').trim() || `live-${Date.now()}`;
+    const metadata = await normalizeLiveMetadata(req.body?.metadata);
 
     const session = await (prisma as any).liveSession.create({
       data: {
@@ -368,7 +586,7 @@ export const createLiveSession = async (req: Request, res: Response) => {
         roomName,
         streamUrl: String(req.body?.streamUrl || '').trim() || null,
         hlsUrl: String(req.body?.hlsUrl || '').trim() || null,
-        metadata: req.body?.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : {}
+        metadata
       }
     });
 
@@ -458,7 +676,10 @@ export const startLiveSession = async (req: Request, res: Response) => {
       }
     });
 
-    const payload = await buildSessionPayload(await fetchSessionById(sessionId), userId);
+    const startedSession = await fetchSessionById(sessionId);
+    await notifyLiveStartRecipients(req, startedSession);
+
+    const payload = await buildSessionPayload(startedSession, userId);
     emitLiveEvent(
       req,
       'live:started',
@@ -480,6 +701,62 @@ export const startLiveSession = async (req: Request, res: Response) => {
     }
     console.error('startLiveSession error:', error);
     return fail(res, 500, error?.message || 'Failed to start livestream.');
+  }
+};
+
+export const setLiveSessionFilter = async (req: Request, res: Response) => {
+  try {
+    const sessionId = String(req.params.id || '').trim();
+    const userId = resolveUserId(req);
+    const role = resolveRole(req);
+    if (!userId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
+    if (!sessionId) return fail(res, 400, 'Session ID is required.');
+
+    await ensureLiveSchema();
+    const session = await fetchSessionById(sessionId);
+    const access = ensureSessionAccess(session, userId, role);
+    if (!access.ok) return fail(res, access.status, access.message);
+    if (!isAdminRole(role) && String(session.hostUserId || '') !== userId) {
+      return fail(res, 403, 'Only host can update live filters.', 'HOST_REQUIRED');
+    }
+
+    const filter = parseLiveFilterPayload(req.body || {});
+    const metadata = getSessionMetadata(session);
+    const nextMetadata = {
+      ...metadata,
+      liveFilter: {
+        preset: filter.preset,
+        strength: filter.strength,
+        updatedAt: nowIso(),
+        updatedById: userId
+      }
+    };
+
+    await (prisma as any).liveSession.update({
+      where: { id: sessionId },
+      data: { metadata: nextMetadata }
+    });
+
+    const payload = {
+      sessionId,
+      filter: {
+        preset: filter.preset,
+        strength: filter.strength
+      },
+      emittedAt: nowIso()
+    };
+    emitLiveEvent(req, 'live:filter_updated', payload, { sessionId });
+    return ok(res, payload);
+  } catch (error: any) {
+    if (error?.code === 'LIVE_SCHEMA_MISSING' || isLiveSchemaMissingError(error)) {
+      return fail(
+        res,
+        503,
+        'Livestream module tables are not ready. Run the latest backend migration.',
+        'LIVE_SCHEMA_MISSING'
+      );
+    }
+    return fail(res, 500, error?.message || 'Failed to update live filter.');
   }
 };
 

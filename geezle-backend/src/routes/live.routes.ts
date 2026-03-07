@@ -17,6 +17,7 @@ import {
   reactLiveSession,
   reportLiveSession,
   saveLiveRecording,
+  setLiveSessionFilter,
   sendLiveGift,
   startLiveSession,
   unpublishLiveRecording
@@ -26,6 +27,7 @@ const router = express.Router();
 
 router.post('/sessions', authMiddleware, createLiveSession);
 router.post('/sessions/:id/start', authMiddleware, startLiveSession);
+router.post('/sessions/:id/filter', authMiddleware, setLiveSessionFilter);
 router.post('/sessions/:id/end', authMiddleware, endLiveSession);
 router.post('/sessions/:id/leave', authMiddleware, leaveLiveSession);
 router.post('/sessions/:id/invite', authMiddleware, inviteLiveParticipant);
