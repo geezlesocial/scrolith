@@ -779,6 +779,65 @@ communityNs.on('connection', async (socket) => {
       trace: payload || {}
     });
   });
+  socket.on('messages:typing', (payload: any) => {
+    const handleMessagesTyping = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        const conversationId = String(payload?.conversationId || '').trim();
+        if (!userId || !conversationId) return;
+
+        const conversation = await prisma.conversation.findUnique({
+          where: { id: conversationId },
+          select: {
+            participants: {
+              select: {
+                userId: true,
+                deletedAt: true
+              }
+            }
+          }
+        });
+        if (!conversation) return;
+
+        const isParticipant = conversation.participants.some(
+          (entry) => String(entry.userId || '').trim() === userId && !entry.deletedAt
+        );
+        if (!isParticipant) return;
+
+        const targets = conversation.participants
+          .filter((entry) => !entry.deletedAt && String(entry.userId || '').trim() !== userId)
+          .map((entry) => String(entry.userId || '').trim())
+          .filter(Boolean);
+        if (!targets.length) return;
+
+        const providedName = String(payload?.name || '').trim();
+        const fallbackName = String((socket as any).data?.user?.email || 'Someone')
+          .split('@')[0]
+          .trim();
+        const typingPayload = {
+          conversationId,
+          userId,
+          name: providedName || fallbackName || 'Someone',
+          isTyping: Boolean(payload?.isTyping),
+          at: new Date().toISOString()
+        };
+
+        targets.forEach((targetUserId) => {
+          communityNs.to(`community:user:${targetUserId}`).emit('messages:typing', typingPayload);
+        });
+        traceMessages('socket.messages_typing', {
+          socketId: socket.id,
+          userId,
+          conversationId,
+          isTyping: typingPayload.isTyping,
+          targets
+        });
+      } catch (error) {
+        console.error('messages:typing error (community ns):', error);
+      }
+    };
+    void handleMessagesTyping();
+  });
   socket.on('community:join', (payload: { userId: string }) => {
     const handleJoin = () => {
       try {

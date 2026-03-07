@@ -1455,7 +1455,11 @@ export const editMessage = async (req: Request, res: Response) => {
       editedAt: editedAt.toISOString(),
       timestamp: updated.createdAt ? updated.createdAt.toISOString() : nowIso(),
       is_deleted: false,
-      isDeleted: false
+      isDeleted: false,
+      last_message: latest ? resolveMessageSnippet(latest) : '',
+      lastMessage: latest ? resolveMessageSnippet(latest) : '',
+      last_message_at: latest?.createdAt ? latest.createdAt.toISOString() : null,
+      lastMessageAt: latest?.createdAt ? latest.createdAt.toISOString() : null
     };
 
     message.conversation.participants.forEach((entry) => {
@@ -1684,7 +1688,11 @@ export const deleteMessage = async (req: Request, res: Response) => {
       deleted_at: deletedAt.toISOString(),
       deletedAt: deletedAt.toISOString(),
       attachments: [],
-      scope: 'everyone'
+      scope: 'everyone',
+      last_message: latest ? resolveMessageSnippet(latest) : '',
+      lastMessage: latest ? resolveMessageSnippet(latest) : '',
+      last_message_at: latest?.createdAt ? latest.createdAt.toISOString() : null,
+      lastMessageAt: latest?.createdAt ? latest.createdAt.toISOString() : null
     };
 
     const fanoutUserIds = Array.from(
