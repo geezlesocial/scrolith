@@ -87,17 +87,23 @@ export const clearPrimedLiveMediaStream = () => {
   primedLiveMedia = null;
 };
 
-const warmupNativeMicrophonePermission = async () => {
-  if (!Capacitor.isNativePlatform()) return;
-  if (!navigator.mediaDevices?.getUserMedia) return;
+const warmupNativeMicrophonePermission = async (): Promise<boolean> => {
+  if (!Capacitor.isNativePlatform()) return true;
+  if (!navigator.mediaDevices?.getUserMedia) return false;
   try {
     const micStream = await navigator.mediaDevices.getUserMedia({
       video: false,
       audio: AUDIO_CONSTRAINTS
     });
     stopStreamTracks(micStream);
+    return true;
   } catch (error: any) {
-    if (isPermissionLikeError(error)) throw error;
+    // Android WebView can report a transient permission-style error on the
+    // first audio-only probe even when the combined camera+mic request would
+    // succeed moments later. Treat the warmup as best-effort and let the main
+    // capture request decide whether audio is actually available.
+    if (isPermissionLikeError(error)) return false;
+    return false;
   }
 };
 
