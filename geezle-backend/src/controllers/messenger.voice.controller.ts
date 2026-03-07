@@ -155,7 +155,10 @@ export const postVoiceNoteMessage = async (req: Request, res: Response) => {
     });
 
     try {
-      await syncFileUsages('voice_note', String(voiceNote.id || ''), [fileId], 'Voice Note');
+      await Promise.all([
+        syncFileUsages('voice_note', String(voiceNote.id || ''), [fileId], 'Voice Note'),
+        syncFileUsages('direct_message', String(message.id || ''), [fileId], 'Direct Message Attachment')
+      ]);
     } catch (error) {
       console.warn('[messenger-voice] syncFileUsages failed:', (error as any)?.message || error);
     }

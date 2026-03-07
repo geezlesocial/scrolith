@@ -453,6 +453,74 @@ const resolveOptionalRequester = (req: Request) => {
   }
 };
 
+const canRequesterAccessPrivateMessengerFile = async (fileId: string, requesterId: string) => {
+  const normalizedFileId = String(fileId || '').trim();
+  const normalizedRequesterId = String(requesterId || '').trim();
+  if (!normalizedFileId || !normalizedRequesterId) return false;
+
+  const usages = await prisma.fileUsage.findMany({
+    where: {
+      fileId: normalizedFileId,
+      usageType: { in: ['direct_message', 'voice_note'] }
+    },
+    select: {
+      usageType: true,
+      usageId: true
+    },
+    take: 16
+  });
+
+  if (!usages.length) return false;
+
+  const directMessageIds = usages
+    .filter((entry) => entry.usageType === 'direct_message')
+    .map((entry) => String(entry.usageId || '').trim())
+    .filter(Boolean);
+
+  if (directMessageIds.length) {
+    const messageMatch = await prisma.directMessage.findFirst({
+      where: {
+        id: { in: directMessageIds },
+        conversation: {
+          participants: {
+            some: {
+              userId: normalizedRequesterId,
+              deletedAt: null
+            }
+          }
+        }
+      },
+      select: { id: true }
+    });
+
+    if (messageMatch?.id) return true;
+  }
+
+  const voiceNoteIds = usages
+    .filter((entry) => entry.usageType === 'voice_note')
+    .map((entry) => String(entry.usageId || '').trim())
+    .filter(Boolean);
+
+  if (!voiceNoteIds.length) return false;
+
+  const voiceNoteMatch = await prisma.voiceNote.findFirst({
+    where: {
+      id: { in: voiceNoteIds },
+      conversation: {
+        participants: {
+          some: {
+            userId: normalizedRequesterId,
+            deletedAt: null
+          }
+        }
+      }
+    },
+    select: { id: true }
+  });
+
+  return Boolean(voiceNoteMatch?.id);
+};
+
 const resolveOwnerRole = (value?: string | null) => {
   const normalized = (value || '').toString().toLowerCase();
   if (['admin', 'superadmin'].includes(normalized)) return FileOwnerRole.ADMIN;
@@ -1168,7 +1236,11 @@ export const serveFileContent = async (req: Request, res: Response) => {
     }
 
     const isPrivate = String(file.visibility || DEFAULT_VISIBILITY).toUpperCase() === FileVisibility.PRIVATE;
-    const canAccessPrivate = Boolean(requester?.id) && (isAdmin || requester?.id === file.ownerId);
+    const canAccessPrivate =
+      Boolean(requester?.id) &&
+      (isAdmin ||
+        requester?.id === file.ownerId ||
+        (await canRequesterAccessPrivateMessengerFile(file.id, String(requester?.id || ''))));
     if (isPrivate && !canAccessPrivate) {
       res.status(403).json({ success: false, error: 'You do not have access to this file' });
       return;
