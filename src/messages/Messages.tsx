@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import api from '../services/api';
 import { MessagingService } from '../services/messaging';
 import { Conversation, Message, UploadedFile, UserRole } from '../types';
-import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download } from 'lucide-react';
 import { AIService } from '../services/ai/ai.service';
 import { UserService } from '../services/user';
 import { useUser } from '../context/UserContext';
@@ -18,7 +19,18 @@ import VoiceRecorder from './VoiceRecorder';
 import VoiceCallModal from './VoiceCallModal';
 import { VoiceCallProvider, useVoiceCall } from './VoiceCallProvider';
 
-const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+const QUICK_REACTIONS = ['\u{1F44D}', '\u2764\uFE0F', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}'];
+const MESSAGE_UPLOAD_ACCEPT = 'image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar';
+
+type AttachmentDisplay = {
+  id: string;
+  url: string;
+  name: string;
+  type: string;
+  size?: number;
+  mimeType?: string;
+};
 
 const VoiceCallControls: React.FC<{
   disabled?: boolean;
@@ -173,6 +185,12 @@ const Messages = () => {
   const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
+  const [attachmentUploadState, setAttachmentUploadState] = useState<{
+      fileName: string;
+      progress: number;
+      uploadedCount: number;
+      totalCount: number;
+  } | null>(null);
   const [messageActionBusyId, setMessageActionBusyId] = useState<string | null>(null);
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
   const [reactionPanelMessageId, setReactionPanelMessageId] = useState<string | null>(null);
@@ -184,10 +202,14 @@ const Messages = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const conversationListRef = useRef<HTMLUListElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const activeConvoIdRef = useRef<string | null>(null);
   const userIdRef = useRef<string | null>(null);
   const refreshingRef = useRef(false);
+  const typingStopTimerRef = useRef<number | null>(null);
+  const typingIndicatorTimerRef = useRef<number | null>(null);
+  const typingActiveRef = useRef(false);
   const [conversationScrollTop, setConversationScrollTop] = useState(0);
   const [conversationViewportHeight, setConversationViewportHeight] = useState(0);
   const messagesTraceEnabled =
@@ -208,6 +230,50 @@ const Messages = () => {
       try {
           socket?.emit?.('messages:debug_trace', payload);
       } catch {}
+  };
+
+  const emitTypingState = (isTyping: boolean) => {
+      if (!socket || !user?.id || !activeConvoIdRef.current) return;
+      if (typingActiveRef.current === isTyping) return;
+      typingActiveRef.current = isTyping;
+      socket.emit('messages:typing', {
+          conversationId: activeConvoIdRef.current,
+          userId: user.id,
+          name: user.name || user.username || 'Someone',
+          isTyping
+      });
+      traceClient('ui.typing_state', {
+          conversationId: activeConvoIdRef.current,
+          isTyping
+      });
+  };
+
+  const resetTypingTimers = () => {
+      if (typingStopTimerRef.current) {
+          window.clearTimeout(typingStopTimerRef.current);
+          typingStopTimerRef.current = null;
+      }
+      if (typingIndicatorTimerRef.current) {
+          window.clearTimeout(typingIndicatorTimerRef.current);
+          typingIndicatorTimerRef.current = null;
+      }
+  };
+
+  const handleMessageInputChange = (value: string) => {
+      setMessageInput(value);
+      if (!socket || !activeConvoIdRef.current || !user?.id) return;
+      const hasContent = Boolean(String(value || '').trim());
+      if (!hasContent) {
+          emitTypingState(false);
+          resetTypingTimers();
+          return;
+      }
+      emitTypingState(true);
+      if (typingStopTimerRef.current) window.clearTimeout(typingStopTimerRef.current);
+      typingStopTimerRef.current = window.setTimeout(() => {
+          emitTypingState(false);
+          typingStopTimerRef.current = null;
+      }, 1600);
   };
 
   useEffect(() => {
@@ -248,9 +314,26 @@ const Messages = () => {
   }, [activeConvoId]);
 
   useEffect(() => {
+      if (!activeConvoIdRef.current) {
+          emitTypingState(false);
+          setTypingUser(null);
+      }
+      return () => {
+          emitTypingState(false);
+      };
+  }, [activeConvoId]);
+
+  useEffect(() => {
       const onResize = () => setIsMobileViewport(window.innerWidth < 768);
       window.addEventListener('resize', onResize);
       return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+      return () => {
+          resetTypingTimers();
+          typingActiveRef.current = false;
+      };
   }, []);
 
   useEffect(() => {
@@ -541,6 +624,14 @@ const Messages = () => {
       return parts.join(' ');
   };
 
+  const formatBytes = (bytes?: number) => {
+      const value = Number(bytes || 0);
+      if (!Number.isFinite(value) || value <= 0) return '';
+      if (value < 1024) return `${value} B`;
+      if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
+      return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   const normalizeAttachmentForDisplay = (attachment: any) => {
       if (!attachment) return null;
       if (typeof attachment === 'string') {
@@ -557,8 +648,142 @@ const Messages = () => {
           url,
           name,
           type,
-          size: attachment.size
+          size: attachment.size,
+          mimeType: attachment.mimeType || attachment.mime_type || ''
       };
+  };
+
+  const resolveMessagePreviewText = (message: Partial<Message> | null | undefined) => {
+      if (!message) return '';
+      if (Boolean(message.isDeleted ?? message.is_deleted)) return '[Message deleted]';
+      const messageType = String(message.messageType || message.message_type || '').toLowerCase();
+      if (messageType === 'voice_note' || message.voiceNote || message.voice_note) return 'Voice note';
+      const text = String(message.text || '').trim();
+      if (text) return text.slice(0, 160);
+      const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+      if (attachments.length) return 'Sent an attachment';
+      return 'Message';
+  };
+
+  const applyConversationMessageChanges = (
+      conversationId: string,
+      updater: (messages: Message[]) => Message[]
+  ) => {
+      setConversations((prev) =>
+          prev.map((conversation) => {
+              if (conversation.id !== conversationId) return conversation;
+              const nextMessages = updater(Array.isArray(conversation.messages) ? conversation.messages : []);
+              const lastMessage = nextMessages[nextMessages.length - 1];
+              const lastMessageText = resolveMessagePreviewText(lastMessage);
+              const lastMessageAt = lastMessage?.timestamp || conversation.lastMessageAt || conversation.last_message_at || '';
+              return {
+                  ...conversation,
+                  messages: nextMessages,
+                  lastMessage: lastMessageText,
+                  last_message: lastMessageText,
+                  lastMessageAt: lastMessageAt || '',
+                  last_message_at: lastMessageAt || ''
+              };
+          })
+      );
+  };
+
+  const inferUploadCategory = (file: File): UploadedFile['category'] => {
+      const mimeType = String(file?.type || '').toLowerCase();
+      if (mimeType.startsWith('image/') || mimeType.startsWith('video/')) return 'portfolio';
+      return 'document';
+  };
+
+  const uploadMessageFiles = async (files: FileList | File[]) => {
+      if (!user) return;
+      const queue = Array.from(files || []).filter(Boolean);
+      if (!queue.length) return;
+      const uploaded: UploadedFile[] = [];
+      setAttachmentUploadState({
+          fileName: queue[0].name || 'Attachment',
+          progress: 0,
+          uploadedCount: 0,
+          totalCount: queue.length
+      });
+      try {
+          for (let index = 0; index < queue.length; index += 1) {
+              const file = queue[index];
+              const uploadedFile = await FileService.uploadFile(file, inferUploadCategory(file), {
+                  role: user.role,
+                  userId: user.id,
+                  visibility: 'private',
+                  onProgress: (progress) => {
+                      setAttachmentUploadState({
+                          fileName: file.name || 'Attachment',
+                          progress,
+                          uploadedCount: index,
+                          totalCount: queue.length
+                      });
+                  }
+              });
+              uploaded.push(uploadedFile);
+              setAttachmentUploadState({
+                  fileName: file.name || 'Attachment',
+                  progress: 100,
+                  uploadedCount: index + 1,
+                  totalCount: queue.length
+              });
+          }
+          mergeAttachments(uploaded);
+          showNotification(
+              'success',
+              'Attachments',
+              uploaded.length === 1 ? 'Attachment ready to send.' : `${uploaded.length} attachments ready to send.`
+          );
+      } catch (error: any) {
+          const message =
+              error?.response?.data?.error ||
+              error?.response?.data?.message ||
+              error?.message ||
+              'Failed to upload attachment.';
+          showNotification('error', 'Attachments', String(message));
+      } finally {
+          window.setTimeout(() => setAttachmentUploadState(null), 600);
+      }
+  };
+
+  const downloadAttachment = async (attachment: AttachmentDisplay) => {
+      const fallbackDownload = () => {
+          const link = document.createElement('a');
+          link.href = attachment.url;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.download = attachment.name || 'attachment';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+      };
+
+      try {
+          let blob: Blob | null = null;
+          if (attachment.id && !String(attachment.id).startsWith('http')) {
+              const response = await api.get(`/files/content/${encodeURIComponent(attachment.id)}`, {
+                  responseType: 'blob'
+              });
+              blob = response.data instanceof Blob ? response.data : new Blob([response.data]);
+          } else {
+              const response = await fetch(attachment.url, { credentials: 'include' });
+              if (!response.ok) throw new Error(`Download failed (${response.status})`);
+              blob = await response.blob();
+          }
+
+          const objectUrl = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = objectUrl;
+          link.download = attachment.name || 'attachment';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(objectUrl);
+      } catch (error) {
+          console.warn('Attachment download fallback triggered', error);
+          fallbackDownload();
+      }
   };
 
   const mergeAttachments = (files: UploadedFile[]) => {
@@ -713,7 +938,7 @@ const Messages = () => {
                   const isFromOther = (message.senderId || message.sender_id) !== userIdRef.current;
                   const unreadBase = c.unreadCount ?? c.unread_count ?? 0;
                   const unreadCount = isActive || !isFromOther ? unreadBase : unreadBase + 1;
-                  const lastMessageText = message.text || (message.attachments?.length ? 'Sent an attachment' : '');
+                  const lastMessageText = resolveMessagePreviewText(message);
                   return {
                       ...c,
                       messages: nextMessages,
@@ -779,6 +1004,33 @@ const Messages = () => {
           })));
       };
 
+      const handleTyping = (payload: any) => {
+          const convoId = payload?.conversationId || payload?.conversation_id;
+          const typingUserId = String(payload?.userId || '').trim();
+          if (!convoId || convoId !== activeConvoIdRef.current) return;
+          if (!typingUserId || typingUserId === userIdRef.current) return;
+
+          if (!payload?.isTyping) {
+              setTypingUser((current) =>
+                  current && current === String(payload?.name || '').trim() ? null : current
+              );
+              if (typingIndicatorTimerRef.current) {
+                  window.clearTimeout(typingIndicatorTimerRef.current);
+                  typingIndicatorTimerRef.current = null;
+              }
+              return;
+          }
+
+          setTypingUser(String(payload?.name || 'Someone').trim() || 'Someone');
+          if (typingIndicatorTimerRef.current) {
+              window.clearTimeout(typingIndicatorTimerRef.current);
+          }
+          typingIndicatorTimerRef.current = window.setTimeout(() => {
+              setTypingUser(null);
+              typingIndicatorTimerRef.current = null;
+          }, 2200);
+      };
+
       const handleMessageUpdated = (payload: any) => {
           const convoId = payload?.conversationId || payload?.conversation_id;
           const messageId = payload?.messageId || payload?.id;
@@ -796,7 +1048,7 @@ const Messages = () => {
               if (deletedForMe) {
                   const nextMessages = c.messages.filter(m => m.id !== messageId);
                   const nextLast = nextMessages[nextMessages.length - 1];
-                  const nextLastText = nextLast?.text || '';
+                  const nextLastText = resolveMessagePreviewText(nextLast);
                   const nextLastAt = nextLast?.timestamp || '';
                   return {
                       ...c,
@@ -807,25 +1059,42 @@ const Messages = () => {
                       last_message_at: nextLastAt
                   };
               }
+              const nextMessages = c.messages.map(m => {
+                  if (m.id !== messageId) return m;
+                  return {
+                      ...m,
+                      text: payload?.text ?? m.text,
+                      timestamp: payload?.timestamp ?? m.timestamp,
+                      editedAt: payload?.editedAt ?? payload?.edited_at ?? m.editedAt ?? m.edited_at ?? null,
+                      edited_at: payload?.edited_at ?? payload?.editedAt ?? m.edited_at ?? m.editedAt ?? null,
+                      isDeleted: Boolean(payload?.isDeleted ?? payload?.is_deleted ?? m.isDeleted ?? m.is_deleted),
+                      is_deleted: Boolean(payload?.is_deleted ?? payload?.isDeleted ?? m.is_deleted ?? m.isDeleted),
+                      deletedAt: payload?.deletedAt ?? payload?.deleted_at ?? m.deletedAt ?? m.deleted_at ?? null,
+                      deleted_at: payload?.deleted_at ?? payload?.deletedAt ?? m.deleted_at ?? m.deletedAt ?? null,
+                      attachments: Array.isArray(payload?.attachments) ? payload.attachments : m.attachments,
+                      reactions: Array.isArray(payload?.reactions) ? payload.reactions : m.reactions,
+                      reactionSummary: payload?.reactionSummary || m.reactionSummary
+                  };
+              });
+              const nextLast = nextMessages[nextMessages.length - 1];
+              const nextLastText =
+                  payload?.lastMessage ??
+                  payload?.last_message ??
+                  resolveMessagePreviewText(nextLast);
+              const nextLastAt =
+                  payload?.lastMessageAt ??
+                  payload?.last_message_at ??
+                  nextLast?.timestamp ??
+                  c.lastMessageAt ??
+                  c.last_message_at ??
+                  '';
               return {
                   ...c,
-                  messages: c.messages.map(m => {
-                      if (m.id !== messageId) return m;
-                      return {
-                          ...m,
-                          text: payload?.text ?? m.text,
-                          timestamp: payload?.timestamp ?? m.timestamp,
-                          editedAt: payload?.editedAt ?? payload?.edited_at ?? m.editedAt ?? m.edited_at ?? null,
-                          edited_at: payload?.edited_at ?? payload?.editedAt ?? m.edited_at ?? m.editedAt ?? null,
-                          isDeleted: Boolean(payload?.isDeleted ?? payload?.is_deleted ?? m.isDeleted ?? m.is_deleted),
-                          is_deleted: Boolean(payload?.is_deleted ?? payload?.isDeleted ?? m.is_deleted ?? m.isDeleted),
-                          deletedAt: payload?.deletedAt ?? payload?.deleted_at ?? m.deletedAt ?? m.deleted_at ?? null,
-                          deleted_at: payload?.deleted_at ?? payload?.deletedAt ?? m.deleted_at ?? m.deletedAt ?? null,
-                          attachments: Array.isArray(payload?.attachments) ? payload.attachments : m.attachments,
-                          reactions: Array.isArray(payload?.reactions) ? payload.reactions : m.reactions,
-                          reactionSummary: payload?.reactionSummary || m.reactionSummary
-                      };
-                  })
+                  messages: nextMessages,
+                  lastMessage: nextLastText,
+                  last_message: nextLastText,
+                  lastMessageAt: nextLastAt,
+                  last_message_at: nextLastAt
               };
           }));
       };
@@ -836,14 +1105,26 @@ const Messages = () => {
           traceClient('socket.conversation_updated', { conversationId: convoId, payload });
           setConversations(prev => prev.map(conversation => {
               if (conversation.id !== convoId) return conversation;
-              const merged = {
-                  ...conversation,
-                  ...(payload?.label !== undefined ? { label: payload.label } : {}),
-                  ...(payload?.isStarred !== undefined ? { isStarred: Boolean(payload.isStarred), is_starred: Boolean(payload.isStarred) } : {}),
-                  ...(payload?.isMuted !== undefined ? { isMuted: Boolean(payload.isMuted), is_muted: Boolean(payload.isMuted) } : {}),
-                  ...(payload?.isArchived !== undefined ? { isArchived: Boolean(payload.isArchived), is_archived: Boolean(payload.isArchived) } : {}),
-                  ...(payload?.unread_count !== undefined ? { unreadCount: Number(payload.unread_count), unread_count: Number(payload.unread_count) } : {})
-              };
+               const merged = {
+                   ...conversation,
+                   ...(payload?.label !== undefined ? { label: payload.label } : {}),
+                   ...(payload?.isStarred !== undefined ? { isStarred: Boolean(payload.isStarred), is_starred: Boolean(payload.isStarred) } : {}),
+                   ...(payload?.isMuted !== undefined ? { isMuted: Boolean(payload.isMuted), is_muted: Boolean(payload.isMuted) } : {}),
+                   ...(payload?.isArchived !== undefined ? { isArchived: Boolean(payload.isArchived), is_archived: Boolean(payload.isArchived) } : {}),
+                   ...(payload?.unread_count !== undefined ? { unreadCount: Number(payload.unread_count), unread_count: Number(payload.unread_count) } : {}),
+                   ...(payload?.lastMessage !== undefined || payload?.last_message !== undefined
+                       ? {
+                             lastMessage: payload?.lastMessage ?? payload?.last_message ?? conversation.lastMessage,
+                             last_message: payload?.last_message ?? payload?.lastMessage ?? conversation.last_message
+                         }
+                       : {}),
+                   ...(payload?.lastMessageAt !== undefined || payload?.last_message_at !== undefined
+                       ? {
+                             lastMessageAt: payload?.lastMessageAt ?? payload?.last_message_at ?? conversation.lastMessageAt,
+                             last_message_at: payload?.last_message_at ?? payload?.lastMessageAt ?? conversation.last_message_at
+                         }
+                       : {})
+               };
               return merged;
           }));
       };
@@ -862,6 +1143,7 @@ const Messages = () => {
       socket.on('messages:new', handleIncoming);
       socket.on('messages:sent', handleIncoming);
       socket.on('messages:read', handleRead);
+      socket.on('messages:typing', handleTyping);
       socket.on('presence:update', handlePresence);
       socket.on('messages:updated', handleMessageUpdated);
       socket.on('messages:conversation_updated', handleConversationUpdated);
@@ -870,6 +1152,7 @@ const Messages = () => {
           socket.off('messages:new', handleIncoming);
           socket.off('messages:sent', handleIncoming);
           socket.off('messages:read', handleRead);
+          socket.off('messages:typing', handleTyping);
           socket.off('presence:update', handlePresence);
           socket.off('messages:updated', handleMessageUpdated);
           socket.off('messages:conversation_updated', handleConversationUpdated);
@@ -949,22 +1232,12 @@ const Messages = () => {
               replyToMessage?.id || null
           );
 
-          setConversations(prev => prev.map(c => {
-              if (c.id === activeConvoId) {
-                  const lastMessageText = trimmed || (attachmentIds.length ? 'Sent an attachment' : '');
-                  return {
-                      ...c,
-                      messages: [...c.messages, newMessage],
-                      lastMessage: lastMessageText,
-                      lastMessageAt: new Date().toISOString()
-                  };
-              }
-              return c;
-          }));
-          
+          emitTypingState(false);
+          applyConversationMessageChanges(activeConvoId, (messages) => [...messages, newMessage]);
           setMessageInput('');
           setPendingAttachments([]);
           setReplyToMessage(null);
+          resetTypingTimers();
           refreshMessages(); 
           traceClient('ui.send_message.success', {
               conversationId: activeConvoId,
@@ -972,7 +1245,11 @@ const Messages = () => {
           });
       } catch (error) {
           console.error("Failed to send message", error);
-          showNotification('error', 'Message', 'Failed to send message');
+          showNotification(
+              'error',
+              'Message',
+              (error as any)?.response?.data?.error || (error as any)?.message || 'Failed to send message'
+          );
           traceClient('ui.send_message.error', {
               conversationId: activeConvoId,
               error: String((error as any)?.message || error)
@@ -995,7 +1272,7 @@ const Messages = () => {
           const uploaded = await FileService.uploadFile(file, 'document', {
               role: user.role,
               userId: user.id,
-              visibility: 'public'
+              visibility: 'private'
           });
 
           const message = await MessagingService.sendVoiceNote(activeConvoId, {
@@ -1003,17 +1280,7 @@ const Messages = () => {
               durationMs: Math.max(1, Math.trunc(durationMs))
           });
 
-          setConversations(prev => prev.map(c => {
-              if (c.id !== activeConvoId) return c;
-              return {
-                  ...c,
-                  messages: [...c.messages, message],
-                  lastMessage: 'Voice note',
-                  last_message: 'Voice note',
-                  lastMessageAt: message.timestamp,
-                  last_message_at: message.timestamp
-              };
-          }));
+          applyConversationMessageChanges(activeConvoId, (messages) => [...messages, message]);
           refreshMessages();
       } catch (error: any) {
           const backendError =
@@ -1043,7 +1310,7 @@ const Messages = () => {
           });
 
           if (response.suggestion) {
-              setMessageInput(response.suggestion);
+              handleMessageInputChange(response.suggestion);
           }
       } catch (error) {
           console.error("AI Suggestion failed");
@@ -1067,21 +1334,7 @@ const Messages = () => {
           const result = await MessagingService.deleteMessage(activeConvoId, messageId, scope);
           const deletedForMe = Boolean(result?.deletedForMe ?? result?.deleted_for_me ?? scope === 'me');
           if (deletedForMe) {
-              setConversations(prev => prev.map(c => {
-                  if (c.id !== activeConvoId) return c;
-                  const nextMessages = c.messages.filter(m => m.id !== messageId);
-                  const nextLast = nextMessages[nextMessages.length - 1];
-                  const nextLastText = nextLast?.text || '';
-                  const nextLastAt = nextLast?.timestamp || '';
-                  return {
-                      ...c,
-                      messages: nextMessages,
-                      lastMessage: nextLastText,
-                      last_message: nextLastText,
-                      lastMessageAt: nextLastAt,
-                      last_message_at: nextLastAt
-                  };
-              }));
+              applyConversationMessageChanges(activeConvoId, (messages) => messages.filter((m) => m.id !== messageId));
               if (replyToMessage?.id === messageId) setReplyToMessage(null);
               if (editingMessageId === messageId) {
                   setEditingMessageId(null);
@@ -1090,24 +1343,20 @@ const Messages = () => {
               if (expandedMessageId === messageId) setExpandedMessageId(null);
               if (reactionPanelMessageId === messageId) setReactionPanelMessageId(null);
           } else {
-              setConversations(prev => prev.map(c => {
-                  if (c.id !== activeConvoId) return c;
-                  return {
-                      ...c,
-                      messages: c.messages.map(m => {
-                          if (m.id !== messageId) return m;
-                          return {
-                              ...m,
-                              text: '[Message deleted]',
-                              attachments: [],
-                              isDeleted: true,
-                              is_deleted: true,
-                              deletedAt: new Date().toISOString(),
-                              deleted_at: new Date().toISOString()
-                          };
-                      })
-                  };
-              }));
+              applyConversationMessageChanges(activeConvoId, (messages) =>
+                  messages.map((m) => {
+                      if (m.id !== messageId) return m;
+                      return {
+                          ...m,
+                          text: '[Message deleted]',
+                          attachments: [],
+                          isDeleted: true,
+                          is_deleted: true,
+                          deletedAt: new Date().toISOString(),
+                          deleted_at: new Date().toISOString()
+                      };
+                  })
+              );
           }
           traceClient('ui.delete_message.success', { conversationId: activeConvoId, messageId, scope });
       } catch (error) {
@@ -1155,13 +1404,9 @@ const Messages = () => {
       setMessageActionBusyId(messageId);
       try {
           const updated = await MessagingService.editMessage(activeConvoId, messageId, nextText);
-          setConversations(prev => prev.map(c => {
-              if (c.id !== activeConvoId) return c;
-              return {
-                  ...c,
-                  messages: c.messages.map(m => (m.id === messageId ? { ...m, ...updated } : m))
-              };
-          }));
+          applyConversationMessageChanges(activeConvoId, (messages) =>
+              messages.map((m) => (m.id === messageId ? { ...m, ...updated } : m))
+          );
           setEditingMessageId(null);
           setEditDraft('');
           traceClient('ui.edit_message.success', { conversationId: activeConvoId, messageId });
@@ -1210,6 +1455,22 @@ const Messages = () => {
       } finally {
           setMessageActionBusyId(null);
       }
+  };
+
+  const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (event.key !== 'Enter' || event.shiftKey) return;
+      event.preventDefault();
+      const form = event.currentTarget.form;
+      if (form) {
+          form.requestSubmit();
+      }
+  };
+
+  const handleUploadInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = event.target.files;
+      if (!files?.length) return;
+      await uploadMessageFiles(files);
+      event.target.value = '';
   };
 
   const updateMessageReactionLocally = (messageId: string, emoji: string) => {
@@ -1771,7 +2032,7 @@ const Messages = () => {
                             {activeConvo.messages.map(msg => {
                                 const attachmentList = (Array.isArray(msg.attachments) ? msg.attachments : [])
                                     .map((attachment) => normalizeAttachmentForDisplay(attachment))
-                                    .filter(Boolean) as Array<{ id: string; url: string; name: string; type: string }>;
+                                    .filter(Boolean) as AttachmentDisplay[];
                                 const isOwner = msg.senderId === user?.id;
                                 const isAdmin = user?.role === UserRole.ADMIN;
                                 const canEditDelete = isOwner || isAdmin;
@@ -1895,10 +2156,38 @@ const Messages = () => {
                                                             ? 'border-white/30 bg-white/15 text-white'
                                                             : 'border-gray-200 bg-white/80 text-gray-700'
                                                     }`}>
+                                                        <div className="mb-2 flex items-center justify-between gap-2">
+                                                            <div className="min-w-0">
+                                                                <div className="truncate font-semibold">{attachment.name}</div>
+                                                                {formatBytes(attachment.size) ? (
+                                                                    <div className={`text-[10px] ${msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-500'}`}>
+                                                                        {formatBytes(attachment.size)}
+                                                                    </div>
+                                                                ) : null}
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={(event) => {
+                                                                    event.preventDefault();
+                                                                    event.stopPropagation();
+                                                                    void downloadAttachment(attachment as AttachmentDisplay);
+                                                                }}
+                                                                className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium ${
+                                                                    msg.senderId === user?.id
+                                                                        ? 'border-white/30 bg-white/10 text-white hover:bg-white/20'
+                                                                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                                                                }`}
+                                                            >
+                                                                <Download className="h-3.5 w-3.5" />
+                                                                <span>Download</span>
+                                                            </button>
+                                                        </div>
                                                         {attachment.type === 'image' ? (
-                                                            <img src={attachment.url} alt={attachment.name} className="w-full max-h-56 object-cover rounded-md" />
+                                                            <a href={attachment.url} target="_blank" rel="noreferrer" className="block">
+                                                                <img src={attachment.url} alt={attachment.name} className="w-full max-h-56 object-cover rounded-md" loading="lazy" />
+                                                            </a>
                                                         ) : attachment.type === 'video' ? (
-                                                            <video controls src={attachment.url} className="w-full max-h-56 rounded-md" />
+                                                            <video controls preload="metadata" src={attachment.url} className="w-full max-h-56 rounded-md" />
                                                         ) : attachment.type === 'audio' ? (
                                                             <audio controls preload="metadata" src={attachment.url} className="w-full" />
                                                         ) : (
@@ -1906,11 +2195,13 @@ const Messages = () => {
                                                                 href={attachment.url}
                                                                 target="_blank"
                                                                 rel="noreferrer"
-                                                                className={`flex max-w-full min-w-0 items-center gap-2 overflow-hidden hover:underline ${
-                                                                    msg.senderId === user?.id ? 'text-blue-100' : 'text-blue-600'
+                                                                className={`flex max-w-full min-w-0 items-center gap-2 overflow-hidden rounded-md border px-3 py-2 hover:underline ${
+                                                                    msg.senderId === user?.id
+                                                                        ? 'border-white/20 text-blue-100'
+                                                                        : 'border-gray-200 text-blue-600'
                                                                 }`}
                                                             >
-                                                                <span className="font-semibold">Download</span>
+                                                                <span className="font-semibold">Open</span>
                                                                 <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
                                                             </a>
                                                         )}
@@ -2077,10 +2368,13 @@ const Messages = () => {
                             </div>
 
                             {pendingAttachments.length > 0 && (
-                                <div className="mb-3 flex flex-wrap gap-2">
+                                <div className="mb-3 grid gap-2 sm:grid-cols-2">
                                     {pendingAttachments.map(file => (
-                                        <div key={file.id} className="flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-700">
-                                            <span className="truncate max-w-[160px]">{file.name || 'Attachment'}</span>
+                                        <div key={file.id} className="flex items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700 shadow-sm">
+                                            <div className="min-w-0">
+                                                <div className="truncate font-semibold">{file.name || 'Attachment'}</div>
+                                                <div className="text-[10px] text-gray-500">{formatBytes(file.size) || 'Ready to send'}</div>
+                                            </div>
                                             <button type="button" onClick={() => removeAttachment(file.id)} className="text-gray-400 hover:text-gray-600">
                                                 <X className="w-3 h-3" />
                                             </button>
@@ -2089,39 +2383,92 @@ const Messages = () => {
                                 </div>
                             )}
 
-                            <form onSubmit={handleSendMessage} className="flex min-w-0 items-center gap-2 rounded-2xl border border-gray-200 bg-white px-2 py-1.5 shadow-sm">
-                                <button
-                                    type="button"
-                                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 transition hover:bg-blue-50 hover:text-blue-600"
-                                    onClick={() => setShowFilePicker(true)}
-                                    title="Attach files"
-                                >
-                                    <ImageIcon className="w-5 h-5" />
-                                </button>
-                                <VoiceRecorder
-                                    disabled={
-                                        voiceNoteBusy ||
-                                        !activeConvoId ||
-                                        !voiceRuntimeConfig.enabledVoiceNotes ||
-                                        voiceRuntimeConfig.blockedForCurrentUser
-                                    }
-                                    maxDurationSeconds={voiceRuntimeConfig.maxVoiceNoteDurationSeconds}
-                                    onRecorded={handleVoiceRecorded}
-                                    onError={(message) => showNotification('error', 'Voice notes', message)}
-                                    className="h-10 w-10 justify-center rounded-xl hover:bg-gray-100"
-                                />
-                                <input 
-                                    type="text" 
-                                    className="h-10 flex-1 min-w-0 rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-gray-800 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
-                                    placeholder="Type a message..."
-                                    value={messageInput}
-                                    onChange={e => {
-                                        setMessageInput(e.target.value);
-                                    }}
-                                />
-                                <button type="submit" className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition-colors hover:bg-blue-700">
-                                    <Send className="w-4 h-4" />
-                                </button>
+                            {attachmentUploadState && (
+                                <div className="mb-3 rounded-2xl border border-blue-100 bg-blue-50/80 px-3 py-2 text-xs text-blue-700 shadow-sm">
+                                    <div className="flex items-center justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <div className="truncate font-semibold">{attachmentUploadState.fileName}</div>
+                                            <div className="text-[11px]">
+                                                Uploading {attachmentUploadState.uploadedCount + 1} of {attachmentUploadState.totalCount}
+                                            </div>
+                                        </div>
+                                        <div className="shrink-0 font-semibold">{attachmentUploadState.progress}%</div>
+                                    </div>
+                                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-blue-100">
+                                        <div
+                                            className="h-full rounded-full bg-blue-600 transition-all"
+                                            style={{ width: `${attachmentUploadState.progress}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            <form onSubmit={handleSendMessage} className="rounded-3xl border border-gray-200 bg-white p-2 shadow-sm">
+                                <div className="flex min-w-0 items-end gap-2">
+                                    <textarea
+                                        className="min-h-[46px] flex-1 resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-800 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                                        placeholder="Write a message. Press Enter to send, Shift+Enter for a new line."
+                                        value={messageInput}
+                                        onChange={(event) => handleMessageInputChange(event.target.value)}
+                                        onKeyDown={handleComposerKeyDown}
+                                        rows={isMobileViewport ? 2 : 3}
+                                    />
+                                    <button
+                                        type="submit"
+                                        disabled={!activeConvoId || (!messageInput.trim() && pendingAttachments.length === 0) || Boolean(attachmentUploadState)}
+                                        className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        <Send className="w-4 h-4" />
+                                    </button>
+                                </div>
+
+                                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <input
+                                            ref={uploadInputRef}
+                                            type="file"
+                                            multiple
+                                            accept={MESSAGE_UPLOAD_ACCEPT}
+                                            className="hidden"
+                                            onChange={(event) => void handleUploadInputChange(event)}
+                                        />
+                                        <button
+                                            type="button"
+                                            className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 transition hover:bg-blue-50 hover:text-blue-600"
+                                            onClick={() => uploadInputRef.current?.click()}
+                                            title="Upload from device"
+                                        >
+                                            <Paperclip className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 transition hover:bg-blue-50 hover:text-blue-600"
+                                            onClick={() => setShowFilePicker(true)}
+                                            title="Choose from uploaded files"
+                                        >
+                                            <ImageIcon className="w-5 h-5" />
+                                        </button>
+                                        <VoiceRecorder
+                                            disabled={
+                                                voiceNoteBusy ||
+                                                !activeConvoId ||
+                                                !voiceRuntimeConfig.enabledVoiceNotes ||
+                                                voiceRuntimeConfig.blockedForCurrentUser ||
+                                                Boolean(attachmentUploadState)
+                                            }
+                                            maxDurationSeconds={voiceRuntimeConfig.maxVoiceNoteDurationSeconds}
+                                            onRecorded={handleVoiceRecorded}
+                                            onError={(message) => showNotification('error', 'Voice notes', message)}
+                                            className="h-10 w-10 justify-center rounded-xl hover:bg-gray-100"
+                                        />
+                                    </div>
+
+                                    <div className="text-[11px] text-gray-500">
+                                        {pendingAttachments.length > 0
+                                            ? `${pendingAttachments.length} attachment${pendingAttachments.length === 1 ? '' : 's'} queued`
+                                            : 'Private chat media stays scoped to this conversation.'}
+                                    </div>
+                                </div>
                             </form>
                         </div>
                     </>
@@ -2198,7 +2545,7 @@ const Messages = () => {
         acceptedTypes={['image', 'video', 'document']}
         title="Select files to send"
         role={user?.role}
-        visibility="public"
+        visibility="private"
     />
     </VoiceCallProvider>
   );
