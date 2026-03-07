@@ -5,19 +5,25 @@ import { Capacitor } from '@capacitor/core';
 import {
   AlertTriangle,
   ArrowLeft,
+  BadgeCheck,
   Download,
   Heart,
   LogOut,
   Loader2,
+  MessageSquareText,
   Mic,
   MicOff,
   Radio,
   RefreshCw,
   SendHorizontal,
+  Signal,
+  Sparkles,
   Square,
   ThumbsUp,
+  Users,
   Video,
   VideoOff,
+  Wand2,
   Volume2,
   VolumeX
 } from 'lucide-react';
@@ -111,6 +117,27 @@ const toCssFilter = (preset: LiveFilterPreset, strength: number) => {
   return `contrast(${1 + 0.35 * s})`;
 };
 
+const formatMetric = (value: number) => {
+  const safe = Math.max(0, Number(value || 0));
+  if (safe >= 1000000) return `${(safe / 1000000).toFixed(safe >= 10000000 ? 0 : 1)}M`;
+  if (safe >= 1000) return `${(safe / 1000).toFixed(safe >= 10000 ? 0 : 1)}K`;
+  return String(safe);
+};
+
+const getStatusTone = (status: string) => {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'live') return 'border-rose-200 bg-rose-50 text-rose-700';
+  if (normalized === 'ended') return 'border-slate-200 bg-slate-100 text-slate-600';
+  return 'border-amber-200 bg-amber-50 text-amber-700';
+};
+
+const getConnectionTone = (state: 'idle' | 'connecting' | 'connected' | 'failed') => {
+  if (state === 'connected') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  if (state === 'connecting') return 'border-sky-200 bg-sky-50 text-sky-700';
+  if (state === 'failed') return 'border-rose-200 bg-rose-50 text-rose-700';
+  return 'border-slate-200 bg-slate-100 text-slate-600';
+};
+
 const ensureTrackSenders = (pc: RTCPeerConnection, stream: MediaStream) => {
   stream.getTracks().forEach((track) => {
     const hasSender = pc
@@ -180,6 +207,26 @@ const LiveViewer: React.FC = () => {
     () => toCssFilter(activeFilterPreset, activeFilterStrength),
     [activeFilterPreset, activeFilterStrength]
   );
+  const hostName = String(session?.host?.name || session?.host?.username || 'Host');
+  const activeFilterLabel =
+    LIVE_FILTER_PRESETS.find((entry) => entry.value === activeFilterPreset)?.label || activeFilterPreset;
+  const activeParticipantsCount = useMemo(
+    () =>
+      Array.isArray(session?.participants)
+        ? session.participants.filter((entry) => String(entry.status || '').toLowerCase() === 'joined').length
+        : 0,
+    [session?.participants]
+  );
+  const streamAgeLabel = useMemo(() => {
+    if (!session?.startedAt || status !== 'live') return status === 'ended' ? 'Stream ended' : 'Ready to broadcast';
+    const diffMs = Math.max(0, Date.now() - new Date(session.startedAt).getTime());
+    const totalMinutes = Math.floor(diffMs / 60000);
+    if (totalMinutes < 1) return 'Live just now';
+    if (totalMinutes < 60) return `Live for ${totalMinutes}m`;
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return `Live for ${hours}h ${minutes}m`;
+  }, [session?.startedAt, status]);
   const mentionedUsers = useMemo(() => {
     const rows = Array.isArray(sessionMetadata?.mentionedUsers) ? sessionMetadata.mentionedUsers : [];
     return rows
@@ -1027,39 +1074,52 @@ const LiveViewer: React.FC = () => {
           : 'Idle';
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6">
-      <div className="mb-4 flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => navigate('/live/studio')}
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Studio
-        </button>
-        <div className="flex items-center gap-2">
-          <div className="inline-flex items-center gap-2 rounded-full bg-slate-900/90 px-3 py-1 text-xs font-semibold text-white">
-            <Radio className="h-3.5 w-3.5 text-rose-300" />
-            {status === 'live' ? 'LIVE' : status ? status.toUpperCase() : 'SESSION'}
+    <div className="mx-auto w-full max-w-7xl px-4 py-6">
+      <div className="mb-5 overflow-hidden rounded-[30px] border border-slate-200/80 bg-white shadow-[0_24px_70px_-40px_rgba(15,23,42,0.35)]">
+        <div className="bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.16),_transparent_38%),linear-gradient(135deg,_#020617,_#0f172a_52%,_#172554)] px-4 py-4 text-white sm:px-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => navigate('/live/studio')}
+                className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-sm font-medium text-white hover:bg-white/15"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back to Studio
+              </button>
+              <div
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${
+                  status === 'live' ? 'border-rose-300/40 bg-rose-500/15 text-rose-100' : 'border-white/15 bg-white/10 text-slate-100'
+                }`}
+              >
+                <Radio className="h-3.5 w-3.5" />
+                {status === 'live' ? 'LIVE' : status ? status.toUpperCase() : 'SESSION'}
+              </div>
+              <div className="hidden rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-slate-100 sm:inline-flex">
+                {streamAgeLabel}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void leaveStream()}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Exit Stream
+              </button>
+              {isHost && status === 'live' ? (
+                <button
+                  type="button"
+                  onClick={() => void endStream()}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-700"
+                >
+                  <Square className="h-3.5 w-3.5" />
+                  End Live Stream
+                </button>
+              ) : null}
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => void leaveStream()}
-            className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-            Exit Stream
-          </button>
-          {isHost && status === 'live' ? (
-            <button
-              type="button"
-              onClick={() => void endStream()}
-              className="inline-flex items-center gap-1 rounded-xl bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-700"
-            >
-              <Square className="h-3.5 w-3.5" />
-              End Live Stream
-            </button>
-          ) : null}
         </div>
       </div>
 
@@ -1072,19 +1132,22 @@ const LiveViewer: React.FC = () => {
           Livestream session not found.
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-4">
-            <div className="relative overflow-hidden rounded-3xl border border-slate-200 bg-black" onDoubleClick={() => void sendReaction('like')}>
+            <div
+              className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-[0_24px_70px_-38px_rgba(15,23,42,0.28)]"
+            >
+              <div className="relative overflow-hidden bg-black" onDoubleClick={() => void sendReaction('like')}>
               {(isHost && localStream) || (!isHost && remoteTrackCount > 0) || canPlayVideo ? (
                 <video
                   ref={videoRef}
-                  className="h-[58vh] w-full bg-black object-cover"
+                  className="h-[62vh] w-full bg-black object-cover"
                   controls={canPlayVideo && !isHost && !(remoteTrackCount > 0)}
                   playsInline
                   style={{ filter: activeVideoFilter }}
                 />
               ) : (
-                <div className="flex h-[58vh] w-full flex-col items-center justify-center gap-3 px-4 text-center text-sm text-slate-300">
+                <div className="flex h-[62vh] w-full flex-col items-center justify-center gap-3 px-4 text-center text-sm text-slate-300">
                   {mediaInitBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
                   <span>
                     {isHost ? 'Preparing camera and microphone for this live session.' : 'Waiting for host camera to start streaming.'}
@@ -1131,22 +1194,67 @@ const LiveViewer: React.FC = () => {
                   )}
                 </div>
               )}
-              <div className="absolute left-3 top-3 rounded-xl bg-black/55 px-3 py-1.5 text-xs text-white backdrop-blur-sm">
-                {session.title || 'Untitled livestream'}
+              <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black/60 to-transparent" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+              <div className="absolute left-4 top-4 flex max-w-[calc(100%-150px)] items-start gap-3">
+                <img
+                  src={session.host?.avatar || '/api/placeholder/48/48'}
+                  alt={hostName}
+                  className="h-11 w-11 rounded-2xl border border-white/20 object-cover shadow-lg shadow-black/25"
+                />
+                <div className="min-w-0 rounded-2xl border border-white/12 bg-black/35 px-3 py-2 text-white backdrop-blur-sm">
+                  <p className="truncate text-sm font-semibold">{hostName}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-200">{session.title || 'Untitled livestream'}</p>
+                </div>
               </div>
-              <div className="absolute right-3 top-3 rounded-xl bg-black/55 px-3 py-1.5 text-xs text-white backdrop-blur-sm">
-                Viewers {Number(session.viewerCount || 0)}
+              <div className="absolute right-4 top-4 flex flex-col items-end gap-2">
+                <div className="rounded-full border border-white/12 bg-black/45 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm">
+                  Viewers {formatMetric(Number(session.viewerCount || 0))}
+                </div>
+                <div className="rounded-full border border-white/12 bg-black/45 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-sm">
+                  Peak {formatMetric(Number(session.peakViewerCount || 0))}
+                </div>
               </div>
+              <div className="absolute inset-x-4 bottom-4 flex flex-wrap items-end justify-between gap-3">
+                <div className="max-w-2xl rounded-[24px] border border-white/12 bg-black/40 px-4 py-3 text-white backdrop-blur-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${getStatusTone(status)}`}>
+                      {status === 'live' ? 'LIVE' : status ? status.toUpperCase() : 'SESSION'}
+                    </span>
+                    <span className="rounded-full border border-white/12 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-100">
+                      {String(session.visibility || 'public').toUpperCase()}
+                    </span>
+                    <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${getConnectionTone(connectionState)}`}>
+                      {connectionLabel}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-lg font-semibold">{session.title || 'Untitled livestream'}</p>
+                  <p className="mt-1 max-w-xl text-sm leading-6 text-slate-200">
+                    {session.description || 'No description provided.'}
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-200">
+                    <span className="rounded-full border border-white/12 bg-white/10 px-3 py-1">{streamAgeLabel}</span>
+                    <span className="rounded-full border border-white/12 bg-white/10 px-3 py-1">
+                      Participants {formatMetric(activeParticipantsCount)}
+                    </span>
+                    {activeFilterPreset !== 'none' ? (
+                      <span className="rounded-full border border-violet-300/20 bg-violet-500/15 px-3 py-1 text-violet-100">
+                        Filter {activeFilterLabel}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
               {!isHost && ((remoteTrackCount > 0) || canPlayVideo) ? (
                 <button
                   type="button"
                   onClick={() => setViewerMuted((prev) => !prev)}
-                  className="absolute bottom-4 right-4 inline-flex items-center gap-2 rounded-xl bg-black/55 px-3 py-2 text-xs font-semibold text-white backdrop-blur-sm hover:bg-black/70"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/12 bg-black/50 px-4 py-3 text-xs font-semibold text-white backdrop-blur-sm hover:bg-black/65"
                 >
                   {viewerMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-                  {viewerMuted ? 'Unmute' : 'Mute'}
+                  {viewerMuted ? 'Unmute stream' : 'Mute stream'}
                 </button>
               ) : null}
+              </div>
               <ReactionOverlay items={floatingReactions} />
               {showSafetyNotice ? (
                 <div className="pointer-events-none absolute inset-x-3 bottom-3 z-20 rounded-xl border border-amber-300/60 bg-amber-500/20 px-3 py-2 text-[11px] font-semibold text-amber-100 backdrop-blur">
@@ -1155,116 +1263,180 @@ const LiveViewer: React.FC = () => {
               ) : null}
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="text-lg font-semibold text-slate-900">{session.title || 'Untitled livestream'}</h2>
-              <p className="mt-1 text-sm text-slate-600">{session.description || 'No description provided.'}</p>
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                <span className="rounded-full bg-slate-100 px-2.5 py-1">{String(session.visibility || 'public').toUpperCase()}</span>
-                <span className="rounded-full bg-slate-100 px-2.5 py-1">Viewers {Number(session.viewerCount || 0)}</span>
-                <span className="rounded-full bg-slate-100 px-2.5 py-1">Peak {Number(session.peakViewerCount || 0)}</span>
-                <span className="rounded-full bg-slate-100 px-2.5 py-1">{connectionLabel}</span>
-                {activeFilterPreset !== 'none' ? (
-                  <span className="rounded-full bg-violet-50 px-2.5 py-1 text-violet-700">
-                    Filter {LIVE_FILTER_PRESETS.find((entry) => entry.value === activeFilterPreset)?.label || activeFilterPreset}
-                  </span>
-                ) : null}
-              </div>
-              {mentionedUsers.length ? (
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                  <span className="font-semibold text-slate-700">Mentioned</span>
-                  {mentionedUsers.map((entry) => (
-                    <span key={`mention-${entry.id || entry.username}`} className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">
-                      @{entry.username || entry.name}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              {taggedPages.length ? (
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-                  <span className="font-semibold text-slate-700">Tagged pages</span>
-                  {taggedPages.map((entry) => (
-                    <span key={`page-${entry.id || entry.slug || entry.handle}`} className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700">
-                      {entry.name || entry.handle || entry.slug || 'Page'}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => void sendReaction('like')}
-                  className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  <ThumbsUp className="h-3.5 w-3.5" /> {Number(session.likesCount || 0)}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void sendReaction('love')}
-                  className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  <Heart className="h-3.5 w-3.5" /> {Number(session.lovesCount || 0)}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleShare}
-                  className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Share
-                </button>
-                {isHost ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={toggleMic}
-                      className={`inline-flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-semibold ${
-                        micEnabled ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'border border-slate-200 text-slate-700'
-                      }`}
-                    >
-                      {micEnabled ? <Mic className="h-3.5 w-3.5" /> : <MicOff className="h-3.5 w-3.5" />}
-                      {micEnabled ? 'Mic On' : 'Mic Off'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={toggleCamera}
-                      className={`inline-flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-semibold ${
-                        cameraEnabled ? 'border border-blue-200 bg-blue-50 text-blue-700' : 'border border-slate-200 text-slate-700'
-                      }`}
-                    >
-                      {cameraEnabled ? <Video className="h-3.5 w-3.5" /> : <VideoOff className="h-3.5 w-3.5" />}
-                      {cameraEnabled ? 'Cam On' : 'Cam Off'}
-                    </button>
-                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2 py-2">
-                      <select
-                        value={activeFilterPreset}
-                        onChange={(event) => setActiveFilterPreset(normalizeFilterPreset(event.target.value))}
-                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none"
-                      >
-                        {LIVE_FILTER_PRESETS.map((entry) => (
-                          <option key={entry.value} value={entry.value}>
-                            {entry.label}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={activeFilterStrength}
-                        onChange={(event) => setActiveFilterStrength(clampFilterStrength(event.target.value))}
-                        className="w-24 accent-blue-600"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void applyFilter()}
-                        disabled={filterBusy}
-                        className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
-                      >
-                        {filterBusy ? 'Applying...' : 'Apply Filter'}
-                      </button>
+              <div className="grid grid-cols-1 gap-4 border-t border-slate-200 bg-[linear-gradient(180deg,_rgba(248,250,252,0.9),_rgba(255,255,255,1))] p-5 lg:grid-cols-[minmax(0,1fr)_330px]">
+                <div>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Viewers</p>
+                      <p className="mt-2 text-xl font-semibold text-slate-950">{formatMetric(Number(session.viewerCount || 0))}</p>
                     </div>
-                  </>
-                ) : null}
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Peak</p>
+                      <p className="mt-2 text-xl font-semibold text-slate-950">{formatMetric(Number(session.peakViewerCount || 0))}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Likes</p>
+                      <p className="mt-2 text-xl font-semibold text-slate-950">{formatMetric(Number(session.likesCount || 0))}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Loves</p>
+                      <p className="mt-2 text-xl font-semibold text-slate-950">{formatMetric(Number(session.lovesCount || 0))}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void sendReaction('like')}
+                      className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <ThumbsUp className="h-3.5 w-3.5" />
+                      {formatMetric(Number(session.likesCount || 0))}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void sendReaction('love')}
+                      className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <Heart className="h-3.5 w-3.5" />
+                      {formatMetric(Number(session.lovesCount || 0))}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleShare}
+                      className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Share stream
+                    </button>
+                    <div className="inline-flex items-center gap-1.5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-semibold text-amber-700">
+                      <ThumbsUp className="h-3.5 w-3.5" />
+                      Double tap video to like
+                    </div>
+                  </div>
+
+                  {mentionedUsers.length ? (
+                    <div className="mt-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Mentioned people</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {mentionedUsers.map((entry) => (
+                          <span key={`mention-${entry.id || entry.username}`} className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700">
+                            @{entry.username || entry.name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {taggedPages.length ? (
+                    <div className="mt-4">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Tagged pages</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {taggedPages.map((entry) => (
+                          <span key={`page-${entry.id || entry.slug || entry.handle}`} className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                            {entry.name || entry.handle || entry.slug || 'Page'}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="rounded-[26px] border border-slate-200 bg-slate-950 p-4 text-white shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <img
+                      src={session.host?.avatar || '/api/placeholder/48/48'}
+                      alt={hostName}
+                      className="h-12 w-12 rounded-2xl border border-white/10 object-cover"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">{hostName}</p>
+                      <p className="mt-1 text-xs text-slate-300">
+                        {isHost ? 'You are managing this live session.' : 'Host controls remain isolated from viewers.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Connection</p>
+                      <p className="mt-2 text-sm font-semibold text-white">{connectionLabel}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Participants</p>
+                      <p className="mt-2 text-sm font-semibold text-white">{formatMetric(activeParticipantsCount)}</p>
+                    </div>
+                  </div>
+
+                  {isHost ? (
+                    <>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={toggleMic}
+                          className={`inline-flex items-center gap-1.5 rounded-2xl px-4 py-2.5 text-xs font-semibold ${
+                            micEnabled ? 'bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/20' : 'bg-white/5 text-slate-200 ring-1 ring-white/10'
+                          }`}
+                        >
+                          {micEnabled ? <Mic className="h-3.5 w-3.5" /> : <MicOff className="h-3.5 w-3.5" />}
+                          {micEnabled ? 'Mic On' : 'Mic Off'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={toggleCamera}
+                          className={`inline-flex items-center gap-1.5 rounded-2xl px-4 py-2.5 text-xs font-semibold ${
+                            cameraEnabled ? 'bg-sky-500/15 text-sky-200 ring-1 ring-sky-400/20' : 'bg-white/5 text-slate-200 ring-1 ring-white/10'
+                          }`}
+                        >
+                          {cameraEnabled ? <Video className="h-3.5 w-3.5" /> : <VideoOff className="h-3.5 w-3.5" />}
+                          {cameraEnabled ? 'Cam On' : 'Cam Off'}
+                        </button>
+                      </div>
+
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-3">
+                        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-300">
+                          <Wand2 className="h-3.5 w-3.5 text-violet-300" />
+                          Live filter
+                        </div>
+                        <div className="mt-3 space-y-3">
+                          <select
+                            value={activeFilterPreset}
+                            onChange={(event) => setActiveFilterPreset(normalizeFilterPreset(event.target.value))}
+                            className="w-full rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-xs text-slate-100 outline-none"
+                          >
+                            {LIVE_FILTER_PRESETS.map((entry) => (
+                              <option key={entry.value} value={entry.value}>
+                                {entry.label}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            step={1}
+                            value={activeFilterStrength}
+                            onChange={(event) => setActiveFilterStrength(clampFilterStrength(event.target.value))}
+                            className="w-full accent-violet-400"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void applyFilter()}
+                            disabled={filterBusy}
+                            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:opacity-60"
+                          >
+                            <BadgeCheck className="h-3.5 w-3.5" />
+                            {filterBusy ? 'Applying...' : `Apply ${activeFilterLabel}`}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-slate-300">
+                      Use reactions, chat, and gifting without leaving the stream.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1280,78 +1452,99 @@ const LiveViewer: React.FC = () => {
                 await sendGift(payload);
               }}
             />
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="text-sm font-semibold text-slate-900">Live Chat</p>
-              <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+            <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.12),_transparent_40%),linear-gradient(135deg,_#f8fafc,_#ffffff)] px-5 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Live Chat</p>
+                    <h3 className="mt-2 text-lg font-semibold text-slate-950">Realtime audience conversation</h3>
+                  </div>
+                  <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                    {formatMetric(comments.length)} messages
+                  </div>
+                </div>
+              </div>
+              <div className="p-5">
+                <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
                 {comments.length === 0 ? (
-                  <p className="text-xs text-slate-500">No comments yet. Start the conversation.</p>
+                  <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-xs text-slate-500">
+                    No comments yet. Start the conversation.
+                  </p>
                 ) : (
                   comments.map((comment: any) => (
-                    <div key={String(comment?.id || Math.random())} className="rounded-xl bg-slate-50 px-3 py-2">
+                    <div key={String(comment?.id || Math.random())} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                       <p className="text-[11px] font-semibold text-slate-700">
                         {String(comment?.user?.name || comment?.user?.username || 'Scrolith user')}
                       </p>
-                      <p className="mt-0.5 text-xs text-slate-700">{String(comment?.message || '')}</p>
+                      <p className="mt-1 text-sm text-slate-700">{String(comment?.message || '')}</p>
                     </div>
                   ))
                 )}
               </div>
-              <div className="mt-3 flex items-center gap-2">
-                <input
-                  type="text"
-                  value={commentDraft}
-                  onChange={(event) => setCommentDraft(event.target.value)}
-                  placeholder="Write a comment..."
-                  className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-700 outline-none focus:border-blue-400"
-                  maxLength={500}
-                />
-                <button
-                  type="button"
-                  onClick={() => void sendComment()}
-                  disabled={commentSending || !String(commentDraft || '').trim()}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
-                  aria-label="Send comment"
-                >
-                  {commentSending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <SendHorizontal className="h-3.5 w-3.5" />}
-                </button>
+                <div className="mt-4 flex items-center gap-2">
+                  <div className="relative min-w-0 flex-1">
+                    <MessageSquareText className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={commentDraft}
+                      onChange={(event) => setCommentDraft(event.target.value)}
+                      placeholder="Write a comment..."
+                      className="min-w-0 w-full rounded-2xl border border-slate-200 px-10 py-3 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+                      maxLength={500}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void sendComment()}
+                    disabled={commentSending || !String(commentDraft || '').trim()}
+                    className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-600 text-white transition hover:bg-blue-700 disabled:opacity-60"
+                    aria-label="Send comment"
+                  >
+                    {commentSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
             </div>
 
             {canManageRecording ? (
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <p className="text-sm font-semibold text-slate-900">Recording Management</p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Save, publish, unpublish, download, or delete stream recordings after or during session.
-                </p>
-                <div className="mt-3 space-y-2">
+              <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(168,85,247,0.12),_transparent_40%),linear-gradient(135deg,_#f8fafc,_#ffffff)] px-5 py-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Recording Management</p>
+                  <h3 className="mt-2 text-lg font-semibold text-slate-950">Control replay distribution after the broadcast.</h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Save, publish, unpublish, download, or delete stream recordings after or during session.
+                  </p>
+                </div>
+                <div className="p-5">
+                <div className="space-y-2">
                   <input
                     type="text"
                     value={recordingFileIdDraft}
                     onChange={(event) => setRecordingFileIdDraft(event.target.value)}
                     placeholder="Recording file ID"
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-700"
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
                   />
                   <input
                     type="text"
                     value={recordingTitleDraft}
                     onChange={(event) => setRecordingTitleDraft(event.target.value)}
                     placeholder="Recording title"
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-700"
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
                   />
                   <textarea
                     value={recordingDescriptionDraft}
                     onChange={(event) => setRecordingDescriptionDraft(event.target.value)}
                     placeholder="Recording description"
                     rows={3}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-700"
+                    className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-violet-400 focus:ring-4 focus:ring-violet-100"
                   />
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-4 flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => void saveRecording()}
                     disabled={recordingBusy}
-                    className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                    className="rounded-2xl bg-slate-950 px-4 py-3 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
                   >
                     {recordingBusy ? 'Saving...' : 'Save Recording'}
                   </button>
@@ -1359,7 +1552,7 @@ const LiveViewer: React.FC = () => {
                     type="button"
                     onClick={() => void publishRecording('post')}
                     disabled={recordingBusy}
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    className="rounded-2xl border border-slate-200 px-4 py-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
                   >
                     Publish to Post
                   </button>
@@ -1367,7 +1560,7 @@ const LiveViewer: React.FC = () => {
                     type="button"
                     onClick={() => void publishRecording('scroll')}
                     disabled={recordingBusy}
-                    className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                    className="rounded-2xl border border-slate-200 px-4 py-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
                   >
                     Publish to Scroll
                   </button>
@@ -1375,7 +1568,7 @@ const LiveViewer: React.FC = () => {
                     type="button"
                     onClick={() => void unpublishRecording()}
                     disabled={recordingBusy}
-                    className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-60"
+                    className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-700 transition hover:bg-amber-100 disabled:opacity-60"
                   >
                     Unpublish
                   </button>
@@ -1383,7 +1576,7 @@ const LiveViewer: React.FC = () => {
                     type="button"
                     onClick={() => void deleteRecording()}
                     disabled={recordingBusy}
-                    className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-60"
+                    className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60"
                   >
                     Delete Recording
                   </button>
@@ -1393,19 +1586,36 @@ const LiveViewer: React.FC = () => {
                     href={String(session.recording.downloadUrl)}
                     target="_blank"
                     rel="noreferrer"
-                    className="mt-3 inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                    className="mt-4 inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 px-4 py-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
                   >
                     <Download className="h-3.5 w-3.5" />
                     Download Recording
                   </a>
                 ) : null}
+                </div>
               </div>
             ) : null}
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="text-sm font-semibold text-slate-900">Realtime events</p>
-              <p className="mt-1 text-xs text-slate-500">
-                Connected: {isConnected ? 'Yes' : 'No'} | Socket room: live:session:{session.id}
-              </p>
+            <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 bg-[linear-gradient(135deg,_#f8fafc,_#ffffff)] px-5 py-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Realtime events</p>
+                <h3 className="mt-2 text-lg font-semibold text-slate-950">Delivery status</h3>
+              </div>
+              <div className="space-y-3 p-5">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                  <div className="flex items-center gap-2 font-semibold text-slate-900">
+                    <Signal className="h-4 w-4 text-sky-600" />
+                    Socket connection
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">Connected: {isConnected ? 'Yes' : 'No'}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                  <div className="flex items-center gap-2 font-semibold text-slate-900">
+                    <Users className="h-4 w-4 text-emerald-600" />
+                    Session room
+                  </div>
+                  <p className="mt-1 break-all text-xs text-slate-500">live:session:{session.id}</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
