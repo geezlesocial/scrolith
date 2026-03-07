@@ -3,7 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { PlusCircle, Radio, RefreshCw, Video } from 'lucide-react';
 import { LiveService, type LiveSession, type LiveVisibility } from '../../services/live';
 import { useNotification } from '../../context/NotificationContext';
-import { requestLiveMediaStream, stopStreamTracks } from './liveMedia';
+import {
+  clearPrimedLiveMediaStream,
+  primeLiveMediaStream,
+  requestLiveMediaStream
+} from './liveMedia';
 
 const VISIBILITY_OPTIONS: Array<{ value: LiveVisibility; label: string }> = [
   { value: 'public', label: 'Public' },
@@ -12,11 +16,23 @@ const VISIBILITY_OPTIONS: Array<{ value: LiveVisibility; label: string }> = [
   { value: 'private', label: 'Private' }
 ];
 
-const requestMediaPreflight = async () => {
-  const { stream, audioLimited } = await requestLiveMediaStream();
-  stopStreamTracks(stream);
-  return { audioLimited };
-};
+const requestMediaPreflight = async () => requestLiveMediaStream();
+
+const parseList = (value: string, options?: { stripAt?: boolean }) =>
+  Array.from(
+    new Set(
+      String(value || '')
+        .split(/[,\s]+/g)
+        .map((entry) => {
+          const trimmed = String(entry || '').trim();
+          if (!trimmed) return '';
+          if (options?.stripAt && trimmed.startsWith('@')) return trimmed.slice(1).trim();
+          return trimmed;
+        })
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean)
+    )
+  ).slice(0, 30);
 
 const toMediaPreflightMessage = (error: any) => {
   const code = String(error?.name || '').toLowerCase();
@@ -41,6 +57,10 @@ const LiveStudio: React.FC = () => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState<LiveVisibility>('public');
+  const [mentionUserDraft, setMentionUserDraft] = useState('');
+  const [taggedPageDraft, setTaggedPageDraft] = useState('');
+  const [notifyFollowersOnLive, setNotifyFollowersOnLive] = useState(true);
+  const [notifyNetworkOnLive, setNotifyNetworkOnLive] = useState(false);
   const [inviteDraft, setInviteDraft] = useState('');
   const [inviteBusySessionId, setInviteBusySessionId] = useState<string | null>(null);
 
@@ -71,24 +91,33 @@ const LiveStudio: React.FC = () => {
       const created = await LiveService.createSession({
         title: title.trim(),
         description: description.trim(),
-        visibility
+        visibility,
+        metadata: {
+          mentionUsernames: parseList(mentionUserDraft, { stripAt: true }),
+          taggedPageRefs: parseList(taggedPageDraft),
+          notifyFollowersOnLive: Boolean(notifyFollowersOnLive),
+          notifyNetworkOnLive: Boolean(notifyNetworkOnLive)
+        }
       });
       setSessions((prev) => [created, ...prev.filter((entry) => entry.id !== created.id)]);
       showNotification('success', 'Live Studio', 'Livestream session created.');
       setTitle('');
       setDescription('');
+      setMentionUserDraft('');
+      setTaggedPageDraft('');
     } catch (error: any) {
       const message = error?.response?.data?.error || error?.message || 'Failed to create session.';
       showNotification('error', 'Live Studio', message);
     } finally {
       setCreating(false);
     }
-  }, [description, showNotification, title, visibility]);
+  }, [description, mentionUserDraft, notifyFollowersOnLive, notifyNetworkOnLive, showNotification, taggedPageDraft, title, visibility]);
 
   const startSession = useCallback(
     async (session: LiveSession) => {
       try {
         const media = await requestMediaPreflight();
+        primeLiveMediaStream(media);
         const updated = await LiveService.startSession(session.id);
         setSessions((prev) => prev.map((entry) => (entry.id === updated.id ? updated : entry)));
         if (media.audioLimited) {
@@ -101,6 +130,7 @@ const LiveStudio: React.FC = () => {
         showNotification('success', 'Live Studio', 'Livestream started.');
         navigate(`/live/${encodeURIComponent(updated.id)}`);
       } catch (error: any) {
+        clearPrimedLiveMediaStream();
         const message =
           error?.response?.data?.error ||
           (error?.name ? toMediaPreflightMessage(error) : null) ||
@@ -202,6 +232,38 @@ const LiveStudio: React.FC = () => {
             className="lg:col-span-2 min-h-[90px] rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
             placeholder="Session description"
           />
+          <input
+            type="text"
+            value={mentionUserDraft}
+            onChange={(event) => setMentionUserDraft(event.target.value)}
+            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 lg:col-span-2"
+            placeholder="Mention users (e.g. @jane @john)"
+          />
+          <input
+            type="text"
+            value={taggedPageDraft}
+            onChange={(event) => setTaggedPageDraft(event.target.value)}
+            className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 lg:col-span-2"
+            placeholder="Tag pages (page IDs, handles, or slugs)"
+          />
+          <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700">
+            <input
+              type="checkbox"
+              checked={notifyFollowersOnLive}
+              onChange={(event) => setNotifyFollowersOnLive(event.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            />
+            Notify followers when going live
+          </label>
+          <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700">
+            <input
+              type="checkbox"
+              checked={notifyNetworkOnLive}
+              onChange={(event) => setNotifyNetworkOnLive(event.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            />
+            Notify network (followers + following)
+          </label>
           <button
             type="button"
             onClick={() => void createSession()}

@@ -17,7 +17,9 @@ import {
   Square,
   ThumbsUp,
   Video,
-  VideoOff
+  VideoOff,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { LiveService, type LiveSession } from '../../services/live';
 import { useNotification } from '../../context/NotificationContext';
@@ -26,7 +28,7 @@ import { useUser } from '../../context/UserContext';
 import ParticipantGrid from './components/ParticipantGrid';
 import GiftPanel from './components/GiftPanel';
 import ReactionOverlay from './components/ReactionOverlay';
-import { requestLiveMediaStream, stopStreamTracks } from './liveMedia';
+import { consumePrimedLiveMediaStream, requestLiveMediaStream, stopStreamTracks } from './liveMedia';
 
 type FloatingReaction = {
   id: string;
@@ -39,10 +41,23 @@ type SignalPayload = {
   candidate?: RTCIceCandidateInit;
 };
 
+type LiveFilterPreset = 'none' | 'vibrant' | 'cinematic' | 'bw' | 'sepia' | 'warm' | 'cool' | 'contrast';
+
 const RTC_CONFIG: RTCConfiguration = {
   iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }],
   iceCandidatePoolSize: 8
 };
+
+const LIVE_FILTER_PRESETS: Array<{ value: LiveFilterPreset; label: string }> = [
+  { value: 'none', label: 'None' },
+  { value: 'vibrant', label: 'Vibrant' },
+  { value: 'cinematic', label: 'Cinematic' },
+  { value: 'bw', label: 'B&W' },
+  { value: 'sepia', label: 'Sepia' },
+  { value: 'warm', label: 'Warm' },
+  { value: 'cool', label: 'Cool' },
+  { value: 'contrast', label: 'High Contrast' }
+];
 
 const SAFETY_NOTICE_TEXT =
   'Warning: Illegal activity, nudity/explicit content, and illegal product promotion are prohibited. All livestreams must follow Scrolith Terms and Community Guidelines.';
@@ -59,6 +74,41 @@ const toCompactErrorMessage = (error: any) => {
     return 'Camera is already in use by another app. Close other camera apps and retry.';
   }
   return String(error?.message || 'Unable to access camera and microphone.');
+};
+
+const clampFilterStrength = (value: any) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 70;
+  return Math.max(0, Math.min(100, Math.round(parsed)));
+};
+
+const normalizeFilterPreset = (value: any): LiveFilterPreset => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (LIVE_FILTER_PRESETS.some((entry) => entry.value === normalized)) return normalized as LiveFilterPreset;
+  return 'none';
+};
+
+const parseLiveFilter = (metadata: Record<string, any> | null | undefined) => {
+  const source =
+    (metadata?.liveFilter && typeof metadata.liveFilter === 'object' ? metadata.liveFilter : null) ||
+    (metadata?.filter && typeof metadata.filter === 'object' ? metadata.filter : null) ||
+    {};
+  return {
+    preset: normalizeFilterPreset((source as any)?.preset),
+    strength: clampFilterStrength((source as any)?.strength ?? 70)
+  };
+};
+
+const toCssFilter = (preset: LiveFilterPreset, strength: number) => {
+  const s = Math.max(0, Math.min(100, Number(strength || 0))) / 100;
+  if (preset === 'none') return 'none';
+  if (preset === 'vibrant') return `saturate(${1 + 0.8 * s}) contrast(${1 + 0.18 * s})`;
+  if (preset === 'cinematic') return `contrast(${1 + 0.28 * s}) saturate(${1 + 0.12 * s}) brightness(${1 - 0.05 * s})`;
+  if (preset === 'bw') return `grayscale(${0.5 + 0.5 * s}) contrast(${1 + 0.12 * s})`;
+  if (preset === 'sepia') return `sepia(${0.45 + 0.55 * s}) saturate(${1 + 0.18 * s})`;
+  if (preset === 'warm') return `sepia(${0.2 + 0.22 * s}) saturate(${1 + 0.14 * s}) hue-rotate(-8deg)`;
+  if (preset === 'cool') return `saturate(${1 + 0.08 * s}) hue-rotate(10deg)`;
+  return `contrast(${1 + 0.35 * s})`;
 };
 
 const ensureTrackSenders = (pc: RTCPeerConnection, stream: MediaStream) => {
@@ -83,6 +133,8 @@ const LiveViewer: React.FC = () => {
   const localStreamRef = useRef<MediaStream | null>(null);
   const hostPeersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const viewerPeerRef = useRef<RTCPeerConnection | null>(null);
+  const pendingHostCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const pendingViewerCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const connectionRetryTimerRef = useRef<number | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -96,6 +148,10 @@ const LiveViewer: React.FC = () => {
   const [micEnabled, setMicEnabled] = useState(true);
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [connectionState, setConnectionState] = useState<'idle' | 'connecting' | 'connected' | 'failed'>('idle');
+  const [viewerMuted, setViewerMuted] = useState(true);
+  const [activeFilterPreset, setActiveFilterPreset] = useState<LiveFilterPreset>('none');
+  const [activeFilterStrength, setActiveFilterStrength] = useState(70);
+  const [filterBusy, setFilterBusy] = useState(false);
   const [comments, setComments] = useState<any[]>([]);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentSending, setCommentSending] = useState(false);
@@ -104,6 +160,7 @@ const LiveViewer: React.FC = () => {
   const [recordingTitleDraft, setRecordingTitleDraft] = useState('');
   const [recordingDescriptionDraft, setRecordingDescriptionDraft] = useState('');
   const [recordingBusy, setRecordingBusy] = useState(false);
+  const remoteTrackCount = remoteStream?.getTracks().length || 0;
 
   const status = String(session?.status || '').toLowerCase();
   const canPlayVideo = useMemo(() => Boolean(session?.hlsUrl || session?.streamUrl), [session?.hlsUrl, session?.streamUrl]);
@@ -115,6 +172,37 @@ const LiveViewer: React.FC = () => {
 
   const hostUserId = String(session?.hostUserId || '').trim();
   const canManageRecording = isHost || String(user?.role || '').toLowerCase().includes('admin');
+  const sessionMetadata = useMemo(() => {
+    const raw = session?.metadata;
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, any>) : {};
+  }, [session?.metadata]);
+  const activeVideoFilter = useMemo(
+    () => toCssFilter(activeFilterPreset, activeFilterStrength),
+    [activeFilterPreset, activeFilterStrength]
+  );
+  const mentionedUsers = useMemo(() => {
+    const rows = Array.isArray(sessionMetadata?.mentionedUsers) ? sessionMetadata.mentionedUsers : [];
+    return rows
+      .map((entry: any) => ({
+        id: String(entry?.id || entry?.userId || '').trim(),
+        username: String(entry?.username || '').trim(),
+        name: String(entry?.name || '').trim() || String(entry?.username || '').trim()
+      }))
+      .filter((entry: any) => entry.id || entry.username || entry.name)
+      .slice(0, 8);
+  }, [sessionMetadata]);
+  const taggedPages = useMemo(() => {
+    const rows = Array.isArray(sessionMetadata?.taggedPages) ? sessionMetadata.taggedPages : [];
+    return rows
+      .map((entry: any) => ({
+        id: String(entry?.id || entry?.pageId || '').trim(),
+        name: String(entry?.name || '').trim(),
+        slug: String(entry?.slug || '').trim(),
+        handle: String(entry?.handle || '').trim()
+      }))
+      .filter((entry: any) => entry.id || entry.name || entry.slug || entry.handle)
+      .slice(0, 8);
+  }, [sessionMetadata]);
 
   const loadSession = useCallback(async () => {
     if (!sessionId) return;
@@ -176,7 +264,8 @@ const LiveViewer: React.FC = () => {
     setMediaInitBusy(true);
     setMediaError(null);
     try {
-      const { stream, audioLimited } = await requestLiveMediaStream();
+      const primed = consumePrimedLiveMediaStream();
+      const { stream, audioLimited } = primed || (await requestLiveMediaStream());
       localStreamRef.current = stream;
       setLocalStream(stream);
       setMicEnabled(Boolean(stream.getAudioTracks()[0]?.enabled ?? true));
@@ -250,6 +339,10 @@ const LiveViewer: React.FC = () => {
           if (!exists) inboundStream.addTrack(track);
         });
       });
+      if (videoRef.current) {
+        videoRef.current.srcObject = inboundStream;
+        videoRef.current.muted = viewerMuted;
+      }
       setRemoteStream(inboundStream);
       setConnectionState('connected');
       setMediaError(null);
@@ -297,6 +390,8 @@ const LiveViewer: React.FC = () => {
       } catch {}
       viewerPeerRef.current = null;
     }
+    pendingHostCandidatesRef.current.clear();
+    pendingViewerCandidatesRef.current = [];
   }, []);
 
   const toggleMic = useCallback(() => {
@@ -318,6 +413,15 @@ const LiveViewer: React.FC = () => {
     });
     setCameraEnabled(next);
   }, [cameraEnabled]);
+
+  const retryViewerConnection = useCallback(() => {
+    if (!hostUserId) return;
+    closeAllPeers();
+    setRemoteStream(null);
+    pendingViewerCandidatesRef.current = [];
+    sendSignal(hostUserId, { kind: 'viewer-ready' });
+    setConnectionState('connecting');
+  }, [closeAllPeers, hostUserId, sendSignal]);
 
   useEffect(() => {
     void loadSession();
@@ -360,6 +464,12 @@ const LiveViewer: React.FC = () => {
       if (hideTimer) window.clearTimeout(hideTimer);
     };
   }, [status]);
+
+  useEffect(() => {
+    const parsed = parseLiveFilter(sessionMetadata);
+    setActiveFilterPreset(parsed.preset);
+    setActiveFilterStrength(parsed.strength);
+  }, [sessionMetadata]);
 
   useEffect(() => {
     const onReaction = (event: Event) => {
@@ -439,6 +549,24 @@ const LiveViewer: React.FC = () => {
       void loadSession();
     };
 
+    const onFilterUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail || {};
+      if (String(detail.sessionId || '') !== sessionId) return;
+      const preset = normalizeFilterPreset(detail?.filter?.preset ?? detail?.preset);
+      const strength = clampFilterStrength(detail?.filter?.strength ?? detail?.strength);
+      setActiveFilterPreset(preset);
+      setActiveFilterStrength(strength);
+      setSession((prev) => {
+        if (!prev) return prev;
+        const metadata =
+          prev.metadata && typeof prev.metadata === 'object' && !Array.isArray(prev.metadata)
+            ? { ...(prev.metadata as Record<string, any>) }
+            : {};
+        metadata.liveFilter = { preset, strength, updatedAt: detail?.emittedAt || new Date().toISOString() };
+        return { ...prev, metadata };
+      });
+    };
+
     const onRestriction = (event: Event) => {
       const detail = (event as CustomEvent<any>).detail || {};
       if (String(detail.userId || '') !== String(user?.id || '')) return;
@@ -460,6 +588,7 @@ const LiveViewer: React.FC = () => {
     window.addEventListener('live:recording_unpublished', onRecordingChange as EventListener);
     window.addEventListener('live:recording_deleted', onRecordingChange as EventListener);
     window.addEventListener('live:restriction_updated', onRestriction as EventListener);
+    window.addEventListener('live:filter_updated', onFilterUpdated as EventListener);
     return () => {
       window.removeEventListener('live:reaction', onReaction as EventListener);
       window.removeEventListener('live:viewer_count_updated', onViewer as EventListener);
@@ -473,6 +602,7 @@ const LiveViewer: React.FC = () => {
       window.removeEventListener('live:recording_unpublished', onRecordingChange as EventListener);
       window.removeEventListener('live:recording_deleted', onRecordingChange as EventListener);
       window.removeEventListener('live:restriction_updated', onRestriction as EventListener);
+      window.removeEventListener('live:filter_updated', onFilterUpdated as EventListener);
     };
   }, [loadSession, sessionId, showNotification, user?.id]);
 
@@ -504,10 +634,28 @@ const LiveViewer: React.FC = () => {
 
           if (kind === 'answer' && signal.sdp) {
             await hostPeer.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: String(signal.sdp) }));
+            const pendingCandidates = pendingHostCandidatesRef.current.get(fromUserId) || [];
+            if (pendingCandidates.length) {
+              pendingHostCandidatesRef.current.delete(fromUserId);
+              for (const candidate of pendingCandidates) {
+                try {
+                  await hostPeer.addIceCandidate(new RTCIceCandidate(candidate));
+                } catch (candidateError) {
+                  console.warn('Failed to apply queued host ICE candidate', candidateError);
+                }
+              }
+            }
             return;
           }
 
           if (kind === 'ice-candidate' && signal.candidate) {
+            const hasRemoteDescription = Boolean(hostPeer.remoteDescription && hostPeer.remoteDescription.type);
+            if (!hasRemoteDescription) {
+              const pending = pendingHostCandidatesRef.current.get(fromUserId) || [];
+              pending.push(signal.candidate as RTCIceCandidateInit);
+              pendingHostCandidatesRef.current.set(fromUserId, pending.slice(-60));
+              return;
+            }
             await hostPeer.addIceCandidate(new RTCIceCandidate(signal.candidate));
           }
           return;
@@ -518,6 +666,17 @@ const LiveViewer: React.FC = () => {
 
         if (kind === 'offer' && signal.sdp) {
           await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: String(signal.sdp) }));
+          if (pendingViewerCandidatesRef.current.length) {
+            const pending = [...pendingViewerCandidatesRef.current];
+            pendingViewerCandidatesRef.current = [];
+            for (const candidate of pending) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+              } catch (candidateError) {
+                console.warn('Failed to apply queued viewer ICE candidate', candidateError);
+              }
+            }
+          }
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
           sendSignal(hostUserId, {
@@ -528,6 +687,11 @@ const LiveViewer: React.FC = () => {
         }
 
         if (kind === 'ice-candidate' && signal.candidate) {
+          const hasRemoteDescription = Boolean(pc.remoteDescription && pc.remoteDescription.type);
+          if (!hasRemoteDescription) {
+            pendingViewerCandidatesRef.current = [...pendingViewerCandidatesRef.current, signal.candidate as RTCIceCandidateInit].slice(-80);
+            return;
+          }
           await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
         }
       } catch (error: any) {
@@ -600,10 +764,9 @@ const LiveViewer: React.FC = () => {
       return;
     }
 
-    if (!isHost && remoteStream && remoteStream.getTracks().length > 0) {
+    if (!isHost && remoteStream && remoteTrackCount > 0) {
       video.srcObject = remoteStream;
-      // Keep remote playback mobile-safe: autoplay muted, with controls available for unmute.
-      video.muted = true;
+      video.muted = viewerMuted;
       video.controls = true;
       video.autoplay = true;
       video.playsInline = true;
@@ -614,8 +777,10 @@ const LiveViewer: React.FC = () => {
     if (canPlayVideo) {
       video.srcObject = null;
       video.src = session.hlsUrl || session.streamUrl || '';
-      video.muted = true;
+      video.muted = viewerMuted;
       video.controls = true;
+      video.autoplay = true;
+      video.playsInline = true;
       void video.play().catch(() => {});
       return;
     }
@@ -623,7 +788,7 @@ const LiveViewer: React.FC = () => {
     video.srcObject = null;
     video.removeAttribute('src');
     video.load();
-  }, [canPlayVideo, isHost, localStream, remoteStream, session]);
+  }, [canPlayVideo, isHost, localStream, remoteStream, remoteTrackCount, session, viewerMuted]);
 
   useEffect(() => {
     return () => {
@@ -728,6 +893,36 @@ const LiveViewer: React.FC = () => {
       setCommentSending(false);
     }
   }, [commentDraft, commentSending, sessionId, showNotification]);
+
+  const applyFilter = useCallback(async () => {
+    if (!sessionId || !isHost || filterBusy) return;
+    try {
+      setFilterBusy(true);
+      const result = await LiveService.setFilter(sessionId, {
+        preset: activeFilterPreset,
+        strength: activeFilterStrength
+      });
+      const preset = normalizeFilterPreset(result?.filter?.preset ?? activeFilterPreset);
+      const strength = clampFilterStrength(result?.filter?.strength ?? activeFilterStrength);
+      setActiveFilterPreset(preset);
+      setActiveFilterStrength(strength);
+      setSession((prev) => {
+        if (!prev) return prev;
+        const metadata =
+          prev.metadata && typeof prev.metadata === 'object' && !Array.isArray(prev.metadata)
+            ? { ...(prev.metadata as Record<string, any>) }
+            : {};
+        metadata.liveFilter = { preset, strength, updatedAt: new Date().toISOString() };
+        return { ...prev, metadata };
+      });
+      showNotification('success', 'Livestream', 'Live filter updated.');
+    } catch (error: any) {
+      const message = error?.response?.data?.error || error?.message || 'Failed to update live filter.';
+      showNotification('error', 'Livestream', message);
+    } finally {
+      setFilterBusy(false);
+    }
+  }, [activeFilterPreset, activeFilterStrength, filterBusy, isHost, sessionId, showNotification]);
 
   const saveRecording = useCallback(async () => {
     if (!sessionId || recordingBusy) return;
@@ -880,8 +1075,14 @@ const LiveViewer: React.FC = () => {
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="space-y-4">
             <div className="relative overflow-hidden rounded-3xl border border-slate-200 bg-black" onDoubleClick={() => void sendReaction('like')}>
-              {(isHost && localStream) || (!isHost && remoteStream && remoteStream.getTracks().length > 0) || canPlayVideo ? (
-                <video ref={videoRef} className="h-[58vh] w-full bg-black object-cover" controls={canPlayVideo && !isHost && !(remoteStream && remoteStream.getTracks().length > 0)} playsInline />
+              {(isHost && localStream) || (!isHost && remoteTrackCount > 0) || canPlayVideo ? (
+                <video
+                  ref={videoRef}
+                  className="h-[58vh] w-full bg-black object-cover"
+                  controls={canPlayVideo && !isHost && !(remoteTrackCount > 0)}
+                  playsInline
+                  style={{ filter: activeVideoFilter }}
+                />
               ) : (
                 <div className="flex h-[58vh] w-full flex-col items-center justify-center gap-3 px-4 text-center text-sm text-slate-300">
                   {mediaInitBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
@@ -918,7 +1119,16 @@ const LiveViewer: React.FC = () => {
                         </button>
                       ) : null}
                     </div>
-                  ) : null}
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={retryViewerConnection}
+                      className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/20"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      Retry Stream
+                    </button>
+                  )}
                 </div>
               )}
               <div className="absolute left-3 top-3 rounded-xl bg-black/55 px-3 py-1.5 text-xs text-white backdrop-blur-sm">
@@ -927,6 +1137,16 @@ const LiveViewer: React.FC = () => {
               <div className="absolute right-3 top-3 rounded-xl bg-black/55 px-3 py-1.5 text-xs text-white backdrop-blur-sm">
                 Viewers {Number(session.viewerCount || 0)}
               </div>
+              {!isHost && ((remoteTrackCount > 0) || canPlayVideo) ? (
+                <button
+                  type="button"
+                  onClick={() => setViewerMuted((prev) => !prev)}
+                  className="absolute bottom-4 right-4 inline-flex items-center gap-2 rounded-xl bg-black/55 px-3 py-2 text-xs font-semibold text-white backdrop-blur-sm hover:bg-black/70"
+                >
+                  {viewerMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                  {viewerMuted ? 'Unmute' : 'Mute'}
+                </button>
+              ) : null}
               <ReactionOverlay items={floatingReactions} />
               {showSafetyNotice ? (
                 <div className="pointer-events-none absolute inset-x-3 bottom-3 z-20 rounded-xl border border-amber-300/60 bg-amber-500/20 px-3 py-2 text-[11px] font-semibold text-amber-100 backdrop-blur">
@@ -943,7 +1163,32 @@ const LiveViewer: React.FC = () => {
                 <span className="rounded-full bg-slate-100 px-2.5 py-1">Viewers {Number(session.viewerCount || 0)}</span>
                 <span className="rounded-full bg-slate-100 px-2.5 py-1">Peak {Number(session.peakViewerCount || 0)}</span>
                 <span className="rounded-full bg-slate-100 px-2.5 py-1">{connectionLabel}</span>
+                {activeFilterPreset !== 'none' ? (
+                  <span className="rounded-full bg-violet-50 px-2.5 py-1 text-violet-700">
+                    Filter {LIVE_FILTER_PRESETS.find((entry) => entry.value === activeFilterPreset)?.label || activeFilterPreset}
+                  </span>
+                ) : null}
               </div>
+              {mentionedUsers.length ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                  <span className="font-semibold text-slate-700">Mentioned</span>
+                  {mentionedUsers.map((entry) => (
+                    <span key={`mention-${entry.id || entry.username}`} className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">
+                      @{entry.username || entry.name}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {taggedPages.length ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                  <span className="font-semibold text-slate-700">Tagged pages</span>
+                  {taggedPages.map((entry) => (
+                    <span key={`page-${entry.id || entry.slug || entry.handle}`} className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700">
+                      {entry.name || entry.handle || entry.slug || 'Page'}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -988,6 +1233,36 @@ const LiveViewer: React.FC = () => {
                       {cameraEnabled ? <Video className="h-3.5 w-3.5" /> : <VideoOff className="h-3.5 w-3.5" />}
                       {cameraEnabled ? 'Cam On' : 'Cam Off'}
                     </button>
+                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2 py-2">
+                      <select
+                        value={activeFilterPreset}
+                        onChange={(event) => setActiveFilterPreset(normalizeFilterPreset(event.target.value))}
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none"
+                      >
+                        {LIVE_FILTER_PRESETS.map((entry) => (
+                          <option key={entry.value} value={entry.value}>
+                            {entry.label}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={activeFilterStrength}
+                        onChange={(event) => setActiveFilterStrength(clampFilterStrength(event.target.value))}
+                        className="w-24 accent-blue-600"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void applyFilter()}
+                        disabled={filterBusy}
+                        className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                      >
+                        {filterBusy ? 'Applying...' : 'Apply Filter'}
+                      </button>
+                    </div>
                   </>
                 ) : null}
               </div>

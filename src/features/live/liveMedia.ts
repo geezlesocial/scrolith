@@ -6,6 +6,8 @@ type LiveMediaResult = {
   audioLimited: boolean;
 };
 
+let primedLiveMedia: LiveMediaResult | null = null;
+
 const VIDEO_CONSTRAINTS: MediaTrackConstraints = {
   facingMode: 'user',
   width: { ideal: 1280 },
@@ -57,12 +59,55 @@ export const stopStreamTracks = (stream: MediaStream | null | undefined) => {
   stream.getTracks().forEach((track) => track.stop());
 };
 
+export const primeLiveMediaStream = (result: LiveMediaResult | null | undefined) => {
+  if (primedLiveMedia?.stream && primedLiveMedia.stream !== result?.stream) {
+    stopStreamTracks(primedLiveMedia.stream);
+  }
+  primedLiveMedia = result
+    ? {
+        stream: result.stream,
+        audioLimited: Boolean(result.audioLimited)
+      }
+    : null;
+};
+
+export const consumePrimedLiveMediaStream = (): LiveMediaResult | null => {
+  if (!primedLiveMedia) return null;
+  const next = primedLiveMedia;
+  primedLiveMedia = null;
+  return next;
+};
+
+export const clearPrimedLiveMediaStream = () => {
+  if (!primedLiveMedia?.stream) {
+    primedLiveMedia = null;
+    return;
+  }
+  stopStreamTracks(primedLiveMedia.stream);
+  primedLiveMedia = null;
+};
+
+const warmupNativeMicrophonePermission = async () => {
+  if (!Capacitor.isNativePlatform()) return;
+  if (!navigator.mediaDevices?.getUserMedia) return;
+  try {
+    const micStream = await navigator.mediaDevices.getUserMedia({
+      video: false,
+      audio: AUDIO_CONSTRAINTS
+    });
+    stopStreamTracks(micStream);
+  } catch (error: any) {
+    if (isPermissionLikeError(error)) throw error;
+  }
+};
+
 export const requestLiveMediaStream = async (): Promise<LiveMediaResult> => {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error('This device/browser does not support live camera capture.');
   }
 
   await ensureNativeCameraPermission();
+  await warmupNativeMicrophonePermission();
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -86,4 +131,3 @@ export const requestLiveMediaStream = async (): Promise<LiveMediaResult> => {
     }
   }
 };
-

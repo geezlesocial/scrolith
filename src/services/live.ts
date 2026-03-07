@@ -2,6 +2,7 @@ import api from './api';
 
 export type LiveVisibility = 'public' | 'network' | 'followers' | 'private';
 export type LiveReactionType = 'like' | 'love';
+export type LiveFilterPreset = 'none' | 'vibrant' | 'cinematic' | 'bw' | 'sepia' | 'warm' | 'cool' | 'contrast';
 
 export interface LiveRecordingState {
   fileId?: string | null;
@@ -151,6 +152,17 @@ export class LiveService {
   static async startSession(sessionId: string) {
     const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/start`);
     return extractData<LiveSession>(response);
+  }
+
+  static async setFilter(
+    sessionId: string,
+    payload: {
+      preset: LiveFilterPreset | string;
+      strength?: number;
+    }
+  ) {
+    const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/filter`, payload);
+    return extractData<any>(response);
   }
 
   static async endSession(sessionId: string) {

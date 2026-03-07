@@ -138,6 +138,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'live:gift_sent', fn: forward('live:gift_sent') }
       ,{ ev: 'live:viewer_count_updated', fn: forward('live:viewer_count_updated') }
       ,{ ev: 'live:signal', fn: forward('live:signal') }
+      ,{ ev: 'live:filter_updated', fn: forward('live:filter_updated') }
     ];
 
     handlers.forEach(h => socket.on(h.ev, h.fn));
