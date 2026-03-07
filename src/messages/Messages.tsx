@@ -12,7 +12,6 @@ import { useMessages } from '../context/MessageContext';
 import { useSocket } from '../context/SocketContext';
 import { useNotification } from '../context/NotificationContext';
 import { useContent } from '../context/ContentContext';
-import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import ProBadge from '../components/ProBadge';
 import { FileService } from '../services/files';
 import VoiceRecorder from './VoiceRecorder';
@@ -167,7 +166,6 @@ const Messages = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messageInput, setMessageInput] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState<UploadedFile[]>([]);
-  const [showFilePicker, setShowFilePicker] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showConversationMenu, setShowConversationMenu] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
@@ -211,6 +209,7 @@ const Messages = () => {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const conversationListRef = useRef<HTMLUListElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const activeConvoIdRef = useRef<string | null>(null);
@@ -2632,6 +2631,14 @@ const Messages = () => {
                                             onChange={(event) => void handleUploadInputChange(event)}
                                         />
                                         <input
+                                            ref={mediaInputRef}
+                                            type="file"
+                                            multiple
+                                            accept="image/*,video/*"
+                                            className="hidden"
+                                            onChange={(event) => void handleUploadInputChange(event)}
+                                        />
+                                        <input
                                             ref={cameraInputRef}
                                             type="file"
                                             accept="image/*,video/*"
@@ -2643,15 +2650,15 @@ const Messages = () => {
                                             type="button"
                                             className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 transition hover:bg-blue-50 hover:text-blue-600"
                                             onClick={() => uploadInputRef.current?.click()}
-                                            title="Upload from device"
+                                            title="Attach files from device"
                                         >
                                             <Paperclip className="w-4 h-4" />
                                         </button>
                                         <button
                                             type="button"
                                             className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 transition hover:bg-blue-50 hover:text-blue-600"
-                                            onClick={() => setShowFilePicker(true)}
-                                            title="Choose from uploaded files"
+                                            onClick={() => mediaInputRef.current?.click()}
+                                            title="Choose photo or video from device"
                                         >
                                             <ImageIcon className="w-5 h-5" />
                                         </button>
@@ -2749,19 +2756,6 @@ const Messages = () => {
             </div>
         </div>
     )}
-    <FilePickerModal
-        isOpen={showFilePicker}
-        onClose={() => setShowFilePicker(false)}
-        onSelect={(file) => mergeAttachments([file])}
-        onSelectMultiple={(files) => mergeAttachments(files)}
-        allowUpload
-        multiple={true}
-        filterType="all"
-        acceptedTypes={['image', 'video', 'document']}
-        title="Select files to send"
-        role={user?.role}
-        visibility="private"
-    />
     </VoiceCallProvider>
   );
 };
