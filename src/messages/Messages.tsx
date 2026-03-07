@@ -461,39 +461,6 @@ const Messages = () => {
   }, []);
 
   const activeConvo = conversations.find(c => c.id === activeConvoId);
-  const mediaPreviewCandidates = useMemo(() => {
-      const candidates: AttachmentDisplay[] = [];
-      const pushCandidate = (value: any) => {
-          const normalized = normalizeAttachmentForDisplay(value);
-          if (!normalized || !isPreviewableAttachment(normalized)) return;
-          candidates.push(normalized);
-      };
-
-      pendingAttachments.forEach(pushCandidate);
-      (activeConvo?.messages || []).forEach((message) => {
-          const attachments = Array.isArray(message.attachments) ? message.attachments : [];
-          attachments.forEach(pushCandidate);
-          const voiceNote = (message as any)?.voiceNote || (message as any)?.voice_note;
-          if (voiceNote) {
-              pushCandidate({
-                  id: voiceNote.fileId || voiceNote.id || '',
-                  fileId: voiceNote.fileId || voiceNote.id || '',
-                  url: voiceNote.url || '',
-                  name: 'Voice note',
-                  type: 'audio',
-                  mimeType: 'audio/webm'
-              });
-          }
-      });
-
-      return candidates;
-  }, [activeConvo?.messages, pendingAttachments]);
-
-  useEffect(() => {
-      mediaPreviewCandidates.forEach((attachment) => {
-          void preloadMessageAttachment(attachment);
-      });
-  }, [mediaPreviewCandidates, preloadMessageAttachment]);
   const visibleConversations = [...conversations]
       .sort((a, b) => {
           const aStar = Number(Boolean(a.isStarred ?? a.is_starred));
@@ -947,6 +914,40 @@ const Messages = () => {
       if (!cacheKey) return false;
       return Boolean(messageMediaResources[cacheKey]?.loading);
   };
+
+  const mediaPreviewCandidates = useMemo(() => {
+      const candidates: AttachmentDisplay[] = [];
+      const pushCandidate = (value: any) => {
+          const normalized = normalizeAttachmentForDisplay(value);
+          if (!normalized || !isPreviewableAttachment(normalized)) return;
+          candidates.push(normalized);
+      };
+
+      pendingAttachments.forEach(pushCandidate);
+      (activeConvo?.messages || []).forEach((message) => {
+          const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+          attachments.forEach(pushCandidate);
+          const voiceNote = (message as any)?.voiceNote || (message as any)?.voice_note;
+          if (voiceNote) {
+              pushCandidate({
+                  id: voiceNote.fileId || voiceNote.id || '',
+                  fileId: voiceNote.fileId || voiceNote.id || '',
+                  url: voiceNote.url || '',
+                  name: 'Voice note',
+                  type: 'audio',
+                  mimeType: 'audio/webm'
+              });
+          }
+      });
+
+      return candidates;
+  }, [activeConvo?.messages, pendingAttachments]);
+
+  useEffect(() => {
+      mediaPreviewCandidates.forEach((attachment) => {
+          void preloadMessageAttachment(attachment);
+      });
+  }, [mediaPreviewCandidates, preloadMessageAttachment]);
 
   const mergeAttachments = (files: UploadedFile[]) => {
       if (!files.length) return;
