@@ -1,10 +1,10 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { MessagingService } from '../services/messaging';
 import { Conversation, Message, UploadedFile, UserRole } from '../types';
-import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download, Camera } from 'lucide-react';
 import { AIService } from '../services/ai/ai.service';
 import { UserService } from '../services/user';
 import { useUser } from '../context/UserContext';
@@ -25,11 +25,19 @@ const MESSAGE_UPLOAD_ACCEPT = 'image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xls
 
 type AttachmentDisplay = {
   id: string;
+  fileId?: string;
   url: string;
   name: string;
   type: string;
   size?: number;
   mimeType?: string;
+};
+
+type AttachmentPreviewResource = {
+  objectUrl?: string;
+  loading: boolean;
+  mimeType?: string;
+  error?: string;
 };
 
 const VoiceCallControls: React.FC<{
@@ -203,6 +211,7 @@ const Messages = () => {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const conversationListRef = useRef<HTMLUListElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const activeConvoIdRef = useRef<string | null>(null);
   const userIdRef = useRef<string | null>(null);
@@ -210,8 +219,12 @@ const Messages = () => {
   const typingStopTimerRef = useRef<number | null>(null);
   const typingIndicatorTimerRef = useRef<number | null>(null);
   const typingActiveRef = useRef(false);
+  const messageMediaObjectUrlRef = useRef<Map<string, string>>(new Map());
+  const pendingMediaFetchRef = useRef<Set<string>>(new Set());
   const [conversationScrollTop, setConversationScrollTop] = useState(0);
   const [conversationViewportHeight, setConversationViewportHeight] = useState(0);
+  const [messageMediaResources, setMessageMediaResources] = useState<Record<string, AttachmentPreviewResource>>({});
+  const messageMediaResourcesRef = useRef<Record<string, AttachmentPreviewResource>>({});
   const messagesTraceEnabled =
       ['1', 'true', 'yes', 'on'].includes(String((import.meta as any)?.env?.VITE_MESSAGES_TRACE_DEBUG || '').toLowerCase());
 
@@ -432,7 +445,55 @@ const Messages = () => {
       setShowConversationMenu(false);
   }, [activeConvoId]);
 
+  useEffect(() => {
+      messageMediaResourcesRef.current = messageMediaResources;
+  }, [messageMediaResources]);
+
+  useEffect(() => {
+      return () => {
+          messageMediaObjectUrlRef.current.forEach((value) => {
+              try {
+                  window.URL.revokeObjectURL(value);
+              } catch {}
+          });
+          messageMediaObjectUrlRef.current.clear();
+      };
+  }, []);
+
   const activeConvo = conversations.find(c => c.id === activeConvoId);
+  const mediaPreviewCandidates = useMemo(() => {
+      const candidates: AttachmentDisplay[] = [];
+      const pushCandidate = (value: any) => {
+          const normalized = normalizeAttachmentForDisplay(value);
+          if (!normalized || !isPreviewableAttachment(normalized)) return;
+          candidates.push(normalized);
+      };
+
+      pendingAttachments.forEach(pushCandidate);
+      (activeConvo?.messages || []).forEach((message) => {
+          const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+          attachments.forEach(pushCandidate);
+          const voiceNote = (message as any)?.voiceNote || (message as any)?.voice_note;
+          if (voiceNote) {
+              pushCandidate({
+                  id: voiceNote.fileId || voiceNote.id || '',
+                  fileId: voiceNote.fileId || voiceNote.id || '',
+                  url: voiceNote.url || '',
+                  name: 'Voice note',
+                  type: 'audio',
+                  mimeType: 'audio/webm'
+              });
+          }
+      });
+
+      return candidates;
+  }, [activeConvo?.messages, pendingAttachments]);
+
+  useEffect(() => {
+      mediaPreviewCandidates.forEach((attachment) => {
+          void preloadMessageAttachment(attachment);
+      });
+  }, [mediaPreviewCandidates, preloadMessageAttachment]);
   const visibleConversations = [...conversations]
       .sort((a, b) => {
           const aStar = Number(Boolean(a.isStarred ?? a.is_starred));
@@ -632,19 +693,41 @@ const Messages = () => {
       return `${(value / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  const getAttachmentContentId = (attachment: any) => {
+      const directId = String(attachment?.fileId || attachment?.file_id || attachment?.id || '').trim();
+      if (directId && !directId.startsWith('http')) return directId;
+      const directUrl = String(attachment?.url || attachment?.path || attachment?.downloadUrl || '').trim();
+      if (!directUrl) return '';
+      const match = directUrl.match(/\/api\/files\/content\/([^/?#]+)/i);
+      return match?.[1] ? decodeURIComponent(match[1]) : '';
+  };
+
+  const getAttachmentCacheKey = (attachment: any) => {
+      const contentId = getAttachmentContentId(attachment);
+      if (contentId) return contentId;
+      return String(attachment?.url || attachment?.path || attachment?.downloadUrl || attachment?.id || '').trim();
+  };
+
+  const isPreviewableAttachment = (attachment: any) => {
+      const type = toMediaType(String(attachment?.type || attachment?.mimeType || attachment?.mime_type || ''));
+      return type === 'image' || type === 'video' || type === 'audio';
+  };
+
   const normalizeAttachmentForDisplay = (attachment: any) => {
       if (!attachment) return null;
       if (typeof attachment === 'string') {
           const parts = attachment.split('/');
           const name = parts[parts.length - 1] || attachment;
-          return { id: attachment, url: attachment, name, type: toMediaType(name) };
+          return { id: attachment, fileId: attachment, url: attachment, name, type: toMediaType(name) };
       }
-      const url = attachment.url || attachment.path || attachment.downloadUrl;
-      if (!url) return null;
+      const fileId = getAttachmentContentId(attachment);
+      const url = String(attachment.url || attachment.path || attachment.downloadUrl || '');
+      if (!url && !fileId) return null;
       const name = attachment.name || attachment.filename || attachment.originalName || url.split('/').pop() || 'Attachment';
       const type = toMediaType(attachment.type || attachment.mimeType || attachment.mime_type || '');
       return {
-          id: attachment.id || url,
+          id: attachment.id || fileId || url,
+          fileId,
           url,
           name,
           type,
@@ -750,7 +833,7 @@ const Messages = () => {
   const downloadAttachment = async (attachment: AttachmentDisplay) => {
       const fallbackDownload = () => {
           const link = document.createElement('a');
-          link.href = attachment.url;
+          link.href = attachment.url || '';
           link.target = '_blank';
           link.rel = 'noopener noreferrer';
           link.download = attachment.name || 'attachment';
@@ -761,8 +844,9 @@ const Messages = () => {
 
       try {
           let blob: Blob | null = null;
-          if (attachment.id && !String(attachment.id).startsWith('http')) {
-              const response = await api.get(`/files/content/${encodeURIComponent(attachment.id)}`, {
+          const contentId = getAttachmentContentId(attachment);
+          if (contentId) {
+              const response = await api.get(`/files/content/${encodeURIComponent(contentId)}`, {
                   responseType: 'blob'
               });
               blob = response.data instanceof Blob ? response.data : new Blob([response.data]);
@@ -784,6 +868,84 @@ const Messages = () => {
           console.warn('Attachment download fallback triggered', error);
           fallbackDownload();
       }
+  };
+
+  const preloadMessageAttachment = useCallback(async (attachment: any) => {
+      const normalized = normalizeAttachmentForDisplay(attachment);
+      if (!normalized || !isPreviewableAttachment(normalized)) return;
+      const cacheKey = getAttachmentCacheKey(normalized);
+      if (!cacheKey) return;
+      const existing = messageMediaResourcesRef.current[cacheKey];
+      if (existing?.objectUrl || existing?.loading || pendingMediaFetchRef.current.has(cacheKey)) return;
+      const contentId = getAttachmentContentId(normalized);
+      if (!contentId && !normalized.url) return;
+
+      pendingMediaFetchRef.current.add(cacheKey);
+      setMessageMediaResources((prev) => ({
+          ...prev,
+          [cacheKey]: {
+              ...(prev[cacheKey] || {}),
+              loading: true,
+              error: undefined
+          }
+      }));
+
+      try {
+          let blob: Blob;
+          if (contentId) {
+              const response = await api.get(`/files/content/${encodeURIComponent(contentId)}`, {
+                  responseType: 'blob'
+              });
+              blob = response.data instanceof Blob ? response.data : new Blob([response.data]);
+          } else {
+              const response = await fetch(normalized.url, { credentials: 'include' });
+              if (!response.ok) throw new Error(`Preview failed (${response.status})`);
+              blob = await response.blob();
+          }
+
+          const objectUrl = window.URL.createObjectURL(blob);
+          const previousUrl = messageMediaObjectUrlRef.current.get(cacheKey);
+          if (previousUrl && previousUrl !== objectUrl) {
+              window.URL.revokeObjectURL(previousUrl);
+          }
+          messageMediaObjectUrlRef.current.set(cacheKey, objectUrl);
+          setMessageMediaResources((prev) => ({
+              ...prev,
+              [cacheKey]: {
+                  objectUrl,
+                  loading: false,
+                  mimeType: blob.type || normalized.mimeType || ''
+              }
+          }));
+      } catch (error) {
+          console.warn('Failed to preload message attachment', error);
+          setMessageMediaResources((prev) => ({
+              ...prev,
+              [cacheKey]: {
+                  ...(prev[cacheKey] || {}),
+                  loading: false,
+                  error: 'preview_failed'
+              }
+          }));
+      } finally {
+          pendingMediaFetchRef.current.delete(cacheKey);
+      }
+  }, []);
+
+  const getResolvedAttachmentUrl = (attachment: any) => {
+      const normalized = normalizeAttachmentForDisplay(attachment);
+      if (!normalized) return '';
+      const cacheKey = getAttachmentCacheKey(normalized);
+      if (!cacheKey) return normalized.url || '';
+      return messageMediaResources[cacheKey]?.objectUrl || normalized.url || '';
+  };
+
+  const isAttachmentPreviewLoading = (attachment: any) => {
+      const normalized = normalizeAttachmentForDisplay(attachment);
+      if (!normalized) return false;
+      const cacheKey = getAttachmentCacheKey(normalized);
+      if (!cacheKey) return false;
+      return Boolean(messageMediaResources[cacheKey]?.loading);
   };
 
   const mergeAttachments = (files: UploadedFile[]) => {
@@ -2150,63 +2312,86 @@ const Messages = () => {
                                         )}
                                         {attachmentList.length > 0 && (
                                             <div className="mt-2 space-y-2">
-                                                {attachmentList.map((attachment) => (
-                                                    <div key={attachment.id} className={`rounded-lg border p-2 text-xs ${
-                                                        msg.senderId === user?.id
-                                                            ? 'border-white/30 bg-white/15 text-white'
-                                                            : 'border-gray-200 bg-white/80 text-gray-700'
-                                                    }`}>
-                                                        <div className="mb-2 flex items-center justify-between gap-2">
-                                                            <div className="min-w-0">
-                                                                <div className="truncate font-semibold">{attachment.name}</div>
-                                                                {formatBytes(attachment.size) ? (
-                                                                    <div className={`text-[10px] ${msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-500'}`}>
-                                                                        {formatBytes(attachment.size)}
-                                                                    </div>
-                                                                ) : null}
+                                                {attachmentList.map((attachment) => {
+                                                    const resolvedAttachmentUrl = getResolvedAttachmentUrl(attachment);
+                                                    const previewLoading = isAttachmentPreviewLoading(attachment);
+                                                    return (
+                                                        <div key={attachment.id} className={`rounded-lg border p-2 text-xs ${
+                                                            msg.senderId === user?.id
+                                                                ? 'border-white/30 bg-white/15 text-white'
+                                                                : 'border-gray-200 bg-white/80 text-gray-700'
+                                                        }`}>
+                                                            <div className="mb-2 flex items-center justify-between gap-2">
+                                                                <div className="min-w-0">
+                                                                    <div className="truncate font-semibold">{attachment.name}</div>
+                                                                    {formatBytes(attachment.size) ? (
+                                                                        <div className={`text-[10px] ${msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-500'}`}>
+                                                                            {formatBytes(attachment.size)}
+                                                                        </div>
+                                                                    ) : null}
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(event) => {
+                                                                        event.preventDefault();
+                                                                        event.stopPropagation();
+                                                                        void downloadAttachment(attachment as AttachmentDisplay);
+                                                                    }}
+                                                                    className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium ${
+                                                                        msg.senderId === user?.id
+                                                                            ? 'border-white/30 bg-white/10 text-white hover:bg-white/20'
+                                                                            : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                                                                    }`}
+                                                                >
+                                                                    <Download className="h-3.5 w-3.5" />
+                                                                    <span>Download</span>
+                                                                </button>
                                                             </div>
-                                                            <button
-                                                                type="button"
-                                                                onClick={(event) => {
-                                                                    event.preventDefault();
-                                                                    event.stopPropagation();
-                                                                    void downloadAttachment(attachment as AttachmentDisplay);
-                                                                }}
-                                                                className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium ${
-                                                                    msg.senderId === user?.id
-                                                                        ? 'border-white/30 bg-white/10 text-white hover:bg-white/20'
-                                                                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-                                                                }`}
-                                                            >
-                                                                <Download className="h-3.5 w-3.5" />
-                                                                <span>Download</span>
-                                                            </button>
+                                                            {attachment.type === 'image' ? (
+                                                                resolvedAttachmentUrl ? (
+                                                                    <a href={resolvedAttachmentUrl} target="_blank" rel="noreferrer" className="block">
+                                                                        <img src={resolvedAttachmentUrl} alt={attachment.name} className="w-full max-h-56 rounded-md object-cover" loading="lazy" />
+                                                                    </a>
+                                                                ) : (
+                                                                    <div className="flex h-40 items-center justify-center rounded-md bg-gray-100 text-gray-400">
+                                                                        {previewLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Image preview unavailable'}
+                                                                    </div>
+                                                                )
+                                                            ) : attachment.type === 'video' ? (
+                                                                resolvedAttachmentUrl ? (
+                                                                    <video controls preload="auto" playsInline src={resolvedAttachmentUrl} className="w-full max-h-56 rounded-md" />
+                                                                ) : (
+                                                                    <div className="flex h-40 items-center justify-center rounded-md bg-gray-100 text-gray-400">
+                                                                        {previewLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Video preview unavailable'}
+                                                                    </div>
+                                                                )
+                                                            ) : attachment.type === 'audio' ? (
+                                                                resolvedAttachmentUrl ? (
+                                                                    <audio controls preload="auto" src={resolvedAttachmentUrl} className="w-full" />
+                                                                ) : (
+                                                                    <div className="flex items-center gap-2 rounded-md bg-gray-100 px-3 py-2 text-gray-500">
+                                                                        {previewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+                                                                        <span>Preparing audio...</span>
+                                                                    </div>
+                                                                )
+                                                            ) : (
+                                                                <a
+                                                                    href={attachment.url || '#'}
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    className={`flex max-w-full min-w-0 items-center gap-2 overflow-hidden rounded-md border px-3 py-2 hover:underline ${
+                                                                        msg.senderId === user?.id
+                                                                            ? 'border-white/20 text-blue-100'
+                                                                            : 'border-gray-200 text-blue-600'
+                                                                    }`}
+                                                                >
+                                                                    <span className="font-semibold">Open</span>
+                                                                    <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
+                                                                </a>
+                                                            )}
                                                         </div>
-                                                        {attachment.type === 'image' ? (
-                                                            <a href={attachment.url} target="_blank" rel="noreferrer" className="block">
-                                                                <img src={attachment.url} alt={attachment.name} className="w-full max-h-56 object-cover rounded-md" loading="lazy" />
-                                                            </a>
-                                                        ) : attachment.type === 'video' ? (
-                                                            <video controls preload="metadata" src={attachment.url} className="w-full max-h-56 rounded-md" />
-                                                        ) : attachment.type === 'audio' ? (
-                                                            <audio controls preload="metadata" src={attachment.url} className="w-full" />
-                                                        ) : (
-                                                            <a
-                                                                href={attachment.url}
-                                                                target="_blank"
-                                                                rel="noreferrer"
-                                                                className={`flex max-w-full min-w-0 items-center gap-2 overflow-hidden rounded-md border px-3 py-2 hover:underline ${
-                                                                    msg.senderId === user?.id
-                                                                        ? 'border-white/20 text-blue-100'
-                                                                        : 'border-gray-200 text-blue-600'
-                                                                }`}
-                                                            >
-                                                                <span className="font-semibold">Open</span>
-                                                                <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
-                                                            </a>
-                                                        )}
-                                                    </div>
-                                                ))}
+                                                    );
+                                                })}
                                             </div>
                                         )}
                                         <div className={`text-[10px] mt-1 text-right flex justify-end items-center gap-1 ${msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-400'}`}>
@@ -2369,9 +2554,22 @@ const Messages = () => {
 
                             {pendingAttachments.length > 0 && (
                                 <div className="mb-3 grid gap-2 sm:grid-cols-2">
-                                    {pendingAttachments.map(file => (
+                                    {pendingAttachments.map(file => {
+                                        const preview = normalizeAttachmentForDisplay(file);
+                                        const previewUrl = preview ? getResolvedAttachmentUrl(preview) : '';
+                                        const previewLoading = preview ? isAttachmentPreviewLoading(preview) : false;
+                                        return (
                                         <div key={file.id} className="flex items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700 shadow-sm">
-                                            <div className="min-w-0">
+                                            {preview && preview.type === 'image' && previewUrl ? (
+                                                <img src={previewUrl} alt={preview.name} className="h-12 w-12 shrink-0 rounded-xl object-cover" loading="lazy" />
+                                            ) : preview && preview.type === 'video' && previewUrl ? (
+                                                <video src={previewUrl} className="h-12 w-12 shrink-0 rounded-xl object-cover" muted playsInline preload="metadata" />
+                                            ) : (
+                                                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white text-gray-400">
+                                                    {previewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+                                                </div>
+                                            )}
+                                            <div className="min-w-0 flex-1">
                                                 <div className="truncate font-semibold">{file.name || 'Attachment'}</div>
                                                 <div className="text-[10px] text-gray-500">{formatBytes(file.size) || 'Ready to send'}</div>
                                             </div>
@@ -2379,7 +2577,7 @@ const Messages = () => {
                                                 <X className="w-3 h-3" />
                                             </button>
                                         </div>
-                                    ))}
+                                    )})}
                                 </div>
                             )}
 
@@ -2432,6 +2630,14 @@ const Messages = () => {
                                             className="hidden"
                                             onChange={(event) => void handleUploadInputChange(event)}
                                         />
+                                        <input
+                                            ref={cameraInputRef}
+                                            type="file"
+                                            accept="image/*,video/*"
+                                            capture="environment"
+                                            className="hidden"
+                                            onChange={(event) => void handleUploadInputChange(event)}
+                                        />
                                         <button
                                             type="button"
                                             className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 transition hover:bg-blue-50 hover:text-blue-600"
@@ -2447,6 +2653,14 @@ const Messages = () => {
                                             title="Choose from uploaded files"
                                         >
                                             <ImageIcon className="w-5 h-5" />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 transition hover:bg-blue-50 hover:text-blue-600"
+                                            onClick={() => cameraInputRef.current?.click()}
+                                            title="Capture photo or video"
+                                        >
+                                            <Camera className="w-4 h-4" />
                                         </button>
                                         <VoiceRecorder
                                             disabled={
