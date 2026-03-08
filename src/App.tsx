@@ -9,9 +9,7 @@ import {
 } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import DynamicFooter from './components/DynamicFooter';
-import SupportWidget from './components/SupportWidget';
 import ToastContainer from './components/ToastContainer';
-import MarketingPopups from './components/MarketingPopups';
 import OfflineBanner from './components/OfflineBanner';
 import AppDistributionPrompt from './components/AppDistributionPrompt';
 import { UserRole } from './types';
@@ -51,6 +49,8 @@ const OAuthCallback = React.lazy(() => import('./auth/OAuthCallback'));
 const BrowseTalent = React.lazy(() => import('./main/BrowseTalent'));
 const BrowseJobs = React.lazy(() => import('./main/BrowseJobs'));
 const SearchResults = React.lazy(() => import('./pages/SearchResults'));
+const SupportWidget = React.lazy(() => import('./components/SupportWidget'));
+const MarketingPopups = React.lazy(() => import('./components/MarketingPopups'));
 const AdminDashboard = React.lazy(() => import('./dashboard/AdminDashboard'));
 const CreateJob = React.lazy(() => import('./create-job-post/CreateJob'));
 const EditJob = React.lazy(() => import('./dashboard/employer/EditJob'));
@@ -803,7 +803,7 @@ const AppContent = () => {
                 path="/admin/settings/languages"
                 element={
                   <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
-                    <React.Suspense fallback={null}>
+                    <React.Suspense fallback={<RouteLoadingFallback />}>
                       <LanguagesAdmin />
                     </React.Suspense>
                   </ProtectedRoute>
@@ -944,8 +944,16 @@ const AppContent = () => {
         </ErrorBoundary>
       </main>
       {!shouldHideFooter && <DynamicFooter />}
-      {!shouldHideSupportWidget && <SupportWidget />}
-      {!isAdminRoute && !isMobileShellRoute && <MarketingPopups />}
+      {!shouldHideSupportWidget && (
+        <Suspense fallback={null}>
+          <SupportWidget />
+        </Suspense>
+      )}
+      {!isAdminRoute && !isMobileShellRoute && (
+        <Suspense fallback={null}>
+          <MarketingPopups />
+        </Suspense>
+      )}
       {biometricEnabled && !biometricVerified && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/80 p-6">
           <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">

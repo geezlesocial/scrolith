@@ -222,6 +222,7 @@ export const MessagingService = {
           userId,
           role,
           limit: Math.max(20, Math.min(200, Number(options?.limit || 120))),
+          messagePreviewLimit: 20,
           ...(options?.cursor ? { cursor: options.cursor } : {})
         }
       })

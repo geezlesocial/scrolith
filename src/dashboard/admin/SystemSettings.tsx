@@ -269,15 +269,15 @@ const normalizeCacheConfig = (raw: any) => {
 };
 
 const DEFAULT_OPTIMIZATION_CONFIG: OptimizationConfig = {
-    enabled: false,
-    compressionEnabled: false,
+    enabled: true,
+    compressionEnabled: true,
     compressionLevel: 6,
     compressionThresholdKb: 1,
     apiResponseCachingEnabled: false,
     apiResponseCacheSeconds: 45,
     apiResponseCacheMaxEntries: 500,
     staticAssetCachingEnabled: true,
-    staticAssetCacheSeconds: 604800,
+    staticAssetCacheSeconds: 2592000,
     htmlMinifyEnabled: false,
     htmlCollapseWhitespace: true,
     htmlRemoveComments: true,

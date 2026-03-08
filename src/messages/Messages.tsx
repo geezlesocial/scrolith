@@ -506,6 +506,26 @@ const Messages = () => {
   }, [activeConvoId]);
 
   useEffect(() => {
+      if (!activeConvoId) return;
+      let cancelled = false;
+      void MessagingService.getConversationById(activeConvoId)
+          .then((full) => {
+              if (cancelled || !full) return;
+              setConversations((prev) => {
+                  const exists = prev.some((conversation) => conversation.id === activeConvoId);
+                  if (!exists) return prev;
+                  return prev.map((conversation) =>
+                      conversation.id === activeConvoId ? { ...conversation, ...full } : conversation
+                  );
+              });
+          })
+          .catch(() => null);
+      return () => {
+          cancelled = true;
+      };
+  }, [activeConvoId]);
+
+  useEffect(() => {
       messageMediaResourcesRef.current = messageMediaResources;
   }, [messageMediaResources]);
 
