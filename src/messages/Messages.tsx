@@ -208,6 +208,7 @@ const Messages = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const conversationListRef = useRef<HTMLUListElement>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -287,6 +288,21 @@ const Messages = () => {
           typingStopTimerRef.current = null;
       }, 1600);
   };
+
+  const resizeComposerTextarea = useCallback(() => {
+      const textarea = composerTextareaRef.current;
+      if (!textarea) return;
+      const minHeight = isMobileViewport ? 92 : 108;
+      const maxHeight = isMobileViewport ? 172 : 220;
+      textarea.style.height = '0px';
+      const nextHeight = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight));
+      textarea.style.height = `${nextHeight}px`;
+      textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, [isMobileViewport]);
+
+  useEffect(() => {
+      resizeComposerTextarea();
+  }, [messageInput, resizeComposerTextarea]);
 
   useEffect(() => {
       const handler = (event: Event) => {
@@ -1347,14 +1363,14 @@ const Messages = () => {
                       }, 120);
                   });
               }}
-              className={`mb-2 w-full rounded-lg border px-2.5 py-1.5 text-left text-[11px] ${
+              className={`mb-2 w-full rounded-xl border px-3 py-2 text-left text-[11px] shadow-sm transition hover:opacity-95 ${
                   message.senderId === user?.id
                       ? 'border-blue-300/60 bg-blue-500/20 text-blue-50'
-                      : 'border-gray-200 bg-gray-50 text-gray-600'
+                      : 'border-gray-200 bg-white/80 text-gray-600'
               }`}
           >
-              <div className="font-semibold">{senderName}</div>
-              <div className={`truncate ${unavailable ? 'italic' : ''}`}>{unavailable ? 'Message unavailable' : snippet}</div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-75">{senderName}</div>
+              <div className={`mt-1 truncate text-xs ${unavailable ? 'italic' : ''}`}>{unavailable ? 'Message unavailable' : snippet}</div>
           </button>
       );
   };
@@ -1893,8 +1909,10 @@ const Messages = () => {
                                 <li 
                                     key={convo.id} 
                                     onClick={() => handleConversationClick(convo.id)}
-                                    className={`w-full overflow-hidden p-4 border-b border-gray-100 cursor-pointer transition-colors ${
-                                        activeConvoId === convo.id ? 'bg-blue-50 border-l-4 border-l-blue-600' : 'hover:bg-gray-50'
+                                    className={`mx-2 my-1.5 w-auto cursor-pointer overflow-hidden rounded-2xl border px-4 py-3 shadow-sm transition-all ${
+                                        activeConvoId === convo.id
+                                            ? 'border-blue-200 bg-gradient-to-r from-blue-50 via-white to-indigo-50 shadow-md ring-1 ring-blue-100'
+                                            : 'border-transparent bg-white hover:border-gray-200 hover:bg-gray-50 hover:shadow'
                                     }`}
                                 >
                                     <div className="flex w-full min-w-0 items-center">
@@ -1915,7 +1933,7 @@ const Messages = () => {
                                                 />
                                             </button>
                                             {participant?.isOnline && (
-                                                <span className="absolute bottom-0 right-3 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></span>
+                                        <span className="absolute bottom-0 right-3 h-2.5 w-2.5 rounded-full border-2 border-white bg-green-500"></span>
                                             )}
                                         </div>
                                         <div className="flex-1 min-w-0">
@@ -1952,7 +1970,7 @@ const Messages = () => {
                                                     </span>
                                                 )}
                                             </div>
-                                            <p className={`min-w-0 text-xs truncate ${convo.unreadCount > 0 ? 'font-bold text-gray-900' : 'text-gray-500'}`}>
+                                            <p className={`min-w-0 truncate text-xs ${convo.unreadCount > 0 ? 'font-bold text-gray-900' : 'text-gray-500'}`}>
                                                 {convo.lastMessage || <span className="italic text-gray-400">No messages</span>}
                                             </p>
                                         </div>
@@ -2514,7 +2532,7 @@ const Messages = () => {
                             {/* Typing Indicator */}
                             {typingUser && (
                                 <div className="flex justify-start animate-fade-in">
-                                    <div className="bg-gray-100 rounded-2xl rounded-bl-none px-4 py-2 text-xs text-gray-500 italic flex items-center">
+                                    <div className="flex items-center rounded-2xl rounded-bl-none border border-gray-200 bg-white px-4 py-2 text-xs italic text-gray-500 shadow-sm">
                                         <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce mr-1"></span>
                                         <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce mr-1 delay-100"></span>
                                         <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce delay-200"></span>
@@ -2528,29 +2546,26 @@ const Messages = () => {
                         {/* Input Area */}
                         <div className="sticky bottom-0 border-t border-gray-200 bg-white/95 p-3 backdrop-blur md:p-4">
                             {replyToMessage && (
-                                <div className="mb-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600 shadow-sm">
-                                    <div className="flex items-center justify-between">
-                                        <div className="font-semibold">
-                                            Replying to {replyToMessage.senderId === user?.id ? 'yourself' : (otherParticipant?.name || 'message')}
+                                <div className="mb-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 px-3 py-3 text-xs text-slate-600 shadow-sm">
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-600">
+                                                Replying to {replyToMessage.senderId === user?.id ? 'yourself' : (otherParticipant?.name || 'message')}
+                                            </div>
+                                            <div className="mt-1 truncate text-sm font-medium text-slate-700">
+                                                {replyToMessage.text || 'Attachment'}
+                                            </div>
                                         </div>
-                                        <button type="button" onClick={() => setReplyToMessage(null)} className="text-gray-400 hover:text-gray-700">
-                                            <X className="w-3.5 h-3.5" />
+                                        <button
+                                            type="button"
+                                            onClick={() => setReplyToMessage(null)}
+                                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/80 hover:text-slate-700"
+                                        >
+                                            <X className="h-3.5 w-3.5" />
                                         </button>
                                     </div>
-                                    <div className="truncate">{replyToMessage.text || 'Attachment'}</div>
                                 </div>
                             )}
-                            {/* AI Suggestion Bar */}
-                            <div className="mb-2 flex justify-end">
-                                <button 
-                                    onClick={handleAiSuggest}
-                                    disabled={isGettingAiSuggestion}
-                                    className="inline-flex items-center rounded-full border border-purple-200 bg-purple-50/70 px-3 py-1.5 text-xs font-medium text-purple-700 shadow-sm transition-colors hover:bg-purple-100 disabled:opacity-50"
-                                >
-                                    {isGettingAiSuggestion ? <Loader2 className="w-3 h-3 mr-2 animate-spin" /> : <Sparkles className="w-3 h-3 mr-2" />}
-                                    {isGettingAiSuggestion ? 'Thinking...' : 'Suggest Reply'}
-                                </button>
-                            </div>
 
                             {pendingAttachments.length > 0 && (
                                 <div className="mb-3 grid gap-2 sm:grid-cols-2">
@@ -2601,27 +2616,24 @@ const Messages = () => {
                                 </div>
                             )}
 
-                            <form onSubmit={handleSendMessage} className="rounded-3xl border border-gray-200 bg-white p-2 shadow-sm">
-                                <div className="flex min-w-0 items-end gap-2">
+                            <form
+                                onSubmit={handleSendMessage}
+                                className="rounded-[28px] border border-gray-200 bg-white/95 p-3 shadow-[0_18px_48px_-28px_rgba(15,23,42,0.45)]"
+                            >
+                                <div className="rounded-[24px] border border-slate-200 bg-gradient-to-b from-slate-50 via-white to-slate-50 p-1.5 transition focus-within:border-blue-300 focus-within:ring-4 focus-within:ring-blue-100/70">
                                     <textarea
-                                        className="min-h-[46px] flex-1 resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-800 focus:border-blue-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100"
+                                        ref={composerTextareaRef}
+                                        className="w-full resize-none border-0 bg-transparent px-3 py-3 text-[15px] leading-6 text-gray-800 outline-none placeholder:text-gray-400"
                                         placeholder="Write a message. Press Enter to send, Shift+Enter for a new line."
                                         value={messageInput}
                                         onChange={(event) => handleMessageInputChange(event.target.value)}
                                         onKeyDown={handleComposerKeyDown}
-                                        rows={isMobileViewport ? 2 : 3}
+                                        rows={1}
                                     />
-                                    <button
-                                        type="submit"
-                                        disabled={!activeConvoId || (!messageInput.trim() && pendingAttachments.length === 0) || Boolean(attachmentUploadState)}
-                                        className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                        <Send className="w-4 h-4" />
-                                    </button>
                                 </div>
 
-                                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                                    <div className="flex flex-wrap items-center gap-1.5">
+                                <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                    <div className="flex flex-wrap items-center gap-2">
                                         <input
                                             ref={uploadInputRef}
                                             type="file"
@@ -2648,27 +2660,30 @@ const Messages = () => {
                                         />
                                         <button
                                             type="button"
-                                            className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 transition hover:bg-blue-50 hover:text-blue-600"
+                                            className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
                                             onClick={() => uploadInputRef.current?.click()}
                                             title="Attach files from device"
                                         >
                                             <Paperclip className="w-4 h-4" />
+                                            <span className="hidden sm:inline text-xs font-medium">Files</span>
                                         </button>
                                         <button
                                             type="button"
-                                            className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 transition hover:bg-blue-50 hover:text-blue-600"
+                                            className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
                                             onClick={() => mediaInputRef.current?.click()}
                                             title="Choose photo or video from device"
                                         >
                                             <ImageIcon className="w-5 h-5" />
+                                            <span className="hidden sm:inline text-xs font-medium">Media</span>
                                         </button>
                                         <button
                                             type="button"
-                                            className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 transition hover:bg-blue-50 hover:text-blue-600"
+                                            className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
                                             onClick={() => cameraInputRef.current?.click()}
                                             title="Capture photo or video"
                                         >
                                             <Camera className="w-4 h-4" />
+                                            <span className="hidden sm:inline text-xs font-medium">Camera</span>
                                         </button>
                                         <VoiceRecorder
                                             disabled={
@@ -2681,14 +2696,33 @@ const Messages = () => {
                                             maxDurationSeconds={voiceRuntimeConfig.maxVoiceNoteDurationSeconds}
                                             onRecorded={handleVoiceRecorded}
                                             onError={(message) => showNotification('error', 'Voice notes', message)}
-                                            className="h-10 w-10 justify-center rounded-xl hover:bg-gray-100"
+                                            className="h-10 items-center gap-2 justify-center rounded-xl border border-gray-200 bg-white px-3 hover:border-blue-200 hover:bg-blue-50"
                                         />
+                                        <button
+                                            type="button"
+                                            onClick={handleAiSuggest}
+                                            disabled={isGettingAiSuggestion}
+                                            className="inline-flex h-10 items-center gap-2 rounded-xl border border-purple-200 bg-purple-50/70 px-3 text-purple-700 shadow-sm transition-colors hover:bg-purple-100 disabled:opacity-50"
+                                        >
+                                            {isGettingAiSuggestion ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                                            <span className="text-xs font-medium">{isGettingAiSuggestion ? 'Thinking...' : 'Suggest Reply'}</span>
+                                        </button>
                                     </div>
 
-                                    <div className="text-[11px] text-gray-500">
-                                        {pendingAttachments.length > 0
-                                            ? `${pendingAttachments.length} attachment${pendingAttachments.length === 1 ? '' : 's'} queued`
-                                            : 'Private chat media stays scoped to this conversation.'}
+                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between lg:min-w-[15rem] lg:justify-end">
+                                        <div className="text-[11px] text-gray-500 sm:text-right">
+                                            {pendingAttachments.length > 0
+                                                ? `${pendingAttachments.length} attachment${pendingAttachments.length === 1 ? '' : 's'} queued`
+                                                : 'Private chat media stays scoped to this conversation.'}
+                                        </div>
+                                        <button
+                                            type="submit"
+                                            disabled={!activeConvoId || (!messageInput.trim() && pendingAttachments.length === 0) || Boolean(attachmentUploadState)}
+                                            className="inline-flex h-12 min-w-[112px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            <Send className="h-4 w-4" />
+                                            <span>Send</span>
+                                        </button>
                                     </div>
                                 </div>
                             </form>
