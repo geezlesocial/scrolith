@@ -12,8 +12,9 @@ dependencies {
     implementation project(':aparajita-capacitor-biometric-auth')
     implementation project(':capacitor-app')
     implementation project(':capacitor-camera')
-    implementation project(':capacitor-push-notifications')
+    implementation project(':capacitor-filesystem')
     implementation project(':capacitor-preferences')
+    implementation project(':capacitor-push-notifications')
 
 }
 
