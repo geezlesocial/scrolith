@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Download, Expand, Sparkles, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Download, Expand, MessageSquareText, Radar, Sparkles, X } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { useNotification } from '../context/NotificationContext';
@@ -12,6 +12,8 @@ import PostHeader from '../community/components/PostHeader';
 import MentionText from '../community/components/MentionText';
 import PostEngagementBar from '../community/components/PostEngagementBar';
 import PostOptionsButton from '../community/components/post-options/PostOptionsButton';
+import InlineAutoplayVideo from '../components/media/InlineAutoplayVideo';
+import usePerformanceProfile from '../hooks/usePerformanceProfile';
 
 const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
   const explicit = String(media.type || '').toLowerCase();
@@ -29,6 +31,20 @@ const toCount = (value: unknown, fallback = 0) => {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return fallback;
   return Math.max(0, Math.trunc(numeric));
+};
+
+const formatCompactCount = (value: unknown) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return '0';
+  if (numeric >= 1_000_000) return `${(numeric / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (numeric >= 1_000) return `${(numeric / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+  return String(Math.trunc(numeric));
+};
+
+const formatDetailDate = (value: unknown) => {
+  const timestamp = value instanceof Date ? value.getTime() : new Date(String(value || '')).getTime();
+  if (!Number.isFinite(timestamp)) return 'Recently';
+  return new Date(timestamp).toLocaleString();
 };
 
 const mergePostData = (current: any, incoming: any) => {
@@ -131,6 +147,258 @@ const normalizePost = (post: any) => {
   };
 };
 
+const mergePostList = (current: any[], incoming: any[], excludedId?: string) => {
+  const map = new Map<string, any>();
+  const excluded = String(excludedId || '').trim();
+
+  [...current, ...incoming].forEach((rawItem) => {
+    if (!rawItem) return;
+    const normalized = rawItem?.author && rawItem?.interactions ? rawItem : normalizePost(rawItem);
+    const id = String(normalized?.id || '').trim();
+    if (!id || (excluded && id === excluded)) return;
+    const existing = map.get(id);
+    map.set(id, existing ? mergePostData(existing, normalized) : normalized);
+  });
+
+  return Array.from(map.values());
+};
+
+const applyMetricsUpdate = (target: any, detail: any) => {
+  if (!target) return target;
+  const interactionPatch =
+    detail?.interactions && typeof detail.interactions === 'object' && !Array.isArray(detail.interactions)
+      ? detail.interactions
+      : {};
+  const nextInteractions = {
+    ...(target.interactions || {}),
+    ...interactionPatch
+  };
+
+  if (detail?.comments !== undefined || detail?.commentCount !== undefined) {
+    nextInteractions.comments = toCount(detail.commentCount ?? detail.comments, toCount(nextInteractions.comments, 0));
+  }
+  if (detail?.shares !== undefined || detail?.shareCount !== undefined) {
+    nextInteractions.shares = toCount(detail.shareCount ?? detail.shares, toCount(nextInteractions.shares, 0));
+  }
+  if (detail?.reposts !== undefined || detail?.repostCount !== undefined) {
+    nextInteractions.reposts = toCount(detail.repostCount ?? detail.reposts, toCount(nextInteractions.reposts, 0));
+  }
+  if (detail?.views !== undefined || detail?.viewCount !== undefined) {
+    nextInteractions.views = toCount(detail.viewCount ?? detail.views, toCount(nextInteractions.views, 0));
+  }
+
+  return {
+    ...target,
+    interactions: nextInteractions,
+    sharesCount: toCount(nextInteractions.shares, toCount(target.sharesCount, 0)),
+    repostsCount: toCount(nextInteractions.reposts, toCount(target.repostsCount, 0)),
+    viewsCount: toCount(nextInteractions.views, toCount(target.viewsCount, 0))
+  };
+};
+
+const applyReactionUpdate = (target: any, reactions: any) => {
+  if (!target || !reactions || typeof reactions !== 'object' || Array.isArray(reactions)) return target;
+  return {
+    ...target,
+    interactions: {
+      ...(target.interactions || {}),
+      reactions
+    }
+  };
+};
+
+const applyAiInsightUpdate = (target: any, detail: any) => {
+  if (!target) return target;
+  const insightRaw = detail?.aiInsightText ?? detail?.ai_insight_text;
+  if (insightRaw === null || insightRaw === undefined) return target;
+  const insightText = String(insightRaw).trim();
+  return {
+    ...target,
+    aiInsightGenerated: Boolean(insightText),
+    aiInsightText: insightText || null
+  };
+};
+
+const PostMetricCard: React.FC<{ label: string; value: unknown; emphasis?: boolean }> = ({ label, value, emphasis = false }) => (
+  <div
+    className={`rounded-2xl border px-4 py-3 ${
+      emphasis
+        ? 'border-blue-200 bg-gradient-to-br from-blue-50 to-cyan-50 text-blue-900'
+        : 'border-slate-200 bg-white/90 text-slate-700'
+    }`}
+  >
+    <div className={`text-lg font-semibold ${emphasis ? 'text-blue-950' : 'text-slate-900'}`}>{formatCompactCount(value)}</div>
+    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</div>
+  </div>
+);
+
+type FeedPostCardProps = {
+  post: any;
+  currentUserId?: string | null;
+  autoplayEnabled: boolean;
+  onOpenPost: (postId: string) => void;
+  onRequireLogin: () => void;
+  onCommentCountChange: (postId: string, count: number) => void;
+  onHideFromFeed: (postId: string) => void;
+  onEditPost: (post: any) => void;
+  onDeletePost: (post: any) => void;
+};
+
+const FeedPostCard: React.FC<FeedPostCardProps> = ({
+  post,
+  currentUserId,
+  autoplayEnabled,
+  onOpenPost,
+  onRequireLogin,
+  onCommentCountChange,
+  onHideFromFeed,
+  onEditPost,
+  onDeletePost
+}) => {
+  const attachments = Array.isArray(post.attachments) ? post.attachments : [];
+  const aiInsightText = String(post?.aiInsightText ?? post?.ai_insight_text ?? '').trim();
+  const hasAiInsight = Boolean((post?.aiInsightGenerated ?? post?.ai_insight_generated ?? false) && aiInsightText);
+  const feedCommentCount = toCount(post?.interactions?.comments ?? post?.commentsCount ?? 0, 0);
+
+  return (
+    <article className="rounded-[30px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/80 p-5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)] transition-shadow hover:shadow-[0_24px_48px_-26px_rgba(15,23,42,0.52)]">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <span className="inline-flex rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-700">
+          Continue scrolling
+        </span>
+        <button
+          type="button"
+          onClick={() => onOpenPost(post.id)}
+          className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+        >
+          Focus post
+        </button>
+      </div>
+
+      <PostHeader
+        author={post.author}
+        createdAt={post.createdAt}
+        currentUserId={currentUserId}
+        initialIsFollowing={post.viewer?.isFollowingAuthor}
+        onRequireLogin={onRequireLogin}
+        metaBadges={
+          <>
+            {post.isPinned ? (
+              <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">Pinned</span>
+            ) : null}
+            {post.isHighlighted ? (
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Highlighted</span>
+            ) : null}
+          </>
+        }
+        rightSlot={
+          <PostOptionsButton
+            post={post}
+            buttonClassName="rounded-full border border-slate-200 bg-white p-2.5 text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+            onHideFromFeed={onHideFromFeed}
+            onEditPost={() => onEditPost(post)}
+            onDeletePost={() => onDeletePost(post)}
+          />
+        }
+      />
+
+      {post.title ? (
+        <button
+          type="button"
+          onClick={() => onOpenPost(post.id)}
+          className="mt-4 text-left text-xl font-semibold tracking-tight text-slate-950 transition hover:text-blue-700"
+        >
+          {post.title}
+        </button>
+      ) : null}
+
+      <div className="mt-3 text-[15px] leading-7 text-slate-700">
+        <MentionText text={post.content} viewerId={currentUserId || undefined} />
+      </div>
+
+      {post.tags?.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {post.tags.map((tag: string) => (
+            <span key={tag} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 shadow-sm">
+              #{tag}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      {attachments.length ? (
+        <div className={`mt-4 grid gap-3 ${attachments.length === 1 ? 'grid-cols-1' : 'md:grid-cols-2'}`}>
+          {attachments.map((media: any) => {
+            const type = inferMediaType(media || {});
+            const mediaHeightClass = attachments.length === 1 ? 'h-64 md:h-80' : 'h-48 md:h-56';
+
+            if (type === 'video') {
+              return (
+                <div key={media.id || media.url} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm">
+                  <InlineAutoplayVideo
+                    src={media.url}
+                    poster={media.thumbnailUrl || undefined}
+                    className={`${mediaHeightClass} w-full object-cover`}
+                    controls
+                    autoplayEnabled={autoplayEnabled}
+                    preload="metadata"
+                  />
+                </div>
+              );
+            }
+
+            if (type === 'image') {
+              return (
+                <button
+                  key={media.id || media.url}
+                  type="button"
+                  onClick={() => onOpenPost(post.id)}
+                  className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left shadow-sm"
+                >
+                  <img src={media.url} alt={media.name || 'Post media'} className={`${mediaHeightClass} w-full object-cover`} />
+                </button>
+              );
+            }
+
+            return (
+              <div key={media.id || media.url} className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+                <div className="font-semibold text-slate-900">{media.name || 'Attachment'}</div>
+                <a href={media.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs font-semibold text-blue-600 underline">
+                  Open attachment
+                </a>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {hasAiInsight ? (
+        <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-900">
+          <div className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
+            <Sparkles className="h-3.5 w-3.5" />
+            AI Insight
+          </div>
+          <p className="mt-2 line-clamp-3">{aiInsightText}</p>
+        </div>
+      ) : null}
+
+      <PostEngagementBar
+        postId={post.id}
+        authorId={post.authorUserId || post.authorId}
+        commentPolicy={post.commentPolicy}
+        postRepostsEnabled={post.repostsEnabled}
+        commentCount={feedCommentCount}
+        repostCount={post.repostsCount ?? post.interactions?.reposts ?? 0}
+        shareCount={post.sharesCount ?? post.interactions?.shares ?? 0}
+        viewCount={post.interactions?.views ?? post.viewsCount ?? 0}
+        initialReactionCounts={post.interactions?.reactions}
+        initialUserReaction={post.userState?.reaction}
+        onCommentCountChange={onCommentCountChange}
+      />
+    </article>
+  );
+};
+
 export default function PostDetailView() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -139,6 +407,7 @@ export default function PostDetailView() {
 
   const { user } = useUser();
   const { showNotification } = useNotification();
+  const { profile } = usePerformanceProfile();
 
   const query = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const focusCommentId = String(query.get('comment') || '').trim();
@@ -151,6 +420,16 @@ export default function PostDetailView() {
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [insightCollapsed, setInsightCollapsed] = useState(true);
+  const [feedPosts, setFeedPosts] = useState<any[]>([]);
+  const [feedCursor, setFeedCursor] = useState<string | null>(null);
+  const [feedLoading, setFeedLoading] = useState(false);
+  const [feedError, setFeedError] = useState<string | null>(null);
+  const [feedLoadedOnce, setFeedLoadedOnce] = useState(false);
+
+  const loadMoreRef = useRef(false);
+  const feedSentinelRef = useRef<HTMLDivElement | null>(null);
+  const feedSectionRef = useRef<HTMLDivElement | null>(null);
+  const engagementSectionRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(async () => {
     if (!postId) return;
@@ -170,9 +449,103 @@ export default function PostDetailView() {
     }
   }, [postId]);
 
+  const loadFeed = useCallback(
+    async (cursor?: string | null, replace = false) => {
+      if (loadMoreRef.current) return;
+      loadMoreRef.current = true;
+      setFeedLoading(true);
+      if (replace) setFeedError(null);
+
+      try {
+        const response = await CommunityService.getFeed({
+          limit: replace ? 6 : 5,
+          cursor: cursor || undefined
+        });
+        const items = Array.isArray(response?.items)
+          ? response.items
+          : Array.isArray(response)
+            ? response
+            : Array.isArray(response?.posts)
+              ? response.posts
+              : [];
+        const normalizedItems = items.map(normalizePost).filter((item: any) => item?.id && String(item.id) !== postId);
+        setFeedPosts((prev) => (replace ? mergePostList([], normalizedItems, postId) : mergePostList(prev, normalizedItems, postId)));
+        setFeedCursor(response?.nextCursor ? String(response.nextCursor) : null);
+        setFeedLoadedOnce(true);
+      } catch (e: any) {
+        const message = e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Unable to load more posts.';
+        if (replace) {
+          setFeedError(message);
+        } else {
+          showNotification('warning', 'Post feed', message);
+        }
+      } finally {
+        loadMoreRef.current = false;
+        setFeedLoading(false);
+      }
+    },
+    [postId, showNotification]
+  );
+
+  const openPostDetail = useCallback(
+    (id: string) => {
+      const nextId = String(id || '').trim();
+      if (!nextId) return;
+      navigate(`/post/${encodeURIComponent(nextId)}`);
+    },
+    [navigate]
+  );
+
+  const scrollToSection = useCallback((ref: React.RefObject<HTMLElement | HTMLDivElement | null>) => {
+    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  const patchFeedPost = useCallback((targetId: string, updater: (item: any) => any | null) => {
+    setFeedPosts((prev) =>
+      prev
+        .map((item) => {
+          if (String(item?.id || '') !== targetId) return item;
+          return updater(item);
+        })
+        .filter(Boolean)
+    );
+  }, []);
+
+  const handleDeletePost = useCallback(
+    async (targetPost: any, options?: { redirectAfterDelete?: boolean }) => {
+      const nextId = String(targetPost?.id || '').trim();
+      if (!nextId) return;
+      if (!confirm('Delete this post?')) return;
+      try {
+        await CommunityService.deletePost(nextId);
+        showNotification('success', 'Posts', 'Post deleted.');
+        if (options?.redirectAfterDelete) {
+          navigate('/community');
+          return;
+        }
+        patchFeedPost(nextId, () => null);
+      } catch (e: any) {
+        const message = e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Unable to delete post.';
+        showNotification('error', 'Posts', message);
+      }
+    },
+    [navigate, patchFeedPost, showNotification]
+  );
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!postId) return;
+    setFeedPosts([]);
+    setFeedCursor(null);
+    setFeedError(null);
+    setFeedLoadedOnce(false);
+    loadMoreRef.current = false;
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    void loadFeed(null, true);
+  }, [loadFeed, postId]);
 
   useEffect(() => {
     if (!user?.id || !post?.id) return;
@@ -186,113 +559,119 @@ export default function PostDetailView() {
   }, [post?.id]);
 
   useEffect(() => {
+    if (!feedCursor || feedLoading || !feedSentinelRef.current) return undefined;
+    const node = feedSentinelRef.current;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting || loadMoreRef.current) return;
+        void loadFeed(feedCursor, false);
+      },
+      {
+        rootMargin: '0px 0px 320px 0px',
+        threshold: 0.05
+      }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [feedCursor, feedLoading, loadFeed]);
+
+  useEffect(() => {
     if (!post?.id) return;
     const currentPostId = String(post.id);
 
     const onPostUpdated = (event: Event) => {
       const detail = (event as CustomEvent).detail || {};
       const updatedPostId = String(detail?.post?.id || detail?.id || detail?.postId || detail?.post_id || '').trim();
-      if (!updatedPostId || updatedPostId !== currentPostId) return;
+      if (!updatedPostId) return;
+
+      if (updatedPostId === currentPostId) {
+        if (detail?.post) {
+          const normalized = normalizePost(detail.post);
+          setPost((prev: any) => mergePostData(prev, normalized));
+          if (normalized?.interactions?.comments !== undefined) {
+            setCommentCount(toCount(normalized.interactions.comments, 0));
+          }
+        } else {
+          void load();
+        }
+        return;
+      }
+
       if (detail?.post) {
         const normalized = normalizePost(detail.post);
-        setPost((prev: any) => mergePostData(prev, normalized));
-        if (normalized?.interactions?.comments !== undefined) {
-          setCommentCount(toCount(normalized.interactions.comments, 0));
-        }
-      } else {
-        void load();
+        patchFeedPost(updatedPostId, (item) => mergePostData(item, normalized));
       }
     };
 
     const onPostDeleted = (event: Event) => {
       const detail = (event as CustomEvent).detail || {};
       const deletedPostId = String(detail?.postId || detail?.id || detail?.post_id || '').trim();
-      if (!deletedPostId || deletedPostId !== currentPostId) return;
-      setPost(null);
-      showNotification('info', 'Post removed', 'This post is no longer available.');
-      navigate('/community');
+      if (!deletedPostId) return;
+      if (deletedPostId === currentPostId) {
+        setPost(null);
+        showNotification('info', 'Post removed', 'This post is no longer available.');
+        navigate('/community');
+        return;
+      }
+      patchFeedPost(deletedPostId, () => null);
     };
 
     const onPostMetricsUpdated = (event: Event) => {
       const detail = (event as CustomEvent).detail || {};
       const metricsPostId = String(detail?.postId || detail?.id || detail?.post_id || '').trim();
-      if (!metricsPostId || metricsPostId !== currentPostId) return;
+      if (!metricsPostId) return;
 
-      setPost((prev: any) => {
-        if (!prev) return prev;
-        const interactionPatch =
-          detail?.interactions && typeof detail.interactions === 'object' && !Array.isArray(detail.interactions)
-            ? detail.interactions
-            : {};
-        const nextInteractions = {
-          ...(prev.interactions || {}),
-          ...interactionPatch
-        };
+      if (metricsPostId === currentPostId) {
+        setPost((prev: any) => applyMetricsUpdate(prev, detail));
+        setCommentCount((prev) => toCount(detail?.commentCount ?? detail?.comments, prev));
+        return;
+      }
 
-        if (detail?.comments !== undefined || detail?.commentCount !== undefined) {
-          nextInteractions.comments = toCount(detail.commentCount ?? detail.comments, toCount(nextInteractions.comments, 0));
-        }
-        if (detail?.shares !== undefined || detail?.shareCount !== undefined) {
-          nextInteractions.shares = toCount(detail.shareCount ?? detail.shares, toCount(nextInteractions.shares, 0));
-        }
-        if (detail?.reposts !== undefined || detail?.repostCount !== undefined) {
-          nextInteractions.reposts = toCount(detail.repostCount ?? detail.reposts, toCount(nextInteractions.reposts, 0));
-        }
-        if (detail?.views !== undefined || detail?.viewCount !== undefined) {
-          nextInteractions.views = toCount(detail.viewCount ?? detail.views, toCount(nextInteractions.views, 0));
-        }
-
-        setCommentCount(toCount(nextInteractions.comments, 0));
-
-        return {
-          ...prev,
-          interactions: nextInteractions,
-          sharesCount: toCount(nextInteractions.shares, toCount(prev.sharesCount, 0)),
-          repostsCount: toCount(nextInteractions.reposts, toCount(prev.repostsCount, 0)),
-          viewsCount: toCount(nextInteractions.views, toCount(prev.viewsCount, 0))
-        };
-      });
+      patchFeedPost(metricsPostId, (item) => applyMetricsUpdate(item, detail));
     };
 
     const onPostReactionUpdated = (event: Event) => {
       const detail = (event as CustomEvent).detail || {};
       const reactionPostId = String(detail?.postId || detail?.id || detail?.post_id || '').trim();
-      if (!reactionPostId || reactionPostId !== currentPostId) return;
+      if (!reactionPostId) return;
       const reactions = detail?.reactions;
-      if (!reactions || typeof reactions !== 'object' || Array.isArray(reactions)) return;
-      setPost((prev: any) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          interactions: {
-            ...(prev.interactions || {}),
-            reactions
-          }
-        };
-      });
+
+      if (reactionPostId === currentPostId) {
+        setPost((prev: any) => applyReactionUpdate(prev, reactions));
+        return;
+      }
+
+      patchFeedPost(reactionPostId, (item) => applyReactionUpdate(item, reactions));
     };
 
     const onPostAiInsightReady = (event: Event) => {
       const detail = (event as CustomEvent).detail || {};
       const insightPostId = String(detail?.postId || detail?.id || detail?.post_id || '').trim();
-      if (!insightPostId || insightPostId !== currentPostId) return;
-      const insightRaw = detail?.aiInsightText ?? detail?.ai_insight_text;
-      if (insightRaw === null || insightRaw === undefined) {
-        void load();
+      if (!insightPostId) return;
+
+      if (insightPostId === currentPostId) {
+        const insightRaw = detail?.aiInsightText ?? detail?.ai_insight_text;
+        if (insightRaw === null || insightRaw === undefined) {
+          void load();
+          return;
+        }
+        const insightText = String(insightRaw).trim();
+        setPost((prev: any) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            aiInsightGenerated: Boolean(insightText),
+            aiInsightText: insightText || null
+          };
+        });
+        if (insightText) {
+          setInsightCollapsed(false);
+        }
         return;
       }
-      const insightText = String(insightRaw).trim();
-      setPost((prev: any) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          aiInsightGenerated: Boolean(insightText),
-          aiInsightText: insightText || null
-        };
-      });
-      if (insightText) {
-        setInsightCollapsed(false);
-      }
+
+      patchFeedPost(insightPostId, (item) => applyAiInsightUpdate(item, detail));
     };
 
     window.addEventListener('community:post_updated', onPostUpdated as EventListener);
@@ -310,7 +689,7 @@ export default function PostDetailView() {
       window.removeEventListener('community:post_ai_insight_ready', onPostAiInsightReady as EventListener);
       window.removeEventListener('post:aiInsightReady', onPostAiInsightReady as EventListener);
     };
-  }, [load, navigate, post?.id, showNotification]);
+  }, [load, navigate, patchFeedPost, post?.id, showNotification]);
 
   const mediaItems = useMemo(() => (Array.isArray(post?.attachments) ? post.attachments : []), [post?.attachments]);
   const selectedMedia = mediaItems[activeMediaIndex] || null;
@@ -372,7 +751,7 @@ export default function PostDetailView() {
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50">
-        <div className="mx-auto max-w-4xl px-3 py-6">
+        <div className="mx-auto max-w-7xl px-3 py-6">
           <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600">Loading post...</div>
         </div>
       </div>
@@ -382,7 +761,7 @@ export default function PostDetailView() {
   if (error) {
     return (
       <div className="min-h-screen bg-slate-50">
-        <div className="mx-auto max-w-4xl px-3 py-6">
+        <div className="mx-auto max-w-7xl px-3 py-6">
           <div className="rounded-2xl border border-red-200 bg-white p-5">
             <div className="text-sm font-semibold text-red-700">Post error</div>
             <div className="mt-1 text-sm text-slate-700">{error}</div>
@@ -402,11 +781,11 @@ export default function PostDetailView() {
   if (!post) {
     return (
       <div className="min-h-screen bg-slate-50">
-        <div className="mx-auto max-w-4xl px-3 py-6">
+        <div className="mx-auto max-w-7xl px-3 py-6">
           <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600">Post not found.</div>
           <div className="mt-4">
-            <Link to="/" className="text-sm font-semibold text-blue-600 hover:underline">
-              Go to Home
+            <Link to="/community" className="text-sm font-semibold text-blue-600 hover:underline">
+              Go to Community
             </Link>
           </div>
         </div>
@@ -417,27 +796,46 @@ export default function PostDetailView() {
   const isOwner = Boolean(user?.id && post.authorUserId && String(user.id) === String(post.authorUserId));
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-4xl px-3 py-4">
-        <button
-          type="button"
-          onClick={() => {
-            try {
-              navigate(-1);
-            } catch {
-              navigate('/');
-            }
-          }}
-          className="mb-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </button>
-
-        <article className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
-          <div className="mb-3 inline-flex rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-            Post Detail View
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(96,165,250,0.16),_transparent_32%),linear-gradient(180deg,_#f8fafc_0%,_#f8fafc_35%,_#eef2ff_100%)]">
+      <div className="mx-auto max-w-7xl px-3 py-4 md:px-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                navigate(-1);
+              } catch {
+                navigate('/community');
+              }
+            }}
+            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm backdrop-blur hover:bg-slate-50"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </button>
+          <div className="inline-flex rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-700">
+            Expanded Post Experience
           </div>
+        </div>
+
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_310px]">
+          <div className="space-y-5">
+            <article className="overflow-hidden rounded-[32px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/70 p-4 shadow-[0_24px_55px_-35px_rgba(15,23,42,0.4)] md:p-6">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-600 shadow-sm">
+                    Post in Focus
+                  </div>
+                  <p className="mt-2 text-sm text-slate-500">
+                    Scroll through surrounding posts without losing the current post context.
+                  </p>
+                </div>
+                <div className="text-right text-xs text-slate-500">
+                  <div className="font-semibold text-slate-900">{post.visibility || 'public'}</div>
+                  <div>Updated {formatDetailDate(post.updatedAt || post.createdAt)}</div>
+                </div>
+              </div>
+
           <PostHeader
             author={post.author}
             createdAt={post.createdAt}
@@ -465,37 +863,28 @@ export default function PostDetailView() {
                 post={post}
                 onHideFromFeed={() => {
                   setPost(null);
-                  showNotification('info', 'Hidden', 'Post hidden from your feed.', '/');
+                  showNotification('info', 'Hidden', 'Post hidden from your feed.');
+                  navigate('/community');
                 }}
                 onEditPost={() => {
-                  // CommunityHome currently owns the inline edit UX; we deep-link into it.
                   navigate(`/community/posts/${encodeURIComponent(post.id)}?edit=1`);
                 }}
                 onDeletePost={async () => {
                   if (!isOwner) return;
-                  if (!confirm('Delete this post?')) return;
-                  try {
-                    await CommunityService.deletePost(post.id);
-                    showNotification('success', 'Posts', 'Post deleted.');
-                    navigate('/');
-                  } catch (e: any) {
-                    const message =
-                      e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Unable to delete post.';
-                    showNotification('error', 'Posts', message);
-                  }
+                  await handleDeletePost(post, { redirectAfterDelete: true });
                 }}
               />
             }
           />
 
-          {post.title ? <h1 className="mt-3 text-xl font-semibold text-slate-900">{post.title}</h1> : null}
+          {post.title ? <h1 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950 md:text-[2rem]">{post.title}</h1> : null}
           {focusMentionToken ? (
-            <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
+            <div className="mt-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs font-medium text-blue-700">
               You were mentioned in this post.
             </div>
           ) : null}
 
-          <div className="mt-3 text-sm leading-relaxed text-slate-700">
+          <div className="mt-4 text-[15px] leading-8 text-slate-700 md:text-base">
             <MentionText
               text={post.content}
               mentionToken={focusMentionToken || undefined}
@@ -505,11 +894,11 @@ export default function PostDetailView() {
           </div>
 
           {post.tags?.length ? (
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
               {post.tags.map((tag: string) => (
                 <span
                   key={tag}
-                  className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600"
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 shadow-sm"
                 >
                   #{tag}
                 </span>
@@ -518,8 +907,8 @@ export default function PostDetailView() {
           ) : null}
 
           {mediaItems.length ? (
-            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-2">
-              <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-black">
+            <div className="mt-5 rounded-[26px] border border-slate-200/90 bg-slate-50/90 p-2.5 shadow-inner">
+              <div className="relative overflow-hidden rounded-[22px] border border-slate-200 bg-black">
                 {selectedMedia ? (
                   <>
                     {selectedMediaType === 'image' ? (
@@ -531,7 +920,7 @@ export default function PostDetailView() {
                         <img
                           src={selectedMedia.url}
                           alt={selectedMedia.name || 'Post media'}
-                          className="h-[360px] w-full object-contain md:h-[460px]"
+                          className="h-[360px] w-full object-contain md:h-[520px]"
                         />
                       </button>
                     ) : null}
@@ -540,7 +929,8 @@ export default function PostDetailView() {
                       <video
                         src={selectedMedia.url}
                         controls
-                        className="h-[360px] w-full object-contain md:h-[460px]"
+                        playsInline
+                        className="h-[360px] w-full object-contain md:h-[520px]"
                       />
                     ) : null}
 
@@ -572,7 +962,7 @@ export default function PostDetailView() {
                         <button
                           type="button"
                           onClick={() => void handleDownloadMedia(selectedMedia)}
-                          className="inline-flex items-center gap-1 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-slate-700"
+                          className="inline-flex items-center gap-1 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm"
                         >
                           <Download className="h-3.5 w-3.5" />
                           Download
@@ -580,7 +970,7 @@ export default function PostDetailView() {
                         <button
                           type="button"
                           onClick={() => openMediaLightbox(activeMediaIndex)}
-                          className="inline-flex items-center gap-1 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-slate-700"
+                          className="inline-flex items-center gap-1 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm"
                         >
                           <Expand className="h-3.5 w-3.5" />
                           Expand
@@ -595,7 +985,7 @@ export default function PostDetailView() {
                     <button
                       type="button"
                       onClick={() => changeMedia(-1)}
-                      className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 text-slate-700 shadow"
+                      className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 text-slate-700 shadow"
                       aria-label="Previous media"
                     >
                       <ChevronLeft className="h-4 w-4" />
@@ -603,7 +993,7 @@ export default function PostDetailView() {
                     <button
                       type="button"
                       onClick={() => changeMedia(1)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 text-slate-700 shadow"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 text-slate-700 shadow"
                       aria-label="Next media"
                     >
                       <ChevronRight className="h-4 w-4" />
@@ -646,7 +1036,7 @@ export default function PostDetailView() {
           ) : null}
 
           {hasAiInsight ? (
-            <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/80 px-4 py-3">
+            <div className="mt-5 rounded-[24px] border border-emerald-100 bg-emerald-50/80 px-4 py-3">
               <div className="flex items-center justify-between gap-2">
                 <span className="inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-emerald-700">
                   <Sparkles className="h-3.5 w-3.5" />
@@ -666,38 +1056,23 @@ export default function PostDetailView() {
             </div>
           ) : null}
 
-          <div className="mt-4 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-600">
-              <p className="font-semibold text-slate-800">{analytics.reactions}</p>
-              <p>Total reactions</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-600">
-              <p className="font-semibold text-slate-800">{analytics.comments}</p>
-              <p>Comments</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-600">
-              <p className="font-semibold text-slate-800">{analytics.reposts}</p>
-              <p>Reposts</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-600">
-              <p className="font-semibold text-slate-800">{analytics.shares}</p>
-              <p>Shares</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-slate-600">
-              <p className="font-semibold text-slate-800">{analytics.views}</p>
-              <p>Views</p>
-            </div>
+          <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-5">
+            <PostMetricCard label="Reactions" value={analytics.reactions} emphasis />
+            <PostMetricCard label="Comments" value={analytics.comments} />
+            <PostMetricCard label="Reposts" value={analytics.reposts} />
+            <PostMetricCard label="Shares" value={analytics.shares} />
+            <PostMetricCard label="Views" value={analytics.views} />
           </div>
 
           {post.topic || post.location ? (
-            <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-slate-500">
+            <div className="mt-4 flex flex-wrap gap-2 text-[11px] text-slate-500">
               {post.topic ? (
-                <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">
+                <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-sm">
                   Topic: {post.topic}
                 </span>
               ) : null}
               {post.location ? (
-                <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">
+                <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-sm">
                   Location: {post.location}
                 </span>
               ) : null}
@@ -709,22 +1084,170 @@ export default function PostDetailView() {
             </div>
           ) : null}
 
-          <PostEngagementBar
-            postId={post.id}
-            authorId={post.authorUserId || post.authorId}
-            commentPolicy={post.commentPolicy}
-            postRepostsEnabled={post.repostsEnabled}
-            commentCount={commentCount}
-            repostCount={post.repostsCount ?? post.interactions?.reposts ?? 0}
-            shareCount={post.sharesCount ?? post.interactions?.shares ?? 0}
-            viewCount={post.interactions?.views ?? post.viewsCount ?? 0}
-            initialReactionCounts={post.interactions?.reactions}
-            initialUserReaction={post.userState?.reaction}
-            focusCommentId={focusCommentId || undefined}
-            focusMentionToken={focusMentionToken || undefined}
-            onCommentCountChange={(_id, count) => setCommentCount(count)}
-          />
-        </article>
+          <div ref={engagementSectionRef} className="mt-4">
+            <PostEngagementBar
+              postId={post.id}
+              authorId={post.authorUserId || post.authorId}
+              commentPolicy={post.commentPolicy}
+              postRepostsEnabled={post.repostsEnabled}
+              commentCount={commentCount}
+              repostCount={post.repostsCount ?? post.interactions?.reposts ?? 0}
+              shareCount={post.sharesCount ?? post.interactions?.shares ?? 0}
+              viewCount={post.interactions?.views ?? post.viewsCount ?? 0}
+              initialReactionCounts={post.interactions?.reactions}
+              initialUserReaction={post.userState?.reaction}
+              focusCommentId={focusCommentId || undefined}
+              focusMentionToken={focusMentionToken || undefined}
+              onCommentCountChange={(_id, count) => setCommentCount(count)}
+            />
+          </div>
+            </article>
+
+            <section ref={feedSectionRef} className="rounded-[32px] border border-slate-200/80 bg-white/80 p-4 shadow-[0_18px_45px_-34px_rgba(15,23,42,0.34)] backdrop-blur md:p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-600">
+                    <Radar className="h-3.5 w-3.5" />
+                    Continue Through Posts
+                  </div>
+                  <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">Keep scrolling through the network</h2>
+                  <p className="mt-1 max-w-2xl text-sm text-slate-500">
+                    The focused post stays at the top, and the feed continues below it so you can move down and back up without leaving the detail experience.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadFeed(null, true)}
+                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700 shadow-sm transition hover:bg-slate-50"
+                >
+                  Refresh stream
+                </button>
+              </div>
+
+              {feedError && !feedPosts.length ? (
+                <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700">
+                  <div className="font-semibold">Unable to continue the post stream.</div>
+                  <div className="mt-1">{feedError}</div>
+                  <button
+                    type="button"
+                    onClick={() => void loadFeed(null, true)}
+                    className="mt-3 inline-flex rounded-full border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-red-700"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="mt-5 space-y-4">
+                {feedPosts.map((feedPost) => (
+                  <FeedPostCard
+                    key={feedPost.id}
+                    post={feedPost}
+                    currentUserId={user?.id}
+                    autoplayEnabled={profile.autoplayEnabled}
+                    onOpenPost={openPostDetail}
+                    onRequireLogin={() => {
+                      if (confirm('Log in to follow users?')) window.location.href = '/auth/login';
+                    }}
+                    onCommentCountChange={(id, count) =>
+                      patchFeedPost(String(id || ''), (item) => ({
+                        ...item,
+                        interactions: {
+                          ...(item.interactions || {}),
+                          comments: count
+                        }
+                      }))
+                    }
+                    onHideFromFeed={(id) => patchFeedPost(String(id || ''), () => null)}
+                    onEditPost={(targetPost) => navigate(`/community/posts/${encodeURIComponent(targetPost.id)}?edit=1`)}
+                    onDeletePost={(targetPost) => {
+                      void handleDeletePost(targetPost);
+                    }}
+                  />
+                ))}
+
+                {feedLoading ? (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+                    Loading more posts...
+                  </div>
+                ) : null}
+
+                {!feedLoading && feedLoadedOnce && !feedPosts.length && !feedError ? (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+                    No additional posts are available right now.
+                  </div>
+                ) : null}
+
+                {!feedLoading && !feedCursor && feedPosts.length ? (
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+                    You are caught up on the surrounding posts.
+                  </div>
+                ) : null}
+
+                <div ref={feedSentinelRef} className="h-6" />
+              </div>
+            </section>
+          </div>
+
+          <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
+            <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-4 shadow-[0_18px_40px_-32px_rgba(15,23,42,0.35)] backdrop-blur">
+              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-600">
+                <MessageSquareText className="h-3.5 w-3.5" />
+                Post Overview
+              </div>
+              <div className="mt-4 space-y-3">
+                <PostMetricCard label="Views" value={analytics.views} emphasis />
+                <div className="grid grid-cols-2 gap-3">
+                  <PostMetricCard label="Comments" value={analytics.comments} />
+                  <PostMetricCard label="Reposts" value={analytics.reposts} />
+                </div>
+              </div>
+              <div className="mt-4 space-y-2 rounded-2xl border border-slate-200 bg-slate-50/90 p-3 text-sm text-slate-600">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-semibold text-slate-900">Published</span>
+                  <span>{formatDetailDate(post.createdAt)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-semibold text-slate-900">Visibility</span>
+                  <span className="capitalize">{String(post.visibility || 'public')}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-semibold text-slate-900">Attachments</span>
+                  <span>{mediaItems.length}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-4 shadow-[0_18px_40px_-32px_rgba(15,23,42,0.35)] backdrop-blur">
+              <div className="inline-flex rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-700">
+                Navigation
+              </div>
+              <div className="mt-4 grid gap-2">
+                <button
+                  type="button"
+                  onClick={() => scrollToSection(engagementSectionRef)}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                >
+                  Jump to discussion
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollToSection(feedSectionRef)}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                >
+                  Continue scrolling posts
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.scrollTo({ top: 0, left: 0, behavior: 'smooth' })}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                >
+                  Return to top
+                </button>
+              </div>
+            </div>
+          </aside>
+        </div>
       </div>
 
       {lightboxOpen && selectedMedia ? (
