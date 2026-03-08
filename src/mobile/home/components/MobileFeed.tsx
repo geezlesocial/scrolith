@@ -1275,17 +1275,34 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                               className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
                             >
                               {isVideo(file.mimeType) ? (
-                                <InlineAutoplayVideo
-                                  src={file.url}
-                                  poster={file.thumbnailUrl || undefined}
-                                  className="h-56 w-full object-cover"
-                                  controls
-                                  autoplayEnabled={profile.autoplayEnabled}
-                                  preload="metadata"
-                                  onDoubleTapLike={() => {
-                                    void triggerPostDoubleTapLike(post);
+                                <div
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={(event) => {
+                                    if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
+                                    queueOpenPostFromMediaTap(postId, mediaKey);
                                   }}
-                                />
+                                  onDoubleClick={(event) => {
+                                    if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
+                                    onPostMediaDoubleClick(event, post, mediaKey);
+                                  }}
+                                  onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      event.preventDefault();
+                                      openPostDetail(postId);
+                                    }
+                                  }}
+                                >
+                                  <InlineAutoplayVideo
+                                    src={file.url}
+                                    poster={file.thumbnailUrl || undefined}
+                                    className="h-56 w-full object-cover"
+                                    controls={false}
+                                    autoplayEnabled={profile.autoplayEnabled}
+                                    preload="metadata"
+                                  />
+                                </div>
                               ) : isImage(file.mimeType) ? (
                                 <button
                                   type="button"
@@ -1303,12 +1320,13 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                                   />
                                 </button>
                               ) : (
-                                <a
-                                  href={file.url}
-                                  className="block p-4 text-sm font-semibold text-slate-700 hover:underline"
+                                <button
+                                  type="button"
+                                  onClick={() => openPostDetail(postId)}
+                                  className="block p-4 text-left text-sm font-semibold text-slate-700 hover:underline"
                                 >
                                   {file.name || file.url}
-                                </a>
+                                </button>
                               )}
                             </div>
                           );

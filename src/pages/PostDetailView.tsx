@@ -312,7 +312,18 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
         </button>
       ) : null}
 
-      <div className="mt-3 text-[15px] leading-7 text-slate-700">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => onOpenPost(post.id)}
+        className="mt-3 block w-full text-left text-[15px] leading-7 text-slate-700"
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onOpenPost(post.id);
+          }
+        }}
+      >
         <MentionText text={post.content} viewerId={currentUserId || undefined} />
       </div>
 
@@ -334,12 +345,27 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
             if (type === 'video') {
               return (
-                <div key={media.id || media.url} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm">
+                <div
+                  key={media.id || media.url}
+                  role="button"
+                  tabIndex={0}
+                  onClick={(event) => {
+                    if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
+                    onOpenPost(post.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onOpenPost(post.id);
+                    }
+                  }}
+                  className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
+                >
                   <InlineAutoplayVideo
                     src={media.url}
                     poster={media.thumbnailUrl || undefined}
                     className={`${mediaHeightClass} w-full object-cover`}
-                    controls
+                    controls={false}
                     autoplayEnabled={autoplayEnabled}
                     preload="metadata"
                   />
@@ -361,12 +387,15 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
             }
 
             return (
-              <div key={media.id || media.url} className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+              <button
+                key={media.id || media.url}
+                type="button"
+                onClick={() => onOpenPost(post.id)}
+                className="rounded-2xl border border-slate-200 bg-white p-4 text-left text-sm text-slate-600 shadow-sm"
+              >
                 <div className="font-semibold text-slate-900">{media.name || 'Attachment'}</div>
-                <a href={media.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-xs font-semibold text-blue-600 underline">
-                  Open attachment
-                </a>
-              </div>
+                <span className="mt-2 inline-flex text-xs font-semibold text-blue-600 underline">Open in Post in Focus</span>
+              </button>
             );
           })}
         </div>
@@ -694,8 +723,14 @@ export default function PostDetailView() {
   const mediaItems = useMemo(() => (Array.isArray(post?.attachments) ? post.attachments : []), [post?.attachments]);
   const selectedMedia = mediaItems[activeMediaIndex] || null;
   const selectedMediaType = inferMediaType(selectedMedia || {});
+  const canDownloadSelectedMedia = selectedMediaType === 'image' || selectedMediaType === 'document';
   const handleDownloadMedia = useCallback(
     async (media: any) => {
+      const mediaType = inferMediaType(media || {});
+      if (mediaType === 'video') {
+        showNotification('warning', 'Download', 'Video downloads are disabled to protect creator content.');
+        return;
+      }
       const url = String(media?.url || '').trim();
       if (!url) {
         showNotification('warning', 'Download', 'Media URL is not available.');
@@ -929,8 +964,10 @@ export default function PostDetailView() {
                       <video
                         src={selectedMedia.url}
                         controls
+                        controlsList="nodownload"
                         playsInline
                         className="h-[360px] w-full object-contain md:h-[520px]"
+                        onContextMenu={(event) => event.preventDefault()}
                       />
                     ) : null}
 
@@ -959,14 +996,16 @@ export default function PostDetailView() {
 
                     {(selectedMediaType === 'image' || selectedMediaType === 'video' || selectedMediaType === 'document') ? (
                       <div className="absolute right-3 top-3 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void handleDownloadMedia(selectedMedia)}
-                          className="inline-flex items-center gap-1 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm"
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                          Download
-                        </button>
+                        {canDownloadSelectedMedia ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleDownloadMedia(selectedMedia)}
+                            className="inline-flex items-center gap-1 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            Download
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => openMediaLightbox(activeMediaIndex)}
@@ -1261,14 +1300,16 @@ export default function PostDetailView() {
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void handleDownloadMedia(selectedMedia)}
-                  className="inline-flex items-center gap-1 rounded-full border border-white/30 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10"
-                >
-                  <Download className="h-4 w-4" />
-                  Download
-                </button>
+                {canDownloadSelectedMedia ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadMedia(selectedMedia)}
+                    className="inline-flex items-center gap-1 rounded-full border border-white/30 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => setLightboxOpen(false)}
@@ -1286,7 +1327,14 @@ export default function PostDetailView() {
               ) : null}
 
               {selectedMediaType === 'video' ? (
-                <video src={selectedMedia.url} controls autoPlay className="max-h-full max-w-full" />
+                <video
+                  src={selectedMedia.url}
+                  controls
+                  controlsList="nodownload"
+                  autoPlay
+                  className="max-h-full max-w-full"
+                  onContextMenu={(event) => event.preventDefault()}
+                />
               ) : null}
 
               {selectedMediaType === 'document' ? (

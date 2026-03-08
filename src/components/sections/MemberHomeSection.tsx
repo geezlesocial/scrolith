@@ -3674,18 +3674,32 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
             return (
               <div
                 key={media.id || media.url}
+                role="button"
+                tabIndex={0}
+                onClick={(event) => {
+                  if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
+                  queueOpenPostFromMediaTap(postId, mediaKey);
+                }}
+                onDoubleClick={(event) => {
+                  if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
+                  onPostMediaDoubleClick(event, post, mediaKey);
+                }}
+                onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    openPostDetail(postId);
+                  }
+                }}
                 className="group relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
               >
                 <InlineAutoplayVideo
                   src={media.url}
                   poster={(media as any)?.thumbnailUrl || undefined}
                   className={`${mediaPreviewHeightClass} w-full object-cover`}
-                  controls
+                  controls={false}
                   autoplayEnabled={profile.autoplayEnabled}
                   preload="metadata"
-                  onDoubleTapLike={() => {
-                    void triggerPostDoubleTapLike(post);
-                  }}
                 />
                 {durationLabel && (
                   <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">

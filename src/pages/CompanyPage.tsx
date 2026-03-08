@@ -1172,24 +1172,35 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
                           }
                           if (mediaType === 'video') {
                             return (
-                              <video
+                              <button
                                 key={file.id || file.url}
-                                src={file.url}
-                                controls
-                                className="max-h-[420px] w-full rounded-xl bg-black"
-                              />
+                                type="button"
+                                onClick={() => openPostDetail(post.id)}
+                                className="block w-full text-left"
+                              >
+                                <video
+                                  src={file.url}
+                                  autoPlay
+                                  muted
+                                  loop
+                                  playsInline
+                                  controls={false}
+                                  controlsList="nodownload"
+                                  onContextMenu={(event) => event.preventDefault()}
+                                  className="max-h-[420px] w-full rounded-xl bg-black object-cover"
+                                />
+                              </button>
                             );
                           }
                           return (
-                            <a
+                            <button
                               key={file.id || file.url}
-                              href={file.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="block rounded-xl border border-slate-200 px-3 py-2 text-blue-600 hover:bg-slate-50"
+                              type="button"
+                              onClick={() => openPostDetail(post.id)}
+                              className="block w-full rounded-xl border border-slate-200 px-3 py-2 text-left text-blue-600 hover:bg-slate-50"
                             >
-                              {file.name || 'Open file'}
-                            </a>
+                              {file.name || 'Open in Post in Focus'}
+                            </button>
                           );
                         })}
                       </div>

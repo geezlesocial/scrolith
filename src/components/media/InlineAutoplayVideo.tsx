@@ -132,11 +132,13 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
         poster={poster || undefined}
         className={className}
         controls={controls}
+        controlsList={controls ? 'nodownload' : undefined}
         autoPlay={autoplayEnabled}
         playsInline
         muted={isMuted}
         loop={loop}
         preload={effectivePreload}
+        onContextMenu={(event) => event.preventDefault()}
         onDoubleClick={(event) => {
           if (!onDoubleTapLike) return;
           event.preventDefault();
@@ -164,6 +166,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
           event.stopPropagation();
           setIsMuted((prev) => !prev);
         }}
+        data-inline-video-control="true"
         className="absolute right-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[11px] font-semibold text-white backdrop-blur hover:bg-black/80"
         aria-label={isMuted ? 'Unmute video' : 'Mute video'}
       >

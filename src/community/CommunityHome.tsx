@@ -2568,18 +2568,32 @@ const CommunityHome = () => {
                                   return (
                                     <div
                                       key={media.id || media.url}
+                                      role="button"
+                                      tabIndex={0}
+                                      onClick={(event) => {
+                                        if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
+                                        queueOpenPostFromMediaTap(post.id, mediaKey);
+                                      }}
+                                      onDoubleClick={(event) => {
+                                        if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
+                                        onPostMediaDoubleClick(event, post, mediaKey);
+                                      }}
+                                      onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter' || event.key === ' ') {
+                                          event.preventDefault();
+                                          openPostDetail(post.id);
+                                        }
+                                      }}
                                       className="mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
                                     >
                                       <InlineAutoplayVideo
                                         src={media.url}
                                         poster={media.thumbnailUrl || undefined}
                                         className={`${mediaHeightClass} w-full object-cover`}
-                                        controls
+                                        controls={false}
                                         autoplayEnabled={profile.autoplayEnabled}
                                         preload="metadata"
-                                        onDoubleTapLike={() => {
-                                          void triggerPostDoubleTapLike(post);
-                                        }}
                                       />
                                     </div>
                                   );
@@ -2603,14 +2617,16 @@ const CommunityHome = () => {
                                   );
                                 }
                                 return (
-                                  <div
+                                  <button
                                     key={media.id || media.url}
-                                    className="rounded-2xl border border-slate-200 bg-white p-3 text-xs text-slate-600 shadow-sm"
+                                    type="button"
+                                    onClick={() => openPostDetail(post.id)}
+                                    className="rounded-2xl border border-slate-200 bg-white p-3 text-left text-xs text-slate-600 shadow-sm hover:bg-slate-50"
                                   >
-                                    <a href={media.url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+                                    <span className="text-blue-600 underline">
                                       {media.name || media.url?.split('/').pop() || 'View attachment'}
-                                    </a>
-                                  </div>
+                                    </span>
+                                  </button>
                                 );
                               })}
                             </div>
