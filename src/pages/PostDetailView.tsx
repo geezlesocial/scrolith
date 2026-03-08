@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Expand, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Download, Expand, Sparkles, X } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { useNotification } from '../context/NotificationContext';
 import { useUser } from '../context/UserContext';
 import { CommunityService } from '../services/community';
 import { resolveAssetUrl } from '../utils/assetUrl';
+import { downloadToDevice } from '../utils/deviceDownload';
 
 import PostHeader from '../community/components/PostHeader';
 import MentionText from '../community/components/MentionText';
@@ -314,6 +315,30 @@ export default function PostDetailView() {
   const mediaItems = useMemo(() => (Array.isArray(post?.attachments) ? post.attachments : []), [post?.attachments]);
   const selectedMedia = mediaItems[activeMediaIndex] || null;
   const selectedMediaType = inferMediaType(selectedMedia || {});
+  const handleDownloadMedia = useCallback(
+    async (media: any) => {
+      const url = String(media?.url || '').trim();
+      if (!url) {
+        showNotification('warning', 'Download', 'Media URL is not available.');
+        return;
+      }
+      try {
+        const result = await downloadToDevice({
+          url,
+          fileName: media?.name,
+          mimeType: media?.mimeType
+        });
+        showNotification(
+          'success',
+          'Download',
+          result.native ? `Saved to ${result.path || 'your device'}.` : 'Download started.'
+        );
+      } catch (error: any) {
+        showNotification('error', 'Download', error?.message || 'Unable to download media.');
+      }
+    },
+    [showNotification]
+  );
 
   const aiInsightText = String(post?.aiInsightText ?? post?.ai_insight_text ?? '').trim();
   const hasAiInsight = Boolean((post?.aiInsightGenerated ?? post?.ai_insight_generated ?? false) && aiInsightText);
@@ -522,26 +547,45 @@ export default function PostDetailView() {
                     {selectedMediaType === 'document' ? (
                       <div className="flex h-[260px] w-full flex-col items-center justify-center gap-3 px-4 text-center text-sm text-slate-200">
                         <p className="font-semibold">{selectedMedia.name || 'Attachment'}</p>
-                        <a
-                          href={selectedMedia.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-900"
-                        >
-                          Open document
-                        </a>
+                        <div className="flex flex-wrap items-center justify-center gap-2">
+                          <a
+                            href={selectedMedia.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-900"
+                          >
+                            Open document
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => void handleDownloadMedia(selectedMedia)}
+                            className="rounded-full border border-white/30 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white"
+                          >
+                            Download
+                          </button>
+                        </div>
                       </div>
                     ) : null}
 
                     {(selectedMediaType === 'image' || selectedMediaType === 'video' || selectedMediaType === 'document') ? (
-                      <button
-                        type="button"
-                        onClick={() => openMediaLightbox(activeMediaIndex)}
-                        className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-slate-700"
-                      >
-                        <Expand className="h-3.5 w-3.5" />
-                        Expand
-                      </button>
+                      <div className="absolute right-3 top-3 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleDownloadMedia(selectedMedia)}
+                          className="inline-flex items-center gap-1 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-slate-700"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          Download
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openMediaLightbox(activeMediaIndex)}
+                          className="inline-flex items-center gap-1 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-slate-700"
+                        >
+                          <Expand className="h-3.5 w-3.5" />
+                          Expand
+                        </button>
+                      </div>
                     ) : null}
                   </>
                 ) : null}
@@ -693,14 +737,24 @@ export default function PostDetailView() {
                   {activeMediaIndex + 1} / {mediaItems.length}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setLightboxOpen(false)}
-                className="rounded-full border border-white/30 p-2 text-white hover:bg-white/10"
-                aria-label="Close media viewer"
-              >
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleDownloadMedia(selectedMedia)}
+                  className="inline-flex items-center gap-1 rounded-full border border-white/30 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10"
+                >
+                  <Download className="h-4 w-4" />
+                  Download
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLightboxOpen(false)}
+                  className="rounded-full border border-white/30 p-2 text-white hover:bg-white/10"
+                  aria-label="Close media viewer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
             <div className="relative flex flex-1 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-black">
@@ -715,14 +769,23 @@ export default function PostDetailView() {
               {selectedMediaType === 'document' ? (
                 <div className="flex flex-col items-center gap-3 text-center text-sm text-slate-200">
                   <p>{selectedMedia.name || 'Attachment'}</p>
-                  <a
-                    href={selectedMedia.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-900"
-                  >
-                    Open document
-                  </a>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <a
+                      href={selectedMedia.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-900"
+                    >
+                      Open document
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => void handleDownloadMedia(selectedMedia)}
+                      className="rounded-full border border-white/30 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white"
+                    >
+                      Download
+                    </button>
+                  </div>
                 </div>
               ) : null}
 

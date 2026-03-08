@@ -13,6 +13,7 @@ import {
   Repeat2,
   Send,
   Coins,
+  Download,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
@@ -35,13 +36,12 @@ import MentionHashtagTextarea from './components/MentionHashtagTextarea';
 import PostOptionsButton from './components/post-options/PostOptionsButton';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from './followState';
 import { useNotification } from '../context/NotificationContext';
-import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import SendGcoinModal from '../components/SendGcoinModal';
 import { FileService } from '../services/files';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from './storyStyles';
 import { resolveAssetUrl } from '../utils/assetUrl';
+import { downloadToDevice } from '../utils/deviceDownload';
 import { Capacitor } from '@capacitor/core';
-import { captureAndUpload } from '../mobile/uploads';
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile';
 
 const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
@@ -293,7 +293,6 @@ const CommunityHome = () => {
   const [scrollConfig, setScrollConfig] = useState<ScrollConfig | null>(null);
   const [scrollCreateOpen, setScrollCreateOpen] = useState(false);
   const [storyRailTab, setStoryRailTab] = useState<'stories' | 'reels'>('stories');
-  const [storyPickerOpen, setStoryPickerOpen] = useState(false);
   const [storyTextOpen, setStoryTextOpen] = useState(false);
   const [storyPosting, setStoryPosting] = useState(false);
   const [activeStory, setActiveStory] = useState<any | null>(null);
@@ -311,6 +310,8 @@ const CommunityHome = () => {
   const [storyCameraStream, setStoryCameraStream] = useState<MediaStream | null>(null);
   const storyVideoRef = useRef<HTMLVideoElement | null>(null);
   const storyCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const storyDeviceInputRef = useRef<HTMLInputElement | null>(null);
+  const storyCameraInputRef = useRef<HTMLInputElement | null>(null);
   const storyRecorderRef = useRef<MediaRecorder | null>(null);
   const storyChunksRef = useRef<Blob[]>([]);
   const [storyRecording, setStoryRecording] = useState(false);
@@ -1167,32 +1168,27 @@ const CommunityHome = () => {
     }
   };
 
-  const startStoryCamera = async () => {
-    if (!user) return;
-    try {
-      if (Capacitor.isNativePlatform()) {
-        setStoryPosting(true);
-        const uploaded = await captureAndUpload({
-          category: 'community',
-          role: user.role,
-          visibility: isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public',
-          userId: user.id
-        });
-        const created = await CommunityService.createStory({
-          type: 'image',
-          mediaFileId: uploaded.id,
-          visibility: storyDraft.visibility
-        });
-        setStories((prev) => filterActiveStories([created, ...prev]));
-        showNotification('success', 'Stories', 'Your story is live.');
+  const handleStoryDeviceSelection = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0] || null;
+      event.currentTarget.value = '';
+      if (!file) return;
+      const mime = String(file.type || '').toLowerCase();
+      const type = mime.startsWith('video/') ? 'video' : mime.startsWith('image/') ? 'image' : null;
+      if (!type) {
+        showNotification('warning', 'Stories', 'Please choose an image or video file.');
         return;
       }
-    } catch (error) {
-      console.error(error);
-      showNotification('error', 'Camera', 'Unable to access camera.');
+      void publishStoryFile(file, type);
+    },
+    [publishStoryFile, showNotification]
+  );
+
+  const startStoryCamera = async () => {
+    if (!user) return;
+    if (Capacitor.isNativePlatform()) {
+      storyCameraInputRef.current?.click();
       return;
-    } finally {
-      setStoryPosting(false);
     }
 
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -1276,27 +1272,6 @@ const CommunityHome = () => {
       storyRecorderRef.current.stop();
     } catch (e) {
       console.error(e);
-    }
-  };
-
-  const handleStoryMediaSelected = async (file: any) => {
-    if (!file?.id) return;
-    setStoryPosting(true);
-    try {
-      const type = file.type === 'video' ? 'video' : 'image';
-      const created = await CommunityService.createStory({
-        type,
-        mediaFileId: file.id,
-        visibility: storyDraft.visibility
-      });
-      setStories((prev) => filterActiveStories([created, ...prev]));
-      showNotification('success', 'Stories', 'Your story is live.');
-    } catch (error: any) {
-      console.error(error);
-      showNotification('error', 'Stories', error?.message || 'Unable to post story.');
-    } finally {
-      setStoryPosting(false);
-      setStoryPickerOpen(false);
     }
   };
 
@@ -1636,6 +1611,30 @@ const CommunityHome = () => {
   const activeStoryDashRecipient = String(
     storyActionTarget?.authorId || storyActionTarget?.author?.id || storyActionTarget?.userId || ''
   ).trim();
+  const downloadStoryMedia = useCallback(
+    async (story: any) => {
+      const mediaUrl = resolveStoryMediaUrl(story);
+      if (!mediaUrl) {
+        showNotification('warning', 'Stories', 'No downloadable media is attached to this story.');
+        return;
+      }
+      try {
+        const result = await downloadToDevice({
+          url: mediaUrl,
+          fileName: `${resolveStoryAuthorName(story, 'story')}-story-${String(story?.id || Date.now())}`,
+          mimeType: story?.type === 'video' ? 'video/mp4' : story?.type === 'image' ? 'image/jpeg' : ''
+        });
+        showNotification(
+          'success',
+          'Stories',
+          result.native ? `Saved to ${result.path || 'your device'}.` : 'Download started.'
+        );
+      } catch (error: any) {
+        showNotification('error', 'Stories', error?.message || 'Unable to download story media.');
+      }
+    },
+    [showNotification]
+  );
 
   const promotePost = (post: any) => {
     if (!user) {
@@ -2077,12 +2076,12 @@ const CommunityHome = () => {
                         Text story
                       </button>
                       <button
-                        onClick={() => setStoryPickerOpen(true)}
+                        onClick={() => storyDeviceInputRef.current?.click()}
                         className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600"
                         disabled={storyPosting}
                       >
                         <Plus className="h-3 w-3" />
-                        Upload
+                        From device
                       </button>
                       <button
                         onClick={startStoryCamera}
@@ -2124,7 +2123,7 @@ const CommunityHome = () => {
                 {storyRailTab === 'stories' ? (
                   <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
                     <button
-                      onClick={() => setStoryPickerOpen(true)}
+                      onClick={() => storyDeviceInputRef.current?.click()}
                       className="min-w-[120px] h-44 rounded-2xl border border-dashed border-gray-300 flex flex-col items-center justify-center text-xs text-gray-500"
                     >
                       <Plus className="h-5 w-5 mb-2" />
@@ -2775,17 +2774,20 @@ const CommunityHome = () => {
         </div>
       </div>
 
-      <FilePickerModal
-        open={storyPickerOpen}
-        onClose={() => setStoryPickerOpen(false)}
-        onSelect={handleStoryMediaSelected}
-        allowUpload
-        multiple={false}
-        filterType="all"
-        acceptedTypes={['image', 'video']}
-        title="Add to your story"
-        role={user?.role}
-        visibility={isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public'}
+      <input
+        ref={storyDeviceInputRef}
+        type="file"
+        accept="image/*,video/*"
+        className="hidden"
+        onChange={handleStoryDeviceSelection}
+      />
+      <input
+        ref={storyCameraInputRef}
+        type="file"
+        accept="image/*,video/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleStoryDeviceSelection}
       />
 
       <ScrollCreateModal
@@ -3120,6 +3122,18 @@ const CommunityHome = () => {
                 })()}
               </div>
               <div className="flex items-center gap-2">
+                {resolveStoryMediaUrl(activeStory) ? (
+                  <button
+                    onClick={() => void downloadStoryMedia(activeStory)}
+                    className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600 hover:text-gray-800"
+                    type="button"
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      <Download className="h-3.5 w-3.5" />
+                      Download
+                    </span>
+                  </button>
+                ) : null}
                 {canManageStory(activeStory) && (
                   <>
                     <button

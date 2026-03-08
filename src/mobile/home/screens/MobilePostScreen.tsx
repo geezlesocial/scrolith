@@ -1,18 +1,22 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ImageIcon, SendIcon as Send, XIcon as X } from '../../../components/icons/ShellIcons';
 import { useLocation, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom';
 import { CommunityService } from '../../../services/community';
 import { useNotification } from '../../../context/NotificationContext';
+import { useUser } from '../../../context/UserContext';
 import { UploadedFile } from '../../../types';
-import FilePickerModal from '../../../dashboard/shared/FilePickerModal';
 import MentionHashtagTextarea from '../../../community/components/MentionHashtagTextarea';
 import { AIService, type PostEnhanceMode } from '../../../services/ai/ai.service';
+import { FileService } from '../../../services/files';
+import { Camera, Download, Loader2, Paperclip } from 'lucide-react';
+import { downloadToDevice } from '../../../utils/deviceDownload';
 
 const getMimeType = (file: any) =>
   String(file?.mime_type || file?.mimeType || file?.mimetype || file?.mime || '').toLowerCase();
 const getFileType = (file: any) => String(file?.type || '').toLowerCase();
 const isVideo = (file: any) => getFileType(file) === 'video' || getMimeType(file).startsWith('video/');
 const isImage = (file: any) => getFileType(file) === 'image' || getMimeType(file).startsWith('image/');
+const POST_UPLOAD_ACCEPT = 'image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar';
 
 const postAiActions: Array<{ mode: PostEnhanceMode; label: string }> = [
   { mode: 'grammar', label: 'Improve Grammar' },
@@ -28,10 +32,12 @@ export default function MobilePostScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { showNotification } = useNotification();
+  const { user } = useUser();
   const [content, setContent] = useState('');
   const [attachments, setAttachments] = useState<UploadedFile[]>([]);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [uploadingAttachmentCount, setUploadingAttachmentCount] = useState(0);
+  const [uploadingAttachmentLabel, setUploadingAttachmentLabel] = useState('');
   const [loadingPost, setLoadingPost] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiRunningMode, setAiRunningMode] = useState<PostEnhanceMode | null>(null);
@@ -90,7 +96,11 @@ export default function MobilePostScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allowedVisibilities.join('|'), defaultVisibility]);
 
-  const canPost = content.trim().length >= 1 || attachments.length > 0;
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const mediaInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+
+  const canPost = (content.trim().length >= 1 || attachments.length > 0) && uploadingAttachmentCount === 0;
 
   const attachmentIds = useMemo(
     () => Array.from(new Set(attachments.map((f) => String(f.id || '').trim()).filter(Boolean))),
@@ -100,6 +110,76 @@ export default function MobilePostScreen() {
   const removeAttachment = (id: string) => {
     setAttachments((prev) => prev.filter((f) => String(f.id) !== String(id)));
   };
+
+  const handleAttachmentDownload = useCallback(
+    async (file: UploadedFile) => {
+      const url = String(file?.url || '').trim();
+      if (!url) {
+        showNotification('warning', 'Download', 'Attachment URL is not available.');
+        return;
+      }
+      try {
+        const result = await downloadToDevice({
+          url,
+          fileName: file?.name,
+          mimeType: String(file?.mimeType || file?.mime_type || '')
+        });
+        showNotification(
+          'success',
+          'Download',
+          result.native ? `Saved to ${result.path || 'your device'}.` : 'Download started.'
+        );
+      } catch (error: any) {
+        showNotification('error', 'Download', error?.message || 'Unable to download attachment.');
+      }
+    },
+    [showNotification]
+  );
+
+  const appendAttachment = useCallback((file: UploadedFile) => {
+    setAttachments((prev) => {
+      if (prev.some((entry) => String(entry.id) === String(file.id))) return prev;
+      return [...prev, file];
+    });
+  }, []);
+
+  const uploadFilesFromDevice = useCallback(
+    async (files: File[]) => {
+      if (!files.length) return;
+      setUploadingAttachmentCount(files.length);
+      try {
+        for (let index = 0; index < files.length; index += 1) {
+          const file = files[index];
+          setUploadingAttachmentLabel(`Uploading ${index + 1} of ${files.length}: ${file.name}`);
+          const uploaded = await FileService.uploadFile(file, 'community' as any, {
+            role: user?.role,
+            visibility: visibility === 'private' ? 'private' : 'public',
+            userId: user?.id
+          });
+          appendAttachment(uploaded);
+        }
+      } catch (error: any) {
+        showNotification(
+          'error',
+          'Attachments',
+          error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Unable to upload attachment.'
+        );
+      } finally {
+        setUploadingAttachmentCount(0);
+        setUploadingAttachmentLabel('');
+      }
+    },
+    [appendAttachment, showNotification, user?.id, user?.role, visibility]
+  );
+
+  const handleInputFiles = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files || []);
+      event.currentTarget.value = '';
+      void uploadFilesFromDevice(files);
+    },
+    [uploadFilesFromDevice]
+  );
 
   const applyPostToDraft = (post: any) => {
     setContent(String(post?.content || '').trimStart());
@@ -227,6 +307,10 @@ export default function MobilePostScreen() {
 
   const submit = async () => {
     if (!canPost || busy) return;
+    if (uploadingAttachmentCount > 0) {
+      showNotification('warning', 'Attachments', 'Wait for attachment uploads to finish before posting.');
+      return;
+    }
     setBusy(true);
     try {
       if (isEditing) {
@@ -398,30 +482,93 @@ export default function MobilePostScreen() {
                 >
                   <X className="h-4 w-4" />
                 </button>
+                <button
+                  type="button"
+                  onClick={() => void handleAttachmentDownload(file)}
+                  className="absolute left-2 top-2 z-10 rounded-full bg-white/90 p-1 text-slate-500 hover:text-slate-700"
+                  aria-label="Download attachment"
+                >
+                  <Download className="h-4 w-4" />
+                </button>
                 {isVideo(file) ? (
                   <video src={file.url} className="h-44 w-full object-cover" controls preload="metadata" />
                 ) : isImage(file) ? (
                   <img src={file.url} alt={file.name} className="h-44 w-full object-cover" />
                 ) : (
-                  <a href={file.url} className="block p-4 text-sm font-semibold text-slate-700 hover:underline">
+                  <button
+                    type="button"
+                    onClick={() => void handleAttachmentDownload(file)}
+                    className="block w-full p-4 text-left text-sm font-semibold text-slate-700 hover:underline"
+                  >
                     {file.name}
-                  </a>
+                  </button>
                 )}
               </div>
             ))}
           </div>
         ) : null}
 
+        {uploadingAttachmentCount > 0 ? (
+          <div className="mt-3 flex items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>{uploadingAttachmentLabel || 'Uploading attachments...'}</span>
+          </div>
+        ) : null}
+
         <div className="mt-4 flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => setPickerOpen(true)}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            disabled={busy || loadingPost}
-          >
-            <ImageIcon className="h-4 w-4" />
-            Attach
-          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={POST_UPLOAD_ACCEPT}
+            className="hidden"
+            onChange={handleInputFiles}
+          />
+          <input
+            ref={mediaInputRef}
+            type="file"
+            multiple
+            accept="image/*,video/*"
+            className="hidden"
+            onChange={handleInputFiles}
+          />
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*,video/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleInputFiles}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              disabled={busy || loadingPost || uploadingAttachmentCount > 0}
+            >
+              <Paperclip className="h-4 w-4" />
+              Files
+            </button>
+            <button
+              type="button"
+              onClick={() => mediaInputRef.current?.click()}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              disabled={busy || loadingPost || uploadingAttachmentCount > 0}
+            >
+              <ImageIcon className="h-4 w-4" />
+              Photos & Videos
+            </button>
+            <button
+              type="button"
+              onClick={() => cameraInputRef.current?.click()}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              disabled={busy || loadingPost || uploadingAttachmentCount > 0}
+            >
+              <Camera className="h-4 w-4" />
+              Camera
+            </button>
+          </div>
 
           <button
             type="button"
@@ -532,21 +679,6 @@ export default function MobilePostScreen() {
         ))}
       </datalist>
 
-      <FilePickerModal
-        isOpen={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        filterType="all"
-        allowUpload
-        allowCamera
-        onSelect={(file) => {
-          setAttachments((prev) => {
-            if (prev.some((x) => String(x.id) === String(file.id))) return prev;
-            return [...prev, file];
-          });
-          setPickerOpen(false);
-        }}
-        title="Attach files"
-      />
     </div>
   );
 }

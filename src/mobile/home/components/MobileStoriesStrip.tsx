@@ -14,18 +14,19 @@ import {
   VideoIcon as Video,
   XIcon as X
 } from '../../../components/icons/ShellIcons';
-import { ChevronLeft, ChevronRight, Coins, MessageCircle, Radio, Repeat2, Send, Volume2, VolumeX } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Coins, Download, MessageCircle, Radio, Repeat2, Send, Volume2, VolumeX } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import { useUser } from '../../../context/UserContext';
 import { useNotification } from '../../../context/NotificationContext';
 import { CommunityService } from '../../../services/community';
+import { FileService } from '../../../services/files';
 import { ScrollService, type ScrollConfig, type ScrollVideo } from '../../../services/scroll';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../../community/storyStyles';
 import { UploadedFile } from '../../../types';
-import FilePickerModal from '../../../dashboard/shared/FilePickerModal';
 import ScrollCreateModal from '../../../features/scroll/ScrollCreateModal';
 import { resolveAssetUrl } from '../../../utils/assetUrl';
+import { downloadToDevice } from '../../../utils/deviceDownload';
 import ReactionBar from '../../../community/components/ReactionBar';
 import RepostModal from '../../../community/components/RepostModal';
 import PostShareModal from '../../../community/components/PostShareModal';
@@ -93,14 +94,6 @@ const formatCompactCount = (value: unknown) => {
   if (numeric >= 1_000_000) return `${(numeric / 1_000_000).toFixed(1).replace(/\.0$/, '')}M+`;
   if (numeric >= 1_000) return `${(numeric / 1_000).toFixed(1).replace(/\.0$/, '')}k+`;
   return String(Math.trunc(numeric));
-};
-
-const resolveStoryTypeFromFile = (file: UploadedFile): StoryKind | null => {
-  const explicit = String(file?.type || '').toLowerCase();
-  const mime = String(file?.mime_type || file?.mimeType || '').toLowerCase();
-  if (explicit === 'video' || mime.startsWith('video/')) return 'video';
-  if (explicit === 'image' || mime.startsWith('image/')) return 'image';
-  return null;
 };
 
 const resolveScrollMediaUrl = (scroll: ScrollVideo) => resolveAssetUrl(String(scroll?.media?.url || '').trim());
@@ -261,7 +254,8 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   const [draftMediaFile, setDraftMediaFile] = useState<UploadedFile | null>(null);
   const [draftTextStyle, setDraftTextStyle] = useState(() => getDefaultStoryTextDraft());
   const [publishing, setPublishing] = useState(false);
-  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
+  const [mediaUploadBusy, setMediaUploadBusy] = useState(false);
+  const [mediaUploadLabel, setMediaUploadLabel] = useState('');
   const [storyActionTarget, setStoryActionTarget] = useState<any | null>(null);
   const [storyCommentOpen, setStoryCommentOpen] = useState(false);
   const [storyCommentDraft, setStoryCommentDraft] = useState('');
@@ -269,6 +263,8 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   const [storySendOpen, setStorySendOpen] = useState(false);
   const [storyDashOpen, setStoryDashOpen] = useState(false);
   const [storyActionBusy, setStoryActionBusy] = useState<Record<string, boolean>>({});
+  const storyDeviceInputRef = useRef<HTMLInputElement | null>(null);
+  const storyCameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const visibleStories = useMemo(() => {
     const list = Array.isArray(stories) ? stories : [];
@@ -716,9 +712,47 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
 
   const canPublish = (() => {
     if (draftType === 'text') return draftContent.trim().length > 0;
-    if (draftType === 'image' || draftType === 'video') return Boolean(draftMediaFile?.id);
+    if (draftType === 'image' || draftType === 'video') return Boolean(draftMediaFile?.id) && !mediaUploadBusy;
     return false;
   })();
+
+  const uploadStoryMediaFromDevice = async (file: File | null) => {
+    if (!file) return;
+    if (!user?.id) {
+      navigate('/auth/login');
+      return;
+    }
+    const mime = String(file.type || '').toLowerCase();
+    const type = mime.startsWith('video/') ? 'video' : mime.startsWith('image/') ? 'image' : null;
+    if (!type) {
+      showNotification('error', 'Story', 'Please select an image or video.');
+      return;
+    }
+    setMediaUploadBusy(true);
+    setMediaUploadLabel(`Uploading ${file.name}`);
+    try {
+      const uploaded = await FileService.uploadFile(file, 'community' as any, {
+        role: user.role,
+        visibility: draftVisibility === 'private' ? 'private' : 'public',
+        userId: user.id
+      });
+      setDraftType(type);
+      setDraftMediaFile(uploaded);
+      setComposerStep('compose');
+      setComposerOpen(true);
+    } catch (error: any) {
+      showNotification('error', 'Story', error?.response?.data?.error || error?.message || 'Unable to upload story media.');
+    } finally {
+      setMediaUploadBusy(false);
+      setMediaUploadLabel('');
+    }
+  };
+
+  const handleStoryMediaInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    event.currentTarget.value = '';
+    void uploadStoryMediaFromDevice(file);
+  };
 
   const publish = async () => {
     if (!draftType || !canPublish || publishing) return;
@@ -1151,7 +1185,12 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
             <SheetItem
               icon={<ImageIcon className="h-4 w-4" />}
               label="Photo or video story"
-              onClick={() => setMediaPickerOpen(true)}
+              onClick={() => storyDeviceInputRef.current?.click()}
+            />
+            <SheetItem
+              icon={<Video className="h-4 w-4" />}
+              label="Capture with camera"
+              onClick={() => storyCameraInputRef.current?.click()}
             />
           </div>
         ) : (
@@ -1307,22 +1346,28 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                   </div>
                 </div>
               </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-semibold text-slate-500">Caption (optional)</div>
-                  <button
-                    type="button"
-                    onClick={() => setMediaPickerOpen(true)}
-                    className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700"
-                    disabled={publishing}
-                  >
-                    Change media
-                  </button>
-                </div>
-                <textarea
-                  value={draftContent}
-                  onChange={(e) => setDraftContent(e.target.value)}
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs font-semibold text-slate-500">Caption (optional)</div>
+                    <button
+                      type="button"
+                      onClick={() => storyDeviceInputRef.current?.click()}
+                      className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700"
+                      disabled={publishing || mediaUploadBusy}
+                    >
+                      Change media
+                    </button>
+                  </div>
+                  {mediaUploadBusy ? (
+                    <div className="flex items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>{mediaUploadLabel || 'Uploading media...'}</span>
+                    </div>
+                  ) : null}
+                  <textarea
+                    value={draftContent}
+                    onChange={(e) => setDraftContent(e.target.value)}
                   placeholder="Add a caption..."
                   className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
                   rows={3}
@@ -1352,31 +1397,20 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
           setStoryRailTab('scroll');
         }}
       />
-
-      <FilePickerModal
-        isOpen={mediaPickerOpen}
-        onClose={() => setMediaPickerOpen(false)}
-        allowUpload
-        allowCamera
-        filterType="all"
-        acceptedTypes={['image', 'video']}
-        title={composerMode === 'edit' ? 'Change story media' : 'Select story media'}
-        onSelect={(file) => {
-          setMediaPickerOpen(false);
-          if (!user?.id) {
-            navigate('/auth/login');
-            return;
-          }
-          const type = resolveStoryTypeFromFile(file);
-          if (!type) {
-            showNotification('error', 'Story', 'Please select an image or video.');
-            return;
-          }
-          setDraftType(type);
-          setDraftMediaFile(file);
-          setComposerStep('compose');
-          setComposerOpen(true);
-        }}
+      <input
+        ref={storyDeviceInputRef}
+        type="file"
+        accept="image/*,video/*"
+        className="hidden"
+        onChange={handleStoryMediaInputChange}
+      />
+      <input
+        ref={storyCameraInputRef}
+        type="file"
+        accept="image/*,video/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleStoryMediaInputChange}
       />
 
       {storyCommentOpen ? (
@@ -1516,6 +1550,27 @@ function StoryViewer({
     onNavigate(next);
   };
 
+  const handleDownload = async () => {
+    if (!media.url) {
+      showNotification('warning', 'Stories', 'No downloadable media is attached to this story.');
+      return;
+    }
+    try {
+      const result = await downloadToDevice({
+        url: media.url,
+        fileName: `${name.replace(/\s+/g, '-').toLowerCase() || 'story'}-${String(story?.id || Date.now())}`,
+        mimeType: type === 'video' || media.isVideo ? 'video/mp4' : type === 'image' ? 'image/jpeg' : ''
+      });
+      showNotification(
+        'success',
+        'Stories',
+        result.native ? `Saved to ${result.path || 'your device'}.` : 'Download started.'
+      );
+    } catch (error: any) {
+      showNotification('error', 'Stories', error?.message || 'Unable to download story media.');
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[950] bg-black">
       <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
@@ -1538,6 +1593,16 @@ function StoryViewer({
         </div>
 
         <div className="flex items-center gap-2">
+          {media.url ? (
+            <button
+              type="button"
+              onClick={() => void handleDownload()}
+              className="rounded-full border border-white/20 bg-white/10 p-2"
+              aria-label="Download story"
+            >
+              <Download className="h-5 w-5" />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => setMuted((prev) => !prev)}

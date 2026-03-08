@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Volume2, VolumeX, MessageCircle, Repeat2, Send, Coins, Flag, Maximize2, Sparkles } from 'lucide-react';
+import { Volume2, VolumeX, MessageCircle, Repeat2, Send, Coins, Download, Flag, Maximize2, Sparkles } from 'lucide-react';
 import type { ScrollEngagementType, ScrollVideo } from '../../services/scroll';
 import ReactionBar from '../../community/components/ReactionBar';
 import { ReactionsService } from '../../services/reactions';
 import { useUser } from '../../context/UserContext';
+import { useNotification } from '../../context/NotificationContext';
+import { downloadToDevice } from '../../utils/deviceDownload';
 
 type ScrollCardProps = {
   scroll: ScrollVideo;
@@ -37,6 +39,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   onReport
 }) => {
   const { user } = useUser();
+  const { showNotification } = useNotification();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const marksRef = useRef<Record<string, boolean>>({});
@@ -131,6 +134,28 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
       void videoRef.current.play().catch(() => undefined);
     }
   };
+
+  const handleDownload = useCallback(async () => {
+    const url = String(scroll?.media?.url || '').trim();
+    if (!url) {
+      showNotification('warning', 'Scroll', 'Media URL is not available.');
+      return;
+    }
+    try {
+      const result = await downloadToDevice({
+        url,
+        fileName: scroll?.media?.name || scroll?.title || `scroll-${scroll.id}`,
+        mimeType: scroll?.media?.mimeType || null
+      });
+      showNotification(
+        'success',
+        'Scroll',
+        result.native ? `Saved to ${result.path || 'your device'}.` : 'Download started.'
+      );
+    } catch (error: any) {
+      showNotification('error', 'Scroll', error?.message || 'Unable to download scroll media.');
+    }
+  }, [scroll, showNotification]);
 
   const triggerDoubleTapLike = useCallback(async () => {
     const scrollId = String(scroll?.id || '').trim();
@@ -293,6 +318,14 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         </div>
 
         <div className="pointer-events-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void handleDownload()}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
+            aria-label="Download video"
+          >
+            <Download className="h-5 w-5" />
+          </button>
           <button
             type="button"
             onClick={handleExpand}

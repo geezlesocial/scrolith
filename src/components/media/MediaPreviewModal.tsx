@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Copy, Download, ExternalLink, Play, X } from 'lucide-react';
+import { useNotification } from '../../context/NotificationContext';
+import { downloadToDevice } from '../../utils/deviceDownload';
 
 export type PreviewMedia = {
   id?: string;
@@ -41,7 +43,9 @@ const MediaPreviewModal: React.FC<MediaPreviewModalProps> = ({
   allowDownload = true,
   allowCopyUrl = true
 }) => {
+  const { showNotification } = useNotification();
   const [playVideo, setPlayVideo] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const mediaType = useMemo(() => inferType(media), [media]);
 
   useEffect(() => {
@@ -65,6 +69,28 @@ const MediaPreviewModal: React.FC<MediaPreviewModalProps> = ({
       }
     } catch (error) {
       console.error('Failed to copy URL:', error);
+    }
+  };
+
+  const handleDownload = async () => {
+    if (!media?.url || downloading) return;
+    setDownloading(true);
+    try {
+      const result = await downloadToDevice({
+        url: media.url,
+        fileName: media.name,
+        mimeType: media.mimeType
+      });
+      showNotification(
+        'success',
+        'Download',
+        result.native ? `Saved to ${result.path || 'your device'}.` : 'Download started.'
+      );
+    } catch (error: any) {
+      console.error('Failed to download media:', error);
+      showNotification('error', 'Download', error?.message || 'Unable to download file.');
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -166,14 +192,15 @@ const MediaPreviewModal: React.FC<MediaPreviewModalProps> = ({
             Open
           </a>
           {allowDownload && (
-            <a
-              href={media.url}
-              download
+            <button
+              type="button"
+              onClick={() => void handleDownload()}
+              disabled={downloading}
               className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white"
             >
               <Download className="h-4 w-4" />
-              Download
-            </a>
+              {downloading ? 'Saving...' : 'Download'}
+            </button>
           )}
         </div>
       </div>

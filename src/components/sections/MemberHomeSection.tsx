@@ -21,7 +21,7 @@ import {
   VideoIcon as Video,
   XIcon as X
 } from '../icons/ShellIcons';
-import { ChevronLeft, ChevronRight, Coins, Repeat2, Send as SendIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Coins, Download, Repeat2, Send as SendIcon } from 'lucide-react';
 import { useUser } from '../../context/UserContext';
 import { useContent } from '../../context/ContentContext';
 import { useSocket } from '../../context/SocketContext';
@@ -37,7 +37,6 @@ import { gigsApi, Gig } from '../../services/gigs';
 import { RecoService } from '../../services/reco';
 import { MessagingService } from '../../services/messaging';
 import { SearchService } from '../../services/search';
-import FilePickerModal from '../../dashboard/shared/FilePickerModal';
 import ProBadge from '../ProBadge';
 import VerifiedBadge from '../common/VerifiedBadge';
 import PostHeader from '../../community/components/PostHeader';
@@ -55,9 +54,11 @@ import SendGcoinModal from '../SendGcoinModal';
 import { resolveAssetUrl } from '../../utils/assetUrl';
 import { resolveVerificationLevel } from '../../utils/verification';
 import MediaPreviewModal, { PreviewMedia } from '../media/MediaPreviewModal';
+import { downloadToDevice } from '../../utils/deviceDownload';
 import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
 import InsightsQuickPanel from '../insights/InsightsQuickPanel';
 import { usePerformanceProfile } from '../../hooks/usePerformanceProfile';
+import { Capacitor } from '@capacitor/core';
 
 type MemberHomeContent = {
   title?: string;
@@ -747,7 +748,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const [scrollCreateOpen, setScrollCreateOpen] = useState(false);
   const [storyRailTab, setStoryRailTab] = useState<'stories' | 'reels'>('stories');
   const [activeStory, setActiveStory] = useState<any | null>(null);
-  const [storyPickerOpen, setStoryPickerOpen] = useState(false);
   const [storyMediaPreviewOpen, setStoryMediaPreviewOpen] = useState(false);
   const [storyMediaDraftFile, setStoryMediaDraftFile] = useState<any | null>(null);
   const [storyTextOpen, setStoryTextOpen] = useState(false);
@@ -776,6 +776,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const [storyCameraStream, setStoryCameraStream] = useState<MediaStream | null>(null);
   const storyVideoRef = useRef<HTMLVideoElement | null>(null);
   const storyCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const storyDeviceInputRef = useRef<HTMLInputElement | null>(null);
+  const storyCameraInputRef = useRef<HTMLInputElement | null>(null);
   const storyRecorderRef = useRef<MediaRecorder | null>(null);
   const storyChunksRef = useRef<Blob[]>([]);
   const [storyRecording, setStoryRecording] = useState(false);
@@ -801,8 +803,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const [insightCollapsedByPost, setInsightCollapsedByPost] = useState<Record<string, boolean>>({});
   const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
   const postMediaInputRef = useRef<HTMLInputElement | null>(null);
+  const postCameraInputRef = useRef<HTMLInputElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
-  const [postPickerOpen, setPostPickerOpen] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -1863,7 +1865,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const uploadPostFile = useCallback(async (file: File) => {
     if (!user) return;
     const localId = `media-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const inferred: PostMediaItem['type'] = file.type.startsWith('video/') ? 'video' : 'image';
+    const mime = String(file.type || '').toLowerCase();
+    const inferred: PostMediaItem['type'] = mime.startsWith('video/')
+      ? 'video'
+      : mime.startsWith('image/')
+        ? 'image'
+        : 'document';
     const previewUrl = URL.createObjectURL(file);
     addPostMediaItem({
       localId,
@@ -1903,27 +1910,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     if (postMediaInputRef.current) postMediaInputRef.current.value = '';
   }, [uploadPostFile]);
 
-  const handlePostUploaded = useCallback((file: any) => {
-    if (!file?.id || !file?.url) return;
-    addPostMediaItem({
-      localId: `${file.id}-${Date.now()}`,
-      id: file.id,
-      url: file.url,
-      name: file.name,
-      type: file.type === 'video' ? 'video' : file.type === 'image' ? 'image' : 'document',
-      mimeType: file.mimeType || file.mime_type,
-      thumbnailUrl: file.thumbnailUrl || file.thumbnail_url,
-      duration: file.duration
-    });
-  }, [addPostMediaItem]);
-
-  const handlePostUploadedMultiple = useCallback((files: any[]) => {
-    (files || []).forEach((file) => handlePostUploaded(file));
-  }, [handlePostUploaded]);
-
-  const startCamera = useCallback(() => {
-    setPostPickerOpen(true);
-  }, []);
+  const startCamera = useCallback(async () => {
+    if (Capacitor.isNativePlatform()) {
+      postCameraInputRef.current?.click();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      showNotification('warning', 'Camera', 'Camera access is not available in this browser.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      setCameraStream(stream);
+      setCameraOpen(true);
+    } catch (error) {
+      console.error(error);
+      showNotification('error', 'Camera', 'Unable to access camera.');
+    }
+  }, [showNotification]);
 
   const stopCamera = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
@@ -2435,12 +2439,35 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     }
   }, [maxStories, showNotification, storyDraft.visibility, user]);
 
-  const handleStoryMediaSelected = useCallback((file: any) => {
-    if (!file?.id) return;
-    setStoryMediaDraftFile(file);
-    setStoryMediaPreviewOpen(true);
-    setStoryPickerOpen(false);
-  }, []);
+  const handleStoryDeviceSelection = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0] || null;
+      event.currentTarget.value = '';
+      if (!file || !user) return;
+      const mime = String(file.type || '').toLowerCase();
+      const type = mime.startsWith('video/') ? 'video' : mime.startsWith('image/') ? 'image' : null;
+      if (!type) {
+        showNotification('warning', 'Stories', 'Please choose an image or video file.');
+        return;
+      }
+      setStoryPosting(true);
+      try {
+        const uploaded = await FileService.uploadFile(file, 'community', {
+          role: user.role,
+          visibility: isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public',
+          userId: user.id
+        });
+        setStoryMediaDraftFile(uploaded);
+        setStoryMediaPreviewOpen(true);
+      } catch (error: any) {
+        console.error(error);
+        showNotification('error', 'Stories', error?.message || 'Unable to upload story media.');
+      } finally {
+        setStoryPosting(false);
+      }
+    },
+    [showNotification, storyDraft.visibility, user]
+  );
 
   const publishStorySelectedMedia = useCallback(async () => {
     if (!user) return;
@@ -2469,9 +2496,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     }
   }, [maxStories, showNotification, storyDraft.content, storyDraft.visibility, storyMediaDraftFile, user]);
 
-  const startStoryCamera = useCallback(() => {
-    setStoryPickerOpen(true);
-  }, []);
+  const startStoryCamera = useCallback(async () => {
+    if (Capacitor.isNativePlatform()) {
+      storyCameraInputRef.current?.click();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      showNotification('warning', 'Camera', 'Camera access is not available in this browser.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      setStoryCameraStream(stream);
+      setStoryCameraOpen(true);
+    } catch (error) {
+      console.error(error);
+      showNotification('error', 'Camera', 'Unable to access camera.');
+    }
+  }, [showNotification]);
 
   const stopStoryCamera = useCallback(() => {
     if (storyRecorderRef.current && storyRecording) {
@@ -2793,6 +2835,30 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const activeStoryDashRecipient = String(
     storyActionTarget?.authorId || storyActionTarget?.author?.id || storyActionTarget?.userId || ''
   ).trim();
+  const downloadStoryMedia = useCallback(
+    async (story: any) => {
+      const mediaUrl = resolveStoryMediaUrl(story);
+      if (!mediaUrl) {
+        showNotification('warning', 'Stories', 'No downloadable media is attached to this story.');
+        return;
+      }
+      try {
+        const result = await downloadToDevice({
+          url: mediaUrl,
+          fileName: `${resolveStoryAuthorName(story, 'story')}-story-${String(story?.id || Date.now())}`,
+          mimeType: story?.type === 'video' ? 'video/mp4' : story?.type === 'image' ? 'image/jpeg' : ''
+        });
+        showNotification(
+          'success',
+          'Stories',
+          result.native ? `Saved to ${result.path || 'your device'}.` : 'Download started.'
+        );
+      } catch (error: any) {
+        showNotification('error', 'Stories', error?.message || 'Unable to download story media.');
+      }
+    },
+    [showNotification]
+  );
 
   useEffect(() => {
     if (!user) return;
@@ -4067,11 +4133,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                       </button>
                       <button
                         type="button"
-                        onClick={() => setStoryPickerOpen(true)}
+                        onClick={() => storyDeviceInputRef.current?.click()}
                         className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
                         disabled={storyPosting}
                       >
-                        Upload
+                        From device
                       </button>
                       <button
                         type="button"
@@ -4113,7 +4179,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   <div className="mt-4 flex gap-2 sm:gap-3 overflow-x-auto pb-2">
                     <button
                       type="button"
-                      onClick={() => setStoryPickerOpen(true)}
+                      onClick={() => storyDeviceInputRef.current?.click()}
                       className="h-44 min-w-[110px] rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center text-xs text-slate-500 sm:min-w-[120px]"
                       disabled={storyPosting}
                     >
@@ -4525,11 +4591,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => setPostPickerOpen(true)}
+                        onClick={() => postMediaInputRef.current?.click()}
                         className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
                       >
                         <Video className="h-4 w-4" />
-                        From uploads
+                        From device
                       </button>
                       <button
                         type="button"
@@ -5407,33 +5473,36 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         </div>
       )}
 
-      <FilePickerModal
-        open={postPickerOpen}
-        onClose={() => setPostPickerOpen(false)}
-        onSelect={handlePostUploaded}
-        onSelectMultiple={handlePostUploadedMultiple}
-        allowUpload
-        allowCamera
+      <input
+        ref={postMediaInputRef}
+        type="file"
         multiple
-        filterType="all"
-        acceptedTypes={['image', 'video', 'document']}
-        title="Add media"
-        role={user?.role}
-        visibility={postDraft.visibility === 'private' ? 'private' : 'public'}
+        accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar"
+        className="hidden"
+        onChange={handlePostMedia}
       />
-
-      <FilePickerModal
-        open={storyPickerOpen}
-        onClose={() => setStoryPickerOpen(false)}
-        onSelect={handleStoryMediaSelected}
-        allowUpload
-        allowCamera
-        multiple={false}
-        filterType="all"
-        acceptedTypes={['image', 'video']}
-        title="Add to your story"
-        role={user?.role}
-        visibility={isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public'}
+      <input
+        ref={postCameraInputRef}
+        type="file"
+        accept="image/*,video/*"
+        capture="environment"
+        className="hidden"
+        onChange={handlePostMedia}
+      />
+      <input
+        ref={storyDeviceInputRef}
+        type="file"
+        accept="image/*,video/*"
+        className="hidden"
+        onChange={handleStoryDeviceSelection}
+      />
+      <input
+        ref={storyCameraInputRef}
+        type="file"
+        accept="image/*,video/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleStoryDeviceSelection}
       />
 
       <ScrollCreateModal
@@ -5529,7 +5598,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                       if (storyPosting) return;
                       setStoryMediaPreviewOpen(false);
                       setStoryMediaDraftFile(null);
-                      setStoryPickerOpen(true);
+                      storyDeviceInputRef.current?.click();
                     }}
                     className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700"
                     disabled={storyPosting}
@@ -5974,6 +6043,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                 })()}
               </div>
               <div className="flex items-center gap-2">
+                {resolveStoryMediaUrl(activeStory) ? (
+                  <button
+                    type="button"
+                    onClick={() => void downloadStoryMedia(activeStory)}
+                    className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      <Download className="h-3.5 w-3.5" />
+                      Download
+                    </span>
+                  </button>
+                ) : null}
                 {canManageStory(activeStory) && (
                   <>
                     <button
