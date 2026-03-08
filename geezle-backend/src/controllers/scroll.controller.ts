@@ -144,66 +144,172 @@ const resolveScrollMedia = async (fileId: string, req: Request) => {
   };
 };
 
+const buildScrollMediaMap = async (fileIds: string[], req: Request) => {
+  const ids = Array.from(new Set((fileIds || []).map((value) => String(value || '').trim()).filter(Boolean)));
+  if (!ids.length) return new Map<string, any>();
+  const files = await prisma.file.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      ownerId: true,
+      originalName: true,
+      mimeType: true,
+      duration: true,
+      storageKey: true,
+      storageProvider: true,
+      thumbnailUrl: true,
+      width: true,
+      height: true,
+      url: true
+    }
+  });
+  const baseUrl = getBaseFileUrl(req);
+  return new Map(
+    files.map((file) => [
+      file.id,
+      {
+        id: file.id,
+        ownerId: file.ownerId,
+        name: file.originalName,
+        mimeType: file.mimeType,
+        duration: file.duration ?? null,
+        url: resolveStoredFileUrl(file, baseUrl),
+        thumbnailUrl: file.thumbnailUrl || null,
+        width: file.width ?? null,
+        height: file.height ?? null
+      }
+    ])
+  );
+};
+
+const scrollVideoListSelect: any = {
+  id: true,
+  authorId: true,
+  fileId: true,
+  title: true,
+  description: true,
+  location: true,
+  visibility: true,
+  isAIEnhanced: true,
+  filterPreset: true,
+  filterStrength: true,
+  status: true,
+  impressions: true,
+  views3s: true,
+  views10s: true,
+  views25pct: true,
+  views50pct: true,
+  views95pct: true,
+  likesCount: true,
+  commentsCount: true,
+  repostsCount: true,
+  sharesCount: true,
+  sendCount: true,
+  createdAt: true,
+  updatedAt: true
+};
+
 const fetchScrollPayload = async (req: Request, scroll: any, viewerId?: string | null) => {
+  const rows = await fetchScrollPayloadList(req, [scroll], viewerId);
+  return rows[0] || null;
+};
+
+const fetchScrollPayloadList = async (req: Request, rows: any[], viewerId?: string | null) => {
   const prismaAny = prisma as any;
-  const [author, media, tags, viewerLikes] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: scroll.authorId },
-      select: { id: true, name: true, avatar: true, username: true, isVerified: true }
-    }),
-    resolveScrollMedia(scroll.fileId, req),
-    prismaAny.scrollTag.findMany({
-      where: { scrollId: scroll.id },
-      orderBy: { createdAt: 'asc' }
-    }),
-    viewerId
+  const scrolls = Array.isArray(rows) ? rows : [];
+  if (!scrolls.length) return [];
+  const authorIds = Array.from(new Set(scrolls.map((scroll) => String(scroll?.authorId || '').trim()).filter(Boolean)));
+  const fileIds = Array.from(new Set(scrolls.map((scroll) => String(scroll?.fileId || '').trim()).filter(Boolean)));
+  const scrollIds = Array.from(new Set(scrolls.map((scroll) => String(scroll?.id || '').trim()).filter(Boolean)));
+  const [authors, mediaMap, tags, viewerLikes] = await Promise.all([
+    authorIds.length
+      ? prisma.user.findMany({
+          where: { id: { in: authorIds } },
+          select: { id: true, name: true, avatar: true, username: true, isVerified: true }
+        })
+      : Promise.resolve([]),
+    buildScrollMediaMap(fileIds, req),
+    scrollIds.length
+      ? prismaAny.scrollTag.findMany({
+          where: { scrollId: { in: scrollIds } },
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            scrollId: true,
+            taggedUserId: true,
+            taggedPageId: true,
+            createdAt: true
+          }
+        })
+      : Promise.resolve([]),
+    viewerId && scrollIds.length
       ? prismaAny.scrollEngagement.findMany({
-          where: { scrollId: scroll.id, userId: viewerId, type: { in: ['like', 'impression'] } },
-          select: { type: true }
+          where: { scrollId: { in: scrollIds }, userId: viewerId, type: { in: ['like', 'impression'] } },
+          select: { scrollId: true, type: true }
         })
       : Promise.resolve([])
   ]);
+  const authorMap = new Map<string, any>((authors as any[]).map((author: any) => [String(author.id), author]));
+  const tagsMap = new Map<string, any[]>();
+  (tags || []).forEach((tag: any) => {
+    const scrollId = String(tag?.scrollId || '').trim();
+    if (!scrollId) return;
+    if (!tagsMap.has(scrollId)) tagsMap.set(scrollId, []);
+    tagsMap.get(scrollId)!.push(tag);
+  });
+  const viewerStateMap = new Map<string, Set<string>>();
+  (viewerLikes || []).forEach((entry: any) => {
+    const scrollId = String(entry?.scrollId || '').trim();
+    const type = String(entry?.type || '').trim();
+    if (!scrollId || !type) return;
+    if (!viewerStateMap.has(scrollId)) viewerStateMap.set(scrollId, new Set<string>());
+    viewerStateMap.get(scrollId)!.add(type);
+  });
 
-  return {
-    id: scroll.id,
-    authorId: scroll.authorId,
-    author: {
-      id: author?.id || scroll.authorId,
-      name: author?.name || 'Community member',
-      avatar: author?.avatar || null,
-      username: author?.username || null,
-      isVerified: Boolean(author?.isVerified)
-    },
-    title: scroll.title || null,
-    description: scroll.description || null,
-    location: scroll.location || null,
-    visibility: scroll.visibility,
-    isAIEnhanced: Boolean(scroll.isAIEnhanced),
-    filterPreset: scroll.filterPreset || 'none',
-    filterStrength: typeof scroll.filterStrength === 'number' ? scroll.filterStrength : null,
-    media,
-    tags: Array.isArray(tags) ? tags : [],
-    status: scroll.status,
-    metrics: {
-      impressions: Number(scroll.impressions || 0),
-      views3s: Number(scroll.views3s || 0),
-      views10s: Number(scroll.views10s || 0),
-      views25pct: Number(scroll.views25pct || 0),
-      views50pct: Number(scroll.views50pct || 0),
-      views95pct: Number(scroll.views95pct || 0),
-      likes: Number(scroll.likesCount || 0),
-      comments: Number(scroll.commentsCount || 0),
-      reposts: Number(scroll.repostsCount || 0),
-      shares: Number(scroll.sharesCount || 0),
-      sends: Number(scroll.sendCount || 0)
-    },
-    viewer: {
-      liked: Array.isArray(viewerLikes) ? viewerLikes.some((entry: any) => entry.type === 'like') : false,
-      impressed: Array.isArray(viewerLikes) ? viewerLikes.some((entry: any) => entry.type === 'impression') : false
-    },
-    createdAt: scroll.createdAt,
-    updatedAt: scroll.updatedAt
-  };
+  return scrolls.map((scroll: any) => {
+    const author = authorMap.get(String(scroll.authorId)) || null;
+    const viewerState = viewerStateMap.get(String(scroll.id)) || new Set<string>();
+    return {
+      id: scroll.id,
+      authorId: scroll.authorId,
+      author: {
+        id: author?.id || scroll.authorId,
+        name: author?.name || 'Community member',
+        avatar: author?.avatar || null,
+        username: author?.username || null,
+        isVerified: Boolean(author?.isVerified)
+      },
+      title: scroll.title || null,
+      description: scroll.description || null,
+      location: scroll.location || null,
+      visibility: scroll.visibility,
+      isAIEnhanced: Boolean(scroll.isAIEnhanced),
+      filterPreset: scroll.filterPreset || 'none',
+      filterStrength: typeof scroll.filterStrength === 'number' ? scroll.filterStrength : null,
+      media: mediaMap.get(String(scroll.fileId)) || null,
+      tags: tagsMap.get(String(scroll.id)) || [],
+      status: scroll.status,
+      metrics: {
+        impressions: Number(scroll.impressions || 0),
+        views3s: Number(scroll.views3s || 0),
+        views10s: Number(scroll.views10s || 0),
+        views25pct: Number(scroll.views25pct || 0),
+        views50pct: Number(scroll.views50pct || 0),
+        views95pct: Number(scroll.views95pct || 0),
+        likes: Number(scroll.likesCount || 0),
+        comments: Number(scroll.commentsCount || 0),
+        reposts: Number(scroll.repostsCount || 0),
+        shares: Number(scroll.sharesCount || 0),
+        sends: Number(scroll.sendCount || 0)
+      },
+      viewer: {
+        liked: viewerState.has('like'),
+        impressed: viewerState.has('impression')
+      },
+      createdAt: scroll.createdAt,
+      updatedAt: scroll.updatedAt
+    };
+  });
 };
 
 const ensureScrollOwnership = (scroll: any, userId: string, isAdmin: boolean) => {
@@ -502,13 +608,14 @@ export const getScrollFeed = async (req: Request, res: Response) => {
         ...visibilityWhere,
         ...cursorWhere
       },
+      select: scrollVideoListSelect,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limit + 1
     });
 
     const hasNext = rows.length > limit;
     const slice = hasNext ? rows.slice(0, limit) : rows;
-    const items = await Promise.all(slice.map((row: any) => fetchScrollPayload(req, row, userId)));
+    const items = await fetchScrollPayloadList(req, slice, userId);
 
     return res.json({
       success: true,
@@ -757,10 +864,11 @@ export const getScrollAdminVideos = async (req: Request, res: Response) => {
 
     const rows = await prismaAny.scrollVideo.findMany({
       where,
+      select: scrollVideoListSelect,
       orderBy: [{ createdAt: 'desc' }],
       take: limit
     });
-    const payload = await Promise.all(rows.map((row: any) => fetchScrollPayload(req, row, null)));
+    const payload = await fetchScrollPayloadList(req, rows, null);
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     if (isScrollSchemaMissingError(error)) {

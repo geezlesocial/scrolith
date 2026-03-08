@@ -48,10 +48,23 @@ const getAppIo = (req: Request) => {
 
 const NOTIFICATION_BATCH_SIZE = 250;
 
-const resolveAttachments = async (fileIds: string[]) => {
+const buildAttachmentLookup = async (fileIds: string[]) => {
   const ids = Array.from(new Set((fileIds || []).filter(Boolean)));
-  if (!ids.length) return [];
-  const files = (await prisma.file.findMany({ where: { id: { in: ids } } })) as Array<{
+  if (!ids.length) return new Map<string, any>();
+  const files = (await prisma.file.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      url: true,
+      originalName: true,
+      mimeType: true,
+      thumbnailUrl: true,
+      width: true,
+      height: true,
+      duration: true,
+      size: true
+    }
+  })) as Array<{
     id: string;
     url: string;
     originalName: string;
@@ -62,8 +75,11 @@ const resolveAttachments = async (fileIds: string[]) => {
     duration?: number | null;
     size: number;
   }>;
-  const map = new Map<string, (typeof files)[number]>(files.map((f) => [f.id, f]));
-  return ids
+  return new Map<string, (typeof files)[number]>(files.map((f) => [f.id, f]));
+};
+
+const mapAttachmentIds = (fileIds: string[], map: Map<string, any>) =>
+  Array.from(new Set((fileIds || []).filter(Boolean)))
     .map((id) => {
       const file = map.get(id);
       if (!file) return null;
@@ -87,6 +103,11 @@ const resolveAttachments = async (fileIds: string[]) => {
       };
     })
     .filter(Boolean);
+
+const resolveAttachments = async (fileIds: string[]) => {
+  const ids = Array.from(new Set((fileIds || []).filter(Boolean)));
+  if (!ids.length) return [];
+  return mapAttachmentIds(ids, await buildAttachmentLookup(ids));
 };
 
 type HttpError = Error & { statusCode?: number };
@@ -551,6 +572,74 @@ const resolveFollowLookupForPosts = async (
   pageFollows.forEach((entry) => followingPageIds.add(entry.pageId));
 
   return { followingUserIds, followingPageIds };
+};
+
+const communityPostAuthorSelect = {
+  id: true,
+  name: true,
+  avatar: true,
+  role: true,
+  username: true,
+  isVerified: true,
+  kycStatus: true,
+  freelancerPlanActive: true,
+  employerPlanActive: true
+};
+
+const communityBusinessPageSelect = {
+  id: true,
+  name: true,
+  handle: true,
+  slug: true,
+  logoFileId: true
+};
+
+const communityPostFeedSelect: any = {
+  id: true,
+  authorId: true,
+  title: true,
+  content: true,
+  attachments: true,
+  tags: true,
+  mentions: true,
+  topic: true,
+  location: true,
+  visibility: true,
+  graphicWarning: true,
+  commentPolicy: true,
+  repostsEnabled: true,
+  originalPostId: true,
+  businessPageId: true,
+  viewsCount: true,
+  likesCount: true,
+  sharesCount: true,
+  repostsCount: true,
+  status: true,
+  isPinned: true,
+  isHighlighted: true,
+  aiInsightEnabled: true,
+  aiInsightGenerated: true,
+  aiInsightText: true,
+  aiScore: true,
+  createdAt: true,
+  updatedAt: true,
+  author: {
+    select: communityPostAuthorSelect
+  },
+  businessPage: {
+    select: communityBusinessPageSelect
+  },
+  originalPost: {
+    select: {
+      id: true,
+      author: {
+        select: {
+          name: true,
+          username: true
+        }
+      }
+    }
+  }
 };
 
 // Get all threads
@@ -1609,6 +1698,8 @@ export const getPosts = async (req: Request, res: Response) => {
       businessPageId: businessPageIdRaw,
       businessPageSlug: businessPageSlugRaw
     } = req.query as any;
+    const take = Math.max(1, Math.min(100, Number.parseInt(String(limit || '50'), 10) || 50));
+    const skip = Math.max(0, Number.parseInt(String(offset || '0'), 10) || 0);
     const viewer = await resolveOptionalUserFromRequest(req);
     const userId = viewer?.id;
     const blockedAuthorIds = await getBlockedAuthorIdsForViewer(userId);
@@ -1643,50 +1734,19 @@ export const getPosts = async (req: Request, res: Response) => {
 
     const posts = await prisma.communityPost.findMany({
       where,
-      include: {
-        author: {
-          select: {
-            id: true,
-            name: true,
-            avatar: true,
-            role: true,
-            username: true,
-            isVerified: true,
-            kycStatus: true,
-            freelancerPlanActive: true,
-            employerPlanActive: true
-          }
-        },
-        businessPage: {
-          select: {
-            id: true,
-            name: true,
-            handle: true,
-            slug: true,
-            logoFileId: true
-          }
-        },
-        originalPost: {
-          select: {
-            id: true,
-            author: {
-              select: {
-                name: true,
-                username: true
-              }
-            }
-          }
-        }
-      },
+      select: communityPostFeedSelect,
       orderBy: [
         { isPinned: 'desc' },
         { createdAt: 'desc' }
       ],
-      take: Number(limit),
-      skip: Number(offset)
+      take,
+      skip
     });
 
     const postIds = posts.map((p) => p.id);
+    const attachmentMap = await buildAttachmentLookup(
+      posts.flatMap((post: any) => (Array.isArray(post.attachments) ? post.attachments : []))
+    );
     const [reactionRows, commentRows, userReactions] = await Promise.all([
       prisma.communityPostReaction.groupBy({
         by: ['postId', 'type'],
@@ -1755,7 +1815,7 @@ export const getPosts = async (req: Request, res: Response) => {
         title: post.title,
         content: post.content,
         attachmentFileIds: post.attachments || [],
-        attachments: await resolveAttachments(post.attachments || []),
+        attachments: mapAttachmentIds(post.attachments || [], attachmentMap),
         tags: post.tags || [],
         mentions: post.mentions || [],
         topic: post.topic || null,
@@ -1818,6 +1878,7 @@ export const getPosts = async (req: Request, res: Response) => {
 export const getFeed = async (req: Request, res: Response) => {
   try {
     const { limit = 20, cursor, scope = 'public', topic, region } = req.query as any;
+    const take = Math.max(1, Math.min(50, Number.parseInt(String(limit || '20'), 10) || 20));
     const viewer = await resolveOptionalUserFromRequest(req);
     const userId = viewer?.id;
     const blockedAuthorIds = await getBlockedAuthorIdsForViewer(userId);
@@ -1879,46 +1940,15 @@ export const getFeed = async (req: Request, res: Response) => {
 
     const posts = await prisma.communityPost.findMany({
       where: baseWhere,
-      include: {
-        author: {
-          select: {
-            id: true,
-            name: true,
-            avatar: true,
-            role: true,
-            username: true,
-            isVerified: true,
-            kycStatus: true,
-            freelancerPlanActive: true,
-            employerPlanActive: true
-          }
-        },
-        businessPage: {
-          select: {
-            id: true,
-            name: true,
-            handle: true,
-            slug: true,
-            logoFileId: true
-          }
-        },
-        originalPost: {
-          select: {
-            id: true,
-            author: {
-              select: {
-                name: true,
-                username: true
-              }
-            }
-          }
-        }
-      },
+      select: communityPostFeedSelect,
       orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
-      take: Number(limit)
+      take
     });
 
     const postIds = posts.map((p) => p.id);
+    const attachmentMap = await buildAttachmentLookup(
+      posts.flatMap((post: any) => (Array.isArray(post.attachments) ? post.attachments : []))
+    );
     const [reactionRows, commentRows, userReactions] = await Promise.all([
       prisma.communityPostReaction.groupBy({
         by: ['postId', 'type'],
@@ -1973,7 +2003,7 @@ export const getFeed = async (req: Request, res: Response) => {
         title: post.title,
         content: post.content,
         attachmentFileIds: post.attachments || [],
-        attachments: await resolveAttachments(post.attachments || []),
+        attachments: mapAttachmentIds(post.attachments || [], attachmentMap),
         tags: post.tags || [],
         mentions: post.mentions || [],
         topic: post.topic || null,

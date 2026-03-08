@@ -100,43 +100,51 @@ const replyToMessageSelect: any = {
   sender: { select: { id: true, name: true, email: true } }
 };
 
-const messagesIncludeWithReply: any = {
-  orderBy: { createdAt: 'asc' },
-  take: 200,
-  include: {
-    reactions: true,
-    replyToMessage: {
-      select: replyToMessageSelect
-    }
+const DEFAULT_CONVERSATION_MESSAGE_LIMIT = 200;
+const DEFAULT_CONVERSATION_PREVIEW_LIMIT = 20;
+
+const parseIntInRange = (value: unknown, fallback: number, min: number, max: number) => {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+};
+
+const messageReactionSelect: any = {
+  userId: true,
+  emoji: true,
+  createdAt: true
+};
+
+const directMessageBaseSelect: any = {
+  id: true,
+  conversationId: true,
+  senderId: true,
+  text: true,
+  messageType: true,
+  metadata: true,
+  attachments: true,
+  replyToMessageId: true,
+  replyToSnapshot: true,
+  createdAt: true,
+  deletedAt: true,
+  editedAt: true,
+  reactions: {
+    select: messageReactionSelect
   }
 };
 
-const messagesIncludeBase: any = {
-  orderBy: { createdAt: 'asc' },
-  take: 200,
-  include: {
-    reactions: true
-  }
-};
-
-const messagesPreviewIncludeWithReply: any = {
-  orderBy: { createdAt: 'asc' },
-  take: 60,
-  include: {
-    reactions: true,
-    replyToMessage: {
-      select: replyToMessageSelect
-    }
-  }
-};
-
-const messagesPreviewIncludeBase: any = {
-  orderBy: { createdAt: 'asc' },
-  take: 60,
-  include: {
-    reactions: true
-  }
-};
+const buildMessagesRelationSelect = (limit: number, includeReply: boolean): any => ({
+  orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+  take: limit,
+  select: includeReply
+    ? {
+        ...directMessageBaseSelect,
+        replyToMessage: {
+          select: replyToMessageSelect
+        }
+      }
+    : directMessageBaseSelect
+});
 
 const normalizeAttachmentIds = (input: any): string[] => {
   if (!Array.isArray(input)) return [];
@@ -146,7 +154,20 @@ const normalizeAttachmentIds = (input: any): string[] => {
 const buildAttachmentMap = async (fileIds: string[]) => {
   const ids = Array.from(new Set((fileIds || []).filter(Boolean)));
   if (!ids.length) return new Map<string, any>();
-  const files = await prisma.file.findMany({ where: { id: { in: ids } } });
+  const files = await prisma.file.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      url: true,
+      originalName: true,
+      mimeType: true,
+      size: true,
+      thumbnailUrl: true,
+      width: true,
+      height: true,
+      duration: true
+    }
+  });
   const entries: Array<[string, any]> = files.map((file) => [file.id, file]);
   return new Map<string, any>(entries);
 };
@@ -164,6 +185,20 @@ const participantUserSelect: any = {
     select: {
       gender: true
     }
+  }
+};
+
+const conversationParticipantSelect: any = {
+  userId: true,
+  joinedAt: true,
+  lastReadAt: true,
+  label: true,
+  isStarred: true,
+  isMuted: true,
+  isArchived: true,
+  deletedAt: true,
+  user: {
+    select: participantUserSelect
   }
 };
 
@@ -363,6 +398,13 @@ const buildConversationPayload = (
     ? conversation.messages.filter((message: any) => !hiddenMessageIds.has(String(message?.id || '')))
     : [];
 
+  visibleMessagesSource.sort((left: any, right: any) => {
+    const leftTime = left?.createdAt ? new Date(left.createdAt).getTime() : 0;
+    const rightTime = right?.createdAt ? new Date(right.createdAt).getTime() : 0;
+    if (leftTime !== rightTime) return leftTime - rightTime;
+    return String(left?.id || '').localeCompare(String(right?.id || ''));
+  });
+
   const messages = visibleMessagesSource.map((message: any) =>
     formatConversationMessage(message, conversation, viewerId, lastReadAt)
   );
@@ -547,6 +589,12 @@ export const listConversations = async (req: Request, res: Response) => {
     const limit = Number.isFinite(requestedLimit)
       ? Math.max(10, Math.min(200, requestedLimit))
       : 80;
+    const previewLimit = parseIntInRange(
+      req.query?.messagePreviewLimit ?? req.query?.previewMessageLimit,
+      DEFAULT_CONVERSATION_PREVIEW_LIMIT,
+      1,
+      40
+    );
     const cursorId = String(req.query?.cursor || '').trim();
     const queryBase: any = {
       where,
@@ -561,13 +609,9 @@ export const listConversations = async (req: Request, res: Response) => {
         ...queryBase,
         include: {
           participants: {
-            include: {
-              user: {
-                select: participantUserSelect
-              }
-            }
+            select: conversationParticipantSelect
           },
-          messages: messagesPreviewIncludeWithReply
+          messages: buildMessagesRelationSelect(previewLimit, true)
         }
       } as any);
     } catch (error: any) {
@@ -576,13 +620,9 @@ export const listConversations = async (req: Request, res: Response) => {
         ...queryBase,
         include: {
           participants: {
-            include: {
-              user: {
-                select: participantUserSelect
-              }
-            }
+            select: conversationParticipantSelect
           },
-          messages: messagesPreviewIncludeBase
+          messages: buildMessagesRelationSelect(previewLimit, false)
         }
       } as any);
     }
@@ -629,6 +669,7 @@ export const getConversation = async (req: Request, res: Response) => {
     const role = resolveRole(req);
     const userId = resolveUserId(req);
     const admin = isAdminRole(role);
+    const messageLimit = parseIntInRange(req.query?.messageLimit, DEFAULT_CONVERSATION_MESSAGE_LIMIT, 20, 200);
 
     let conversation: any = null;
     try {
@@ -636,13 +677,9 @@ export const getConversation = async (req: Request, res: Response) => {
         where: { id: req.params.id },
         include: {
           participants: {
-            include: {
-              user: {
-                select: participantUserSelect
-              }
-            }
+            select: conversationParticipantSelect
           },
-          messages: messagesIncludeWithReply
+          messages: buildMessagesRelationSelect(messageLimit, true)
         }
       } as any);
     } catch (error: any) {
@@ -651,13 +688,9 @@ export const getConversation = async (req: Request, res: Response) => {
         where: { id: req.params.id },
         include: {
           participants: {
-            include: {
-              user: {
-                select: participantUserSelect
-              }
-            }
+            select: conversationParticipantSelect
           },
-          messages: messagesIncludeBase
+          messages: buildMessagesRelationSelect(messageLimit, false)
         }
       } as any);
     }

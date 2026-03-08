@@ -2669,6 +2669,7 @@ model Conversation {
   voiceNotes     VoiceNote[]
 
   @@index([updatedAt])
+  @@index([updatedAt, id])
   @@index([lastMessageAt])
 }
 
@@ -2719,6 +2720,7 @@ model DirectMessage {
 
   @@index([conversationId])
   @@index([conversationId, createdAt])
+  @@index([conversationId, createdAt, id])
   @@index([senderId])
   @@index([createdAt])
   @@index([replyToMessageId])
@@ -2738,6 +2740,7 @@ model MessageReaction {
   @@unique([messageId, userId, emoji])
   @@index([messageId])
   @@index([userId])
+  @@index([messageId, userId])
 }
 
 model DirectMessageRecord {
@@ -2764,6 +2767,7 @@ model DirectMessageRecord {
   @@index([action, createdAt])
   @@index([actorUserId])
   @@index([targetUserId])
+  @@index([actorUserId, action, conversationId])
 }
 
 model VoiceCall {
@@ -2918,6 +2922,10 @@ model CommunityPost {
   @@index([visibility])
   @@index([topic])
   @@index([location])
+  @@index([status, isPinned, createdAt])
+  @@index([businessPageId, status, isPinned, createdAt])
+  @@index([authorId, status, createdAt])
+  @@index([visibility, status, createdAt])
 }
 
 enum CommunityPostFeedbackSignal {
@@ -3018,6 +3026,7 @@ model CommunityPostComment {
   @@index([authorId])
   @@index([parentId])
   @@index([status])
+  @@index([postId, status, createdAt])
 }
 
 model CommunityPostCommentLike {
@@ -3048,6 +3057,7 @@ model CommunityPostReaction {
   @@index([postId])
   @@index([userId])
   @@index([type])
+  @@index([postId, type])
 }
 
 model ScrollVideo {
@@ -3084,6 +3094,8 @@ model ScrollVideo {
   @@index([authorId, createdAt])
   @@index([visibility, status, createdAt])
   @@index([fileId])
+  @@index([status, createdAt])
+  @@index([status, visibility, createdAt])
 }
 
 model ScrollTag {
@@ -3547,6 +3559,8 @@ model Notification {
   @@index([userId])
   @@index([userId, createdAt])
   @@index([userId, isRead, createdAt])
+  @@index([userId, createdAt, id])
+  @@index([userId, isRead, createdAt, id])
   @@index([actorId])
   @@index([isRead])
 }

@@ -40,15 +40,15 @@ const DEFAULT_API_CACHE_EXCLUDE_PATHS = [
 ];
 
 export const DEFAULT_RUNTIME_OPTIMIZATION_CONFIG: RuntimeOptimizationConfig = {
-  enabled: false,
-  compressionEnabled: false,
+  enabled: true,
+  compressionEnabled: true,
   compressionLevel: 6,
   compressionThresholdKb: 1,
   apiResponseCachingEnabled: false,
   apiResponseCacheSeconds: 45,
   apiResponseCacheMaxEntries: 500,
   staticAssetCachingEnabled: true,
-  staticAssetCacheSeconds: 604800,
+  staticAssetCacheSeconds: 2592000,
   htmlMinifyEnabled: false,
   htmlCollapseWhitespace: true,
   htmlRemoveComments: true,
