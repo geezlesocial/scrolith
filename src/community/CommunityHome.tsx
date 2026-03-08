@@ -2308,9 +2308,9 @@ const CommunityHome = () => {
                 <h2 className="text-lg font-bold">{getModuleTitle(modules, 'feed', 'Community Feed')}</h2>
                 <Link to="/community" className="text-sm text-blue-600 hover:text-blue-800">Create Post</Link>
               </div>
-              <div className="divide-y divide-gray-200">
+              <div className="space-y-4 bg-slate-50/40 p-4">
                 {posts.length === 0 && (
-                  <div className="p-4 text-sm text-gray-500">No posts yet.</div>
+                  <div className="rounded-3xl border border-slate-200 bg-white p-4 text-sm text-gray-500 shadow-sm">No posts yet.</div>
                 )}
                 {posts.map((post) => {
                   const ownerUserId = resolveAuthorOwnerUserId(post);
@@ -2336,10 +2336,10 @@ const CommunityHome = () => {
                   const initialIsFollowing =
                     followTargetId ? (followStateMap[followTargetId] ?? post.viewer?.isFollowingAuthor) : undefined;
                   return (
-                    <div
+                    <article
                       key={post.id}
                       id={`community-post-${post.id}`}
-                      className={`p-4 transition-shadow ${focusPostId === post.id ? 'bg-blue-50/30' : ''}`}
+                      className={`rounded-[30px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/70 p-5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)] transition-shadow hover:shadow-[0_24px_48px_-26px_rgba(15,23,42,0.52)] ${focusPostId === post.id ? 'ring-2 ring-blue-100' : ''}`}
                     >
                       <PostHeader
                         author={resolvedAuthor}
@@ -2375,7 +2375,7 @@ const CommunityHome = () => {
                             {canManage ? (
                               <button
                                 onClick={() => promotePost(post)}
-                                className="text-xs px-2 py-1 border rounded text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                                className="rounded-full border border-indigo-200 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo-600 shadow-sm transition hover:bg-indigo-50"
                                 type="button"
                               >
                                 Promote this post
@@ -2383,6 +2383,7 @@ const CommunityHome = () => {
                             ) : null}
                             <PostOptionsButton
                               post={post}
+                              buttonClassName="rounded-full border border-slate-200 bg-white p-2.5 text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
                               onHideFromFeed={(postId) => {
                                 setPosts((prev) => prev.filter((item) => item.id !== postId));
                               }}
@@ -2509,11 +2510,12 @@ const CommunityHome = () => {
                         </div>
                       ) : (
                         <>
+                          <div className="mt-4 space-y-4">
                           {post.title ? (
                             <button
                               type="button"
                               onClick={() => openPostDetail(post.id)}
-                              className="mt-3 text-left font-semibold text-gray-900 hover:text-blue-700 hover:underline"
+                              className="text-left text-xl font-semibold tracking-tight text-slate-950 hover:text-blue-700 hover:underline"
                             >
                               {post.title}
                             </button>
@@ -2524,7 +2526,7 @@ const CommunityHome = () => {
                             </div>
                           ) : null}
                           <div
-                            className="mt-2 cursor-pointer text-sm text-gray-700"
+                            className="cursor-pointer text-[15px] leading-7 text-slate-700"
                             role="button"
                             tabIndex={0}
                             onClick={(event) => openPostFromText(event, post.id)}
@@ -2543,9 +2545,9 @@ const CommunityHome = () => {
                             />
                           </div>
                           {post.tags?.length ? (
-                            <div className="mt-2 flex flex-wrap gap-2">
+                            <div className="flex flex-wrap gap-2">
                               {post.tags.map((tag: string) => (
-                                <span key={tag} className="rounded-full bg-gray-100 px-3 py-1 text-[11px] font-semibold text-gray-600">
+                                <span key={tag} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 shadow-sm">
                                   #{tag}
                                 </span>
                               ))}
@@ -2553,7 +2555,7 @@ const CommunityHome = () => {
                           ) : null}
                           {Array.isArray(post.attachments) && post.attachments.length > 0 && (
                             <div
-                              className={`mt-3 grid gap-3 ${
+                              className={`grid gap-3 ${
                                 post.attachments.length === 1 ? 'grid-cols-1' : 'md:grid-cols-2'
                               }`}
                             >
@@ -2566,7 +2568,7 @@ const CommunityHome = () => {
                                   return (
                                     <div
                                       key={media.id || media.url}
-                                      className="mx-auto w-full overflow-hidden rounded-xl border border-gray-200 bg-gray-50"
+                                      className="mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
                                     >
                                       <InlineAutoplayVideo
                                         src={media.url}
@@ -2590,7 +2592,7 @@ const CommunityHome = () => {
                                       onClick={() => queueOpenPostFromMediaTap(post.id, mediaKey)}
                                       onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
                                       onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
-                                      className="mx-auto w-full overflow-hidden rounded-xl border border-gray-200 bg-gray-50 text-left"
+                                      className="mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left shadow-sm"
                                     >
                                       <img
                                         src={media.url}
@@ -2603,7 +2605,7 @@ const CommunityHome = () => {
                                 return (
                                   <div
                                     key={media.id || media.url}
-                                    className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600"
+                                    className="rounded-2xl border border-slate-200 bg-white p-3 text-xs text-slate-600 shadow-sm"
                                   >
                                     <a href={media.url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
                                       {media.name || media.url?.split('/').pop() || 'View attachment'}
@@ -2614,12 +2616,12 @@ const CommunityHome = () => {
                             </div>
                           )}
                           {(post.topic || post.location) && (
-                            <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-gray-500">
+                            <div className="flex flex-wrap gap-2 text-[11px] text-slate-500">
                               {post.topic && (
-                                <span className="rounded-full bg-gray-50 px-3 py-1 font-semibold text-gray-600">Topic: {post.topic}</span>
+                                <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-sm">Topic: {post.topic}</span>
                               )}
                               {post.location && (
-                                <span className="rounded-full bg-gray-50 px-3 py-1 font-semibold text-gray-600">Location: {post.location}</span>
+                                <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-sm">Location: {post.location}</span>
                               )}
                             </div>
                           )}
@@ -2637,9 +2639,10 @@ const CommunityHome = () => {
                             focusMentionToken={focusPostId === post.id ? focusMentionToken : undefined}
                             onCommentCountChange={syncCommentCount}
                           />
+                          </div>
                         </>
                       )}
-                    </div>
+                    </article>
                   );
                 })}
               </div>

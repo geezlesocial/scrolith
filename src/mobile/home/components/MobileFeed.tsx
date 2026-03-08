@@ -1084,12 +1084,12 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
           return (
             <React.Fragment key={postId || `post_${idx}`}>
-              <article className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+              <article className="rounded-[30px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/70 p-4 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)]">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
                     <Link
                       to={profileUrl}
-                      className="h-11 w-11 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100"
+                      className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-100 via-white to-slate-50 shadow-sm"
                       aria-label={`View ${authorName} profile`}
                     >
                       {authorAvatar ? (
@@ -1102,11 +1102,11 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                         />
                       ) : null}
                     </Link>
-                    <div className="min-w-0">
+                    <div className="min-w-0 pt-0.5">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <Link
                           to={profileUrl}
-                          className="min-w-0 text-sm font-semibold text-slate-900 break-words [overflow-wrap:anywhere] hover:text-slate-700"
+                          className="min-w-0 text-[15px] font-semibold text-slate-950 break-words [overflow-wrap:anywhere] hover:text-slate-700"
                         >
                           {authorName}
                         </Link>
@@ -1121,15 +1121,15 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                           </span>
                         ) : null}
                       </div>
-                      <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
-                        <span>{relativeTime(createdAt) || 'now'}</span>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                        <span className="font-medium text-slate-600">{relativeTime(createdAt) || 'now'}</span>
                         {post?.visibility ? (
-                          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-600">
+                          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">
                             {String(post.visibility).toUpperCase()}
                           </span>
                         ) : null}
                         {hasGraphicWarning ? (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-amber-800">
+                          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-amber-800">
                             {graphicWarningLabel}
                           </span>
                         ) : null}
@@ -1148,14 +1148,14 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                             : undefined
                         }
                         onRequireLogin={() => navigate('/auth/login')}
-                        className="h-9 border-slate-200 bg-white px-3 text-blue-700 hover:bg-blue-50"
+                        className="h-9 border-slate-200 bg-white px-3.5 text-[11px] uppercase tracking-[0.16em] text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50"
                       />
                     ) : null}
 
                     <PostOptionsButton
                       post={post}
                       icon={<MoreVertical className="h-4 w-4" />}
-                      buttonClassName="rounded-full border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50"
+                      buttonClassName="rounded-full border border-slate-200 bg-white p-2.5 text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
                       onHideFromFeed={(hiddenPostId) => {
                         setPosts((prev) => prev.filter((p) => String(p?.id) !== String(hiddenPostId)));
                       }}
@@ -1176,18 +1176,18 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                   </div>
                 </div>
 
-                <div className="mt-3 space-y-2">
+                <div className="mt-4 space-y-4">
                   {post?.title ? (
                     <button
                       type="button"
                       onClick={() => openPostDetail(postId)}
-                      className="text-left text-base font-semibold text-slate-900 break-words [overflow-wrap:anywhere] hover:text-blue-700 hover:underline"
+                      className="text-left text-lg font-semibold tracking-tight text-slate-950 break-words [overflow-wrap:anywhere] hover:text-blue-700 hover:underline"
                     >
                       {post.title}
                     </button>
                   ) : null}
                   <div
-                    className="cursor-pointer text-sm text-slate-700 break-words [overflow-wrap:anywhere]"
+                    className="cursor-pointer text-[15px] leading-7 text-slate-700 break-words [overflow-wrap:anywhere]"
                     role="button"
                     tabIndex={0}
                     onClick={(event) => openPostFromText(event, postId)}
@@ -1216,7 +1216,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                         <a
                           key={`${postId}_tag_${tag}`}
                           href={`/community/tags/${encodeURIComponent(tag)}`}
-                          className="max-w-full break-all rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600"
+                          className="max-w-full break-all rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm"
                         >
                           #{tag}
                         </a>
@@ -1252,12 +1252,12 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                   {(post?.topic || post?.location) ? (
                     <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                       {post?.topic ? (
-                        <span className="max-w-full break-words rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600 [overflow-wrap:anywhere]">
+                        <span className="max-w-full break-words rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-sm [overflow-wrap:anywhere]">
                           Topic: {String(post.topic)}
                         </span>
                       ) : null}
                       {post?.location ? (
-                        <span className="max-w-full break-words rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600 [overflow-wrap:anywhere]">
+                        <span className="max-w-full break-words rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-sm [overflow-wrap:anywhere]">
                           Location: {String(post.location)}
                         </span>
                       ) : null}
@@ -1272,7 +1272,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                           return (
                             <div
                               key={`${postId}_att_${file.id || file.url}`}
-                              className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
+                              className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
                             >
                               {isVideo(file.mimeType) ? (
                                 <InlineAutoplayVideo

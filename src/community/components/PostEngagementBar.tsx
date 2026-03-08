@@ -323,7 +323,9 @@ const PostEngagementBar: React.FC<Props> = ({
 
   const likeLabel = userReaction ? (allowedMap.get(userReaction)?.label || DEFAULT_META[userReaction]?.label || 'Like') : 'Like';
   const likeEmoji = userReaction ? (allowedMap.get(userReaction)?.emoji || DEFAULT_META[userReaction]?.emoji || DEFAULT_META.like.emoji) : '';
-  const actionButtonBase = compactActions ? 'flex w-full min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2 text-[11px] font-semibold leading-tight transition' : 'flex w-full min-w-0 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition';
+  const actionButtonBase = compactActions
+    ? 'group flex w-full min-w-0 flex-col items-center justify-center gap-1.5 rounded-[20px] border border-transparent bg-white px-2 py-2.5 text-[11px] font-semibold leading-tight text-slate-700 transition hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-sm'
+    : 'group flex w-full min-w-0 items-center justify-center gap-2.5 rounded-[20px] border border-transparent bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-sm';
   const postUrl = buildPostUrl(postId);
 
   const onReactionButtonHover = () => {
@@ -365,8 +367,8 @@ const PostEngagementBar: React.FC<Props> = ({
 
   return (
     <div className={`mt-3 ${className}`}>
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-        <div className="min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-slate-200/80 bg-slate-50/80 px-3 py-3 text-xs text-slate-500">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {showCounts && reactionsEnabled ? (
             totalReactions > 0 ? (
               <button
@@ -376,7 +378,7 @@ const PostEngagementBar: React.FC<Props> = ({
                   setPickerAnchor('summary');
                   setPickerOpen(true);
                 }}
-                className="inline-flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-white px-2.5 py-1 hover:bg-slate-50"
+                className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/90 bg-white px-3 py-1.5 shadow-sm hover:bg-slate-50"
               >
                 <span className="inline-flex -space-x-1">
                   {topReactions.map((item) => (
@@ -389,14 +391,22 @@ const PostEngagementBar: React.FC<Props> = ({
                 <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
               </button>
             ) : (
-              <span className="text-slate-400">0 reactions</span>
+              <span className="rounded-full border border-dashed border-slate-200 px-3 py-1.5 text-slate-400">0 reactions</span>
             )
           ) : (
             <span className="text-slate-400">&nbsp;</span>
           )}
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 font-semibold shadow-sm ${
+              isConnected ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+            }`}
+          >
+            <span className={`h-2 w-2 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+            {isConnected ? 'Live sync' : 'Syncing'}
+          </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           {commentsEnabled ? (
             <button
               type="button"
@@ -405,21 +415,29 @@ const PostEngagementBar: React.FC<Props> = ({
                 setFocusInputKey((prev) => prev + 1);
                 window.setTimeout(() => commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
               }}
-              className="hover:text-slate-700"
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:text-slate-900"
             >
-              <span className="font-semibold text-slate-700">{commentCount}</span> comments
+              <span className="font-semibold text-slate-900">{commentCount}</span> comments
             </button>
           ) : (
-            <span><span className="font-semibold text-slate-700">{commentCount}</span> comments</span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
+              <span className="font-semibold text-slate-900">{commentCount}</span> comments
+            </span>
           )}
-          <span><span className="font-semibold text-slate-700">{repostCount}</span> reposts</span>
-          <span><span className="font-semibold text-slate-700">{shareCount}</span> shares</span>
-          <span><span className="font-semibold text-slate-700">{viewCount}</span> views</span>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
+            <span className="font-semibold text-slate-900">{repostCount}</span> reposts
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
+            <span className="font-semibold text-slate-900">{shareCount}</span> shares
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
+            <span className="font-semibold text-slate-900">{viewCount}</span> views
+          </span>
         </div>
       </div>
 
       <div
-        className={`mt-3 grid rounded-2xl border border-slate-100 bg-white p-1 shadow-sm ${compactActions ? 'gap-1.5' : 'gap-1'}`}
+        className={`mt-3 grid rounded-[24px] border border-slate-200/80 bg-slate-50/70 p-1.5 shadow-sm ${compactActions ? 'gap-1.5' : 'gap-1.5'}`}
         style={{ gridTemplateColumns: `repeat(${actionCols}, minmax(0, 1fr))` }}
       >
         {reactionsEnabled ? (
@@ -438,10 +456,16 @@ const PostEngagementBar: React.FC<Props> = ({
             onTouchMove={onReactionButtonTouchEnd}
             onTouchEnd={onReactionButtonTouchEnd}
             onTouchCancel={onReactionButtonTouchEnd}
-            className={`${actionButtonBase} ${userReaction ? 'text-blue-700 hover:bg-blue-50' : 'text-slate-700 hover:bg-slate-50'} disabled:opacity-60`}
+            className={`${actionButtonBase} ${userReaction ? 'border-blue-200 bg-blue-50/70 text-blue-700 hover:bg-blue-50' : ''} disabled:opacity-60`}
           >
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-[13px] leading-none">{DEFAULT_META.like.emoji}</span>
-            <span className="max-w-full truncate">{likeEmoji ? `${likeEmoji} ` : ''}{likeLabel}</span>
+            <span
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-[15px] leading-none transition ${
+                userReaction ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600 group-hover:bg-slate-900 group-hover:text-white'
+              }`}
+            >
+              {likeEmoji || DEFAULT_META.like.emoji}
+            </span>
+            <span className="max-w-full truncate">{likeLabel}</span>
             <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition ${pickerOpen ? 'rotate-180' : ''}`} />
           </button>
         ) : null}
@@ -455,9 +479,11 @@ const PostEngagementBar: React.FC<Props> = ({
               setFocusInputKey((prev) => prev + 1);
               window.setTimeout(() => commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
             }}
-            className={`${actionButtonBase} text-slate-700 hover:bg-slate-50`}
+            className={actionButtonBase}
           >
-            <MessageCircle className="h-4 w-4" />
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white">
+              <MessageCircle className="h-4 w-4" />
+            </span>
             <span className="max-w-full truncate">Comment</span>
           </button>
         ) : null}
@@ -469,9 +495,11 @@ const PostEngagementBar: React.FC<Props> = ({
               if (!ensureAuth()) return;
               setRepostOpen(true);
             }}
-            className={`${actionButtonBase} text-slate-700 hover:bg-slate-50`}
+            className={actionButtonBase}
           >
-            <Repeat2 className="h-4 w-4" />
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white">
+              <Repeat2 className="h-4 w-4" />
+            </span>
             <span className="max-w-full truncate">Repost</span>
           </button>
         ) : null}
@@ -483,16 +511,20 @@ const PostEngagementBar: React.FC<Props> = ({
               if (!ensureAuth()) return;
               setDashOpen(true);
             }}
-            className={`${actionButtonBase} text-slate-700 hover:bg-slate-50`}
+            className={actionButtonBase}
           >
-            <Coins className="h-4 w-4" />
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white">
+              <Coins className="h-4 w-4" />
+            </span>
             <span className="max-w-full truncate">Dash</span>
           </button>
         ) : null}
 
         {sendEnabled ? (
-          <button type="button" onClick={() => setShareOpen(true)} className={`${actionButtonBase} text-slate-700 hover:bg-slate-50`}>
-            <Send className="h-4 w-4" />
+          <button type="button" onClick={() => setShareOpen(true)} className={actionButtonBase}>
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white">
+              <Send className="h-4 w-4" />
+            </span>
             <span className="max-w-full truncate">Send</span>
           </button>
         ) : null}

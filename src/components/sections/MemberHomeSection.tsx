@@ -4651,7 +4651,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   return (
                     <React.Fragment key={post.id}>
                       <article
-                        className={`rounded-3xl border border-white/70 bg-white shadow-sm rise-fade ${postDensity === 'compact' ? 'p-4' : 'p-6'}`}
+                        className={`rise-fade rounded-[32px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/70 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)] transition-shadow hover:shadow-[0_24px_48px_-26px_rgba(15,23,42,0.52)] ${postDensity === 'compact' ? 'p-4' : 'p-6'}`}
                       >
                       <PostHeader
                         author={resolvedAuthor}
@@ -4689,10 +4689,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           </>
                         }
                         rightSlot={
-                          <PostOptionsButton
-                            post={post}
-                            icon={<MoreHorizontal className="h-4 w-4" />}
-                            buttonClassName="rounded-full border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50"
+                            <PostOptionsButton
+                              post={post}
+                              icon={<MoreHorizontal className="h-4 w-4" />}
+                              buttonClassName="rounded-full border border-slate-200 bg-white p-2.5 text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
                             onHideFromFeed={(hiddenPostId) => {
                               setFeedItems((prev) => prev.filter((item) => item.id !== hiddenPostId));
                               setCommentCounts((prev) => {
@@ -4830,12 +4830,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                         </div>
                       ) : (
                         <>
-                          <div className="mt-3 space-y-2">
+                          <div className="mt-4 space-y-4">
                             {post.title ? (
                               <button
                                 type="button"
                                 onClick={() => openPostDetail(post.id)}
-                                className="text-left text-lg font-semibold text-slate-900 hover:text-blue-700 hover:underline"
+                                className="text-left text-xl font-semibold tracking-tight text-slate-950 hover:text-blue-700 hover:underline"
                               >
                                 {post.title}
                               </button>
@@ -4846,7 +4846,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                               </div>
                             ) : null}
                             <div
-                              className="cursor-pointer text-sm text-slate-700"
+                              className="cursor-pointer text-[15px] leading-7 text-slate-700"
                               role="button"
                               tabIndex={0}
                               onClick={(event) => openPostFromText(event, post.id)}
@@ -4867,7 +4867,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                             {post.tags?.length ? (
                               <div className="flex flex-wrap gap-2">
                                 {post.tags.map((tag) => (
-                                  <span key={tag} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                                  <span key={tag} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm">
                                     #{tag}
                                   </span>
                                 ))}
@@ -4901,11 +4901,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                               </div>
                             ) : null}
                             {renderAttachments(post, post.attachments)}
-                            <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-                              {post.topic ? <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">Topic: {post.topic}</span> : null}
-                              {post.location ? <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">Location: {post.location}</span> : null}
+                              <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                                {post.topic ? <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-sm">Topic: {post.topic}</span> : null}
+                                {post.location ? <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-sm">Location: {post.location}</span> : null}
+                              </div>
                             </div>
-                          </div>
                           <PostEngagementBar
                             postId={post.id}
                             authorId={post.authorUserId || post.authorId}
