@@ -204,7 +204,9 @@ const Messages = () => {
   const [isMobileViewport, setIsMobileViewport] = useState(
       () => (typeof window !== 'undefined' ? window.innerWidth < 768 : false)
   );
+  const [mobileComposerHostHeight, setMobileComposerHostHeight] = useState<number | null>(null);
   
+  const layoutShellRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const conversationListRef = useRef<HTMLUListElement>(null);
@@ -292,12 +294,38 @@ const Messages = () => {
   const resizeComposerTextarea = useCallback(() => {
       const textarea = composerTextareaRef.current;
       if (!textarea) return;
-      const minHeight = isMobileViewport ? 92 : 108;
-      const maxHeight = isMobileViewport ? 172 : 220;
+      const minHeight = isMobileViewport ? 68 : 108;
+      const maxHeight = isMobileViewport ? 136 : 220;
       textarea.style.height = '0px';
       const nextHeight = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight));
       textarea.style.height = `${nextHeight}px`;
       textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, [isMobileViewport]);
+
+  const syncMobileComposerHostHeight = useCallback(() => {
+      if (typeof window === 'undefined') return;
+      const mobile = window.innerWidth < 768;
+      setIsMobileViewport(mobile);
+      if (!mobile) {
+          setMobileComposerHostHeight(null);
+          return;
+      }
+      const viewport = window.visualViewport;
+      const visibleHeight = viewport?.height || window.innerHeight;
+      const viewportTop = viewport?.offsetTop || 0;
+      const shellTop = layoutShellRef.current?.getBoundingClientRect().top ?? 0;
+      const availableHeight = Math.floor(visibleHeight - Math.max(shellTop - viewportTop, 0) - 8);
+      setMobileComposerHostHeight(Math.max(360, availableHeight));
+  }, []);
+
+  const scrollComposerIntoView = useCallback((behavior: ScrollBehavior = 'smooth') => {
+      if (!isMobileViewport || typeof window === 'undefined') return;
+      const action = () => {
+          composerTextareaRef.current?.scrollIntoView({ behavior, block: 'nearest' });
+          messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' });
+      };
+      window.requestAnimationFrame(action);
+      window.setTimeout(action, 120);
   }, [isMobileViewport]);
 
   useEffect(() => {
@@ -352,10 +380,27 @@ const Messages = () => {
   }, [activeConvoId]);
 
   useEffect(() => {
-      const onResize = () => setIsMobileViewport(window.innerWidth < 768);
-      window.addEventListener('resize', onResize);
-      return () => window.removeEventListener('resize', onResize);
-  }, []);
+      syncMobileComposerHostHeight();
+      const viewport = window.visualViewport;
+      window.addEventListener('resize', syncMobileComposerHostHeight);
+      viewport?.addEventListener('resize', syncMobileComposerHostHeight);
+      viewport?.addEventListener('scroll', syncMobileComposerHostHeight);
+      return () => {
+          window.removeEventListener('resize', syncMobileComposerHostHeight);
+          viewport?.removeEventListener('resize', syncMobileComposerHostHeight);
+          viewport?.removeEventListener('scroll', syncMobileComposerHostHeight);
+      };
+  }, [syncMobileComposerHostHeight]);
+
+  useEffect(() => {
+      syncMobileComposerHostHeight();
+  }, [activeConvoId, pendingAttachments.length, replyToMessage, syncMobileComposerHostHeight]);
+
+  useEffect(() => {
+      if (!isMobileViewport) return;
+      if (document.activeElement !== composerTextareaRef.current) return;
+      scrollComposerIntoView('auto');
+  }, [isMobileViewport, mobileComposerHostHeight, scrollComposerIntoView]);
 
   useEffect(() => {
       return () => {
@@ -1846,11 +1891,15 @@ const Messages = () => {
         participantUsers={voiceCallCandidateUsers}
         callTargets={activeConversationVoiceTargets}
     >
-    <div className="mx-auto h-[calc(100dvh-64px)] max-w-6xl px-2 py-3 sm:px-4 sm:py-6 md:h-[calc(100vh-64px)]">
+    <div
+        ref={layoutShellRef}
+        className="mx-auto max-w-6xl px-2 py-3 sm:px-4 sm:py-6 md:h-[calc(100vh-64px)]"
+        style={isMobileViewport && mobileComposerHostHeight ? { height: `${mobileComposerHostHeight}px` } : undefined}
+    >
         <div className="h-full overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg">
-        <div className="flex h-full">
+        <div className="flex h-full min-h-0">
             {/* Sidebar */}
-            <div className={`w-full md:w-1/3 min-w-0 border-r border-gray-200 flex flex-col ${activeConvo ? 'hidden md:flex' : 'flex'}`}>
+            <div className={`w-full md:w-1/3 min-w-0 border-r border-gray-200 flex min-h-0 flex-col ${activeConvo ? 'hidden md:flex' : 'flex'}`}>
                 <div className="p-4 border-b border-gray-200 bg-gray-50 space-y-3">
                     <div className="flex justify-between items-center">
                         <div className="flex items-center gap-2">
@@ -2006,7 +2055,7 @@ const Messages = () => {
             </div>
             
             {/* Chat Area */}
-            <div className={`flex-1 min-w-0 flex flex-col bg-gradient-to-b from-gray-50 to-gray-100 ${!activeConvo ? 'hidden md:flex' : 'flex'}`}>
+            <div className={`flex-1 min-w-0 min-h-0 flex flex-col bg-gradient-to-b from-gray-50 to-gray-100 ${!activeConvo ? 'hidden md:flex' : 'flex'}`}>
                 {activeConvo ? (
                     <>
                         {/* Chat Header */}
@@ -2205,7 +2254,7 @@ const Messages = () => {
 
                         {/* Messages List */}
                         <div
-                            className="flex-1 min-w-0 space-y-3 overflow-x-hidden overflow-y-auto p-3 md:space-y-4 md:p-6"
+                            className="flex-1 min-w-0 space-y-3 overflow-x-hidden overflow-y-auto p-3 pb-5 md:space-y-4 md:p-6"
                             ref={messagesContainerRef}
                             onScroll={handleMessagesScroll}
                         >
@@ -2544,7 +2593,10 @@ const Messages = () => {
                         </div>
 
                         {/* Input Area */}
-                        <div className="sticky bottom-0 border-t border-gray-200 bg-white/95 p-3 backdrop-blur md:p-4">
+                        <div
+                            className="sticky bottom-0 border-t border-gray-200 bg-white/95 p-2.5 backdrop-blur md:p-4"
+                            style={isMobileViewport ? { paddingBottom: 'max(0.625rem, env(safe-area-inset-bottom))' } : undefined}
+                        >
                             {replyToMessage && (
                                 <div className="mb-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 px-3 py-3 text-xs text-slate-600 shadow-sm">
                                     <div className="flex items-start justify-between gap-3">
@@ -2618,22 +2670,24 @@ const Messages = () => {
 
                             <form
                                 onSubmit={handleSendMessage}
-                                className="rounded-[28px] border border-gray-200 bg-white/95 p-3 shadow-[0_18px_48px_-28px_rgba(15,23,42,0.45)]"
+                                className="rounded-[26px] border border-gray-200 bg-white/95 p-2.5 shadow-[0_18px_48px_-28px_rgba(15,23,42,0.45)] md:rounded-[28px] md:p-3"
                             >
-                                <div className="rounded-[24px] border border-slate-200 bg-gradient-to-b from-slate-50 via-white to-slate-50 p-1.5 transition focus-within:border-blue-300 focus-within:ring-4 focus-within:ring-blue-100/70">
+                                <div className="rounded-[22px] border border-slate-200 bg-gradient-to-b from-slate-50 via-white to-slate-50 p-1.5 transition focus-within:border-blue-300 focus-within:ring-4 focus-within:ring-blue-100/70 md:rounded-[24px]">
                                     <textarea
                                         ref={composerTextareaRef}
-                                        className="w-full resize-none border-0 bg-transparent px-3 py-3 text-[15px] leading-6 text-gray-800 outline-none placeholder:text-gray-400"
+                                        className="w-full resize-none border-0 bg-transparent px-2.5 py-2.5 text-[15px] leading-6 text-gray-800 outline-none placeholder:text-gray-400 md:px-3 md:py-3"
                                         placeholder="Write a message. Press Enter to send, Shift+Enter for a new line."
                                         value={messageInput}
                                         onChange={(event) => handleMessageInputChange(event.target.value)}
                                         onKeyDown={handleComposerKeyDown}
+                                        onFocus={() => scrollComposerIntoView('auto')}
+                                        onClick={() => scrollComposerIntoView('auto')}
                                         rows={1}
                                     />
                                 </div>
 
-                                <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                                    <div className="flex flex-wrap items-center gap-2">
+                                <div className="mt-3 space-y-2.5">
+                                    <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                         <input
                                             ref={uploadInputRef}
                                             type="file"
@@ -2660,7 +2714,7 @@ const Messages = () => {
                                         />
                                         <button
                                             type="button"
-                                            className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+                                            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
                                             onClick={() => uploadInputRef.current?.click()}
                                             title="Attach files from device"
                                         >
@@ -2669,7 +2723,7 @@ const Messages = () => {
                                         </button>
                                         <button
                                             type="button"
-                                            className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+                                            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
                                             onClick={() => mediaInputRef.current?.click()}
                                             title="Choose photo or video from device"
                                         >
@@ -2678,7 +2732,7 @@ const Messages = () => {
                                         </button>
                                         <button
                                             type="button"
-                                            className="inline-flex h-10 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+                                            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
                                             onClick={() => cameraInputRef.current?.click()}
                                             title="Capture photo or video"
                                         >
@@ -2696,21 +2750,21 @@ const Messages = () => {
                                             maxDurationSeconds={voiceRuntimeConfig.maxVoiceNoteDurationSeconds}
                                             onRecorded={handleVoiceRecorded}
                                             onError={(message) => showNotification('error', 'Voice notes', message)}
-                                            className="h-10 items-center gap-2 justify-center rounded-xl border border-gray-200 bg-white px-3 hover:border-blue-200 hover:bg-blue-50"
+                                            className="h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-3 hover:border-blue-200 hover:bg-blue-50"
                                         />
                                         <button
                                             type="button"
                                             onClick={handleAiSuggest}
                                             disabled={isGettingAiSuggestion}
-                                            className="inline-flex h-10 items-center gap-2 rounded-xl border border-purple-200 bg-purple-50/70 px-3 text-purple-700 shadow-sm transition-colors hover:bg-purple-100 disabled:opacity-50"
+                                            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-purple-200 bg-purple-50/70 px-3 text-purple-700 shadow-sm transition-colors hover:bg-purple-100 disabled:opacity-50"
                                         >
                                             {isGettingAiSuggestion ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                                            <span className="text-xs font-medium">{isGettingAiSuggestion ? 'Thinking...' : 'Suggest Reply'}</span>
+                                            <span className="text-xs font-medium">{isGettingAiSuggestion ? 'Thinking...' : (isMobileViewport ? 'AI Reply' : 'Suggest Reply')}</span>
                                         </button>
                                     </div>
 
-                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between lg:min-w-[15rem] lg:justify-end">
-                                        <div className="text-[11px] text-gray-500 sm:text-right">
+                                    <div className="flex items-end justify-between gap-3">
+                                        <div className="min-w-0 flex-1 text-[11px] text-gray-500">
                                             {pendingAttachments.length > 0
                                                 ? `${pendingAttachments.length} attachment${pendingAttachments.length === 1 ? '' : 's'} queued`
                                                 : 'Private chat media stays scoped to this conversation.'}
@@ -2718,7 +2772,7 @@ const Messages = () => {
                                         <button
                                             type="submit"
                                             disabled={!activeConvoId || (!messageInput.trim() && pendingAttachments.length === 0) || Boolean(attachmentUploadState)}
-                                            className="inline-flex h-12 min-w-[112px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                            className="inline-flex h-11 min-w-[104px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 md:h-12 md:min-w-[112px]"
                                         >
                                             <Send className="h-4 w-4" />
                                             <span>Send</span>
