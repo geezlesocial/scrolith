@@ -7,6 +7,10 @@ import {
   updateScrollConfig,
   isScrollSchemaMissingError
 } from '../services/scroll.service';
+import {
+  assessVideoIntegrityByFile,
+  buildVideoIntegrityUpdate
+} from '../services/videoIntegrity.service';
 
 const SCROLL_VISIBILITIES = new Set(['public', 'network', 'followers', 'private']);
 const SCROLL_FILTER_PRESETS = new Set(['none', 'vibrant', 'cinematic', 'bw', 'sepia', 'warm']);
@@ -205,6 +209,10 @@ const scrollVideoListSelect: any = {
   repostsCount: true,
   sharesCount: true,
   sendCount: true,
+  videoIntegrityStatus: true,
+  videoIntegrityMatchMethod: true,
+  videoIntegrityMatchScore: true,
+  videoMonetizationBlocked: true,
   createdAt: true,
   updatedAt: true
 };
@@ -286,6 +294,11 @@ const fetchScrollPayloadList = async (req: Request, rows: any[], viewerId?: stri
       isAIEnhanced: Boolean(scroll.isAIEnhanced),
       filterPreset: scroll.filterPreset || 'none',
       filterStrength: typeof scroll.filterStrength === 'number' ? scroll.filterStrength : null,
+      videoIntegrityStatus: scroll.videoIntegrityStatus || 'clear',
+      videoIntegrityMatchMethod: scroll.videoIntegrityMatchMethod || null,
+      videoIntegrityMatchScore:
+        typeof scroll.videoIntegrityMatchScore === 'number' ? scroll.videoIntegrityMatchScore : null,
+      videoMonetizationBlocked: Boolean(scroll.videoMonetizationBlocked),
       media: mediaMap.get(String(scroll.fileId)) || null,
       tags: tagsMap.get(String(scroll.id)) || [],
       status: scroll.status,
@@ -372,6 +385,7 @@ export const createScroll = async (req: Request, res: Response) => {
         ? null
         : Number(req.body?.filterStrength);
     const tags = normalizeTagRows(req.body?.tags);
+    const videoIntegrity = await assessVideoIntegrityByFile(fileId, userId);
 
     const prismaAny = prisma as any;
     const created = await prismaAny.scrollVideo.create({
@@ -384,7 +398,8 @@ export const createScroll = async (req: Request, res: Response) => {
         visibility,
         isAIEnhanced,
         filterPreset,
-        filterStrength: Number.isFinite(filterStrength as number) ? Number(filterStrength) : null
+        filterStrength: Number.isFinite(filterStrength as number) ? Number(filterStrength) : null,
+        ...buildVideoIntegrityUpdate(videoIntegrity)
       }
     });
 
@@ -482,6 +497,7 @@ export const updateScroll = async (req: Request, res: Response) => {
         });
       }
       updateData.fileId = nextFileId;
+      Object.assign(updateData, buildVideoIntegrityUpdate(await assessVideoIntegrityByFile(nextFileId, userId)));
     }
 
     if (config.aiLabelRequired && updateData.isAIEnhanced === false) {

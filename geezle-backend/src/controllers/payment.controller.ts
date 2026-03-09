@@ -1,14 +1,13 @@
 import { Request, Response } from 'express';
 import Stripe from 'stripe';
-import { PrismaClient } from '@prisma/client';
 import { reconcileAdPayments } from '../scripts/reconcileAdPayments';
 import { computeCommissionBreakdown } from '../utils/commission';
+import prisma from '../utils/prismaClient';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_mock_key', {
   apiVersion: '2023-10-16' as any
 });
 
-const prisma = new PrismaClient();
 const ADS_CONFIG_SCOPE = 'community_ads_config';
 
 const getOrCreateSettings = async () => {

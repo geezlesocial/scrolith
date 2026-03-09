@@ -2,6 +2,7 @@ import express, { Request } from 'express';
 import prisma from '../utils/prismaClient';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { requirePermission, resolveStaffContext, staffOnlyMiddleware } from '../middleware/rbac.middleware';
+import { dispatchMessageReceiptNotifications } from '../services/messageNotifications';
 import { ensureAdminStaffProfile, isAdminRole } from '../services/rbac.service';
 
 const router = express.Router();
@@ -486,6 +487,17 @@ router.post('/conversations/:id/message', requirePermission('chat.message_any'),
 
     const participantIds = conversation.participants.map((participant) => participant.userId);
     participantIds.forEach((userId) => emitToUser(req, userId, 'messages:new', payload));
+    void dispatchMessageReceiptNotifications({
+      receiverIds: participantIds,
+      senderId,
+      conversationId,
+      messageId: message.id,
+      preview: message.text,
+      fallbackPreview: 'New moderator message',
+      messageType
+    }).catch((notifyError) => {
+      console.warn('[moderation-chat] failed to send message notifications', notifyError);
+    });
 
     await writeAuditLog(req, 'CHAT_MESSAGE_SENT', 'conversation', conversationId, {
       messageId: message.id,

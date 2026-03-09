@@ -24,6 +24,9 @@ export type SendSystemMessageInput = {
   context?: SystemMessageContext;
   actionUrl?: string;
   typeOverride?: string;
+  meta?: Record<string, any>;
+  forceNotification?: boolean;
+  forcePush?: boolean;
 };
 
 type SendSystemMessageResult = {
@@ -79,7 +82,11 @@ const resolveUserSettings = async (userId?: string | null) => {
   return prisma.userSettings.findUnique({ where: { userId } });
 };
 
-const buildContext = (base: SystemMessageContext | undefined, user: UserIdentity | null, actionUrl?: string) => {
+const buildContext = (
+  base: SystemMessageContext | undefined,
+  user: UserIdentity | null,
+  actionUrl?: string
+): SystemMessageContext => {
   const platform = {
     name: process.env.PLATFORM_NAME || 'Scrolith',
     url: process.env.PLATFORM_URL || 'https://Scrolith.com'
@@ -107,8 +114,22 @@ export const sendSystemMessage = async (input: SendSystemMessageInput): Promise<
   }
 
   const user = await resolveUserIdentity(input.userId, input.user);
-  const settings = await resolveUserSettings(input.userId || user?.id);
+  const targetUserId = input.userId || user?.id || null;
+  const settings = await resolveUserSettings(targetUserId);
   const context = buildContext(input.context, user, input.actionUrl);
+  const isMessageNotification =
+    input.templateKey === 'new_message' || String(input.typeOverride || '').trim().toLowerCase() === 'message';
+  const contextualPreview = String(context?.message?.preview || '').trim();
+  const contextualTitle = String(context?.sender?.name || '').trim();
+  const fallbackTitle = isMessageNotification
+    ? `New message${contextualTitle ? ` from ${contextualTitle}` : ''}`
+    : template.label;
+  const fallbackMessage = isMessageNotification ? contextualPreview || 'You received a new message.' : '';
+  const actionUrl = input.actionUrl || context?.notification?.link;
+  const notificationMeta = {
+    ...(input.meta && typeof input.meta === 'object' ? input.meta : {}),
+    ...(actionUrl ? { actionUrl } : {})
+  };
 
   const emailAllowed =
     input.templateKey === 'password_reset' || settings?.emailNotifications !== false;
@@ -129,23 +150,27 @@ export const sendSystemMessage = async (input: SendSystemMessageInput): Promise<
     }
   }
 
-  if (input.userId && template.notification?.enabled && inAppAllowed) {
-    const title = interpolateTemplate(template.notification.title, context) || template.label;
-    const message = interpolateTemplate(template.notification.message, context);
-    const actionUrl = input.actionUrl || context?.notification?.link;
+  let createdNotification: { id: string; createdAt: Date; meta: unknown } | null = null;
+
+  if (targetUserId && (input.forceNotification || (template.notification?.enabled && inAppAllowed))) {
+    const title = interpolateTemplate(template.notification.title, context) || fallbackTitle;
+    const message = isMessageNotification
+      ? fallbackMessage || interpolateTemplate(template.notification.message, context) || 'You received a new message.'
+      : interpolateTemplate(template.notification.message, context);
 
     const created = await prisma.notification.create({
       data: {
-        userId: input.userId,
+        userId: targetUserId,
         actorId: input.actorId || null,
         type: input.typeOverride || input.templateKey,
         title,
         body: message,
-        meta: actionUrl ? { actionUrl } : undefined
+        meta: Object.keys(notificationMeta).length ? notificationMeta : undefined
       }
     });
+    createdNotification = created;
 
-    realtime.emitToUser(input.userId, 'notifications:new', {
+    realtime.emitToUser(targetUserId, 'notifications:new', {
       id: created.id,
       type: input.typeOverride || input.templateKey,
       title,
@@ -156,18 +181,36 @@ export const sendSystemMessage = async (input: SendSystemMessageInput): Promise<
     });
 
     notificationCreated = true;
+  }
 
-    if (template.push?.enabled) {
-      const pushTitle = interpolateTemplate(template.push.title, context) || title;
-      const pushMessage = interpolateTemplate(template.push.message, context) || message;
-      const pushResult = await sendPushToUser(input.userId, {
-        title: pushTitle,
-        body: pushMessage,
-        type: input.typeOverride || input.templateKey,
-        actionUrl
-      });
-      pushSent = pushResult.sent > 0;
-    }
+  if (targetUserId && (input.forcePush || template.push?.enabled)) {
+    const baseTitle =
+      createdNotification && notificationCreated
+        ? undefined
+        : interpolateTemplate(template.notification.title, context) || fallbackTitle;
+    const baseMessage =
+      createdNotification && notificationCreated
+        ? undefined
+        : isMessageNotification
+          ? fallbackMessage || interpolateTemplate(template.notification.message, context) || 'You received a new message.'
+          : interpolateTemplate(template.notification.message, context);
+    const pushTitle =
+      isMessageNotification
+        ? fallbackTitle
+        : interpolateTemplate(template.push.title, context) || baseTitle || fallbackTitle;
+    const pushMessage =
+      isMessageNotification
+        ? fallbackMessage || baseMessage || 'You received a new message.'
+        : interpolateTemplate(template.push.message, context) || baseMessage || '';
+    const pushResult = await sendPushToUser(targetUserId, {
+      id: createdNotification?.id,
+      title: pushTitle,
+      body: pushMessage,
+      type: input.typeOverride || input.templateKey,
+      actionUrl,
+      meta: Object.keys(notificationMeta).length ? notificationMeta : undefined
+    });
+    pushSent = pushResult.sent > 0;
   }
 
   return { emailSent, notificationCreated, pushSent };

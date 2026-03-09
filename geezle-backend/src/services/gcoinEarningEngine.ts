@@ -1,5 +1,6 @@
 import prisma from '../utils/prismaClient';
 import { getGcoinSettingsSafe } from '../utils/gcoinSettings';
+import { isVideoMonetizationBlocked } from './videoIntegrity.service';
 
 type Metric = 'view' | 'like' | 'share' | 'repost';
 
@@ -17,8 +18,23 @@ export const recordEventAndEvaluate = async (actorId: string, postId: string, me
   const ev = await prisma.gcoinEarningEvent.create({ data: { postId, actorId, eventType: `${metric}_pending`, eventKey: `${actorId}:${metric}:${Date.now()}`, value: 0, credited: false } });
 
   // Load post and author
-  const post = await prisma.communityPost.findUnique({ where: { id: postId }, select: { id: true, authorId: true, viewsCount: true, likesCount: true, sharesCount: true, repostsCount: true } });
+  const post = await prisma.communityPost.findUnique({
+    where: { id: postId },
+    select: {
+      id: true,
+      authorId: true,
+      viewsCount: true,
+      likesCount: true,
+      sharesCount: true,
+      repostsCount: true,
+      videoIntegrityStatus: true,
+      videoMonetizationBlocked: true
+    }
+  });
   if (!post) return { awarded: 0, units: 0 };
+  if (isVideoMonetizationBlocked(post)) {
+    return { awarded: 0, units: 0 };
+  }
   if (!(await isMonetizationEnabledForUser(post.authorId))) {
     return { awarded: 0, units: 0 };
   }
@@ -113,6 +129,7 @@ export async function processEarningForPost(postId: string) {
 
   const post = await prisma.communityPost.findUnique({ where: { id: postId } });
   if (!post) throw new Error('Post not found');
+  if (isVideoMonetizationBlocked(post)) return null;
   if (!(await isMonetizationEnabledForUser(post.authorId))) return null;
 
   // compute awards from aggregated counts

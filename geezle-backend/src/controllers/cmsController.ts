@@ -2,11 +2,10 @@
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { PrismaClient, CmsTarget } from '@prisma/client';
+import { CmsTarget } from '@prisma/client';
 import { defaultAuthPagesConfig, normalizeAuthPagesConfig, sanitizeAuthPagesConfig } from '../utils/authPagesConfig';
 import { sendSystemMessage } from '../services/systemMessaging';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 const emitCmsEvent = (req: Request, event: string, payload?: any) => {
   const io = req.app.get('io');

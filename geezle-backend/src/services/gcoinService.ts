@@ -1,8 +1,6 @@
-import { PrismaClient } from '@prisma/client';
 import crypto from 'crypto';
 import { getGcoinSettingsSafe } from '../utils/gcoinSettings';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 // NOTE: Route handlers emit realtime wallet/transaction updates based on these fields.
 export type TransferResult = {

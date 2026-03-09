@@ -2166,6 +2166,8 @@ model File {
   storageKey      String         @unique @map("storage_key")
   storageProvider String         @default("local") @map("storage_provider")
   thumbnailUrl    String?        @map("thumbnail_url")
+  videoPerceptualHash String?
+  videoPerceptualHashVersion Int?
   width           Int?
   height          Int?
   duration        Float?
@@ -2898,6 +2900,13 @@ model CommunityPost {
   aiInsightGenerated Boolean  @default(false)
   aiInsightText      String?  @db.Text
   aiScore            Float?
+  videoFingerprint   String?
+  videoIntegrityStatus String @default("clear")
+  videoIntegrityMatchMethod String?
+  videoIntegrityMatchScore Float?
+  videoMonetizationBlocked Boolean @default(false)
+  videoIntegrityMatchedContentId String?
+  videoIntegrityMatchedOwnerId String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -2926,6 +2935,8 @@ model CommunityPost {
   @@index([businessPageId, status, isPinned, createdAt])
   @@index([authorId, status, createdAt])
   @@index([visibility, status, createdAt])
+  @@index([videoIntegrityStatus])
+  @@index([videoMonetizationBlocked])
 }
 
 enum CommunityPostFeedbackSignal {
@@ -3083,6 +3094,13 @@ model ScrollVideo {
   repostsCount              Int      @default(0)
   sharesCount               Int      @default(0)
   sendCount                 Int      @default(0)
+  videoFingerprint          String?
+  videoIntegrityStatus      String   @default("clear")
+  videoIntegrityMatchMethod String?
+  videoIntegrityMatchScore  Float?
+  videoMonetizationBlocked  Boolean  @default(false)
+  videoIntegrityMatchedContentId String?
+  videoIntegrityMatchedOwnerId String?
   lastImpressionIncrementAt DateTime?
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
@@ -3096,6 +3114,8 @@ model ScrollVideo {
   @@index([fileId])
   @@index([status, createdAt])
   @@index([status, visibility, createdAt])
+  @@index([videoIntegrityStatus])
+  @@index([videoMonetizationBlocked])
 }
 
 model ScrollTag {

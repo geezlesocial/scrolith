@@ -3,12 +3,11 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import { PrismaClient, Role as PrismaRole, KYCStatus as PrismaKYCStatus } from '@prisma/client'; // Import Prisma Client, Role, and KYCStatus enums
+import { Role as PrismaRole, KYCStatus as PrismaKYCStatus } from '@prisma/client'; // Import Prisma Client, Role, and KYCStatus enums
 import { resolveUserProStatus } from '../utils/proStatus';
 import { verifyRecaptcha } from '../utils/recaptcha';
 import { sendSystemMessage } from '../services/systemMessaging';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 const minimalLoginSelect = {
   id: true,

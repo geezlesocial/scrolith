@@ -1,6 +1,7 @@
 import express from 'express';
 import { randomUUID } from 'crypto';
 import prisma from '../../utils/prismaClient';
+import { dispatchMessageReceiptNotifications } from '../../services/messageNotifications';
 import {
   approveAffiliateApplication,
   getAffiliateProgramSettings,
@@ -243,6 +244,17 @@ const sendCampaignToInbox = async (
 
     emitToUser(req, user.id, 'messages:new', payload);
     emitToUser(req, senderId, 'messages:sent', payload);
+    void dispatchMessageReceiptNotifications({
+      receiverIds: [user.id],
+      senderId,
+      conversationId: conversation.id,
+      messageId: message.id,
+      preview: message.text,
+      fallbackPreview: 'Marketing update',
+      messageType: 'system'
+    }).catch((notifyError) => {
+      console.warn('[marketing] failed to send message notifications', notifyError);
+    });
     sentCount += 1;
   }
 

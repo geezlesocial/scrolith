@@ -3,7 +3,7 @@ import prisma from '../utils/prismaClient';
 import { resolveUserProStatus } from '../utils/proStatus';
 import { syncFileUsages, removeUsage } from '../utils/fileUsage';
 import { notifyAdmins } from '../utils/notify';
-import { sendSystemMessage } from '../services/systemMessaging';
+import { dispatchMessageReceiptNotifications } from '../services/messageNotifications';
 
 const nowIso = () => new Date().toISOString();
 const isMessagesTraceEnabled = () =>
@@ -1005,25 +1005,17 @@ export const postMessage = async (req: Request, res: Response) => {
       });
     }
 
-    try {
-      const sender = await prisma.user.findUnique({ where: { id: senderId }, select: { id: true, name: true, email: true } });
-      const preview = text || (attachments.length ? 'Sent an attachment' : 'New message');
-      const messageLink = `/messages/${conversation.id}`;
-      receiverIds.forEach((receiverId) => {
-        void sendSystemMessage({
-          templateKey: 'new_message',
-          userId: receiverId,
-          context: {
-            sender: { name: sender?.name || sender?.email || 'Scrolith User', email: sender?.email || '' },
-            message: { preview, link: messageLink }
-          },
-          actionUrl: messageLink,
-          typeOverride: 'message'
-        });
-      });
-    } catch (notifyError) {
+    void dispatchMessageReceiptNotifications({
+      receiverIds,
+      senderId,
+      conversationId: conversation.id,
+      messageId: message.id,
+      preview: text,
+      fallbackPreview: attachments.length ? 'Sent an attachment' : 'New message',
+      messageType: 'text'
+    }).catch((notifyError) => {
       console.warn('Failed to send message notifications', notifyError);
-    }
+    });
 
     return res.json({ success: true, data: payload });
   } catch (error: any) {
@@ -1330,10 +1322,12 @@ export const toggleReaction = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
-    const existingForUser = await prisma.messageReaction.findMany({
-      where: { messageId, userId }
+    const existingForUser = await prisma.messageReaction.findFirst({
+      where: { messageId, userId },
+      orderBy: { createdAt: 'asc' },
+      select: { emoji: true }
     });
-    const hasSame = existingForUser.some((entry) => entry.emoji === emoji);
+    const hasSame = existingForUser?.emoji === emoji;
 
     if (hasSame) {
       await prisma.messageReaction.deleteMany({ where: { messageId, userId } });
@@ -1346,7 +1340,8 @@ export const toggleReaction = async (req: Request, res: Response) => {
 
     const reactions = await prisma.messageReaction.findMany({
       where: { messageId },
-      orderBy: { createdAt: 'asc' }
+      orderBy: { createdAt: 'asc' },
+      select: messageReactionSelect
     });
     const reactionSummary: Record<string, number> = {};
     reactions.forEach((reaction) => {

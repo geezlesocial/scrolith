@@ -1,5 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 export async function createLedgerFromGcoin(gcoinTxId: string) {
   const gtx = await prisma.gcoinTransaction.findUnique({ where: { id: gcoinTxId } });

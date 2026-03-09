@@ -1,5 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 const ADS_CONFIG_SCOPE = 'community_ads_config';
 const PLACEMENT_ALIASES: Record<string, string> = {

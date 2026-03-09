@@ -5,9 +5,20 @@ import * as path from 'path';
 declare global {
   // eslint-disable-next-line no-var
   var __prisma: PrismaClient | undefined;
+  // eslint-disable-next-line no-var
+  var __prismaSlowQueryListenerAttached: boolean | undefined;
 }
 
 const isLocalDev = process.env.NODE_ENV !== 'production';
+const parseBooleanEnv = (value: string | undefined, fallback: boolean) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return fallback;
+  if (['1', 'true', 'yes', 'on', 'enabled'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off', 'disabled'].includes(normalized)) return false;
+  return fallback;
+};
+const prismaSlowQueryLoggingEnabled = parseBooleanEnv(process.env.PRISMA_SLOW_QUERY_LOGGING, true);
+const prismaSlowQueryMs = Math.max(50, Number(process.env.PRISMA_SLOW_QUERY_MS || 350));
 
 const resolveGeneratedClientPath = () => {
   const candidates = [
@@ -57,7 +68,42 @@ const assertPrismaEngineCompatibility = () => {
 
 assertPrismaEngineCompatibility();
 
-const prisma = global.__prisma || new PrismaClient();
+const prismaLogConfig = prismaSlowQueryLoggingEnabled
+  ? [
+      { emit: 'event' as const, level: 'query' as const },
+      { emit: 'stdout' as const, level: 'warn' as const },
+      { emit: 'stdout' as const, level: 'error' as const }
+    ]
+  : [
+      { emit: 'stdout' as const, level: 'warn' as const },
+      { emit: 'stdout' as const, level: 'error' as const }
+    ];
+
+const prisma = global.__prisma || new PrismaClient({ log: prismaLogConfig });
+
+if (prismaSlowQueryLoggingEnabled && !global.__prismaSlowQueryListenerAttached) {
+  prisma.$on('query', (event: any) => {
+    const duration = Number(event?.duration || 0);
+    if (!Number.isFinite(duration) || duration < prismaSlowQueryMs) return;
+
+    const query = String(event?.query || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 600);
+
+    console.warn(
+      '[prisma:slow-query]',
+      JSON.stringify({
+        durationMs: duration,
+        target: String(event?.target || ''),
+        query,
+        paramsLength: String(event?.params || '').length,
+        timestamp: new Date().toISOString()
+      })
+    );
+  });
+  global.__prismaSlowQueryListenerAttached = true;
+}
 
 if (process.env.NODE_ENV !== 'production') {
   global.__prisma = prisma;

@@ -1,7 +1,6 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { Gig, Job, ListingCategory, Plan, ApiResponse } from '../../types/index';
-
-const prisma = new PrismaClient();
+import prisma from '../../utils/prismaClient';
 
 export class GigsJobsAdminService {
   

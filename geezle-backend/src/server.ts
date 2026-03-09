@@ -61,6 +61,7 @@ import currenciesRoutes from './routes/currencies.routes';
 import briefsRoutes from './routes/briefs.routes';
 import notificationsRoutes from './routes/notifications.routes';
 import { isPushEnabled } from './services/pushNotifications';
+import { dispatchMessageReceiptNotifications } from './services/messageNotifications';
 import plansRoutes from './routes/plans.routes';
 import formsRoutes from './routes/forms.routes';
 import marketingPublicRoutes from './routes/marketing.routes';
@@ -252,6 +253,19 @@ const io = new Server(server, {
 // Create a community-specific namespace so frontend and backend can subscribe to community events
 const communityNs = io.of('/community');
 const presenceCounts = new Map<string, number>();
+const MESSAGE_TYPING_EVENT_DEBOUNCE_MS = Math.max(
+  250,
+  Number(process.env.MESSAGE_TYPING_EVENT_DEBOUNCE_MS || 600)
+);
+const MESSAGE_TYPING_PARTICIPANT_CACHE_MS = Math.max(
+  2_000,
+  Number(process.env.MESSAGE_TYPING_PARTICIPANT_CACHE_MS || 15_000)
+);
+const typingConversationParticipantCache = new Map<
+  string,
+  { participantIds: string[]; expiresAt: number }
+>();
+const typingEventDedupCache = new Map<string, number>();
 const isMessagesTraceEnabled = () =>
   ['1', 'true', 'yes', 'on'].includes(String(process.env.MESSAGES_TRACE_DEBUG || '').toLowerCase());
 const traceMessages = (event: string, payload?: Record<string, any>) => {
@@ -261,6 +275,84 @@ const traceMessages = (event: string, payload?: Record<string, any>) => {
   } catch {
     console.log('[messages-trace]', event, payload || {});
   }
+};
+
+const pruneTypingConversationParticipantCache = (now = Date.now()) => {
+  if (typingConversationParticipantCache.size < 500) return;
+  for (const [key, entry] of typingConversationParticipantCache.entries()) {
+    if (!entry || entry.expiresAt <= now) {
+      typingConversationParticipantCache.delete(key);
+    }
+  }
+};
+
+const pruneTypingEventDedupCache = (now = Date.now()) => {
+  if (typingEventDedupCache.size < 2000) return;
+  for (const [key, timestamp] of typingEventDedupCache.entries()) {
+    if (now - timestamp > MESSAGE_TYPING_EVENT_DEBOUNCE_MS * 6) {
+      typingEventDedupCache.delete(key);
+    }
+  }
+};
+
+const resolveTypingConversationParticipantIds = async (conversationId: string) => {
+  const normalizedConversationId = String(conversationId || '').trim();
+  if (!normalizedConversationId) return [] as string[];
+
+  const now = Date.now();
+  const cached = typingConversationParticipantCache.get(normalizedConversationId);
+  if (cached && cached.expiresAt > now) {
+    return cached.participantIds;
+  }
+
+  pruneTypingConversationParticipantCache(now);
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: normalizedConversationId },
+    select: {
+      participants: {
+        select: {
+          userId: true,
+          deletedAt: true
+        }
+      }
+    }
+  });
+
+  const participantIds = Array.isArray(conversation?.participants)
+    ? conversation.participants
+        .filter((entry) => !entry.deletedAt)
+        .map((entry) => String(entry.userId || '').trim())
+        .filter(Boolean)
+    : [];
+
+  typingConversationParticipantCache.set(normalizedConversationId, {
+    participantIds,
+    expiresAt: now + MESSAGE_TYPING_PARTICIPANT_CACHE_MS
+  });
+
+  return participantIds;
+};
+
+const shouldEmitTypingEvent = (conversationId: string, userId: string, isTyping: boolean) => {
+  const normalizedConversationId = String(conversationId || '').trim();
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedConversationId || !normalizedUserId) return false;
+
+  const now = Date.now();
+  pruneTypingEventDedupCache(now);
+
+  const eventKey = `${normalizedConversationId}:${normalizedUserId}:${isTyping ? '1' : '0'}`;
+  const previous = typingEventDedupCache.get(eventKey) || 0;
+  if (now - previous < MESSAGE_TYPING_EVENT_DEBOUNCE_MS) {
+    return false;
+  }
+
+  typingEventDedupCache.set(eventKey, now);
+  typingEventDedupCache.delete(
+    `${normalizedConversationId}:${normalizedUserId}:${isTyping ? '0' : '1'}`
+  );
+  return true;
 };
 
 const emitPresenceUpdate = (userId: string, isOnline: boolean, lastSeenAt?: Date) => {
@@ -446,6 +538,17 @@ const emitMessagePayloadToUsers = (
     : [];
   receiverIds.forEach((id: string) => emitVoiceEventToUsers([id], 'messages:new', payload));
   emitVoiceEventToUsers([senderId], 'messages:sent', payload);
+  void dispatchMessageReceiptNotifications({
+    receiverIds,
+    senderId,
+    conversationId: String(payload?.conversationId || payload?.conversation_id || conversation?.id || '').trim(),
+    messageId: String(payload?.id || payload?.messageId || '').trim(),
+    preview: payload?.text,
+    fallbackPreview: 'Voice call update',
+    messageType: payload?.messageType || payload?.message_type || 'system'
+  }).catch((notifyError) => {
+    console.warn('[voice-calls] failed to send message notifications', notifyError);
+  });
 };
 
 const persistVoiceCallSummaryMessage = async (params: {
@@ -784,30 +887,16 @@ communityNs.on('connection', async (socket) => {
       try {
         const userId = resolveSocketUserId(socket);
         const conversationId = String(payload?.conversationId || '').trim();
-        if (!userId || !conversationId) return;
+        const isTyping = Boolean(payload?.isTyping);
+        if (!userId || !conversationId || !shouldEmitTypingEvent(conversationId, userId, isTyping)) return;
 
-        const conversation = await prisma.conversation.findUnique({
-          where: { id: conversationId },
-          select: {
-            participants: {
-              select: {
-                userId: true,
-                deletedAt: true
-              }
-            }
-          }
-        });
-        if (!conversation) return;
+        const participantIds = await resolveTypingConversationParticipantIds(conversationId);
+        if (!participantIds.length) return;
 
-        const isParticipant = conversation.participants.some(
-          (entry) => String(entry.userId || '').trim() === userId && !entry.deletedAt
-        );
+        const isParticipant = participantIds.includes(userId);
         if (!isParticipant) return;
 
-        const targets = conversation.participants
-          .filter((entry) => !entry.deletedAt && String(entry.userId || '').trim() !== userId)
-          .map((entry) => String(entry.userId || '').trim())
-          .filter(Boolean);
+        const targets = participantIds.filter((participantId) => participantId !== userId);
         if (!targets.length) return;
 
         const providedName = String(payload?.name || '').trim();
@@ -818,7 +907,7 @@ communityNs.on('connection', async (socket) => {
           conversationId,
           userId,
           name: providedName || fallbackName || 'Someone',
-          isTyping: Boolean(payload?.isTyping),
+          isTyping,
           at: new Date().toISOString()
         };
 

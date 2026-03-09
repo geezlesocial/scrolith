@@ -1,9 +1,8 @@
 import { Request, Response } from 'express';
-import { PrismaClient, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { getGcoinSettingsSafe } from '../utils/gcoinSettings';
 import jwt from 'jsonwebtoken';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 import realtime from '../utils/realtime';
 import { syncFileUsages, removeUsage } from '../utils/fileUsage';
@@ -20,6 +19,11 @@ import {
   queuePostInsightGeneration,
   resolvePostAiSettings
 } from '../services/postAi.service';
+import {
+  assessVideoIntegrityByAttachments,
+  buildVideoIntegrityUpdate,
+  isVideoMonetizationBlocked
+} from '../services/videoIntegrity.service';
 
 // Safe helper to retrieve the `io` instance from `req.app` without broad `as any` casts
 const getAppIo = (req: Request) => {
@@ -621,6 +625,10 @@ const communityPostFeedSelect: any = {
   aiInsightGenerated: true,
   aiInsightText: true,
   aiScore: true,
+  videoIntegrityStatus: true,
+  videoIntegrityMatchMethod: true,
+  videoIntegrityMatchScore: true,
+  videoMonetizationBlocked: true,
   createdAt: true,
   updatedAt: true,
   author: {
@@ -1360,6 +1368,7 @@ const processThresholds = async (postId: string, io: any) => {
   // Fetch post counts
   const post = await prisma.communityPost.findUnique({ where: { id: postId } });
   if (!post) return;
+  if (isVideoMonetizationBlocked(post)) return;
 
   // Read admin-configurable rules from GcoinSettings or fallback
   const s = await getGcoinSettingsSafe();
@@ -1842,6 +1851,11 @@ export const getPosts = async (req: Request, res: Response) => {
         aiInsightGenerated: Boolean(post.aiInsightGenerated),
         aiInsightText: post.aiInsightText || null,
         aiScore: post.aiScore ?? null,
+        videoIntegrityStatus: post.videoIntegrityStatus || 'clear',
+        videoIntegrityMatchMethod: post.videoIntegrityMatchMethod || null,
+        videoIntegrityMatchScore:
+          typeof post.videoIntegrityMatchScore === 'number' ? post.videoIntegrityMatchScore : null,
+        videoMonetizationBlocked: Boolean(post.videoMonetizationBlocked),
         originalPostId: post.originalPostId || null,
         originalPost: post.originalPost
           ? {
@@ -2030,6 +2044,11 @@ export const getFeed = async (req: Request, res: Response) => {
         aiInsightGenerated: Boolean(post.aiInsightGenerated),
         aiInsightText: post.aiInsightText || null,
         aiScore: post.aiScore ?? null,
+        videoIntegrityStatus: post.videoIntegrityStatus || 'clear',
+        videoIntegrityMatchMethod: post.videoIntegrityMatchMethod || null,
+        videoIntegrityMatchScore:
+          typeof post.videoIntegrityMatchScore === 'number' ? post.videoIntegrityMatchScore : null,
+        videoMonetizationBlocked: Boolean(post.videoMonetizationBlocked),
         originalPostId: post.originalPostId || null,
         originalPost: post.originalPost
           ? {
@@ -2232,6 +2251,11 @@ export const getPostById = async (req: Request, res: Response) => {
       aiInsightGenerated: Boolean(post.aiInsightGenerated),
       aiInsightText: post.aiInsightText || null,
       aiScore: post.aiScore ?? null,
+      videoIntegrityStatus: post.videoIntegrityStatus || 'clear',
+      videoIntegrityMatchMethod: post.videoIntegrityMatchMethod || null,
+      videoIntegrityMatchScore:
+        typeof post.videoIntegrityMatchScore === 'number' ? post.videoIntegrityMatchScore : null,
+      videoMonetizationBlocked: Boolean(post.videoMonetizationBlocked),
       originalPostId: post.originalPostId || null,
       originalPost: post.originalPost
         ? {
@@ -2490,6 +2514,11 @@ export const getCommunityPostsByTag = async (req: Request, res: Response) => {
           aiInsightGenerated: Boolean(post.aiInsightGenerated),
           aiInsightText: post.aiInsightText || null,
           aiScore: post.aiScore ?? null,
+          videoIntegrityStatus: post.videoIntegrityStatus || 'clear',
+          videoIntegrityMatchMethod: post.videoIntegrityMatchMethod || null,
+          videoIntegrityMatchScore:
+            typeof post.videoIntegrityMatchScore === 'number' ? post.videoIntegrityMatchScore : null,
+          videoMonetizationBlocked: Boolean(post.videoMonetizationBlocked),
           createdAt: post.createdAt.toISOString(),
           updatedAt: post.updatedAt.toISOString()
         };
@@ -2575,6 +2604,7 @@ export const createPost = async (req: Request, res: Response) => {
       [attachmentFileIds, attachments],
       { userId, role: req.user?.role }
     );
+    const videoIntegrity = await assessVideoIntegrityByAttachments(normalizedAttachmentIds, userId);
 
     const postAiSettings = await resolvePostAiSettings();
     const canControlInsight = req.user?.role === 'ADMIN' || req.user?.role === 'MODERATOR';
@@ -2605,6 +2635,7 @@ export const createPost = async (req: Request, res: Response) => {
         aiInsightEnabled: shouldEnableAiInsight,
         aiInsightGenerated: false,
         aiInsightText: null,
+        ...buildVideoIntegrityUpdate(videoIntegrity),
         businessPageId: resolvedBusinessPageId,
         originalPostId: originalPostId || null,
         status: status
@@ -2704,6 +2735,11 @@ export const createPost = async (req: Request, res: Response) => {
       aiInsightGenerated: Boolean(post.aiInsightGenerated),
       aiInsightText: post.aiInsightText || null,
       aiScore: post.aiScore ?? null,
+      videoIntegrityStatus: post.videoIntegrityStatus || 'clear',
+      videoIntegrityMatchMethod: post.videoIntegrityMatchMethod || null,
+      videoIntegrityMatchScore:
+        typeof post.videoIntegrityMatchScore === 'number' ? post.videoIntegrityMatchScore : null,
+      videoMonetizationBlocked: Boolean(post.videoMonetizationBlocked),
       originalPostId: post.originalPostId || null,
       createdAt: post.createdAt.toISOString(),
       updatedAt: post.updatedAt.toISOString(),
@@ -2936,6 +2972,7 @@ export const updatePost = async (req: Request, res: Response) => {
         [attachmentFileIds, attachments],
         { userId, role: req.user?.role }
       );
+      Object.assign(updateData, buildVideoIntegrityUpdate(await assessVideoIntegrityByAttachments(updateData.attachments, userId)));
     }
     const nextContent =
       updateData.content !== undefined ? String(updateData.content || '') : String(post.content || '');
@@ -3135,6 +3172,11 @@ export const updatePost = async (req: Request, res: Response) => {
       aiInsightGenerated: Boolean(updated.aiInsightGenerated),
       aiInsightText: updated.aiInsightText || null,
       aiScore: updated.aiScore ?? null,
+      videoIntegrityStatus: updated.videoIntegrityStatus || 'clear',
+      videoIntegrityMatchMethod: updated.videoIntegrityMatchMethod || null,
+      videoIntegrityMatchScore:
+        typeof updated.videoIntegrityMatchScore === 'number' ? updated.videoIntegrityMatchScore : null,
+      videoMonetizationBlocked: Boolean(updated.videoMonetizationBlocked),
       originalPostId: updated.originalPostId || null,
       createdAt: updated.createdAt.toISOString(),
       updatedAt: updated.updatedAt.toISOString(),

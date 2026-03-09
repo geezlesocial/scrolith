@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import { syncFileUsages } from '../utils/fileUsage';
+import { dispatchMessageReceiptNotifications } from '../services/messageNotifications';
 import {
   getOrCreateMessengerVoiceConfig,
   isVoiceBlockedForUser,
@@ -204,6 +205,18 @@ export const postVoiceNoteMessage = async (req: Request, res: Response) => {
       .forEach((userId) => emitToUser(req, userId, 'messages:new', payload));
 
     emitToUser(req, senderId, 'messages:sent', payload);
+
+    void dispatchMessageReceiptNotifications({
+      receiverIds: participantIds,
+      senderId,
+      conversationId,
+      messageId: message.id,
+      preview: messageText,
+      fallbackPreview: 'Sent a voice note',
+      messageType: 'voice_note'
+    }).catch((notifyError) => {
+      console.warn('[messenger-voice] failed to send message notifications', notifyError);
+    });
 
     participantIds.forEach((userId) => {
       emitToUser(req, userId, 'messenger:voice_note_created', {

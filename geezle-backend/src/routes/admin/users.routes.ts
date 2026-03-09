@@ -1,19 +1,9 @@
 import express from 'express';
-import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import prisma from '../../utils/prismaClient';
 
 const router = express.Router();
-
-let prisma: PrismaClient | null = null;
-const getPrisma = () => {
-  if (prisma) return prisma;
-  try {
-    prisma = new PrismaClient();
-    return prisma;
-  } catch {
-    return null;
-  }
-};
+const getPrisma = () => prisma;
 
 type StatusOverride = {
   status: string;

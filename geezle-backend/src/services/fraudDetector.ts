@@ -1,5 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 export async function scoreEvent({ postId, actorId, ip, userAgent }: { postId?: string; actorId?: string; ip?: string; userAgent?: string; }) {
   // Basic signals: same IP repeated, same UA repeated, new account rapid events

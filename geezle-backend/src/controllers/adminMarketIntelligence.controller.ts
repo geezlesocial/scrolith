@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
-import { PrismaClient, OrderStatus } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { OrderStatus } from '@prisma/client';
+import prisma from '../utils/prismaClient';
 const INDUSTRY_DISPUTE_AVG = Number(process.env.INDUSTRY_DISPUTE_AVG ?? 3.5);
 
 const round = (value: number) => Number(value.toFixed(2));

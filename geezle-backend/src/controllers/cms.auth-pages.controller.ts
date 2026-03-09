@@ -1,8 +1,7 @@
 import { Request, Response } from 'express';
-import { PrismaClient, CmsTarget } from '@prisma/client';
+import { CmsTarget } from '@prisma/client';
 import { defaultAuthPagesConfig, normalizeAuthPagesConfig, sanitizeAuthPagesConfig } from '../utils/authPagesConfig';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 const getOrCreateCMSConfig = async (target: CmsTarget, defaultData: any) => {
   let config = await prisma.cMSConfig.findFirst({
