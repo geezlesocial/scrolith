@@ -33,6 +33,7 @@ type QuickMenuConfig = {
   switchUser?: boolean;
   browseJobs?: boolean;
   browseGigs?: boolean;
+  community?: boolean;
   projectBrief?: boolean;
   gigCreation?: boolean;
   settings?: boolean;
@@ -79,6 +80,7 @@ type MobileHomeSheetsProps = {
   onCreatePost: () => void;
   onBrowseJobs: () => void;
   onBrowseGigs: () => void;
+  onCommunity: () => void;
   onProjectBriefs: () => void;
   onGigCreation: () => void;
 };
@@ -257,6 +259,7 @@ export default function MobileHomeSheets({
   onCreatePost,
   onBrowseJobs,
   onBrowseGigs,
+  onCommunity,
   onProjectBriefs,
   onGigCreation
 }: MobileHomeSheetsProps) {
@@ -430,6 +433,16 @@ export default function MobileHomeSheets({
           description: 'Explore services, competitors, and pricing patterns.',
           tone: 'slate',
           onClick: onBrowseGigs
+        }
+      : null,
+    quickMenu.community !== false
+      ? {
+          id: 'quick-community',
+          icon: <Users className="h-4 w-4" />,
+          label: 'Community',
+          description: 'Open the Scrolith community hub, posts, and live discussions.',
+          tone: 'indigo',
+          onClick: onCommunity
         }
       : null,
     quickMenu.settings !== false

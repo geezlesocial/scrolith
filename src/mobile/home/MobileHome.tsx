@@ -44,6 +44,7 @@ type MobileHomeLayoutConfig = {
     switchUser?: boolean;
     browseJobs?: boolean;
     browseGigs?: boolean;
+    community?: boolean;
     projectBrief?: boolean;
     gigCreation?: boolean;
     settings?: boolean;
@@ -114,6 +115,7 @@ const DEFAULT_LAYOUT: MobileHomeLayoutConfig = {
     switchUser: true,
     browseJobs: true,
     browseGigs: true,
+    community: true,
     projectBrief: true,
     gigCreation: true,
     settings: true
@@ -519,6 +521,10 @@ const MobileHome = () => {
             onBrowseGigs={() => {
               setQuickMenuOpen(false);
               navigate('/browse');
+            }}
+            onCommunity={() => {
+              setQuickMenuOpen(false);
+              navigate('/community');
             }}
             onProjectBriefs={() => {
               setQuickMenuOpen(false);

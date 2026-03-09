@@ -36,6 +36,7 @@ type MobileHomeLayoutConfig = {
     switchUser?: boolean;
     browseJobs?: boolean;
     browseGigs?: boolean;
+    community?: boolean;
     projectBrief?: boolean;
     gigCreation?: boolean;
     settings?: boolean;
@@ -95,6 +96,7 @@ const DEFAULT_CONFIG: MobileHomeLayoutConfig = {
     switchUser: true,
     browseJobs: true,
     browseGigs: true,
+    community: true,
     projectBrief: true,
     gigCreation: true,
     settings: true
@@ -358,6 +360,11 @@ const MobileHomepage: React.FC = () => {
               label="Browse gigs"
               checked={merged.quickMenu?.browseGigs !== false}
               onChange={(v) => setConfig((p) => ({ ...p, quickMenu: { ...p.quickMenu, browseGigs: v } }))}
+            />
+            <Toggle
+              label="Community"
+              checked={merged.quickMenu?.community !== false}
+              onChange={(v) => setConfig((p) => ({ ...p, quickMenu: { ...p.quickMenu, community: v } }))}
             />
             <Toggle
               label="Scrolith Project Briefs"
