@@ -661,7 +661,8 @@ export const getThreads = async (req: Request, res: Response) => {
 
     if (category) {
       const categoryRecord = await prisma.category.findFirst({
-        where: { slug: category as string }
+        where: { slug: category as string },
+        select: { id: true }
       });
       if (categoryRecord) {
         where.categoryId = categoryRecord.id;
@@ -781,7 +782,8 @@ export const getThreadById = async (req: Request, res: Response) => {
           userId: req.user.id,
           threadId: id,
           commentId: null
-        }
+        },
+        select: { id: true }
       });
       isLiked = !!like;
     }
@@ -1768,7 +1770,10 @@ export const getPosts = async (req: Request, res: Response) => {
         _count: { _all: true }
       }),
       userId
-        ? prisma.communityPostReaction.findMany({ where: { postId: { in: postIds }, userId } })
+        ? prisma.communityPostReaction.findMany({
+            where: { postId: { in: postIds }, userId },
+            select: { postId: true, type: true }
+          })
         : Promise.resolve([])
     ]);
 
@@ -1903,8 +1908,8 @@ export const getFeed = async (req: Request, res: Response) => {
     if (scope === 'following') {
       if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
       const [followingUsers, followingPages] = await Promise.all([
-        prisma.userFollow.findMany({ where: { followerId: userId } }),
-        prisma.communityBusinessPageFollower.findMany({ where: { userId } })
+        prisma.userFollow.findMany({ where: { followerId: userId }, select: { followeeId: true } }),
+        prisma.communityBusinessPageFollower.findMany({ where: { userId }, select: { pageId: true } })
       ]);
       const followeeIds = followingUsers
         .map((f) => f.followeeId)
@@ -1975,7 +1980,10 @@ export const getFeed = async (req: Request, res: Response) => {
         _count: { _all: true }
       }),
       userId
-        ? prisma.communityPostReaction.findMany({ where: { postId: { in: postIds }, userId } })
+        ? prisma.communityPostReaction.findMany({
+            where: { postId: { in: postIds }, userId },
+            select: { postId: true, type: true }
+          })
         : Promise.resolve([])
     ]);
 

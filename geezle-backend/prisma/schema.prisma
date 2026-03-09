@@ -2485,6 +2485,8 @@ model ForumThread {
   @@index([categoryId])
   @@index([status])
   @@index([isPinned])
+  @@index([isPinned, createdAt])
+  @@index([categoryId, isPinned, createdAt])
   @@index([createdAt])
 }
 
@@ -2932,6 +2934,7 @@ model CommunityPost {
   @@index([topic])
   @@index([location])
   @@index([status, isPinned, createdAt])
+  @@index([status, visibility, isPinned, createdAt])
   @@index([businessPageId, status, isPinned, createdAt])
   @@index([authorId, status, createdAt])
   @@index([visibility, status, createdAt])

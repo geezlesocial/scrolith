@@ -122,6 +122,11 @@ const apiRateLimitMaxAuthenticated = Math.max(
   apiRateLimitMaxAnonymous,
   Number(process.env.API_RATE_LIMIT_MAX_AUTH || (isDevelopment ? 10_000 : 4_000))
 );
+const corsMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
+const corsMaxAgeSeconds = Math.max(
+  300,
+  Number(process.env.CORS_MAX_AGE_SECONDS || 86400)
+);
 const normalizeOrigin = (value: string | undefined | null): string => {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -154,6 +159,13 @@ const isAllowedOrigin = (origin: string | undefined): boolean => {
 const corsOrigin = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
   if (isAllowedOrigin(origin)) return callback(null, true);
   return callback(new Error('Not allowed by CORS'));
+};
+const corsOptions = {
+  origin: corsOrigin,
+  credentials: true,
+  methods: corsMethods,
+  maxAge: corsMaxAgeSeconds,
+  optionsSuccessStatus: 204
 };
 
 const app = express();
@@ -227,11 +239,7 @@ refreshOptimizationConfigIfNeeded(true);
 
 // IMPORTANT: Enhanced Socket.io configuration
 const io = new Server(server, {
-    cors: {
-      origin: corsOrigin,
-      credentials: true,
-      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-    },
+  cors: corsOptions,
   path: '/socket.io',
   transports: ['websocket', 'polling'],
   allowUpgrades: true,
@@ -242,6 +250,8 @@ const io = new Server(server, {
   allowEIO3: true, // For compatibility with older clients
   maxHttpBufferSize: 1e8,
   httpCompression: false,
+  perMessageDeflate: false,
+  cleanupEmptyChildNamespaces: true,
   cookie: {
     name: 'io',
     path: '/',
@@ -249,6 +259,19 @@ const io = new Server(server, {
     sameSite: 'lax'
   }
 });
+
+const releaseSocketRequest = (socket: any) => {
+  try {
+    if (socket?.conn && 'request' in socket.conn) {
+      socket.conn.request = null;
+    }
+  } catch {}
+  try {
+    if (socket && 'request' in socket) {
+      socket.request = undefined;
+    }
+  } catch {}
+};
 
 // Create a community-specific namespace so frontend and backend can subscribe to community events
 const communityNs = io.of('/community');
@@ -871,6 +894,8 @@ communityNs.on('connection', async (socket) => {
     console.warn('communityNs auto-join failed:', e);
   }
 
+  releaseSocketRequest(socket);
+
   socket.on('handshake', (data) => {
     console.log('Community handshake:', data);
   });
@@ -988,7 +1013,10 @@ communityNs.on('connection', async (socket) => {
         const postId = pl?.postId;
         if (!postId) { socket.emit('error', { code: 'MISSING_POSTID', message: 'postId required' }); return; }
         const identity = (socket as any).data?.user?.id || null;
-        const post = await prisma.communityPost.findUnique({ where: { id: postId } });
+        const post = await prisma.communityPost.findUnique({
+          where: { id: postId },
+          select: { authorId: true, status: true }
+        });
         if (!post) { socket.emit('error', { code: 'NOT_FOUND', message: 'Post not found' }); return; }
         const isOwner = identity && post.authorId === identity;
         const isPublic = (post.status || 'active') === 'active';
@@ -1017,7 +1045,10 @@ communityNs.on('connection', async (socket) => {
         const adId = pl?.adId;
         if (!adId) { socket.emit('error', { code: 'MISSING_ADID', message: 'AdId required' }); return; }
         const identity = (socket as any).data?.user?.id || null;
-        const ad = await prisma.communityAd.findUnique({ where: { id: adId } });
+        const ad = await prisma.communityAd.findUnique({
+          where: { id: adId },
+          select: { creatorId: true, status: true }
+        });
         if (!ad) { socket.emit('error', { code: 'NOT_FOUND', message: 'Ad not found' }); return; }
         const isOwner = identity && ad.creatorId === identity;
         const isActive = (ad.status || '').toString().toUpperCase() === 'ACTIVE';
@@ -2104,11 +2135,8 @@ app.use(helmet({
   }
 }));
 
-app.use(cors({
-    origin: corsOrigin,
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-  }));
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
   // Rate limiting
 const limiter = rateLimit({
@@ -2267,37 +2295,51 @@ app.get('/favicon.ico', faviconHandler);
 app.get('/favicon.png', faviconHandler);
 app.get('/apple-touch-icon.png', faviconHandler);
 
-// Health check endpoint
-app.get('/api/health', (req: Request, res: Response) => {
+const buildHealthPayload = () => ({
+  status: 'OK',
+  timestamp: new Date().toISOString(),
+  services: {
+    cms: '/api/cms/test',
+    admin: '/api/admin/test',
+    auth: '/api/auth/health',
+    users: '/api/users/health',
+    commerce: '/api/commerce/health',
+    search: '/api/search/health',
+    ai: '/api/ai/health',
+    'gigs-jobs': '/api/admin/gigs-jobs/test',
+    homepage: '/api/cms/homepage'
+  },
+  socket: {
+    status: io.engine?.clientsCount ? 'active' : 'inactive',
+    connected: io.engine?.clientsCount || 0
+  }
+});
+
+const healthHandler = (req: Request, res: Response) => {
   try {
-    res.json({ 
-      status: 'OK', 
-      timestamp: new Date().toISOString(),
-        services: {
-          cms: '/api/cms/test',
-          admin: '/api/admin/test',
-          auth: '/api/auth/health',
-          users: '/api/users/health',
-          commerce: '/api/commerce/health',
-          search: '/api/search/health',
-          ai: '/api/ai/health',
-          'gigs-jobs': '/api/admin/gigs-jobs/test',
-          'homepage': '/api/cms/homepage'
-        },
-      socket: {
-        status: io.engine?.clientsCount ? 'active' : 'inactive',
-        connected: io.engine?.clientsCount || 0
-      }
-    });
+    res.setHeader('Cache-Control', 'no-store');
+    if (req.method === 'HEAD') {
+      res.status(200).end();
+      return;
+    }
+    res.json(buildHealthPayload());
   } catch (error) {
     console.error('Health check error:', error);
-    res.status(500).json({ 
-      status: 'ERROR', 
+    if (req.method === 'HEAD') {
+      res.status(500).end();
+      return;
+    }
+    res.status(500).json({
+      status: 'ERROR',
       error: error instanceof Error ? error.message : 'Unknown error',
       timestamp: new Date().toISOString()
     });
   }
-});
+};
+
+// Health check endpoint
+app.head('/api/health', healthHandler);
+app.get('/api/health', healthHandler);
 
 // Prometheus metrics endpoint (optional)
 app.get('/metrics', async (req: Request, res: Response) => {
@@ -2583,6 +2625,8 @@ io.on('connection', (socket) => {
       timestamp: new Date().toISOString()
     });
 
+    releaseSocketRequest(socket);
+
     const heartbeatInterval = setInterval(() => {
       if (socket.connected) {
         socket.emit('heartbeat', { time: new Date().toISOString() });
@@ -2659,7 +2703,10 @@ io.on('connection', (socket) => {
           if (!postId) { socket.emit('error', { code: 'MISSING_POSTID', message: 'postId required' }); return; }
           const identity = (socket as any).data?.user?.id || null;
           // fetch post and verify visibility/ownership
-          const post = await prisma.communityPost.findUnique({ where: { id: postId } });
+          const post = await prisma.communityPost.findUnique({
+            where: { id: postId },
+            select: { authorId: true, status: true }
+          });
           if (!post) { socket.emit('error', { code: 'NOT_FOUND', message: 'Post not found' }); return; }
           const isOwner = identity && post.authorId === identity;
           const isPublic = (post.status || 'active') === 'active';
@@ -2687,7 +2734,10 @@ io.on('connection', (socket) => {
           const adId = pl?.adId;
           if (!adId) { socket.emit('error', { code: 'MISSING_ADID', message: 'adId required' }); return; }
           const identity = (socket as any).data?.user?.id || null;
-          const ad = await prisma.communityAd.findUnique({ where: { id: adId } });
+          const ad = await prisma.communityAd.findUnique({
+            where: { id: adId },
+            select: { creatorId: true, status: true }
+          });
           if (!ad) { socket.emit('error', { code: 'NOT_FOUND', message: 'Ad not found' }); return; }
           const isOwner = identity && ad.creatorId === identity;
           const isActive = (ad.status || '').toString().toUpperCase() === 'ACTIVE';
