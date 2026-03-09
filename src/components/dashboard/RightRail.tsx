@@ -10,20 +10,38 @@ export interface RightRailAction {
   href: string;
 }
 
+export interface RightRailMetric {
+  id: string;
+  label: string;
+  value: string | number;
+  description?: string;
+  tone?: 'indigo' | 'blue' | 'green' | 'amber' | 'slate';
+}
+
 interface RightRailProps {
   unreadMessages: number;
   unreadNotifications: number;
   socketConnected: boolean;
+  highlights?: RightRailMetric[];
   nextActions: RightRailAction[];
   recommendations: RightRailAction[];
 }
 
 const formatCount = (value: number) => (value > 99 ? '99+' : String(Math.max(0, value)));
 
+const toneMap: Record<NonNullable<RightRailMetric['tone']>, string> = {
+  indigo: 'border-indigo-100 bg-indigo-50 text-indigo-700',
+  blue: 'border-blue-100 bg-blue-50 text-blue-700',
+  green: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+  amber: 'border-amber-100 bg-amber-50 text-amber-700',
+  slate: 'border-slate-200 bg-slate-50 text-slate-700'
+};
+
 export const RightRail: React.FC<RightRailProps> = ({
   unreadMessages,
   unreadNotifications,
   socketConnected,
+  highlights = [],
   nextActions,
   recommendations
 }) => {
@@ -59,6 +77,18 @@ export const RightRail: React.FC<RightRailProps> = ({
             <span className="font-semibold text-indigo-700">{formatCount(unreadNotifications)}</span>
           </Link>
         </div>
+
+        {highlights.length > 0 ? (
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {highlights.slice(0, 4).map((item) => (
+              <div key={item.id} className={['rounded-xl border px-3 py-2', toneMap[item.tone || 'slate']].join(' ')}>
+                <p className="text-[10px] font-semibold uppercase tracking-wide">{item.label}</p>
+                <p className="mt-1 text-lg font-semibold">{item.value}</p>
+                {item.description ? <p className="mt-1 text-[11px] leading-4 opacity-80">{item.description}</p> : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

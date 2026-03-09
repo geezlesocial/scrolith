@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  BellIcon as Bell,
   BriefcaseIcon as Briefcase,
   CoinsIcon as Coins,
   CreditCardIcon as CreditCard,
@@ -52,10 +53,14 @@ type MobileHomeSheetsProps = {
   availableCurrencies: any[];
   onSelectCurrency: (code: string) => void;
   messagesUnread: number;
+  notificationsUnread: number;
+  socketConnected: boolean;
   messagesLoading: boolean;
   messagesError?: string | null;
   previewConversations: any[];
   currentUserId?: string | null;
+  userName?: string | null;
+  userAvatar?: string | null;
   onRefreshMessages: () => void;
   onOpenConversation: (conversationId: string) => void;
   onOpenAllMessages: () => void;
@@ -78,6 +83,18 @@ type MobileHomeSheetsProps = {
   onGigCreation: () => void;
 };
 
+type MenuItemTone = 'indigo' | 'green' | 'amber' | 'slate';
+
+type SheetMenuItem = {
+  id: string;
+  icon: React.ReactNode;
+  label: string;
+  description: string;
+  badge?: string;
+  tone?: MenuItemTone;
+  onClick: () => void;
+};
+
 const relativeTime = (iso?: string | null) => {
   if (!iso) return '';
   const t = new Date(iso).getTime();
@@ -93,6 +110,13 @@ const relativeTime = (iso?: string | null) => {
   return `${days}d`;
 };
 
+const toneClassMap: Record<MenuItemTone, string> = {
+  indigo: 'bg-indigo-50 text-indigo-700',
+  green: 'bg-emerald-50 text-emerald-700',
+  amber: 'bg-amber-50 text-amber-700',
+  slate: 'bg-slate-100 text-slate-700'
+};
+
 const Sheet = ({
   open,
   title,
@@ -106,42 +130,91 @@ const Sheet = ({
 }) => {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[1000] flex items-end justify-center bg-slate-900/50 p-3">
-      <div className="w-full max-w-md rounded-3xl bg-white p-4 shadow-2xl">
-        <div className="mb-3 flex items-center justify-between">
-          <div className="text-sm font-semibold text-slate-900">{title}</div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
-          >
-            Close
-          </button>
+    <div className="fixed inset-0 z-[1000] flex items-end justify-center bg-slate-950/55 p-3">
+      <div className="w-full max-w-md overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-2xl">
+        <div className="flex justify-center pt-3">
+          <div className="h-1.5 w-14 rounded-full bg-slate-200" />
         </div>
-        {children}
+        <div className="flex max-h-[88vh] flex-col">
+          <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-2">
+            <div className="text-sm font-semibold text-slate-900">{title}</div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600"
+            >
+              Close
+            </button>
+          </div>
+          <div className="overflow-y-auto px-4 pb-4">{children}</div>
+        </div>
       </div>
     </div>
   );
 };
 
-const SheetItem = ({
-  icon,
+const SummaryChip = ({
   label,
-  onClick
+  value,
+  tone = 'slate'
 }: {
-  icon: React.ReactNode;
   label: string;
-  onClick: () => void;
+  value: string;
+  tone?: MenuItemTone;
 }) => (
+  <div className={['rounded-2xl border border-transparent px-3 py-2', toneClassMap[tone]].join(' ')}>
+    <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">{label}</p>
+    <p className="mt-1 text-sm font-semibold">{value}</p>
+  </div>
+);
+
+const SectionTitle = ({
+  title,
+  description
+}: {
+  title: string;
+  description?: string;
+}) => (
+  <div className="mb-2 px-1">
+    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{title}</p>
+    {description ? <p className="mt-1 text-xs text-slate-500">{description}</p> : null}
+  </div>
+);
+
+const SheetItem = ({ icon, label, description, badge, tone = 'slate', onClick }: SheetMenuItem) => (
   <button
     type="button"
     onClick={onClick}
-    className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-semibold text-slate-800 hover:bg-slate-50"
+    className="flex w-full items-start justify-between gap-3 rounded-3xl border border-slate-200 bg-white px-3 py-3 text-left shadow-sm transition hover:border-indigo-200 hover:bg-slate-50"
   >
-    <div className="rounded-xl bg-slate-100 p-2 text-slate-700">{icon}</div>
-    <span>{label}</span>
+    <div className="flex min-w-0 gap-3">
+      <div className={['rounded-2xl p-2.5', toneClassMap[tone]].join(' ')}>{icon}</div>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-slate-900">{label}</p>
+        <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+      </div>
+    </div>
+    {badge ? (
+      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+        {badge}
+      </span>
+    ) : null}
   </button>
 );
+
+const renderMenuSection = (
+  title: string,
+  description: string,
+  items: SheetMenuItem[]
+) => {
+  if (items.length === 0) return null;
+  return (
+    <section className="rounded-3xl border border-slate-200 bg-slate-50/70 p-3">
+      <SectionTitle title={title} description={description} />
+      <div className="space-y-2">{items.map((item) => <SheetItem key={item.id} {...item} />)}</div>
+    </section>
+  );
+};
 
 export default function MobileHomeSheets({
   profileOpen,
@@ -158,10 +231,14 @@ export default function MobileHomeSheets({
   availableCurrencies,
   onSelectCurrency,
   messagesUnread,
+  notificationsUnread,
+  socketConnected,
   messagesLoading,
   messagesError,
   previewConversations,
   currentUserId,
+  userName,
+  userAvatar,
   onRefreshMessages,
   onOpenConversation,
   onOpenAllMessages,
@@ -183,98 +260,240 @@ export default function MobileHomeSheets({
   onProjectBriefs,
   onGigCreation
 }: MobileHomeSheetsProps) {
+  const displayRole = normalizedRole.includes('admin')
+    ? 'Admin'
+    : isFreelancerMode
+      ? 'Freelancer'
+      : 'Employer';
+
+  const workspaceItems: SheetMenuItem[] = [
+    accountMenu.dashboard !== false
+      ? {
+          id: 'account-dashboard',
+          icon: <LayoutDashboard className="h-4 w-4" />,
+          label: 'Dashboard',
+          description: 'Open your live command center and working modules.',
+          tone: 'indigo',
+          onClick: onDashboard
+        }
+      : null,
+    accountMenu.viewAs !== false
+      ? {
+          id: 'account-view-as',
+          icon: <Eye className="h-4 w-4" />,
+          label: 'View profile',
+          description: 'Preview your public identity and presentation.',
+          tone: 'slate',
+          onClick: onViewAs
+        }
+      : null,
+    accountMenu.postProject !== false
+      ? {
+          id: 'account-post-project',
+          icon: <Briefcase className="h-4 w-4" />,
+          label: isFreelancerMode ? 'Create gig' : 'Post project',
+          description: 'Launch a new commercial workflow from mobile.',
+          tone: 'green',
+          onClick: onPostProject
+        }
+      : null
+  ].filter(Boolean) as SheetMenuItem[];
+
+  const financeItems: SheetMenuItem[] = [
+    accountMenu.switchCurrency !== false
+      ? {
+          id: 'account-currency',
+          icon: <Coins className="h-4 w-4" />,
+          label: 'Switch currency',
+          description: 'Change pricing and billing display currency instantly.',
+          badge: currencyCode || 'USD',
+          tone: 'amber',
+          onClick: onSwitchCurrency
+        }
+      : null,
+    accountMenu.billingPayments !== false
+      ? {
+          id: 'account-billing',
+          icon: <CreditCard className="h-4 w-4" />,
+          label: 'Billing and payments',
+          description: 'Review wallet, charges, and payment settings.',
+          tone: 'indigo',
+          onClick: onBilling
+        }
+      : null
+  ].filter(Boolean) as SheetMenuItem[];
+
+  const accountItems: SheetMenuItem[] = [
+    accountMenu.yourBriefs !== false
+      ? {
+          id: 'account-briefs',
+          icon: <FileText className="h-4 w-4" />,
+          label: 'Your briefs',
+          description: 'Open project briefs and saved requirement drafts.',
+          tone: 'slate',
+          onClick: onYourBriefs
+        }
+      : null,
+    accountMenu.referFriend !== false
+      ? {
+          id: 'account-refer',
+          icon: <Users className="h-4 w-4" />,
+          label: 'Refer a friend',
+          description: 'Share Scrolith and track referral growth.',
+          tone: 'green',
+          onClick: onReferFriend
+        }
+      : null,
+    accountMenu.settings !== false
+      ? {
+          id: 'account-settings',
+          icon: <Settings className="h-4 w-4" />,
+          label: 'Settings',
+          description: 'Manage preferences, privacy, and app behavior.',
+          tone: 'slate',
+          onClick: onSettings
+        }
+      : null,
+    accountMenu.logout !== false
+      ? {
+          id: 'account-logout',
+          icon: <LogOut className="h-4 w-4" />,
+          label: 'Logout',
+          description: 'Securely sign out of this device and account session.',
+          tone: 'amber',
+          onClick: onLogout
+        }
+      : null
+  ].filter(Boolean) as SheetMenuItem[];
+
+  const createItems: SheetMenuItem[] = [
+    quickMenu.switchUser !== false && !normalizedRole.includes('admin')
+      ? {
+          id: 'quick-switch-mode',
+          icon: <Repeat2 className="h-4 w-4" />,
+          label: isFreelancerMode ? 'Switch to client mode' : 'Switch to freelancer mode',
+          description: 'Change your working context without leaving mobile.',
+          tone: 'indigo',
+          onClick: onSwitchUserMode
+        }
+      : null,
+    quickMenu.createPost !== false
+      ? {
+          id: 'quick-create-post',
+          icon: <Plus className="h-4 w-4" />,
+          label: 'Create post',
+          description: 'Publish updates, media, and thought leadership quickly.',
+          tone: 'green',
+          onClick: onCreatePost
+        }
+      : null,
+    quickMenu.projectBrief !== false
+      ? {
+          id: 'quick-project-briefs',
+          icon: <FileText className="h-4 w-4" />,
+          label: 'Scrolith Project Briefs',
+          description: 'Open structured briefs and working drafts.',
+          badge: 'AI',
+          tone: 'amber',
+          onClick: onProjectBriefs
+        }
+      : null,
+    quickMenu.gigCreation !== false && isFreelancerMode
+      ? {
+          id: 'quick-gig-creation',
+          icon: <Star className="h-4 w-4" />,
+          label: 'Scrolith Gig Creation',
+          description: 'Use guided workflow to publish a new offer.',
+          badge: 'AI',
+          tone: 'indigo',
+          onClick: onGigCreation
+        }
+      : null
+  ].filter(Boolean) as SheetMenuItem[];
+
+  const discoverItems: SheetMenuItem[] = [
+    quickMenu.browseJobs !== false
+      ? {
+          id: 'quick-browse-jobs',
+          icon: <Briefcase className="h-4 w-4" />,
+          label: 'Browse jobs',
+          description: 'Discover current marketplace demand and openings.',
+          tone: 'slate',
+          onClick: onBrowseJobs
+        }
+      : null,
+    quickMenu.browseGigs !== false
+      ? {
+          id: 'quick-browse-gigs',
+          icon: <Tag className="h-4 w-4" />,
+          label: 'Browse gigs',
+          description: 'Explore services, competitors, and pricing patterns.',
+          tone: 'slate',
+          onClick: onBrowseGigs
+        }
+      : null,
+    quickMenu.settings !== false
+      ? {
+          id: 'quick-settings',
+          icon: <Settings className="h-4 w-4" />,
+          label: 'Settings',
+          description: 'Jump directly into app and account preferences.',
+          tone: 'slate',
+          onClick: onSettings
+        }
+      : null
+  ].filter(Boolean) as SheetMenuItem[];
+
   return (
     <>
       <Sheet open={profileOpen} title="Account" onClose={onCloseProfile}>
-        <div className="space-y-1">
-          {accountMenu.dashboard !== false ? (
-            <SheetItem
-              icon={<LayoutDashboard className="h-4 w-4" />}
-              label="Dashboard"
-              onClick={onDashboard}
-            />
-          ) : null}
+        <div className="space-y-4">
+          <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-4 text-white shadow-sm">
+            <div className="flex items-center gap-3">
+              <img
+                src={userAvatar || 'https://ui-avatars.com/api/?name=User&background=1f2937&color=fff'}
+                alt={userName || 'User'}
+                className="h-14 w-14 rounded-full border border-white/20 object-cover shadow-sm"
+              />
+              <div className="min-w-0">
+                <p className="truncate text-base font-semibold">{userName || 'Scrolith user'}</p>
+                <p className="truncate text-xs uppercase tracking-[0.18em] text-slate-300">{displayRole} workspace</p>
+              </div>
+            </div>
 
-          {accountMenu.viewAs !== false ? (
-            <SheetItem
-              icon={<Eye className="h-4 w-4" />}
-              label="View as"
-              onClick={onViewAs}
-            />
-          ) : null}
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <SummaryChip label="Connection" value={socketConnected ? 'Live' : 'Sync'} tone={socketConnected ? 'green' : 'amber'} />
+              <SummaryChip label="Currency" value={currencyCode || 'USD'} tone="indigo" />
+              <SummaryChip label="Messages" value={messagesUnread > 0 ? (messagesUnread > 99 ? '99+' : String(messagesUnread)) : 'Clear'} tone="slate" />
+              <SummaryChip label="Alerts" value={notificationsUnread > 0 ? (notificationsUnread > 99 ? '99+' : String(notificationsUnread)) : 'Clear'} tone="slate" />
+            </div>
+          </section>
 
-          {accountMenu.switchCurrency !== false ? (
-            <SheetItem
-              icon={<Coins className="h-4 w-4" />}
-              label={`Switch currency (${currencyCode || 'USD'})`}
-              onClick={onSwitchCurrency}
-            />
-          ) : null}
-
-          {accountMenu.postProject !== false ? (
-            <SheetItem
-              icon={<Briefcase className="h-4 w-4" />}
-              label="Post project"
-              onClick={onPostProject}
-            />
-          ) : null}
-
-          {accountMenu.yourBriefs !== false ? (
-            <SheetItem
-              icon={<FileText className="h-4 w-4" />}
-              label="Your briefs"
-              onClick={onYourBriefs}
-            />
-          ) : null}
-
-          {accountMenu.referFriend !== false ? (
-            <SheetItem
-              icon={<Users className="h-4 w-4" />}
-              label="Refer a Friend"
-              onClick={onReferFriend}
-            />
-          ) : null}
-
-          {accountMenu.billingPayments !== false ? (
-            <SheetItem
-              icon={<CreditCard className="h-4 w-4" />}
-              label="Billing and Payments"
-              onClick={onBilling}
-            />
-          ) : null}
-
-          {accountMenu.settings !== false ? (
-            <SheetItem
-              icon={<Settings className="h-4 w-4" />}
-              label="Settings"
-              onClick={onSettings}
-            />
-          ) : null}
-
-          {accountMenu.logout !== false ? (
-            <SheetItem
-              icon={<LogOut className="h-4 w-4" />}
-              label="Logout"
-              onClick={onLogout}
-            />
-          ) : null}
+          {renderMenuSection('Workspace', 'Primary control surfaces for day-to-day execution.', workspaceItems)}
+          {renderMenuSection('Finance', 'Payments, billing, and currency controls.', financeItems)}
+          {renderMenuSection('Account', 'Preferences, briefs, referral, and session management.', accountItems)}
         </div>
       </Sheet>
 
       <Sheet open={messagesOpen} title="Messages" onClose={onCloseMessages}>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="text-xs text-slate-500">
-              {messagesUnread > 0 ? `${messagesUnread} unread` : 'Inbox'}
+        <div className="space-y-4">
+          <section className="rounded-[28px] border border-slate-200 bg-slate-950 p-4 text-white shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Inbox</p>
+                <p className="mt-1 text-base font-semibold">
+                  {messagesUnread > 0 ? `${messagesUnread} unread conversations` : 'Conversation feed is clear'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onRefreshMessages}
+                className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white"
+              >
+                Refresh
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={onRefreshMessages}
-              className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
-            >
-              Refresh
-            </button>
-          </div>
+          </section>
 
           {messagesError ? (
             <div className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
@@ -282,15 +501,15 @@ export default function MobileHomeSheets({
             </div>
           ) : null}
 
-          <div className="max-h-[60vh] space-y-1 overflow-auto pr-1">
+          <div className="max-h-[56vh] space-y-2 overflow-auto pr-1">
             {messagesLoading && previewConversations.length === 0 ? (
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+              <div className="rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
                 Loading conversations...
               </div>
             ) : null}
 
             {!messagesLoading && previewConversations.length === 0 ? (
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+              <div className="rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
                 No conversations yet.
               </div>
             ) : null}
@@ -314,7 +533,7 @@ export default function MobileHomeSheets({
                   key={convoId || `${name}-${lastAt || 'time'}`}
                   type="button"
                   onClick={() => onOpenConversation(convoId)}
-                  className="flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-3 text-left hover:bg-slate-50"
+                  className="flex w-full items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white px-3 py-3 text-left shadow-sm transition hover:border-indigo-200 hover:bg-slate-50"
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
@@ -347,7 +566,7 @@ export default function MobileHomeSheets({
           <button
             type="button"
             onClick={onOpenAllMessages}
-            className="w-full rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+            className="w-full rounded-3xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white"
           >
             View all messages
           </button>
@@ -355,12 +574,16 @@ export default function MobileHomeSheets({
       </Sheet>
 
       <Sheet open={currencyOpen} title="Switch currency" onClose={onCloseCurrency}>
-        <div className="space-y-3">
-          <div className="text-xs text-slate-500">
-            Current: <span className="font-semibold text-slate-900">{currencyCode || 'USD'}</span>
-          </div>
+        <div className="space-y-4">
+          <section className="rounded-[28px] border border-slate-200 bg-slate-50 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Display currency</p>
+            <p className="mt-2 text-base font-semibold text-slate-900">
+              Current: <span className="text-indigo-700">{currencyCode || 'USD'}</span>
+            </p>
+            <p className="mt-1 text-xs text-slate-500">This updates pricing, wallet, and billing display across the app.</p>
+          </section>
 
-          <div className="max-h-[60vh] space-y-1 overflow-auto pr-1">
+          <div className="max-h-[60vh] space-y-2 overflow-auto pr-1">
             {(Array.isArray(availableCurrencies) ? availableCurrencies : []).map((c: any) => {
               const code = String(c?.code || '').trim().toUpperCase();
               if (!code) return null;
@@ -373,8 +596,10 @@ export default function MobileHomeSheets({
                   type="button"
                   onClick={() => onSelectCurrency(code)}
                   className={[
-                    'flex w-full items-center justify-between rounded-2xl border px-3 py-3 text-left',
-                    selected ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-50'
+                    'flex w-full items-center justify-between rounded-3xl border px-4 py-3 text-left shadow-sm transition',
+                    selected
+                      ? 'border-slate-900 bg-slate-900 text-white'
+                      : 'border-slate-200 bg-white text-slate-900 hover:border-indigo-200 hover:bg-slate-50'
                   ].join(' ')}
                 >
                   <div className="min-w-0">
@@ -394,62 +619,21 @@ export default function MobileHomeSheets({
       </Sheet>
 
       <Sheet open={quickMenuOpen} title="Quick menu" onClose={onCloseQuickMenu}>
-        <div className="space-y-1">
-          {quickMenu.switchUser !== false && !normalizedRole.includes('admin') ? (
-            <SheetItem
-              icon={<Repeat2 className="h-4 w-4" />}
-              label={isFreelancerMode ? 'Switch to Client mode' : 'Switch to Freelancer mode'}
-              onClick={onSwitchUserMode}
-            />
-          ) : null}
+        <div className="space-y-4">
+          <section className="rounded-[28px] border border-slate-200 bg-gradient-to-br from-indigo-600 to-blue-600 p-4 text-white shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-100">Action center</p>
+                <p className="mt-1 text-base font-semibold">High-speed actions for mobile workflow.</p>
+              </div>
+              <div className="rounded-2xl bg-white/15 p-2.5">
+                <Bell className="h-4 w-4" />
+              </div>
+            </div>
+          </section>
 
-          {quickMenu.createPost !== false ? (
-            <SheetItem
-              icon={<Plus className="h-4 w-4" />}
-              label="Create post"
-              onClick={onCreatePost}
-            />
-          ) : null}
-
-          {quickMenu.browseJobs !== false ? (
-            <SheetItem
-              icon={<Briefcase className="h-4 w-4" />}
-              label="Browse jobs"
-              onClick={onBrowseJobs}
-            />
-          ) : null}
-
-          {quickMenu.browseGigs !== false ? (
-            <SheetItem
-              icon={<Tag className="h-4 w-4" />}
-              label="Browse gigs"
-              onClick={onBrowseGigs}
-            />
-          ) : null}
-
-          {quickMenu.projectBrief !== false ? (
-            <SheetItem
-              icon={<FileText className="h-4 w-4" />}
-              label="Scrolith Project Briefs"
-              onClick={onProjectBriefs}
-            />
-          ) : null}
-
-          {quickMenu.gigCreation !== false && isFreelancerMode ? (
-            <SheetItem
-              icon={<Star className="h-4 w-4" />}
-              label="Scrolith Gig Creation"
-              onClick={onGigCreation}
-            />
-          ) : null}
-
-          {quickMenu.settings !== false ? (
-            <SheetItem
-              icon={<Settings className="h-4 w-4" />}
-              label="Settings"
-              onClick={onSettings}
-            />
-          ) : null}
+          {renderMenuSection('Create', 'Launch content, briefs, and role changes.', createItems)}
+          {renderMenuSection('Discover', 'Open marketplace exploration and navigation shortcuts.', discoverItems)}
         </div>
       </Sheet>
     </>

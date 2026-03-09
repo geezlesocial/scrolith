@@ -11,6 +11,7 @@ export interface ActivityItem {
   timestamp?: string;
   status?: string;
   href?: string;
+  sortValue?: number;
 }
 
 interface ActivityPanelProps {

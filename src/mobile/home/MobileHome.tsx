@@ -442,10 +442,14 @@ const MobileHome = () => {
               setCurrencyOpen(false);
             }}
             messagesUnread={messagesUnread}
+            notificationsUnread={notificationsUnread}
+            socketConnected={Boolean(isConnected)}
             messagesLoading={messagesLoading}
             messagesError={messagesError}
             previewConversations={previewConversations}
             currentUserId={user?.id ? String(user.id) : null}
+            userName={user?.name || null}
+            userAvatar={user?.avatar || null}
             onRefreshMessages={() => void refreshMessages({ force: true })}
             onOpenConversation={(conversationId: string) => {
               setMessagesOpen(false);

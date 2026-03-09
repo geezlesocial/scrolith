@@ -16,10 +16,15 @@ import { OrdersService } from '../../services/orders';
 import { proposalsApi } from '../../services/proposals';
 import { ContractService } from '../../services/contract';
 import DashboardShell from '../../components/dashboard/DashboardShell';
+import DashboardHero, {
+  DashboardHeroAction,
+  DashboardHeroMetric,
+  DashboardHeroSignal
+} from '../../components/dashboard/DashboardHero';
 import KpiGrid, { KpiItem } from '../../components/dashboard/KpiGrid';
 import QuickActions from '../../components/dashboard/QuickActions';
 import ActivityPanel, { ActivityItem } from '../../components/dashboard/ActivityPanel';
-import RightRail, { RightRailAction } from '../../components/dashboard/RightRail';
+import RightRail, { RightRailAction, RightRailMetric } from '../../components/dashboard/RightRail';
 import { useMessages } from '../../context/MessageContext';
 import { useNotification } from '../../context/NotificationContext';
 import { useSocket } from '../../context/SocketContext';
@@ -38,6 +43,19 @@ const dateValue = (value?: string) => {
   if (!value) return 0;
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatRelativeSync = (value?: string) => {
+  if (!value) return 'Synced just now';
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return 'Synced just now';
+  const diff = Math.max(0, Date.now() - time);
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'Synced just now';
+  if (minutes < 60) return `Synced ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Synced ${hours}h ago`;
+  return `Synced ${Math.floor(hours / 24)}d ago`;
 };
 
 const isVerifiedUser = (user: any): boolean => {
@@ -61,6 +79,7 @@ export const Overview: React.FC = () => {
   const [proposalCount, setProposalCount] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState('');
+  const [lastRefreshedAt, setLastRefreshedAt] = React.useState<string | undefined>(undefined);
 
   const loadOverview = React.useCallback(async () => {
     if (!user?.id) return;
@@ -86,6 +105,7 @@ export const Overview: React.FC = () => {
           title: `Order ${order.status || 'active'}: ${order.gigTitle || 'Gig'}`,
           description: `${order.buyerName || 'Client'} • ${formatMoney(order.amount)}`,
           timestamp: formatTime(order.updatedAt || order.createdAt),
+          sortValue: dateValue(order.updatedAt || order.createdAt),
           status: order.status || 'active',
           href: '/freelancer/dashboard?tab=orders'
         });
@@ -101,6 +121,7 @@ export const Overview: React.FC = () => {
           title: `Proposal ${proposal.status}: ${proposal.jobTitle || 'Job'}`,
           description: `${formatMoney(proposal.proposedAmount)} • ${proposal.proposedTimeline} day timeline`,
           timestamp: formatTime(proposal.updatedAt || proposal.createdAt),
+          sortValue: dateValue(proposal.updatedAt || proposal.createdAt),
           status: proposal.status,
           href: proposal.contractId
             ? `/freelancer/dashboard?tab=contracts&contract_id=${proposal.contractId}`
@@ -124,15 +145,17 @@ export const Overview: React.FC = () => {
               contract.clientName || contract.client_name || 'Client'
             }`,
             timestamp: formatTime(contract.start_date),
+            sortValue: dateValue(contract.start_date),
             status: contract.status,
             href: `/freelancer/dashboard?tab=contracts&contract_id=${contract.id}`
           });
         });
     }
 
-    mergedActivity.sort((a, b) => dateValue(b.timestamp) - dateValue(a.timestamp));
+    mergedActivity.sort((a, b) => (b.sortValue || 0) - (a.sortValue || 0));
     setActivity(mergedActivity.slice(0, 8));
     setLoading(false);
+    setLastRefreshedAt(new Date().toISOString());
   }, [user?.id]);
 
   React.useEffect(() => {
@@ -235,6 +258,108 @@ export const Overview: React.FC = () => {
     ];
   }, [overview, proposalCount, unreadCount, unreadNotifications]);
 
+  const heroMetrics: DashboardHeroMetric[] = React.useMemo(
+    () => [
+      {
+        id: 'active-delivery',
+        label: 'Active delivery',
+        value: overview?.activeOrders ?? 0,
+        helper:
+          overview && overview.revisionOrders > 0 ? `${overview.revisionOrders} revisions need attention` : 'No revisions queued',
+        tone: 'indigo'
+      },
+      {
+        id: 'wallet-ready',
+        label: 'Wallet ready',
+        value: formatMoney(overview?.walletBalance ?? 0),
+        helper: 'Available balance for payout planning',
+        tone: 'green'
+      },
+      {
+        id: 'pipeline',
+        label: 'Pipeline',
+        value: proposalCount,
+        helper: 'Open proposals requiring follow-up',
+        tone: 'amber'
+      },
+      {
+        id: 'visibility',
+        label: 'Marketplace visibility',
+        value: Number(overview?.gigViews ?? 0).toLocaleString(),
+        helper: 'Recent profile and gig demand signals',
+        tone: 'blue'
+      }
+    ],
+    [overview, proposalCount]
+  );
+
+  const heroSignals: DashboardHeroSignal[] = React.useMemo(
+    () => [
+      {
+        id: 'sync-status',
+        label: 'Realtime coverage',
+        value: isConnected ? 'Live' : 'Polling',
+        description:
+          unreadCount + unreadNotifications > 0
+            ? `${unreadCount + unreadNotifications} updates are waiting in your inbox`
+            : 'Inbox is clear and dashboard events are stable',
+        icon: MessageCircle,
+        tone: isConnected ? 'green' : 'amber'
+      },
+      {
+        id: 'quality',
+        label: 'Trust posture',
+        value: isVerifiedUser(user) ? 'Verified' : 'Pending',
+        description:
+          Number(overview?.rating ?? 0) > 0
+            ? `Current seller rating is ${Number(overview?.rating ?? 0).toFixed(1)}`
+            : 'Complete verification and collect reviews to improve ranking',
+        icon: UserRound,
+        tone: isVerifiedUser(user) ? 'blue' : 'amber'
+      },
+      {
+        id: 'growth-lane',
+        label: 'Growth lane',
+        value: proposalCount > 0 ? `${proposalCount} open pursuits` : 'Ready to expand',
+        description:
+          Number(overview?.gigViews ?? 0) > 0
+            ? `${Number(overview?.gigViews ?? 0).toLocaleString()} visibility events are feeding your funnel`
+            : 'Create or refine your gigs to increase discovery',
+        icon: TrendingUp,
+        tone: 'indigo'
+      }
+    ],
+    [isConnected, overview, proposalCount, unreadCount, unreadNotifications, user]
+  );
+
+  const heroActions: DashboardHeroAction[] = React.useMemo(
+    () => [
+      {
+        id: 'hero-create-gig',
+        label: 'Launch new gig',
+        description: 'Open a fresh revenue lane with a new service offer.',
+        href: '/create-gig',
+        icon: PlusCircle,
+        variant: 'primary'
+      },
+      {
+        id: 'hero-browse-jobs',
+        label: 'Review matched jobs',
+        description: 'Find qualified opportunities and respond quickly.',
+        href: '/jobs',
+        icon: Search
+      },
+      {
+        id: 'hero-wallet',
+        label: 'Open wallet',
+        description: 'Check payouts, balance, and withdrawal readiness.',
+        href: '/freelancer/dashboard?tab=wallet',
+        icon: Wallet
+      }
+    ],
+    []
+  );
+
   const nextActions: RightRailAction[] = React.useMemo(() => {
     if (!overview) return [];
     const actions: RightRailAction[] = [];
@@ -298,12 +423,79 @@ export const Overview: React.FC = () => {
     return base.slice(0, 3);
   }, [overview]);
 
+  const railHighlights: RightRailMetric[] = React.useMemo(
+    () => [
+      {
+        id: 'rail-delivery',
+        label: 'Delivery',
+        value: overview?.activeOrders ?? 0,
+        description: 'Active orders',
+        tone: 'indigo'
+      },
+      {
+        id: 'rail-revisions',
+        label: 'Revisions',
+        value: overview?.revisionOrders ?? 0,
+        description: 'Pending updates',
+        tone: (overview?.revisionOrders ?? 0) > 0 ? 'amber' : 'green'
+      },
+      {
+        id: 'rail-rating',
+        label: 'Rating',
+        value: Number(overview?.rating ?? 0) > 0 ? Number(overview?.rating ?? 0).toFixed(1) : '—',
+        description: 'Trust signal',
+        tone: 'blue'
+      },
+      {
+        id: 'rail-inbox',
+        label: 'Inbox',
+        value: unreadCount + unreadNotifications,
+        description: 'Unread updates',
+        tone: 'slate'
+      }
+    ],
+    [overview, unreadCount, unreadNotifications]
+  );
+
   const quickActions = [
-    { id: 'create-gig', label: 'Create Gig', icon: PlusCircle, href: '/create-gig', variant: 'primary' as const },
-    { id: 'browse-jobs', label: 'Browse Jobs', icon: Search, href: '/jobs' },
-    { id: 'my-orders', label: 'My Orders', icon: BriefcaseBusiness, href: '/freelancer/dashboard?tab=orders' },
-    { id: 'withdraw', label: 'Withdraw', icon: Wallet, href: '/freelancer/dashboard?tab=wallet' },
-    { id: 'improve-profile', label: 'Improve Profile (AI)', icon: UserRound, href: '/freelancer/dashboard?tab=profile' }
+    {
+      id: 'create-gig',
+      label: 'Create Gig',
+      description: 'Launch a new service package and pricing model.',
+      badge: 'Primary',
+      icon: PlusCircle,
+      href: '/create-gig',
+      variant: 'primary' as const
+    },
+    {
+      id: 'browse-jobs',
+      label: 'Browse Jobs',
+      description: 'Review relevant demand and submit offers quickly.',
+      icon: Search,
+      href: '/jobs'
+    },
+    {
+      id: 'my-orders',
+      label: 'My Orders',
+      description: 'Track delivery, milestones, and client deadlines.',
+      icon: BriefcaseBusiness,
+      href: '/freelancer/dashboard?tab=orders'
+    },
+    {
+      id: 'withdraw',
+      label: 'Withdraw',
+      description: 'Review payout readiness and available balance.',
+      icon: Wallet,
+      href: '/freelancer/dashboard?tab=wallet'
+    },
+    {
+      id: 'improve-profile',
+      label: 'Improve Profile (AI)',
+      description: 'Tighten positioning and conversion using guided edits.',
+      badge: 'AI',
+      icon: UserRound,
+      href: '/freelancer/dashboard?tab=profile'
+    }
   ];
 
   return (
@@ -319,6 +511,24 @@ export const Overview: React.FC = () => {
       verificationStatus={isVerifiedUser(user) ? 'verified' : 'pending'}
       profileCompleteness={Number(user?.profileCompleteness ?? user?.profile_completion ?? 0)}
       lastLoginLabel={user?.lastLoginAt ? formatTime(user.lastLoginAt) : undefined}
+      heroContent={
+        <DashboardHero
+          title="Freelancer Command Center"
+          subtitle="Manage delivery, cash flow, pipeline quality, and responsiveness from one live operating view."
+          roleLabel="Freelancer"
+          verificationStatus={isVerifiedUser(user) ? 'verified' : 'pending'}
+          profileCompleteness={Number(user?.profileCompleteness ?? user?.profile_completion ?? 0)}
+          lastLoginLabel={user?.lastLoginAt ? formatTime(user.lastLoginAt) : undefined}
+          lastSyncedLabel={formatRelativeSync(lastRefreshedAt)}
+          socketConnected={Boolean(isConnected)}
+          searchPlaceholder="Search orders, contracts, or proposals..."
+          searchValue={search}
+          onSearchChange={setSearch}
+          metrics={heroMetrics}
+          signals={heroSignals}
+          actions={heroActions}
+        />
+      }
       kpiContent={<KpiGrid items={kpiItems} loading={loading && !overview} />}
       quickActionsContent={<QuickActions items={quickActions} subtitle="Fast access to your highest-impact workflows." />}
       activityContent={
@@ -338,6 +548,7 @@ export const Overview: React.FC = () => {
           unreadMessages={unreadCount}
           unreadNotifications={unreadNotifications}
           socketConnected={Boolean(isConnected)}
+          highlights={railHighlights}
           nextActions={nextActions}
           recommendations={recommendations}
         />
