@@ -82,7 +82,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   }, []);
 
   const pushToast = useCallback((notification: NotificationItem, durationMs?: number) => {
-    setToasts(prev => [notification, ...prev.slice(0, 4)]);
+    setToasts(prev => {
+      const withoutDuplicate = prev.filter((item) => item.id !== notification.id);
+      return [notification, ...withoutDuplicate].slice(0, 5);
+    });
     const duration = typeof durationMs === 'number' ? durationMs : 2500;
     if (duration > 0) {
       setTimeout(() => {
@@ -180,6 +183,45 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     addNotification({ type, title, message, actionUrl, durationMs, toast: true, persist: false, localOnly: true });
   }, [addNotification]);
 
+  const showMessageReceiptNotification = useCallback((payload: any, options?: { persist?: boolean }) => {
+    const messagePreview = String(payload?.text ?? payload?.body ?? payload?.message ?? '').trim();
+    const conversationId = String(
+      payload?.conversation_id ??
+      payload?.conversationId ??
+      payload?.metadata?.conversationId ??
+      payload?.meta?.conversationId ??
+      payload?.data?.conversationId ??
+      ''
+    ).trim();
+    const messageId = String(
+      payload?.id ??
+      payload?.messageId ??
+      payload?.message_id ??
+      payload?.metadata?.messageId ??
+      payload?.meta?.messageId ??
+      payload?.data?.messageId ??
+      ''
+    ).trim();
+    const basePath = getRoleBasePath(user?.role);
+    const isAdmin = String(user?.role || '').toLowerCase().includes('admin');
+    const actionUrl = isAdmin
+      ? `${basePath}?tab=messages`
+      : conversationId
+        ? `/messages/${encodeURIComponent(conversationId)}`
+        : '/messages';
+
+    addNotification({
+      id: messageId ? `local-message-${messageId}` : undefined,
+      type: 'info',
+      title: 'New message',
+      message: messagePreview || 'You received a new message.',
+      actionUrl,
+      toast: true,
+      persist: options?.persist === true,
+      localOnly: true
+    });
+  }, [addNotification, getRoleBasePath, user?.role]);
+
   useEffect(() => {
     if (!isAuthenticated || !user?.id) {
       if (pollRef.current) {
@@ -230,8 +272,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   useEffect(() => {
     if (!socket || !isAuthenticated || !user?.id) return;
-    const basePath = getRoleBasePath(user.role);
-    const isAdmin = String(user.role).toLowerCase().includes('admin');
 
     const onNotificationsNew = (payload: any) => {
       const normalized = normalizeNotification(payload);
@@ -248,21 +288,16 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           }
         }
       }
-      addNotification({ ...payload, toast: true, persist: true });
+      const normalizedType = String(normalized.type || '').trim().toLowerCase();
+      addNotification({
+        ...payload,
+        toast: normalizedType !== 'message' && normalizedType !== 'new_message',
+        persist: true
+      });
     };
 
     const onMessagesNew = (payload: any) => {
-      const messagePreview = String(payload?.text || '').trim();
-      addNotification({
-        id: payload?.id ? `local-message-${payload.id}` : undefined,
-        type: 'info',
-        title: 'New message',
-        message: messagePreview || 'You received a new message.',
-        actionUrl: isAdmin ? `${basePath}?tab=messages` : '/messages',
-        toast: true,
-        persist: true,
-        localOnly: true
-      });
+      showMessageReceiptNotification(payload);
     };
 
     const onOrdersUpdated = (payload: any) => {
@@ -369,7 +404,28 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       socket.off('kyc.updated', onKycUpdated);
       socket.off('kyc.submitted', onKycSubmitted);
     };
-  }, [socket, isAuthenticated, user?.id, user?.role, addNotification, getRoleBasePath]);
+  }, [socket, isAuthenticated, user?.id, addNotification, normalizeNotification, showMessageReceiptNotification]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) return;
+
+    const onMobilePushReceived = (event: Event) => {
+      const payload = (event as CustomEvent<any>)?.detail;
+      const type = String(
+        payload?.type ??
+        payload?.data?.type ??
+        payload?.notificationType ??
+        ''
+      ).trim().toLowerCase();
+      if (type !== 'message' && type !== 'new_message') return;
+      showMessageReceiptNotification(payload);
+    };
+
+    window.addEventListener('mobile:push-notification-received', onMobilePushReceived as EventListener);
+    return () => {
+      window.removeEventListener('mobile:push-notification-received', onMobilePushReceived as EventListener);
+    };
+  }, [isAuthenticated, user?.id, showMessageReceiptNotification]);
 
   const contextValue = useMemo(() => ({
     notifications,

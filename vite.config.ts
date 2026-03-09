@@ -4,6 +4,50 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 import getBackendTarget from './scripts/getBackendTarget'
 
+const FRONTEND_CHUNK_RULES: Array<{ name: string; patterns: string[] }> = [
+  {
+    name: 'react-core',
+    patterns: ['/node_modules/react/', '/node_modules/react-dom/', '/node_modules/scheduler/']
+  },
+  {
+    name: 'router',
+    patterns: ['/node_modules/react-router/', '/node_modules/react-router-dom/']
+  },
+  {
+    name: 'capacitor',
+    patterns: ['/node_modules/@capacitor/', '/node_modules/@aparajita/capacitor-biometric-auth/']
+  },
+  {
+    name: 'realtime',
+    patterns: ['/node_modules/socket.io-client/', '/node_modules/engine.io-client/']
+  },
+  {
+    name: 'charts',
+    patterns: ['/node_modules/recharts/', '/node_modules/d3-']
+  },
+  {
+    name: 'icons',
+    patterns: ['/node_modules/lucide-react/']
+  },
+  {
+    name: 'payments',
+    patterns: ['/node_modules/stripe/']
+  }
+]
+
+const resolveManualChunk = (id: string) => {
+  const normalized = id.replace(/\\/g, '/')
+  if (!normalized.includes('/node_modules/')) return undefined
+
+  for (const rule of FRONTEND_CHUNK_RULES) {
+    if (rule.patterns.some((pattern) => normalized.includes(pattern))) {
+      return rule.name
+    }
+  }
+
+  return undefined
+}
+
 export default defineConfig({
   base: '/',
   plugins: [react(), splitVendorChunkPlugin()],
@@ -102,7 +146,11 @@ export default defineConfig({
     cssCodeSplit: true,
     reportCompressedSize: false,
     chunkSizeWarningLimit: 1200,
-    rollupOptions: {}
+    rollupOptions: {
+      output: {
+        manualChunks: resolveManualChunk
+      }
+    }
   }
 })
 

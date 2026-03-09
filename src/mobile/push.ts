@@ -109,6 +109,38 @@ const registerTokenWithRetry = async (token: string) => {
   return false;
 };
 
+const buildForegroundPushPayload = (incoming: any) => {
+  const notification = incoming?.notification && typeof incoming.notification === 'object'
+    ? incoming.notification
+    : incoming;
+  const data = notification?.data && typeof notification.data === 'object'
+    ? notification.data
+    : {};
+  const rawAction =
+    data.deepLink ||
+    data.deeplink ||
+    data.link ||
+    data.actionUrl ||
+    data.action_url ||
+    notification?.link ||
+    notification?.actionUrl ||
+    notification?.action_url;
+  const actionUrl = rawAction ? extractPathFromUrl(String(rawAction)) || String(rawAction) : undefined;
+
+  return {
+    id: notification?.id || data.notificationId,
+    type: data.type || notification?.type || 'system',
+    title: notification?.title || 'Notification',
+    body: notification?.body || notification?.message || '',
+    message: notification?.body || notification?.message || '',
+    actionUrl,
+    data,
+    metadata: data,
+    conversationId: data.conversationId || data.conversation_id,
+    messageId: data.messageId || data.message_id
+  };
+};
+
 const attachPushListeners = (navigate?: (path: string) => void) => {
   if (listenersAttached) return;
   listenersAttached = true;
@@ -144,6 +176,17 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
       });
     }
     await scheduleNativeRegisterRetry('registration_error');
+  });
+
+  PushNotifications.addListener('pushNotificationReceived', (notification) => {
+    try {
+      if (typeof window === 'undefined') return;
+      window.dispatchEvent(new CustomEvent('mobile:push-notification-received', {
+        detail: buildForegroundPushPayload(notification)
+      }));
+    } catch (error) {
+      console.error('Failed to dispatch foreground push event', error);
+    }
   });
 
   PushNotifications.addListener('pushNotificationActionPerformed', (event) => {
