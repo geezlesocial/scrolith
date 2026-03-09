@@ -64,12 +64,13 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   const verificationLevel = resolveVerificationLevel(author);
   const authorHandle = String(author.username || '').trim().replace(/^@+/, '');
   const formattedCreatedAt = createdAt
-    ? new Date(createdAt).toLocaleString(undefined, {
+    ? `${new Date(createdAt).toLocaleString(undefined, {
         month: 'short',
-        day: 'numeric',
+        day: 'numeric'
+      })} • ${new Date(createdAt).toLocaleString(undefined, {
         hour: 'numeric',
         minute: '2-digit'
-      })
+      })}`
     : 'Just now';
   const canShowFollow =
     showFollow &&
@@ -78,21 +79,21 @@ const PostHeader: React.FC<PostHeaderProps> = ({
     String(author.id || '') !== String(currentUserId || '');
 
   return (
-    <div className="flex items-start justify-between gap-4">
-      <div className="flex min-w-0 items-start gap-4">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+      <div className="flex min-w-0 items-start gap-3 sm:gap-4">
         <Link
           to={profileUrl}
-          className="relative h-14 w-14 shrink-0 overflow-hidden rounded-[22px] border border-slate-200 bg-gradient-to-br from-slate-100 via-white to-slate-50 shadow-sm ring-1 ring-white"
+          className="relative h-12 w-12 shrink-0 overflow-hidden rounded-[18px] border border-slate-200 bg-gradient-to-br from-slate-100 via-white to-slate-50 shadow-sm ring-1 ring-white sm:h-14 sm:w-14 sm:rounded-[22px]"
         >
           {author.avatarUrl ? (
             <img src={author.avatarUrl} alt={authorName} className="h-full w-full object-cover" />
           ) : (
-            <Users className="mx-auto mt-4 h-6 w-6 text-slate-400" />
+            <Users className="mx-auto mt-3 h-5 w-5 text-slate-400 sm:mt-4 sm:h-6 sm:w-6" />
           )}
         </Link>
         <div className="min-w-0 pt-0.5">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <Link to={profileUrl} className="text-[15px] font-semibold leading-6 text-slate-950 hover:text-slate-700">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2.5">
+            <Link to={profileUrl} className="text-sm font-semibold leading-6 text-slate-950 hover:text-slate-700 sm:text-[15px]">
               {authorName}
             </Link>
             {verificationLevel ? <VerifiedBadge level={verificationLevel} size={18} className="ml-1" /> : null}
@@ -106,7 +107,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
               </span>
             ) : null}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 sm:gap-2 sm:text-xs">
             <span className="font-medium text-slate-600">{formattedCreatedAt}</span>
             {authorHandle ? (
               <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600">
@@ -122,7 +123,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
           {metaBadges ? <div className="mt-2 flex flex-wrap items-center gap-2">{metaBadges}</div> : null}
         </div>
       </div>
-      <div className="flex shrink-0 items-start gap-2">
+      <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:w-auto sm:items-start">
         {canShowFollow ? (
           <FollowButton
             targetUserId={author.id}

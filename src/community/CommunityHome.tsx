@@ -3,6 +3,7 @@ import {
   TrendingUp,
   Calendar,
   Award,
+  ShieldAlert,
   MessageCircle,
   Filter,
   Search,
@@ -1879,6 +1880,16 @@ const CommunityHome = () => {
   const showQuickActions = isModuleEnabled(modules, 'quickActions', viewportDevice);
   const showSponsored = isModuleEnabled(modules, 'sponsored', viewportDevice);
   const showStats = isModuleEnabled(modules, 'stats', viewportDevice);
+  const isMobileViewport = viewportDevice === 'mobile';
+  const storyActionButtonClass = isMobileViewport
+    ? 'inline-flex w-full items-center justify-center gap-1 rounded-2xl border border-gray-200 px-3 py-2 text-[11px] font-semibold text-gray-600'
+    : 'inline-flex items-center gap-1 rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600';
+  const storyPrimaryButtonClass = isMobileViewport
+    ? 'inline-flex w-full items-center justify-center gap-1 rounded-2xl bg-gray-900 px-3 py-2 text-[11px] font-semibold text-white'
+    : 'inline-flex items-center gap-1 rounded-full bg-gray-900 px-3 py-1 text-xs font-semibold text-white';
+  const storyLiveButtonClass = isMobileViewport
+    ? 'inline-flex w-full items-center justify-center gap-1 rounded-2xl bg-rose-600 px-3 py-2 text-[11px] font-semibold text-white transition hover:bg-rose-700'
+    : 'inline-flex items-center gap-1 rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-rose-700';
 
   const showLeftSidebar = showTrendingTopics || showUpcomingEvents || showTopContributors;
   const showRightSidebar = showQuickActions || showSponsored || showStats;
@@ -1902,7 +1913,7 @@ const CommunityHome = () => {
       {/* Hero Section */}
       {showHero ? (
         <div
-          className="text-white py-10 sm:py-16"
+          className="relative overflow-hidden py-8 text-white sm:py-16"
           style={{
             backgroundImage: heroBackgroundImage ? `url(${heroBackgroundImage})` : undefined,
             backgroundSize: 'cover',
@@ -1910,12 +1921,17 @@ const CommunityHome = () => {
             backgroundColor: heroBackgroundColor
           }}
         >
+          <div className="absolute inset-0 bg-slate-950/40" />
+          <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 via-slate-900/35 to-indigo-600/20" />
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center">
-              <h1 className="text-2xl sm:text-4xl font-bold mb-3 sm:mb-4">{heroTitle}</h1>
-              <p className="text-base sm:text-xl text-blue-100 max-w-2xl mx-auto">
-                {heroSubtitle}
-              </p>
+            <div className="relative text-center">
+              <div className="mx-auto max-w-3xl rounded-[28px] border border-white/15 bg-slate-950/20 px-4 py-6 shadow-2xl backdrop-blur-[2px] sm:px-8 sm:py-10">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-blue-100/90">Scrolith Community</p>
+                <h1 className="mt-3 text-2xl font-bold tracking-tight sm:text-4xl">{heroTitle}</h1>
+                <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-blue-100 sm:text-xl">
+                  {heroSubtitle}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -1923,20 +1939,23 @@ const CommunityHome = () => {
 
       {showBanner && (
         <div className="bg-yellow-50 border-b border-yellow-100">
-          <div className="max-w-7xl mx-auto px-4 py-3 flex items-start sm:items-center">
-            <div className="text-sm text-yellow-800">{bannerText}</div>
+          <div className="max-w-7xl mx-auto flex items-start gap-3 px-4 py-3 sm:items-center">
+            <div className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-yellow-100 text-yellow-700">
+              <ShieldAlert className="h-4 w-4" />
+            </div>
+            <div className="text-sm leading-6 text-yellow-900">{bannerText}</div>
           </div>
         </div>
       )}
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+          <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-4 lg:gap-8">
           {/* Left Sidebar */}
           {showLeftSidebar ? (
-          <div className="lg:col-span-1 space-y-6 order-2 lg:order-none">
+          <div className="order-2 space-y-4 sm:space-y-6 lg:col-span-1 lg:order-none">
             {/* Trending Topics */}
             {showTrendingTopics && (
-              <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
                 <div className="flex items-center mb-4">
                   <TrendingUp className="w-5 h-5 text-blue-600 mr-2" />
                   <h2 className="text-lg font-bold">{getModuleTitle(modules, 'trendingTopics', 'Trending Topics')}</h2>
@@ -1958,7 +1977,7 @@ const CommunityHome = () => {
 
             {/* Upcoming Events */}
             {showUpcomingEvents && (
-              <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
                 <div className="flex items-center mb-4">
                   <Calendar className="w-5 h-5 text-green-600 mr-2" />
                   <h2 className="text-lg font-bold">{getModuleTitle(modules, 'upcomingEvents', 'Upcoming Events')}</h2>
@@ -1976,7 +1995,7 @@ const CommunityHome = () => {
 
             {/* Top Contributors */}
             {showTopContributors && (
-              <div className="bg-white rounded-xl shadow-sm p-6">
+              <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
                 <div className="flex items-center mb-4">
                   <Award className="w-5 h-5 text-yellow-600 mr-2" />
                   <h2 className="text-lg font-bold">{getModuleTitle(modules, 'topContributors', 'Top Contributors')}</h2>
@@ -2000,9 +2019,9 @@ const CommunityHome = () => {
           ) : null}
 
           {/* Main Content */}
-          <div className={`${mainColSpanClass} space-y-6 order-1 lg:order-none`}>
+          <div className={`${mainColSpanClass} order-1 space-y-4 sm:space-y-6 lg:order-none`}>
             {showSliders && visibleSliders.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm p-4">
+              <div className="rounded-xl bg-white p-4 shadow-sm">
                 <div className="mb-2 text-sm font-bold text-gray-900">
                   {getModuleTitle(modules, 'sliders', 'Featured')}
                 </div>
@@ -2030,8 +2049,8 @@ const CommunityHome = () => {
 
             {/* Stories Strip */}
             {showStories && (
-              <div className="bg-white rounded-xl shadow-sm p-4">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="rounded-xl bg-white p-3 shadow-sm sm:p-4">
+                <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                   <div className="inline-flex items-center rounded-full border border-gray-200 bg-gray-100 p-1">
                     <button
                       type="button"
@@ -2054,13 +2073,13 @@ const CommunityHome = () => {
                   </div>
 
                   {storyRailTab === 'stories' ? (
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className={`grid gap-2 ${isMobileViewport ? 'grid-cols-2' : 'flex flex-wrap items-center'}`}>
                       <select
                         value={storyDraft.visibility}
                         onChange={(event) =>
                           setStoryDraft((prev) => ({ ...prev, visibility: normalizeStoryVisibility(event.target.value) }))
                         }
-                        className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600"
+                        className={`${isMobileViewport ? 'rounded-2xl px-3 py-2 text-[11px]' : 'rounded-full px-3 py-1 text-xs'} border border-gray-200 font-semibold text-gray-600`}
                       >
                         {storyVisibilityOptions.map((option) => (
                           <option key={option.value} value={option.value}>
@@ -2070,14 +2089,14 @@ const CommunityHome = () => {
                       </select>
                       <button
                         onClick={() => setStoryTextOpen(true)}
-                        className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600"
+                        className={storyActionButtonClass}
                         disabled={storyPosting}
                       >
                         Text story
                       </button>
                       <button
                         onClick={() => storyDeviceInputRef.current?.click()}
-                        className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600"
+                        className={storyActionButtonClass}
                         disabled={storyPosting}
                       >
                         <Plus className="h-3 w-3" />
@@ -2085,7 +2104,7 @@ const CommunityHome = () => {
                       </button>
                       <button
                         onClick={startStoryCamera}
-                        className="inline-flex items-center gap-1 rounded-full bg-gray-900 px-3 py-1 text-xs font-semibold text-white"
+                        className={storyPrimaryButtonClass}
                         disabled={storyPosting}
                       >
                         <CameraIcon className="h-3 w-3" />
@@ -2094,17 +2113,17 @@ const CommunityHome = () => {
                       <button
                         type="button"
                         onClick={() => navigate('/live/studio')}
-                        className="inline-flex items-center gap-1 rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-rose-700"
+                        className={storyLiveButtonClass}
                       >
                         Go Live
                       </button>
                     </div>
                   ) : (
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className={`grid gap-2 ${isMobileViewport ? 'grid-cols-2' : 'flex flex-wrap items-center'}`}>
                       <button
                         type="button"
                         onClick={() => setScrollCreateOpen(true)}
-                        className="inline-flex items-center gap-1 rounded-full bg-gray-900 px-3 py-1 text-xs font-semibold text-white"
+                        className={storyPrimaryButtonClass}
                       >
                         <Plus className="h-3 w-3" />
                         Create Scroll
@@ -2112,7 +2131,7 @@ const CommunityHome = () => {
                       <button
                         type="button"
                         onClick={() => navigate('/live/studio')}
-                        className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-100"
+                        className={`${isMobileViewport ? 'inline-flex w-full items-center justify-center gap-1 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-100' : 'inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-100'}`}
                       >
                         Go Live
                       </button>
@@ -2121,10 +2140,10 @@ const CommunityHome = () => {
                 </div>
 
                 {storyRailTab === 'stories' ? (
-                  <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                  <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide sm:gap-3">
                     <button
                       onClick={() => storyDeviceInputRef.current?.click()}
-                      className="min-w-[120px] h-44 rounded-2xl border border-dashed border-gray-300 flex flex-col items-center justify-center text-xs text-gray-500"
+                      className="flex h-40 min-w-[108px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-300 text-xs text-gray-500 sm:h-44 sm:min-w-[120px]"
                     >
                       <Plus className="h-5 w-5 mb-2" />
                       Your story
@@ -2138,7 +2157,7 @@ const CommunityHome = () => {
                         <button
                           key={story.id}
                           onClick={() => openStory(story)}
-                          className="min-w-[120px] h-44 rounded-2xl overflow-hidden border border-gray-200 bg-gray-100 relative"
+                          className="relative h-40 min-w-[108px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-100 sm:h-44 sm:min-w-[120px]"
                         >
                           {(() => {
                             const mediaUrl = resolveStoryMediaUrl(story);
@@ -2200,11 +2219,11 @@ const CommunityHome = () => {
                     )}
                   </div>
                 ) : (
-                  <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                  <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide sm:gap-3">
                     <button
                       type="button"
                       onClick={() => setScrollCreateOpen(true)}
-                      className="min-w-[120px] h-44 rounded-2xl border border-dashed border-gray-300 flex flex-col items-center justify-center text-xs text-gray-500"
+                      className="flex h-40 min-w-[108px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-300 text-xs text-gray-500 sm:h-44 sm:min-w-[120px]"
                     >
                       <Plus className="h-5 w-5 mb-2" />
                       Create Scroll
@@ -2219,7 +2238,7 @@ const CommunityHome = () => {
                           key={scroll.id}
                           type="button"
                           onClick={() => navigate(`/scroll?scroll=${encodeURIComponent(scroll.id)}`)}
-                          className="relative min-w-[120px] h-44 overflow-hidden rounded-2xl border border-gray-200 bg-gray-900"
+                          className="relative h-40 min-w-[108px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-900 sm:h-44 sm:min-w-[120px]"
                         >
                           {(() => {
                             const mediaUrl = resolveReelMediaUrl(scroll);
@@ -2271,7 +2290,7 @@ const CommunityHome = () => {
             {showCustomSections && visibleSections.length > 0 && (
               <div className="space-y-4">
                 {visibleSections.map((section: any) => (
-                  <div key={section.id} className="bg-white rounded-xl shadow-sm p-4">
+                  <div key={section.id} className="rounded-xl bg-white p-4 shadow-sm">
                     {section.title && <h3 className="text-lg font-semibold">{section.title}</h3>}
                     {section.body && <p className="text-sm text-gray-600 mt-2">{section.body}</p>}
                     {section.type === 'image' && section.imageUrl && (
@@ -2286,15 +2305,15 @@ const CommunityHome = () => {
             )}
             {/* Search Bar */}
             {showSearchBar && (
-              <div className="bg-white rounded-xl shadow-sm p-4">
-                <div className="flex items-center">
-                  <Search className="w-5 h-5 text-gray-400 mr-3" />
+              <div className="rounded-xl bg-white p-3 shadow-sm sm:p-4">
+                <div className="flex items-center gap-2 rounded-[28px] border border-gray-200 bg-slate-50 px-3 py-2">
+                  <Search className="h-5 w-5 shrink-0 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Search discussions, topics, or people..."
-                    className="w-full p-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder={isMobileViewport ? 'Search jobs, gigs, people...' : 'Search discussions, topics, or people...'}
+                    className="w-full bg-transparent py-2 text-sm text-gray-700 outline-none placeholder:text-gray-400"
                   />
-                  <button className="ml-2 p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                  <button className="inline-flex shrink-0 items-center justify-center rounded-2xl bg-blue-600 p-3 text-white transition hover:bg-blue-700">
                     <Filter className="w-4 h-4" />
                   </button>
                 </div>
@@ -2303,12 +2322,12 @@ const CommunityHome = () => {
 
             {/* Community Feed */}
             {showFeed && (
-              <div className="bg-white rounded-xl shadow-sm">
-              <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-                <h2 className="text-lg font-bold">{getModuleTitle(modules, 'feed', 'Community Feed')}</h2>
-                <Link to="/community" className="text-sm text-blue-600 hover:text-blue-800">Create Post</Link>
+              <div className="rounded-xl bg-white shadow-sm">
+              <div className="flex flex-col gap-2 border-b border-gray-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <h2 className="text-base font-bold sm:text-lg">{getModuleTitle(modules, 'feed', 'Community Feed')}</h2>
+                <Link to="/community" className="inline-flex self-start rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 sm:self-auto sm:text-sm">Create Post</Link>
               </div>
-              <div className="space-y-4 bg-slate-50/40 p-4">
+              <div className="space-y-4 bg-slate-50/40 p-3 sm:p-4">
                 {posts.length === 0 && (
                   <div className="rounded-3xl border border-slate-200 bg-white p-4 text-sm text-gray-500 shadow-sm">No posts yet.</div>
                 )}
@@ -2339,7 +2358,7 @@ const CommunityHome = () => {
                     <article
                       key={post.id}
                       id={`community-post-${post.id}`}
-                      className={`rounded-[30px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/70 p-5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)] transition-shadow hover:shadow-[0_24px_48px_-26px_rgba(15,23,42,0.52)] ${focusPostId === post.id ? 'ring-2 ring-blue-100' : ''}`}
+                      className={`rounded-[24px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/70 p-4 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)] transition-shadow hover:shadow-[0_24px_48px_-26px_rgba(15,23,42,0.52)] sm:rounded-[30px] sm:p-5 ${focusPostId === post.id ? 'ring-2 ring-blue-100' : ''}`}
                     >
                       <PostHeader
                         author={resolvedAuthor}
@@ -2375,15 +2394,15 @@ const CommunityHome = () => {
                             {canManage ? (
                               <button
                                 onClick={() => promotePost(post)}
-                                className="rounded-full border border-indigo-200 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo-600 shadow-sm transition hover:bg-indigo-50"
+                                className="rounded-full border border-indigo-200 bg-white px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-indigo-600 shadow-sm transition hover:bg-indigo-50 sm:px-3 sm:text-[11px] sm:tracking-[0.16em]"
                                 type="button"
                               >
-                                Promote this post
+                                {isMobileViewport ? 'Promote' : 'Promote this post'}
                               </button>
                             ) : null}
                             <PostOptionsButton
                               post={post}
-                              buttonClassName="rounded-full border border-slate-200 bg-white p-2.5 text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+                              buttonClassName="rounded-full border border-slate-200 bg-white p-2 text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 sm:p-2.5"
                               onHideFromFeed={(postId) => {
                                 setPosts((prev) => prev.filter((item) => item.id !== postId));
                               }}
@@ -2667,7 +2686,7 @@ const CommunityHome = () => {
 
             {/* Discussions List */}
             {showDiscussions && (
-            <div className="bg-white rounded-xl shadow-sm">
+            <div className="rounded-xl bg-white shadow-sm">
               <div className="p-4 border-b border-gray-200">
                 <h2 className="text-lg font-bold">{getModuleTitle(modules, 'discussions', 'Latest Discussions')}</h2>
               </div>
@@ -2697,10 +2716,10 @@ const CommunityHome = () => {
 
           {/* Right Sidebar */}
           {showRightSidebar ? (
-          <div className="lg:col-span-1 space-y-6 order-3 lg:order-none">
+          <div className="order-3 space-y-4 sm:space-y-6 lg:col-span-1 lg:order-none">
             {/* Quick Actions */}
             {showQuickActions && (
-            <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
               <h2 className="text-lg font-bold mb-4">{getModuleTitle(modules, 'quickActions', 'Quick Actions')}</h2>
               <div className="space-y-3">
                 <Link to="/community/forum?create=1" className="block w-full text-center bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700">
@@ -2721,7 +2740,7 @@ const CommunityHome = () => {
 
             {/* Ads/Sponsored */}
             {showSponsored && (
-            <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
               <h2 className="text-lg font-bold mb-4">{getModuleTitle(modules, 'sponsored', 'Sponsored')}</h2>
               <div className="space-y-4">
                 {ads.map((ad) => {
@@ -2766,7 +2785,7 @@ const CommunityHome = () => {
 
             {/* Stats */}
             {showStats && (
-            <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
               <h2 className="text-lg font-bold mb-4">{getModuleTitle(modules, 'stats', 'Community Stats')}</h2>
               <div className="grid grid-cols-2 gap-4">
                 <div className="text-center">
