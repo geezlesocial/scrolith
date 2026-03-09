@@ -17,7 +17,14 @@ const HeroAISection = ({ content }: { content: HeroContent }) => {
     <div className="relative bg-gray-900 text-white overflow-hidden">
       <div className="absolute inset-0">
         {bg ? (
-          <img src={bg} alt="Hero" className="w-full h-full object-cover opacity-20" />
+          <img
+            src={bg}
+            alt="Hero"
+            loading="eager"
+            decoding="async"
+            fetchPriority="high"
+            className="w-full h-full object-cover opacity-20"
+          />
         ) : (
           <div className="w-full h-full bg-gradient-to-r from-gray-900 via-gray-900/90 to-black" />
         )}

@@ -929,7 +929,6 @@ const Navbar = () => {
                     width={160}
                     height={32}
                     decoding="async"
-                    fetchPriority="high"
                     className="h-8 w-auto object-contain"
                   />
                 ) : (

@@ -32,18 +32,57 @@ const FRONTEND_CHUNK_RULES: Array<{ name: string; patterns: string[] }> = [
   {
     name: 'payments',
     patterns: ['/node_modules/stripe/']
+  },
+  {
+    name: 'dashboard-admin',
+    patterns: [
+      '/src/dashboard/admin/',
+      '/src/pages/AdminDeveloperPlatform.tsx',
+      '/src/pages/AdminLivePlatform.tsx'
+    ]
+  },
+  {
+    name: 'dashboard-freelancer',
+    patterns: ['/src/dashboard/freelancer/']
+  },
+  {
+    name: 'dashboard-employer',
+    patterns: ['/src/dashboard/employer/']
+  },
+  {
+    name: 'dashboard-shared',
+    patterns: [
+      '/src/dashboard/shared/',
+      '/src/dashboard/AdminDashboard.tsx',
+      '/src/dashboard/ClientDashboard.tsx',
+      '/src/dashboard/DashboardRouter.tsx',
+      '/src/dashboard/DeveloperDocs.tsx'
+    ]
+  },
+  {
+    name: 'community-shell',
+    patterns: ['/src/community/', '/src/features/scroll/', '/src/features/live/']
+  },
+  {
+    name: 'messages-shell',
+    patterns: ['/src/messages/', '/src/context/MessageContext.tsx']
+  },
+  {
+    name: 'mobile-shell',
+    patterns: ['/src/mobile/']
   }
 ]
 
 const resolveManualChunk = (id: string) => {
   const normalized = id.replace(/\\/g, '/')
-  if (!normalized.includes('/node_modules/')) return undefined
 
   for (const rule of FRONTEND_CHUNK_RULES) {
     if (rule.patterns.some((pattern) => normalized.includes(pattern))) {
       return rule.name
     }
   }
+
+  if (!normalized.includes('/node_modules/')) return undefined
 
   return undefined
 }

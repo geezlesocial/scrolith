@@ -33,6 +33,7 @@ import {
   GuestWhatIsScrolithContent
 } from '../types';
 import Recommendations from '../components/Recommendations';
+import { upsertImagePreloadLink } from '../utils/resourceHints';
 import {
   PopularServicesSection,
   PromoBannersSection,
@@ -183,6 +184,21 @@ const GUEST_SECTION_PRIORITY: string[] = [
 ];
 
 const isGuestSectionType = (type: any) => GUEST_SECTION_PRIORITY.includes(String(type || '').trim());
+
+const resolveLandingHeroImage = (section: HomepageSection | undefined | null) => {
+  const content = section?.content && typeof section.content === 'object' ? (section.content as Record<string, any>) : {};
+  const type = String(section?.type || '').trim();
+
+  if (type === 'guest_hero_auth') {
+    return String(content.heroBackgroundUrl || content.sideImageUrl || '').trim();
+  }
+
+  if (type === 'hero') {
+    return String(content.backgroundImage || content.background_image || '').trim();
+  }
+
+  return '';
+};
 
 const hasRenderableGuestContent = (section: any) => {
   const type = String(section?.type || '').trim();
@@ -501,6 +517,21 @@ const Landing = () => {
     });
     return injected;
   }, [effectiveSections, user]);
+
+  const landingHeroImage = useMemo(() => {
+    if (user) return '';
+    const heroSection = renderSections.find(
+      (section) => section.type === 'guest_hero_auth' || section.type === 'hero'
+    ) as HomepageSection | undefined;
+    return resolveLandingHeroImage(heroSection);
+  }, [renderSections, user]);
+
+  useEffect(() => {
+    upsertImagePreloadLink('landing-lcp-image', landingHeroImage || null, { fetchPriority: 'high' });
+    return () => {
+      upsertImagePreloadLink('landing-lcp-image', null);
+    };
+  }, [landingHeroImage]);
 
   if (loading) {
     return (

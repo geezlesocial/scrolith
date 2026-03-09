@@ -44,6 +44,7 @@ import { resolveAssetUrl } from '../utils/assetUrl';
 import { downloadToDevice } from '../utils/deviceDownload';
 import { Capacitor } from '@capacitor/core';
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile';
+import { upsertImagePreloadLink } from '../utils/resourceHints';
 
 const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
   const explicit = String(media.type || '').toLowerCase();
@@ -1908,6 +1909,16 @@ const CommunityHome = () => {
     isVisibleForDevice(section?.visibility, viewportDevice)
   );
 
+  useEffect(() => {
+    const shouldPreloadHero = showHero && Boolean(heroBackgroundImage);
+    upsertImagePreloadLink('community-hero-image', shouldPreloadHero ? heroBackgroundImage : null, {
+      fetchPriority: 'high'
+    });
+    return () => {
+      upsertImagePreloadLink('community-hero-image', null);
+    };
+  }, [heroBackgroundImage, showHero]);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero Section */}
@@ -1915,12 +1926,20 @@ const CommunityHome = () => {
         <div
           className="relative overflow-hidden py-8 text-white sm:py-16"
           style={{
-            backgroundImage: heroBackgroundImage ? `url(${heroBackgroundImage})` : undefined,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
             backgroundColor: heroBackgroundColor
           }}
         >
+          {heroBackgroundImage ? (
+            <img
+              src={heroBackgroundImage}
+              alt=""
+              aria-hidden="true"
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          ) : null}
           <div className="absolute inset-0 bg-slate-950/40" />
           <div className="absolute inset-0 bg-gradient-to-br from-slate-950/70 via-slate-900/35 to-indigo-600/20" />
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -2628,9 +2647,11 @@ const CommunityHome = () => {
                                       className="mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left shadow-sm"
                                     >
                                       <img
-                                        src={media.url}
+                                        src={media.thumbnailUrl || media.url}
                                         alt={media.name || 'Post media'}
                                         className={`${mediaHeightClass} w-full object-cover`}
+                                        loading="lazy"
+                                        decoding="async"
                                       />
                                     </button>
                                   );

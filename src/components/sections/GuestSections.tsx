@@ -122,7 +122,7 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
   const [loginError, setLoginError] = React.useState('');
   const [signupErrors, setSignupErrors] = React.useState<Record<string, string>>({});
 
-  const backgroundImage = content?.heroBackgroundUrl ? `url('${content.heroBackgroundUrl}')` : undefined;
+  const backgroundImageUrl = String(content?.heroBackgroundUrl || '').trim();
   const sideBanners = ensureArray<any>((content as any)?.sideBanners);
   const trustPoints = ensureArray<string>((content as any)?.trustPoints);
   const sideImageUrl = String((content as any)?.sideImageUrl || '').trim();
@@ -240,9 +240,20 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
       <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 sm:px-6 lg:grid-cols-2 lg:gap-8 lg:px-8">
         <div
           className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7"
-          style={backgroundImage ? { backgroundImage, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+          style={!backgroundImageUrl ? undefined : { backgroundColor: 'rgba(255,255,255,0.92)' }}
         >
-          <div className={backgroundImage ? 'relative z-10 rounded-2xl bg-white/90 p-5 backdrop-blur' : ''}>
+          {backgroundImageUrl ? (
+            <img
+              src={backgroundImageUrl}
+              alt=""
+              aria-hidden="true"
+              loading="eager"
+              decoding="async"
+              fetchPriority="high"
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          ) : null}
+          <div className={backgroundImageUrl ? 'relative z-10 rounded-2xl bg-white/90 p-5 backdrop-blur' : ''}>
             <h1 className="text-2xl font-bold leading-tight text-slate-900 sm:text-3xl xl:text-4xl">
               {content?.headline || 'Build your next opportunity on Scrolith'}
             </h1>
@@ -279,7 +290,13 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                 >
                   {banner.image ? (
                     <div className="mb-2 overflow-hidden rounded-xl border border-slate-200 bg-white/60">
-                      <img src={banner.image} alt={banner.title || `Scrolith highlight ${index + 1}`} className="h-20 w-full object-cover" />
+                      <img
+                        src={banner.image}
+                        alt={banner.title || `Scrolith highlight ${index + 1}`}
+                        loading="lazy"
+                        decoding="async"
+                        className="h-20 w-full object-cover"
+                      />
                     </div>
                   ) : null}
                   <p className="text-sm font-semibold text-slate-900">{banner.title || `Scrolith Advantage ${index + 1}`}</p>
@@ -292,6 +309,8 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                 <img
                   src={sideImageUrl}
                   alt={sideImageAlt}
+                  loading={backgroundImageUrl ? 'lazy' : 'eager'}
+                  decoding="async"
                   className="h-40 w-full rounded-xl object-cover sm:h-48"
                 />
               </div>
@@ -307,7 +326,13 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                       className="flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-2"
                     >
                       {logo.image ? (
-                        <img src={logo.image} alt={logo.label || `Brand ${index + 1}`} className="max-h-6 w-auto object-contain" />
+                        <img
+                          src={logo.image}
+                          alt={logo.label || `Brand ${index + 1}`}
+                          loading="lazy"
+                          decoding="async"
+                          className="max-h-6 w-auto object-contain"
+                        />
                       ) : (
                         <span className="text-[11px] font-semibold text-slate-600">{logo.label || `Brand ${index + 1}`}</span>
                       )}
@@ -317,7 +342,7 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
               </div>
             ) : null}
           </div>
-          {backgroundImage ? <div className="absolute inset-0 bg-gradient-to-t from-white/40 to-white/10" /> : null}
+          {backgroundImageUrl ? <div className="absolute inset-0 bg-gradient-to-t from-white/40 to-white/10" /> : null}
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7 lg:sticky lg:top-24 lg:self-start">

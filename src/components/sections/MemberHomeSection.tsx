@@ -3719,7 +3719,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                 onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
                 className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
               >
-                <img src={media.url} alt={media.name || 'Post media'} className={`${mediaPreviewHeightClass} w-full object-cover`} />
+                <img
+                  src={(media as any).thumbnailUrl || media.url}
+                  alt={media.name || 'Post media'}
+                  className={`${mediaPreviewHeightClass} w-full object-cover`}
+                  loading="lazy"
+                  decoding="async"
+                />
               </button>
             );
           }
@@ -4571,7 +4577,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                                   </button>
                                 ) : type === 'image' ? (
                                   <button type="button" onClick={() => setPreviewMedia(toPreviewMedia(media))} className="block h-40 w-full">
-                                    <img src={media.url} alt={media.name || 'Post media'} className="h-40 w-full object-cover" />
+                                    <img
+                                      src={media.thumbnailUrl || media.url}
+                                      alt={media.name || 'Post media'}
+                                      className="h-40 w-full object-cover"
+                                      loading="lazy"
+                                      decoding="async"
+                                    />
                                   </button>
                                 ) : (
                                   <button
