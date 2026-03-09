@@ -1,8 +1,8 @@
 
-import {
+import type {
     Contract, TimeEntry, Currency, ListingCategory, Gig, Job, Order,
     WalletTransaction, Affiliate, Coupon, MarketingCampaign, Conversation,
-    KYCDocument, UserRole, TransactionType
+    KYCDocument
 } from './types';
 
 export const INITIAL_CURRENCIES: Currency[] = [
@@ -301,7 +301,7 @@ export const MOCK_TRANSACTIONS: WalletTransaction[] = ([
         id: 'tx-1',
         walletId: 'w-u1',
         wallet_id: 'w-u1',
-        type: TransactionType.DEPOSIT,
+        type: 'deposit',
         amount: 500,
         status: 'cleared',
         description: 'Deposit via PayPal',
@@ -312,7 +312,7 @@ export const MOCK_TRANSACTIONS: WalletTransaction[] = ([
         id: 'tx-2',
         walletId: 'w-u1',
         wallet_id: 'w-u1',
-        type: TransactionType.ESCROW_HOLD,
+        type: 'escrow_hold',
         amount: -300,
         status: 'cleared',
         referenceId: 'o1',
@@ -325,7 +325,7 @@ export const MOCK_TRANSACTIONS: WalletTransaction[] = ([
         id: 'tx-3',
         walletId: 'w-u1',
         wallet_id: 'w-u1',
-        type: TransactionType.ESCROW_RELEASE,
+        type: 'escrow_release',
         amount: 50,
         status: 'cleared',
         referenceId: 'o2',
