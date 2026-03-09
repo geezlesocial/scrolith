@@ -1849,6 +1849,19 @@ const CommunityHome = () => {
     }
   }, [applyPostUpdate, normalizePost, posts, showNotification, user]);
 
+  const heroBackgroundImage = homepage?.hero?.backgroundImage;
+  const showHero = isVisibleForDevice(homepage?.hero?.visibility, viewportDevice);
+
+  useEffect(() => {
+    const shouldPreloadHero = showHero && Boolean(heroBackgroundImage);
+    upsertImagePreloadLink('community-hero-image', shouldPreloadHero ? heroBackgroundImage : null, {
+      fetchPriority: 'high'
+    });
+    return () => {
+      upsertImagePreloadLink('community-hero-image', null);
+    };
+  }, [heroBackgroundImage, showHero]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -1862,12 +1875,10 @@ const CommunityHome = () => {
 
   const heroTitle = homepage?.hero?.title || 'Scrolith Community';
   const heroSubtitle = homepage?.hero?.subtitle || 'Connect with fellow freelancers, share knowledge, and grow together';
-  const heroBackgroundImage = homepage?.hero?.backgroundImage;
   const heroBackgroundColor = homepage?.hero?.backgroundColor || '#4f46e5';
   const bannerEnabled = homepage?.banner?.enabled !== false;
   const bannerText = homepage?.banner?.text || 'Security Notice: Do not share sensitive personal information (Passwords, bank details, government IDs). AI Moderation is active in all chats.';
   const modules = homepage?.modules || {};
-  const showHero = isVisibleForDevice(homepage?.hero?.visibility, viewportDevice);
   const showBanner = bannerEnabled && isVisibleForDevice(homepage?.banner?.visibility, viewportDevice);
   const showSliders = isModuleEnabled(modules, 'sliders', viewportDevice);
   const showStories = isModuleEnabled(modules, 'stories', viewportDevice);
@@ -1908,16 +1919,6 @@ const CommunityHome = () => {
   const visibleSections = (Array.isArray(homepage?.sections) ? homepage.sections : []).filter((section: any) =>
     isVisibleForDevice(section?.visibility, viewportDevice)
   );
-
-  useEffect(() => {
-    const shouldPreloadHero = showHero && Boolean(heroBackgroundImage);
-    upsertImagePreloadLink('community-hero-image', shouldPreloadHero ? heroBackgroundImage : null, {
-      fetchPriority: 'high'
-    });
-    return () => {
-      upsertImagePreloadLink('community-hero-image', null);
-    };
-  }, [heroBackgroundImage, showHero]);
 
   return (
     <div className="min-h-screen bg-gray-50">
