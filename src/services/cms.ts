@@ -16,7 +16,8 @@ const _hasBackendEnv = Boolean(
 if (import.meta.env.PROD && !_hasBackendEnv) {
     throw new Error('VITE_BACKEND_URL (or VITE_API_URL) must be set when building for production');
 }
-const API_URL = getApiBaseUrl();
+const getCmsApiUrl = () => getApiBaseUrl();
+const getCmsBackendOrigin = () => getBackendOrigin();
 const BRAND_ASSET_URL = 'https://scrolith.com/icon-192.png';
 
 const devLog = (...args: any[]) => {
@@ -204,7 +205,6 @@ const normalizeRoleList = (value: any): string[] => {
     return [];
 };
 
-const backendOrigin = getBackendOrigin();
 const localAssetHosts = new Set(['localhost', '127.0.0.1', '0.0.0.0', '10.0.2.2']);
 const isLocalAssetHost = (host: string) => {
     const normalized = String(host || '').trim().toLowerCase();
@@ -235,6 +235,7 @@ const isAssetPath = (value: string) => {
 };
 
 const normalizeAssetUrl = (value: string) => {
+    const backendOrigin = getCmsBackendOrigin();
     if (!backendOrigin) return value;
     const trimmed = value.trim();
     if (!trimmed) return value;
@@ -414,7 +415,7 @@ const getAuthHeaders = async () => {
 const api = {
     get: async (endpoint: string) => {
         try {
-            const url = `${API_URL}${endpoint}`;
+            const url = `${getCmsApiUrl()}${endpoint}`;
             devLog(`🌐 API GET: ${url}`);
 
             const res = await fetch(url, {
@@ -451,7 +452,7 @@ const api = {
 
     post: async (endpoint: string, data: any) => {
         try {
-            const res = await fetch(`${API_URL}${endpoint}`, {
+            const res = await fetch(`${getCmsApiUrl()}${endpoint}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
                 body: JSON.stringify(data)
@@ -469,7 +470,7 @@ const api = {
 
     put: async (endpoint: string, data: any) => {
         try {
-            const res = await fetch(`${API_URL}${endpoint}`, {
+            const res = await fetch(`${getCmsApiUrl()}${endpoint}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
                 body: JSON.stringify(data)
@@ -487,7 +488,7 @@ const api = {
 
     delete: async (endpoint: string) => {
         try {
-            const res = await fetch(`${API_URL}${endpoint}`, {
+            const res = await fetch(`${getCmsApiUrl()}${endpoint}`, {
                 method: 'DELETE',
                 headers: { ...(await getAuthHeaders()) }
             });
@@ -772,7 +773,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 // Try a direct real-time fetch first (no-store). Be tolerant to failures.
                 let direct: any = null;
                 try {
-                        const res = await fetch(`${API_URL}${url}`, {
+                        const res = await fetch(`${getCmsApiUrl()}${url}`, {
                                 cache: 'no-store',
                                 headers: { 'Cache-Control': 'no-cache', Accept: 'application/json' }
                         });
@@ -820,7 +821,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
 
     getGuestHomepage: async (): Promise<any> => {
         try {
-            const direct = await fetch(`${API_URL}/homepage/guest`, {
+            const direct = await fetch(`${getCmsApiUrl()}/homepage/guest`, {
                 cache: 'no-store',
                 headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' }
             });
@@ -2262,7 +2263,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             const formData = new FormData();
             formData.append('file', file);
 
-            const res = await fetch(`${API_URL}/cms/media`, {
+            const res = await fetch(`${getCmsApiUrl()}/cms/media`, {
                 method: 'POST',
                 headers: {
                     ...getAuthHeaders()

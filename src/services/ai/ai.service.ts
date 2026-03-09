@@ -16,12 +16,12 @@ if (import.meta.env.PROD && !hasBackendEnv) {
   throw new Error('VITE_BACKEND_URL (or VITE_API_URL) must be set when building for production');
 }
 
-const API_URL = getApiBaseUrl();
+const getPublicApiUrl = () => getApiBaseUrl();
 const unwrap = (payload: any) => payload?.data?.data ?? payload?.data ?? payload;
 
 const publicApi = {
   get: async (endpoint: string) => {
-    const res = await fetch(`${API_URL}${endpoint}`);
+    const res = await fetch(`${getPublicApiUrl()}${endpoint}`);
     if (!res.ok) {
       const errorText = await res.text();
       throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
@@ -29,7 +29,7 @@ const publicApi = {
     return res.json();
   },
   post: async (endpoint: string, data: any) => {
-    const res = await fetch(`${API_URL}${endpoint}`, {
+    const res = await fetch(`${getPublicApiUrl()}${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)

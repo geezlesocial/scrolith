@@ -23,7 +23,7 @@ const isNative = () => {
   }
 };
 
-const API_URL = getApiBaseUrl();
+const isAbsoluteRequestUrl = (value: unknown) => /^https?:\/\//i.test(String(value || '').trim());
 const parseTimeoutMs = (value: unknown, fallback: number) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -139,7 +139,6 @@ const normalizeAssetUrls = (input: any, seen = new WeakSet()): any => {
 
 // Create axios instance with default config
 const api = axios.create({
-  baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -160,6 +159,9 @@ void (async () => {
 // Request interceptor to add auth token
 api.interceptors.request.use(
   async (config) => {
+    if (!config.baseURL && !isAbsoluteRequestUrl(config.url)) {
+      config.baseURL = getApiBaseUrl();
+    }
     const token = await readToken();
     if (token) {
       if (!config.headers) {

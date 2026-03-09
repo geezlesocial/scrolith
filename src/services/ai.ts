@@ -27,7 +27,7 @@ export interface ChatFlow {
   paths: Record<string, ChatPath>;
 }
 
-const API_URL = getApiBaseUrl();
+const getAiApiUrl = () => getApiBaseUrl();
 
 // Cache the flow to avoid refetching constantly for fallback
 let cachedChatFlow: ChatFlow | null = null;
@@ -127,7 +127,7 @@ export const getSupportResponse = async (
   if (detectPromptInjection(message)) return 'I cannot process that request due to security policies.';
 
   try {
-    const res = await fetch(`${API_URL}/ai/support-chat`, {
+    const res = await fetch(`${getAiApiUrl()}/ai/support-chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

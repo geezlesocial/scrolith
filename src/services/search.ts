@@ -3,7 +3,7 @@ import { Recommendation } from "../types";
 
 import { getApiBaseUrl } from '../utils/apiBase';
 
-const API_URL = getApiBaseUrl();
+const getSearchApiUrl = () => getApiBaseUrl();
 
 // GLOBAL Rate Limiting Variables (SHARED across ALL services)
 let lastSearchCallTime = 0;
@@ -70,7 +70,7 @@ class SearchService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000);
 
-      const res = await fetch(`${API_URL}${endpoint}`, {
+      const res = await fetch(`${getSearchApiUrl()}${endpoint}`, {
         method,
         headers: method === "POST" ? { "Content-Type": "application/json" } : undefined,
         body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
