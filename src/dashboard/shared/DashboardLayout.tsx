@@ -23,12 +23,13 @@ import {
   Wallet
 } from 'lucide-react';
 import { useUser } from '../../context/UserContext';
-import { UserRole } from '../../types';
+import type { UserRole } from '../../types';
 import { useMessages } from '../../context/MessageContext';
 import { useSocket } from '../../context/SocketContext';
 import { SupportService } from '../../services/support';
 import { MarketingService } from '../../services/marketing';
 import MobileDrawerNav, { DrawerSection } from '../../components/dashboard/MobileDrawerNav';
+import { USER_ROLES } from '../../utils/userRoles';
 
 const getDashboardTabFromPath = (pathname: string): string | null => {
   const parts = String(pathname || '')
@@ -68,7 +69,7 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
 
   if (commonMap[tab]) return commonMap[tab];
 
-  if (role === UserRole.EMPLOYER) {
+  if (role === USER_ROLES.EMPLOYER) {
     const employerMap: Record<string, string> = {
       jobs: 'my-jobs',
       job: 'my-jobs',
@@ -79,7 +80,7 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
     return employerMap[tab] || tab;
   }
 
-  if (role === UserRole.FREELANCER) {
+  if (role === USER_ROLES.FREELANCER) {
     const freelancerMap: Record<string, string> = {
       gigs: 'my-gigs',
       gig: 'my-gigs',
@@ -108,15 +109,15 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
 
   const effectiveRole = React.useMemo(() => {
     if (asParam) {
-      if (asParam.startsWith('f')) return UserRole.FREELANCER;
-      if (asParam.startsWith('e') || asParam.startsWith('c')) return UserRole.EMPLOYER;
+      if (asParam.startsWith('f')) return USER_ROLES.FREELANCER;
+      if (asParam.startsWith('e') || asParam.startsWith('c')) return USER_ROLES.EMPLOYER;
     }
 
     const path = location.pathname || '';
-    if (path.startsWith('/freelancer')) return UserRole.FREELANCER;
-    if (path.startsWith('/client')) return UserRole.EMPLOYER;
+    if (path.startsWith('/freelancer')) return USER_ROLES.FREELANCER;
+    if (path.startsWith('/client')) return USER_ROLES.EMPLOYER;
 
-    return (user?.role as UserRole) || UserRole.GUEST;
+    return (user?.role as UserRole) || USER_ROLES.GUEST;
   }, [asParam, user, location.pathname]);
 
   useEffect(() => {
@@ -169,7 +170,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
     let mounted = true;
     let timer: number | undefined;
 
-    const canViewAffiliate = effectiveRole === UserRole.FREELANCER || effectiveRole === UserRole.EMPLOYER;
+    const canViewAffiliate = effectiveRole === USER_ROLES.FREELANCER || effectiveRole === USER_ROLES.EMPLOYER;
     if (!user || !canViewAffiliate) {
       setShowAffiliateModule(false);
       return () => undefined;
@@ -206,9 +207,9 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   const handleRoleSwitch = () => {
     if (!user) return;
 
-    if (user.role === UserRole.ADMIN) {
+    if (user.role === USER_ROLES.ADMIN) {
       const params = new URLSearchParams(location.search);
-      const newAs = effectiveRole === UserRole.FREELANCER ? 'employer' : 'freelancer';
+      const newAs = effectiveRole === USER_ROLES.FREELANCER ? 'employer' : 'freelancer';
       params.set('as', newAs);
       const newSearch = params.toString();
       navigate(`${location.pathname}${newSearch ? `?${newSearch}` : ''}`, { replace: true });
@@ -216,8 +217,8 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
 
-    const targetRole = effectiveRole === UserRole.FREELANCER ? UserRole.EMPLOYER : UserRole.FREELANCER;
-    const targetPath = targetRole === UserRole.FREELANCER ? '/freelancer/dashboard' : '/client/dashboard';
+    const targetRole = effectiveRole === USER_ROLES.FREELANCER ? USER_ROLES.EMPLOYER : USER_ROLES.FREELANCER;
+    const targetPath = targetRole === USER_ROLES.FREELANCER ? '/freelancer/dashboard' : '/client/dashboard';
     try {
       sessionStorage.setItem('activeRole', String(targetRole));
     } catch {
@@ -228,7 +229,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const getSidebarSections = (): DrawerSection[] => {
-    if (effectiveRole === UserRole.FREELANCER) {
+    if (effectiveRole === USER_ROLES.FREELANCER) {
       const financeItems = [
         { tab: 'wallet', label: 'Wallet', icon: Wallet, description: 'Balance, payouts, and cash flow controls' },
         { tab: 'membership', label: 'Membership', icon: Crown, description: 'Plan access and subscription benefits' },
@@ -279,7 +280,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
       ];
     }
 
-    if (effectiveRole === UserRole.EMPLOYER) {
+    if (effectiveRole === USER_ROLES.EMPLOYER) {
       const financeItems = [
         { tab: 'wallet', label: 'Wallet', icon: Wallet, description: 'Balance, billing, and payment execution' },
         { tab: 'membership', label: 'Membership', icon: Crown, description: 'Plan access and premium hiring capabilities' },
@@ -332,9 +333,9 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const roleSwitchLabel =
-    user?.role === UserRole.ADMIN
-      ? `View as ${effectiveRole === UserRole.FREELANCER ? 'Client' : 'Freelancer'}`
-      : `Switch to ${effectiveRole === UserRole.FREELANCER ? 'Client' : 'Freelancer'}`;
+    user?.role === USER_ROLES.ADMIN
+      ? `View as ${effectiveRole === USER_ROLES.FREELANCER ? 'Client' : 'Freelancer'}`
+      : `Switch to ${effectiveRole === USER_ROLES.FREELANCER ? 'Client' : 'Freelancer'}`;
 
   const sidebarSections = getSidebarSections();
   const activeItem = sidebarSections.flatMap((section) => section.items).find((item) => item.tab === activeTab);

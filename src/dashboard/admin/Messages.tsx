@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Conversation, User, UserRole } from '../../types';
+import type { Conversation, MessengerVoiceConfig, User, UserRole } from '../../types';
 import { MessagingService } from '../../services/messaging';
 import { Search, Clock, ExternalLink, Plus, Loader2 } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
 import { AdminService } from '../../services/admin';
 import { useNotification } from '../../context/NotificationContext';
-import { MessengerVoiceConfig } from '../../types';
+import { USER_ROLES } from '../../utils/userRoles';
 
 const AdminMessages = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -31,7 +31,7 @@ const AdminMessages = () => {
       setLoading(false);
       return;
     }
-    if (user.role !== UserRole.ADMIN) {
+    if (user.role !== USER_ROLES.ADMIN) {
       setError('You do not have permission to view platform conversations.');
       setConversations([]);
       setLoading(false);
@@ -55,14 +55,14 @@ const AdminMessages = () => {
   }, [user, searchParams]);
 
   useEffect(() => {
-    if (!user || user.role !== UserRole.ADMIN) return;
+    if (!user || user.role !== USER_ROLES.ADMIN) return;
     AdminService.getUsers()
       .then(setUsers)
       .catch(() => setUsers([]));
   }, [user]);
 
   useEffect(() => {
-    if (!user || user.role !== UserRole.ADMIN) return;
+    if (!user || user.role !== USER_ROLES.ADMIN) return;
     AdminService.getMessengerVoiceConfig()
       .then((config) => {
         setVoiceConfig(config);

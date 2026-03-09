@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { CMSService } from '../../services/cms';
-import { ActivityConfig, NavIconConfig, HelpLink, UserRole } from '../../types';
+import type { ActivityConfig, NavIconConfig, HelpLink, UserRole } from '../../types';
 import { useNotification } from '../../context/NotificationContext';
 import { useSocket } from '../../context/SocketContext';
+import { USER_ROLES } from '../../utils/userRoles';
 import { 
     Layout, Bell, MessageSquare, Heart, HelpCircle, Save, Plus, Trash2, User,
     Move, ToggleLeft, ToggleRight, Palette, Link as LinkIcon, Check, Eye
@@ -61,16 +62,16 @@ const normalizeBoolean = (value: any, fallback: boolean) => {
 };
 
 const normalizeRole = (role: any): string => {
-    if (!role) return UserRole.GUEST;
+    if (!role) return USER_ROLES.GUEST;
     const r = String(role).toLowerCase().trim();
-    if (r === 'public') return UserRole.GUEST;
-    if (r === 'client') return UserRole.EMPLOYER;
+    if (r === 'public') return USER_ROLES.GUEST;
+    if (r === 'client') return USER_ROLES.EMPLOYER;
     if (r === 'all' || r === '*') return 'all';
     return r;
 };
 
 const normalizeRoleList = (value: any): string[] => {
-    const allRoles = [UserRole.GUEST, UserRole.FREELANCER, UserRole.EMPLOYER, UserRole.ADMIN, UserRole.MODERATOR];
+    const allRoles = [USER_ROLES.GUEST, USER_ROLES.FREELANCER, USER_ROLES.EMPLOYER, USER_ROLES.ADMIN, USER_ROLES.MODERATOR];
     const list = Array.isArray(value)
         ? value.map(normalizeRole).filter(Boolean)
         : typeof value === 'string'
@@ -372,7 +373,7 @@ const NavigationManager = () => {
                                                     <div>
                                                         <label className="block text-xs font-bold text-gray-500 mb-2">Visible To</label>
                                                         <div className="flex gap-2">
-                                                            {[UserRole.FREELANCER, UserRole.EMPLOYER, UserRole.ADMIN, UserRole.GUEST].map(role => (
+                                                            {[USER_ROLES.FREELANCER, USER_ROLES.EMPLOYER, USER_ROLES.ADMIN, USER_ROLES.GUEST].map(role => (
                                                                 <button
                                                                     key={role}
                                                                     onClick={() => toggleRole(icon.id, role)}

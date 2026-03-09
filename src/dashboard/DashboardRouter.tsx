@@ -2,7 +2,8 @@ import React, { Suspense, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { DashboardLayout } from './shared/DashboardLayout';
-import { UserRole } from '../types';
+import type { UserRole } from '../types';
+import { USER_ROLES } from '../utils/userRoles';
 
 const FreelancerOverview = React.lazy(() =>
   import('./freelancer/Overview').then((module) => ({ default: module.Overview }))
@@ -86,7 +87,7 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
 
   if (commonMap[tab]) return commonMap[tab];
 
-  if (role === UserRole.EMPLOYER) {
+  if (role === USER_ROLES.EMPLOYER) {
     const employerMap: Record<string, string> = {
       jobs: 'my-jobs',
       job: 'my-jobs',
@@ -99,7 +100,7 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
     return employerMap[tab] || tab;
   }
 
-  if (role === UserRole.FREELANCER) {
+  if (role === USER_ROLES.FREELANCER) {
     const freelancerMap: Record<string, string> = {
       gigs: 'my-gigs',
       gig: 'my-gigs',
@@ -126,17 +127,17 @@ export const DashboardRouter: React.FC = () => {
   const effectiveRole = React.useMemo(() => {
     // If explicit override provided via query param, honor it
     if (asParam) {
-      if (asParam.startsWith('f')) return UserRole.FREELANCER;
-      if (asParam.startsWith('e') || asParam.startsWith('c')) return UserRole.EMPLOYER;
+      if (asParam.startsWith('f')) return USER_ROLES.FREELANCER;
+      if (asParam.startsWith('e') || asParam.startsWith('c')) return USER_ROLES.EMPLOYER;
     }
 
     // If the current route indicates a dashboard type, prefer that view for admins
     const path = location.pathname || '';
-    if (path.startsWith('/freelancer')) return UserRole.FREELANCER;
-    if (path.startsWith('/client')) return UserRole.EMPLOYER;
+    if (path.startsWith('/freelancer')) return USER_ROLES.FREELANCER;
+    if (path.startsWith('/client')) return USER_ROLES.EMPLOYER;
 
     // Default to the user's role or guest
-    return (user?.role as UserRole) || UserRole.GUEST;
+    return (user?.role as UserRole) || USER_ROLES.GUEST;
   }, [asParam, user, location.pathname]);
 
   useEffect(() => {
@@ -163,7 +164,7 @@ export const DashboardRouter: React.FC = () => {
   if (!user) return null;
 
   const renderContent = () => {
-    if (effectiveRole === UserRole.FREELANCER) {
+    if (effectiveRole === USER_ROLES.FREELANCER) {
       switch (currentTab) {
         case 'overview':
           return <FreelancerOverview />;
@@ -210,7 +211,7 @@ export const DashboardRouter: React.FC = () => {
         default:
           return <FreelancerOverview />;
       }
-    } else if (effectiveRole === UserRole.EMPLOYER) {
+    } else if (effectiveRole === USER_ROLES.EMPLOYER) {
       switch (currentTab) {
         case 'overview':
           return <EmployerOverview />;

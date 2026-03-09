@@ -19,7 +19,8 @@ import type {
   ListingCategory,
   HeroSearchConfig,
 } from "../../types";
-import { UserRole } from "../../types";
+import type { UserRole } from "../../types";
+import { USER_ROLES } from "../../utils/userRoles";
 
 import { useNotification } from "../../context/NotificationContext";
 import { useContent } from "../../context/ContentContext";
@@ -92,10 +93,10 @@ function ensureArray<T>(v: any): T[] {
 }
 
 function normalizeRole(role: any): UserRole | string {
-  if (!role) return UserRole.GUEST;
+  if (!role) return USER_ROLES.GUEST;
   const normalized = String(role).toLowerCase().trim();
-  if (normalized === "public") return UserRole.GUEST;
-  if (normalized === "client") return UserRole.EMPLOYER;
+  if (normalized === "public") return USER_ROLES.GUEST;
+  if (normalized === "client") return USER_ROLES.EMPLOYER;
   if (normalized === "all" || normalized === "*") return "all";
   return normalized as UserRole;
 }
@@ -2352,7 +2353,7 @@ const HeaderBuilder = () => {
                   </div>
 
                   <div className="flex gap-1">
-                    {[UserRole.GUEST, UserRole.FREELANCER, UserRole.EMPLOYER, UserRole.ADMIN].map((role: any) => (
+                    {[USER_ROLES.GUEST, USER_ROLES.FREELANCER, USER_ROLES.EMPLOYER, USER_ROLES.ADMIN].map((role: any) => (
                       <button
                         key={`${nav.id}-${role}`}
                         data-testid={`nav-role-${nav.id}-${String(role)}`}
@@ -2483,7 +2484,7 @@ const HeaderBuilder = () => {
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    {[UserRole.GUEST, UserRole.FREELANCER, UserRole.EMPLOYER, UserRole.ADMIN].map((role: any) => (
+                    {[USER_ROLES.GUEST, USER_ROLES.FREELANCER, USER_ROLES.EMPLOYER, USER_ROLES.ADMIN].map((role: any) => (
                       <button
                         key={`${item.id}-${role}`}
                         data-testid={`profile-role-${item.id}-${String(role)}`}
@@ -2607,7 +2608,7 @@ const HeaderBuilder = () => {
                   />
 
                   <div className="flex flex-wrap gap-2">
-                    {[UserRole.GUEST, UserRole.FREELANCER, UserRole.EMPLOYER, UserRole.ADMIN].map((role: any) => (
+                    {[USER_ROLES.GUEST, USER_ROLES.FREELANCER, USER_ROLES.EMPLOYER, USER_ROLES.ADMIN].map((role: any) => (
                       <button
                         key={`${dropdownKey}-${role}`}
                         data-testid={`guest-dropdown-role-${dropdownKey}-${String(role)}`}
@@ -2648,7 +2649,7 @@ const HeaderBuilder = () => {
                           placeholder="/url"
                         />
                         <div className="flex gap-1 md:col-span-2">
-                          {[UserRole.GUEST, UserRole.FREELANCER, UserRole.EMPLOYER].map((role: any) => (
+                          {[USER_ROLES.GUEST, USER_ROLES.FREELANCER, USER_ROLES.EMPLOYER].map((role: any) => (
                             <button
                               key={`${item.id}-${role}`}
                               data-testid={`guest-dropdown-item-role-${item.id}-${String(role)}`}
@@ -2711,7 +2712,7 @@ const HeaderBuilder = () => {
                       placeholder="/url"
                     />
                     <div className="flex gap-1 md:col-span-2">
-                      {[UserRole.GUEST, UserRole.FREELANCER, UserRole.EMPLOYER].map((role: any) => (
+                      {[USER_ROLES.GUEST, USER_ROLES.FREELANCER, USER_ROLES.EMPLOYER].map((role: any) => (
                         <button
                           key={`${cta.id}-${role}`}
                           data-testid={`guest-cta-role-${cta.id}-${String(role)}`}
@@ -3420,7 +3421,7 @@ const TrendingManager = () => {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Visible To</label>
             <div className="flex gap-2">
-              {[UserRole.GUEST, UserRole.FREELANCER, UserRole.EMPLOYER].map((r: any) => (
+              {[USER_ROLES.GUEST, USER_ROLES.FREELANCER, USER_ROLES.EMPLOYER].map((r: any) => (
                 <button
                   data-testid={`trending-role-${String(r).toLowerCase()}`}
                   key={`${(config as any).id}-${r}`}
@@ -3536,7 +3537,7 @@ const SliderManager = () => {
       mediaUrl: "",
       isActive: true,
       sortOrder: slides.length + 1,
-      roleVisibility: [UserRole.GUEST, UserRole.EMPLOYER] as any,
+      roleVisibility: [USER_ROLES.GUEST, USER_ROLES.EMPLOYER] as any,
       backgroundColor: color,
       background_color: color as any,
       createdAt: new Date().toISOString(),
@@ -4052,7 +4053,7 @@ const LayoutManager = () => {
               <div>
                 <label className="block text-xs font-bold mb-2">Visible To Roles</label>
                 <div className="flex flex-wrap gap-2">
-                  {[UserRole.GUEST, UserRole.FREELANCER, UserRole.EMPLOYER, UserRole.ADMIN].map((role: any) => {
+                  {[USER_ROLES.GUEST, USER_ROLES.FREELANCER, USER_ROLES.EMPLOYER, USER_ROLES.ADMIN].map((role: any) => {
                     const selected = getTargetRoles(editingSection as any).includes(role);
                     return (
                       <button
@@ -5098,7 +5099,7 @@ const FooterBuilder = () => {
                   </button>
 
                   <div className="flex flex-wrap gap-2 md:col-span-12">
-                    {[UserRole.GUEST, UserRole.FREELANCER, UserRole.EMPLOYER, UserRole.ADMIN].map((role: any) => {
+                    {[USER_ROLES.GUEST, USER_ROLES.FREELANCER, USER_ROLES.EMPLOYER, USER_ROLES.ADMIN].map((role: any) => {
                       const selected = normalizeRoleList(link.visibility).includes(role);
                       return (
                         <button

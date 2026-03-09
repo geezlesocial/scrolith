@@ -62,7 +62,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 
-import { User as UserType, UserRole, GcoinWallet } from '../../types';
+import type { User as UserType, UserRole, GcoinWallet } from '../../types';
 import { AdminService } from '../../services/admin';
 import { WalletService } from '../../services/wallet';
 import { GcoinService } from '../../services/gcoin';

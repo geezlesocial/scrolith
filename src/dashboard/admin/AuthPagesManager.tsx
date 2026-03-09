@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, Save, Upload } from 'lucide-react';
 import { CMSService } from '../../services/cms';
-import { AuthPagesConfig, AuthProviderKey, UserRole } from '../../types';
+import type { AuthPagesConfig, AuthProviderKey, UserRole } from '../../types';
 import { useNotification } from '../../context/NotificationContext';
 import { useSocket } from '../../context/SocketContext';
+import { USER_ROLES } from '../../utils/userRoles';
 import FilePickerModal from '../shared/FilePickerModal';
 
 const defaultSocialConfig: AuthPagesConfig['social_auth'] = {
@@ -21,7 +22,7 @@ const defaultSocialConfig: AuthPagesConfig['social_auth'] = {
             label_logo_url: '',
             login_enabled: true,
             signup_enabled: true,
-            allow_roles: [UserRole.FREELANCER, UserRole.EMPLOYER]
+            allow_roles: [USER_ROLES.FREELANCER, USER_ROLES.EMPLOYER]
         },
         facebook: {
             enabled: false,
@@ -32,7 +33,7 @@ const defaultSocialConfig: AuthPagesConfig['social_auth'] = {
             label_logo_url: '',
             login_enabled: true,
             signup_enabled: true,
-            allow_roles: [UserRole.FREELANCER, UserRole.EMPLOYER]
+            allow_roles: [USER_ROLES.FREELANCER, USER_ROLES.EMPLOYER]
         },
         twitter: {
             enabled: false,
@@ -43,7 +44,7 @@ const defaultSocialConfig: AuthPagesConfig['social_auth'] = {
             label_logo_url: '',
             login_enabled: true,
             signup_enabled: true,
-            allow_roles: [UserRole.FREELANCER, UserRole.EMPLOYER]
+            allow_roles: [USER_ROLES.FREELANCER, USER_ROLES.EMPLOYER]
         },
         linkedin: {
             enabled: false,
@@ -54,7 +55,7 @@ const defaultSocialConfig: AuthPagesConfig['social_auth'] = {
             label_logo_url: '',
             login_enabled: true,
             signup_enabled: true,
-            allow_roles: [UserRole.FREELANCER, UserRole.EMPLOYER]
+            allow_roles: [USER_ROLES.FREELANCER, USER_ROLES.EMPLOYER]
         }
     }
 };
@@ -686,7 +687,7 @@ const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'ca
                                         <div>
                                             <p className="text-xs font-medium text-gray-600 mb-2">Allowed Roles (Signup)</p>
                                             <div className="flex flex-wrap gap-3">
-                                                {[UserRole.FREELANCER, UserRole.EMPLOYER].map((role) => (
+                                                {[USER_ROLES.FREELANCER, USER_ROLES.EMPLOYER].map((role) => (
                                                     <label key={`${provider}-${role}`} className="flex items-center space-x-2 text-xs text-gray-600">
                                                         <input
                                                             type="checkbox"
@@ -694,7 +695,7 @@ const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'ca
                                                             onChange={() => toggleProviderRole(provider, role)}
                                                             className="h-4 w-4 text-blue-600 border-gray-300 rounded"
                                                         />
-                                                        <span>{role === UserRole.FREELANCER ? 'Freelancer' : 'Employer'}</span>
+                                                        <span>{role === USER_ROLES.FREELANCER ? 'Freelancer' : 'Employer'}</span>
                                                     </label>
                                                 ))}
                                             </div>

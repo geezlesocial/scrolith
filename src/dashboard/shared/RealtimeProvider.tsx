@@ -1,12 +1,13 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useUser } from '../../context/UserContext';
-import { UserRole } from '../../types';
+import type { UserRole } from '../../types';
 import { useSocket } from '../../context/SocketContext';
 import { useNotification } from '../../context/NotificationContext';
 import { MessagingService } from '../../services/messaging';
 import { ordersApi as OrdersService } from '../../services/orders';
 import { ContractService } from '../../services/contract';
 import { walletApi as WalletApi } from '../../services/wallet';
+import { USER_ROLES } from '../../utils/userRoles';
 
 type RealtimeContextType = {
   socketConnected: boolean;
@@ -34,7 +35,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     pollRef.current = window.setInterval(async () => {
       if (!user) return;
       const roleStr = normalizeRole(String(user.role));
-      const messagingRole = roleStr === 'freelancer' ? UserRole.FREELANCER : roleStr === 'client' ? UserRole.EMPLOYER : roleStr === 'admin' ? UserRole.ADMIN : UserRole.GUEST;
+      const messagingRole = roleStr === 'freelancer' ? USER_ROLES.FREELANCER : roleStr === 'client' ? USER_ROLES.EMPLOYER : roleStr === 'admin' ? USER_ROLES.ADMIN : USER_ROLES.GUEST;
       const contractRole = roleStr === 'client' ? 'client' : roleStr === 'freelancer' ? 'freelancer' : roleStr === 'admin' ? 'admin' : 'client';
       await Promise.allSettled([
         refreshNotifications?.(),
@@ -87,7 +88,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const onMessagesNew = () => {
       const mRole = normalizeRole(String(user.role));
-      const messagingRole = mRole === 'freelancer' ? UserRole.FREELANCER : mRole === 'client' ? UserRole.EMPLOYER : mRole === 'admin' ? UserRole.ADMIN : UserRole.GUEST;
+      const messagingRole = mRole === 'freelancer' ? USER_ROLES.FREELANCER : mRole === 'client' ? USER_ROLES.EMPLOYER : mRole === 'admin' ? USER_ROLES.ADMIN : USER_ROLES.GUEST;
       MessagingService.getAllConversations?.(user.id, messagingRole).catch(() => {});
     };
 

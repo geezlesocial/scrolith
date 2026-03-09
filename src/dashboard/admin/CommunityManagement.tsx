@@ -8,7 +8,7 @@ import { CommunityService } from '../../services/community';
 import { GcoinService } from '../../services/gcoin';
 import { AdService } from '../../services/ads';
 import { FileService } from '../../services/files';
-import { CommunitySettings, ModerationLog, ForumThread, CommunityChannel, GcoinWallet, AdCampaign, UserRole, UploadedFile, GcoinSettings, GcoinConversionRequest, CommunityPostReport } from '../../types';
+import type { CommunitySettings, ModerationLog, ForumThread, CommunityChannel, GcoinWallet, AdCampaign, UserRole, UploadedFile, GcoinSettings, GcoinConversionRequest, CommunityPostReport } from '../../types';
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
 import CommunityAnalytics from './CommunityAnalytics';
