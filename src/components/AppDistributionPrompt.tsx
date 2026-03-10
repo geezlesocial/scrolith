@@ -8,6 +8,7 @@ import {
   AppDistributionPlatform,
   AppDistributionService
 } from '../services/appDistribution';
+import { resolveResponsiveAssetUrl } from '../utils/assetUrl';
 
 type PromptHistory = {
   shows: number[];
@@ -212,7 +213,10 @@ const AppDistributionPrompt: React.FC = () => {
   if (!visible || !config) return null;
 
   const target = platform === 'android' ? config.android : config.desktop;
-  const icon = target.iconUrl || config.branding.iconUrl || config.branding.logoUrl;
+  const icon = resolveResponsiveAssetUrl(
+    target.iconUrl || config.branding.iconUrl || config.branding.logoUrl,
+    { width: 96, height: 96, fit: 'contain' }
+  );
   const hasDownload = Boolean(target.downloadUrl);
 
   const dismiss = (reason: string) => {
@@ -259,7 +263,14 @@ const AppDistributionPrompt: React.FC = () => {
       <div className="flex items-start gap-3">
         <div className="mt-0.5 flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl bg-slate-100">
           {icon ? (
-            <img src={icon} alt="Scrolith app" className="h-full w-full object-cover" />
+            <img
+              src={icon}
+              alt="Scrolith app"
+              width={44}
+              height={44}
+              decoding="async"
+              className="h-full w-full object-cover"
+            />
           ) : platform === 'android' ? (
             <Smartphone className="h-5 w-5 text-slate-700" />
           ) : (

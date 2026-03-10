@@ -5,6 +5,7 @@ import { useContent } from "../../context/ContentContext";
 import { executeRecaptcha } from "../../services/recaptcha";
 import AuthSocialButtons from "../../auth/AuthSocialButtons";
 import { CMSService } from "../../services/cms";
+import { resolveResponsiveAssetUrl } from "../../utils/assetUrl";
 import {
   AuthPagesConfig,
   FooterCtaStripContent,
@@ -826,7 +827,14 @@ export const GuestCommunityPreviewSection: React.FC<{ content: GuestCommunityPre
             <div key={`${post.id || 'community-post'}-${index}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="mb-3 flex items-center gap-3">
                 {post.author?.avatar ? (
-                  <img src={post.author.avatar} alt={post.author?.name || 'User'} className="h-10 w-10 rounded-full object-cover" />
+                  <img
+                    src={resolveResponsiveAssetUrl(post.author.avatar, { width: 96, height: 96, fit: 'cover' })}
+                    alt={post.author?.name || 'User'}
+                    width={40}
+                    height={40}
+                    decoding="async"
+                    className="h-10 w-10 rounded-full object-cover"
+                  />
                 ) : (
                   <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-600">
                     {(post.author?.name || 'U').charAt(0).toUpperCase()}

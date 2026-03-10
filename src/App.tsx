@@ -38,6 +38,7 @@ import {
   setBiometricPreference
 } from './mobile/biometrics';
 import { MarketingService } from './services/marketing';
+import { resolveResponsiveAssetUrl } from './utils/assetUrl';
 
 // Lazy Loaded Components
 const Landing = React.lazy(() => import('./main/Landing'));
@@ -223,6 +224,7 @@ const AppContent = () => {
   const { showNotification } = useNotification();
   const location = useLocation();
   const navigate = useNavigate();
+  const isHomeRoute = location.pathname === '/';
   const themeKey = 'Scrolith.pref.theme';
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricVerified, setBiometricVerified] = useState(false);
@@ -230,6 +232,9 @@ const AppContent = () => {
   const [biometricError, setBiometricError] = useState<string | null>(null);
   const [biometryLabel, setBiometryLabel] = useState('Biometric');
   const [biometricPrefVersion, setBiometricPrefVersion] = useState(0);
+  const [nonCriticalUiReady, setNonCriticalUiReady] = useState(() =>
+    typeof window !== 'undefined' ? window.location.pathname !== '/' : false
+  );
   const biometricCheckingRef = useRef(false);
   const biometricVerifiedRef = useRef(false);
   const appBackgroundAtRef = useRef<number | null>(null);
@@ -237,6 +242,52 @@ const AppContent = () => {
   const lastBiometricSuccessAtRef = useRef(0);
   const lastBiometricPromptAtRef = useRef(0);
   const isNative = isNativePlatform();
+
+  useEffect(() => {
+    if (!isHomeRoute) {
+      setNonCriticalUiReady(true);
+      return;
+    }
+
+    setNonCriticalUiReady(false);
+
+    let disposed = false;
+    let timeoutId: number | null = null;
+    let idleId: number | null = null;
+    const complete = () => {
+      if (disposed) return;
+      disposed = true;
+      setNonCriticalUiReady(true);
+      window.removeEventListener('pointerdown', complete);
+      window.removeEventListener('keydown', complete);
+      window.removeEventListener('touchstart', complete);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      if (idleId !== null && 'cancelIdleCallback' in window) {
+        (window as any).cancelIdleCallback(idleId);
+      }
+    };
+
+    window.addEventListener('pointerdown', complete, { once: true, passive: true });
+    window.addEventListener('keydown', complete, { once: true });
+    window.addEventListener('touchstart', complete, { once: true, passive: true });
+
+    if ('requestIdleCallback' in window) {
+      idleId = (window as any).requestIdleCallback(complete, { timeout: 1800 });
+    } else {
+      timeoutId = window.setTimeout(complete, 1800);
+    }
+
+    return () => {
+      window.removeEventListener('pointerdown', complete);
+      window.removeEventListener('keydown', complete);
+      window.removeEventListener('touchstart', complete);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      if (idleId !== null && 'cancelIdleCallback' in window) {
+        (window as any).cancelIdleCallback(idleId);
+      }
+      disposed = true;
+    };
+  }, [isHomeRoute]);
 
   useEffect(() => {
     const referralCode = new URLSearchParams(location.search).get('ref');
@@ -314,9 +365,13 @@ const AppContent = () => {
         faviconUrl.startsWith('http://') || faviconUrl.startsWith('https://')
           ? faviconUrl
           : new URL(faviconUrl, window.location.origin).toString();
-      ensureRelLinks(resolved);
-      localStorage.setItem(LAST_FAVICON_KEY, resolved);
-      console.log('Favicon updated:', resolved);
+      const optimizedFavicon = resolveResponsiveAssetUrl(resolved, {
+        width: 64,
+        height: 64,
+        fit: 'contain'
+      });
+      ensureRelLinks(optimizedFavicon);
+      localStorage.setItem(LAST_FAVICON_KEY, optimizedFavicon);
       return;
     } catch (e) {
       console.warn('Could not resolve favicon URL, falling back:', faviconUrl, e);
@@ -557,7 +612,7 @@ const AppContent = () => {
     <div className="flex flex-col min-h-screen relative">
       <IntegrationsManager />
       <OfflineBanner />
-      {!shouldHideAppDistributionPrompt && <AppDistributionPrompt />}
+      {!shouldHideAppDistributionPrompt && nonCriticalUiReady && <AppDistributionPrompt />}
       {!isAdminRoute && !isMobileShellRoute && !isScrollRoute && <Navbar />}
       <main className="flex-grow">
         <ErrorBoundary>
@@ -944,12 +999,12 @@ const AppContent = () => {
         </ErrorBoundary>
       </main>
       {!shouldHideFooter && <DynamicFooter />}
-      {!shouldHideSupportWidget && (
+      {!shouldHideSupportWidget && nonCriticalUiReady && (
         <Suspense fallback={null}>
           <SupportWidget />
         </Suspense>
       )}
-      {!isAdminRoute && !isMobileShellRoute && (
+      {!isAdminRoute && !isMobileShellRoute && nonCriticalUiReady && (
         <Suspense fallback={null}>
           <MarketingPopups />
         </Suspense>

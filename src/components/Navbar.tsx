@@ -35,7 +35,7 @@ import { CMSService } from "../services/cms";
 import { HeaderConfig, ActivityConfig, UserRole, HeroSearchConfig } from "../types";
 import SearchInput from "./SearchInput";
 import { getNotificationActionUrl, getNotificationBucket } from "../utils/notificationRouting";
-import { resolveAssetUrl } from "../utils/assetUrl";
+import { resolveResponsiveAssetUrl } from "../utils/assetUrl";
 
 type LucideIconComponent = React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
 
@@ -128,6 +128,7 @@ const ensureArray = <T,>(value: any): T[] => (Array.isArray(value) ? value : [])
 const Navbar = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const isHome = location.pathname === "/";
 
   const { user, isAuthenticated, logout } = useUser();
   const { settings } = useContent();
@@ -196,7 +197,7 @@ const Navbar = () => {
       const [header, activity, heroCfg] = await Promise.all([
         CMSService.getHeaderConfig(),
         CMSService.getActivityConfig(),
-        CMSService.getHeroSearchConfig(),
+        isHome ? Promise.resolve(null) : CMSService.getHeroSearchConfig(),
       ]);
 
       if (!mountedRef.current) return;
@@ -280,7 +281,7 @@ const Navbar = () => {
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, []);
+  }, [isHome]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -371,7 +372,6 @@ const Navbar = () => {
 
   const userRole = user?.role || UserRole.GUEST;
   const normalizedUserRole = normalizeRole(userRole || UserRole.GUEST);
-  const isHome = location.pathname === "/";
   const favoritesCount = favorites?.length || 0;
   const cartCount = cart?.totalItems || 0;
 
@@ -708,11 +708,18 @@ const Navbar = () => {
 
   const headerWrapperClass = `${isHome ? "relative" : "sticky top-0"} z-40 bg-white border-b border-gray-200`;
   const brandName = String(pick(hc, 'title') ?? settings?.siteName ?? '');
-  const brandLogoSrc = resolveAssetUrl(
-    String((headerConfig as any)?.logoUrl || (headerConfig as any)?.logo_url || settings?.logoUrl || '')
+  const brandLogoSrc = resolveResponsiveAssetUrl(
+    String((headerConfig as any)?.logoUrl || (headerConfig as any)?.logo_url || settings?.logoUrl || ''),
+    { width: 320, height: 64 }
   );
   const avatarName = String(pick(uobj, 'name', 'username', 'email') ?? '');
-  const avatarUrl = String(pick(uobj, 'avatar') ?? (avatarName ? `https://ui-avatars.com/api/?name=${encodeURIComponent(avatarName)}&background=0D8ABC&color=fff` : ''));
+  const avatarUrl = resolveResponsiveAssetUrl(
+    String(
+      pick(uobj, 'avatar') ??
+      (avatarName ? `https://ui-avatars.com/api/?name=${encodeURIComponent(avatarName)}&background=0D8ABC&color=fff` : '')
+    ),
+    { width: 96, height: 96, fit: 'cover' }
+  );
 
   const headerActions = (pick(hc, 'actions') as Record<string, unknown>) || {};
   const headerSearchMode = String(pick(hc, 'searchMode', 'search_mode') ?? 'keyword');
