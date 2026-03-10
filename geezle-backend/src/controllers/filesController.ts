@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
 import jwt from 'jsonwebtoken';
+import { Jimp } from 'jimp';
 // Prefer Node's crypto.randomUUID to avoid importing `uuid` (ESM issues in some test runners)
 const crypto = require('crypto');
 const uuidv4 = () => {
@@ -70,6 +71,20 @@ const ALLOWED_IMAGE_MIME_TYPES = new Set([
   'image/webp',
   'image/gif'
 ]);
+
+const RESIZABLE_IMAGE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/bmp',
+  'image/tiff'
+]);
+
+const IMAGE_VARIANT_CACHE_LIMIT = 200;
+const IMAGE_VARIANT_MAX_DIMENSION = 2048;
+const IMAGE_VARIANT_MIN_QUALITY = 40;
+const IMAGE_VARIANT_MAX_QUALITY = 90;
+const imageVariantCache = new Map<string, { buffer: Buffer; contentType: string }>();
 
 const ALLOWED_VIDEO_MIME_TYPES = new Set([
   'video/mp4',
@@ -584,6 +599,160 @@ const getMimeTypeFromFilename = (filename: string) => {
     '.7z': 'application/x-7z-compressed'
   };
   return map[ext] || 'application/octet-stream';
+};
+
+type ImageVariantRequest = {
+  width: number | null;
+  height: number | null;
+  fit: 'inside' | 'cover' | 'contain';
+  quality: number;
+};
+
+const parseBoundedPositiveInt = (value: unknown, max: number) => {
+  const parsed = Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.max(1, Math.min(max, parsed));
+};
+
+const parseImageVariantRequest = (req: Request): ImageVariantRequest | null => {
+  const width = parseBoundedPositiveInt(req.query?.w ?? req.query?.width, IMAGE_VARIANT_MAX_DIMENSION);
+  const height = parseBoundedPositiveInt(req.query?.h ?? req.query?.height, IMAGE_VARIANT_MAX_DIMENSION);
+  if (!width && !height) return null;
+
+  const fitRaw = String(req.query?.fit || '').trim().toLowerCase();
+  const fit: ImageVariantRequest['fit'] =
+    fitRaw === 'cover' || fitRaw === 'contain' ? fitRaw : 'inside';
+  const quality =
+    parseBoundedPositiveInt(req.query?.q ?? req.query?.quality, IMAGE_VARIANT_MAX_QUALITY) ??
+    76;
+
+  return {
+    width,
+    height,
+    fit,
+    quality: Math.max(IMAGE_VARIANT_MIN_QUALITY, Math.min(IMAGE_VARIANT_MAX_QUALITY, quality))
+  };
+};
+
+const isResizableImageMimeType = (mimeType?: string | null) =>
+  RESIZABLE_IMAGE_MIME_TYPES.has(String(mimeType || '').toLowerCase());
+
+const buildImageVariantCacheKey = (
+  file: { id: string; storageKey?: string | null; filename?: string | null; url?: string | null; mimeType?: string | null },
+  variant: ImageVariantRequest
+) =>
+  [
+    file.id,
+    file.storageKey || file.filename || file.url || '',
+    String(file.mimeType || '').toLowerCase(),
+    variant.width || '',
+    variant.height || '',
+    variant.fit,
+    variant.quality
+  ].join(':');
+
+const rememberImageVariant = (key: string, value: { buffer: Buffer; contentType: string }) => {
+  if (imageVariantCache.has(key)) {
+    imageVariantCache.delete(key);
+  }
+  imageVariantCache.set(key, value);
+  while (imageVariantCache.size > IMAGE_VARIANT_CACHE_LIMIT) {
+    const oldestKey = imageVariantCache.keys().next().value;
+    if (!oldestKey) break;
+    imageVariantCache.delete(oldestKey);
+  }
+};
+
+const streamToBuffer = async (stream: NodeJS.ReadableStream) =>
+  new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    stream.on('data', (chunk) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+    stream.on('error', reject);
+  });
+
+const resolveLocalStoredFilePath = (file: {
+  storageKey?: string | null;
+  url?: string | null;
+  filename?: string | null;
+}) => {
+  const storageKeyPath = file.storageKey ? stripUploadsPrefix(file.storageKey) : '';
+  const candidatePath = storageKeyPath
+    ? path.resolve(UPLOAD_DIR, storageKeyPath)
+    : file.url
+      ? path.resolve(UPLOAD_DIR, stripUploadsPrefix(file.url))
+      : path.resolve(UPLOAD_DIR, file.filename || '');
+
+  if (!candidatePath.startsWith(path.resolve(UPLOAD_DIR))) {
+    return null;
+  }
+
+  return candidatePath;
+};
+
+const loadStoredFileBuffer = async (file: {
+  storageProvider?: string | null;
+  storageKey?: string | null;
+  url?: string | null;
+  filename?: string | null;
+}) => {
+  const storedProvider = String(file.storageProvider || DEFAULT_STORAGE_PROVIDER).toLowerCase();
+  if (storedProvider === AZURE_BLOB_STORAGE_PROVIDER) {
+    if (!file.storageKey) return null;
+    const blobResponse = await downloadBlobByName(file.storageKey);
+    const stream = blobResponse.readableStreamBody;
+    if (!stream) return null;
+    return streamToBuffer(stream);
+  }
+
+  const localPath = resolveLocalStoredFilePath(file);
+  if (!localPath || !fs.existsSync(localPath)) return null;
+  return fs.readFileSync(localPath);
+};
+
+const resolveTransformedImageMimeType = (image: any, originalMimeType?: string | null) => {
+  const normalized = String(originalMimeType || '').toLowerCase();
+  if (normalized === 'image/png' || normalized === 'image/gif' || image.hasAlpha()) {
+    return 'image/png';
+  }
+  if (normalized === 'image/tiff' || normalized === 'image/bmp') {
+    return 'image/png';
+  }
+  return 'image/jpeg';
+};
+
+const transformImageBuffer = async (
+  sourceBuffer: Buffer,
+  originalMimeType: string,
+  variant: ImageVariantRequest
+) => {
+  const image: any = await Jimp.read(sourceBuffer);
+  const width = variant.width;
+  const height = variant.height;
+
+  if (width && height) {
+    if (variant.fit === 'cover') {
+      image.cover({ w: width, h: height });
+    } else if (variant.fit === 'contain') {
+      image.contain({ w: width, h: height });
+    } else {
+      image.scaleToFit({ w: width, h: height });
+    }
+  } else if (width) {
+    image.resize({ w: width });
+  } else if (height) {
+    image.resize({ h: height });
+  }
+
+  const contentType = resolveTransformedImageMimeType(image, originalMimeType);
+  const buffer =
+    contentType === 'image/jpeg'
+      ? await image.getBuffer(contentType, { quality: variant.quality })
+      : await image.getBuffer(contentType);
+
+  return { buffer, contentType };
 };
 
 const parseImageDimensionsFromBuffer = (buffer: Buffer, mimeType: string) => {
@@ -1249,6 +1418,50 @@ export const serveFileContent = async (req: Request, res: Response) => {
     const cacheControl = isPrivate
       ? 'private, no-store, max-age=0'
       : 'public, max-age=31536000, immutable';
+    const imageVariant = parseImageVariantRequest(req);
+
+    if (imageVariant && isResizableImageMimeType(file.mimeType)) {
+      try {
+        const cacheKey = buildImageVariantCacheKey(file, imageVariant);
+        const cachedVariant = !isPrivate ? imageVariantCache.get(cacheKey) : null;
+        if (cachedVariant) {
+          applyFileResponseHeaders(res, {
+            contentType: cachedVariant.contentType,
+            contentLength: cachedVariant.buffer.length,
+            cacheControl
+          });
+          res.end(cachedVariant.buffer);
+          return;
+        }
+
+        const sourceBuffer = await loadStoredFileBuffer(file);
+        if (sourceBuffer) {
+          const transformed = await transformImageBuffer(
+            sourceBuffer,
+            String(file.mimeType || ''),
+            imageVariant
+          );
+
+          if (!isPrivate) {
+            rememberImageVariant(cacheKey, transformed);
+          }
+
+          applyFileResponseHeaders(res, {
+            contentType: transformed.contentType,
+            contentLength: transformed.buffer.length,
+            cacheControl
+          });
+          res.end(transformed.buffer);
+          return;
+        }
+      } catch (error) {
+        console.warn('Failed to serve optimized image variant, falling back to original asset.', {
+          fileId: file.id,
+          error
+        });
+      }
+    }
+
     const storedProvider = String(file.storageProvider || DEFAULT_STORAGE_PROVIDER).toLowerCase();
 
     if (storedProvider === AZURE_BLOB_STORAGE_PROVIDER) {
