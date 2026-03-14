@@ -1,12 +1,14 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Send, Headphones, Sparkles, RefreshCw, Paperclip, FileText, ChevronRight, Mic, MicOff } from 'lucide-react';
+import { X, Send, Headphones, Sparkles, RefreshCw, Paperclip, FileText, ChevronRight, Mic, MicOff, Loader2 } from 'lucide-react';
 import { getSupportResponse, loadChatFlow, ChatOption, ChatFlow } from '../services/ai';
-import ScrolithaService, { ScrolithaWidgetConfig } from '../services/scrolitha';
+import ScrolithaService, { ScrolithaSuggestedAction, ScrolithaWidgetConfig } from '../services/scrolitha';
 import { Attachment } from '../types';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
+import { useNotification } from '../context/NotificationContext';
 import { useSocket } from '../context/SocketContext';
+import { buildScrolithaPath, clearScrolithaLaunchParams, readScrolithaLaunchParams } from '../utils/scrolithaLaunch';
 
 type Sender = 'user' | 'agent' | 'system';
 type UserRole = 'Freelancer' | 'Employer' | null;
@@ -16,6 +18,18 @@ interface UIMessage {
   text?: string;
   timestamp: Date;
   attachments?: Attachment[];
+}
+
+interface ConversionCta {
+  id: string;
+  eyebrow: string;
+  title: string;
+  description: string;
+  primaryLabel: string;
+  primaryAction: () => void;
+  secondaryLabel?: string;
+  secondaryAction?: () => void;
+  meta?: string;
 }
 
 // Add simple type for Web Speech API
@@ -35,7 +49,17 @@ const defaultWidgetConfig: ScrolithaWidgetConfig = {
   logoUrl: '',
   logoFileId: '',
   welcomeText: "Hi! I'm Scrolitha. I can help you navigate Scrolith. What describes you best?",
-  typingText: 'Scrolitha is thinking...'
+  typingText: 'Scrolitha is thinking...',
+  placeholderText: 'Ask Scrolitha a question...',
+  emptyStateText: 'Ask about support, gigs, jobs, files, orders, notifications, or account help.',
+  offlineMessage: "I'm having trouble connecting right now. Please try again in a moment.",
+  disclaimerText: 'Scrolitha keeps actions inside approved platform tools and confirmation rules.',
+  starterPrompts: ['Create a gig draft', 'Generate a structured project brief', 'Show my latest orders'],
+  guestStarterPrompts: ['How do I get started?', 'How do gigs and jobs work?', 'How do I contact support?'],
+  allowVoiceInput: true,
+  allowFileUpload: true,
+  showStatusBadge: true,
+  maxHistoryItems: 24
 };
 
 const colorToText = (color: string, fallback = '#ffffff') => {
@@ -49,9 +73,24 @@ const colorToText = (color: string, fallback = '#ffffff') => {
   return luma > 0.62 ? '#0f172a' : '#ffffff';
 };
 
+const normalizeActionSearchIndex = (action: ScrolithaSuggestedAction) =>
+  [
+    action.summary,
+    action.actionKey,
+    action.toolKey,
+    action.tool?.endpoint,
+    action.tool?.method,
+    action.agent?.skillKey,
+    action.agent?.skillName
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
 const SupportWidget: React.FC = () => {
   const { user, isAuthenticated } = useUser();
-  const { socket } = useSocket();
+  const { showNotification } = useNotification();
+  const { socket, isConnected } = useSocket();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -60,6 +99,9 @@ const SupportWidget: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [role, setRole] = useState<UserRole>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [suggestedActions, setSuggestedActions] = useState<ScrolithaSuggestedAction[]>([]);
+  const [followUpPrompts, setFollowUpPrompts] = useState<string[]>([]);
+  const [runningActionId, setRunningActionId] = useState<string | null>(null);
   
   // Chat State
   const [chatHistory, setChatHistory] = useState<UIMessage[]>([]);
@@ -77,6 +119,7 @@ const SupportWidget: React.FC = () => {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const lastLaunchSearchRef = useRef<string>('');
 
   const loadWidgetConfig = useCallback(async () => {
     try {
@@ -86,6 +129,29 @@ const SupportWidget: React.FC = () => {
       setWidgetConfig(defaultWidgetConfig);
     }
   }, []);
+
+  const pushMessages = useCallback(
+    (entries: UIMessage | UIMessage[]) => {
+      const maxItems = Math.max(8, Math.min(60, Number(widgetConfig.maxHistoryItems || defaultWidgetConfig.maxHistoryItems || 24)));
+      const nextEntries = Array.isArray(entries) ? entries : [entries];
+      setChatHistory((prev) => [...prev, ...nextEntries].slice(-maxItems));
+    },
+    [widgetConfig.maxHistoryItems]
+  );
+
+  const normalizedGuestPrompts =
+    Array.isArray(widgetConfig.guestStarterPrompts) && widgetConfig.guestStarterPrompts.length
+      ? widgetConfig.guestStarterPrompts
+      : defaultWidgetConfig.guestStarterPrompts || [];
+  const normalizedStarterPrompts =
+    Array.isArray(widgetConfig.starterPrompts) && widgetConfig.starterPrompts.length
+      ? widgetConfig.starterPrompts
+      : defaultWidgetConfig.starterPrompts || [];
+  const quickPrompts = followUpPrompts.length
+    ? followUpPrompts
+    : isAuthenticated
+      ? normalizedStarterPrompts
+      : normalizedGuestPrompts;
 
   // Load Configuration on Mount
   useEffect(() => {
@@ -109,15 +175,20 @@ const SupportWidget: React.FC = () => {
             options: Array.isArray(flow.initial_prompt?.options) ? flow.initial_prompt.options : []
           }
         };
+        const personalizedWelcome = isAuthenticated
+          ? `Hi${user?.name ? ` ${user.name.split(' ')[0]}` : ''}. ${normalizedConfig.emptyStateText || defaultWidgetConfig.emptyStateText}`
+          : mergedFlow.initial_prompt.text;
         setChatFlow(mergedFlow);
         setIsFlowLoaded(true);
-        setCurrentOptions(mergedFlow.initial_prompt.options);
+        setCurrentOptions(isAuthenticated ? [] : mergedFlow.initial_prompt.options);
+        setSuggestedActions([]);
+        setFollowUpPrompts([]);
         
         // Set initial greeting
         setChatHistory([
           { 
             sender: 'agent', 
-            text: mergedFlow.initial_prompt.text, 
+            text: personalizedWelcome,
             timestamp: new Date() 
           }
         ]);
@@ -126,7 +197,7 @@ const SupportWidget: React.FC = () => {
       }
     };
     initChat();
-  }, []);
+  }, [isAuthenticated, user?.name]);
 
   // Initialize Speech Recognition
   useEffect(() => {
@@ -172,6 +243,397 @@ const SupportWidget: React.FC = () => {
     };
   }, [socket, loadWidgetConfig]);
 
+  useEffect(() => {
+    if (!isFlowLoaded) return;
+    const { shouldOpen, prompt } = readScrolithaLaunchParams(location.search);
+    if (!shouldOpen) {
+      lastLaunchSearchRef.current = '';
+      return;
+    }
+    if (lastLaunchSearchRef.current === location.search) return;
+    lastLaunchSearchRef.current = location.search;
+    setIsOpen(true);
+    const nextSearch = clearScrolithaLaunchParams(location.search);
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch,
+        hash: location.hash
+      },
+      { replace: true, state: location.state }
+    );
+    if (prompt) {
+      const timer = window.setTimeout(() => {
+        void handleSendText(prompt);
+      }, 120);
+      return () => window.clearTimeout(timer);
+    }
+  }, [isFlowLoaded, location.hash, location.pathname, location.search, location.state, navigate]);
+
+  const handlePromptClick = async (prompt: string) => {
+    const nextPrompt = String(prompt || '').trim();
+    if (!nextPrompt) return;
+    setMessage('');
+    setCurrentOptions([]);
+    setFollowUpPrompts([]);
+    await handleSendText(nextPrompt);
+  };
+
+  const canRunSuggestedAction = (action: ScrolithaSuggestedAction) =>
+    Boolean(action?.actionId) && String(action?.tool?.method || '').toUpperCase() === 'GET' && !action.requiresConfirmation;
+
+  const runSuggestedAction = async (action: ScrolithaSuggestedAction) => {
+    if (!canRunSuggestedAction(action)) return;
+    setRunningActionId(action.actionId);
+    try {
+      const result = await ScrolithaService.execute({
+        actionId: action.actionId,
+        confirmed: true,
+        params: action.paramsPreview || {}
+      });
+      pushMessages({
+        sender: 'agent',
+        text: String(result?.resultSummary || result?.message || `${action.summary} completed.`),
+        timestamp: new Date()
+      });
+      setSuggestedActions((prev) => prev.filter((entry) => entry.actionId !== action.actionId));
+      if (result?.deepLink) {
+        pushMessages({
+          sender: 'system',
+          text: `Suggested destination: ${String(result.deepLink)}`,
+          timestamp: new Date()
+        });
+      }
+    } catch (error: any) {
+      showNotification('error', 'Scrolitha', error?.message || 'Failed to run the suggested action.');
+    } finally {
+      setRunningActionId(null);
+    }
+  };
+
+  const closeAndNavigate = (path: string) => {
+    setIsOpen(false);
+    navigate(path);
+  };
+
+  const routeToAuth = (
+    mode: 'login' | 'signup',
+    redirectPath: string,
+    source: string
+  ) => {
+    setIsOpen(false);
+    navigate(`/auth/${mode}?redirect=${encodeURIComponent(redirectPath)}&source=${encodeURIComponent(source)}`);
+  };
+
+  const openGuidedRoute = (targetPath: string, prompt: string) => {
+    closeAndNavigate(buildScrolithaPath(targetPath, prompt));
+  };
+
+  const findMatchingAction = (keywords: string[]) =>
+    suggestedActions.find((action) => {
+      const searchIndex = normalizeActionSearchIndex(action);
+      return keywords.some((keyword) => searchIndex.includes(keyword));
+    });
+
+  const describeActionMeta = (action?: ScrolithaSuggestedAction | null) => {
+    if (!action) return '';
+    if (action.agent?.stepCount) {
+      return `${action.agent.stepCount}-step agent ready`;
+    }
+    if (canRunSuggestedAction(action)) {
+      return 'Ready to run';
+    }
+    return action.requiresConfirmation ? 'Review in chat first' : 'Prepared by Scrolitha';
+  };
+
+  const normalizedRole = String(user?.role || role || '').toLowerCase();
+  const isGuestUser = !isAuthenticated || !user || normalizedRole === 'guest';
+  const isEmployerIntent = normalizedRole.includes('employer') || normalizedRole.includes('client');
+  const isFreelancerIntent = normalizedRole.includes('freelancer') || normalizedRole.includes('seller');
+  const gigAction = findMatchingAction(['gig', 'service', 'offer']);
+  const briefAction = findMatchingAction(['brief', 'scope', 'requirements', 'job']);
+  const growthAction = findMatchingAction(['monetization', 'retention', 'growth review', 'earnings setup']);
+  const monetizationAction = findMatchingAction(['monetization status', 'creator program', 'eligibility']);
+  const walletAction = findMatchingAction(['wallet', 'billing', 'payout', 'withdrawal']);
+  const affiliateAction = findMatchingAction(['affiliate', 'referral', 'partner earnings']);
+  const gcoinAction = findMatchingAction(['gcoin', 'creator reward', 'rewards wallet']);
+  const adsAction = findMatchingAction(['ads', 'campaign', 'promotion', 'ad performance']);
+  const createGigPrompt = 'Create a gig draft';
+  const createJobPrompt = 'Create a job draft';
+  const createBriefPrompt = 'Generate a structured project brief';
+  const improveGigPrompt = 'Improve my gig positioning';
+  const growthReviewPrompt = isEmployerIntent
+    ? 'Review my retention and growth setup'
+    : 'Review my monetization and retention status';
+  const walletPrompt = 'Show my wallet summary';
+  const affiliatePrompt = 'Show my affiliate earnings';
+  const gcoinPrompt = 'Show my Gcoin balance';
+  const adsPrompt = 'Check my ad performance';
+  const dashboardRootPath = isEmployerIntent ? '/client/dashboard' : '/freelancer/dashboard';
+  const walletPath = `${dashboardRootPath}?tab=wallet`;
+  const membershipPath = `${dashboardRootPath}?tab=membership`;
+  const affiliatePath = `${dashboardRootPath}?tab=affiliate-program`;
+  const gcoinPath = `${dashboardRootPath}?tab=gcoin`;
+  const adsPath = `${dashboardRootPath}?tab=my-ads`;
+
+  const buildActionCta = (config: {
+    id: string;
+    eyebrow: string;
+    title: string;
+    description: string;
+    prompt: string;
+    path: string;
+    action?: ScrolithaSuggestedAction | null;
+    readyDescription?: string;
+    secondaryLabel?: string;
+    secondaryAction?: () => void;
+    meta?: string;
+  }): ConversionCta => {
+    const action = config.action || null;
+    const runnable = Boolean(action && canRunSuggestedAction(action));
+    return {
+      id: config.id,
+      eyebrow: config.eyebrow,
+      title: config.title,
+      description: action ? config.readyDescription || 'A prepared Scrolitha action is ready for this next step.' : config.description,
+      primaryLabel: runnable ? (action?.agent?.stepCount ? 'Run Agent' : 'Run Now') : 'Open with Scrolitha',
+      primaryAction: runnable
+        ? () => void runSuggestedAction(action as ScrolithaSuggestedAction)
+        : () => openGuidedRoute(config.path, config.prompt),
+      secondaryLabel: config.secondaryLabel,
+      secondaryAction: config.secondaryAction,
+      meta: config.meta || describeActionMeta(action) || undefined
+    };
+  };
+
+  const conversionCtas: ConversionCta[] = isGuestUser
+    ? isEmployerIntent
+      ? [
+          {
+            id: 'guest-hire',
+            eyebrow: 'Hire Faster',
+            title: 'Unlock guided job setup',
+            description: 'Log in and let Scrolitha turn your role, scope, and hiring goal into a stronger job post.',
+            primaryLabel: 'Login to Post a Job',
+            primaryAction: () =>
+              routeToAuth('login', buildScrolithaPath('/create-job', createJobPrompt), 'scrolitha_widget_employer_login'),
+            secondaryLabel: 'Browse Talent',
+            secondaryAction: () => closeAndNavigate('/browse')
+          },
+          {
+            id: 'guest-brief',
+            eyebrow: 'Project Brief',
+            title: 'Start with an AI brief',
+            description: 'Create a structured brief after signup so your first job is faster to publish.',
+            primaryLabel: 'Register to Start',
+            primaryAction: () =>
+              routeToAuth('signup', buildScrolithaPath('/create-job', createBriefPrompt), 'scrolitha_widget_employer_signup'),
+            meta: 'Post-login handoff'
+          }
+        ]
+      : isFreelancerIntent
+        ? [
+            {
+              id: 'guest-gig',
+              eyebrow: 'Get Hired',
+              title: 'Create your first guided gig',
+              description: 'Log in and let Scrolitha shape your title, positioning, deliverables, and pricing.',
+              primaryLabel: 'Login to Create a Gig',
+              primaryAction: () =>
+                routeToAuth('login', buildScrolithaPath('/create-gig', createGigPrompt), 'scrolitha_widget_freelancer_login'),
+              secondaryLabel: 'Browse Jobs',
+              secondaryAction: () => closeAndNavigate('/browse-jobs')
+            },
+            {
+              id: 'guest-join',
+              eyebrow: 'Join Scrolith',
+              title: 'Register and launch with AI',
+              description: 'New freelancers can land on the gig builder with Scrolitha already primed to help.',
+              primaryLabel: 'Register Now',
+              primaryAction: () =>
+                routeToAuth('signup', buildScrolithaPath('/create-gig', createGigPrompt), 'scrolitha_widget_freelancer_signup'),
+              meta: 'Post-login handoff'
+            }
+          ]
+        : [
+            {
+              id: 'guest-start',
+              eyebrow: 'Launch Faster',
+              title: 'Use Scrolitha to create a gig',
+              description: 'Sign in and jump straight into a guided gig draft instead of starting from a blank form.',
+              primaryLabel: 'Login to Start',
+              primaryAction: () =>
+                routeToAuth('login', buildScrolithaPath('/create-gig', createGigPrompt), 'scrolitha_widget_guest_login'),
+              secondaryLabel: 'Register',
+              secondaryAction: () =>
+                routeToAuth('signup', buildScrolithaPath('/create-gig', createGigPrompt), 'scrolitha_widget_guest_signup')
+            },
+            {
+              id: 'guest-hire-anyway',
+              eyebrow: 'Need Talent?',
+              title: 'Post a job with guided AI',
+              description: 'Scrolitha can help structure scope, budget, and deliverables the moment you log in.',
+              primaryLabel: 'Login to Post a Job',
+              primaryAction: () =>
+                routeToAuth('login', buildScrolithaPath('/create-job', createBriefPrompt), 'scrolitha_widget_guest_hire'),
+              secondaryLabel: 'Browse Talent',
+              secondaryAction: () => closeAndNavigate('/browse')
+            }
+          ]
+    : isEmployerIntent
+      ? [
+          {
+            id: 'employer-job',
+            eyebrow: 'Conversion Flow',
+            title: briefAction?.summary || 'Post a job with Scrolitha',
+            description: briefAction
+              ? 'A prepared Scrolitha action is ready for your next hiring step.'
+              : 'Move into the job builder with Scrolitha ready to structure your scope, deliverables, and budget.',
+            primaryLabel:
+              briefAction && canRunSuggestedAction(briefAction)
+                ? briefAction.agent?.stepCount
+                  ? 'Run Agent'
+                  : 'Run Now'
+                : 'Start Guided Job',
+            primaryAction:
+              briefAction && canRunSuggestedAction(briefAction)
+                ? () => void runSuggestedAction(briefAction)
+                : () => openGuidedRoute('/create-job', createJobPrompt),
+            secondaryLabel: 'Browse Talent',
+            secondaryAction: () => closeAndNavigate('/browse'),
+            meta: describeActionMeta(briefAction)
+          },
+          {
+            id: 'employer-brief',
+            eyebrow: 'Project Brief',
+            title: 'Draft a structured brief',
+            description: 'Open the job flow with Scrolitha focused on requirements, milestones, and hiring clarity.',
+            primaryLabel: 'Build My Brief',
+            primaryAction: () => openGuidedRoute('/create-job', createBriefPrompt)
+          }
+        ]
+      : [
+          {
+            id: 'freelancer-gig',
+            eyebrow: 'Conversion Flow',
+            title: gigAction?.summary || 'Create a gig with Scrolitha',
+            description: gigAction
+              ? 'Use the prepared Scrolitha plan or jump into a guided builder flow.'
+              : 'Open the gig builder with Scrolitha already focused on your title, offer, and pricing.',
+            primaryLabel:
+              gigAction && canRunSuggestedAction(gigAction)
+                ? gigAction.agent?.stepCount
+                  ? 'Run Agent'
+                  : 'Run Now'
+                : 'Start Guided Gig',
+            primaryAction:
+              gigAction && canRunSuggestedAction(gigAction)
+                ? () => void runSuggestedAction(gigAction)
+                : () => openGuidedRoute('/create-gig', createGigPrompt),
+            secondaryLabel: 'Browse Jobs',
+            secondaryAction: () => closeAndNavigate('/browse-jobs'),
+            meta: describeActionMeta(gigAction)
+          },
+          {
+            id: 'freelancer-brief',
+            eyebrow: 'Pitch Better',
+            title: 'Sharpen your gig positioning',
+            description: 'Open the gig builder with Scrolitha focused on clearer outcomes, stronger differentiation, and pricing cues.',
+            primaryLabel: 'Improve My Offer',
+            primaryAction: () => openGuidedRoute('/create-gig', improveGigPrompt),
+            meta: describeActionMeta(briefAction)
+          }
+        ];
+
+  const monetizationCtas: ConversionCta[] = isGuestUser
+    ? []
+    : isEmployerIntent
+      ? [
+          buildActionCta({
+            id: 'employer-growth-review',
+            eyebrow: 'Retention Review',
+            title: 'Review revenue and retention',
+            description: 'Check membership, wallet funding, ads, and referral performance in one Scrolitha pass.',
+            readyDescription: 'Scrolitha already has a multi-step review ready for your retention and revenue setup.',
+            prompt: growthReviewPrompt,
+            path: membershipPath,
+            action: growthAction,
+            secondaryLabel: 'Membership',
+            secondaryAction: () => closeAndNavigate(membershipPath)
+          }),
+          buildActionCta({
+            id: 'employer-wallet',
+            eyebrow: 'Budget Control',
+            title: 'Check wallet and funding',
+            description: 'Review balance, pending clearance, and funding readiness before launching new jobs or ads.',
+            prompt: walletPrompt,
+            path: walletPath,
+            action: walletAction
+          }),
+          buildActionCta({
+            id: 'employer-ads',
+            eyebrow: 'Campaigns',
+            title: 'Reopen ad performance',
+            description: 'Jump into ads with Scrolitha focused on campaign status, spend, clicks, and reactivation opportunities.',
+            prompt: adsPrompt,
+            path: adsPath,
+            action: adsAction
+          }),
+          buildActionCta({
+            id: 'employer-affiliate',
+            eyebrow: 'Referrals',
+            title: 'Track affiliate earnings',
+            description: 'Open your referral dashboard with Scrolitha ready to summarize applications, earnings, and withdrawals.',
+            prompt: affiliatePrompt,
+            path: affiliatePath,
+            action: affiliateAction
+          })
+        ]
+      : [
+          buildActionCta({
+            id: 'freelancer-growth-review',
+            eyebrow: 'Monetization Pulse',
+            title: 'Review monetization readiness',
+            description: 'Check Gcoin, wallet health, affiliate revenue, and plan retention in one Scrolitha review.',
+            readyDescription: 'Scrolitha already has a multi-step review ready for your monetization and retention setup.',
+            prompt: growthReviewPrompt,
+            path: gcoinPath,
+            action: growthAction || monetizationAction,
+            secondaryLabel: 'Membership',
+            secondaryAction: () => closeAndNavigate(membershipPath)
+          }),
+          buildActionCta({
+            id: 'freelancer-wallet',
+            eyebrow: 'Payouts',
+            title: 'Check wallet and payouts',
+            description: 'Review balance, pending clearance, and payout readiness before you withdraw or price new offers.',
+            prompt: walletPrompt,
+            path: walletPath,
+            action: walletAction
+          }),
+          buildActionCta({
+            id: 'freelancer-gcoin',
+            eyebrow: 'Creator Rewards',
+            title: 'Check Gcoin rewards',
+            description: 'Open your rewards view with Scrolitha focused on Gcoin balance, activity, and conversion readiness.',
+            prompt: gcoinPrompt,
+            path: gcoinPath,
+            action: gcoinAction
+          }),
+          buildActionCta({
+            id: 'freelancer-affiliate',
+            eyebrow: 'Referral Earnings',
+            title: 'Track affiliate revenue',
+            description: 'Open your affiliate dashboard with Scrolitha ready to summarize link performance, earnings, and withdrawals.',
+            prompt: affiliatePrompt,
+            path: affiliatePath,
+            action: affiliateAction
+          })
+        ];
+
+  const shouldShowConversionRail = conversionCtas.length > 0 && (chatHistory.length <= 4 || suggestedActions.length > 0);
+  const shouldShowMonetizationRail = monetizationCtas.length > 0 && (chatHistory.length <= 6 || suggestedActions.length > 0);
+
   const handleAction = (path: string) => {
       // Handle Navigation Actions based on path
       switch(path) {
@@ -193,7 +655,9 @@ const SupportWidget: React.FC = () => {
     if (!chatFlow) return;
 
     // 1. User Message
-    setChatHistory(prev => [...prev, { sender: 'user', text: option.label, timestamp: new Date() }]);
+    pushMessages({ sender: 'user', text: option.label, timestamp: new Date() });
+    setSuggestedActions([]);
+    setFollowUpPrompts([]);
     
     // 2. Set Role if provided
     if (option.role === 'freelancer') setRole('Freelancer');
@@ -221,7 +685,7 @@ const SupportWidget: React.FC = () => {
                 text: m.text,
                 timestamp: new Date()
             }));
-            setChatHistory(prev => [...prev, ...newMessages]);
+            pushMessages(newMessages);
 
             // Update Options
             if (pathData.options) {
@@ -243,11 +707,18 @@ const SupportWidget: React.FC = () => {
       if (!chatFlow) return;
       setRole(null);
       setConversationId(null);
-      setCurrentOptions(chatFlow.initial_prompt.options);
-      setChatHistory(prev => [
-          ...prev, 
-          { sender: 'system', text: '--- Conversation Reset ---', timestamp: new Date() },
-          { sender: 'agent', text: chatFlow.initial_prompt.text, timestamp: new Date() }
+      setSuggestedActions([]);
+      setFollowUpPrompts([]);
+      setCurrentOptions(isAuthenticated ? [] : chatFlow.initial_prompt.options);
+      pushMessages([
+        { sender: 'system', text: '--- Conversation Reset ---', timestamp: new Date() },
+        {
+          sender: 'agent',
+          text: isAuthenticated
+            ? `Hi${user?.name ? ` ${user.name.split(' ')[0]}` : ''}. ${widgetConfig.emptyStateText || defaultWidgetConfig.emptyStateText}`
+            : chatFlow.initial_prompt.text,
+          timestamp: new Date()
+        }
       ]);
   };
 
@@ -275,24 +746,16 @@ const SupportWidget: React.FC = () => {
       }
   };
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if ((!message.trim() && !selectedFile)) return;
-
-    const userMsg = message.trim();
-    const currentFile = selectedFile;
-    
-    setMessage('');
-    setSelectedFile(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+  const handleSendText = async (rawMessage: string, currentFile?: File | null) => {
+    const userMsg = String(rawMessage || '').trim();
+    if (!userMsg && !currentFile) return;
 
     if (userMsg.toLowerCase() === 'reset' || userMsg.toLowerCase() === 'start over') {
       handleReset();
       return;
     }
 
-    // Add user message
-    let attachment: Attachment | undefined = undefined;
+    let attachment: Attachment | undefined;
     if (currentFile) {
       attachment = {
         id: Date.now().toString(),
@@ -303,45 +766,66 @@ const SupportWidget: React.FC = () => {
       };
     }
 
-    setChatHistory(prev => [...prev, { 
-      sender: 'user', 
-      text: userMsg, 
+    pushMessages({
+      sender: 'user',
+      text: userMsg,
       timestamp: new Date(),
       attachments: attachment ? [attachment] : undefined
-    }]);
+    });
 
     setIsTyping(true);
-    setCurrentOptions([]); // Clear options when typing manually
+    setCurrentOptions([]);
+    setSuggestedActions([]);
+    setFollowUpPrompts([]);
 
-    // Authenticated: Scrolitha orchestration. Guest: fallback assistant.
     try {
-        if (isAuthenticated && user?.id) {
-          const payloadMessage = userMsg + (currentFile ? ` [Attached: ${currentFile.name}]` : '');
-          const data = await ScrolithaService.chat({
-            message: payloadMessage,
-            conversationId: conversationId || undefined,
-            context: { page: location.pathname }
-          });
-          if (data?.conversationId) setConversationId(data.conversationId);
-          setIsTyping(false);
-          setChatHistory(prev => [...prev, { sender: 'agent', text: data?.reply || 'Done.', timestamp: new Date() }]);
-        } else {
-          const response = await getSupportResponse(
-            userMsg + (currentFile ? ` [Attached: ${currentFile.name}]` : ''), 
-            role, 
-            chatHistory.filter(m => m.text).map(m => ({ sender: m.sender, text: m.text! }))
-          );
-          setIsTyping(false);
-          setChatHistory(prev => [...prev, { sender: 'agent', text: response, timestamp: new Date() }]);
-        }
-        
-        // Add a "back to menu" option after AI response
-        setCurrentOptions([{ label: "Back to Menu", path: "reset" }]);
-        
-    } catch (e) {
-        setIsTyping(false);
-        setChatHistory(prev => [...prev, { sender: 'agent', text: "I'm having trouble connecting. Please try again or check your internet.", timestamp: new Date() }]);
+      if (isAuthenticated && user?.id) {
+        const payloadMessage = userMsg + (currentFile ? ` [Attached: ${currentFile.name}]` : '');
+        const data = await ScrolithaService.chat({
+          message: payloadMessage,
+          conversationId: conversationId || undefined,
+          context: { page: location.pathname }
+        });
+        if (data?.conversationId) setConversationId(data.conversationId);
+        pushMessages({ sender: 'agent', text: data?.reply || 'Done.', timestamp: new Date() });
+        setSuggestedActions(Array.isArray(data?.suggestedActions) ? data.suggestedActions : []);
+        setFollowUpPrompts(Array.isArray(data?.followUpPrompts) ? data.followUpPrompts : []);
+      } else {
+        const response = await getSupportResponse(
+          userMsg + (currentFile ? ` [Attached: ${currentFile.name}]` : ''),
+          role,
+          chatHistory.filter((entry) => entry.text).map((entry) => ({ sender: entry.sender, text: entry.text! }))
+        );
+        pushMessages({ sender: 'agent', text: response, timestamp: new Date() });
+        setFollowUpPrompts(normalizedGuestPrompts.slice(0, 4));
+      }
+
+      setCurrentOptions([{ label: 'Back to Menu', path: 'reset' }]);
+    } catch (error: any) {
+      pushMessages({
+        sender: 'agent',
+        text: widgetConfig.offlineMessage || defaultWidgetConfig.offlineMessage || "I'm having trouble connecting right now.",
+        timestamp: new Date()
+      });
+      if (isAuthenticated) {
+        showNotification('warning', 'Scrolitha', error?.message || 'The assistant is temporarily unavailable.');
+      }
+    } finally {
+      setIsTyping(false);
     }
+  };
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if ((!message.trim() && !selectedFile)) return;
+
+    const currentMessage = message;
+    const currentFile = selectedFile;
+    setMessage('');
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+
+    await handleSendText(currentMessage, currentFile);
   };
 
   if (!isFlowLoaded || !widgetConfig.enabled) return null;
@@ -354,7 +838,14 @@ const SupportWidget: React.FC = () => {
   const assistantName = widgetConfig.assistantName || chatFlow?.agent?.name || defaultWidgetConfig.assistantName;
   const assistantRoleLabel = widgetConfig.assistantRoleLabel || defaultWidgetConfig.assistantRoleLabel;
   const typingText = widgetConfig.typingText || defaultWidgetConfig.typingText;
+  const placeholderText = widgetConfig.placeholderText || defaultWidgetConfig.placeholderText || 'Type a message...';
+  const emptyStateText = widgetConfig.emptyStateText || defaultWidgetConfig.emptyStateText || 'Ask Scrolitha a question.';
+  const disclaimerText = widgetConfig.disclaimerText || defaultWidgetConfig.disclaimerText || '';
+  const allowVoiceInput = widgetConfig.allowVoiceInput !== false;
+  const allowFileUpload = widgetConfig.allowFileUpload !== false;
+  const showStatusBadge = widgetConfig.showStatusBadge !== false;
   const logoUrl = widgetConfig.logoUrl || '';
+  const statusLabel = isAuthenticated ? (isConnected ? 'Live assistant' : 'Assistant available') : 'Guided support';
 
   return (
     <div
@@ -379,9 +870,14 @@ const SupportWidget: React.FC = () => {
               </div>
               <div>
                 <h3 className="font-bold text-sm">{assistantName} ({assistantRoleLabel})</h3>
-                <p className="text-[10px] text-indigo-100">{role ? `${role} Mode` : 'How can we help?'}</p>
+                <p className="text-[10px] text-indigo-100">{role ? `${role} Mode` : statusLabel}</p>
               </div>
             </div>
+            {showStatusBadge ? (
+              <div className="hidden rounded-full border border-white/20 bg-white/10 px-2 py-1 text-[10px] font-medium text-white/90 sm:block">
+                {statusLabel}
+              </div>
+            ) : null}
             <div className="flex items-center space-x-2">
               <button onClick={handleReset} className="text-indigo-200 hover:text-white p-1" title="Reset Chat">
                 <RefreshCw className="h-4 w-4" />
@@ -447,6 +943,147 @@ const SupportWidget: React.FC = () => {
               </div>
             )}
 
+            {!isTyping && quickPrompts.length > 0 && (
+              <div className="pl-8">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Quick prompts</p>
+                <div className="flex flex-wrap gap-2">
+                  {quickPrompts.slice(0, 6).map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      onClick={() => void handlePromptClick(prompt)}
+                      className="rounded-full border border-indigo-100 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-50"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!isTyping && shouldShowConversionRail && (
+              <div className="space-y-2 pl-8">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  {isGuestUser ? 'Best next steps' : 'Conversion shortcuts'}
+                </p>
+                {conversionCtas.map((cta) => (
+                  <div
+                    key={cta.id}
+                    className="rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-indigo-50/70 px-3 py-3 text-xs text-slate-700 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-indigo-600">{cta.eyebrow}</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">{cta.title}</p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-slate-600">{cta.description}</p>
+                      </div>
+                      {cta.meta ? (
+                        <span className="rounded-full border border-indigo-100 bg-white px-2 py-1 text-[10px] font-medium text-slate-500">
+                          {cta.meta}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={cta.primaryAction}
+                        className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-slate-800"
+                      >
+                        {cta.primaryLabel}
+                      </button>
+                      {cta.secondaryLabel && cta.secondaryAction ? (
+                        <button
+                          type="button"
+                          onClick={cta.secondaryAction}
+                          className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 transition hover:border-indigo-200 hover:text-indigo-700"
+                        >
+                          {cta.secondaryLabel}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {!isTyping && shouldShowMonetizationRail && (
+              <div className="space-y-2 pl-8">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  Monetization & retention
+                </p>
+                {monetizationCtas.map((cta) => (
+                  <div
+                    key={cta.id}
+                    className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/70 to-slate-50 px-3 py-3 text-xs text-slate-700 shadow-sm"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-600">{cta.eyebrow}</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">{cta.title}</p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-slate-600">{cta.description}</p>
+                      </div>
+                      {cta.meta ? (
+                        <span className="rounded-full border border-emerald-100 bg-white px-2 py-1 text-[10px] font-medium text-slate-500">
+                          {cta.meta}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={cta.primaryAction}
+                        className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-slate-800"
+                      >
+                        {cta.primaryLabel}
+                      </button>
+                      {cta.secondaryLabel && cta.secondaryAction ? (
+                        <button
+                          type="button"
+                          onClick={cta.secondaryAction}
+                          className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 transition hover:border-emerald-200 hover:text-emerald-700"
+                        >
+                          {cta.secondaryLabel}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {!isTyping && isAuthenticated && suggestedActions.length > 0 && (
+              <div className="space-y-2 pl-8">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Prepared actions</p>
+                {suggestedActions.slice(0, 4).map((action) => (
+                  <div key={action.actionId} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-700 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-slate-900">{action.summary}</p>
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          {action.requiresConfirmation ? 'Confirmation required before changes.' : 'Ready to run.'}
+                        </p>
+                      </div>
+                      {canRunSuggestedAction(action) ? (
+                        <button
+                          type="button"
+                          onClick={() => void runSuggestedAction(action)}
+                          disabled={runningActionId === action.actionId}
+                          className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white disabled:opacity-60"
+                        >
+                          {runningActionId === action.actionId ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                          Run
+                        </button>
+                      ) : (
+                        <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-medium text-slate-500">
+                          Review in chat
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Dynamic Options */}
             {!isTyping && currentOptions.length > 0 && (
                 <div className="flex flex-col space-y-2 mt-2 pl-8">
@@ -462,6 +1099,10 @@ const SupportWidget: React.FC = () => {
                     ))}
                 </div>
             )}
+
+            {!isTyping && chatHistory.length <= 1 ? (
+              <div className="pl-8 text-xs text-slate-500">{emptyStateText}</div>
+            ) : null}
             
             <div ref={messagesEndRef} />
           </div>
@@ -482,29 +1123,33 @@ const SupportWidget: React.FC = () => {
                 className="hidden"
                 onChange={handleFileSelect}
               />
-              <button 
-                type="button" 
-                onClick={() => fileInputRef.current?.click()}
-                className="text-gray-400 hover:text-indigo-600"
-              >
-                <Paperclip className="h-5 w-5" />
-              </button>
+              {allowFileUpload ? (
+                <button 
+                  type="button" 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-gray-400 hover:text-indigo-600"
+                >
+                  <Paperclip className="h-5 w-5" />
+                </button>
+              ) : null}
               
               <div className="flex-1 relative">
                   <input 
                     type="text" 
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
-                    placeholder={isListening ? "Listening..." : "Type a message..."}
+                    placeholder={isListening ? "Listening..." : placeholderText}
                     className={`w-full text-sm border rounded-full px-4 py-3 focus:outline-none transition-colors ${isListening ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-1 focus:ring-red-500' : 'border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'}`}
                   />
-                  <button 
-                    type="button" 
-                    onClick={toggleListening}
-                    className={`absolute right-2 top-1/2 transform -translate-y-1/2 p-1.5 rounded-full transition-colors ${isListening ? 'text-red-600 bg-red-100 animate-pulse' : 'text-gray-400 hover:text-indigo-600'}`}
-                  >
-                    {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                  </button>
+                  {allowVoiceInput ? (
+                    <button 
+                      type="button" 
+                      onClick={toggleListening}
+                      className={`absolute right-2 top-1/2 transform -translate-y-1/2 p-1.5 rounded-full transition-colors ${isListening ? 'text-red-600 bg-red-100 animate-pulse' : 'text-gray-400 hover:text-indigo-600'}`}
+                    >
+                      {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                    </button>
+                  ) : null}
               </div>
 
               <button 
@@ -516,6 +1161,7 @@ const SupportWidget: React.FC = () => {
                 <Send className="h-4 w-4" />
               </button>
             </form>
+            {disclaimerText ? <p className="mt-2 text-[11px] text-slate-500">{disclaimerText}</p> : null}
           </div>
         </div>
       )}

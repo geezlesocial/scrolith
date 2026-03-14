@@ -28,7 +28,17 @@ const defaultWidgetSettings: ScrolithaWidgetConfig = {
   logoUrl: '',
   logoFileId: '',
   welcomeText: "Hi! I'm Scrolitha. I can help you navigate Scrolith. What describes you best?",
-  typingText: 'Scrolitha is thinking...'
+  typingText: 'Scrolitha is thinking...',
+  placeholderText: 'Ask Scrolitha a question...',
+  emptyStateText: 'Ask about support, gigs, jobs, files, orders, notifications, or account help.',
+  offlineMessage: "I'm having trouble connecting right now. Please try again in a moment.",
+  disclaimerText: 'Scrolitha keeps actions inside approved platform tools and confirmation rules.',
+  starterPrompts: ['Create a gig draft', 'Generate a structured project brief', 'Show my latest orders'],
+  guestStarterPrompts: ['How do I get started?', 'How do gigs and jobs work?', 'How do I contact support?'],
+  allowVoiceInput: true,
+  allowFileUpload: true,
+  showStatusBadge: true,
+  maxHistoryItems: 24
 };
 
 const parseJson = (value: string) => {
@@ -363,7 +373,14 @@ const ScrolithaManagement: React.FC = () => {
       const paramsText = actionParams[action.actionId] || '';
       const params = paramsText ? parseJson(paramsText) : action.paramsPreview || {};
       const result = await ScrolithaService.adminExecute({ actionId: action.actionId, confirmed: true, params });
-      showNotification('success', 'Scrolitha Action', result?.success === false ? result?.message || 'Awaiting confirmation' : 'Action completed.');
+      showNotification(
+        'success',
+        'Scrolitha Action',
+        result?.success === false
+          ? result?.message || 'Awaiting confirmation'
+          : result?.summary ||
+              (action.agent ? 'Action agent completed.' : 'Action completed.')
+      );
       await Promise.all([loadAudit(null), loadAnalytics()]);
       setSuggestedActions((prev) => prev.filter((entry) => entry.actionId !== action.actionId));
     } catch (error: any) {
@@ -587,6 +604,36 @@ const ScrolithaManagement: React.FC = () => {
                   <div>
                     <p className="text-sm font-medium text-slate-800">{action.actionKey}</p>
                     <p className="text-xs text-slate-500">{action.summary}</p>
+                    {action.agent ? (
+                      <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-[11px] text-slate-600">
+                        <p className="font-medium text-slate-700">
+                          Action agent: {action.agent.skillName || action.agent.skillKey}
+                        </p>
+                        <p className="mt-1">
+                          {action.agent.stepCount} total steps, {action.agent.executableStepCount} runtime step
+                          {action.agent.executableStepCount === 1 ? '' : 's'}.
+                        </p>
+                        <div className="mt-2 space-y-1">
+                          {action.agent.steps.slice(0, 5).map((step) => (
+                            <div key={`${action.actionId}-${step.index}`} className="flex items-start gap-2">
+                              <span className="mt-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-white text-[9px] font-semibold text-slate-600">
+                                {step.index}
+                              </span>
+                              <div>
+                                <p className="text-[11px] font-medium text-slate-700">{step.summary}</p>
+                                <p className="text-[10px] text-slate-500">
+                                  {step.mode}
+                                  {step.toolKey ? ` • ${step.toolKey}` : ''}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                          {action.agent.steps.length > 5 ? (
+                            <p className="text-[10px] text-slate-400">+{action.agent.steps.length - 5} more steps</p>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
                     <p className="text-[11px] text-slate-500">Tool: {action.toolKey} ({action.tool?.method} {action.tool?.endpoint})</p>
                   </div>
                   <button
@@ -595,7 +642,7 @@ const ScrolithaManagement: React.FC = () => {
                     onClick={() => void executeAction(action)}
                     className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-60"
                   >
-                    {runningActionId === action.actionId ? 'Running...' : 'Execute'}
+                    {runningActionId === action.actionId ? 'Running...' : action.agent ? 'Run Agent' : 'Execute'}
                   </button>
                 </div>
                 <textarea
@@ -1066,6 +1113,38 @@ const ScrolithaManagement: React.FC = () => {
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
+            <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium uppercase text-slate-600">
+              <input
+                type="checkbox"
+                checked={widgetSettings.enabled !== false}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, enabled: event.target.checked }))}
+              />
+              Widget enabled
+            </label>
+            <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium uppercase text-slate-600">
+              <input
+                type="checkbox"
+                checked={widgetSettings.showStatusBadge !== false}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, showStatusBadge: event.target.checked }))}
+              />
+              Show status badge
+            </label>
+            <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium uppercase text-slate-600">
+              <input
+                type="checkbox"
+                checked={widgetSettings.allowVoiceInput !== false}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, allowVoiceInput: event.target.checked }))}
+              />
+              Allow voice input
+            </label>
+            <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium uppercase text-slate-600">
+              <input
+                type="checkbox"
+                checked={widgetSettings.allowFileUpload !== false}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, allowFileUpload: event.target.checked }))}
+              />
+              Allow file upload
+            </label>
             <label className="text-xs font-medium uppercase text-slate-500">
               Assistant Name
               <input
@@ -1129,6 +1208,77 @@ const ScrolithaManagement: React.FC = () => {
                 className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
                 value={widgetSettings.typingText}
                 onChange={(event) => setWidgetSettings((prev) => ({ ...prev, typingText: event.target.value }))}
+              />
+            </label>
+            <label className="text-xs font-medium uppercase text-slate-500 md:col-span-2">
+              Input Placeholder
+              <input
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={widgetSettings.placeholderText || ''}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, placeholderText: event.target.value }))}
+              />
+            </label>
+            <label className="text-xs font-medium uppercase text-slate-500 md:col-span-2">
+              Empty State Message
+              <textarea
+                rows={2}
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={widgetSettings.emptyStateText || ''}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, emptyStateText: event.target.value }))}
+              />
+            </label>
+            <label className="text-xs font-medium uppercase text-slate-500 md:col-span-2">
+              Offline Message
+              <textarea
+                rows={2}
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={widgetSettings.offlineMessage || ''}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, offlineMessage: event.target.value }))}
+              />
+            </label>
+            <label className="text-xs font-medium uppercase text-slate-500 md:col-span-2">
+              Disclaimer
+              <textarea
+                rows={2}
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={widgetSettings.disclaimerText || ''}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, disclaimerText: event.target.value }))}
+              />
+            </label>
+            <label className="text-xs font-medium uppercase text-slate-500">
+              Max History Items
+              <input
+                type="number"
+                min={8}
+                max={60}
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={Number(widgetSettings.maxHistoryItems || 24)}
+                onChange={(event) =>
+                  setWidgetSettings((prev) => ({
+                    ...prev,
+                    maxHistoryItems: Math.max(8, Math.min(60, Number(event.target.value || 24) || 24))
+                  }))
+                }
+              />
+            </label>
+            <label className="text-xs font-medium uppercase text-slate-500 md:col-span-2">
+              Member Starter Prompts
+              <textarea
+                rows={3}
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={Array.isArray(widgetSettings.starterPrompts) ? widgetSettings.starterPrompts.join('\n') : ''}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, starterPrompts: parseLines(event.target.value) }))}
+                placeholder={'One prompt per line'}
+              />
+            </label>
+            <label className="text-xs font-medium uppercase text-slate-500 md:col-span-2">
+              Guest Starter Prompts
+              <textarea
+                rows={3}
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+                value={Array.isArray(widgetSettings.guestStarterPrompts) ? widgetSettings.guestStarterPrompts.join('\n') : ''}
+                onChange={(event) => setWidgetSettings((prev) => ({ ...prev, guestStarterPrompts: parseLines(event.target.value) }))}
+                placeholder={'One prompt per line'}
               />
             </label>
           </div>

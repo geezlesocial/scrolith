@@ -146,7 +146,16 @@ const ScrolithaWidget: React.FC = () => {
         confirmed: true,
         params: mergedParams
       });
-      appendLine({ sender: 'assistant', text: data?.success === false ? data?.message || 'Confirmation required.' : `${prettyActionName(action.actionKey)} executed.` });
+      appendLine({
+        sender: 'assistant',
+        text:
+          data?.success === false
+            ? data?.message || 'Confirmation required.'
+            : data?.summary ||
+              (action.agent
+                ? `${prettyActionName(action.actionKey)} action agent completed.`
+                : `${prettyActionName(action.actionKey)} executed.`)
+      });
       if (data?.deepLink) {
         appendLine({ sender: 'system', text: `Take me there: ${data.deepLink}` });
       }
@@ -260,6 +269,36 @@ const ScrolithaWidget: React.FC = () => {
                 <div key={action.actionId} className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700">
                   <p className="font-semibold text-slate-800">{prettyActionName(action.actionKey)}</p>
                   <p className="mt-1 text-slate-600">{action.summary}</p>
+                  {action.agent ? (
+                    <div className="mt-2 rounded-md border border-slate-200 bg-white p-2 text-[10px] text-slate-600">
+                      <p className="font-semibold text-slate-700">
+                        Action agent: {action.agent.skillName || prettyActionName(action.agent.skillKey)}
+                      </p>
+                      <p className="mt-1">
+                        {action.agent.stepCount} total steps, {action.agent.executableStepCount} runtime step
+                        {action.agent.executableStepCount === 1 ? '' : 's'}.
+                      </p>
+                      <div className="mt-2 space-y-1">
+                        {action.agent.steps.slice(0, 4).map((step) => (
+                          <div key={`${action.actionId}-${step.index}`} className="flex items-start gap-2">
+                            <span className="mt-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-slate-100 text-[9px] font-semibold text-slate-600">
+                              {step.index}
+                            </span>
+                            <div>
+                              <p className="text-[10px] font-medium text-slate-700">{step.summary}</p>
+                              <p className="text-[10px] text-slate-500">
+                                {step.mode}
+                                {step.toolKey ? ` • ${step.toolKey}` : ''}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                        {action.agent.steps.length > 4 ? (
+                          <p className="text-[10px] text-slate-400">+{action.agent.steps.length - 4} more steps</p>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
                   <textarea
                     value={manualParams}
                     onChange={(event) =>
@@ -274,7 +313,11 @@ const ScrolithaWidget: React.FC = () => {
                   />
                   <div className="mt-2 flex items-center justify-between">
                     <span className="text-[10px] text-slate-500">
-                      {action.requiresConfirmation ? 'Confirmation required' : 'Safe action'}
+                      {action.agent
+                        ? `${action.agent.executableStepCount} runtime steps`
+                        : action.requiresConfirmation
+                          ? 'Confirmation required'
+                          : 'Safe action'}
                     </span>
                     <button
                       type="button"
@@ -294,7 +337,7 @@ const ScrolithaWidget: React.FC = () => {
                       className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-slate-800 disabled:opacity-60"
                     >
                       {runningActionId === action.actionId ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-                      Execute
+                      {action.agent ? 'Run Agent' : 'Execute'}
                     </button>
                   </div>
                 </div>

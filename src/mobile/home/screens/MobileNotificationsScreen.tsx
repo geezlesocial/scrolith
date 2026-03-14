@@ -2,14 +2,27 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { BellIcon as Bell, CheckIcon as Check } from '../../../components/icons/ShellIcons';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useNotification } from '../../../context/NotificationContext';
-import { getNotificationActionUrl, getNotificationBucket } from '../../../utils/notificationRouting';
+import { useUser } from '../../../context/UserContext';
+import {
+  getNotificationActionUrl,
+  getNotificationBucket,
+  isExternalNotificationUrl
+} from '../../../utils/notificationRouting';
 
 export default function MobileNotificationsScreen() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user, isAuthenticated } = useUser();
   const { notifications, refreshNotifications, markAsRead } = useNotification();
   const [tab, setTab] = useState<'home' | 'community'>('home');
   const [selectedCampaign, setSelectedCampaign] = useState<any | null>(null);
+  const normalizedRole = String(user?.role || '').toLowerCase();
+  const isClientMode = normalizedRole.includes('client') || normalizedRole.includes('employer');
+  const dashboardBasePath = normalizedRole.includes('admin')
+    ? '/admin/dashboard'
+    : isClientMode
+      ? '/client/dashboard'
+      : '/freelancer/dashboard';
 
   useEffect(() => {
     void refreshNotifications?.().catch(() => {});
@@ -34,6 +47,54 @@ export default function MobileNotificationsScreen() {
   }, [buckets]);
 
   const visible = tab === 'community' ? buckets.community : buckets.home;
+  const growthShortcuts = useMemo(() => {
+    if (!isAuthenticated || !normalizedRole || normalizedRole === 'guest') return [];
+    if (dashboardBasePath === '/admin/dashboard') {
+      return [
+        {
+          id: 'admin-finance',
+          label: 'Finance',
+          caption: 'Revenue',
+          path: '/admin/dashboard?tab=finance'
+        }
+      ];
+    }
+
+    const common = [
+      {
+        id: 'wallet',
+        label: 'Wallet',
+        caption: isClientMode ? 'Funding' : 'Payouts',
+        path: `${dashboardBasePath}?tab=wallet`
+      },
+      {
+        id: 'membership',
+        label: 'Membership',
+        caption: isClientMode ? 'Retention' : 'Upgrade',
+        path: `${dashboardBasePath}?tab=membership`
+      },
+      {
+        id: 'affiliate',
+        label: 'Affiliate',
+        caption: 'Referrals',
+        path: `${dashboardBasePath}?tab=affiliate-program`
+      }
+    ];
+
+    return isClientMode
+      ? common.concat({
+          id: 'ads',
+          label: 'My Ads',
+          caption: 'Campaigns',
+          path: `${dashboardBasePath}?tab=my-ads`
+        })
+      : common.concat({
+          id: 'gcoin',
+          label: 'Gcoin',
+          caption: 'Rewards',
+          path: `${dashboardBasePath}?tab=gcoin`
+        });
+  }, [dashboardBasePath, isAuthenticated, isClientMode, normalizedRole]);
 
   const selectedCampaignDetails = useMemo(() => {
     if (!selectedCampaign) return null;
@@ -69,6 +130,32 @@ export default function MobileNotificationsScreen() {
 
   return (
     <div className="mx-auto max-w-md px-3 py-4">
+      {growthShortcuts.length ? (
+        <div className="mb-3 rounded-3xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/70 to-slate-50 p-4 shadow-sm">
+          <div className="mb-3">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-600">
+              Growth shortcuts
+            </div>
+            <p className="mt-1 text-xs text-slate-600">
+              {isClientMode ? 'Retention, wallet, and campaign controls' : 'Monetization, rewards, and payout controls'}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {growthShortcuts.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => navigate(item.path)}
+                className="rounded-2xl border border-white/80 bg-white px-3 py-3 text-left shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50/60"
+              >
+                <div className="text-sm font-semibold text-slate-900">{item.label}</div>
+                <div className="mt-1 text-[11px] text-slate-500">{item.caption}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
           <Bell className="h-4 w-4" />
@@ -123,7 +210,13 @@ export default function MobileNotificationsScreen() {
                     setSelectedCampaign(n);
                     return;
                   }
-                  if (actionUrl) navigate(actionUrl);
+                  if (actionUrl) {
+                    if (isExternalNotificationUrl(actionUrl)) {
+                      window.location.href = actionUrl;
+                      return;
+                    }
+                    navigate(actionUrl);
+                  }
                 }}
                 className={[
                   'w-full rounded-3xl border bg-white p-4 text-left shadow-sm',
@@ -189,7 +282,11 @@ export default function MobileNotificationsScreen() {
                 <button
                   type="button"
                   onClick={() => {
-                    navigate(selectedCampaignDetails.actionUrl as string);
+                    if (isExternalNotificationUrl(selectedCampaignDetails.actionUrl as string)) {
+                      window.location.href = selectedCampaignDetails.actionUrl as string;
+                    } else {
+                      navigate(selectedCampaignDetails.actionUrl as string);
+                    }
                     setSelectedCampaign(null);
                   }}
                   className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white"

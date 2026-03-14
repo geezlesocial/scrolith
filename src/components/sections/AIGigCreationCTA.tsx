@@ -4,6 +4,7 @@ import { Sparkles, ArrowRight } from "lucide-react";
 import { useNotification } from "../../context/NotificationContext";
 import { useUser } from "../../context/UserContext";
 import type { GigCreationContent } from "../../types";
+import { buildScrolithaPath } from "../../utils/scrolithaLaunch";
 
 const AIGigCreationCTA = ({ content }: { content?: GigCreationContent }) => {
   const navigate = useNavigate();
@@ -23,7 +24,7 @@ const AIGigCreationCTA = ({ content }: { content?: GigCreationContent }) => {
   const helperText =
     (content as any)?.helperText ||
     (content as any)?.helper_text ||
-    "Scrolitha will guide you through gig setup, content, tags, and positioning.";
+    "Scrolitha will open in your gig builder and guide the title, scope, tags, and positioning.";
   const guestHelperText =
     (content as any)?.guestHelperText ||
     (content as any)?.guest_helper_text ||
@@ -32,9 +33,11 @@ const AIGigCreationCTA = ({ content }: { content?: GigCreationContent }) => {
     (content as any)?.loginButtonText || (content as any)?.login_button_text || "Login";
   const registerButtonText =
     (content as any)?.registerButtonText || (content as any)?.register_button_text || "Register";
+  const launchPrompt =
+    (content as any)?.assistantPrompt || (content as any)?.assistant_prompt || "Create a gig draft";
 
   const routeToAuth = (mode: "login" | "signup") => {
-    const redirect = encodeURIComponent("/create-gig?mode=ai");
+    const redirect = encodeURIComponent(buildScrolithaPath("/create-gig", launchPrompt));
     navigate(`/auth/${mode}?redirect=${redirect}&source=scrolitha_gig_creation`);
   };
 
@@ -49,7 +52,7 @@ const AIGigCreationCTA = ({ content }: { content?: GigCreationContent }) => {
       return;
     }
 
-    navigate("/create-gig?mode=ai");
+    navigate(buildScrolithaPath("/create-gig", launchPrompt));
   };
 
   return (

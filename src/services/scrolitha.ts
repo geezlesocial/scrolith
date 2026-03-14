@@ -1,7 +1,8 @@
 import api from './api';
 
-const SCROLITHA_CHAT_TIMEOUT_MS = 65_000;
-const SCROLITHA_EXECUTE_TIMEOUT_MS = 45_000;
+const SCROLITHA_CHAT_TIMEOUT_MS = 95_000;
+const SCROLITHA_EXECUTE_TIMEOUT_MS = 95_000;
+const SCROLITHA_ADMIN_LLM_TIMEOUT_MS = 240_000;
 
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
@@ -16,6 +17,22 @@ export type ScrolithaSuggestedAction = {
   summary: string;
   requiresConfirmation: boolean;
   paramsPreview?: Record<string, any>;
+  agent?: {
+    mode: 'skill';
+    skillId?: string | null;
+    skillKey: string;
+    skillName?: string | null;
+    stepCount: number;
+    executableStepCount: number;
+    steps: Array<{
+      index: number;
+      type: string;
+      mode: 'fetch' | 'preview' | 'execute' | 'confirm' | 'other';
+      toolKey?: string | null;
+      summary: string;
+      requiresConfirmation: boolean;
+    }>;
+  } | null;
   tool?: {
     endpoint: string;
     method: string;
@@ -27,6 +44,9 @@ export type ScrolithaChatResponse = {
   reply: string;
   suggestedActions: ScrolithaSuggestedAction[];
   needsConfirmation: boolean;
+  responseMode?: 'llm' | 'fallback' | 'blocked';
+  followUpPrompts?: string[];
+  knowledgeHighlights?: string[];
   draftChanges?: Record<string, any> | null;
   learning?: {
     totalInteractions: number;
@@ -48,6 +68,16 @@ export type ScrolithaWidgetConfig = {
   logoFileId: string;
   welcomeText: string;
   typingText: string;
+  placeholderText?: string;
+  emptyStateText?: string;
+  offlineMessage?: string;
+  disclaimerText?: string;
+  starterPrompts?: string[];
+  guestStarterPrompts?: string[];
+  allowVoiceInput?: boolean;
+  allowFileUpload?: boolean;
+  showStatusBadge?: boolean;
+  maxHistoryItems?: number;
 };
 
 export class ScrolithaService {
@@ -176,13 +206,13 @@ export class ScrolithaService {
 
   static async adminGetHealth(scope?: 'user' | 'admin'): Promise<any> {
     const query = scope ? `?scope=${encodeURIComponent(scope)}` : '';
-    const response = await api.get(`/admin/scrolitha/health${query}`);
+    const response = await api.get(`/admin/scrolitha/health${query}`, { timeout: SCROLITHA_ADMIN_LLM_TIMEOUT_MS });
     return extractData<any>(response);
   }
 
   static async adminGetModels(scope?: 'user' | 'admin'): Promise<any> {
     const query = scope ? `?scope=${encodeURIComponent(scope)}` : '';
-    const response = await api.get(`/admin/scrolitha/models${query}`);
+    const response = await api.get(`/admin/scrolitha/models${query}`, { timeout: SCROLITHA_ADMIN_LLM_TIMEOUT_MS });
     return extractData<any>(response);
   }
 
