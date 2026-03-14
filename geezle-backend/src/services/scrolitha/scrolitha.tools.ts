@@ -1,5 +1,6 @@
 import { FileOwnerRole } from '@prisma/client';
 import prisma from '../../utils/prismaClient';
+import { getAffiliateDashboardByUserId } from '../affiliateProgram.service';
 import { listScrolithaAuditLogs } from './scrolitha.audit';
 import { updateScrolithaConfig } from './scrolitha.policy';
 import type { ScrolithaToolDefinition } from './scrolitha.types';
@@ -11,6 +12,51 @@ const n = (v: unknown, d = 0) => {
 };
 const arr = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x || '').trim()).filter(Boolean) : []);
 const role = (v: unknown) => String(v || '').toLowerCase();
+const money = (v: unknown) => Math.round((n(v, 0) + Number.EPSILON) * 100) / 100;
+const formatMoney = (v: unknown, currency = 'USD') =>
+  `${String(currency || 'USD').toUpperCase()} ${money(v).toFixed(2)}`;
+
+const dashboardBasePath = (actorRole: string) => {
+  const normalized = role(actorRole);
+  if (normalized.includes('admin')) return '/admin/dashboard';
+  if (normalized.includes('freelancer') || normalized.includes('seller')) return '/freelancer/dashboard';
+  return '/client/dashboard';
+};
+
+const dashboardTabPath = (actorRole: string, tab: string) => {
+  const base = dashboardBasePath(actorRole);
+  if (base === '/admin/dashboard') {
+    if (tab === 'wallet') return '/admin/dashboard?tab=finance';
+    if (tab === 'affiliate-program') return '/affiliate-program';
+    return base;
+  }
+  return `${base}?tab=${encodeURIComponent(tab)}`;
+};
+
+const extractPlanSnapshot = (user: any, prefix: 'freelancer' | 'employer') => ({
+  id: user?.[`${prefix}PlanId`] || null,
+  name: user?.[`${prefix}PlanName`] || null,
+  interval: user?.[`${prefix}PlanInterval`] || null,
+  price: user?.[`${prefix}PlanPrice`] ?? null,
+  currency: user?.[`${prefix}PlanCurrency`] || 'USD',
+  active: Boolean(user?.[`${prefix}PlanActive`]),
+  purchasedAt: user?.[`${prefix}PlanPurchasedAt`] || null,
+  expiresAt: user?.[`${prefix}PlanExpiresAt`] || null
+});
+
+const selectPrimaryPlan = (user: any, actorRole: string) => {
+  const normalized = role(actorRole);
+  if (normalized.includes('freelancer') || normalized.includes('seller')) {
+    return { kind: 'freelancer', ...extractPlanSnapshot(user, 'freelancer') };
+  }
+  if (normalized.includes('client') || normalized.includes('employer')) {
+    return { kind: 'employer', ...extractPlanSnapshot(user, 'employer') };
+  }
+
+  const freelancerPlan = extractPlanSnapshot(user, 'freelancer');
+  if (freelancerPlan.id || freelancerPlan.active) return { kind: 'freelancer', ...freelancerPlan };
+  return { kind: 'employer', ...extractPlanSnapshot(user, 'employer') };
+};
 
 const MONETIZATION_STATUS = {
   APPROVED: 'APPROVED',
@@ -312,6 +358,343 @@ const userTools: ScrolithaToolDefinition[] = [
       const where = r.includes('admin') ? {} : r.includes('freelancer') ? { freelancerId: ctx.actor.id } : { clientId: ctx.actor.id };
       const rows = await prisma.order.findMany({ where, orderBy: { createdAt: 'desc' }, take });
       return { success: true, result: { orders: rows }, resultSummary: 'Orders loaded.' };
+    }
+  },
+  {
+    key: 'GET_MY_MEMBERSHIP_STATUS',
+    description: 'Fetch my membership and plan status.',
+    scope: 'user',
+    method: 'GET',
+    endpoint: '/api/plans/me',
+    roleScope: ['freelancer', 'client', 'employer', 'admin'],
+    execute: async (_params, ctx) => {
+      const user = await prisma.user.findUnique({
+        where: { id: ctx.actor.id },
+        select: {
+          freelancerPlanId: true,
+          freelancerPlanName: true,
+          freelancerPlanInterval: true,
+          freelancerPlanPrice: true,
+          freelancerPlanCurrency: true,
+          freelancerPlanActive: true,
+          freelancerPlanPurchasedAt: true,
+          freelancerPlanExpiresAt: true,
+          employerPlanId: true,
+          employerPlanName: true,
+          employerPlanInterval: true,
+          employerPlanPrice: true,
+          employerPlanCurrency: true,
+          employerPlanActive: true,
+          employerPlanPurchasedAt: true,
+          employerPlanExpiresAt: true
+        }
+      });
+      if (!user) throw new Error('User not found.');
+
+      const plans = {
+        freelancer: extractPlanSnapshot(user, 'freelancer'),
+        employer: extractPlanSnapshot(user, 'employer')
+      };
+      const primaryPlan = selectPrimaryPlan(user, ctx.actor.role);
+      const activePlans = [plans.freelancer, plans.employer].filter((entry) => entry.active);
+      const resultSummary = primaryPlan.active
+        ? `${primaryPlan.kind === 'freelancer' ? 'Freelancer' : 'Employer'} membership ${primaryPlan.name || 'plan'} is active.`
+        : activePlans.length
+          ? `You have ${activePlans.length} active membership plan${activePlans.length === 1 ? '' : 's'}.`
+          : 'No active membership plan found yet.';
+
+      return {
+        success: true,
+        result: {
+          primaryPlan,
+          plans,
+          activePlanCount: activePlans.length
+        },
+        resultSummary,
+        deepLink: dashboardTabPath(ctx.actor.role, 'membership')
+      };
+    }
+  },
+  {
+    key: 'GET_MY_WALLET_SUMMARY',
+    description: 'Fetch my wallet balance, clearance, and latest transactions.',
+    scope: 'user',
+    method: 'GET',
+    endpoint: '/api/wallet/me',
+    roleScope: ['freelancer', 'client', 'employer', 'admin'],
+    execute: async (_params, ctx) => {
+      const [wallet, transactions] = await Promise.all([
+        prisma.wallet.findUnique({
+          where: { userId: ctx.actor.id },
+          select: {
+            id: true,
+            balance: true,
+            pendingClearance: true,
+            escrowBalance: true,
+            frozen: true,
+            currency: true,
+            isActive: true,
+            updatedAt: true
+          }
+        }),
+        prisma.transaction.findMany({
+          where: { userId: ctx.actor.id },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+          select: {
+            id: true,
+            type: true,
+            amount: true,
+            currency: true,
+            status: true,
+            description: true,
+            createdAt: true
+          }
+        })
+      ]);
+
+      const currency = wallet?.currency || transactions[0]?.currency || 'USD';
+      const availableBalance = money(wallet?.balance);
+      const pendingClearance = money(wallet?.pendingClearance);
+      const escrowBalance = money(wallet?.escrowBalance);
+      const resultSummary = wallet
+        ? `Wallet available ${formatMoney(availableBalance, currency)} with ${formatMoney(pendingClearance, currency)} pending clearance.`
+        : 'Wallet is ready. No balance activity recorded yet.';
+
+      return {
+        success: true,
+        result: {
+          wallet: wallet
+            ? {
+                ...wallet,
+                balance: availableBalance,
+                pendingClearance,
+                escrowBalance
+              }
+            : null,
+          recentTransactions: transactions.map((entry) => ({
+            ...entry,
+            amount: money(entry.amount)
+          }))
+        },
+        resultSummary,
+        deepLink: dashboardTabPath(ctx.actor.role, 'wallet')
+      };
+    }
+  },
+  {
+    key: 'GET_MY_GCOIN_SUMMARY',
+    description: 'Fetch my Gcoin balance, rewards, and latest activity.',
+    scope: 'user',
+    method: 'GET',
+    endpoint: '/api/gcoin/me',
+    roleScope: ['freelancer', 'client', 'employer', 'admin'],
+    execute: async (_params, ctx) => {
+      const [wallet, transactions] = await Promise.all([
+        prisma.gcoinWallet.findUnique({
+          where: { userId: ctx.actor.id },
+          select: {
+            id: true,
+            recipientId: true,
+            balance: true,
+            lifetimeEarned: true,
+            status: true,
+            fraudScore: true,
+            updatedAt: true
+          }
+        }),
+        prisma.gcoinTransaction.findMany({
+          where: { userId: ctx.actor.id },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+          select: {
+            id: true,
+            amount: true,
+            type: true,
+            source: true,
+            reason: true,
+            status: true,
+            createdAt: true
+          }
+        })
+      ]);
+
+      const resultSummary = wallet
+        ? `Gcoin balance is ${money(wallet.balance).toFixed(2)} with ${money(wallet.lifetimeEarned).toFixed(2)} earned lifetime.`
+        : 'No Gcoin wallet activity found yet.';
+
+      return {
+        success: true,
+        result: {
+          wallet: wallet
+            ? {
+                ...wallet,
+                balance: money(wallet.balance),
+                lifetimeEarned: money(wallet.lifetimeEarned)
+              }
+            : null,
+          recentTransactions: transactions.map((entry) => ({
+            ...entry,
+            amount: money(entry.amount)
+          }))
+        },
+        resultSummary,
+        deepLink: dashboardTabPath(ctx.actor.role, 'gcoin')
+      };
+    }
+  },
+  {
+    key: 'GET_MY_ADS_OVERVIEW',
+    description: 'Fetch my ads, campaign status, and recent performance.',
+    scope: 'user',
+    method: 'GET',
+    endpoint: '/api/community/ads/me',
+    roleScope: ['freelancer', 'client', 'employer', 'admin'],
+    execute: async (_params, ctx) => {
+      const rows = await prisma.communityAd.findMany({
+        where: { creatorId: ctx.actor.id },
+        orderBy: { updatedAt: 'desc' },
+        take: 10,
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          budget: true,
+          remainingBudget: true,
+          currency: true,
+          impressions: true,
+          clicks: true,
+          likes: true,
+          messagesStarted: true,
+          updatedAt: true
+        }
+      });
+
+      const activeCount = rows.filter((entry) =>
+        [AD_STATUS.ACTIVE, AD_STATUS.APPROVED].includes(String(entry.status || '').toUpperCase() as any)
+      ).length;
+      const totalImpressions = rows.reduce((sum, entry) => sum + n(entry.impressions), 0);
+      const totalClicks = rows.reduce((sum, entry) => sum + n(entry.clicks), 0);
+      const totalSpend = rows.reduce((sum, entry) => sum + Math.max(0, n(entry.budget) - n(entry.remainingBudget)), 0);
+      const currency = rows[0]?.currency || 'USD';
+      const resultSummary = rows.length
+        ? `You have ${rows.length} ads, ${activeCount} active, with ${totalImpressions} impressions and ${totalClicks} clicks.`
+        : 'No ads found yet. Create a campaign to boost visibility when ready.';
+
+      return {
+        success: true,
+        result: {
+          summary: {
+            totalAds: rows.length,
+            activeAds: activeCount,
+            totalImpressions,
+            totalClicks,
+            totalSpend: money(totalSpend),
+            currency
+          },
+          ads: rows.map((entry) => ({
+            ...entry,
+            budget: money(entry.budget),
+            remainingBudget: money(entry.remainingBudget)
+          }))
+        },
+        resultSummary,
+        deepLink: dashboardTabPath(ctx.actor.role, 'my-ads')
+      };
+    }
+  },
+  {
+    key: 'GET_MY_AFFILIATE_OVERVIEW',
+    description: 'Fetch my affiliate referral and earnings overview.',
+    scope: 'user',
+    method: 'GET',
+    endpoint: '/api/marketing/affiliate/me',
+    roleScope: ['freelancer', 'client', 'employer', 'admin'],
+    execute: async (_params, ctx) => {
+      const dashboard = await getAffiliateDashboardByUserId(ctx.actor.id);
+      const payoutCurrency = String(dashboard?.summary?.payoutCurrency || 'USD').toUpperCase();
+      const status = String(dashboard?.status || '').toLowerCase();
+      const resultSummary =
+        status === 'approved'
+          ? `Affiliate balance is ${formatMoney(dashboard?.summary?.availableBalance, payoutCurrency)} across ${n(
+              dashboard?.summary?.totalReferrals,
+              0
+            )} referrals.`
+          : status === 'pending'
+            ? 'Affiliate application is pending review.'
+            : status === 'rejected'
+              ? 'Affiliate application was rejected. Review the latest note before reapplying.'
+              : 'Affiliate program is available. No application submitted yet.';
+
+      return {
+        success: true,
+        result: dashboard,
+        resultSummary,
+        deepLink: dashboardTabPath(ctx.actor.role, 'affiliate-program')
+      };
+    }
+  },
+  {
+    key: 'GET_MY_MONETIZATION_STATUS',
+    description: 'Fetch my monetization profile and latest application status.',
+    scope: 'user',
+    method: 'GET',
+    endpoint: '/api/monetization/me',
+    roleScope: ['freelancer', 'client', 'employer', 'admin'],
+    execute: async (_params, ctx) => {
+      const [profile, application] = await Promise.all([
+        prisma.monetizationProfile.findUnique({
+          where: { userId: ctx.actor.id },
+          select: {
+            isEnabled: true,
+            enabledAt: true,
+            disabledAt: true,
+            disabledReason: true,
+            updatedAt: true
+          }
+        }),
+        prisma.monetizationApplication.findFirst({
+          where: { userId: ctx.actor.id },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            status: true,
+            country: true,
+            adminNote: true,
+            createdAt: true,
+            reviewedAt: true,
+            reapplyAllowedAt: true
+          }
+        })
+      ]);
+
+      const applicationStatus = String(application?.status || '').toLowerCase();
+      const resultSummary = profile?.isEnabled
+        ? 'Monetization is active on your account.'
+        : applicationStatus === 'pending'
+          ? 'Monetization application is pending review.'
+          : applicationStatus === 'approved'
+            ? 'Monetization has been approved and is ready to use.'
+            : applicationStatus === 'rejected'
+              ? 'Monetization application was rejected. Review the latest note and reapply when eligible.'
+              : applicationStatus === 'suspended'
+                ? 'Monetization is currently suspended on this account.'
+                : 'No monetization application found yet.';
+
+      return {
+        success: true,
+        result: {
+          monetization: profile,
+          latestApplication: application
+        },
+        resultSummary,
+        deepLink: dashboardTabPath(
+          ctx.actor.role,
+          role(ctx.actor.role).includes('freelancer') || role(ctx.actor.role).includes('seller')
+            ? 'gcoin'
+            : 'membership'
+        )
+      };
     }
   },
   {

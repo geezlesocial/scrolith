@@ -135,9 +135,6 @@ export const saveConversationFeedback = async (input: {
 };
 
 export const ensureDefaultSkills = async () => {
-  const count = await prisma.scrolithaSkill.count();
-  if (count > 0) return;
-
   const defaults = [
     {
       key: 'create_gig',
@@ -188,6 +185,36 @@ export const ensureDefaultSkills = async () => {
         { type: 'execute', tool: 'UPLOAD_FILE_TO_LIBRARY' }
       ],
       successCriteria: ['uploaded_files contains fileId']
+    },
+    {
+      key: 'freelancer_growth_review',
+      name: 'Freelancer Growth Review',
+      roleScope: ['freelancer', 'admin'],
+      description: 'Reviews monetization readiness, wallet health, rewards, and growth levers for freelancers.',
+      inputsSchema: [],
+      stepsSchema: [
+        { type: 'fetch', tool: 'GET_MY_MEMBERSHIP_STATUS' },
+        { type: 'fetch', tool: 'GET_MY_WALLET_SUMMARY' },
+        { type: 'fetch', tool: 'GET_MY_GCOIN_SUMMARY' },
+        { type: 'fetch', tool: 'GET_MY_AFFILIATE_OVERVIEW' },
+        { type: 'fetch', tool: 'GET_MY_MONETIZATION_STATUS' }
+      ],
+      successCriteria: ['growth review context loaded']
+    },
+    {
+      key: 'employer_growth_review',
+      name: 'Employer Growth Review',
+      roleScope: ['client', 'employer', 'admin'],
+      description: 'Reviews membership, wallet funding, ad performance, referrals, and retention levers for employers.',
+      inputsSchema: [],
+      stepsSchema: [
+        { type: 'fetch', tool: 'GET_MY_MEMBERSHIP_STATUS' },
+        { type: 'fetch', tool: 'GET_MY_WALLET_SUMMARY' },
+        { type: 'fetch', tool: 'GET_MY_ADS_OVERVIEW' },
+        { type: 'fetch', tool: 'GET_MY_AFFILIATE_OVERVIEW' },
+        { type: 'fetch', tool: 'GET_MY_MONETIZATION_STATUS' }
+      ],
+      successCriteria: ['growth review context loaded']
     }
   ];
 

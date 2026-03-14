@@ -39,12 +39,32 @@ export type ScrolithaToolDefinition = {
   execute: (params: Record<string, any>, context: ScrolithaToolContext) => Promise<ScrolithaToolExecutionResult>;
 };
 
+export type ScrolithaAgentStepPreview = {
+  index: number;
+  type: string;
+  mode: 'fetch' | 'preview' | 'execute' | 'confirm' | 'other';
+  toolKey?: string | null;
+  summary: string;
+  requiresConfirmation: boolean;
+};
+
+export type ScrolithaAgentPlanPreview = {
+  mode: 'skill';
+  skillId?: string | null;
+  skillKey: string;
+  skillName?: string | null;
+  stepCount: number;
+  executableStepCount: number;
+  steps: ScrolithaAgentStepPreview[];
+};
+
 export type ScrolithaPlanSuggestion = {
   actionKey: string;
   toolKey: string;
   summary: string;
   paramsPreview?: Record<string, any>;
   draftChanges?: Record<string, any>;
+  agent?: ScrolithaAgentPlanPreview | null;
 };
 
 export type ScrolithaChatInput = {

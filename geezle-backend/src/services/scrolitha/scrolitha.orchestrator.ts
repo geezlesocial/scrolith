@@ -26,6 +26,7 @@ import {
 import { getScrolithaToolDefinition, listScrolithaTools } from './scrolitha.tools';
 import type {
   ScrolithaActor,
+  ScrolithaAgentPlanPreview,
   ScrolithaChatInput,
   ScrolithaExecuteInput,
   ScrolithaFeedbackInput,
@@ -39,9 +40,375 @@ const truncate = (value: string, max = 1800) => {
   return `${s.slice(0, max)}…`;
 };
 
+const uniqueStrings = (items: Array<unknown>, max = 8) => {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const entry of items) {
+    const value = String(entry || '').trim();
+    const key = value.toLowerCase();
+    if (!value || seen.has(key)) continue;
+    seen.add(key);
+    output.push(value);
+    if (output.length >= max) break;
+  }
+  return output;
+};
+
+const INTERNAL_AGENT_KEY = '__scrolithaAgent';
+
+const isRecord = (value: unknown): value is Record<string, any> =>
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const cloneJson = <T>(value: T): T => {
+  if (value === undefined) return value;
+  try {
+    return JSON.parse(JSON.stringify(value)) as T;
+  } catch {
+    return value;
+  }
+};
+
+const prettifyToken = (value: unknown) =>
+  String(value || '')
+    .trim()
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (entry) => entry.toUpperCase());
+
+const stripInternalScrolithaParams = (value: unknown) => {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(([key]) => !String(key || '').startsWith('__scrolitha'))
+  );
+};
+
+const normalizeAgentStepMode = (value: unknown): 'fetch' | 'preview' | 'execute' | 'confirm' | 'other' => {
+  const stepType = text(value).toLowerCase();
+  if (stepType === 'fetch') return 'fetch';
+  if (stepType === 'execute') return 'execute';
+  if (stepType === 'action_preview') return 'preview';
+  if (stepType === 'confirm_required') return 'confirm';
+  return 'other';
+};
+
+const buildAgentStepSummary = (step: Record<string, any>, index: number) => {
+  const explicit = text(step.summary || step.label || step.description);
+  if (explicit) return explicit;
+  const mode = normalizeAgentStepMode(step.type);
+  const toolKey = text(step.tool).toUpperCase();
+  if (mode === 'confirm') return 'Wait for user confirmation before making changes.';
+  if (!toolKey) return `Run step ${index}.`;
+  if (mode === 'fetch') return `Load ${prettifyToken(toolKey)} context.`;
+  if (mode === 'preview') return `Prepare ${prettifyToken(toolKey)} for review.`;
+  if (mode === 'execute') return `Run ${prettifyToken(toolKey)}.`;
+  return prettifyToken(toolKey) || `Run step ${index}.`;
+};
+
+const findSkillForSuggestion = (suggestion: ScrolithaPlanSuggestion, skills: any[]) => {
+  const actionKey = text(suggestion.actionKey).toLowerCase();
+  const toolKey = text(suggestion.toolKey).toUpperCase();
+  if (!Array.isArray(skills) || !skills.length) return null;
+
+  const exact = skills.find((skill) => text(skill?.key).toLowerCase() === actionKey);
+  if (exact) return exact;
+
+  const matchingToolSkills = skills.filter((skill) => {
+    if (!Array.isArray(skill?.stepsSchema)) return false;
+    return skill.stepsSchema.some((step: any) => text(step?.tool).toUpperCase() === toolKey);
+  });
+
+  return matchingToolSkills.length === 1 ? matchingToolSkills[0] : null;
+};
+
+const buildSkillAgentPlan = (skill: any, suggestion: ScrolithaPlanSuggestion, config: any): {
+  primaryToolKey: string;
+  requiresConfirmation: boolean;
+  runtimeToolKeys: string[];
+  preview: ScrolithaAgentPlanPreview;
+  storedMeta: Record<string, any>;
+} | null => {
+  const rawSteps = Array.isArray(skill?.stepsSchema) ? skill.stepsSchema.filter(isRecord) : [];
+  if (!rawSteps.length) return null;
+
+  const previewSteps = rawSteps.map((entry, idx) => {
+    const toolKey = text(entry.tool).toUpperCase() || null;
+    const tool = toolKey ? getScrolithaToolDefinition(toolKey) : null;
+    const mode = normalizeAgentStepMode(entry.type);
+    return {
+      index: idx + 1,
+      type: text(entry.type) || 'step',
+      mode,
+      toolKey,
+      summary: buildAgentStepSummary(entry, idx + 1),
+      requiresConfirmation:
+        mode === 'confirm' ||
+        Boolean(tool && mode === 'execute' && shouldRequireConfirmation(tool, config)),
+      params: isRecord(entry.params) ? cloneJson(entry.params) : null
+    };
+  });
+
+  const runtimeSteps = previewSteps.filter(
+    (step) => Boolean(step.toolKey) && (step.mode === 'fetch' || step.mode === 'execute')
+  );
+  if (!runtimeSteps.length) return null;
+
+  const primaryToolKey =
+    runtimeSteps.find((step) => step.mode === 'execute')?.toolKey ||
+    runtimeSteps[0]?.toolKey ||
+    text(suggestion.toolKey).toUpperCase();
+
+  return {
+    primaryToolKey,
+    requiresConfirmation: previewSteps.some((step) => step.requiresConfirmation),
+    runtimeToolKeys: Array.from(
+      new Set(runtimeSteps.map((step) => String(step.toolKey || '').trim()).filter(Boolean))
+    ),
+    preview: {
+      mode: 'skill',
+      skillId: text(skill?.id) || null,
+      skillKey: text(skill?.key) || text(suggestion.actionKey),
+      skillName: text(skill?.name) || null,
+      stepCount: previewSteps.length,
+      executableStepCount: runtimeSteps.length,
+      steps: previewSteps.map(({ params, ...rest }) => rest)
+    },
+    storedMeta: {
+      version: 1,
+      mode: 'skill',
+      skillId: text(skill?.id) || null,
+      skillKey: text(skill?.key) || text(suggestion.actionKey),
+      skillName: text(skill?.name) || null,
+      steps: previewSteps.map((step) => ({
+        index: step.index,
+        type: step.type,
+        mode: step.mode,
+        toolKey: step.toolKey,
+        summary: step.summary,
+        requiresConfirmation: step.requiresConfirmation,
+        params: step.params
+      }))
+    }
+  };
+};
+
+const extractStoredAgentMeta = (value: unknown) => {
+  if (!isRecord(value)) return null;
+  const meta = value[INTERNAL_AGENT_KEY];
+  return isRecord(meta) ? meta : null;
+};
+
+const getPathValue = (source: unknown, path: string) => {
+  const segments = String(path || '')
+    .split('.')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  let cursor: any = source;
+  for (const segment of segments) {
+    if (!isRecord(cursor) && !Array.isArray(cursor)) return undefined;
+    cursor = cursor?.[segment];
+    if (cursor === undefined) return undefined;
+  }
+  return cursor;
+};
+
+const resolveAgentTemplates = (value: unknown, context: Record<string, any>): any => {
+  if (Array.isArray(value)) {
+    return value.map((entry) => resolveAgentTemplates(entry, context));
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key, resolveAgentTemplates(entry, context)])
+    );
+  }
+  if (typeof value !== 'string') return value;
+
+  const exactMatch = value.match(/^\{\{\s*([^}]+?)\s*\}\}$/);
+  if (exactMatch) {
+    const resolved = getPathValue(context, exactMatch[1]);
+    return resolved === undefined ? null : resolved;
+  }
+
+  return value.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_full, token) => {
+    const resolved = getPathValue(context, token);
+    return resolved === undefined || resolved === null ? '' : String(resolved);
+  });
+};
+
+const extractCarryForwardParams = (value: unknown) => {
+  if (!isRecord(value)) return {};
+  const output: Record<string, any> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    const lower = key.toLowerCase();
+    const primitive =
+      entry === null ||
+      ['string', 'number', 'boolean'].includes(typeof entry) ||
+      (Array.isArray(entry) &&
+        entry.every((item) => item === null || ['string', 'number', 'boolean'].includes(typeof item)));
+    if (!primitive) continue;
+    if (
+      lower === 'id' ||
+      lower === 'status' ||
+      lower === 'trackingcode' ||
+      lower.endsWith('id') ||
+      lower.endsWith('ids')
+    ) {
+      output[key] = cloneJson(entry);
+    }
+  }
+  return output;
+};
+
+const formatPageContext = (value: unknown) => {
+  const page = text(value).toLowerCase();
+  if (!page) return '';
+  if (page.includes('tab=wallet')) return 'Wallet dashboard';
+  if (page.includes('tab=membership')) return 'Membership dashboard';
+  if (page.includes('tab=affiliate-program') || page.includes('/affiliate-program')) return 'Affiliate dashboard';
+  if (page.includes('tab=gcoin')) return 'Gcoin dashboard';
+  if (page.includes('tab=my-ads')) return 'Ads dashboard';
+  if (page.includes('/freelancer/dashboard')) return 'Freelancer dashboard';
+  if (page.includes('/client/dashboard')) return 'Client dashboard';
+  if (page.includes('/admin')) return 'Admin dashboard';
+  if (page.includes('/support')) return 'Support center';
+  if (page.includes('/messages')) return 'Messages';
+  if (page.includes('/profile')) return 'Profile';
+  if (page.includes('/create-gig')) return 'Gig creation';
+  if (page.includes('/create-job')) return 'Job creation';
+  if (page.includes('/company')) return 'Company page';
+  if (page.includes('/scroll')) return 'Scroll feed';
+  if (page.includes('/post')) return 'Post view';
+  return page.replace(/^\//, '').replace(/[/?#].*$/, '').replace(/-/g, ' ') || 'current page';
+};
+
+const summarizeKnowledgeHighlights = (knowledgeContext?: string | null, max = 3) => {
+  if (!knowledgeContext) return [];
+  const lines = String(knowledgeContext || '')
+    .split('\n')
+    .map((line) => line.replace(/^[-*]\s*/, '').trim())
+    .filter((line) => line && !line.endsWith(':') && !/^scrolith platform knowledge$/i.test(line));
+  return uniqueStrings(lines, max);
+};
+
+const buildFollowUpPrompts = (input: {
+  actor: ScrolithaActor;
+  page?: string | null;
+  actionPlans: Array<{ toolKey?: string }>;
+  knowledgeHighlights?: string[];
+}) => {
+  const role = String(input.actor.role || '').toLowerCase();
+  const page = String(input.page || '').toLowerCase();
+  const prompts: string[] = [];
+
+  for (const action of input.actionPlans) {
+    const toolKey = String(action.toolKey || '').toUpperCase();
+    if (toolKey === 'GET_MY_ORDERS') prompts.push('Show my latest orders');
+    if (toolKey === 'GET_UPLOADED_FILES') prompts.push('Show my uploaded files');
+    if (toolKey === 'FETCH_NOTIFICATIONS') prompts.push('Show my latest notifications');
+    if (toolKey === 'GET_ME_PROFILE') prompts.push('Review my profile and settings');
+    if (toolKey === 'CREATE_TICKET') prompts.push('Create a support ticket');
+    if (toolKey === 'GENERATE_PROJECT_BRIEF') prompts.push('Generate a structured project brief');
+    if (toolKey === 'CREATE_GIG') prompts.push('Create a gig draft');
+    if (toolKey === 'CREATE_JOB') prompts.push('Create a job draft');
+    if (toolKey === 'GET_MY_WALLET_SUMMARY') prompts.push('Show my wallet summary');
+    if (toolKey === 'GET_MY_MEMBERSHIP_STATUS') prompts.push('Review my membership plan');
+    if (toolKey === 'GET_MY_GCOIN_SUMMARY') prompts.push('Show my Gcoin balance');
+    if (toolKey === 'GET_MY_AFFILIATE_OVERVIEW') prompts.push('Show my affiliate earnings');
+    if (toolKey === 'GET_MY_ADS_OVERVIEW') prompts.push('Check my ad performance');
+    if (toolKey === 'GET_MY_MONETIZATION_STATUS') prompts.push('Review my monetization and retention status');
+  }
+
+  if (role.includes('freelancer')) {
+    prompts.push(
+      'Create a gig draft',
+      'Show my latest orders',
+      'Review my profile and settings',
+      'Review my monetization and retention status',
+      'Show my wallet summary'
+    );
+  } else if (role.includes('client') || role.includes('employer')) {
+    prompts.push(
+      'Create a job draft',
+      'Generate a structured project brief',
+      'Show my latest notifications',
+      'Review my retention and growth setup',
+      'Check my ad performance'
+    );
+  } else if (input.actor.scope === 'admin') {
+    prompts.push('Search users', 'Review ads', 'Read Scrolitha audit logs');
+  }
+
+  if (page.includes('/support')) prompts.push('Create a support ticket');
+  if (page.includes('/messages')) prompts.push('Show my latest notifications');
+  if (page.includes('/profile')) prompts.push('Review my profile and settings');
+  if (page.includes('/create-gig')) prompts.push('Create a gig draft', 'Show my uploaded files');
+  if (page.includes('/create-job')) prompts.push('Create a job draft', 'Generate a structured project brief');
+  if (page.includes('tab=wallet')) prompts.push('Show my wallet summary');
+  if (page.includes('tab=membership')) prompts.push('Review my membership plan');
+  if (page.includes('tab=affiliate-program') || page.includes('/affiliate-program')) {
+    prompts.push('Show my affiliate earnings');
+  }
+  if (page.includes('tab=gcoin')) prompts.push('Show my Gcoin balance');
+  if (page.includes('tab=my-ads')) prompts.push('Check my ad performance');
+
+  for (const highlight of input.knowledgeHighlights || []) {
+    if (/brief/i.test(highlight)) prompts.push('Generate a structured project brief');
+    if (/gig/i.test(highlight)) prompts.push('Create a gig draft');
+    if (/job/i.test(highlight)) prompts.push('Create a job draft');
+    if (/support/i.test(highlight)) prompts.push('Create a support ticket');
+    if (/wallet|payout|billing/i.test(highlight)) prompts.push('Show my wallet summary');
+    if (/membership|subscription/i.test(highlight)) prompts.push('Review my membership plan');
+    if (/affiliate|referral/i.test(highlight)) prompts.push('Show my affiliate earnings');
+    if (/gcoin|reward/i.test(highlight)) prompts.push('Show my Gcoin balance');
+    if (/ads|promotion|campaign/i.test(highlight)) prompts.push('Check my ad performance');
+    if (/monetization|retention|growth/i.test(highlight)) {
+      prompts.push('Review my monetization and retention status');
+    }
+  }
+
+  return uniqueStrings(prompts, 5);
+};
+
+const buildFallbackReply = (input: {
+  page?: string | null;
+  safeMode: boolean;
+  actionPlans: Array<{ summary?: string; requiresConfirmation?: boolean }>;
+  knowledgeHighlights: string[];
+  classifiedReply: string;
+}) => {
+  const sections: string[] = [];
+  const pageContext = formatPageContext(input.page);
+
+  if (input.actionPlans.length === 1) {
+    const action = input.actionPlans[0];
+    sections.push(
+      `I prepared one secure next step: ${String(action.summary || 'action ready')}${action.requiresConfirmation ? ' It will wait for confirmation before any change is made.' : '.'}`
+    );
+  } else if (input.actionPlans.length > 1) {
+    sections.push(`I prepared ${input.actionPlans.length} secure next steps. Review the prepared actions and run the one that matches your goal.`);
+  } else {
+    sections.push(input.classifiedReply);
+  }
+
+  if (pageContext) {
+    sections.push(`Current context: ${pageContext}. I can tailor guidance and safe actions for this surface.`);
+  }
+
+  if (input.knowledgeHighlights.length) {
+    sections.push(`Relevant help:\n- ${input.knowledgeHighlights.join('\n- ')}`);
+  }
+
+  sections.push(
+    input.safeMode
+      ? 'Safe mode is active, so I will avoid risky actions and keep changes confirmation-based.'
+      : 'I will keep actions inside approved platform tools and only execute confirmed changes.'
+  );
+
+  return sections.join('\n\n');
+};
+
 const buildScrolithaSystemPrompt = (params: {
   actor: ScrolithaActor;
   safeMode: boolean;
+  pageContext?: string | null;
   plannedActions: Array<{ summary: string; toolKey: string; requiresConfirmation: boolean }>;
   knowledgeContext?: string | null;
   learningContext?: string | null;
@@ -65,6 +432,7 @@ const buildScrolithaSystemPrompt = (params: {
     ``,
     `Actor scope: ${scope}`,
     `Actor role: ${role}`,
+    params.pageContext ? `Current page: ${params.pageContext}` : '',
     actions ? `Planned actions:\n${actions}` : `Planned actions: (none)`,
     ``,
     params.knowledgeContext ? `Scrolith platform knowledge:\n${params.knowledgeContext}` : '',
@@ -85,6 +453,7 @@ const buildLlmReply = async (input: {
   actor: ScrolithaActor;
   conversationId: string;
   userMessage: string;
+  pageContext?: string | null;
   config: Awaited<ReturnType<typeof ensureScrolithaConfig>>;
   actionPlans: Array<{ summary: string; toolKey: string; requiresConfirmation: boolean }>;
 }) => {
@@ -108,6 +477,7 @@ const buildLlmReply = async (input: {
       content: buildScrolithaSystemPrompt({
         actor: input.actor,
         safeMode: Boolean(input.config.safeMode),
+        pageContext: input.pageContext,
         plannedActions: input.actionPlans,
         knowledgeContext,
         learningContext
@@ -137,9 +507,18 @@ const buildLlmReply = async (input: {
   }
 };
 
-const classifyMessage = (message: string, actor: ScrolithaActor, skills: any[]) => {
+const classifyMessage = (message: string, actor: ScrolithaActor, skills: any[], page?: string | null) => {
   const m = message.toLowerCase();
+  const currentPage = String(page || '').toLowerCase();
   const has = (...terms: string[]) => terms.some((term) => m.includes(term));
+  const actorRole = String(actor.role || '').toLowerCase();
+  const isEmployer = actorRole.includes('client') || actorRole.includes('employer');
+  const isFreelancer = actorRole.includes('freelancer') || actorRole.includes('seller');
+  const growthReviewKey = isFreelancer
+    ? 'freelancer_growth_review'
+    : isEmployer
+      ? 'employer_growth_review'
+      : '';
 
   const suggestions: ScrolithaPlanSuggestion[] = [];
   const add = (actionKey: string, toolKey: string, summary: string) => {
@@ -160,6 +539,37 @@ const classifyMessage = (message: string, actor: ScrolithaActor, skills: any[]) 
     if (has('create gig', 'new gig')) add('create_gig', 'CREATE_GIG', 'Create a gig draft.');
     if (has('submit gig', 'gig for review')) add('submit_gig_for_review', 'SUBMIT_GIG_FOR_REVIEW', 'Submit a gig draft for review.');
     if (has('post job', 'create job', 'new job')) add('create_job', 'CREATE_JOB', 'Create a job draft.');
+    if (
+      growthReviewKey &&
+      (has(
+        'monetization',
+        'retention',
+        'growth review',
+        'growth setup',
+        'earnings setup',
+        'creator earnings',
+        'reactivate revenue'
+      ) ||
+        currentPage.includes('tab=membership') ||
+        currentPage.includes('tab=gcoin') ||
+        currentPage.includes('tab=my-ads') ||
+        currentPage.includes('/affiliate-program') ||
+        currentPage.includes('tab=affiliate-program'))
+    ) {
+      add(
+        growthReviewKey,
+        'GET_MY_MEMBERSHIP_STATUS',
+        isFreelancer
+          ? 'Review your monetization, retention, and earnings setup.'
+          : 'Review your retention, budget, and campaign growth setup.'
+      );
+    }
+    if (has('support', 'help', 'issue', 'problem', 'ticket') || currentPage.includes('/support')) {
+      add('create_ticket', 'CREATE_TICKET', 'Create a support ticket with your issue summary.');
+    }
+    if (has('uploaded files', 'my files', 'file library') || currentPage.includes('uploaded-files')) {
+      add('get_uploaded_files', 'GET_UPLOADED_FILES', 'Load your latest uploaded files.');
+    }
     if (has('upload file', 'attach file', 'file library')) add('upload_file_to_library', 'UPLOAD_FILE_TO_LIBRARY', 'Bind a file from Uploaded Files.');
     if (has('find orders', 'my orders', 'orders')) add('get_my_orders', 'GET_MY_ORDERS', 'Load your latest orders.');
     if (has('notification', 'alerts')) add('fetch_notifications', 'FETCH_NOTIFICATIONS', 'Fetch recent notifications.');
@@ -168,6 +578,37 @@ const classifyMessage = (message: string, actor: ScrolithaActor, skills: any[]) 
     if (has('follow user', 'follow account')) add('follow_user', 'FOLLOW_USER', 'Follow an account.');
     if (has('project brief', 'generate brief')) add('generate_project_brief', 'GENERATE_PROJECT_BRIEF', 'Generate a project brief draft.');
     if (has('profile', 'settings')) add('get_me_profile', 'GET_ME_PROFILE', 'Load your profile and settings context.');
+    if (
+      has('wallet', 'billing', 'payout', 'withdrawal', 'withdraw money', 'fund wallet', 'wallet balance') ||
+      currentPage.includes('tab=wallet')
+    ) {
+      add('get_my_wallet_summary', 'GET_MY_WALLET_SUMMARY', 'Load your wallet balance, payouts, and recent transactions.');
+    }
+    if (
+      has('membership', 'subscription', 'upgrade plan', 'renew plan', 'pro plan', 'pricing plan') ||
+      currentPage.includes('tab=membership')
+    ) {
+      add('get_my_membership_status', 'GET_MY_MEMBERSHIP_STATUS', 'Review your membership plan and renewal status.');
+    }
+    if (has('gcoin', 'creator reward', 'coin balance', 'rewards wallet') || currentPage.includes('tab=gcoin')) {
+      add('get_my_gcoin_summary', 'GET_MY_GCOIN_SUMMARY', 'Load your Gcoin balance and reward activity.');
+    }
+    if (
+      has('affiliate', 'referral', 'refer friend', 'invite earnings', 'partner earnings') ||
+      currentPage.includes('/affiliate-program') ||
+      currentPage.includes('tab=affiliate-program')
+    ) {
+      add('get_my_affiliate_overview', 'GET_MY_AFFILIATE_OVERVIEW', 'Review your affiliate referrals and earnings.');
+    }
+    if (
+      has('ads', 'campaign', 'promotion', 'boost post', 'ad performance', 'reactivate ad', 'campaign spend') ||
+      currentPage.includes('tab=my-ads')
+    ) {
+      add('get_my_ads_overview', 'GET_MY_ADS_OVERVIEW', 'Review your ad campaigns and recent performance.');
+    }
+    if (has('monetize', 'monetization status', 'creator program', 'eligibility', 'earnings approval')) {
+      add('get_my_monetization_status', 'GET_MY_MONETIZATION_STATUS', 'Review your monetization profile and application status.');
+    }
   }
 
   if (!suggestions.length && Array.isArray(skills) && skills.length) {
@@ -194,7 +635,7 @@ const classifyMessage = (message: string, actor: ScrolithaActor, skills: any[]) 
     }
   }
 
-  let reply = 'I can help with task planning and execution using approved tools. Tell me the exact action and required IDs.';
+  let reply = 'I can help with secure platform tasks, guided support, and approved actions. Tell me the goal, and I will prepare the next safe step.';
   if (suggestions.length === 1) {
     reply = `I prepared one action: ${suggestions[0].summary}`;
   } else if (suggestions.length > 1) {
@@ -223,19 +664,31 @@ const createActionPlans = async (input: {
   actor: ScrolithaActor;
   conversationId: string;
   suggestions: ScrolithaPlanSuggestion[];
+  skills: any[];
   config: any;
 }) => {
   const plans: any[] = [];
 
   for (const suggestion of input.suggestions) {
-    const tool = getScrolithaToolDefinition(suggestion.toolKey);
+    const skill = findSkillForSuggestion(suggestion, input.skills);
+    const agentPlan = skill ? buildSkillAgentPlan(skill, suggestion, input.config) : null;
+    const tool = getScrolithaToolDefinition(agentPlan?.primaryToolKey || suggestion.toolKey);
     if (!tool) continue;
-    const allowed = canUseTool(input.actor, tool, input.config);
-    if (!allowed.allowed) continue;
+    const planToolKeys = agentPlan?.runtimeToolKeys || [tool.key];
+    if (planToolKeys.some((toolKey) => !getScrolithaToolDefinition(toolKey))) continue;
+    const blockedReason = planToolKeys
+      .map((toolKey) => getScrolithaToolDefinition(toolKey))
+      .filter(Boolean)
+      .map((entry) => canUseTool(input.actor, entry as any, input.config))
+      .find((result) => !result.allowed);
+    if (blockedReason && !blockedReason.allowed) continue;
 
-    const requiresConfirmation = shouldRequireConfirmation(tool, input.config);
-    const paramsPreview = suggestion.paramsPreview || {};
-    const redacted = redactPayload(paramsPreview, tool.redactedFields);
+    const publicParamsPreview = stripInternalScrolithaParams(suggestion.paramsPreview || {});
+    const storedParamsPreview = agentPlan
+      ? { ...publicParamsPreview, [INTERNAL_AGENT_KEY]: agentPlan.storedMeta }
+      : publicParamsPreview;
+    const requiresConfirmation = agentPlan?.requiresConfirmation || shouldRequireConfirmation(tool, input.config);
+    const redacted = redactPayload(publicParamsPreview, tool.redactedFields);
 
     const row = await prisma.scrolithaActionPlan.create({
       data: {
@@ -249,7 +702,7 @@ const createActionPlans = async (input: {
         requiresConfirmation,
         confirmationStatus: requiresConfirmation ? 'pending' : 'not_required',
         status: 'planned',
-        paramsPreview,
+        paramsPreview: storedParamsPreview,
         paramsRedacted: redacted
       }
     });
@@ -260,7 +713,8 @@ const createActionPlans = async (input: {
       toolKey: row.toolKey,
       summary: row.summary,
       requiresConfirmation,
-      paramsPreview,
+      paramsPreview: publicParamsPreview,
+      agent: agentPlan?.preview || null,
       tool: {
         endpoint: tool.endpoint,
         method: tool.method
@@ -271,8 +725,178 @@ const createActionPlans = async (input: {
   return plans;
 };
 
+const executeSkillAgentPlan = async (input: {
+  actionPlan: any;
+  actor: ScrolithaActor;
+  app?: any;
+  config: any;
+  agentMeta: Record<string, any>;
+  params: Record<string, any>;
+}) => {
+  const steps = Array.isArray(input.agentMeta?.steps) ? input.agentMeta.steps.filter(isRecord) : [];
+  if (!steps.length) throw new Error('Agent plan has no steps.');
+
+  const trace: Array<Record<string, any>> = [];
+  const emittedEvents = new Set<string>();
+  const carryForward: Record<string, any> = { ...stripInternalScrolithaParams(input.params) };
+  const outputs: Record<string, any> = {};
+  const stepResults: Record<string, any> = {};
+  let lastResult: any = null;
+  let lastSummary = '';
+  let deepLink: string | null = null;
+
+  for (const rawStep of steps) {
+    const stepIndex = Number(rawStep.index || trace.length + 1);
+    const stepMode = String(rawStep.mode || normalizeAgentStepMode(rawStep.type));
+    const stepToolKey = text(rawStep.toolKey).toUpperCase();
+    const traceEntry: Record<string, any> = {
+      index: stepIndex,
+      type: text(rawStep.type) || 'step',
+      mode: stepMode,
+      toolKey: stepToolKey || null,
+      summary: text(rawStep.summary) || `Step ${stepIndex}`,
+      status: 'skipped'
+    };
+
+    if (!stepToolKey || !['fetch', 'execute'].includes(stepMode)) {
+      trace.push(traceEntry);
+      continue;
+    }
+
+    const stepTool = getScrolithaToolDefinition(stepToolKey);
+    if (!stepTool) {
+      const missingError: any = new Error(`Agent step tool missing: ${stepToolKey}`);
+      missingError.scrolithaAgentTrace = [...trace, { ...traceEntry, status: 'failed' }];
+      throw missingError;
+    }
+
+    const allowed = canUseTool(input.actor, stepTool, input.config);
+    if (!allowed.allowed) {
+      const blockedError: any = new Error(allowed.reason || `Tool ${stepTool.key} is blocked by policy.`);
+      blockedError.scrolithaAgentTrace = [...trace, { ...traceEntry, status: 'failed' }];
+      throw blockedError;
+    }
+
+    const resolvedStepParams = isRecord(rawStep.params)
+      ? resolveAgentTemplates(rawStep.params, {
+          params: input.params,
+          carry: carryForward,
+          last: lastResult,
+          steps: stepResults
+        })
+      : {};
+
+    const stepParams = {
+      ...carryForward,
+      ...(isRecord(resolvedStepParams) ? resolvedStepParams : {})
+    };
+    const redactedStepParams = redactPayload(stepParams, stepTool.redactedFields);
+
+    try {
+      await writeScrolithaAuditLog({
+        actor: input.actor,
+        conversationId: input.actionPlan.conversationId,
+        actionPlanId: input.actionPlan.id,
+        eventType: 'action_step_execute_requested',
+        intent: input.actionPlan.actionKey,
+        toolKey: stepTool.key,
+        requestPayload: stepParams,
+        redactedPayload: redactedStepParams,
+        resultStatus: 'pending',
+        resultSummary: traceEntry.summary,
+        confirmationStatus: input.actionPlan.requiresConfirmation ? 'confirmed' : 'not_required'
+      });
+
+      const executed = await stepTool.execute(stepParams, {
+        actor: input.actor,
+        app: input.app,
+        conversationId: input.actionPlan.conversationId,
+        actionPlanId: input.actionPlan.id
+      });
+
+      traceEntry.status = 'executed';
+      traceEntry.resultSummary = executed?.resultSummary || `${stepTool.key} completed.`;
+      trace.push(traceEntry);
+
+      const carry = extractCarryForwardParams(executed?.result);
+      Object.assign(carryForward, carry);
+      Object.assign(outputs, carry);
+      stepResults[stepTool.key] = {
+        result: cloneJson(executed?.result || null),
+        summary: executed?.resultSummary || null,
+        deepLink: executed?.deepLink || null
+      };
+      lastResult = cloneJson(executed?.result || null);
+      lastSummary = executed?.resultSummary || lastSummary || `${stepTool.key} completed.`;
+      deepLink = executed?.deepLink || deepLink;
+
+      for (const eventName of executed?.emittedEvents || []) {
+        emittedEvents.add(String(eventName || '').trim());
+      }
+
+      await writeScrolithaAuditLog({
+        actor: input.actor,
+        conversationId: input.actionPlan.conversationId,
+        actionPlanId: input.actionPlan.id,
+        eventType: 'action_step_executed',
+        intent: input.actionPlan.actionKey,
+        toolKey: stepTool.key,
+        requestPayload: stepParams,
+        redactedPayload: redactedStepParams,
+        resultStatus: 'ok',
+        resultSummary: traceEntry.resultSummary,
+        confirmationStatus: input.actionPlan.requiresConfirmation ? 'confirmed' : 'not_required'
+      });
+    } catch (error: any) {
+      traceEntry.status = 'failed';
+      traceEntry.resultSummary = String(error?.message || `${stepTool.key} failed.`);
+      trace.push(traceEntry);
+
+      await writeScrolithaAuditLog({
+        actor: input.actor,
+        conversationId: input.actionPlan.conversationId,
+        actionPlanId: input.actionPlan.id,
+        eventType: 'action_step_failed',
+        intent: input.actionPlan.actionKey,
+        toolKey: stepTool.key,
+        requestPayload: stepParams,
+        redactedPayload: redactedStepParams,
+        resultStatus: 'error',
+        resultSummary: traceEntry.resultSummary,
+        confirmationStatus: input.actionPlan.requiresConfirmation ? 'confirmed' : 'not_required'
+      });
+
+      const wrappedError: any = new Error(traceEntry.resultSummary);
+      wrappedError.scrolithaAgentTrace = trace;
+      throw wrappedError;
+    }
+  }
+
+  const executedStepCount = trace.filter((entry) => entry.status === 'executed').length;
+  const summary =
+    lastSummary ||
+    `${prettifyToken(input.agentMeta.skillName || input.agentMeta.skillKey || input.actionPlan.actionKey)} completed.`;
+
+  return {
+    success: true,
+    result: {
+      mode: 'skill',
+      skillKey: text(input.agentMeta.skillKey) || null,
+      skillName: text(input.agentMeta.skillName) || null,
+      executedStepCount,
+      steps: trace,
+      outputs,
+      lastResult
+    },
+    emittedEvents: Array.from(emittedEvents),
+    resultSummary: summary,
+    deepLink
+  };
+};
+
 export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaActor, app?: any) => {
   const message = text(input.message);
+  const pageContext = text(input.context?.page);
   if (!message) throw new Error('message is required.');
 
   const config = await ensureScrolithaConfig(actor.scope);
@@ -294,6 +918,9 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
       reply: 'Request blocked by security policy. Rephrase without hidden/system-instruction directives.',
       suggestedActions: [],
       needsConfirmation: false,
+      responseMode: 'blocked',
+      followUpPrompts: [],
+      knowledgeHighlights: [],
       draftChanges: null,
       conversationId: null
     };
@@ -313,12 +940,25 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
   });
 
   const skills = await listSkillsForScope(actor.scope, actor.role, false);
-  const classified = classifyMessage(message, actor, skills);
+  const classified = classifyMessage(message, actor, skills, pageContext);
   const actionPlans = await createActionPlans({
     actor,
     conversationId: conversation.id,
     suggestions: classified.suggestions,
+    skills,
     config
+  });
+  const knowledgeContext = buildScrolithaKnowledgeContext({
+    actor,
+    userMessage: message,
+    metadata: config.metadata
+  });
+  const knowledgeHighlights = summarizeKnowledgeHighlights(knowledgeContext);
+  const followUpPrompts = buildFollowUpPrompts({
+    actor,
+    page: pageContext,
+    actionPlans,
+    knowledgeHighlights
   });
 
   const plannedForPrompt = actionPlans.map((plan) => ({
@@ -330,10 +970,19 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
     actor,
     conversationId: conversation.id,
     userMessage: message,
+    pageContext,
     config,
     actionPlans: plannedForPrompt
   });
-  const reply = llmReply || classified.reply;
+  const reply =
+    llmReply ||
+    buildFallbackReply({
+      page: pageContext,
+      safeMode: Boolean(config.safeMode),
+      actionPlans,
+      knowledgeHighlights,
+      classifiedReply: classified.reply
+    });
 
   await appendConversationMessage({
     conversationId: conversation.id,
@@ -403,6 +1052,9 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
     reply,
     suggestedActions: actionPlans,
     needsConfirmation: actionPlans.some((entry) => entry.requiresConfirmation),
+    responseMode: llmReply ? 'llm' : 'fallback',
+    followUpPrompts,
+    knowledgeHighlights,
     draftChanges: actionPlans[0]?.paramsPreview || null,
     learning: learningSnapshot || null
   };
@@ -420,16 +1072,23 @@ export const scrolithaExecute = async (input: ScrolithaExecuteInput, actor: Scro
 
   const tool = getScrolithaToolDefinition(actionPlan.toolKey);
   if (!tool) throw new Error('Tool no longer exists.');
+  const agentMeta = extractStoredAgentMeta(actionPlan.paramsPreview);
 
   const config = await ensureScrolithaConfig(actor.scope);
   const allowed = canUseTool(actor, tool, config);
   if (!allowed.allowed) throw new Error(allowed.reason || 'Tool is blocked by policy.');
+  const agentToolKeys = Array.isArray(agentMeta?.steps)
+    ? agentMeta.steps
+        .map((step: any) => text(step?.toolKey).toUpperCase())
+        .filter(Boolean)
+    : [];
+  const agentDestructive = agentToolKeys.some((toolKey) => Boolean(getScrolithaToolDefinition(toolKey)?.destructive));
 
   const limitCheck = enforceActionRateLimits({
     actor,
     config,
     channel: 'execute',
-    destructive: Boolean(tool.destructive)
+    destructive: Boolean(tool.destructive) || agentDestructive
   });
   if (!limitCheck.allowed) throw new Error(limitCheck.reason || 'Rate limit exceeded.');
 
@@ -466,8 +1125,8 @@ export const scrolithaExecute = async (input: ScrolithaExecuteInput, actor: Scro
   }
 
   const mergedParams = {
-    ...((actionPlan.paramsPreview as any) || {}),
-    ...((input.params as any) || {})
+    ...stripInternalScrolithaParams((actionPlan.paramsPreview as any) || {}),
+    ...stripInternalScrolithaParams((input.params as any) || {})
   };
   const redactedParams = redactPayload(mergedParams, tool.redactedFields);
 
@@ -496,12 +1155,21 @@ export const scrolithaExecute = async (input: ScrolithaExecuteInput, actor: Scro
       confirmationStatus: requiresConfirmation ? 'confirmed' : 'not_required'
     });
 
-    const executed = await tool.execute(mergedParams, {
-      actor,
-      app,
-      conversationId: actionPlan.conversationId,
-      actionPlanId: actionPlan.id
-    });
+    const executed = agentMeta
+      ? await executeSkillAgentPlan({
+          actionPlan,
+          actor,
+          app,
+          config,
+          agentMeta,
+          params: mergedParams
+        })
+      : await tool.execute(mergedParams, {
+          actor,
+          app,
+          conversationId: actionPlan.conversationId,
+          actionPlanId: actionPlan.id
+        });
 
     await prisma.scrolithaActionPlan.update({
       where: { id: actionPlan.id },
@@ -522,6 +1190,13 @@ export const scrolithaExecute = async (input: ScrolithaExecuteInput, actor: Scro
       metadata: {
         actionPlanId: actionPlan.id,
         toolKey: tool.key,
+        agent: agentMeta
+          ? {
+              mode: text(agentMeta.mode) || 'skill',
+              skillKey: text(agentMeta.skillKey) || null,
+              skillName: text(agentMeta.skillName) || null
+            }
+          : null,
         deepLink: executed?.deepLink || null
       }
     });
@@ -534,6 +1209,14 @@ export const scrolithaExecute = async (input: ScrolithaExecuteInput, actor: Scro
       actorId: actor.id,
       status: 'completed',
       resultSummary: executed?.resultSummary || null,
+      agent:
+        agentMeta
+          ? {
+              mode: text(agentMeta.mode) || 'skill',
+              skillKey: text(agentMeta.skillKey) || null,
+              skillName: text(agentMeta.skillName) || null
+            }
+          : null,
       emittedEvents,
       timestamp: new Date().toISOString()
     };
@@ -559,6 +1242,15 @@ export const scrolithaExecute = async (input: ScrolithaExecuteInput, actor: Scro
     return {
       success: true,
       result: executed?.result || null,
+      summary: executed?.resultSummary || null,
+      agent:
+        agentMeta
+          ? {
+              mode: text(agentMeta.mode) || 'skill',
+              skillKey: text(agentMeta.skillKey) || null,
+              skillName: text(agentMeta.skillName) || null
+            }
+          : null,
       emittedEvents,
       actionId: actionPlan.id,
       deepLink: executed?.deepLink || null
@@ -570,6 +1262,7 @@ export const scrolithaExecute = async (input: ScrolithaExecuteInput, actor: Scro
       data: {
         status: 'failed',
         executedAt: new Date(),
+        resultPayload: error?.scrolithaAgentTrace ? { steps: error.scrolithaAgentTrace } : undefined,
         errorCode: 'SCROLITHA_ACTION_FAILED',
         errorMessage: message
       }
@@ -913,7 +1606,17 @@ const DEFAULT_CHAT_WIDGET_CONFIG = {
   logoUrl: '',
   logoFileId: '',
   welcomeText: "Hi! I'm Scrolitha. I can help you navigate Scrolith. What describes you best?",
-  typingText: 'Scrolitha is thinking...'
+  typingText: 'Scrolitha is thinking...',
+  placeholderText: 'Ask Scrolitha a question...',
+  emptyStateText: 'Ask about support, gigs, jobs, files, orders, notifications, or account help.',
+  offlineMessage: "I'm having trouble connecting right now. Please try again in a moment.",
+  disclaimerText: 'Scrolitha keeps actions inside approved platform tools and confirmation rules.',
+  starterPrompts: ['Create a gig draft', 'Generate a structured project brief', 'Show my latest orders'],
+  guestStarterPrompts: ['How do I get started?', 'How do gigs and jobs work?', 'How do I contact support?'],
+  allowVoiceInput: true,
+  allowFileUpload: true,
+  showStatusBadge: true,
+  maxHistoryItems: 24
 };
 
 const sanitizeWidgetConfig = (input: any) => {
@@ -935,6 +1638,31 @@ const sanitizeWidgetConfig = (input: any) => {
     const rgb = /^rgba?\([\d\s.,%]+\)$/i;
     return hex.test(value) || rgb.test(value) ? value : fallback;
   };
+  const readBool = (keyOrKeys: string | string[], fallback: boolean) => {
+    const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
+    for (const key of keys) {
+      const raw = src?.[key];
+      if (typeof raw === 'boolean') return raw;
+    }
+    return fallback;
+  };
+  const readInteger = (keyOrKeys: string | string[], fallback: number, min: number, max: number) => {
+    const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
+    for (const key of keys) {
+      const raw = Number(src?.[key]);
+      if (Number.isFinite(raw)) return Math.max(min, Math.min(max, Math.floor(raw)));
+    }
+    return fallback;
+  };
+  const readStringList = (keyOrKeys: string | string[], fallback: string[]) => {
+    const keys = Array.isArray(keyOrKeys) ? keyOrKeys : [keyOrKeys];
+    for (const key of keys) {
+      const raw = src?.[key];
+      if (Array.isArray(raw)) return uniqueStrings(raw, 8);
+      if (typeof raw === 'string') return uniqueStrings(raw.split(/[\n,]/g), 8);
+    }
+    return fallback;
+  };
 
   return {
     enabled: src?.enabled !== false,
@@ -953,7 +1681,20 @@ const sanitizeWidgetConfig = (input: any) => {
     logoUrl: readString(['logoUrl', 'chatLogoUrl', 'chat_logo_url', 'logo_url', 'chatLogo']),
     logoFileId: readString(['logoFileId', 'chatLogoFileId', 'chat_logo_file_id', 'logo_file_id']),
     welcomeText: readString(['welcomeText', 'welcomeMessage', 'welcome_message'], DEFAULT_CHAT_WIDGET_CONFIG.welcomeText),
-    typingText: readString(['typingText', 'typingMessage', 'typing_message'], DEFAULT_CHAT_WIDGET_CONFIG.typingText)
+    typingText: readString(['typingText', 'typingMessage', 'typing_message'], DEFAULT_CHAT_WIDGET_CONFIG.typingText),
+    placeholderText: readString(['placeholderText', 'placeholder_text'], DEFAULT_CHAT_WIDGET_CONFIG.placeholderText),
+    emptyStateText: readString(['emptyStateText', 'empty_state_text'], DEFAULT_CHAT_WIDGET_CONFIG.emptyStateText),
+    offlineMessage: readString(['offlineMessage', 'offline_message'], DEFAULT_CHAT_WIDGET_CONFIG.offlineMessage),
+    disclaimerText: readString(['disclaimerText', 'disclaimer_text'], DEFAULT_CHAT_WIDGET_CONFIG.disclaimerText),
+    starterPrompts: readStringList(['starterPrompts', 'starter_prompts'], DEFAULT_CHAT_WIDGET_CONFIG.starterPrompts),
+    guestStarterPrompts: readStringList(
+      ['guestStarterPrompts', 'guest_starter_prompts'],
+      DEFAULT_CHAT_WIDGET_CONFIG.guestStarterPrompts
+    ),
+    allowVoiceInput: readBool(['allowVoiceInput', 'allow_voice_input'], DEFAULT_CHAT_WIDGET_CONFIG.allowVoiceInput),
+    allowFileUpload: readBool(['allowFileUpload', 'allow_file_upload'], DEFAULT_CHAT_WIDGET_CONFIG.allowFileUpload),
+    showStatusBadge: readBool(['showStatusBadge', 'show_status_badge'], DEFAULT_CHAT_WIDGET_CONFIG.showStatusBadge),
+    maxHistoryItems: readInteger(['maxHistoryItems', 'max_history_items'], DEFAULT_CHAT_WIDGET_CONFIG.maxHistoryItems, 8, 60)
   };
 };
 

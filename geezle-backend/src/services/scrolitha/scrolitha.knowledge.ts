@@ -58,9 +58,11 @@ const DEFAULT_KNOWLEDGE: ScrolithaKnowledgeBundle = {
     'Admin-managed controls for feature toggles, content policies, and moderation workflows.'
   ],
   growthAndMonetization: [
-    'Support for ad and promotion surfaces where enabled by admin.',
-    'Tools for profile/business visibility, engagement growth, and marketplace reach.',
-    'Role-based pathways for freelancer growth and employer hiring scale.'
+    'Wallet tools support balances, pending clearance, escrow visibility, and payout or funding workflows.',
+    'Membership plans help freelancers and employers unlock retention, reach, and account growth features.',
+    'Gcoin rewards and conversions support creator earnings, reward tracking, and monetization follow-through.',
+    'Affiliate dashboards track referral links, earnings, withdrawals, and partner application status.',
+    'Ads and promotion tools support campaign launch, reactivation, spend review, and marketplace visibility.'
   ],
   platformGuidelines: [
     'Scrolitha should provide guidance, drafts, and recommendations without bypassing platform permissions.',
@@ -148,7 +150,21 @@ const rankSectionsByIntent = (message: string, role: string): KnowledgeSection[]
   if (q.includes('safe') || q.includes('policy') || q.includes('moderation') || q.includes('security')) {
     add('trustAndSafety');
   }
-  if (q.includes('monetization') || q.includes('growth') || q.includes('promotion') || q.includes('ads')) {
+  if (
+    q.includes('monetization') ||
+    q.includes('growth') ||
+    q.includes('promotion') ||
+    q.includes('ads') ||
+    q.includes('wallet') ||
+    q.includes('payout') ||
+    q.includes('billing') ||
+    q.includes('membership') ||
+    q.includes('subscription') ||
+    q.includes('affiliate') ||
+    q.includes('referral') ||
+    q.includes('gcoin') ||
+    q.includes('retention')
+  ) {
     add('growthAndMonetization');
   }
 
@@ -214,4 +230,3 @@ export const buildScrolithaKnowledgeContext = (input: {
   if (merged.length <= 6000) return merged;
   return `${merged.slice(0, 6000)}...`;
 };
-
