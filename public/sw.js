@@ -1,15 +1,73 @@
-const VERSION = 'v3';
+const VERSION = 'v4';
 const STATIC_CACHE = `scrolith-static-${VERSION}`;
 const API_CACHE = `scrolith-api-${VERSION}`;
-const APP_SHELL = ['/', '/index.html'];
+const APP_SHELL = [];
 const FEED_PATH_HINTS = ['/api/community/feed', '/api/community/stories/feed', '/api/scroll/feed'];
+const OFFLINE_DOCUMENT = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scrolith Offline</title>
+    <meta name="theme-color" content="#0f6b4f" />
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        background: linear-gradient(180deg, #f7f4ee 0%, #f2ede3 100%);
+        color: #0b0b0a;
+      }
+      .card {
+        width: min(100%, 420px);
+        border-radius: 24px;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        background: rgba(255, 255, 255, 0.94);
+        box-shadow: 0 18px 48px rgba(15, 23, 42, 0.12);
+        padding: 24px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 1.1rem;
+      }
+      p {
+        margin: 0 0 16px;
+        color: #475569;
+        line-height: 1.45;
+      }
+      button {
+        border: 0;
+        border-radius: 999px;
+        background: #0f6b4f;
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        padding: 10px 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Scrolith is temporarily offline.</h1>
+      <p>The network did not return a fresh app shell. Reconnect and reload to continue.</p>
+      <button type="button" onclick="window.location.reload()">Reload App</button>
+    </div>
+  </body>
+</html>`;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches
-      .open(STATIC_CACHE)
-      .then((cache) => cache.addAll(APP_SHELL))
-      .catch(() => undefined)
+    Promise.resolve()
+      .then(() => {
+        if (!APP_SHELL.length) return undefined;
+        return caches
+          .open(STATIC_CACHE)
+          .then((cache) => cache.addAll(APP_SHELL))
+          .catch(() => undefined);
+      })
       .then(() => self.skipWaiting())
   );
 });
@@ -78,9 +136,14 @@ self.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(async () => {
-        const cache = await caches.open(STATIC_CACHE);
-        return (await cache.match('/index.html')) || Response.error();
+      fetch(request).catch(() => {
+        return new Response(OFFLINE_DOCUMENT, {
+          status: 503,
+          headers: {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Cache-Control': 'no-store',
+          },
+        });
       })
     );
     return;
