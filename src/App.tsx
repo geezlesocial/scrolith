@@ -628,6 +628,7 @@ const AppContent = () => {
     isGigDetailRoute ||
     isScrollRoute;
   const shouldHideSupportWidget =
+    isAdminRoute ||
     isMobileShellRoute ||
     isMessagesRoute ||
     isMessagesTabRoute ||
