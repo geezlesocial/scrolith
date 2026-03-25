@@ -161,6 +161,17 @@ const SECTION_KEYWORDS: Record<Exclude<BackupSection, 'custom'>, string[]> = {
   forms: ['form', 'submission', 'template']
 };
 
+const NON_CRITICAL_RESTORE_KEYWORDS = [
+  'audit',
+  'log',
+  'metric',
+  'insight',
+  'prediction',
+  'forecast',
+  'tracker',
+  'violation'
+];
+
 type CreateBackupInput = {
   adminId: string;
   adminEmail: string | null;
@@ -1872,6 +1883,7 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
 
   const dbClient = createDbClient();
   let restoredFileRows: any[] = [];
+  const skippedTables: string[] = [];
   await dbClient.connect();
   try {
     const existingTables = new Set(await listPublicTables(dbClient));
@@ -1903,7 +1915,24 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
         ? backupPackage.payload.database[table]
         : [];
       if (!rows.length) continue;
-      await insertRows(dbClient, table, rows, mode);
+      try {
+        await insertRows(dbClient, table, rows, mode);
+      } catch (error: any) {
+        const normalizedTable = String(table || '').toLowerCase();
+        const isNonCriticalTable = NON_CRITICAL_RESTORE_KEYWORDS.some((keyword) =>
+          normalizedTable.includes(keyword)
+        );
+        if (mode === 'append' && isNonCriticalTable && error?.code === '23503') {
+          skippedTables.push(table);
+          console.warn('[system-backup] skipping non-critical restore table after FK violation:', {
+            table,
+            code: error?.code,
+            message: error?.message
+          });
+          continue;
+        }
+        throw error;
+      }
     }
 
     await dbClient.query('COMMIT');
@@ -1939,6 +1968,7 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
   return {
     backupId: record.id,
     restoredTables: selectedTables.length,
+    skippedTables,
     restoredFiles,
     restoredByAdminId: admin.id,
     restoredAt: now
