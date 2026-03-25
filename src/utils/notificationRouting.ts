@@ -1,6 +1,21 @@
 export type NotificationBucket = 'home' | 'community';
 
 const coerceString = (value: unknown) => String(value ?? '').trim();
+const isAbsoluteHttpUrl = (value: string) => /^https?:\/\//i.test(value);
+const isAppDeepLink = (value: string) => /^scrolith:\/\//i.test(value);
+
+const isInternalHost = (hostname: string) => {
+  const normalized = coerceString(hostname).toLowerCase();
+  if (!normalized) return false;
+  const currentHost =
+    typeof window !== 'undefined' ? coerceString(window.location.hostname || '').toLowerCase() : '';
+  return (
+    normalized === currentHost ||
+    normalized === 'scrolith.com' ||
+    normalized === 'www.scrolith.com' ||
+    normalized.endsWith('.scrolith.com')
+  );
+};
 
 export const getRawNotificationActionUrl = (notification: any): string | undefined => {
   if (!notification) return undefined;
@@ -23,15 +38,21 @@ export const getRawNotificationActionUrl = (notification: any): string | undefin
   return raw ? raw : undefined;
 };
 
-const normalizeToRelativeUrl = (urlValue: string): string | undefined => {
+const normalizeInternalUrl = (urlValue: string): string | undefined => {
   const raw = coerceString(urlValue);
   if (!raw) return undefined;
 
   if (raw.startsWith('/')) return raw;
 
-  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+  if (isAppDeepLink(raw)) {
+    const normalized = raw.replace(/^scrolith:\/\//i, '/');
+    return normalized.startsWith('/') ? normalized : `/${normalized}`;
+  }
+
+  if (isAbsoluteHttpUrl(raw)) {
     try {
       const parsed = new URL(raw);
+      if (!isInternalHost(parsed.hostname)) return undefined;
       return `${parsed.pathname}${parsed.search}${parsed.hash}` || '/';
     } catch {
       return undefined;
@@ -46,7 +67,16 @@ const rewriteLegacyCommunityPostUrl = (urlValue: string): string => {
   const raw = coerceString(urlValue);
   if (!raw) return raw;
 
-  const relative = normalizeToRelativeUrl(raw) || raw;
+  if (isAbsoluteHttpUrl(raw)) {
+    try {
+      const parsed = new URL(raw);
+      if (!isInternalHost(parsed.hostname)) return raw;
+    } catch {
+      return raw;
+    }
+  }
+
+  const relative = normalizeInternalUrl(raw) || raw;
 
   try {
     const parsed = new URL(relative.startsWith('/') ? `http://local${relative}` : relative);
@@ -62,9 +92,20 @@ const rewriteLegacyCommunityPostUrl = (urlValue: string): string => {
   }
 };
 
+export const isExternalNotificationUrl = (urlValue?: string): boolean => {
+  const raw = coerceString(urlValue);
+  if (!raw || !isAbsoluteHttpUrl(raw)) return false;
+  try {
+    const parsed = new URL(raw);
+    return !isInternalHost(parsed.hostname);
+  } catch {
+    return false;
+  }
+};
+
 export const getNotificationBucket = (notification: any): NotificationBucket => {
   const raw = getRawNotificationActionUrl(notification);
-  const normalized = raw ? normalizeToRelativeUrl(raw) || raw : '';
+  const normalized = raw ? normalizeInternalUrl(raw) || raw : '';
   const path = coerceString(normalized).split('?')[0].split('#')[0];
 
   // Legacy post links are considered "Home" notifications (they now deep-link to /post/:id).
@@ -80,7 +121,7 @@ export const getNotificationActionUrl = (notification: any): string | undefined 
   const raw = getRawNotificationActionUrl(notification);
   if (raw) {
     const rewritten = rewriteLegacyCommunityPostUrl(raw);
-    const normalized = normalizeToRelativeUrl(rewritten) || rewritten;
+    const normalized = normalizeInternalUrl(rewritten) || rewritten;
     return normalized || undefined;
   }
 
