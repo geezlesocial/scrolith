@@ -1910,19 +1910,25 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
       await dbClient.query(`TRUNCATE TABLE ${truncateTargets} RESTART IDENTITY CASCADE`);
     }
 
-    for (const table of insertionOrder) {
+    for (let index = 0; index < insertionOrder.length; index += 1) {
+      const table = insertionOrder[index];
       const rows = Array.isArray(backupPackage.payload?.database?.[table])
         ? backupPackage.payload.database[table]
         : [];
       if (!rows.length) continue;
+      const savepointName = `restore_table_${index}`;
       try {
+        await dbClient.query(`SAVEPOINT ${savepointName}`);
         await insertRows(dbClient, table, rows, mode);
+        await dbClient.query(`RELEASE SAVEPOINT ${savepointName}`);
       } catch (error: any) {
         const normalizedTable = String(table || '').toLowerCase();
         const isNonCriticalTable = NON_CRITICAL_RESTORE_KEYWORDS.some((keyword) =>
           normalizedTable.includes(keyword)
         );
         if (mode === 'append' && isNonCriticalTable && error?.code === '23503') {
+          await dbClient.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+          await dbClient.query(`RELEASE SAVEPOINT ${savepointName}`);
           skippedTables.push(table);
           console.warn('[system-backup] skipping non-critical restore table after FK violation:', {
             table,
@@ -1931,6 +1937,7 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
           });
           continue;
         }
+        await dbClient.query(`ROLLBACK TO SAVEPOINT ${savepointName}`).catch(() => undefined);
         throw error;
       }
     }
