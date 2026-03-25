@@ -14,6 +14,7 @@ import { useUser } from '../../context/UserContext';
 import CommunityAnalytics from './CommunityAnalytics';
 import { useCurrency } from '../../context/CurrencyContext';
 import FilePickerModal from '../shared/FilePickerModal';
+import { DEFAULT_AD_TARGET_COUNTRIES } from '../../constants/defaultAudienceOptions';
 
 type AdminTab =
     | 'overview'
@@ -39,33 +40,6 @@ const defaultSettings: CommunitySettings = {
     enableEvents: true
 } as CommunitySettings;
 
-const DEFAULT_AD_TARGET_COUNTRIES = [
-    'United States',
-    'United Kingdom',
-    'Canada',
-    'Australia',
-    'New Zealand',
-    'Germany',
-    'France',
-    'Netherlands',
-    'Sweden',
-    'Norway',
-    'Denmark',
-    'Ireland',
-    'Spain',
-    'Italy',
-    'United Arab Emirates',
-    'Saudi Arabia',
-    'India',
-    'Nigeria',
-    'South Africa',
-    'Brazil',
-    'Mexico',
-    'Singapore',
-    'Malaysia',
-    'Philippines'
-];
-
 const GuideTip: React.FC<{ text: string }> = ({ text }) => (
     <details className="group relative shrink-0">
         <summary className="list-none cursor-pointer rounded-full border border-gray-300 px-2 py-0.5 text-[10px] font-bold text-gray-600 hover:bg-gray-100">
@@ -83,6 +57,19 @@ const LabelWithGuide: React.FC<{ label: string; help: string; className?: string
         <GuideTip text={help} />
     </div>
 );
+
+const normalizeTargetCountryCatalog = (entries: unknown[]): string[] => {
+    const seen = new Set<string>();
+    return entries
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean)
+        .filter((entry) => {
+            const normalized = entry.toLowerCase();
+            if (seen.has(normalized)) return false;
+            seen.add(normalized);
+            return true;
+        });
+};
 
 const CommunityManagement = () => {
     const [activeTab, setActiveTab] = useState<AdminTab>('overview');
@@ -1561,12 +1548,8 @@ const AdManager = () => {
 
     const handleConfigSave = async () => {
         try {
-            const normalizedCountries = Array.from(
-                new Set(
-                    (Array.isArray(adsConfig?.targetCountries) ? adsConfig.targetCountries : [])
-                        .map((entry: any) => String(entry || '').trim())
-                        .filter(Boolean)
-                )
+            const normalizedCountries = normalizeTargetCountryCatalog(
+                Array.isArray(adsConfig?.targetCountries) ? adsConfig.targetCountries : []
             );
             const payload = { ...adsConfig, targetCountries: normalizedCountries };
             const updated = await AdService.updateConfig({ data: payload });
@@ -1589,6 +1572,23 @@ const AdManager = () => {
         setCountryDraft('');
     };
 
+    const addAllTargetCountries = () => {
+        setAdsConfig((prev: any) => ({
+            ...prev,
+            targetCountries: normalizeTargetCountryCatalog([
+                ...(Array.isArray(prev?.targetCountries) ? prev.targetCountries : []),
+                ...DEFAULT_AD_TARGET_COUNTRIES
+            ])
+        }));
+    };
+
+    const clearAllTargetCountries = () => {
+        setAdsConfig((prev: any) => ({
+            ...prev,
+            targetCountries: []
+        }));
+    };
+
     const removeTargetCountry = (country: string) => {
         setAdsConfig((prev: any) => ({
             ...prev,
@@ -1608,6 +1608,11 @@ const AdManager = () => {
         setReviewQueue(prev => prev.filter(a => a.id !== id));
         showNotification('success', 'Rejected', 'Ad rejected.');
     };
+
+    const configuredTargetCountries = Array.isArray(adsConfig?.targetCountries) ? adsConfig.targetCountries : [];
+    const missingDefaultTargetCountryCount = DEFAULT_AD_TARGET_COUNTRIES.filter(
+        (country) => !configuredTargetCountries.some((entry: any) => String(entry || '').toLowerCase() === country.toLowerCase())
+    ).length;
 
     return (
         <div className="space-y-6">
@@ -1752,9 +1757,30 @@ const AdManager = () => {
                             <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Target Countries</p>
                             <LabelWithGuide
                                 label="Country Catalog"
-                                help="This list powers the target-country dropdown shown to users during ad creation. Add new countries or remove ones you do not support."
+                                help="This list powers the target-country dropdown shown to users during ad creation. Add new countries, add the full default catalog, or clear the catalog entirely before saving."
                                 className="mb-0"
                             />
+                            <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={addAllTargetCountries}
+                                    disabled={missingDefaultTargetCountryCount === 0}
+                                    className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    Add all countries
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={clearAllTargetCountries}
+                                    disabled={configuredTargetCountries.length === 0}
+                                    className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-[11px] font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    Remove all countries
+                                </button>
+                                <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-semibold text-gray-600">
+                                    {configuredTargetCountries.length} configured
+                                </span>
+                            </div>
                             <div className="flex gap-2">
                                 <input
                                     type="text"
@@ -1785,7 +1811,7 @@ const AdManager = () => {
                             </datalist>
                             <div className="max-h-36 overflow-y-auto rounded border border-gray-100 p-2">
                                 <div className="flex flex-wrap gap-2">
-                                    {(Array.isArray(adsConfig?.targetCountries) ? adsConfig.targetCountries : []).map((country: string) => (
+                                    {configuredTargetCountries.map((country: string) => (
                                         <span
                                             key={country}
                                             className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] text-blue-700"
@@ -1801,7 +1827,7 @@ const AdManager = () => {
                                         </span>
                                     ))}
                                 </div>
-                                {(Array.isArray(adsConfig?.targetCountries) ? adsConfig.targetCountries : []).length === 0 && (
+                                {configuredTargetCountries.length === 0 && (
                                     <p className="text-xs text-gray-500">No countries configured yet.</p>
                                 )}
                             </div>

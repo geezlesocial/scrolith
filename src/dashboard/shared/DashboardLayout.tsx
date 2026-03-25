@@ -247,7 +247,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           items: [
             { tab: 'overview', label: 'Overview', icon: LayoutDashboard, description: 'Live KPIs, command center, and work priorities' },
             { tab: 'community', label: 'Community', icon: Users, description: 'Posts, network momentum, and audience activity' },
-            { tab: 'manage-pages', label: 'Manage Pages', icon: Building2, description: 'Brand pages, settings, and publishing controls' }
+            { tab: 'manage-pages', label: 'Manage Pages', icon: Building2, description: 'Business-page command center, governance, and publishing operations' }
           ]
         },
         {
@@ -298,7 +298,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           items: [
             { tab: 'overview', label: 'Overview', icon: LayoutDashboard, description: 'Live hiring command center and queue health' },
             { tab: 'community', label: 'Community', icon: Users, description: 'Audience engagement and publishing surfaces' },
-            { tab: 'manage-pages', label: 'Manage Pages', icon: Building2, description: 'Company page operations and brand governance' }
+            { tab: 'manage-pages', label: 'Manage Pages', icon: Building2, description: 'Business-page command center, governance, and brand operations' }
           ]
         },
         {
@@ -353,7 +353,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
         )}
 
         <aside
-          className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[88vw] overflow-y-auto border-r border-gray-200 bg-white p-4 transition-transform duration-200 ease-out md:static md:z-auto md:w-72 md:max-w-none md:translate-x-0 ${
+          className={`fixed inset-y-0 left-0 z-40 w-[84vw] max-w-[320px] overflow-y-auto border-r border-gray-200 bg-white p-3 transition-transform duration-200 ease-out md:static md:z-auto md:w-64 md:max-w-none md:p-3 md:translate-x-0 lg:w-[268px] xl:w-[280px] xl:p-4 ${
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
@@ -422,8 +422,8 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
             </div>
           </header>
 
-          <main className="min-w-0 flex-1 p-3 sm:p-4 md:p-6">
-            <div className="mx-auto w-full max-w-7xl min-w-0">{children}</div>
+          <main className="min-w-0 flex-1 p-3 sm:p-4 md:p-6 xl:px-8 2xl:px-10">
+            <div className="mx-auto w-full max-w-[1700px] min-w-0">{children}</div>
           </main>
         </div>
       </div>

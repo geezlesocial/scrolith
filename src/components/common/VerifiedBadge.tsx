@@ -1,6 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import type { VerificationLevel } from '../../utils/verification';
-import { normalizeVerificationLevel } from '../../utils/verification';
+import {
+  normalizeVerificationLevel,
+  resolveVerificationSubjectRole,
+  resolveVisibleVerificationLevel,
+  shouldShowVerificationTooltip
+} from '../../utils/verification';
+import { useContent } from '../../context/ContentContext';
 import './verified-badge.css';
 
 type VerifiedBadgeProps = {
@@ -9,45 +15,52 @@ type VerifiedBadgeProps = {
   className?: string;
   showTooltip?: boolean;
   animated?: boolean;
+  subjectRole?: string | null;
+  subjectType?: string | null;
+  entity?: any;
 };
 
 const PALETTE: Record<
   VerificationLevel,
-  { from: string; mid: string; to: string; ring: string; glow: string; label: string; description: string }
+  { from: string; mid: string; to: string; ring: string; glow: string; shadow: string; label: string; description: string }
 > = {
   standard: {
-    from: '#4FC3F7',
-    mid: '#29B6F6',
-    to: '#0288D1',
-    ring: 'rgba(2, 119, 189, 0.68)',
-    glow: 'rgba(129, 212, 250, 0.32)',
+    from: '#73D0FF',
+    mid: '#2D9CFF',
+    to: '#1453D1',
+    ring: 'rgba(18, 85, 206, 0.72)',
+    glow: 'rgba(89, 175, 255, 0.34)',
+    shadow: 'rgba(20, 83, 209, 0.34)',
     label: 'Verified Account',
     description: 'This account has been verified by Scrolith.'
   },
   pro: {
-    from: '#FFE082',
-    mid: '#FFD54F',
-    to: '#F9A825',
-    ring: 'rgba(194, 132, 0, 0.7)',
-    glow: 'rgba(255, 214, 102, 0.3)',
+    from: '#8FDBFF',
+    mid: '#3FA5FF',
+    to: '#0D63ED',
+    ring: 'rgba(15, 99, 237, 0.74)',
+    glow: 'rgba(98, 181, 255, 0.36)',
+    shadow: 'rgba(13, 99, 237, 0.34)',
     label: 'Pro Verified',
     description: 'This account is verified and recognized as Pro on Scrolith.'
   },
   business: {
-    from: '#7C4DFF',
-    mid: '#673AB7',
-    to: '#4527A0',
-    ring: 'rgba(69, 39, 160, 0.72)',
-    glow: 'rgba(149, 117, 205, 0.3)',
+    from: '#6AC4FF',
+    mid: '#217BFF',
+    to: '#113EC8',
+    ring: 'rgba(17, 62, 200, 0.74)',
+    glow: 'rgba(68, 145, 255, 0.34)',
+    shadow: 'rgba(17, 62, 200, 0.34)',
     label: 'Business Verified',
     description: 'This business account has been verified by Scrolith.'
   },
   government: {
-    from: '#1E3A8A',
-    mid: '#1D4ED8',
-    to: '#0B2F7A',
-    ring: 'rgba(30, 58, 138, 0.74)',
-    glow: 'rgba(96, 165, 250, 0.28)',
+    from: '#A4DEFF',
+    mid: '#347FFF',
+    to: '#0F2F9A',
+    ring: 'rgba(15, 47, 154, 0.76)',
+    glow: 'rgba(70, 127, 255, 0.32)',
+    shadow: 'rgba(15, 47, 154, 0.35)',
     label: 'Government Verified',
     description: 'This institutional account has been verified by Scrolith.'
   }
@@ -63,11 +76,33 @@ export const VerifiedBadge: React.FC<VerifiedBadgeProps> = ({
   level = 'standard',
   className = '',
   showTooltip = true,
-  animated = true
+  animated = true,
+  subjectRole,
+  subjectType,
+  entity
 }) => {
-  const normalizedLevel = normalizeVerificationLevel(level) || 'standard';
+  const { settings } = useContent();
+  const normalizedLevel =
+    resolveVisibleVerificationLevel(
+      entity || {
+        level,
+        verificationLevel: level,
+        role: subjectRole,
+        type: subjectType
+      },
+      {
+        settings,
+        role: subjectRole,
+        type: subjectType
+      }
+    ) ?? normalizeVerificationLevel(level);
+
+  if (!normalizedLevel) return null;
+
   const palette = PALETTE[normalizedLevel];
   const [sheetOpen, setSheetOpen] = useState(false);
+  const canShowTooltip = showTooltip && shouldShowVerificationTooltip(settings);
+  const ariaRole = resolveVerificationSubjectRole(entity || {}, subjectRole, subjectType);
 
   const badgeStyle = useMemo(
     () =>
@@ -77,13 +112,14 @@ export const VerifiedBadge: React.FC<VerifiedBadgeProps> = ({
         '--badge-size': `${size}px`,
         '--badge-ring': palette.ring,
         '--badge-glow': palette.glow,
-        background: `linear-gradient(145deg, ${palette.from} 0%, ${palette.mid} 56%, ${palette.to} 100%)`
+        '--badge-shadow': palette.shadow,
+        background: `radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0.18) 24%, transparent 46%), linear-gradient(145deg, ${palette.from} 0%, ${palette.mid} 56%, ${palette.to} 100%)`
       }) as React.CSSProperties,
-    [palette.from, palette.glow, palette.mid, palette.ring, palette.to, size]
+    [palette.from, palette.glow, palette.mid, palette.ring, palette.shadow, palette.to, size]
   );
 
   const handleBadgeClick: React.MouseEventHandler<HTMLSpanElement> = (event) => {
-    if (!showTooltip || !isTouchDevice()) return;
+    if (!canShowTooltip || !isTouchDevice()) return;
     event.preventDefault();
     event.stopPropagation();
     setSheetOpen(true);
@@ -96,7 +132,7 @@ export const VerifiedBadge: React.FC<VerifiedBadgeProps> = ({
         data-animate={animated ? 'true' : 'false'}
         style={badgeStyle}
         title={palette.label}
-        aria-label={palette.label}
+        aria-label={`${palette.label} for ${ariaRole}`}
         onClick={handleBadgeClick}
       >
         <span className="verified-badge__watermark" aria-hidden="true">
@@ -121,7 +157,7 @@ export const VerifiedBadge: React.FC<VerifiedBadgeProps> = ({
         </svg>
       </span>
 
-      {showTooltip ? (
+      {canShowTooltip ? (
         <span className="verified-badge__tooltip">
           <strong>{palette.label}</strong>
           <br />
@@ -129,7 +165,7 @@ export const VerifiedBadge: React.FC<VerifiedBadgeProps> = ({
         </span>
       ) : null}
 
-      {sheetOpen ? (
+      {sheetOpen && canShowTooltip ? (
         <button
           type="button"
           className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/35 p-4 text-left"

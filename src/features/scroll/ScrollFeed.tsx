@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, PlusCircle, Radio, Volume2, VolumeX, X } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { ArrowLeft, ArrowRight, Loader2, PlusCircle, Radio, Volume2, VolumeX, X } from 'lucide-react';
 import ScrollCard from './ScrollCard';
 import ScrollCreateModal from './ScrollCreateModal';
+import ScrollCommentsSheet from './ScrollCommentsSheet';
 import { ScrollService, type ScrollConfig, type ScrollVideo, type ScrollEngagementType } from '../../services/scroll';
 import { useNotification } from '../../context/NotificationContext';
+import { useLiveFeature } from '../../context/LiveFeatureContext';
 import { CommunityService } from '../../services/community';
 import { usePerformanceProfile } from '../../hooks/usePerformanceProfile';
 import { useUser } from '../../context/UserContext';
@@ -12,6 +14,16 @@ import RepostModal from '../../community/components/RepostModal';
 import PostShareModal from '../../community/components/PostShareModal';
 import SendGcoinModal from '../../components/SendGcoinModal';
 import { LiveService, type LiveSession } from '../../services/live';
+import { INLINE_VIDEO_PREVIEW_AUTOPLAY } from '../../utils/inlineMedia';
+import {
+  clearPendingPostVideoScrollSource,
+  clearPendingPostVideoScrollViewerSource,
+  readPendingPostVideoScrollSource,
+  readPendingPostVideoScrollViewerSource,
+  type PendingPostVideoScrollSource,
+  type PendingPostVideoScrollViewerSource
+} from '../../utils/postVideoScrollBridge';
+import { buildPublicAppUrl } from '../../utils/siteUrl';
 
 const LAST_SCROLL_INDEX_KEY = 'scroll:lastIndex';
 const GLOBAL_SCROLL_MUTED_KEY = 'scroll:muted';
@@ -27,9 +39,60 @@ const readMutedPreference = () => {
   return !(raw === 'false' || raw === '0' || raw === 'off');
 };
 
+const buildViewerSeedScroll = (source: PendingPostVideoScrollViewerSource): ScrollVideo => ({
+  id: `post-video:${String(source.sourcePostId || '').trim()}:${String(source.fileId || source.mediaUrl || '').trim()}`,
+  authorId: String(source.sourcePostId || '').trim() || 'post-video',
+  author: {
+    id: String(source.sourcePostId || '').trim() || 'post-video',
+    name: String(source.authorName || 'Scrolith creator').trim() || 'Scrolith creator',
+    avatar: String(source.authorAvatar || '').trim() || null,
+    username: String(source.authorUsername || '').trim() || null,
+    isVerified: false
+  },
+  title: source.title || 'Featured from post',
+  description: source.description || null,
+  location: source.location || null,
+  visibility: 'public',
+  graphicWarning: false,
+  isAIEnhanced: false,
+  dashGcoinTotal: 0,
+  filterPreset: null,
+  filterStrength: null,
+  media: {
+    id: String(source.fileId || `post-video-media:${source.sourcePostId}`),
+    url: String(source.mediaUrl || ''),
+    mimeType: 'video/mp4',
+    thumbnailUrl: source.thumbnailUrl || null
+  },
+  tags: [],
+  status: 'active',
+  metrics: {
+    impressions: 0,
+    views3s: 0,
+    views10s: 0,
+    views25pct: 0,
+    views50pct: 0,
+    views95pct: 0,
+    likes: 0,
+    comments: 0,
+    reposts: 0,
+    shares: 0,
+    sends: 0,
+    dashGcoinTotal: 0
+  },
+  viewer: {
+    liked: false,
+    impressed: false
+  },
+  createdAt: source.createdAt || new Date().toISOString(),
+  updatedAt: source.createdAt || new Date().toISOString()
+});
+
 const ScrollFeed: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useUser();
+  const { status: liveFeatureStatus } = useLiveFeature();
   const { showNotification } = useNotification();
   const { profile } = usePerformanceProfile();
   const [items, setItems] = useState<ScrollVideo[]>([]);
@@ -40,6 +103,7 @@ const ScrollFeed: React.FC = () => {
   const [muted, setMuted] = useState(() => readMutedPreference());
   const [createOpen, setCreateOpen] = useState(false);
   const [config, setConfig] = useState<ScrollConfig | null>(null);
+  const [sourceVideo, setSourceVideo] = useState<PendingPostVideoScrollSource | null>(null);
   const [reportBusyId, setReportBusyId] = useState<string | null>(null);
   const [activeActionScroll, setActiveActionScroll] = useState<ScrollVideo | null>(null);
   const [commentOpen, setCommentOpen] = useState(false);
@@ -47,15 +111,16 @@ const ScrollFeed: React.FC = () => {
   const [shareOpen, setShareOpen] = useState(false);
   const [dashOpen, setDashOpen] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
-  const [commentDraft, setCommentDraft] = useState('');
   const [liveSessions, setLiveSessions] = useState<LiveSession[]>([]);
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
   const [liveDiscoveryOpen, setLiveDiscoveryOpen] = useState(false);
+  const showLiveDiscovery = liveFeatureStatus.enabled && liveFeatureStatus.experienceConfig?.showFeaturedRailInScrollFeed !== false;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const observerRef = useRef<IntersectionObserver | null>(null);
+  const viewerSeedSourceRef = useRef<PendingPostVideoScrollViewerSource | null>(null);
 
   const patchMetrics = useCallback((scrollId: string, metrics: Partial<ScrollVideo['metrics']>) => {
     setItems((prev) =>
@@ -73,7 +138,36 @@ const ScrollFeed: React.FC = () => {
     );
   }, []);
 
+  const patchScrollState = useCallback(
+    (
+      scrollId: string,
+      update: Partial<ScrollVideo> & { metrics?: Partial<ScrollVideo['metrics']> }
+    ) => {
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === scrollId
+            ? {
+                ...item,
+                ...update,
+                metrics: {
+                  ...item.metrics,
+                  ...(update.metrics || {})
+                }
+              }
+            : item
+        )
+      );
+    },
+    []
+  );
+
   const loadLiveSessions = useCallback(async () => {
+    if (!showLiveDiscovery) {
+      setLiveSessions([]);
+      setLiveError(null);
+      setLiveLoading(false);
+      return;
+    }
     try {
       setLiveLoading(true);
       const response = await LiveService.getActiveSessions(24);
@@ -90,7 +184,7 @@ const ScrollFeed: React.FC = () => {
     } finally {
       setLiveLoading(false);
     }
-  }, []);
+  }, [showLiveDiscovery]);
 
   const ensureAuth = useCallback(
     (promptMessage: string) => {
@@ -102,8 +196,7 @@ const ScrollFeed: React.FC = () => {
   );
 
   const buildScrollUrl = useCallback((scrollId: string) => {
-    if (typeof window === 'undefined') return `https://scrolith.com/scroll?scroll=${encodeURIComponent(scrollId)}`;
-    return `${window.location.origin}/scroll?scroll=${encodeURIComponent(scrollId)}`;
+    return buildPublicAppUrl(`/scroll?scroll=${encodeURIComponent(scrollId)}`);
   }, []);
 
   const loadFeed = useCallback(
@@ -119,10 +212,15 @@ const ScrollFeed: React.FC = () => {
           limit: profile.feedPageSize
         });
         const nextItems = Array.isArray(data?.items) ? data.items : [];
+        const seededSource = !cursor ? viewerSeedSourceRef.current : null;
+        const seededItem = seededSource ? buildViewerSeedScroll(seededSource) : null;
         setConfig((data?.config as ScrollConfig) || null);
         setNextCursor(data?.nextCursor || null);
         setItems((prev) => {
-          if (!cursor) return nextItems;
+          if (!cursor) {
+            if (!seededItem) return nextItems;
+            return [seededItem, ...nextItems.filter((entry) => entry.id !== seededItem.id)];
+          }
           const existing = new Set(prev.map((entry) => entry.id));
           const merged = [...prev];
           for (const entry of nextItems) {
@@ -150,12 +248,55 @@ const ScrollFeed: React.FC = () => {
   }, [loadFeed]);
 
   useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('create') !== 'post-video') return;
+    const pendingSource = readPendingPostVideoScrollSource();
+    setSourceVideo(pendingSource);
+    setCreateOpen(true);
+    params.delete('create');
+    navigate(
+      {
+        pathname: location.pathname,
+        search: params.toString() ? `?${params.toString()}` : ''
+      },
+      { replace: true }
+    );
+  }, [location.pathname, location.search, navigate]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('watch') !== 'post-video') return;
+    const pendingViewerSource = readPendingPostVideoScrollViewerSource();
+    viewerSeedSourceRef.current = pendingViewerSource;
+    if (pendingViewerSource) {
+      setActiveIndex(0);
+      setItems((prev) => {
+        const seededItem = buildViewerSeedScroll(pendingViewerSource);
+        return [seededItem, ...prev.filter((entry) => entry.id !== seededItem.id)];
+      });
+    }
+    clearPendingPostVideoScrollViewerSource();
+    params.delete('watch');
+    navigate(
+      {
+        pathname: location.pathname,
+        search: params.toString() ? `?${params.toString()}` : ''
+      },
+      { replace: true }
+    );
+  }, [location.pathname, location.search, navigate]);
+
+  useEffect(() => {
+    if (!showLiveDiscovery) {
+      setLiveDiscoveryOpen(false);
+      return;
+    }
     void loadLiveSessions();
     const interval = window.setInterval(() => {
       void loadLiveSessions();
     }, 30000);
     return () => window.clearInterval(interval);
-  }, [loadLiveSessions]);
+  }, [showLiveDiscovery, loadLiveSessions]);
 
   useEffect(() => {
     localStorage.setItem(LAST_SCROLL_INDEX_KEY, String(Math.max(0, activeIndex)));
@@ -241,11 +382,29 @@ const ScrollFeed: React.FC = () => {
       if (!detail?.scrollId || !detail?.metrics) return;
       patchMetrics(detail.scrollId, detail.metrics);
     };
+    const onReactionUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail;
+      if (String(detail?.targetType || '').toUpperCase() !== 'SCROLL') return;
+      const scrollId = String(detail?.targetId || '').trim();
+      if (!scrollId) return;
+      const counts = detail?.counts && typeof detail.counts === 'object' ? detail.counts : {};
+      const likes = Object.values(counts).reduce((total: number, value: any) => total + Math.max(0, Number(value || 0)), 0);
+      patchMetrics(scrollId, { likes });
+    };
     const onRemoved = (event: Event) => {
       const detail = (event as CustomEvent<any>).detail;
       const scrollId = String(detail?.scrollId || '');
       if (!scrollId) return;
       setItems((prev) => prev.filter((entry) => entry.id !== scrollId));
+    };
+    const onGcoinDonated = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail || {};
+      const scrollId = String(detail?.scrollId || '').trim();
+      if (!scrollId) return;
+      patchScrollState(scrollId, {
+        dashGcoinTotal: Number(detail?.dashGcoinTotal || 0),
+        metrics: detail?.metrics || {}
+      });
     };
     const onLiveChanged = () => {
       void loadLiveSessions();
@@ -253,7 +412,9 @@ const ScrollFeed: React.FC = () => {
     window.addEventListener('scroll:new', onNew);
     window.addEventListener('scroll:engagement_update', onEngagement);
     window.addEventListener('scroll:impression_update', onEngagement);
+    window.addEventListener('reactions:updated', onReactionUpdated as EventListener);
     window.addEventListener('scroll:removed', onRemoved);
+    window.addEventListener('scroll:gcoin_donated', onGcoinDonated);
     window.addEventListener('live:started', onLiveChanged as EventListener);
     window.addEventListener('live:ended', onLiveChanged as EventListener);
     window.addEventListener('live:viewer_count_updated', onLiveChanged as EventListener);
@@ -261,12 +422,14 @@ const ScrollFeed: React.FC = () => {
       window.removeEventListener('scroll:new', onNew);
       window.removeEventListener('scroll:engagement_update', onEngagement);
       window.removeEventListener('scroll:impression_update', onEngagement);
+      window.removeEventListener('reactions:updated', onReactionUpdated as EventListener);
       window.removeEventListener('scroll:removed', onRemoved);
+      window.removeEventListener('scroll:gcoin_donated', onGcoinDonated);
       window.removeEventListener('live:started', onLiveChanged as EventListener);
       window.removeEventListener('live:ended', onLiveChanged as EventListener);
       window.removeEventListener('live:viewer_count_updated', onLiveChanged as EventListener);
     };
-  }, [patchMetrics, loadLiveSessions]);
+  }, [loadLiveSessions, patchMetrics, patchScrollState]);
 
   const handleEngage = useCallback(
     async (scrollId: string, type: ScrollEngagementType, payload?: { watchedSeconds?: number }) => {
@@ -327,7 +490,6 @@ const ScrollFeed: React.FC = () => {
     async (scroll: ScrollVideo) => {
       if (!ensureAuth('Log in to comment on Scroll videos?')) return;
       setActiveActionScroll(scroll);
-      setCommentDraft('');
       setCommentOpen(true);
     },
     [ensureAuth]
@@ -359,30 +521,6 @@ const ScrollFeed: React.FC = () => {
     },
     [showNotification]
   );
-
-  const submitScrollComment = useCallback(async () => {
-    if (!activeActionScroll?.id || actionBusy) return;
-    const content = String(commentDraft || '').trim();
-    if (!content) {
-      showNotification('warning', 'Scroll', 'Comment cannot be empty.');
-      return;
-    }
-    setActionBusy(true);
-    try {
-      await CommunityService.createPost({
-        content: `${content}\n\nCommented on Scroll by ${activeActionScroll.author?.name || 'creator'}.\n${buildScrollUrl(activeActionScroll.id)}`
-      });
-      await handleEngage(activeActionScroll.id, 'comment');
-      setCommentOpen(false);
-      setCommentDraft('');
-      showNotification('success', 'Scroll', 'Comment shared to your feed.');
-    } catch (error: any) {
-      const message = error?.response?.data?.error || error?.message || 'Failed to comment on Scroll.';
-      showNotification('error', 'Scroll', message);
-    } finally {
-      setActionBusy(false);
-    }
-  }, [actionBusy, activeActionScroll, buildScrollUrl, commentDraft, handleEngage, showNotification]);
 
   const repostScroll = useCallback(
     async (withComment?: string) => {
@@ -433,7 +571,10 @@ const ScrollFeed: React.FC = () => {
           </button>
           <button
             type="button"
-            onClick={() => setCreateOpen(true)}
+            onClick={() => {
+              setSourceVideo(null);
+              setCreateOpen(true);
+            }}
             className="inline-flex items-center gap-2 rounded-full bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200 transition"
           >
             <PlusCircle className="h-4 w-4" />
@@ -442,52 +583,37 @@ const ScrollFeed: React.FC = () => {
         </div>
       </header>
 
-      <section className="pointer-events-auto absolute inset-x-3 top-20 z-30 rounded-2xl border border-white/20 bg-black/50 p-3 backdrop-blur-md">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-rose-500/20 text-rose-200">
-              <Radio className="h-4 w-4" />
-            </span>
-            <div className="min-w-0">
-              <p className="truncate text-xs font-semibold uppercase tracking-wide text-white/90">Let's Live Stream</p>
-              <p className="truncate text-[11px] text-white/70">
-                {liveLoading ? 'Loading active streams...' : `${liveSessions.length} active stream${liveSessions.length === 1 ? '' : 's'}`}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setLiveDiscoveryOpen(true)}
-            className="rounded-full border border-white/30 bg-white/10 px-3 py-1 text-[11px] font-semibold text-white hover:bg-white/20"
-          >
-            Browse Live
-          </button>
-        </div>
-        {liveSessions.length > 0 ? (
-          <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-            {liveSessions.slice(0, 8).map((live) => (
+      {showLiveDiscovery ? (
+        <section className="pointer-events-auto absolute left-3 top-20 z-30 max-w-[220px] sm:left-4 sm:top-24">
+          <div className="rounded-[22px] border border-white/15 bg-black/30 p-2.5 shadow-[0_18px_40px_-24px_rgba(15,23,42,0.72)] backdrop-blur-md">
+            <button
+              type="button"
+              onClick={() => setLiveDiscoveryOpen(true)}
+              className="flex w-full items-center gap-3 rounded-[18px] px-2 py-1.5 text-left text-white transition hover:bg-white/10"
+            >
+              <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-rose-300/30 bg-rose-500/15 text-rose-100">
+                <Radio className="h-4 w-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[10px] font-semibold uppercase tracking-[0.22em] text-white/70">Live now</p>
+                <p className="truncate text-xs font-semibold text-white/95">
+                  {liveLoading ? 'Checking streams...' : `${liveSessions.length} active stream${liveSessions.length === 1 ? '' : 's'}`}
+                </p>
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0 text-white/70" />
+            </button>
+            {liveError ? (
               <button
-                key={live.id}
                 type="button"
-                onClick={() => navigate(`/live/${encodeURIComponent(live.id)}`)}
-                className="min-w-[170px] rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-left text-white hover:bg-white/15"
+                onClick={() => void loadLiveSessions()}
+                className="mt-2 w-full rounded-[16px] border border-amber-300/30 bg-amber-500/10 px-3 py-2 text-left text-[11px] font-semibold text-amber-100 transition hover:bg-amber-500/15"
               >
-                <p className="line-clamp-1 text-xs font-semibold">{live.title || 'Live session'}</p>
-                <p className="mt-1 line-clamp-1 text-[11px] text-white/80">{live.host?.name || 'Scrolith host'}</p>
-                <p className="mt-1 text-[10px] text-white/70">Viewers {Number(live.viewerCount || 0)}</p>
+                Retry live discovery
               </button>
-            ))}
+            ) : null}
           </div>
-        ) : liveError ? (
-          <button
-            type="button"
-            onClick={() => void loadLiveSessions()}
-            className="mt-2 rounded-lg border border-amber-300/40 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-100"
-          >
-            {liveError}. Retry
-          </button>
-        ) : null}
-      </section>
+        </section>
+      ) : null}
 
       <div ref={containerRef} className="h-screen snap-y snap-mandatory overflow-y-auto">
         {loading ? (
@@ -498,11 +624,14 @@ const ScrollFeed: React.FC = () => {
           <div className="flex h-screen flex-col items-center justify-center px-6 text-center">
             <p className="text-xl font-semibold">No Scroll videos yet.</p>
             <p className="mt-2 text-sm text-white/70">Create the first one and start your vertical feed.</p>
-            <button
-              type="button"
-              onClick={() => setCreateOpen(true)}
-              className="mt-4 inline-flex items-center gap-2 rounded-full bg-cyan-300 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200 transition"
-            >
+              <button
+                type="button"
+                onClick={() => {
+                  setSourceVideo(null);
+                  setCreateOpen(true);
+                }}
+                className="mt-4 inline-flex items-center gap-2 rounded-full bg-cyan-300 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200 transition"
+              >
               <PlusCircle className="h-4 w-4" />
               Create Scroll
             </button>
@@ -521,7 +650,7 @@ const ScrollFeed: React.FC = () => {
                 <ScrollCard
                   scroll={scroll}
                   isActive={index === activeIndex}
-                  autoplayEnabled={profile.autoplayEnabled}
+                  autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
                   muted={muted}
                   onToggleMute={() => setMuted((prev) => !prev)}
                   onEngage={handleEngage}
@@ -543,7 +672,7 @@ const ScrollFeed: React.FC = () => {
         )}
       </div>
 
-      {liveDiscoveryOpen ? (
+      {showLiveDiscovery && liveDiscoveryOpen ? (
         <div className="fixed inset-0 z-[60] bg-black/90 text-white">
           <div className="flex items-center justify-between border-b border-white/15 px-4 py-3">
             <div>
@@ -609,49 +738,14 @@ const ScrollFeed: React.FC = () => {
         </div>
       ) : null}
 
-      {commentOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/60"
-            onClick={() => {
-              if (actionBusy) return;
-              setCommentOpen(false);
-            }}
-          />
-          <div className="relative w-full max-w-lg rounded-2xl bg-white p-5 text-slate-900 shadow-2xl">
-            <h3 className="text-base font-semibold">Comment on Scroll</h3>
-            <p className="mt-1 text-xs text-slate-500">
-              Your comment will be shared as a post and linked to this Scroll.
-            </p>
-            <textarea
-              value={commentDraft}
-              onChange={(event) => setCommentDraft(event.target.value)}
-              rows={4}
-              placeholder="Write your comment..."
-              className="mt-4 w-full rounded-xl border border-slate-200 p-3 text-sm text-slate-700"
-            />
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setCommentOpen(false)}
-                className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600"
-                disabled={actionBusy}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void submitScrollComment()}
-                className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase text-white disabled:opacity-60"
-                disabled={actionBusy}
-              >
-                {actionBusy ? 'Posting...' : 'Comment'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <ScrollCommentsSheet
+        scroll={activeActionScroll}
+        isOpen={commentOpen}
+        onClose={() => setCommentOpen(false)}
+        onCountChange={(scrollId, count) => {
+          patchMetrics(scrollId, { comments: count });
+        }}
+      />
 
       <RepostModal
         isOpen={repostOpen}
@@ -667,7 +761,7 @@ const ScrollFeed: React.FC = () => {
       <PostShareModal
         isOpen={shareOpen}
         onClose={() => setShareOpen(false)}
-        postUrl={activeScrollUrl || (typeof window === 'undefined' ? 'https://scrolith.com/scroll' : `${window.location.origin}/scroll`)}
+        postUrl={activeScrollUrl || buildPublicAppUrl('/scroll')}
         entityLabel="scroll"
         shareText={
           activeActionScroll
@@ -688,21 +782,33 @@ const ScrollFeed: React.FC = () => {
       <SendGcoinModal
         isOpen={dashOpen}
         onClose={() => setDashOpen(false)}
-        prefillRecipientId={activeActionScroll?.authorId}
-        titleOverride="Dash Scroll Creator"
+        donateScrollId={activeActionScroll?.id}
+        titleOverride="Dash Gcoin"
         subtitleOverride="Support this Scroll creator instantly with your Gcoin balance."
-        onSuccess={async () => {
-          if (!activeActionScroll?.id) return;
-          await handleEngage(activeActionScroll.id, 'dash');
+        onSuccess={async (result) => {
+          const scrollId = String(activeActionScroll?.id || '').trim();
+          if (!scrollId) return;
+          const data = result?.data || {};
+          patchScrollState(scrollId, {
+            dashGcoinTotal: Number(data?.dashGcoinTotal || 0),
+            metrics: data?.metrics || {}
+          });
         }}
       />
 
       <ScrollCreateModal
         open={createOpen}
-        onClose={() => setCreateOpen(false)}
+        onClose={() => {
+          setCreateOpen(false);
+          setSourceVideo(null);
+          clearPendingPostVideoScrollSource();
+        }}
+        sourceVideo={sourceVideo}
         onCreated={(scroll) => {
           setItems((prev) => [scroll, ...prev.filter((entry) => entry.id !== scroll.id)]);
           setActiveIndex(0);
+          setSourceVideo(null);
+          clearPendingPostVideoScrollSource();
         }}
         config={config}
       />

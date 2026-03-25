@@ -1,9 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Volume2, VolumeX, MessageCircle, Repeat2, Send, Coins, Flag, Maximize2, Sparkles } from 'lucide-react';
+import { AlertTriangle, Volume2, VolumeX, MessageCircle, Repeat2, Send, Coins, Flag, Maximize2, Sparkles } from 'lucide-react';
 import type { ScrollEngagementType, ScrollVideo } from '../../services/scroll';
+import ExpandablePreviewText from '../../components/common/ExpandablePreviewText';
+import ContentOfferTags from '../../components/commerce/ContentOfferTags';
 import ReactionBar from '../../community/components/ReactionBar';
 import { ReactionsService } from '../../services/reactions';
 import { useUser } from '../../context/UserContext';
+import { resolveInlineMedia } from '../../utils/inlineMedia';
+import { CARD_TEXT_PREVIEW_LIMIT } from '../../utils/textPreview';
+import GraphicWarningGate from '../../components/media/GraphicWarningGate';
+import OverlayActionRailButton from '../../components/media/OverlayActionRailButton';
 
 type ScrollCardProps = {
   scroll: ScrollVideo;
@@ -21,6 +27,12 @@ type ScrollCardProps = {
 };
 
 const authorInitial = (name?: string | null) => String(name || 'S').trim().charAt(0).toUpperCase() || 'S';
+const formatGcoin = (value: number) => {
+  const safe = Math.max(0, Number(value || 0));
+  if (safe >= 1000000) return `${(safe / 1000000).toFixed(safe >= 10000000 ? 0 : 1)}M`;
+  if (safe >= 1000) return `${(safe / 1000).toFixed(safe >= 10000 ? 0 : 1)}K`;
+  return `${safe}`;
+};
 
 const ScrollCard: React.FC<ScrollCardProps> = ({
   scroll,
@@ -42,14 +54,29 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const marksRef = useRef<Record<string, boolean>>({});
   const mediaGestureStartRef = useRef<{ x: number; y: number } | null>(null);
   const mediaLastTapAtRef = useRef(0);
+  const [graphicRevealed, setGraphicRevealed] = useState(false);
 
   useEffect(() => {
     marksRef.current = {};
   }, [scroll.id]);
 
   useEffect(() => {
+    setGraphicRevealed(false);
+  }, [scroll.id]);
+
+  useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+
+    const tryPlay = () => {
+      if (!isActive || !autoplayEnabled || document.hidden) return;
+      const playPromise = video.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {
+          // autoplay failures are expected on some devices until user interaction
+        });
+      }
+    };
 
     video.muted = muted;
     video.playsInline = true;
@@ -68,12 +95,14 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
       return;
     }
 
-    const playPromise = video.play();
-    if (playPromise && typeof playPromise.catch === 'function') {
-      playPromise.catch(() => {
-        // autoplay failures are expected on some devices until user interaction
-      });
-    }
+    tryPlay();
+    video.addEventListener('loadedmetadata', tryPlay);
+    video.addEventListener('canplay', tryPlay);
+
+    return () => {
+      video.removeEventListener('loadedmetadata', tryPlay);
+      video.removeEventListener('canplay', tryPlay);
+    };
   }, [autoplayEnabled, isActive, muted, scroll.id]);
 
   useEffect(() => {
@@ -157,11 +186,14 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     }
   }, [scroll?.id, user?.id]);
 
-  const mediaUrl = scroll.media?.url || '';
+  const media = resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
+  const mediaUrl = media.src;
   const authorName = scroll.author?.name || 'Community member';
   const description = String(scroll.description || '').trim();
   const title = String(scroll.title || '').trim();
   const topLine = title || description || 'Scroll video';
+  const dashGcoinTotal = Number(scroll.dashGcoinTotal ?? scroll.metrics?.dashGcoinTotal ?? 0);
+  const tagCount = Array.isArray(scroll.tags) ? scroll.tags.length : 0;
   const mediaFilterStyle = useMemo(() => {
     const strength = Math.max(0, Math.min(100, Number(scroll.filterStrength ?? 60))) / 100;
     const preset = String(scroll.filterPreset || 'none').toLowerCase();
@@ -185,10 +217,10 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
 
   const rightActions = useMemo(
     () => [
-      { key: 'comment', label: 'Comment', icon: MessageCircle, onClick: () => onComment(scroll), value: scroll.metrics.comments },
-      { key: 'repost', label: 'Repost', icon: Repeat2, onClick: () => onRepost(scroll), value: scroll.metrics.reposts },
-      { key: 'dash', label: 'Dash', icon: Coins, onClick: () => onDash(scroll), value: scroll.metrics.shares },
-      { key: 'send', label: 'Send', icon: Send, onClick: () => onSend(scroll), value: scroll.metrics.sends }
+      { key: 'comment', label: 'Comment', icon: MessageCircle, onClick: () => onComment(scroll) },
+      { key: 'repost', label: 'Repost', icon: Repeat2, onClick: () => onRepost(scroll) },
+      { key: 'dash', label: 'Dash', icon: Coins, onClick: () => onDash(scroll) },
+      { key: 'send', label: 'Send', icon: Send, onClick: () => onSend(scroll) }
     ],
     [onComment, onDash, onRepost, onSend, scroll]
   );
@@ -241,29 +273,38 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     >
       {mediaUrl ? (
         <div className="relative h-full w-full bg-black">
-          {scroll.media?.thumbnailUrl ? (
+          {media.poster ? (
             <img
-              src={scroll.media.thumbnailUrl}
+              src={media.poster}
               alt=""
               aria-hidden
               className="absolute inset-0 h-full w-full object-cover blur-2xl opacity-35 scale-110"
             />
           ) : null}
-          <video
-            ref={videoRef}
-            src={mediaUrl}
-            className="relative z-0 h-full w-full object-contain"
-            style={mediaFilterStyle}
-            muted={muted}
-            loop
-            playsInline
-            controls={!autoplayEnabled}
-            controlsList={!autoplayEnabled ? 'nodownload' : undefined}
-            preload={isActive ? (autoplayEnabled ? 'auto' : 'metadata') : 'none'}
-            onTimeUpdate={handleTimeUpdate}
-            poster={scroll.media?.thumbnailUrl || undefined}
-            onContextMenu={(event) => event.preventDefault()}
-          />
+          <GraphicWarningGate
+            active={Boolean(scroll.graphicWarning)}
+            revealed={graphicRevealed}
+            onReveal={() => setGraphicRevealed(true)}
+            className="h-full w-full"
+            contentClassName="h-full w-full"
+          >
+            <video
+              ref={videoRef}
+              src={mediaUrl}
+              className="relative z-0 h-full w-full object-contain"
+              style={mediaFilterStyle}
+              muted={muted}
+              loop
+              playsInline
+              autoPlay={autoplayEnabled && isActive}
+              controls={!autoplayEnabled}
+              controlsList={!autoplayEnabled ? 'nodownload' : undefined}
+              preload={isActive ? (autoplayEnabled ? 'auto' : 'metadata') : 'none'}
+              onTimeUpdate={handleTimeUpdate}
+              poster={media.poster}
+              onContextMenu={(event) => event.preventDefault()}
+            />
+          </GraphicWarningGate>
         </div>
       ) : (
         <div className="h-full w-full flex items-center justify-center bg-gray-900 text-sm text-gray-300">
@@ -292,6 +333,12 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               AI
             </span>
           ) : null}
+          {scroll.graphicWarning ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-semibold text-amber-100 ring-1 ring-amber-300/40">
+              <AlertTriangle className="h-3 w-3" />
+              Graphic warning
+            </span>
+          ) : null}
         </div>
 
         <div className="pointer-events-auto flex items-center gap-2">
@@ -314,52 +361,81 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         </div>
       </div>
 
-      <div className="absolute right-2.5 top-[58%] z-30 pointer-events-auto flex -translate-y-1/2 flex-col items-center gap-1.5">
+      <div className="absolute right-2.5 top-1/2 z-30 pointer-events-auto flex -translate-y-1/2 flex-col items-center gap-1.5 sm:right-3">
         <ReactionBar
           targetType="SCROLL"
           targetId={scroll.id}
           layout="rail"
-          className="w-[54px]"
+          className="w-[68px]"
           compact
+          railVariant="launcher"
+          railLauncherLabel="Reaction"
         />
         {rightActions.map((action) => (
-          <button
+          <OverlayActionRailButton
             key={action.key}
-            type="button"
             onClick={action.onClick}
-            className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/40 px-1.5 py-1.5 text-white transition hover:bg-black/60"
-            aria-label={action.label}
-          >
-            <action.icon className="h-3.5 w-3.5" />
-            <span className="mt-1 text-[11px] font-semibold">{Number(action.value || 0)}</span>
-          </button>
+            icon={action.icon}
+            label={action.label}
+          />
         ))}
-        <button
-          type="button"
+        <OverlayActionRailButton
           onClick={() => onShareToStory(scroll)}
-          className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/40 px-1.5 py-1.5 text-white transition hover:bg-black/60"
-          aria-label="Share to Story"
-        >
-          <Sparkles className="h-3.5 w-3.5" />
-          <span className="mt-1 text-[11px] font-semibold">Story</span>
-        </button>
-        <button
-          type="button"
+          icon={Sparkles}
+          label="Story"
+        />
+        <OverlayActionRailButton
           onClick={() => onReport(scroll)}
-          className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/40 px-1.5 py-1.5 text-white transition hover:bg-black/60"
-          aria-label="Report"
-        >
-          <Flag className="h-3.5 w-3.5" />
-          <span className="mt-1 text-[11px] font-semibold">Report</span>
-        </button>
+          icon={Flag}
+          label="Report"
+          danger
+        />
       </div>
 
-      <div className="pointer-events-none absolute inset-x-4 bottom-6 z-20">
-        <div className="max-w-[70%] md:max-w-[60%]">
-          <p className="text-base font-semibold leading-snug">{topLine}</p>
-          {description && title ? <p className="mt-1 text-sm text-white/85 line-clamp-3">{description}</p> : null}
-          {scroll.location ? <p className="mt-1 text-xs text-white/80">Location: {scroll.location}</p> : null}
-          <p className="mt-2 text-[11px] text-white/70">{new Date(scroll.createdAt).toLocaleString()}</p>
+      <div className="pointer-events-none absolute inset-x-4 bottom-5 z-20 pr-[76px] sm:pr-[88px]">
+        <div className="w-full max-w-[min(44rem,100%)] space-y-2">
+          <div className="inline-flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-[11px] font-semibold text-white/85 shadow-[0_12px_36px_-24px_rgba(15,23,42,0.9)] backdrop-blur-md">
+            <span>{Number(scroll.metrics.likes || 0)} likes</span>
+            <span>{Number(scroll.metrics.comments || 0)} comments</span>
+            <span>{Number(scroll.metrics.reposts || 0)} reposts</span>
+            <span>{Number(scroll.metrics.sends || 0)} sends</span>
+            <span>{formatGcoin(dashGcoinTotal)} GC dashed</span>
+          </div>
+          <div className="rounded-[24px] border border-white/10 bg-black/34 px-3.5 py-3 text-white shadow-[0_18px_48px_-28px_rgba(15,23,42,0.95)] backdrop-blur-md">
+            <ExpandablePreviewText
+              text={topLine}
+              limit={CARD_TEXT_PREVIEW_LIMIT}
+              textClassName="text-[15px] font-semibold leading-snug text-white sm:text-base"
+              buttonClassName="text-white"
+            />
+            {description && title ? (
+              <ExpandablePreviewText
+                text={description}
+                limit={CARD_TEXT_PREVIEW_LIMIT}
+                className="mt-1.5"
+                textClassName="text-sm leading-relaxed text-white/85"
+                buttonClassName="text-white"
+              />
+            ) : null}
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-white/75">
+              {scroll.location ? (
+                <span className="inline-flex items-center rounded-full border border-white/10 bg-white/8 px-2.5 py-1">
+                  {scroll.location}
+                </span>
+              ) : null}
+              {tagCount > 0 ? (
+                <span className="inline-flex items-center rounded-full border border-white/10 bg-white/8 px-2.5 py-1">
+                  {tagCount} tag{tagCount === 1 ? '' : 's'}
+                </span>
+              ) : null}
+              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/8 px-2.5 py-1">
+                {new Date(scroll.createdAt).toLocaleString()}
+              </span>
+            </div>
+          </div>
+          <div className="pointer-events-auto">
+            <ContentOfferTags offerTags={scroll.offerTags} variant="dark" />
+          </div>
         </div>
       </div>
     </article>
@@ -367,3 +443,4 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
 };
 
 export default ScrollCard;
+

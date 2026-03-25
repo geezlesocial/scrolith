@@ -1,4 +1,6 @@
 import api from './api';
+import { beginManagedIdempotentRequest, createActionFingerprint } from './idempotency';
+import type { ContentOfferTag } from '../types';
 
 export type ScrollVisibility = 'public' | 'network' | 'followers' | 'private';
 export type ScrollEngagementType =
@@ -28,7 +30,9 @@ export interface ScrollVideo {
   description?: string | null;
   location?: string | null;
   visibility: ScrollVisibility | string;
+  graphicWarning?: boolean;
   isAIEnhanced: boolean;
+  dashGcoinTotal?: number;
   filterPreset?: string | null;
   filterStrength?: number | null;
   media: {
@@ -40,6 +44,7 @@ export interface ScrollVideo {
     height?: number | null;
     duration?: number | null;
   } | null;
+  offerTags?: ContentOfferTag[];
   tags: Array<{ id: string; taggedUserId?: string | null; taggedPageId?: string | null }>;
   status: string;
   metrics: {
@@ -54,6 +59,7 @@ export interface ScrollVideo {
     reposts: number;
     shares: number;
     sends: number;
+    dashGcoinTotal?: number;
   };
   viewer?: {
     liked?: boolean;
@@ -61,6 +67,28 @@ export interface ScrollVideo {
   };
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ScrollComment {
+  id: string;
+  scrollId: string;
+  parentId: string | null;
+  userId?: string;
+  userName?: string;
+  userUsername?: string | null;
+  userAvatar?: string | null;
+  content?: string;
+  status?: 'active' | 'deleted' | string;
+  deletedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  canEdit?: boolean;
+  canDelete?: boolean;
+  reactionSummary?: {
+    counts: Record<string, number>;
+    userReaction: string | null;
+  };
+  replies?: ScrollComment[];
 }
 
 export interface ScrollConfig {
@@ -100,10 +128,12 @@ class ScrollService {
     description?: string;
     location?: string;
     visibility?: ScrollVisibility | string;
+    graphicWarning?: boolean;
     isAIEnhanced?: boolean;
     filterPreset?: string;
     filterStrength?: number;
     tags?: Array<{ taggedUserId?: string; taggedPageId?: string }>;
+    offerTags?: Array<{ offerType: 'user_gig' | 'business_package'; offerId: string }>;
   }) {
     const response = await api.post('/scroll/create', payload);
     return extractData<ScrollVideo>(response);
@@ -117,10 +147,12 @@ class ScrollService {
       description: string;
       location: string;
       visibility: ScrollVisibility | string;
+      graphicWarning: boolean;
       isAIEnhanced: boolean;
       filterPreset: string;
       filterStrength: number;
       tags: Array<{ taggedUserId?: string; taggedPageId?: string }>;
+      offerTags: Array<{ offerType: 'user_gig' | 'business_package'; offerId: string }>;
     }>
   ) {
     const response = await api.put(`/scroll/${encodeURIComponent(id)}`, payload);
@@ -133,12 +165,50 @@ class ScrollService {
   }
 
   static async engage(id: string, payload: { type: ScrollEngagementType; watchedSeconds?: number }) {
-    const response = await api.post(`/scroll/${encodeURIComponent(id)}/engage`, payload);
-    return extractData<any>(response);
+    const request = beginManagedIdempotentRequest(
+      `scroll-engage:${id}:${payload.type}:${createActionFingerprint(payload.watchedSeconds)}`
+    );
+    try {
+      const response = await api.post(`/scroll/${encodeURIComponent(id)}/engage`, payload, { headers: request.headers });
+      request.complete();
+      return extractData<any>(response);
+    } catch (error) {
+      request.retain();
+      throw error;
+    }
   }
 
   static async report(id: string, payload: { reason: string }) {
     const response = await api.post(`/scroll/${encodeURIComponent(id)}/report`, payload);
+    return extractData<any>(response);
+  }
+
+  static async getComments(id: string) {
+    const response = await api.get(`/scroll/${encodeURIComponent(id)}/comments`);
+    return extractData<{ items: ScrollComment[]; count: number }>(response);
+  }
+
+  static async createComment(id: string, payload: { content: string; parentId?: string | null }) {
+    const request = beginManagedIdempotentRequest(
+      `scroll-comment:${id}:${payload.parentId || 'root'}:${createActionFingerprint(payload.content)}`
+    );
+    try {
+      const response = await api.post(`/scroll/${encodeURIComponent(id)}/comments`, payload, { headers: request.headers });
+      request.complete();
+      return extractData<{ comment: ScrollComment; metrics?: Partial<ScrollVideo['metrics']> }>(response);
+    } catch (error) {
+      request.retain();
+      throw error;
+    }
+  }
+
+  static async updateComment(id: string, payload: { content: string }) {
+    const response = await api.put(`/scroll/comments/${encodeURIComponent(id)}`, payload);
+    return extractData<ScrollComment>(response);
+  }
+
+  static async deleteComment(id: string) {
+    const response = await api.delete(`/scroll/comments/${encodeURIComponent(id)}`);
     return extractData<any>(response);
   }
 

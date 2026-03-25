@@ -1,4 +1,5 @@
 import api from './api';
+import { beginManagedIdempotentRequest } from './idempotency';
 
 export type ReactionTargetType = 'POST' | 'COMMENT' | 'MESSAGE' | 'STORY' | 'SCROLL';
 
@@ -18,8 +19,15 @@ const extractData = <T>(response: any): T => {
 
 export const ReactionsService = {
   async react(targetType: ReactionTargetType, targetId: string, reactionKey: string) {
-    const response = await api.post('/reactions', { targetType, targetId, reactionKey });
-    return extractData<ReactionSummaryResponse>(response);
+    const request = beginManagedIdempotentRequest(`reaction:${targetType}:${targetId}:${reactionKey}`);
+    try {
+      const response = await api.post('/reactions', { targetType, targetId, reactionKey }, { headers: request.headers });
+      request.complete();
+      return extractData<ReactionSummaryResponse>(response);
+    } catch (error) {
+      request.retain();
+      throw error;
+    }
   },
 
   async getSummary(targetType: ReactionTargetType, targetId: string) {

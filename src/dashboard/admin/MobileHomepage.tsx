@@ -3,6 +3,7 @@ import { Loader2, Save, Smartphone } from 'lucide-react';
 
 import api from '../../services/api';
 import { useNotification } from '../../context/NotificationContext';
+import { DEFAULT_MEMBER_HOME_LOCATIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../../constants/defaultAudienceOptions';
 
 type MobileTabKey = 'home' | 'network' | 'post' | 'notifications' | 'jobs' | 'messages';
 type SearchCategory = 'posts' | 'people' | 'pages' | 'jobs' | 'gigs';
@@ -124,8 +125,8 @@ const DEFAULT_CONFIG: MobileHomeLayoutConfig = {
     graphicWarningEnabled: true,
     graphicWarningLabel: 'Graphic warning',
     graphicWarningBlurMedia: true,
-    topics: ['Product', 'Design', 'Engineering', 'Marketing', 'Sales', 'Leadership'],
-    locations: ['Global', 'North America', 'Europe', 'Africa', 'Asia']
+    topics: DEFAULT_MEMBER_HOME_TOPICS,
+    locations: DEFAULT_MEMBER_HOME_LOCATIONS
   },
   postCard: {
     reactionsEnabled: true,

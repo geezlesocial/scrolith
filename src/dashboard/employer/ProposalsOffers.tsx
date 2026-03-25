@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { proposalsApi, Proposal } from '../../services/proposals';
+import { proposalsApi, Proposal, AcceptProposalData } from '../../services/proposals';
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
 import { Table } from '../shared/Table';
@@ -8,6 +8,9 @@ import { StatusBadge } from '../shared/StatusBadge';
 import { Skeleton } from '../shared/Skeleton';
 import EmptyState from '../shared/EmptyState';
 import { ConfirmModal } from '../shared/ConfirmModal';
+import { BriefsService } from '../../services/briefs';
+import type { DealFlowSettings } from '../../types';
+import AcceptProposalContractModal from '../../components/contracts/AcceptProposalContractModal';
 import ProBadge from '../../components/ProBadge';
 import {
   FileText,
@@ -48,6 +51,8 @@ export const ProposalsOffers: React.FC = () => {
   const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null);
   const [actionType, setActionType] = useState<'accept' | 'reject' | 'shortlist' | 'unshortlist' | null>(null);
   const [modalLoading, setModalLoading] = useState(false);
+  const [showAcceptModal, setShowAcceptModal] = useState(false);
+  const [dealFlowConfig, setDealFlowConfig] = useState<DealFlowSettings | null>(null);
   const [messageText, setMessageText] = useState('');
   const [rejectionReason, setRejectionReason] = useState('');
   const [interviewDateTime, setInterviewDateTime] = useState('');
@@ -84,6 +89,22 @@ export const ProposalsOffers: React.FC = () => {
   useEffect(() => {
     loadProposals();
   }, [user, filter, searchTerm]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadConfig = async () => {
+      try {
+        const config = await BriefsService.getConfig();
+        if (!cancelled) setDealFlowConfig(config);
+      } catch {
+        if (!cancelled) setDealFlowConfig(null);
+      }
+    };
+    void loadConfig();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleAction = async (proposalId: string, action: string, data?: any) => {
     setModalLoading(true);
@@ -128,8 +149,28 @@ export const ProposalsOffers: React.FC = () => {
 
   const handleActionClick = (proposal: Proposal, action: 'accept' | 'reject' | 'shortlist' | 'unshortlist') => {
     setSelectedProposal(proposal);
+    if (action === 'accept') {
+      setShowAcceptModal(true);
+      return;
+    }
     setActionType(action);
     setShowConfirm(true);
+  };
+
+  const handleAcceptProposalSubmit = async (payload: AcceptProposalData) => {
+    if (!selectedProposal) return;
+    setModalLoading(true);
+    try {
+      await proposalsApi.acceptProposal(selectedProposal.id, payload);
+      showNotification('success', 'Contract Created', 'Proposal accepted and converted into an active contract.');
+      setShowAcceptModal(false);
+      setSelectedProposal(null);
+      await loadProposals();
+    } catch (error: any) {
+      showNotification('error', 'Contract Error', error?.message || 'Failed to create contract from proposal.');
+    } finally {
+      setModalLoading(false);
+    }
   };
 
   const handleMessageClick = (proposal: Proposal) => {
@@ -354,13 +395,6 @@ export const ProposalsOffers: React.FC = () => {
     if (!actionType || !selectedProposal) return {};
 
     switch (actionType) {
-      case 'accept':
-        return {
-          title: 'Accept Proposal',
-          message: `Are you sure you want to accept the proposal from ${selectedProposal.freelancerName}? This will create a contract.`,
-          confirmLabel: 'Accept Proposal',
-          variant: 'info' as const,
-        };
       case 'reject':
         return {
           title: 'Reject Proposal',
@@ -696,6 +730,19 @@ export const ProposalsOffers: React.FC = () => {
           </div>
         )}
       </ConfirmModal>
+
+      <AcceptProposalContractModal
+        open={showAcceptModal}
+        proposal={selectedProposal}
+        dealFlowConfig={dealFlowConfig}
+        loading={modalLoading}
+        onClose={() => {
+          if (modalLoading) return;
+          setShowAcceptModal(false);
+          setSelectedProposal(null);
+        }}
+        onSubmit={handleAcceptProposalSubmit}
+      />
 
       {/* Message Modal */}
       <ConfirmModal

@@ -20,6 +20,20 @@ const isSocketTraceEnabled = () => {
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
 }
 
+const buildSocketSignature = (input: {
+  url: string
+  namespace: string
+  userId: string
+  role: string
+  token: string
+}) => JSON.stringify({
+  url: String(input.url || '').trim(),
+  namespace: String(input.namespace || '').trim(),
+  userId: String(input.userId || '').trim(),
+  role: String(input.role || '').trim(),
+  tokenPresent: Boolean(String(input.token || '').trim())
+})
+
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
@@ -76,13 +90,19 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'scroll:new', fn: forward('scroll:new') }
       ,{ ev: 'scroll:engagement_update', fn: forward('scroll:engagement_update') }
       ,{ ev: 'scroll:impression_update', fn: forward('scroll:impression_update') }
+      ,{ ev: 'scroll:comment_created', fn: forward('scroll:comment_created') }
+      ,{ ev: 'scroll:comment_updated', fn: forward('scroll:comment_updated') }
+      ,{ ev: 'scroll:comment_deleted', fn: forward('scroll:comment_deleted') }
+      ,{ ev: 'scroll:comment_reaction_updated', fn: forward('scroll:comment_reaction_updated') }
       ,{ ev: 'scroll:removed', fn: forward('scroll:removed') }
+      ,{ ev: 'scroll:gcoin_donated', fn: forward('scroll:gcoin_donated') }
       ,{ ev: 'community:ad_created', fn: forward('community:ad_created') }
       ,{ ev: 'community:ad_status_updated', fn: forward('community:ad_status_updated') }
       ,{ ev: 'community:ad_payment_initiated', fn: forward('community:ad_payment_initiated') }
       ,{ ev: 'community:ad_metrics_updated', fn: forward('community:ad_metrics_updated') }
       ,{ ev: 'community:gcoin_transaction_created', fn: forward('community:gcoin_transaction_created') }
       ,{ ev: 'community:gcoin_balance_updated', fn: forward('community:gcoin_balance_updated') }
+      ,{ ev: 'community:gcoin_donated', fn: forward('community:gcoin_donated') }
       ,{ ev: 'community:gcoin_settings_updated', fn: forward('community:gcoin_settings_updated') }
       ,{ ev: 'community:gcoin_conversion_requested', fn: forward('community:gcoin_conversion_requested') }
       ,{ ev: 'community:gcoin_conversion_processed', fn: forward('community:gcoin_conversion_processed') }
@@ -138,6 +158,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'live:reaction', fn: forward('live:reaction') }
       ,{ ev: 'live:gift_sent', fn: forward('live:gift_sent') }
       ,{ ev: 'live:viewer_count_updated', fn: forward('live:viewer_count_updated') }
+      ,{ ev: 'live:config_updated', fn: forward('live:config_updated') }
       ,{ ev: 'live:signal', fn: forward('live:signal') }
       ,{ ev: 'live:filter_updated', fn: forward('live:filter_updated') }
     ];
@@ -155,19 +176,6 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsConnected(false)
     }
 
-    // Allow socket connections for unauthenticated (guest) users so public pages
-    // can receive CMS realtime events (e.g. header updates). Pass token/userId
-    // only when available; avoid joining private rooms when not authenticated.
-    const existingSocket = socketService.getSocket()
-    if (existingSocket?.connected) {
-      setSocket(existingSocket)
-      setIsConnected(true)
-      return
-    }
-
-    // If an existing socket isn't connected, start fresh
-    cleanupSocket()
-
     const backendEnv =
       import.meta.env.VITE_BACKEND_URL ||
       import.meta.env.VITE_API_URL ||
@@ -181,8 +189,26 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Keep socket origin aligned with the canonical API base resolver so
       // accidental placeholder domains (e.g. api.example.com) are ignored.
       const socketUrl = getBackendOrigin() || ''
-
       const token = (await tokenStore.get()) || ''
+      const nextSignature = buildSocketSignature({
+        url: socketUrl,
+        namespace: '/community',
+        userId: user?.id || 'guest',
+        role: user?.role || 'guest',
+        token
+      })
+      const existingSocket = socketService.getSocket()
+      const existingSignature = String(lastOptionsRef.current?.signature || '')
+
+      // Reuse the current socket only when its identity matches the current
+      // auth state. This prevents a guest socket from surviving after login.
+      if (existingSocket?.connected && existingSignature === nextSignature) {
+        setSocket(existingSocket)
+        setIsConnected(true)
+        return
+      }
+
+      cleanupSocket()
 
       const options = {
         url: socketUrl,
@@ -240,7 +266,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
         }
       }
-      lastOptionsRef.current = options
+      lastOptionsRef.current = {
+        ...options,
+        signature: nextSignature
+      }
       socketService.connect(options)
     }
 

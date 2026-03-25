@@ -1,6 +1,14 @@
 import api from './api';
-import { User, UserProfile, UserSettings } from '../types';
+import {
+  Gig,
+  StorefrontMerchantSummary,
+  StorefrontSettings,
+  User,
+  UserProfile,
+  UserSettings
+} from '../types';
 import { resolveAssetUrl } from '../utils/assetUrl';
+import { normalizeStorefrontSettings } from '../utils/storefront';
 
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
@@ -26,6 +34,215 @@ const toArray = (value: any): any[] => {
   return [];
 };
 
+const normalizeGigPackage = (pkg: any) => ({
+  ...pkg,
+  delivery_days: pkg?.delivery_days ?? pkg?.deliveryDays ?? 0,
+  deliveryDays: pkg?.deliveryDays ?? pkg?.delivery_days ?? 0
+});
+
+const normalizeGigExtra = (extra: any) => ({
+  ...extra,
+  additional_days: extra?.additional_days ?? extra?.additionalDays ?? 0,
+  additionalDays: extra?.additionalDays ?? extra?.additional_days ?? 0,
+  applies_to: extra?.applies_to ?? extra?.appliesTo ?? 'all',
+  appliesTo: extra?.appliesTo ?? extra?.applies_to ?? 'all'
+});
+
+const normalizeGig = (gig: any): Gig => {
+  const adminStatus = gig?.admin_status ?? gig?.adminStatus;
+  const pricingMode = gig?.pricing_mode ?? gig?.pricingMode;
+  const freelancerName = gig?.freelancer_name ?? gig?.freelancerName;
+  const freelancerId = gig?.freelancer_id ?? gig?.freelancerId;
+  const freelancerAvatar = resolveAssetUrl(gig?.freelancer_avatar ?? gig?.freelancerAvatar ?? '');
+  const createdAt = gig?.created_at ?? gig?.createdAt;
+  const updatedAt = gig?.updated_at ?? gig?.updatedAt;
+  const isVisible = gig?.is_visible ?? gig?.isVisible;
+  const isActive = gig?.is_active ?? gig?.isActive;
+  const ordersCount = gig?.orders_count ?? gig?.ordersCount;
+  const adminReason = gig?.admin_reason ?? gig?.adminReason;
+  const isFeatured = gig?.is_featured ?? gig?.isFeatured;
+  const isTopSelected = gig?.is_top_selected ?? gig?.isTopSelected;
+  const isRecommended = gig?.is_recommended ?? gig?.isRecommended;
+  const images = Array.isArray(gig?.images)
+    ? gig.images.map((entry: any) => resolveAssetUrl(String(entry || ''))).filter(Boolean)
+    : [];
+  const image = resolveAssetUrl(gig?.image ?? images[0] ?? '') || '';
+
+  return {
+    ...gig,
+    image,
+    images,
+    admin_status: adminStatus,
+    adminStatus,
+    pricing_mode: pricingMode,
+    pricingMode,
+    freelancer_name: freelancerName,
+    freelancerName,
+    freelancer_id: freelancerId,
+    freelancerId,
+    freelancer_avatar: freelancerAvatar,
+    freelancerAvatar,
+    created_at: createdAt,
+    createdAt,
+    updated_at: updatedAt,
+    updatedAt,
+    is_visible: isVisible,
+    isVisible,
+    is_active: isActive,
+    isActive,
+    is_featured: isFeatured,
+    isFeatured,
+    is_top_selected: isTopSelected,
+    isTopSelected,
+    is_recommended: isRecommended,
+    isRecommended,
+    orders_count: ordersCount,
+    ordersCount,
+    adminReason,
+    packages: Array.isArray(gig?.packages) ? gig.packages.map(normalizeGigPackage) : [],
+    extras: Array.isArray(gig?.extras) ? gig.extras.map(normalizeGigExtra) : []
+  } as Gig;
+};
+
+const normalizeStorefrontMerchantSummary = (value: any): StorefrontMerchantSummary | null => {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    title: String(value?.title || '').trim(),
+    subtitle: value?.subtitle ? String(value.subtitle).trim() : '',
+    location: value?.location ?? null,
+    category: value?.category ?? null,
+    currency: value?.currency ? String(value.currency).toUpperCase() : null,
+    priceFrom:
+      value?.priceFrom === null || value?.price_from === null
+        ? null
+        : Number.isFinite(Number(value?.priceFrom ?? value?.price_from))
+          ? Number(value?.priceFrom ?? value?.price_from)
+          : null,
+    price_from:
+      value?.priceFrom === null || value?.price_from === null
+        ? null
+        : Number.isFinite(Number(value?.priceFrom ?? value?.price_from))
+          ? Number(value?.priceFrom ?? value?.price_from)
+          : null,
+    serviceCount: Number(value?.serviceCount ?? value?.service_count ?? 0),
+    service_count: Number(value?.serviceCount ?? value?.service_count ?? 0),
+    featuredCount: Number(value?.featuredCount ?? value?.featured_count ?? 0),
+    featured_count: Number(value?.featuredCount ?? value?.featured_count ?? 0),
+    rating: Number(value?.rating ?? 0),
+    completedJobs: Number(value?.completedJobs ?? value?.completed_jobs ?? 0),
+    completed_jobs: Number(value?.completedJobs ?? value?.completed_jobs ?? 0),
+    responseRate: Number(value?.responseRate ?? value?.response_rate ?? 0),
+    response_rate: Number(value?.responseRate ?? value?.response_rate ?? 0),
+    responseTimeHours: value?.responseTimeHours ?? value?.response_time_hours ?? null,
+    response_time_hours: value?.responseTimeHours ?? value?.response_time_hours ?? null,
+    trustScore:
+      value?.trustScore === null || value?.trust_score === null
+        ? null
+        : Number.isFinite(Number(value?.trustScore ?? value?.trust_score))
+          ? Number(value?.trustScore ?? value?.trust_score)
+          : null,
+    trust_score:
+      value?.trustScore === null || value?.trust_score === null
+        ? null
+        : Number.isFinite(Number(value?.trustScore ?? value?.trust_score))
+          ? Number(value?.trustScore ?? value?.trust_score)
+          : null,
+    trustTier: value?.trustTier ?? value?.trust_tier ?? null,
+    trust_tier: value?.trustTier ?? value?.trust_tier ?? null
+  };
+};
+
+export type UserStorefrontPayload = {
+  userId: string;
+  user_id: string;
+  enabled: boolean;
+  canManage: boolean;
+  can_manage: boolean;
+  settings: StorefrontSettings;
+  merchantSummary: StorefrontMerchantSummary | null;
+  merchant_summary: StorefrontMerchantSummary | null;
+  featuredServices: Gig[];
+  featured_services: Gig[];
+  services: Gig[];
+};
+
+const normalizeUserStorefront = (value: any): UserStorefrontPayload => {
+  const featuredServices = toArray(value?.featuredServices ?? value?.featured_services).map(normalizeGig);
+  const services = toArray(value?.services).map(normalizeGig);
+  const merchantSummary = normalizeStorefrontMerchantSummary(
+    value?.merchantSummary ?? value?.merchant_summary
+  );
+
+  return {
+    userId: String(value?.userId || value?.user_id || ''),
+    user_id: String(value?.user_id || value?.userId || ''),
+    enabled: Boolean(value?.enabled),
+    canManage: Boolean(value?.canManage ?? value?.can_manage),
+    can_manage: Boolean(value?.can_manage ?? value?.canManage),
+    settings: normalizeStorefrontSettings(value?.settings),
+    merchantSummary,
+    merchant_summary: merchantSummary,
+    featuredServices,
+    featured_services: featuredServices,
+    services
+  };
+};
+
+const normalizeProfessionalIdentity = (value: any) => {
+  if (!value || typeof value !== 'object') return null;
+  const featuredClubs = toArray(value.featured_clubs ?? value.featuredClubs).map((club: any) => ({
+    id: String(club?.id || ''),
+    name: String(club?.name || 'Community club'),
+    visibility: String(club?.visibility || 'public').toLowerCase() === 'private' ? 'private' : 'public',
+    member_count: Number(club?.member_count ?? club?.memberCount ?? 0),
+    memberCount: Number(club?.memberCount ?? club?.member_count ?? 0),
+    cover_image: club?.cover_image ?? club?.coverImage ?? '',
+    coverImage: club?.coverImage ?? club?.cover_image ?? '',
+    joined_at: club?.joined_at ?? club?.joinedAt ?? null,
+    joinedAt: club?.joinedAt ?? club?.joined_at ?? null
+  }));
+
+  return {
+    is_verified: Boolean(value.is_verified ?? value.isVerified),
+    isVerified: Boolean(value.isVerified ?? value.is_verified),
+    kyc_status: value.kyc_status ?? value.kycStatus ?? '',
+    kycStatus: value.kycStatus ?? value.kyc_status ?? '',
+    verification_status: value.verification_status ?? value.verificationStatus ?? '',
+    verificationStatus: value.verificationStatus ?? value.verification_status ?? '',
+    is_pro_freelancer: Boolean(value.is_pro_freelancer ?? value.isProFreelancer),
+    isProFreelancer: Boolean(value.isProFreelancer ?? value.is_pro_freelancer),
+    is_pro_employer: Boolean(value.is_pro_employer ?? value.isProEmployer),
+    isProEmployer: Boolean(value.isProEmployer ?? value.is_pro_employer),
+    trust_tier: value.trust_tier ?? value.trustTier ?? 'growing',
+    trustTier: value.trustTier ?? value.trust_tier ?? 'growing',
+    review_count: Number(value.review_count ?? value.reviewCount ?? 0),
+    reviewCount: Number(value.reviewCount ?? value.review_count ?? 0),
+    average_rating: Number(value.average_rating ?? value.averageRating ?? 0),
+    averageRating: Number(value.averageRating ?? value.average_rating ?? 0),
+    completed_jobs: Number(value.completed_jobs ?? value.completedJobs ?? 0),
+    completedJobs: Number(value.completedJobs ?? value.completed_jobs ?? 0),
+    response_rate: Number(value.response_rate ?? value.responseRate ?? 0),
+    responseRate: Number(value.responseRate ?? value.response_rate ?? 0),
+    response_time_hours: value.response_time_hours ?? value.responseTimeHours ?? null,
+    responseTimeHours: value.responseTimeHours ?? value.response_time_hours ?? null,
+    certification_count: Number(value.certification_count ?? value.certificationCount ?? 0),
+    certificationCount: Number(value.certificationCount ?? value.certification_count ?? 0),
+    verified_certification_count: Number(value.verified_certification_count ?? value.verifiedCertificationCount ?? 0),
+    verifiedCertificationCount: Number(value.verifiedCertificationCount ?? value.verified_certification_count ?? 0),
+    portfolio_proof_count: Number(value.portfolio_proof_count ?? value.portfolioProofCount ?? 0),
+    portfolioProofCount: Number(value.portfolioProofCount ?? value.portfolio_proof_count ?? 0),
+    verified_portfolio_proof_count: Number(value.verified_portfolio_proof_count ?? value.verifiedPortfolioProofCount ?? 0),
+    verifiedPortfolioProofCount: Number(value.verifiedPortfolioProofCount ?? value.verified_portfolio_proof_count ?? 0),
+    club_count: Number(value.club_count ?? value.clubCount ?? 0),
+    clubCount: Number(value.clubCount ?? value.club_count ?? 0),
+    featured_clubs: featuredClubs,
+    featuredClubs,
+    top_skills: toArray(value.top_skills ?? value.topSkills).map((item) => String(item || '')),
+    topSkills: toArray(value.topSkills ?? value.top_skills).map((item) => String(item || '')),
+    badges: toArray(value.badges).map((item) => String(item || ''))
+  };
+};
+
 const mapProfile = (p: any): UserProfile => {
   const hourlyRate = Number(p.hourly_rate ?? p.hourlyRate ?? 0);
   const introVideoUrl = p.intro_video_url ?? p.introVideoUrl ?? '';
@@ -34,12 +251,35 @@ const mapProfile = (p: any): UserProfile => {
   const avatarUrl = p.avatar_url ?? p.avatarUrl ?? p.avatar ?? undefined;
   const resolvedAvatar = avatarUrl ? resolveAssetUrl(String(avatarUrl)) : undefined;
   const resolvedCover = coverPhotoUrl ? resolveAssetUrl(String(coverPhotoUrl)) : undefined;
+  const professionalIdentity = normalizeProfessionalIdentity(p.professional_identity ?? p.professionalIdentity);
   return {
     user_id: p.user_id ?? p.userId,
     userId: p.user_id ?? p.userId,
     title: p.title ?? '',
     bio: p.bio ?? '',
     location: p.location ?? '',
+    formatted_address: p.formatted_address ?? p.formattedAddress ?? p.location ?? '',
+    formattedAddress: p.formattedAddress ?? p.formatted_address ?? p.location ?? '',
+    country: p.country ?? '',
+    country_code: p.country_code ?? p.countryCode ?? '',
+    countryCode: p.countryCode ?? p.country_code ?? '',
+    state: p.state ?? '',
+    city: p.city ?? '',
+    region: p.region ?? '',
+    postal_code: p.postal_code ?? p.postalCode ?? '',
+    postalCode: p.postalCode ?? p.postal_code ?? '',
+    latitude:
+      p.latitude === null || p.latitude === undefined || p.latitude === ''
+        ? null
+        : Number(p.latitude),
+    longitude:
+      p.longitude === null || p.longitude === undefined || p.longitude === ''
+        ? null
+        : Number(p.longitude),
+    place_id: p.place_id ?? p.placeId ?? '',
+    placeId: p.placeId ?? p.place_id ?? '',
+    location_source: p.location_source ?? p.locationSource ?? '',
+    locationSource: p.locationSource ?? p.location_source ?? '',
     languages: toArray(p.languages),
     skills: toArray(p.skills),
     hourly_rate: hourlyRate,
@@ -68,7 +308,9 @@ const mapProfile = (p: any): UserProfile => {
     rating: Number(p.rating ?? 0),
     completedJobs: Number(p.completed_jobs ?? p.completedJobs ?? 0),
     responseRate: Number(p.response_rate ?? p.responseRate ?? 0),
-    responseTime: p.response_time ?? p.responseTime ?? undefined
+    responseTime: p.response_time ?? p.responseTime ?? undefined,
+    professional_identity: professionalIdentity,
+    professionalIdentity
   };
 };
 
@@ -281,6 +523,32 @@ const toProfilePayload = (profile: Partial<UserProfile>) => {
   if (has('title')) payload.title = (p['title'] as string | undefined) ?? '';
   if (has('bio')) payload.bio = (p['bio'] as string | undefined) ?? '';
   if (has('location')) payload.location = (p['location'] as string | undefined) ?? '';
+  if (has('formattedAddress') || has('formatted_address')) {
+    payload.formatted_address =
+      (p['formattedAddress'] as string | undefined) ?? (p['formatted_address'] as string | undefined) ?? '';
+  }
+  if (has('country')) payload.country = (p['country'] as string | undefined) ?? '';
+  if (has('countryCode') || has('country_code')) {
+    payload.country_code =
+      (p['countryCode'] as string | undefined) ?? (p['country_code'] as string | undefined) ?? '';
+  }
+  if (has('state')) payload.state = (p['state'] as string | undefined) ?? '';
+  if (has('city')) payload.city = (p['city'] as string | undefined) ?? '';
+  if (has('region')) payload.region = (p['region'] as string | undefined) ?? '';
+  if (has('postalCode') || has('postal_code')) {
+    payload.postal_code =
+      (p['postalCode'] as string | undefined) ?? (p['postal_code'] as string | undefined) ?? '';
+  }
+  if (has('latitude')) payload.latitude = (p['latitude'] as number | string | null | undefined) ?? null;
+  if (has('longitude')) payload.longitude = (p['longitude'] as number | string | null | undefined) ?? null;
+  if (has('placeId') || has('place_id')) {
+    payload.place_id =
+      (p['placeId'] as string | undefined) ?? (p['place_id'] as string | undefined) ?? '';
+  }
+  if (has('locationSource') || has('location_source')) {
+    payload.location_source =
+      (p['locationSource'] as string | undefined) ?? (p['location_source'] as string | undefined) ?? '';
+  }
   if (has('languages')) payload.languages = Array.isArray(profile.languages) ? profile.languages : [];
   if (has('skills')) payload.skills = Array.isArray(profile.skills) ? profile.skills : [];
   if (has('hourlyRate') || has('hourly_rate')) {
@@ -435,6 +703,11 @@ export const UserService = {
   getProfile: async (userId: string): Promise<UserProfile> => {
     const response = await api.get(`/users/${userId}/profile`);
     return mapProfile(extractData<UserProfile>(response));
+  },
+
+  getStorefront: async (userId: string): Promise<UserStorefrontPayload> => {
+    const response = await api.get(`/users/${userId}/storefront`);
+    return normalizeUserStorefront(extractData<any>(response));
   },
 
   updateProfile: async (userId: string, data: Partial<UserProfile>): Promise<UserProfile> => {

@@ -207,7 +207,7 @@ export interface ComplianceConfig {
 }
 
 export interface EmailProviderConfig {
-  provider: 'smtp' | 'ses' | 'sendgrid' | 'mailgun';
+  provider: 'smtp' | 'ses' | 'sendgrid' | 'mailgun' | 'brevo';
   host?: string;
   port?: number;
   username?: string;
@@ -223,6 +223,10 @@ export interface EmailProviderConfig {
   apiKey?: string;
   domain?: string;
   mailgun_domain?: string;
+  brevoSmtpLogin?: string;
+  brevo_smtp_login?: string;
+  brevoSmtpKey?: string;
+  brevo_smtp_key?: string;
   region?: string;
   ses_region?: string;
   access_key_id?: string;

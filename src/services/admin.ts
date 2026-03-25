@@ -27,6 +27,7 @@ import type {
 } from '../types';
 
 const ADMIN_BASE = '/admin';
+const SYSTEM_BACKUP_TIMEOUT_MS = 30 * 60 * 1000;
 
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
@@ -1081,6 +1082,11 @@ export const AdminService = {
     return Array.isArray(data) ? data : [];
   },
 
+  async getSystemBackupJobs(): Promise<any[]> {
+    const data = await adminGet<any[]>('/system-backups/jobs');
+    return Array.isArray(data) ? data : [];
+  },
+
   async createSystemBackup(payload: {
     mode: 'full' | 'partial';
     sections?: string[];
@@ -1088,13 +1094,18 @@ export const AdminService = {
     includeFiles?: boolean;
     notes?: string;
   }): Promise<any> {
-    return adminPost<any>('/system-backups/create', payload);
+    const response = await api.post(`${ADMIN_BASE}/system-backups/create`, payload, {
+      headers: await getAuthHeaders(),
+      timeout: SYSTEM_BACKUP_TIMEOUT_MS
+    });
+    return extractData<any>(response);
   },
 
   async downloadSystemBackup(backupId: string): Promise<Blob> {
     const response = await api.get(`${ADMIN_BASE}/system-backups/${encodeURIComponent(backupId)}/download`, {
       headers: await getAuthHeaders(),
-      responseType: 'blob'
+      responseType: 'blob',
+      timeout: SYSTEM_BACKUP_TIMEOUT_MS
     });
     return response.data as Blob;
   },
@@ -1108,7 +1119,8 @@ export const AdminService = {
       headers: {
         ...headers,
         'Content-Type': 'multipart/form-data'
-      }
+      },
+      timeout: SYSTEM_BACKUP_TIMEOUT_MS
     });
     return extractData<any>(response);
   },
@@ -1125,7 +1137,11 @@ export const AdminService = {
       includeFiles?: boolean;
     }
   ): Promise<any> {
-    return adminPost<any>(`/system-backups/${encodeURIComponent(backupId)}/restore`, payload);
+    const response = await api.post(`${ADMIN_BASE}/system-backups/${encodeURIComponent(backupId)}/restore`, payload, {
+      headers: await getAuthHeaders(),
+      timeout: SYSTEM_BACKUP_TIMEOUT_MS
+    });
+    return extractData<any>(response);
   },
 
   async deleteSystemBackup(backupId: string): Promise<{ deletedCount: number; deleted: any[] }> {

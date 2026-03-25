@@ -2,23 +2,24 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   BellRing,
+  ShieldCheck,
   CalendarClock,
   Globe2,
   Heart,
   PlusCircle,
   Radio,
   RefreshCw,
+  Signal,
   Sparkles,
   Users,
   Video
 } from 'lucide-react';
-import { LiveService, type LiveSession, type LiveVisibility } from '../../services/live';
+import { LiveService, type LiveRealtimeConfig, type LiveSession, type LiveVisibility } from '../../services/live';
 import { useNotification } from '../../context/NotificationContext';
-import {
-  clearPrimedLiveMediaStream,
-  primeLiveMediaStream,
-  requestLiveMediaStream
-} from './liveMedia';
+import { useUser } from '../../context/UserContext';
+import { DEFAULT_LIVE_REALTIME_CONFIG, normalizeLiveRealtimeConfig } from './liveRealtimeConfig';
+import OfferTagSelector from '../../components/commerce/OfferTagSelector';
+import type { OfferTagSelection } from '../../utils/contentOffers';
 
 const VISIBILITY_OPTIONS: Array<{ value: LiveVisibility; label: string }> = [
   { value: 'public', label: 'Public' },
@@ -26,8 +27,6 @@ const VISIBILITY_OPTIONS: Array<{ value: LiveVisibility; label: string }> = [
   { value: 'followers', label: 'Followers' },
   { value: 'private', label: 'Private' }
 ];
-
-const requestMediaPreflight = async () => requestLiveMediaStream();
 
 const parseList = (value: string, options?: { stripAt?: boolean }) =>
   Array.from(
@@ -44,20 +43,6 @@ const parseList = (value: string, options?: { stripAt?: boolean }) =>
         .filter(Boolean)
     )
   ).slice(0, 30);
-
-const toMediaPreflightMessage = (error: any) => {
-  const code = String(error?.name || '').toLowerCase();
-  if (code.includes('notallowed') || code.includes('permission')) {
-    return 'Camera/microphone permission was denied. Allow access in app settings and retry.';
-  }
-  if (code.includes('notfound') || code.includes('devicesnotfound')) {
-    return 'No camera or microphone was found on this device.';
-  }
-  if (code.includes('notreadable') || code.includes('trackstart')) {
-    return 'Camera is in use by another app. Close other camera apps and retry.';
-  }
-  return String(error?.message || 'Unable to access camera and microphone.');
-};
 
 const formatMetric = (value: number) => {
   const safe = Math.max(0, Number(value || 0));
@@ -76,6 +61,7 @@ const getStatusClasses = (status: string) => {
 const LiveStudio: React.FC = () => {
   const navigate = useNavigate();
   const { showNotification } = useNotification();
+  const { user } = useUser();
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [sessions, setSessions] = useState<LiveSession[]>([]);
@@ -84,16 +70,22 @@ const LiveStudio: React.FC = () => {
   const [visibility, setVisibility] = useState<LiveVisibility>('public');
   const [mentionUserDraft, setMentionUserDraft] = useState('');
   const [taggedPageDraft, setTaggedPageDraft] = useState('');
+  const [offerTags, setOfferTags] = useState<OfferTagSelection[]>([]);
   const [notifyFollowersOnLive, setNotifyFollowersOnLive] = useState(true);
   const [notifyNetworkOnLive, setNotifyNetworkOnLive] = useState(false);
   const [inviteDraft, setInviteDraft] = useState('');
   const [inviteBusySessionId, setInviteBusySessionId] = useState<string | null>(null);
+  const [runtimeConfig, setRuntimeConfig] = useState<LiveRealtimeConfig>(DEFAULT_LIVE_REALTIME_CONFIG);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await LiveService.getMyLive();
+      const [response, runtime] = await Promise.all([
+        LiveService.getMyLive(),
+        LiveService.getRuntimeConfig().catch(() => DEFAULT_LIVE_REALTIME_CONFIG)
+      ]);
       setSessions(Array.isArray(response?.hosted) ? response.hosted : []);
+      setRuntimeConfig(normalizeLiveRealtimeConfig(runtime));
     } catch (error: any) {
       const message = error?.response?.data?.error || error?.message || 'Failed to load livestream studio.';
       showNotification('error', 'Live Studio', message);
@@ -120,52 +112,26 @@ const LiveStudio: React.FC = () => {
         metadata: {
           mentionUsernames: parseList(mentionUserDraft, { stripAt: true }),
           taggedPageRefs: parseList(taggedPageDraft),
+          offerTags,
           notifyFollowersOnLive: Boolean(notifyFollowersOnLive),
           notifyNetworkOnLive: Boolean(notifyNetworkOnLive)
         }
       });
       setSessions((prev) => [created, ...prev.filter((entry) => entry.id !== created.id)]);
-      showNotification('success', 'Live Studio', 'Livestream session created.');
+      showNotification('success', 'Live Studio', 'Livestream session created. Opening preview.');
       setTitle('');
       setDescription('');
       setMentionUserDraft('');
       setTaggedPageDraft('');
+      setOfferTags([]);
+      navigate(`/live/${encodeURIComponent(created.id)}?preview=1`);
     } catch (error: any) {
       const message = error?.response?.data?.error || error?.message || 'Failed to create session.';
       showNotification('error', 'Live Studio', message);
     } finally {
       setCreating(false);
     }
-  }, [description, mentionUserDraft, notifyFollowersOnLive, notifyNetworkOnLive, showNotification, taggedPageDraft, title, visibility]);
-
-  const startSession = useCallback(
-    async (session: LiveSession) => {
-      try {
-        const media = await requestMediaPreflight();
-        primeLiveMediaStream(media);
-        const updated = await LiveService.startSession(session.id);
-        setSessions((prev) => prev.map((entry) => (entry.id === updated.id ? updated : entry)));
-        if (media.audioLimited) {
-          showNotification(
-            'warning',
-            'Live Studio',
-            'Microphone access is unavailable in app mode. Live started with camera only. Enable microphone in app permissions, then tap Retry Camera in viewer.'
-          );
-        }
-        showNotification('success', 'Live Studio', 'Livestream started.');
-        navigate(`/live/${encodeURIComponent(updated.id)}`);
-      } catch (error: any) {
-        clearPrimedLiveMediaStream();
-        const message =
-          error?.response?.data?.error ||
-          (error?.name ? toMediaPreflightMessage(error) : null) ||
-          error?.message ||
-          'Failed to start livestream.';
-        showNotification('error', 'Live Studio', message);
-      }
-    },
-    [navigate, showNotification]
-  );
+  }, [description, mentionUserDraft, navigate, notifyFollowersOnLive, notifyNetworkOnLive, offerTags, showNotification, taggedPageDraft, title, visibility]);
 
   const endSession = useCallback(
     async (session: LiveSession) => {
@@ -229,6 +195,21 @@ const LiveStudio: React.FC = () => {
       { total: 0, live: 0, ended: 0, scheduled: 0, viewers: 0, reactions: 0 }
     );
   }, [sortedSessions]);
+
+  const runtimeReadiness = useMemo(() => {
+    if (runtimeConfig.relayConfigured) {
+      return {
+        title: 'Relay protected',
+        body: 'TURN relay is configured, so live sessions can recover better across carrier NAT, restrictive Wi-Fi, and mixed mobile/desktop viewers.',
+        tone: 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      };
+    }
+    return {
+      title: 'Direct WebRTC mode',
+      body: 'The platform is currently running without TURN relay. Friendly networks will work, but restrictive mobile networks can still block some viewers until relay credentials are configured.',
+      tone: 'border-amber-200 bg-amber-50 text-amber-700'
+    };
+  }, [runtimeConfig]);
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 py-6">
@@ -350,6 +331,16 @@ const LiveStudio: React.FC = () => {
                   placeholder="Tag pages by page ID, handle, or slug"
                 />
               </label>
+              <div className="lg:col-span-2">
+                <OfferTagSelector
+                  mode="user"
+                  ownerUserId={user?.id}
+                  value={offerTags}
+                  onChange={setOfferTags}
+                  label="Tag storefront offers"
+                  helperText="Attach services to this live session so viewers can open your storefront, message you, or start a brief directly from LIVE."
+                />
+              </div>
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -389,7 +380,7 @@ const LiveStudio: React.FC = () => {
               <div className="text-sm text-slate-700">
                 <p className="font-semibold text-slate-900">Studio launch checklist</p>
                 <p className="mt-1 text-xs leading-5 text-slate-500">
-                  Title, visibility, mentions, and notifications can all be updated before you start the stream.
+                  Create the session first, then Scrolith sends you into a host preview where you can review camera, framing, and launch timing before going live.
                 </p>
               </div>
               <button
@@ -399,12 +390,44 @@ const LiveStudio: React.FC = () => {
                 className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
               >
                 <PlusCircle className="h-4 w-4" />
-                {creating ? 'Creating...' : 'Create Session'}
+                {creating ? 'Creating...' : 'Create Preview'}
               </button>
             </div>
           </div>
 
           <div className="space-y-4">
+            <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Connection readiness</p>
+              <div className="mt-4 space-y-3">
+                <div className={`rounded-2xl border px-4 py-3 ${runtimeReadiness.tone}`}>
+                  <p className="flex items-center gap-2 text-sm font-semibold">
+                    <ShieldCheck className="h-4 w-4" />
+                    {runtimeReadiness.title}
+                  </p>
+                  <p className="mt-1 text-xs leading-5">{runtimeReadiness.body}</p>
+                </div>
+                <div className="grid grid-cols-1 gap-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <p className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                      <Signal className="h-4 w-4 text-sky-600" />
+                      Viewer recovery cadence
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Retry every {Math.round(runtimeConfig.viewerRetryIntervalMs / 1000)}s, up to {runtimeConfig.viewerRetryLimit} fresh negotiations.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <p className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                      <Radio className="h-4 w-4 text-rose-500" />
+                      Connection timeout window
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Viewers are recycled after {Math.round(runtimeConfig.connectionTimeoutMs / 1000)}s if no live track arrives.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Reach overview</p>
               <div className="mt-4 space-y-3">
@@ -501,11 +524,11 @@ const LiveStudio: React.FC = () => {
                       {!isLive && !isEnded ? (
                         <button
                           type="button"
-                          onClick={() => void startSession(session)}
+                          onClick={() => navigate(`/live/${encodeURIComponent(session.id)}?preview=1`)}
                           className="inline-flex items-center gap-1.5 rounded-2xl bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-emerald-700"
                         >
-                          <Radio className="h-3.5 w-3.5" />
-                          Start
+                          <Video className="h-3.5 w-3.5" />
+                          Preview
                         </button>
                       ) : null}
                       {isLive ? (
@@ -519,11 +542,17 @@ const LiveStudio: React.FC = () => {
                       ) : null}
                       <button
                         type="button"
-                        onClick={() => navigate(`/live/${encodeURIComponent(session.id)}`)}
+                        onClick={() =>
+                          navigate(
+                            !isLive && !isEnded
+                              ? `/live/${encodeURIComponent(session.id)}?preview=1`
+                              : `/live/${encodeURIComponent(session.id)}`
+                          )
+                        }
                         className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
                       >
                         <Video className="h-3.5 w-3.5" />
-                        Open Viewer
+                        {isLive ? 'Open Live Room' : isEnded ? 'Open Session' : 'Open Preview'}
                       </button>
                     </div>
                   </div>

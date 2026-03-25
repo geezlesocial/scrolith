@@ -86,7 +86,7 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.error('Failed to load settings, using defaults', error);
       const defaultSettings: any = {
         siteName: 'Scrolith',
-        tagline: 'The Freelance Marketplace',
+        tagline: 'AI-Powered Social Freelance Marketplace with Secure Escrow & Monetization',
         logoUrl: 'https://ui-avatars.com/api/?name=Scrolith&background=0D8ABC&color=fff&size=128&bold=true',
         faviconUrl: 'https://ui-avatars.com/api/?name=G&background=0D8ABC&color=fff&size=64&bold=true',
         favicon_url: 'https://ui-avatars.com/api/?name=G&background=0D8ABC&color=fff&size=64&bold=true',

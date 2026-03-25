@@ -51,7 +51,9 @@ const isConstrainedNetwork = () => {
 };
 const DEFAULT_TIMEOUT_MS = parseTimeoutMs(
   import.meta.env.VITE_API_TIMEOUT_MS,
-  isNative() ? (isConstrainedNetwork() ? 9000 : 12000) : 10000
+  isNative()
+    ? (isConstrainedNetwork() ? 22000 : 20000)
+    : (isConstrainedNetwork() ? 18000 : 16000)
 );
 const RETRY_BASE_DELAY_MS = 280;
 const MAX_RETRY_DELAY_MS = 2500;
@@ -161,6 +163,19 @@ api.interceptors.request.use(
   async (config) => {
     if (!config.baseURL && !isAbsoluteRequestUrl(config.url)) {
       config.baseURL = getApiBaseUrl();
+    }
+    const isFormDataPayload =
+      typeof FormData !== 'undefined' &&
+      config.data instanceof FormData;
+    if (isFormDataPayload && config.headers) {
+      const headers = config.headers as any;
+      if (typeof headers.delete === 'function') {
+        headers.delete('Content-Type');
+        headers.delete('content-type');
+      } else {
+        delete headers['Content-Type'];
+        delete headers['content-type'];
+      }
     }
     const token = await readToken();
     if (token) {

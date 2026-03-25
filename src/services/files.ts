@@ -16,9 +16,9 @@ interface ApiError {
 }
 
 const FILE_LIST_TIMEOUT_MS = Number(import.meta.env.VITE_FILES_LIST_TIMEOUT_MS ?? 30000);
-const FILE_UPLOAD_TIMEOUT_BASE_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_BASE_MS ?? 45000);
-const FILE_UPLOAD_TIMEOUT_PER_MB_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_PER_MB_MS ?? 12000);
-const FILE_UPLOAD_TIMEOUT_MAX_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_MAX_MS ?? 300000);
+const FILE_UPLOAD_TIMEOUT_BASE_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_BASE_MS ?? 90000);
+const FILE_UPLOAD_TIMEOUT_PER_MB_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_PER_MB_MS ?? 15000);
+const FILE_UPLOAD_TIMEOUT_MAX_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_MAX_MS ?? 900000);
 const FILE_LIST_RETRY_ATTEMPTS = Number(import.meta.env.VITE_FILES_LIST_RETRY_ATTEMPTS ?? 2);
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -252,8 +252,9 @@ export const FileService = {
     );
 
     const response = await api.post<ApiResponse<UploadedFile>>('/files/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
       timeout: uploadTimeout,
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
       onUploadProgress: onProgress
         ? (event) => {
             const total = event.total ?? 0;

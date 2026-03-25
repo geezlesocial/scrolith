@@ -6,7 +6,6 @@ import {
   CompassIcon as Compass,
   Edit3Icon as Edit3,
   FileTextIcon as FileText,
-  HeartIcon as Heart,
   ImageIcon,
   MapPinIcon as MapPin,
   MessageCircleIcon as MessageCircle,
@@ -21,12 +20,14 @@ import {
   VideoIcon as Video,
   XIcon as X
 } from '../icons/ShellIcons';
-import { ChevronLeft, ChevronRight, Coins, Download, Repeat2, Send as SendIcon } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Coins, Download, Repeat2, Send as SendIcon } from 'lucide-react';
+import { useLiveFeature } from '../../context/LiveFeatureContext';
 import { useUser } from '../../context/UserContext';
 import { useContent } from '../../context/ContentContext';
 import { useSocket } from '../../context/SocketContext';
 import { useNotification } from '../../context/NotificationContext';
 import { CommunityService } from '../../services/community';
+import { PipelineService } from '../../services/pipeline';
 import { ScrollService, type ScrollConfig, type ScrollVideo } from '../../services/scroll';
 import { ReactionsService } from '../../services/reactions';
 import { FileService } from '../../services/files';
@@ -37,7 +38,12 @@ import { gigsApi, Gig } from '../../services/gigs';
 import { RecoService } from '../../services/reco';
 import { MessagingService } from '../../services/messaging';
 import { SearchService } from '../../services/search';
+import { CMSService } from '../../services/cms';
 import ProBadge from '../ProBadge';
+import ExpandablePreviewText from '../common/ExpandablePreviewText';
+import StaticPreviewText from '../common/StaticPreviewText';
+import OfferTagSelector from '../commerce/OfferTagSelector';
+import ContentOfferTags from '../commerce/ContentOfferTags';
 import VerifiedBadge from '../common/VerifiedBadge';
 import PostHeader from '../../community/components/PostHeader';
 import PostOptionsButton from '../../community/components/post-options/PostOptionsButton';
@@ -50,15 +56,32 @@ import MentionHashtagTextarea from '../../community/components/MentionHashtagTex
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from '../../community/followState';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../community/storyStyles';
 import ScrollCreateModal from '../../features/scroll/ScrollCreateModal';
+import LiveFeaturedRail from '../../features/live/components/LiveFeaturedRail';
 import SendGcoinModal from '../SendGcoinModal';
 import { resolveAssetUrl } from '../../utils/assetUrl';
+import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../../utils/inlineMedia';
+import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../utils/postAttachmentMedia';
+import {
+  postAiInsightPreferenceToBoolean,
+  resolvePostAiInsightPreference,
+  resolveStoredPostAiInsightPreference,
+  type PostAiInsightPreference
+} from '../../utils/postAiControls';
 import { resolveVerificationLevel } from '../../utils/verification';
 import MediaPreviewModal, { PreviewMedia } from '../media/MediaPreviewModal';
 import { downloadToDevice } from '../../utils/deviceDownload';
+import GraphicWarningGate from '../media/GraphicWarningGate';
 import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
+import OverlayActionRailButton from '../media/OverlayActionRailButton';
+import PostExpandModal from '../post/PostExpandModal';
+import PostOriginPreview from '../post/PostOriginPreview';
 import InsightsQuickPanel from '../insights/InsightsQuickPanel';
 import { usePerformanceProfile } from '../../hooks/usePerformanceProfile';
 import { Capacitor } from '@capacitor/core';
+import { stashPendingPostVideoScrollViewerSource } from '../../utils/postVideoScrollBridge';
+import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../../constants/defaultAudienceOptions';
+import { normalizeContentOfferTags, type OfferTagSelection } from '../../utils/contentOffers';
+import { buildPublicAppUrl } from '../../utils/siteUrl';
 
 type MemberHomeContent = {
   title?: string;
@@ -93,6 +116,7 @@ type MemberHomeContent = {
   topics?: string[];
   regions?: string[];
   storyTitle?: string;
+  reelsTitle?: string;
   composerTitle?: string;
   feedTitle?: string;
   profilesTitle?: string;
@@ -160,16 +184,37 @@ type FeedPost = {
   tags?: string[];
   mentions?: string[];
   topic?: string | null;
+  topicSummary?: string[];
   location?: string | null;
   visibility?: string;
   commentPolicy?: string | null;
   repostsEnabled?: boolean;
+  offerTags?: any[];
+  originalPost?: {
+    id?: string;
+    authorName?: string | null;
+    authorUsername?: string | null;
+    title?: string | null;
+    content?: string | null;
+  } | null;
   isPinned?: boolean;
   isHighlighted?: boolean;
+  graphicWarning?: boolean;
+  isAIEnhanced?: boolean;
+  dashGcoinTotal?: number;
   aiInsightEnabled?: boolean;
   aiInsightGenerated?: boolean;
   aiInsightText?: string | null;
   aiScore?: number | null;
+  ranking?: {
+    mode?: string;
+    score?: number;
+    primaryReason?: string;
+    reasons?: string[];
+  };
+  pipelineState?: {
+    saved?: boolean;
+  };
   interactions?: {
     likes?: number;
     comments?: number;
@@ -177,6 +222,7 @@ type FeedPost = {
     reposts?: number;
     views?: number;
     reactions?: Record<string, number> | number;
+    dashGcoinTotal?: number;
   };
   userState?: { liked?: boolean; reposted?: boolean };
 };
@@ -237,6 +283,10 @@ type PostDraft = {
   location: string;
   visibility: 'public' | 'friends' | 'network' | 'private' | 'custom';
   commentPolicy: 'everyone' | 'followers' | 'following' | 'mutuals' | 'none';
+  graphicWarning: boolean;
+  isAIEnhanced: boolean;
+  aiInsightPreference: PostAiInsightPreference;
+  offerTags: OfferTagSelection[];
   media: PostMediaItem[];
 };
 
@@ -285,7 +335,28 @@ const emptySearchGroups = (): SearchGroupMap => ({
   gigs: []
 });
 
-type FeedTab = 'latest' | 'following' | 'trending';
+type FeedTab = 'latest' | 'following' | 'trending' | 'for_you' | 'hire' | 'sell' | 'learn' | 'local';
+
+const INTENT_FEED_TABS: FeedTab[] = ['for_you', 'hire', 'sell', 'learn', 'local'];
+
+const normalizeFeedTabValue = (value: unknown): FeedTab | null => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (
+    normalized === 'latest' ||
+    normalized === 'following' ||
+    normalized === 'trending' ||
+    normalized === 'for_you' ||
+    normalized === 'hire' ||
+    normalized === 'sell' ||
+    normalized === 'learn' ||
+    normalized === 'local'
+  ) {
+    return normalized as FeedTab;
+  }
+  return null;
+};
+
+const isIntentFeedTab = (value: FeedTab) => INTENT_FEED_TABS.includes(value);
 
 const resolveToggle = (contentValue: boolean | undefined, settingsValue: unknown, fallback = true) => {
   if (typeof contentValue === 'boolean') return contentValue;
@@ -293,24 +364,33 @@ const resolveToggle = (contentValue: boolean | undefined, settingsValue: unknown
   return fallback;
 };
 
-const defaultTopics = [
-  'Product',
-  'Design',
-  'Engineering',
-  'Marketing',
-  'Sales',
-  'Operations',
-  'Finance',
-  'Leadership',
-  'Community',
-  'Hiring',
-  'Events',
-  'Startups',
-  'Freelancing',
-  'Remote Work'
-];
+const normalizeMemberHomeRoles = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => String(entry || '').trim().toLowerCase())
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean);
+  }
+  return [];
+};
 
-const defaultRegions = ['Global', 'North America', 'Europe', 'Africa', 'Asia', 'South America', 'Oceania'];
+const isMemberHomeSectionVisibleToRole = (section: any, role: string | undefined) => {
+  const normalizedRole = String(role || '').trim().toLowerCase();
+  const roles = normalizeMemberHomeRoles(
+    section?.targeting?.roles ?? section?.target_roles ?? section?.roles ?? section?.visibility
+  );
+  if (!normalizedRole || roles.length === 0) return true;
+  return roles.includes(normalizedRole) || roles.includes('all') || roles.includes('*');
+};
+
+const defaultTopics = DEFAULT_MEMBER_HOME_TOPICS;
+
+const defaultRegions = DEFAULT_MEMBER_HOME_REGIONS;
 
 const commentPolicyOptions = [
   { value: 'everyone', label: 'Everyone can comment' },
@@ -348,28 +428,8 @@ const normalizeStoryVisibility = (value?: string): StoryVisibility => {
 
 const isPrivateStoryVisibility = (value?: StoryVisibility) => value === 'private' || value === 'custom';
 
-const resolveStoryMediaUrl = (story: any) => {
-  const raw =
-    story?.media?.url ||
-    story?.mediaUrl ||
-    story?.media_url ||
-    story?.mediaFileUrl ||
-    story?.media_file_url ||
-    story?.media?.[0]?.url;
-  if (raw) return resolveAssetUrl(raw);
-
-  const fileId = story?.mediaFileId || story?.media_file_id;
-  if (typeof fileId === 'string') {
-    if (fileId.startsWith('disk:')) {
-      const relative = fileId.slice('disk:'.length).replace(/^\/+/, '');
-      return resolveAssetUrl(`/uploads/${relative}`);
-    }
-    if (fileId.startsWith('http://') || fileId.startsWith('https://')) {
-      return resolveAssetUrl(fileId);
-    }
-  }
-  return '';
-};
+const resolveStoryMedia = (story: any) => resolveInlineMedia(story, { typeHint: story?.type });
+const resolveStoryMediaUrl = (story: any) => resolveStoryMedia(story).src;
 
 const resolveStoryContent = (story: any) =>
   story?.content ||
@@ -419,7 +479,7 @@ const isStoryActive = (story: any) => {
   return Number.isNaN(expiresAt) ? true : expiresAt > Date.now();
 };
 
-const resolveReelMediaUrl = (scroll: ScrollVideo) => resolveAssetUrl(String(scroll?.media?.url || '').trim());
+const resolveReelMedia = (scroll: ScrollVideo) => resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
 
 const resolveReelAuthorName = (scroll: ScrollVideo, fallback = 'Scrolith') => {
   const normalized = String(scroll?.author?.name || '').trim();
@@ -505,6 +565,10 @@ const formatMediaDuration = (duration?: number | null) => {
   const secs = totalSeconds % 60;
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 };
+
+const GRAPHIC_WARNING_LABEL = 'Graphic warning';
+const FEED_SINGLE_MEDIA_HEIGHT_CLASS = 'h-[20rem] sm:h-[24rem] lg:h-[28rem]';
+const FEED_MULTI_MEDIA_HEIGHT_CLASS = 'h-[15rem] sm:h-[18rem] lg:h-[22rem]';
 
 const toPreviewMedia = (media: any): PreviewMedia | null => {
   const url = String(media?.url || '').trim();
@@ -676,16 +740,18 @@ const mergeSettledResponses = <T extends { id?: string | null }>(
   return merged;
 };
 
-const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content }) => {
+const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content: contentProp }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const params = useParams<{ id?: string }>();
   const { user } = useUser();
+  const { status: liveFeatureStatus } = useLiveFeature();
   const { settings } = useContent();
   const { socket } = useSocket();
   const { showNotification } = useNotification();
   const { profile } = usePerformanceProfile();
   const followStateMap = useFollowStateMap();
+  const [managedContent, setManagedContent] = useState<MemberHomeContent | null>(contentProp ?? null);
   const viewTracked = useRef<Set<string>>(new Set());
   const focusPostId = React.useMemo(() => {
     const routeId = String(params.id || '').trim();
@@ -707,12 +773,73 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     [location.search]
   );
 
+  const loadManagedContent = useCallback(async () => {
+    if (contentProp) {
+      setManagedContent(contentProp);
+      return;
+    }
+    if (!user) {
+      setManagedContent(null);
+      return;
+    }
+
+    try {
+      const sections = await CMSService.getHomepageSections({ role: user.role as any });
+      const memberHomeSection = sections.find(
+        (section: any) =>
+          section?.type === 'member_home' &&
+          section?.isActive !== false &&
+          section?.is_active !== false &&
+          isMemberHomeSectionVisibleToRole(section, user.role)
+      );
+      setManagedContent((memberHomeSection?.content as MemberHomeContent) || null);
+    } catch (error) {
+      console.error('Failed to load managed member home content', error);
+      setManagedContent(null);
+    }
+  }, [contentProp, user]);
+
+  useEffect(() => {
+    void loadManagedContent();
+  }, [loadManagedContent]);
+
+  useEffect(() => {
+    if (!socket || contentProp) return undefined;
+
+    const handleSectionsUpdated = (sections: any[]) => {
+      if (!user) {
+        setManagedContent(null);
+        return;
+      }
+      if (Array.isArray(sections) && sections.length > 0) {
+        const memberHomeSection = sections.find(
+          (section: any) =>
+            section?.type === 'member_home' &&
+            section?.isActive !== false &&
+            section?.is_active !== false &&
+            isMemberHomeSectionVisibleToRole(section, user.role)
+        );
+        setManagedContent((memberHomeSection?.content as MemberHomeContent) || null);
+        return;
+      }
+      void loadManagedContent();
+    };
+
+    socket.on('cms:sections_updated', handleSectionsUpdated);
+    return () => {
+      socket.off('cms:sections_updated', handleSectionsUpdated);
+    };
+  }, [contentProp, loadManagedContent, socket, user]);
+
+  const content = useMemo(() => contentProp ?? managedContent ?? undefined, [contentProp, managedContent]);
+
   const [feedTab, setFeedTab] = useState<FeedTab>('latest');
   const [feedTopic, setFeedTopic] = useState('');
   const [feedRegion, setFeedRegion] = useState('');
   const [feedLoading, setFeedLoading] = useState(false);
   const [feedItems, setFeedItems] = useState<FeedPost[]>([]);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  const [pipelineBusyByPostId, setPipelineBusyByPostId] = useState<Record<string, boolean>>({});
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<PostDraft | null>(null);
   const [postActionBusy, setPostActionBusy] = useState<Record<string, boolean>>({});
@@ -790,6 +917,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     location: '',
     visibility: 'public',
     commentPolicy: 'everyone',
+    graphicWarning: false,
+    isAIEnhanced: false,
+    aiInsightPreference: 'auto',
+    offerTags: [],
     media: []
   });
   const [posting, setPosting] = useState(false);
@@ -801,7 +932,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const [aiOriginalText, setAiOriginalText] = useState('');
   const [aiCompareView, setAiCompareView] = useState<'compare' | 'ai'>('compare');
   const [insightCollapsedByPost, setInsightCollapsedByPost] = useState<Record<string, boolean>>({});
+  const [revealedGraphicPosts, setRevealedGraphicPosts] = useState<Record<string, boolean>>({});
   const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
+  const [expandedPost, setExpandedPost] = useState<any | null>(null);
   const postMediaInputRef = useRef<HTMLInputElement | null>(null);
   const postCameraInputRef = useRef<HTMLInputElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -828,22 +961,59 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const storyLastTapAtRef = useRef(0);
   const [selfProfileCover, setSelfProfileCover] = useState('');
 
-  const openPostDetail = useCallback(
-    (postId: string) => {
-      const id = String(postId || '').trim();
-      if (!id) return;
-      navigate(`/post/${encodeURIComponent(id)}`);
+  const findPrimaryVideoAttachment = useCallback((post: any) => {
+    const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+    return (
+      attachments.find((entry: any) => {
+        const type = inferMediaType(entry || {});
+        return type === 'video';
+      }) || null
+    );
+  }, []);
+
+  const openVideoPostInScroll = useCallback(
+    (post: any, media: any) => {
+      const postId = String(post?.id || '').trim();
+      const mediaUrl = String(media?.url || resolvePostAttachmentMediaUrl(media) || '').trim();
+      if (!postId || !mediaUrl) return;
+      stashPendingPostVideoScrollViewerSource({
+        sourcePostId: postId,
+        fileId: String(media?.fileId || media?.file_id || media?.file?.id || media?.asset?.id || media?.id || '').trim() || null,
+        mediaUrl,
+        thumbnailUrl: String(media?.thumbnailUrl || resolvePostAttachmentPosterUrl(media) || '').trim() || null,
+        title: String(post?.title || media?.name || '').trim() || null,
+        description: String(post?.content || '').trim() || null,
+        location: String(post?.location || '').trim() || null,
+        authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
+        authorAvatar: String(post?.author?.avatarUrl || post?.authorAvatar || '').trim() || null,
+        authorUsername: String(post?.author?.username || post?.authorUsername || '').trim() || null,
+        createdAt: String(post?.createdAt || '').trim() || null
+      });
+      navigate('/scroll?watch=post-video');
     },
     [navigate]
   );
 
+  const openPostCard = useCallback(
+    (post: any) => {
+      if (!post?.id) return;
+      const primaryVideo = findPrimaryVideoAttachment(post);
+      if (primaryVideo) {
+        openVideoPostInScroll(post, primaryVideo);
+        return;
+      }
+      setExpandedPost(post);
+    },
+    [findPrimaryVideoAttachment, openVideoPostInScroll]
+  );
+
   const openPostFromText = useCallback(
-    (event: React.MouseEvent<HTMLElement>, postId: string) => {
+    (event: React.MouseEvent<HTMLElement>, post: any) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest('a, button, input, textarea, select, label, video, audio')) return;
-      openPostDetail(postId);
+      openPostCard(post);
     },
-    [openPostDetail]
+    [openPostCard]
   );
 
   const triggerPostDoubleTapLike = useCallback(
@@ -873,17 +1043,40 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     [user?.id]
   );
 
+  const handlePostMediaPrimaryAction = useCallback(
+    (post: any, media: any) => {
+      const type = inferMediaType(media || {});
+      if (type === 'video') {
+        openVideoPostInScroll(post, media);
+        return;
+      }
+      const preview = toPreviewMedia({
+        ...media,
+        url: media?.url || resolvePostAttachmentMediaUrl(media),
+        thumbnailUrl: media?.thumbnailUrl || resolvePostAttachmentPosterUrl(media)
+      });
+      if (preview) {
+        setPreviewMedia(preview);
+        return;
+      }
+      setExpandedPost(post);
+    },
+    [openVideoPostInScroll]
+  );
+
   const queueOpenPostFromMediaTap = useCallback(
-    (postId: string, mediaKey: string) => {
+    (post: any, media: any, mediaKey: string) => {
+      const postId = String(post?.id || '').trim();
+      if (!postId) return;
       const timerKey = `${postId}:${mediaKey}`;
       const existing = postMediaTapTimersRef.current[timerKey];
       if (existing) window.clearTimeout(existing);
       postMediaTapTimersRef.current[timerKey] = window.setTimeout(() => {
         delete postMediaTapTimersRef.current[timerKey];
-        openPostDetail(postId);
+        handlePostMediaPrimaryAction(post, media);
       }, 220);
     },
-    [openPostDetail]
+    [handlePostMediaPrimaryAction]
   );
 
   const onPostMediaDoubleClick = useCallback(
@@ -941,6 +1134,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const showDiscover = resolveToggle(content?.showDiscover, true, true);
   const showFollowing = resolveToggle(content?.showFollowing, true, true);
   const showTrending = resolveToggle(undefined, memberHomeFeed.enableTrendingTab, true);
+  const showIntentModes = resolveToggle(undefined, memberHomeFeed.enableIntentModes, true);
+  const showPipelineSave = resolveToggle(undefined, memberHomeFeed.enablePipelineSave, true);
+  const showWhyThisPost = resolveToggle(undefined, memberHomeFeed.enableWhyThisPost, true);
   const showComposer = resolveToggle(content?.showComposer, memberHomeWidgets.postComposerEnabled, true);
   const showSearch = resolveToggle(content?.showSearch, true, true);
   const showStories = resolveToggle(content?.showStories, memberHomeWidgets.storiesEnabled, true);
@@ -962,12 +1158,26 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const showFeaturedSidebarAd = showSidebarAds && resolveToggle(undefined, memberHomeAds.leftSidebarFeaturedEnabled, true);
   const showMiddleSidebarAd = showSidebarAds && resolveToggle(undefined, memberHomeAds.rightSidebarMiddleEnabled, true);
   const postDensity = String(memberHomeFeed.postDensity || 'comfortable').toLowerCase() === 'compact' ? 'compact' : 'comfortable';
+  const defaultIntentFeedTab: FeedTab = (() => {
+    const configured = normalizeFeedTabValue(memberHomeFeed.defaultIntentMode);
+    if (configured && configured !== 'latest' && configured !== 'trending') {
+      return configured;
+    }
+    return 'for_you';
+  })();
 
   const defaultFeedTab: FeedTab = (() => {
-    const explicit = String(memberHomeFeed.defaultTab || '').toLowerCase();
+    const explicit = normalizeFeedTabValue(memberHomeFeed.defaultTab);
+    if (showIntentModes) {
+      if (explicit && explicit !== 'latest') return explicit;
+      const scopeFallback = String(memberHomeFeed.defaultScope || '').toLowerCase();
+      if (scopeFallback === 'following') return 'following';
+      return defaultIntentFeedTab;
+    }
+
     if (explicit === 'following') return 'following';
-    if (explicit === 'trending' || explicit === 'popular') return 'trending';
-    if (explicit === 'latest' || explicit === 'discover') return 'latest';
+    if (explicit === 'trending') return 'trending';
+    if (explicit === 'latest') return 'latest';
 
     const scopeFallback = String(memberHomeFeed.defaultScope || '').toLowerCase();
     if (scopeFallback === 'following') return 'following';
@@ -1173,6 +1383,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     if (interactions.shares === undefined) interactions.shares = post.sharesCount ?? post.shares_count ?? 0;
     if (interactions.views === undefined) interactions.views = post.viewsCount ?? post.views_count ?? 0;
     if (interactions.reactions === undefined) interactions.reactions = post.reactions || {};
+    if (interactions.dashGcoinTotal === undefined) interactions.dashGcoinTotal = post.dashGcoinTotal ?? post.dash_gcoin_total ?? 0;
     const authorId = post.authorId || post.userId || post.user_id || post.author?.id || post.author?.userId || post.author?.user_id;
     const authorName = post.authorName || post.userName || post.user_name || post.author?.displayName || post.author?.name || 'Community member';
     const authorUsername =
@@ -1207,12 +1418,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
           ? post.attachments.map((item: any) => item?.id).filter(Boolean)
           : [],
       attachments: (post.attachments || []).map((item: any) => ({
-        id: item.id || item.fileId,
-        url: item.url || item,
+        id: item.id || item.fileId || item.file_id || resolvePostAttachmentMediaUrl(item),
+        url: resolvePostAttachmentMediaUrl(item),
         name: item.name || item.originalName || item.filename,
         mimeType: item.mimeType || item.mime_type,
         type: item.type || inferMediaType(item),
-        thumbnailUrl: item.thumbnailUrl || item.thumbnail_url,
+        thumbnailUrl: resolvePostAttachmentPosterUrl(item),
         duration: item.duration,
         width: item.width,
         height: item.height
@@ -1240,11 +1451,29 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       tags: post.tags || [],
       mentions: post.mentions || [],
       topic: post.topic || null,
+      topicSummary: Array.isArray(post.topicSummary)
+        ? dedupeLabels(post.topicSummary.map((entry: string) => String(entry || '').trim()))
+        : dedupeLabels([post.topic || '', ...((post.tags || []) as string[])]),
       location: post.location || null,
       visibility: post.visibility,
       commentPolicy: post.commentPolicy || post.comment_policy || 'everyone',
+      repostsEnabled: post.repostsEnabled ?? post.reposts_enabled ?? true,
+      offerTags: normalizeContentOfferTags(post.offerTags ?? post.offer_tags),
+      originalPost:
+        post.originalPost && typeof post.originalPost === 'object'
+          ? {
+              id: post.originalPost.id,
+              authorName: post.originalPost.authorName ?? post.originalPost.author_name ?? null,
+              authorUsername: post.originalPost.authorUsername ?? post.originalPost.author_username ?? null,
+              title: post.originalPost.title ?? null,
+              content: post.originalPost.content ?? null
+            }
+          : null,
       isPinned: post.isPinned ?? post.is_pinned ?? false,
       isHighlighted: post.isHighlighted ?? post.is_highlighted ?? false,
+      graphicWarning: Boolean(post.graphicWarning ?? post.graphic_warning ?? false),
+      isAIEnhanced: Boolean(post.isAIEnhanced ?? post.is_ai_enhanced ?? false),
+      dashGcoinTotal: Number(post.dashGcoinTotal ?? post.dash_gcoin_total ?? interactions.dashGcoinTotal ?? 0),
       aiInsightEnabled: Boolean(post.aiInsightEnabled ?? post.ai_insight_enabled ?? false),
       aiInsightGenerated: Boolean(
         post.aiInsightGenerated ??
@@ -1259,6 +1488,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
             ? Number(post.ai_score)
             : null,
       interactions,
+      ranking: post.ranking || undefined,
+      pipelineState: post.pipelineState || undefined,
       userState: post.userState || post.user_state || {}
     };
   }, []);
@@ -1302,12 +1533,71 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     }
   }, [syncCommentCount]);
 
+  const togglePipelineSave = useCallback(
+    async (post: FeedPost) => {
+      if (!user) {
+        showNotification('warning', 'Pipeline', 'Please sign in to save opportunities.');
+        return;
+      }
+
+      if (pipelineBusyByPostId[post.id]) return;
+
+      const nextSaved = !Boolean(post.pipelineState?.saved);
+      setPipelineBusyByPostId((prev) => ({ ...prev, [post.id]: true }));
+      try {
+        if (nextSaved) {
+          await PipelineService.save({
+            entityType: 'POST',
+            entityId: post.id,
+            sourceSurface: 'member_home',
+            meta: {
+              topics: post.topicSummary?.length ? post.topicSummary : dedupeLabels([post.topic || '', ...(post.tags || [])]),
+              authorId: post.authorUserId || post.authorId || post.author?.id || null,
+              businessPageId: post.author?.type === 'business' ? post.author?.id || null : null,
+              reason: post.ranking?.primaryReason || null
+            }
+          });
+        } else {
+          await PipelineService.remove('POST', post.id);
+        }
+
+        applyPostUpdate({
+          id: post.id,
+          pipelineState: { saved: nextSaved }
+        } as FeedPost);
+        showNotification('success', 'Pipeline', nextSaved ? 'Saved to your pipeline.' : 'Removed from your pipeline.');
+      } catch (error: any) {
+        showNotification('error', 'Pipeline', getApiErrorMessage(error, 'Unable to update pipeline status.'));
+      } finally {
+        setPipelineBusyByPostId((prev) => {
+          const next = { ...prev };
+          delete next[post.id];
+          return next;
+        });
+      }
+    },
+    [applyPostUpdate, pipelineBusyByPostId, showNotification, user]
+  );
+
   const loadFeed = useCallback(async () => {
     if (!user) return;
     setFeedLoading(true);
     try {
       const scope = feedTab === 'following' ? 'following' : 'discover';
+      const resolvedMode =
+        feedTab === 'latest'
+          ? showIntentModes
+            ? defaultIntentFeedTab
+            : undefined
+          : feedTab === 'trending'
+            ? showIntentModes
+              ? defaultIntentFeedTab
+              : undefined
+            : feedTab !== 'following'
+              ? feedTab
+              : undefined;
       const payload: any = { limit: maxFeedItems, scope };
+      if (resolvedMode) payload.mode = resolvedMode;
       if (scope === 'discover' && showCategoriesFilter) {
         if (feedTopic) payload.topic = feedTopic;
         if (feedRegion) payload.region = feedRegion;
@@ -1367,7 +1657,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     } finally {
       setFeedLoading(false);
     }
-  }, [user, feedTab, feedTopic, feedRegion, maxFeedItems, normalizePost, showCategoriesFilter]);
+  }, [defaultIntentFeedTab, feedRegion, feedTab, feedTopic, maxFeedItems, normalizePost, showCategoriesFilter, showIntentModes, user]);
 
   const loadSidebar = useCallback(async () => {
     if (!user) return;
@@ -2092,7 +2382,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         topic: postDraft.topic || undefined,
         location: postDraft.location || undefined,
         visibility: postDraft.visibility,
-        commentPolicy: postDraft.commentPolicy
+        commentPolicy: postDraft.commentPolicy,
+        graphicWarning: postDraft.graphicWarning,
+        isAIEnhanced: postDraft.isAIEnhanced,
+        aiInsightEnabled: postAiInsightPreferenceToBoolean(postDraft.aiInsightPreference),
+        offerTags: postDraft.offerTags
       });
       setPostDraft({
         title: '',
@@ -2103,11 +2397,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         location: '',
         visibility: 'public',
         commentPolicy: 'everyone',
+        graphicWarning: false,
+        isAIEnhanced: false,
+        aiInsightPreference: 'auto',
+        offerTags: [],
         media: []
       });
       if (created) {
         const normalized = normalizePost(created);
-        setFeedItems((prev) => [normalized, ...prev]);
+        setFeedItems((prev) => [normalized, ...prev.filter((item) => String(item.id) !== String(normalized.id))]);
         setCommentCounts((prev) => ({ ...prev, [normalized.id]: 0 }));
       }
       showNotification('success', 'Posts', 'Your update is live.');
@@ -2139,6 +2437,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       location: post.location || '',
       visibility: (post.visibility as PostDraft['visibility']) || 'public',
       commentPolicy,
+      graphicWarning: Boolean(post.graphicWarning),
+      isAIEnhanced: Boolean(post.isAIEnhanced),
+      aiInsightPreference: resolveStoredPostAiInsightPreference(post.aiInsightEnabled),
+      offerTags: normalizeContentOfferTags(post.offerTags).map((entry) => ({
+        offerType: entry.offerType as OfferTagSelection['offerType'],
+        offerId: entry.offerId
+      })),
       media: (post.attachments || []).map((media, index) => ({
         localId: `${post.id}-media-${media.id || index}`,
         id: media.id,
@@ -2179,7 +2484,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         topic: editingDraft.topic || undefined,
         location: editingDraft.location || undefined,
         visibility: editingDraft.visibility,
-        commentPolicy: editingDraft.commentPolicy
+        commentPolicy: editingDraft.commentPolicy,
+        graphicWarning: editingDraft.graphicWarning,
+        isAIEnhanced: editingDraft.isAIEnhanced,
+        aiInsightEnabled: postAiInsightPreferenceToBoolean(
+          resolvePostAiInsightPreference(editingDraft.aiInsightPreference, 'off')
+        )
       });
       if (updated) {
         applyPostUpdate(normalizePost(updated));
@@ -2307,7 +2617,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         textFont: storyDraft.textFont,
         textAlign: storyDraft.textAlign
       });
-      setStories((prev) => filterActiveStories([created, ...prev]).slice(0, maxStories));
+      setStories((prev) =>
+        filterActiveStories([created, ...prev.filter((item) => String(item?.id) !== String(created?.id))]).slice(0, maxStories)
+      );
       setStoryDraft({
         content: '',
         visibility: 'public',
@@ -2429,7 +2741,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         caption: storyDraft.content?.trim() || undefined,
         visibility: storyDraft.visibility
       });
-      setStories((prev) => filterActiveStories([created, ...prev]).slice(0, maxStories));
+      setStories((prev) =>
+        filterActiveStories([created, ...prev.filter((item) => String(item?.id) !== String(created?.id))]).slice(0, maxStories)
+      );
       showNotification('success', 'Stories', 'Your story is live.');
     } catch (error: any) {
       console.error(error);
@@ -2483,7 +2797,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         caption: storyDraft.content?.trim() || undefined,
         visibility: storyDraft.visibility
       });
-      setStories((prev) => filterActiveStories([created, ...prev]).slice(0, maxStories));
+      setStories((prev) =>
+        filterActiveStories([created, ...prev.filter((item) => String(item?.id) !== String(created?.id))]).slice(0, maxStories)
+      );
       setStoryMediaPreviewOpen(false);
       setStoryMediaDraftFile(null);
       setStoryDraft((prev) => ({ ...prev, content: '' }));
@@ -2629,8 +2945,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   );
 
   const buildStoryUrl = useCallback((storyId: string) => {
-    if (typeof window === 'undefined') return `/community?story=${encodeURIComponent(storyId)}`;
-    return `${window.location.origin}/community?story=${encodeURIComponent(storyId)}`;
+    return buildPublicAppUrl(`/community?story=${encodeURIComponent(storyId)}`);
   }, []);
 
   const ensureStoryAuth = useCallback(
@@ -2831,22 +3146,22 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
 
   const activeStoryShareUrl = storyActionTarget?.id
     ? buildStoryUrl(String(storyActionTarget.id))
-    : (typeof window === 'undefined' ? '/community' : `${window.location.origin}/community`);
+    : buildPublicAppUrl('/community');
   const activeStoryDashRecipient = String(
     storyActionTarget?.authorId || storyActionTarget?.author?.id || storyActionTarget?.userId || ''
   ).trim();
   const downloadStoryMedia = useCallback(
     async (story: any) => {
-      const mediaUrl = resolveStoryMediaUrl(story);
-      if (!mediaUrl) {
+      const media = resolveStoryMedia(story);
+      if (!media.src) {
         showNotification('warning', 'Stories', 'No downloadable media is attached to this story.');
         return;
       }
       try {
         const result = await downloadToDevice({
-          url: mediaUrl,
+          url: media.src,
           fileName: `${resolveStoryAuthorName(story, 'story')}-story-${String(story?.id || Date.now())}`,
-          mimeType: story?.type === 'video' ? 'video/mp4' : story?.type === 'image' ? 'image/jpeg' : ''
+          mimeType: media.kind === 'video' ? 'video/mp4' : media.kind === 'image' ? 'image/jpeg' : ''
         });
         showNotification(
           'success',
@@ -2870,15 +3185,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     let restored: FeedTab | null = null;
     try {
       const stored = window.localStorage.getItem(feedTabStorageKey);
-      if (stored === 'latest' || stored === 'following' || stored === 'trending') {
-        restored = stored;
+      const parsed = normalizeFeedTabValue(stored);
+      if (parsed) {
+        restored = showIntentModes && parsed === 'latest' ? defaultIntentFeedTab : parsed;
       }
     } catch (e) {
       // Ignore storage failures and continue with defaults.
     }
     setFeedTab(restored || defaultFeedTab);
     feedTabInitializedRef.current = true;
-  }, [defaultFeedTab, feedTabStorageKey]);
+  }, [defaultFeedTab, defaultIntentFeedTab, feedTabStorageKey, showIntentModes]);
 
   useEffect(() => {
     if (!feedTabInitializedRef.current) return;
@@ -2890,18 +3206,26 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   }, [feedTab, feedTabStorageKey]);
 
   useEffect(() => {
+    if (showIntentModes && feedTab === 'latest') {
+      setFeedTab(defaultIntentFeedTab);
+      return;
+    }
+    if (!showIntentModes && isIntentFeedTab(feedTab)) {
+      setFeedTab(showFollowing ? 'following' : showTrending ? 'trending' : 'latest');
+      return;
+    }
     if (feedTab === 'following' && !showFollowing) {
-      setFeedTab(showTrending ? 'trending' : 'latest');
+      setFeedTab(showIntentModes ? defaultIntentFeedTab : showTrending ? 'trending' : 'latest');
       return;
     }
     if (feedTab === 'trending' && !showTrending) {
-      setFeedTab(showFollowing ? 'following' : 'latest');
+      setFeedTab(showFollowing ? 'following' : showIntentModes ? defaultIntentFeedTab : 'latest');
       return;
     }
-    if (feedTab === 'latest' && !showDiscover) {
+    if (!showIntentModes && feedTab === 'latest' && !showDiscover) {
       setFeedTab(showFollowing ? 'following' : showTrending ? 'trending' : 'latest');
     }
-  }, [feedTab, showDiscover, showFollowing, showTrending]);
+  }, [defaultIntentFeedTab, feedTab, showDiscover, showFollowing, showIntentModes, showTrending]);
 
   useEffect(() => {
     if (!user) return;
@@ -3520,7 +3844,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
               <p className="text-base font-semibold text-slate-900 line-clamp-2">{job?.title || 'Job opportunity'}</p>
               <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
                 <span>{contactName}</span>
-                {isClientVerified(job) ? <VerifiedBadge size={16} level={getClientVerificationLevel(job)} className="ml-1" /> : null}
+                {isClientVerified(job) ? (
+                  <VerifiedBadge
+                    size={16}
+                    level={getClientVerificationLevel(job)}
+                    className="ml-1"
+                    subjectRole="employer"
+                    subjectType={(job as any)?.clientType || 'business'}
+                  />
+                ) : null}
                 <ProBadge role="employer" isPro={job?.clientIsPro} />
                 {job?.category ? <span>- {job.category}</span> : null}
               </p>
@@ -3599,7 +3931,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
             <p className="text-base font-semibold text-slate-900 line-clamp-2">{gig?.title || 'Service offer'}</p>
             <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
               <span>{contactName}</span>
-              {isFreelancerVerified(gig) ? <VerifiedBadge size={16} level={getFreelancerVerificationLevel(gig)} className="ml-1" /> : null}
+              {isFreelancerVerified(gig) ? (
+                <VerifiedBadge
+                  size={16}
+                  level={getFreelancerVerificationLevel(gig)}
+                  className="ml-1"
+                  subjectRole="freelancer"
+                  subjectType={(gig as any)?.freelancerType || 'user'}
+                />
+              ) : null}
               <ProBadge role="freelancer" isPro={gig?.freelancerIsPro} />
               {gig?.category ? <span>- {gig.category}</span> : null}
             </p>
@@ -3663,86 +4003,98 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     if (!postId) return null;
     if (!attachments?.length) return null;
     const isSingleAttachment = attachments.length === 1;
-    const mediaPreviewHeightClass = isSingleAttachment ? 'h-64 md:h-80' : 'h-44 md:h-52';
+    const mediaPreviewHeightClass = isSingleAttachment ? FEED_SINGLE_MEDIA_HEIGHT_CLASS : FEED_MULTI_MEDIA_HEIGHT_CLASS;
     return (
-      <div className={`mt-3 grid gap-3 ${isSingleAttachment ? 'grid-cols-1' : 'md:grid-cols-2'}`}>
-        {attachments.map((media) => {
-          const type = inferMediaType(media || {});
-          const mediaKey = String(media.id || media.url || '');
-          const durationLabel = formatMediaDuration((media as any)?.duration);
-          if (type === 'video') {
-            return (
-              <div
-                key={media.id || media.url}
-                role="button"
-                tabIndex={0}
-                onClick={(event) => {
-                  if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
-                  queueOpenPostFromMediaTap(postId, mediaKey);
-                }}
-                onDoubleClick={(event) => {
-                  if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
-                  onPostMediaDoubleClick(event, post, mediaKey);
-                }}
-                onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    openPostDetail(postId);
-                  }
-                }}
-                className="group relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
-              >
-                <InlineAutoplayVideo
-                  src={media.url}
-                  poster={(media as any)?.thumbnailUrl || undefined}
-                  className={`${mediaPreviewHeightClass} w-full object-cover`}
-                  controls={false}
-                  autoplayEnabled={profile.autoplayEnabled}
-                  preload="metadata"
-                />
-                {durationLabel && (
-                  <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                    {durationLabel}
-                  </span>
-                )}
-              </div>
-            );
-          }
-          if (type === 'image') {
+      <GraphicWarningGate
+        active={Boolean(post?.graphicWarning)}
+        revealed={Boolean(revealedGraphicPosts[postId])}
+        onReveal={() => setRevealedGraphicPosts((prev) => ({ ...prev, [postId]: true }))}
+        label={GRAPHIC_WARNING_LABEL}
+        className="mt-3"
+      >
+        <div className={`grid gap-3 ${isSingleAttachment ? 'grid-cols-1' : 'md:grid-cols-2'}`}>
+          {attachments.map((media) => {
+            const type = inferMediaType(media || {});
+            const mediaKey = String(media.id || media.url || '');
+            const durationLabel = formatMediaDuration((media as any)?.duration);
+            if (type === 'video') {
+              return (
+                <div
+                  key={media.id || media.url}
+                  role="button"
+                  tabIndex={0}
+                  onClick={(event) => {
+                    if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
+                    queueOpenPostFromMediaTap(post, media, mediaKey);
+                  }}
+                  onDoubleClick={(event) => {
+                    if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
+                    onPostMediaDoubleClick(event, post, mediaKey);
+                  }}
+                  onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      handlePostMediaPrimaryAction(post, media);
+                    }
+                  }}
+                  className="group relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
+                >
+                  <InlineAutoplayVideo
+                    src={media.url}
+                    poster={(media as any)?.thumbnailUrl || undefined}
+                    className={`${mediaPreviewHeightClass} w-full object-cover`}
+                    controls={false}
+                    loop
+                    autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                    preload="metadata"
+                    loadingLabel="Video loading"
+                  />
+                  {durationLabel && (
+                    <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                      {durationLabel}
+                    </span>
+                  )}
+                </div>
+              );
+            }
+            if (type === 'image') {
+              return (
+                <button
+                  key={media.id || media.url}
+                  type="button"
+                  onClick={() => handlePostMediaPrimaryAction(post, media)}
+                  onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
+                  onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
+                  className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
+                >
+                  <img
+                    src={(media as any).thumbnailUrl || media.url}
+                    alt={media.name || 'Post media'}
+                    className={`${mediaPreviewHeightClass} w-full object-cover`}
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </button>
+              );
+            }
+            const isPdf =
+              String(media.mimeType || '').toLowerCase() === 'application/pdf' ||
+              String(media.url || '').toLowerCase().endsWith('.pdf');
             return (
               <button
                 key={media.id || media.url}
                 type="button"
-                onClick={() => queueOpenPostFromMediaTap(postId, mediaKey)}
-                onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
-                onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
-                className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
+                onClick={() => handlePostMediaPrimaryAction(post, media)}
+                className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-left text-xs text-slate-600 hover:bg-slate-100"
               >
-                <img
-                  src={(media as any).thumbnailUrl || media.url}
-                  alt={media.name || 'Post media'}
-                  className={`${mediaPreviewHeightClass} w-full object-cover`}
-                  loading="lazy"
-                  decoding="async"
-                />
+                <p className="truncate font-semibold text-slate-700">{media.name || media.url?.split('/').pop() || 'Attachment'}</p>
+                <p className="mt-1 text-[11px] text-slate-500">{isPdf ? 'PDF document' : 'Document'}</p>
               </button>
             );
-          }
-          const isPdf = String(media.mimeType || '').toLowerCase() === 'application/pdf' || String(media.url || '').toLowerCase().endsWith('.pdf');
-          return (
-            <button
-              key={media.id || media.url}
-              type="button"
-              onClick={() => openPostDetail(postId)}
-              className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-left text-xs text-slate-600 hover:bg-slate-100"
-            >
-              <p className="truncate font-semibold text-slate-700">{media.name || media.url?.split('/').pop() || 'Attachment'}</p>
-              <p className="mt-1 text-[11px] text-slate-500">{isPdf ? 'PDF document' : 'Document'}</p>
-            </button>
-          );
-        })}
-      </div>
+          })}
+        </div>
+      </GraphicWarningGate>
     );
   };
 
@@ -3811,7 +4163,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         <div className="absolute top-16 right-[-10%] h-80 w-80 rounded-full bg-[radial-gradient(circle_at_center,#fef3c7,transparent_70%)]" />
       </div>
 
-      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="relative mx-auto max-w-[94rem] px-4 sm:px-6 lg:px-8 xl:px-10">
         <div className="relative z-30 mb-6 overflow-visible flex flex-col gap-4 rounded-3xl border border-white/70 bg-white/80 p-4 sm:p-6 shadow-sm backdrop-blur rise-fade">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0 lg:flex-1">
@@ -3930,7 +4282,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
           </div>
         </div>
 
-        <div className="relative z-0 grid items-start gap-6 lg:grid-cols-[260px_minmax(0,1fr)_320px]">
+        <div className="relative z-0 grid items-start gap-5 lg:grid-cols-[240px_minmax(0,1fr)] xl:gap-6 xl:grid-cols-[240px_minmax(0,1fr)_minmax(320px,360px)] 2xl:gap-7 2xl:grid-cols-[248px_minmax(0,1.08fr)_minmax(332px,372px)]">
           <aside className="order-2 space-y-4 lg:order-1">
             <div className="overflow-hidden rounded-3xl border border-white/70 bg-white shadow-sm rise-fade-delay-1">
               <div className="relative h-16 overflow-hidden bg-gradient-to-r from-slate-900 via-slate-700 to-slate-600">
@@ -4066,7 +4418,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
             </div>
           </aside>
 
-          <main className="order-1 min-w-0 space-y-4 lg:order-2">
+          <main className="order-1 min-w-0 w-full space-y-4 lg:order-2 xl:max-w-[52rem] xl:justify-self-center 2xl:max-w-[56rem]">
             {showSlider && sliderItems.length > 0 && (
               <div className="rounded-3xl border border-white/70 bg-white p-3 sm:p-4 shadow-sm rise-fade-delay-1">
                 <div className="flex items-center justify-between">
@@ -4167,13 +4519,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                       >
                         Camera
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => navigate('/live/studio')}
-                        className="rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-rose-700"
-                      >
-                        Go Live
-                      </button>
+                      {liveFeatureStatus.enabled ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate('/live/studio')}
+                          className="rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-rose-700"
+                        >
+                          Go Live
+                        </button>
+                      ) : null}
                     </div>
                   ) : (
                     <div className="flex flex-wrap items-center gap-2">
@@ -4184,13 +4538,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                       >
                         Create Scroll
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => navigate('/live/studio')}
-                        className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-100"
-                      >
-                        Go Live
-                      </button>
+                      {liveFeatureStatus.enabled ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate('/live/studio')}
+                          className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-100"
+                        >
+                          Go Live
+                        </button>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -4200,7 +4556,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                     <button
                       type="button"
                       onClick={() => storyDeviceInputRef.current?.click()}
-                      className="h-44 min-w-[110px] rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center text-xs text-slate-500 sm:min-w-[120px]"
+                      className="flex h-48 min-w-[120px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 text-xs text-slate-500 sm:h-52 sm:min-w-[132px]"
                       disabled={storyPosting}
                     >
                       <Plus className="h-5 w-5 mb-2" />
@@ -4216,26 +4572,51 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           key={story.id}
                           type="button"
                           onClick={() => openStory(story)}
-                          className="relative h-44 min-w-[110px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 sm:min-w-[120px]"
+                          className="relative h-48 min-w-[120px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 sm:h-52 sm:min-w-[132px]"
                         >
                           {(() => {
-                            const mediaUrl = resolveStoryMediaUrl(story);
-                            if (mediaUrl) {
-                              return story.type === 'video' ? (
-                                <video
-                                  src={mediaUrl}
-                                  className="h-full w-full object-cover"
-                                  autoPlay
-                                  muted
-                                  playsInline
-                                  loop
-                                  preload="metadata"
-                                />
-                              ) : (
-                                <img src={mediaUrl} alt="Story" className="h-full w-full object-cover" />
+                            const media = resolveStoryMedia(story);
+                            const text = resolveStoryContent(story);
+                            const isTextStory = String(story?.type || '').trim().toLowerCase() === 'text';
+                            if (isTextStory && text) {
+                              const style = getStoryTextStyle(story);
+                              return (
+                                <div
+                                  className="flex h-full w-full items-center justify-center px-3 text-center text-sm font-semibold"
+                                  style={{
+                                    background: style.background,
+                                    color: style.color,
+                                    fontFamily: style.fontFamily,
+                                    textAlign: style.textAlign as any
+                                  }}
+                                >
+                                  <StaticPreviewText
+                                    text={text}
+                                    className="line-clamp-4"
+                                    textClassName="whitespace-pre-wrap break-words"
+                                    moreClassName="opacity-90"
+                                  />
+                                </div>
                               );
                             }
-                            const text = resolveStoryContent(story);
+                            if (media.src) {
+                              return media.kind === 'video' ? (
+                                <InlineAutoplayVideo
+                                  key={String(story?.id || media.src)}
+                                  src={media.src}
+                                  poster={media.poster}
+                                  className="h-full w-full object-cover"
+                                  containerClassName="h-full w-full"
+                                  controls={false}
+                                  loop
+                                  preload="metadata"
+                                  autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                                  showMuteToggle={false}
+                                />
+                              ) : (
+                                <img src={media.src} alt="Story" className="h-full w-full object-cover" />
+                              );
+                            }
                             if (text) {
                               const style = getStoryTextStyle(story);
                               return (
@@ -4248,7 +4629,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                                     textAlign: style.textAlign as any
                                   }}
                                 >
-                                  <span className="line-clamp-4 whitespace-pre-wrap">{text}</span>
+                                  <StaticPreviewText
+                                    text={text}
+                                    className="line-clamp-4"
+                                    textClassName="whitespace-pre-wrap break-words"
+                                    moreClassName="opacity-90"
+                                  />
                                 </div>
                               );
                             }
@@ -4282,7 +4668,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                     <button
                       type="button"
                       onClick={() => setScrollCreateOpen(true)}
-                      className="h-44 min-w-[110px] rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center text-xs text-slate-500 sm:min-w-[120px]"
+                      className="flex h-48 min-w-[120px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 text-xs text-slate-500 sm:h-52 sm:min-w-[132px]"
                     >
                       <Plus className="h-5 w-5 mb-2" />
                       Create Scroll
@@ -4297,11 +4683,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           key={scroll.id}
                           type="button"
                           onClick={() => navigate(`/scroll?scroll=${encodeURIComponent(scroll.id)}`)}
-                          className="relative h-44 min-w-[110px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-900 sm:min-w-[120px]"
+                          className="relative h-48 min-w-[120px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-900 sm:h-52 sm:min-w-[132px]"
                         >
                           {(() => {
-                            const mediaUrl = resolveReelMediaUrl(scroll);
-                            if (!mediaUrl) {
+                            const media = resolveReelMedia(scroll);
+                            if (!media.src) {
                               return (
                                 <div className="h-full w-full flex items-center justify-center text-xs text-white/75">
                                   Scroll
@@ -4309,14 +4695,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                               );
                             }
                             return (
-                              <video
-                                src={mediaUrl}
+                              <InlineAutoplayVideo
+                                key={String(scroll?.id || media.src)}
+                                src={media.src}
+                                poster={media.poster}
                                 className="h-full w-full object-cover"
-                                autoPlay
-                                muted
-                                playsInline
+                                containerClassName="h-full w-full"
+                                controls={false}
                                 loop
                                 preload="metadata"
+                                autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                                showMuteToggle={false}
                               />
                             );
                           })()}
@@ -4346,13 +4735,41 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
               </div>
             )}
 
+            <LiveFeaturedRail
+              surface="memberHome"
+              title="Featured Live Streams"
+              subtitle="Keep active livestreams visible on desktop and mobile web with a one-tap watch rail."
+              className="mt-4"
+            />
+
             <div className="rounded-3xl border border-white/70 bg-white p-4 shadow-sm rise-fade-delay-1">
               <div className="mb-3 flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-900">{feedTitle}</p>
               </div>
               <div className="sticky top-24 z-10 -mx-2 sm:-mx-4 border-y border-slate-100 bg-white/95 px-2 sm:px-4 py-3 backdrop-blur">
                 <div className="flex flex-wrap items-center gap-3">
-                {showDiscover && (
+                {showIntentModes ? (
+                  <>
+                    {[
+                      { value: 'for_you' as FeedTab, label: 'For you', Icon: Compass },
+                      { value: 'hire' as FeedTab, label: 'Hire', Icon: Briefcase },
+                      { value: 'sell' as FeedTab, label: 'Sell', Icon: Coins },
+                      { value: 'learn' as FeedTab, label: 'Learn', Icon: Sparkles },
+                      { value: 'local' as FeedTab, label: 'Local', Icon: MapPin }
+                    ].map(({ value, label, Icon }) => (
+                      <button
+                        key={value}
+                        onClick={() => setFeedTab(value)}
+                        className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-wide ${
+                          feedTab === value ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        <Icon className="mr-2 inline h-4 w-4" />
+                        {label}
+                      </button>
+                    ))}
+                  </>
+                ) : showDiscover ? (
                   <button
                     onClick={() => setFeedTab('latest')}
                     className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-wide ${
@@ -4362,7 +4779,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                     <Compass className="mr-2 inline h-4 w-4" />
                     Latest
                   </button>
-                )}
+                ) : null}
                 {showFollowing && (
                   <button
                     onClick={() => setFeedTab('following')}
@@ -4477,6 +4894,52 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           When AI is used, content remains user-authored.
                         </p>
                       </div>
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={postDraft.graphicWarning}
+                            onChange={(event) => setPostDraft((prev) => ({ ...prev, graphicWarning: event.target.checked }))}
+                          />
+                          <span className="inline-flex items-center gap-1">
+                            <AlertTriangle className="h-4 w-4 text-amber-600" />
+                            {GRAPHIC_WARNING_LABEL}
+                          </span>
+                        </label>
+                        <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
+                          <input
+                            type="checkbox"
+                            checked={postDraft.isAIEnhanced}
+                            onChange={(event) => setPostDraft((prev) => ({ ...prev, isAIEnhanced: event.target.checked }))}
+                          />
+                          <span className="inline-flex items-center gap-1">
+                            <Sparkles className="h-4 w-4 text-emerald-600" />
+                            Mark as AI-enhanced
+                          </span>
+                        </label>
+                        <label className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                          <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Scrolitha AI insight
+                          </span>
+                          <select
+                            value={postDraft.aiInsightPreference}
+                            onChange={(event) =>
+                              setPostDraft((prev) => ({
+                                ...prev,
+                                aiInsightPreference: resolvePostAiInsightPreference(event.target.value, 'auto')
+                              }))
+                            }
+                            className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+                          >
+                            <option value="auto">Automatic</option>
+                            <option value="on">Generate for this post</option>
+                            <option value="off">Do not generate</option>
+                          </select>
+                        </label>
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        Automatic preserves your current Scrolitha insight settings. Use Generate or Do not generate to override this post only.
+                      </p>
                       <div className="grid gap-3 md:grid-cols-2">
                         <input
                           value={postDraft.title}
@@ -4528,6 +4991,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
                         />
                       </div>
+                      <OfferTagSelector
+                        mode="user"
+                        ownerUserId={user?.id}
+                        value={postDraft.offerTags}
+                        onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, offerTags: nextValue }))}
+                        label="Tag storefront offers"
+                        helperText="Attach relevant services so viewers can open your storefront, message you, or start a brief without leaving the post."
+                      />
                       <datalist id="member_home_topics">
                         {topics.slice(0, 500).map((topic) => (
                           <option key={topic} value={topic} />
@@ -4560,7 +5031,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                                     className="relative block h-40 w-full"
                                   >
                                     {media.thumbnailUrl ? (
-                                      <img src={media.thumbnailUrl} alt={media.name || 'Video preview'} className="h-40 w-full object-cover" />
+                                      <img src={media.thumbnailUrl} alt={media.name || 'Video loading'} className="h-40 w-full object-cover" />
                                     ) : (
                                       <div className="flex h-40 w-full items-center justify-center bg-slate-200">
                                         <Video className="h-8 w-8 text-slate-500" />
@@ -4677,7 +5148,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   return (
                     <React.Fragment key={post.id}>
                       <article
-                        className={`rise-fade rounded-[32px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/70 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)] transition-shadow hover:shadow-[0_24px_48px_-26px_rgba(15,23,42,0.52)] ${postDensity === 'compact' ? 'p-4' : 'p-6'}`}
+                        className={`rise-fade overflow-hidden rounded-[32px] border border-slate-200/85 bg-gradient-to-b from-white via-white to-slate-50/75 shadow-[0_20px_44px_-30px_rgba(15,23,42,0.38)] transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-[0_26px_56px_-30px_rgba(15,23,42,0.44)] ${postDensity === 'compact' ? 'p-4' : 'p-6'}`}
                       >
                       <PostHeader
                         author={resolvedAuthor}
@@ -4710,6 +5181,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                               <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
                                 <Star className="h-3 w-3" />
                                 Highlighted
+                              </span>
+                            )}
+                            {post.isAIEnhanced && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                <Sparkles className="h-3 w-3" />
+                                AI-enhanced
+                              </span>
+                            )}
+                            {post.graphicWarning && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                <AlertTriangle className="h-3 w-3" />
+                                {GRAPHIC_WARNING_LABEL}
                               </span>
                             )}
                           </>
@@ -4757,6 +5240,60 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           <div className="text-xs text-slate-500">
                             {hashtagsEnabled ? '#tags' : '#tags (disabled by admin)'} and{' '}
                             {mentionsEnabled ? '@mentions' : '@mentions (disabled by admin)'} supported
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(editingDraft?.graphicWarning)}
+                                onChange={(event) =>
+                                  setEditingDraft((prev) =>
+                                    prev ? { ...prev, graphicWarning: event.target.checked } : prev
+                                  )
+                                }
+                              />
+                              <span className="inline-flex items-center gap-1">
+                                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                {GRAPHIC_WARNING_LABEL}
+                              </span>
+                            </label>
+                            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(editingDraft?.isAIEnhanced)}
+                                onChange={(event) =>
+                                  setEditingDraft((prev) =>
+                                    prev ? { ...prev, isAIEnhanced: event.target.checked } : prev
+                                  )
+                                }
+                              />
+                              <span className="inline-flex items-center gap-1">
+                                <Sparkles className="h-4 w-4 text-emerald-600" />
+                                Mark as AI-enhanced
+                              </span>
+                            </label>
+                            <label className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                              <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                Scrolitha AI insight
+                              </span>
+                              <select
+                                value={editingDraft?.aiInsightPreference || 'off'}
+                                onChange={(event) =>
+                                  setEditingDraft((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          aiInsightPreference: resolvePostAiInsightPreference(event.target.value, 'off')
+                                        }
+                                      : prev
+                                  )
+                                }
+                                className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+                              >
+                                <option value="on">Generate for this post</option>
+                                <option value="off">Do not generate</option>
+                              </select>
+                            </label>
                           </div>
                           <div className="grid gap-3 md:grid-cols-2">
                             <select
@@ -4860,8 +5397,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                             {post.title ? (
                               <button
                                 type="button"
-                                onClick={() => openPostDetail(post.id)}
-                                className="text-left text-xl font-semibold tracking-tight text-slate-950 hover:text-blue-700 hover:underline"
+                                onClick={() => openPostCard(post)}
+                                className="text-left text-xl font-semibold leading-tight tracking-tight text-slate-950 transition hover:text-slate-700 [overflow-wrap:anywhere]"
                               >
                                 {post.title}
                               </button>
@@ -4871,23 +5408,31 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                                 You were mentioned in this post.
                               </div>
                             ) : null}
+                            <PostOriginPreview originalPost={post.originalPost} />
                             <div
-                              className="cursor-pointer text-[15px] leading-7 text-slate-700"
+                              className="cursor-pointer text-[15px] leading-[1.78] text-slate-700 [overflow-wrap:anywhere]"
                               role="button"
                               tabIndex={0}
-                              onClick={(event) => openPostFromText(event, post.id)}
+                              onClick={(event) => openPostFromText(event, post)}
                               onKeyDown={(event) => {
                                 if (event.key === 'Enter' || event.key === ' ') {
                                   event.preventDefault();
-                                  openPostDetail(post.id);
+                                  openPostCard(post);
                                 }
                               }}
                             >
-                              <MentionText
+                              <ExpandablePreviewText
                                 text={post.content}
-                                mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
-                                viewerId={user?.id}
-                                viewerUsername={user?.username}
+                                className="inline"
+                                buttonClassName="text-slate-900"
+                                renderText={(visibleText) => (
+                                  <MentionText
+                                    text={visibleText}
+                                    mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
+                                    viewerId={user?.id}
+                                    viewerUsername={user?.username}
+                                  />
+                                )}
                               />
                             </div>
                             {post.tags?.length ? (
@@ -4899,6 +5444,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                                 ))}
                               </div>
                             ) : null}
+                            <ContentOfferTags offerTags={post.offerTags} />
                             {post.aiInsightGenerated && post.aiInsightText ? (
                               <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
                                 <div className="flex items-center justify-between gap-2">
@@ -4930,11 +5476,35 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                               <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                                 {post.topic ? <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-sm">Topic: {post.topic}</span> : null}
                                 {post.location ? <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-sm">Location: {post.location}</span> : null}
+                                {showWhyThisPost && post.ranking?.primaryReason ? (
+                                  <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 font-semibold text-sky-700 shadow-sm">
+                                    Why this post: {post.ranking.primaryReason}
+                                  </span>
+                                ) : null}
+                                {showPipelineSave ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => togglePipelineSave(post)}
+                                    disabled={Boolean(pipelineBusyByPostId[post.id])}
+                                    className={`rounded-full border px-3 py-1.5 font-semibold shadow-sm transition ${
+                                      post.pipelineState?.saved
+                                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900'
+                                    } ${pipelineBusyByPostId[post.id] ? 'cursor-not-allowed opacity-60' : ''}`}
+                                  >
+                                    {pipelineBusyByPostId[post.id]
+                                      ? 'Saving...'
+                                      : post.pipelineState?.saved
+                                        ? 'Saved to pipeline'
+                                        : 'Save to pipeline'}
+                                  </button>
+                                ) : null}
                               </div>
                             </div>
                           <PostEngagementBar
                             postId={post.id}
                             authorId={post.authorUserId || post.authorId}
+                            dashGcoinTotal={Number(post.dashGcoinTotal ?? post.interactions?.dashGcoinTotal ?? 0)}
                             commentPolicy={post.commentPolicy}
                             postRepostsEnabled={post.repostsEnabled}
                             commentCount={commentCount}
@@ -4965,8 +5535,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
             </div>
           </main>
 
-          <aside className="order-3 space-y-4">
-            <InsightsQuickPanel />
+          <aside className="order-3 space-y-4 lg:col-span-2 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0 xl:col-span-1 xl:block xl:space-y-4">
+            <InsightsQuickPanel desktopMode="rail" className="xl:sticky xl:top-4" />
             {showTopSidebarAd && (
               <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 sm:p-5 shadow-sm">
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-amber-600">Sponsored</div>
@@ -5268,7 +5838,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                         <p className="text-sm font-semibold text-slate-800 break-words [overflow-wrap:anywhere]">{job.title}</p>
                         <p className="text-sm text-slate-500 flex items-center gap-2 flex-wrap">
                           <span className="break-words [overflow-wrap:anywhere]">{job.clientName || 'Employer'}</span>
-                          {isClientVerified(job) ? <VerifiedBadge size={16} level={getClientVerificationLevel(job)} className="ml-1" /> : null}
+                          {isClientVerified(job) ? (
+                            <VerifiedBadge
+                              size={16}
+                              level={getClientVerificationLevel(job)}
+                              className="ml-1"
+                              subjectRole="employer"
+                              subjectType={(job as any)?.clientType || 'business'}
+                            />
+                          ) : null}
                           <ProBadge role="employer" isPro={(job as any)?.clientIsPro} />
                           <span>&middot; {job.category}</span>
                         </p>
@@ -5348,7 +5926,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                         <p className="text-sm font-semibold text-slate-800 break-words [overflow-wrap:anywhere]">{gig.title}</p>
                         <p className="text-sm text-slate-500 flex items-center gap-2 flex-wrap">
                           <span className="break-words [overflow-wrap:anywhere]">{gig.freelancerName || 'Freelancer'}</span>
-                          {isFreelancerVerified(gig) ? <VerifiedBadge size={16} level={getFreelancerVerificationLevel(gig)} className="ml-1" /> : null}
+                          {isFreelancerVerified(gig) ? (
+                            <VerifiedBadge
+                              size={16}
+                              level={getFreelancerVerificationLevel(gig)}
+                              className="ml-1"
+                              subjectRole="freelancer"
+                              subjectType={(gig as any)?.freelancerType || 'user'}
+                            />
+                          ) : null}
                           <ProBadge role="freelancer" isPro={(gig as any)?.freelancerIsPro} />
                           <span>&middot; {gig.category}</span>
                         </p>
@@ -5854,21 +6440,23 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   </div>
                 ) : (
                   (() => {
-                    const mediaUrl = resolveStoryMediaUrl(editingStory);
-                    if (mediaUrl) {
-                      return editingStory.type === 'video' ? (
-                        <video
-                          src={mediaUrl}
+                    const media = resolveStoryMedia(editingStory);
+                    if (media.src) {
+                      return media.kind === 'video' ? (
+                        <InlineAutoplayVideo
+                          key={String(editingStory?.id || media.src)}
+                          src={media.src}
+                          poster={media.poster}
+                          className="h-44 sm:h-48 w-full object-cover"
+                          containerClassName="h-44 sm:h-48 w-full"
                           controls
-                          autoPlay
-                          muted
-                          playsInline
                           loop
                           preload="metadata"
-                          className="h-44 sm:h-48 w-full object-cover"
+                          autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                          showMuteToggle={false}
                         />
                       ) : (
-                        <img src={mediaUrl} alt="Story media" className="h-44 sm:h-48 w-full object-cover" />
+                        <img src={media.src} alt="Story media" className="h-44 sm:h-48 w-full object-cover" />
                       );
                     }
                     return (
@@ -6135,20 +6723,23 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
               }}
             >
               {(() => {
-                const mediaUrl = resolveStoryMediaUrl(activeStory);
-                if (mediaUrl) {
-                  return activeStory.type === 'video' ? (
-                    <video
-                      src={mediaUrl}
-                      autoPlay
-                      muted
-                      playsInline
+                const media = resolveStoryMedia(activeStory);
+                if (media.src) {
+                  return media.kind === 'video' ? (
+                    <InlineAutoplayVideo
+                      key={String(activeStory?.id || media.src)}
+                      src={media.src}
+                      poster={media.poster}
+                      className="h-full w-full object-cover bg-black"
+                      containerClassName="h-full w-full"
+                      controls={false}
                       loop
                       preload="metadata"
-                      className="h-full w-full object-cover bg-black"
+                      autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                      showMuteToggle={false}
                     />
                   ) : (
-                    <img src={mediaUrl} alt="Story" className="h-full w-full object-cover" />
+                    <img src={media.src} alt="Story" className="h-full w-full object-cover" />
                   );
                 }
                 const text = resolveStoryContent(activeStory);
@@ -6164,7 +6755,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                         textAlign: style.textAlign as any
                       }}
                     >
-                      <p className="text-lg font-semibold leading-snug whitespace-pre-wrap">{text}</p>
+                      <ExpandablePreviewText
+                        text={text}
+                        className="max-w-full"
+                        textClassName="text-lg font-semibold leading-snug"
+                        buttonClassName="text-white"
+                      />
                     </div>
                   );
                 }
@@ -6205,54 +6801,39 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                 </div>
               </div>
               <div className="absolute right-2.5 top-[58%] z-30 flex -translate-y-1/2 flex-col items-center gap-1.5 pointer-events-auto">
-                <ReactionBar targetType="STORY" targetId={activeStory.id} layout="rail" compact className="w-[54px]" />
-                <button
-                  type="button"
+                <ReactionBar
+                  targetType="STORY"
+                  targetId={activeStory.id}
+                  layout="rail"
+                  compact
+                  className="w-[68px]"
+                  railVariant="launcher"
+                  railLauncherLabel="Reaction"
+                />
+                <OverlayActionRailButton
                   onClick={() => handleStoryCommentAction(activeStory)}
-                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
+                  icon={MessageCircle}
+                  label="Comment"
                   disabled={Boolean(storyActionBusy[activeStory.id])}
-                >
-                  <MessageCircle className="h-3.5 w-3.5" />
-                  <span className="mt-1 text-[10px] font-semibold">{formatCompactMetric(activeStory.commentsCount ?? activeStory.interactions?.comments)}</span>
-                </button>
-                <button
-                  type="button"
+                />
+                <OverlayActionRailButton
                   onClick={() => handleStoryRepostAction(activeStory)}
-                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
+                  icon={Repeat2}
+                  label="Repost"
                   disabled={Boolean(storyActionBusy[activeStory.id])}
-                >
-                  <Repeat2 className="h-3.5 w-3.5" />
-                  <span className="mt-1 text-[10px] font-semibold">{formatCompactMetric(activeStory.repostsCount ?? activeStory.interactions?.reposts)}</span>
-                </button>
-                <button
-                  type="button"
+                />
+                <OverlayActionRailButton
                   onClick={() => handleStoryDashAction(activeStory)}
-                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
+                  icon={Coins}
+                  label="Dash"
                   disabled={Boolean(storyActionBusy[activeStory.id])}
-                >
-                  <Coins className="h-3.5 w-3.5" />
-                  <span className="mt-1 text-[10px] font-semibold">Dash</span>
-                </button>
-                <button
-                  type="button"
+                />
+                <OverlayActionRailButton
                   onClick={() => handleStorySendAction(activeStory)}
-                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
+                  icon={SendIcon}
+                  label="Send"
                   disabled={Boolean(storyActionBusy[activeStory.id])}
-                >
-                  <SendIcon className="h-3.5 w-3.5" />
-                  <span className="mt-1 text-[10px] font-semibold">{formatCompactMetric(activeStory.sendsCount ?? activeStory.interactions?.sends)}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleStoryLike(activeStory)}
-                  className={`inline-flex min-w-[52px] flex-col items-center rounded-xl px-1.5 py-1.5 text-white transition ${
-                    activeStory.viewerLiked ? 'bg-rose-600/85' : 'bg-black/45 hover:bg-black/65'
-                  }`}
-                  disabled={storyActionBusy[activeStory.id]}
-                >
-                  <Heart className={`h-3.5 w-3.5 ${activeStory.viewerLiked ? 'fill-white text-white' : ''}`} />
-                  <span className="mt-1 text-[10px] font-semibold">{formatCompactMetric(activeStory.likesCount ?? activeStory._count?.likes ?? 0)}</span>
-                </button>
+                />
               </div>
             </div>
             <div className="mt-3 flex items-center gap-2 text-[11px] text-slate-500">
@@ -6263,7 +6844,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
               const text = resolveStoryContent(activeStory);
               const mediaUrl = resolveStoryMediaUrl(activeStory);
               if (text && mediaUrl) {
-                return <p className="mt-3 text-sm text-slate-700">{text}</p>;
+                return (
+                  <ExpandablePreviewText
+                    text={text}
+                    className="mt-3"
+                    textClassName="text-sm text-slate-700"
+                    buttonClassName="text-slate-900"
+                  />
+                );
               }
               return null;
             })()}
@@ -6348,6 +6936,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
           if (!storyActionTarget?.id) return;
           await engageStoryAndSync(storyActionTarget, 'dash');
         }}
+      />
+
+      <PostExpandModal
+        open={Boolean(expandedPost)}
+        post={expandedPost}
+        viewerId={user?.id}
+        viewerUsername={user?.username}
+        onClose={() => setExpandedPost(null)}
       />
 
       <MediaPreviewModal

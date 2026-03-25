@@ -1,13 +1,8 @@
 import React from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useUser } from "../../context/UserContext";
-import { useContent } from "../../context/ContentContext";
-import { executeRecaptcha } from "../../services/recaptcha";
-import AuthSocialButtons from "../../auth/AuthSocialButtons";
-import { CMSService } from "../../services/cms";
 import { resolveResponsiveAssetUrl } from "../../utils/assetUrl";
 import {
-  AuthPagesConfig,
   FooterCtaStripContent,
   GuestCommunityPreviewContent,
   GuestFeatureShowcaseContent,
@@ -22,9 +17,15 @@ import {
   PopularServicesContent,
   PromoBannersContent,
   TrustValueContent,
-  UserRole,
   VideoFeatureContent,
 } from "../../types";
+import {
+  GuestAuthCard,
+  GuestAuthModal,
+  GuestScrolithaPanel,
+  isInlineGuestAuthUrl,
+  normalizeGuestAuthTab
+} from "./GuestAuthExperience";
 
 const ensureArray = <T = any,>(value: any): T[] => (Array.isArray(value) ? value : []);
 
@@ -99,29 +100,23 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
   content,
   style
 }) => {
-  const initialTab = String(content?.defaultTab || 'signup').toLowerCase() === 'login' ? 'login' : 'signup';
-  const [activeTab, setActiveTab] = React.useState<'login' | 'signup'>(initialTab);
-  const { login, register } = useUser();
-  const { settings } = useContent();
+  const { isAuthenticated } = useUser();
   const navigate = useNavigate();
-  const [authConfig, setAuthConfig] = React.useState<AuthPagesConfig | null>(null);
-  const [loginForm, setLoginForm] = React.useState({ email: '', password: '' });
-  const [signupRole, setSignupRole] = React.useState<UserRole>(UserRole.FREELANCER);
-  const [signupForm, setSignupForm] = React.useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    password: '',
-    confirmPassword: ''
-  });
-  const [acceptTerms, setAcceptTerms] = React.useState(false);
-  const [showLoginPassword, setShowLoginPassword] = React.useState(false);
-  const [showSignupPassword, setShowSignupPassword] = React.useState(false);
-  const [showSignupConfirm, setShowSignupConfirm] = React.useState(false);
-  const [loginLoading, setLoginLoading] = React.useState(false);
-  const [signupLoading, setSignupLoading] = React.useState(false);
-  const [loginError, setLoginError] = React.useState('');
-  const [signupErrors, setSignupErrors] = React.useState<Record<string, string>>({});
+  const location = useLocation();
+  const popupSettings = content?.authPopup || {};
+  const popupEnabled = popupSettings.enabled !== false;
+  const popupDelaySecondsRaw = Number(popupSettings.delaySeconds);
+  const popupDelaySeconds = Number.isFinite(popupDelaySecondsRaw)
+    ? Math.max(15, Math.min(900, Math.trunc(popupDelaySecondsRaw)))
+    : 120;
+  const popupSessionKey = React.useMemo(
+    () => `scrolith:guest-home-auth-popup:${location.pathname}`,
+    [location.pathname]
+  );
+  const [isAuthModalOpen, setIsAuthModalOpen] = React.useState(false);
+  const [modalTab, setModalTab] = React.useState<"login" | "signup">(
+    normalizeGuestAuthTab(popupSettings.defaultTab || content?.defaultTab)
+  );
 
   const backgroundImageUrl = String(content?.heroBackgroundUrl || '').trim();
   const sideBanners = ensureArray<any>((content as any)?.sideBanners);
@@ -140,107 +135,73 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
       ]).slice(0, compactMode ? 2 : 3);
 
   React.useEffect(() => {
-    let mounted = true;
-    const loadAuthConfig = async () => {
-      try {
-        const data = await CMSService.getAuthPagesConfig();
-        if (mounted) setAuthConfig(data || null);
-      } catch {
-        if (mounted) setAuthConfig(null);
-      }
-    };
-    loadAuthConfig();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    setModalTab(normalizeGuestAuthTab(popupSettings.defaultTab || content?.defaultTab));
+  }, [content?.defaultTab, popupSettings.defaultTab]);
 
-  const socialConfig = authConfig?.social_auth;
-  const signupContent = authConfig?.signup;
-
-  const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError('');
-    setLoginLoading(true);
+  React.useEffect(() => {
+    if (isAuthenticated) {
+      setIsAuthModalOpen(false);
+      return;
+    }
+    if (!popupEnabled) return;
     try {
-      const ok = await login(loginForm.email.trim(), loginForm.password);
-      if (!ok) setLoginError('Invalid credentials. Please try again.');
-    } catch (error: any) {
-      setLoginError(error?.message || 'Unable to sign in.');
-    } finally {
-      setLoginLoading(false);
-    }
-  };
+      if (sessionStorage.getItem(popupSessionKey) === "dismissed") return;
+    } catch {}
+    const timer = window.setTimeout(() => {
+      setModalTab(normalizeGuestAuthTab(popupSettings.defaultTab || content?.defaultTab));
+      setIsAuthModalOpen(true);
+    }, popupDelaySeconds * 1000);
+    return () => window.clearTimeout(timer);
+  }, [
+    content?.defaultTab,
+    isAuthenticated,
+    popupDelaySeconds,
+    popupEnabled,
+    popupSessionKey,
+    popupSettings.defaultTab
+  ]);
 
-  const validateSignup = () => {
-    const nextErrors: Record<string, string> = {};
-    if (!signupForm.firstName.trim()) nextErrors.firstName = 'First name is required.';
-    if (!signupForm.lastName.trim()) nextErrors.lastName = 'Last name is required.';
-    if (!signupForm.email.trim()) {
-      nextErrors.email = 'Email is required.';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(signupForm.email.trim())) {
-      nextErrors.email = 'Please enter a valid email address.';
-    }
-    if (!signupForm.password) {
-      nextErrors.password = 'Password is required.';
-    } else if (signupForm.password.length < 8 || !/(?=.*[A-Za-z])(?=.*\d)/.test(signupForm.password)) {
-      nextErrors.password = 'Use at least 8 characters with letters and numbers.';
-    }
-    if (signupForm.password !== signupForm.confirmPassword) {
-      nextErrors.confirmPassword = 'Passwords do not match.';
-    }
-    if (!acceptTerms) nextErrors.terms = 'Accept the terms to continue.';
-    setSignupErrors(nextErrors);
-    return Object.keys(nextErrors).length === 0;
-  };
+  const openAuthModal = React.useCallback(
+    (nextTab?: "login" | "signup") => {
+      setModalTab(nextTab || normalizeGuestAuthTab(popupSettings.defaultTab || content?.defaultTab));
+      setIsAuthModalOpen(true);
+    },
+    [content?.defaultTab, popupSettings.defaultTab]
+  );
 
-  const handleSignupSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateSignup()) return;
-    setSignupLoading(true);
-    setSignupErrors((prev) => ({ ...prev, submit: '' }));
+  const closeAuthModal = React.useCallback(() => {
+    setIsAuthModalOpen(false);
     try {
-      const recaptchaConfig = (settings as any)?.integrations?.recaptcha || {};
-      const legacySiteKey = (settings as any)?.recaptcha_site_key || (settings as any)?.recaptchaSiteKey || '';
-      const recaptchaEnabled = Boolean(recaptchaConfig?.enabled) || Boolean(legacySiteKey);
-      const siteKey = String(recaptchaConfig?.siteKey || legacySiteKey || '').trim();
-      const version = (recaptchaConfig?.version || 'v3') as 'v2' | 'v3';
-      let recaptchaToken: string | undefined;
+      sessionStorage.setItem(popupSessionKey, "dismissed");
+    } catch {}
+  }, [popupSessionKey]);
 
-      if (recaptchaEnabled) {
-        if (version !== 'v3') {
-          setSignupErrors((prev) => ({ ...prev, submit: 'reCAPTCHA v3 is required for signup.' }));
-          setSignupLoading(false);
-          return;
-        }
-        if (!siteKey) {
-          setSignupErrors((prev) => ({ ...prev, submit: 'reCAPTCHA configuration is missing.' }));
-          setSignupLoading(false);
-          return;
-        }
-        recaptchaToken = await executeRecaptcha(siteKey, 'signup');
-      }
-
-      const fullName = `${signupForm.firstName.trim()} ${signupForm.lastName.trim()}`.trim();
-      const ok = await register(signupForm.email.trim(), fullName, signupForm.password, signupRole, recaptchaToken);
-      if (!ok) {
-        setSignupErrors((prev) => ({ ...prev, submit: 'Unable to create account right now.' }));
+  const handleHeroAction = React.useCallback(
+    (url: string | undefined, fallbackTab: "login" | "signup") => {
+      const target = String(url || "").trim();
+      if (isInlineGuestAuthUrl(target)) {
+        openAuthModal(target.includes("/auth/login") ? "login" : fallbackTab);
         return;
       }
-      if (signupRole === UserRole.EMPLOYER) navigate('/client/dashboard');
-      else navigate('/freelancer/dashboard');
-    } catch (error: any) {
-      setSignupErrors((prev) => ({ ...prev, submit: error?.message || 'Signup failed. Please try again.' }));
-    } finally {
-      setSignupLoading(false);
-    }
-  };
+      if (!target) {
+        openAuthModal(fallbackTab);
+        return;
+      }
+      if (isExternalUrl(target)) {
+        window.open(target, "_blank", "noopener,noreferrer");
+        return;
+      }
+      navigate(target);
+    },
+    [navigate, openAuthModal]
+  );
 
   return (
-    <section className="py-8 sm:py-10" style={{ background: style?.background }}>
-      <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 sm:px-6 lg:grid-cols-2 lg:gap-8 lg:px-8">
+    <>
+      <section className="py-8 sm:py-10" style={{ background: style?.background }}>
+      <div className="mx-auto grid w-full max-w-7xl gap-4 px-4 sm:gap-5 sm:px-6 lg:grid-cols-2 lg:gap-8 lg:px-8">
         <div
-          className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7"
+          className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-7"
           style={!backgroundImageUrl ? undefined : { backgroundColor: 'rgba(255,255,255,0.92)' }}
         >
           {backgroundImageUrl ? (
@@ -254,7 +215,7 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
               className="absolute inset-0 h-full w-full object-cover"
             />
           ) : null}
-          <div className={backgroundImageUrl ? 'relative z-10 rounded-2xl bg-white/90 p-5 backdrop-blur' : ''}>
+          <div className={backgroundImageUrl ? 'relative z-10 rounded-2xl bg-white/90 p-4 backdrop-blur sm:p-5' : ''}>
             <h1 className="text-2xl font-bold leading-tight text-slate-900 sm:text-3xl xl:text-4xl">
               {content?.headline || 'Build your next opportunity on Scrolith'}
             </h1>
@@ -264,19 +225,23 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
             {content?.description ? (
               <p className="mt-3 text-sm text-slate-500">{content.description}</p>
             ) : null}
-            <div className="mt-6 flex flex-wrap gap-3">
-              <ActionLink
-                label={content?.primaryCtaLabel || 'Create account'}
-                url={content?.primaryCtaUrl || '/auth/signup'}
-                className="inline-flex items-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-              />
-              <ActionLink
-                label={content?.secondaryCtaLabel || 'Log in'}
-                url={content?.secondaryCtaUrl || '/auth/login'}
-                className="inline-flex items-center rounded-full border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              />
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+              <button
+                type="button"
+                onClick={() => handleHeroAction(content?.primaryCtaUrl, "signup")}
+                className="inline-flex w-full items-center justify-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 sm:w-auto"
+              >
+                {content?.primaryCtaLabel || "Create account"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleHeroAction(content?.secondaryCtaUrl, "login")}
+                className="inline-flex w-full items-center justify-center rounded-full border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:w-auto"
+              >
+                {content?.secondaryCtaLabel || "Log in"}
+              </button>
             </div>
-            <div className="mt-5 grid gap-2 sm:grid-cols-3">
+            <div className="mt-5 grid gap-2 min-[480px]:grid-cols-2 sm:grid-cols-3">
               {displayedTrustPoints.map((point, index) => (
                 <div key={`trust-point-${index}`} className="rounded-xl border border-white/60 bg-white/75 px-3 py-2 text-xs font-semibold text-slate-700 backdrop-blur-sm">
                   {point}
@@ -319,7 +284,7 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
             {brandLogos.length ? (
               <div className="mt-4 rounded-2xl border border-slate-200/70 bg-white/80 p-3 backdrop-blur-sm">
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Trusted by teams worldwide</p>
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-2 min-[420px]:grid-cols-3 sm:grid-cols-4">
                   {brandLogos.slice(0, 8).map((logo, index) => (
                     <Wrapper
                       key={logo.id || `brand-logo-${index}`}
@@ -346,237 +311,19 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
           {backgroundImageUrl ? <div className="absolute inset-0 bg-gradient-to-t from-white/40 to-white/10" /> : null}
         </div>
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7 lg:sticky lg:top-24 lg:self-start">
-          <div className="mb-4">
-            <h2 className="text-xl font-semibold text-slate-900">{content?.authPanelTitle || 'Welcome back'}</h2>
-            {content?.authPanelSubtitle ? <p className="mt-1 text-sm text-slate-500">{content.authPanelSubtitle}</p> : null}
-          </div>
-          <div className="mb-4 flex rounded-full border border-slate-200 bg-slate-50 p-1">
-            <button
-              type="button"
-              onClick={() => setActiveTab('login')}
-              className={`flex-1 rounded-full px-3 py-2 text-sm font-semibold transition ${
-                activeTab === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
-              }`}
-            >
-              Login
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('signup')}
-              className={`flex-1 rounded-full px-3 py-2 text-sm font-semibold transition ${
-                activeTab === 'signup' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
-              }`}
-              >
-                Signup
-              </button>
-            </div>
-          {activeTab === 'login' ? (
-            <form className="space-y-4" onSubmit={handleLoginSubmit}>
-              {content?.enableSocialLogin !== false ? <AuthSocialButtons mode="login" config={socialConfig || undefined} redirectTo="/" /> : null}
-              {loginError ? (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{loginError}</div>
-              ) : null}
-              <input
-                type="email"
-                required
-                autoComplete="email"
-                value={loginForm.email}
-                onChange={(e) => setLoginForm((prev) => ({ ...prev, email: e.target.value }))}
-                placeholder="Email address"
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-              />
-              <div className="relative">
-                <input
-                  type={showLoginPassword ? 'text' : 'password'}
-                  required
-                  autoComplete="current-password"
-                  value={loginForm.password}
-                  onChange={(e) => setLoginForm((prev) => ({ ...prev, password: e.target.value }))}
-                  placeholder="Password"
-                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 pr-20 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowLoginPassword((prev) => !prev)}
-                  className="absolute inset-y-0 right-3 my-auto h-fit rounded-md px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                >
-                  {showLoginPassword ? 'Hide' : 'Show'}
-                </button>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('signup')}
-                  className="font-semibold text-blue-700 hover:text-blue-800"
-                >
-                  New here? Create account
-                </button>
-                <Link to="/auth/forgot-password" className="font-semibold text-blue-700 hover:text-blue-800">
-                  Forgot password?
-                </Link>
-              </div>
-              <button
-                type="submit"
-                disabled={loginLoading}
-                className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loginLoading ? 'Signing in...' : (content?.loginCtaLabel || 'Login')}
-              </button>
-              <Link to="/auth/login" className="block text-center text-xs font-semibold text-slate-500 hover:text-slate-700">
-                Open full login page
-              </Link>
-            </form>
-          ) : (
-            <form className="space-y-4" onSubmit={handleSignupSubmit}>
-              <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1">
-                <button
-                  type="button"
-                  onClick={() => setSignupRole(UserRole.FREELANCER)}
-                  className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
-                    signupRole === UserRole.FREELANCER ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
-                  }`}
-                >
-                  Freelancer
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSignupRole(UserRole.EMPLOYER)}
-                  className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
-                    signupRole === UserRole.EMPLOYER ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
-                  }`}
-                >
-                  Employer
-                </button>
-              </div>
-              {content?.enableSocialLogin !== false ? (
-                <AuthSocialButtons mode="signup" role={signupRole} config={socialConfig || undefined} redirectTo="/" />
-              ) : null}
-              {signupErrors.submit ? (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{signupErrors.submit}</div>
-              ) : null}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <input
-                    type="text"
-                    required
-                    value={signupForm.firstName}
-                    onChange={(e) => setSignupForm((prev) => ({ ...prev, firstName: e.target.value }))}
-                    placeholder="First name"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                  {signupErrors.firstName ? <p className="mt-1 text-xs text-red-600">{signupErrors.firstName}</p> : null}
-                </div>
-                <div>
-                  <input
-                    type="text"
-                    required
-                    value={signupForm.lastName}
-                    onChange={(e) => setSignupForm((prev) => ({ ...prev, lastName: e.target.value }))}
-                    placeholder="Last name"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                  {signupErrors.lastName ? <p className="mt-1 text-xs text-red-600">{signupErrors.lastName}</p> : null}
-                </div>
-              </div>
-              <div>
-                <input
-                  type="email"
-                  required
-                  autoComplete="email"
-                  value={signupForm.email}
-                  onChange={(e) => setSignupForm((prev) => ({ ...prev, email: e.target.value }))}
-                  placeholder="Email address"
-                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                />
-                {signupErrors.email ? <p className="mt-1 text-xs text-red-600">{signupErrors.email}</p> : null}
-              </div>
-              <div>
-                <div className="relative">
-                  <input
-                    type={showSignupPassword ? 'text' : 'password'}
-                    required
-                    autoComplete="new-password"
-                    value={signupForm.password}
-                    onChange={(e) => setSignupForm((prev) => ({ ...prev, password: e.target.value }))}
-                    placeholder="Password"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 pr-20 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSignupPassword((prev) => !prev)}
-                    className="absolute inset-y-0 right-3 my-auto h-fit rounded-md px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                  >
-                    {showSignupPassword ? 'Hide' : 'Show'}
-                  </button>
-                </div>
-                {signupErrors.password ? <p className="mt-1 text-xs text-red-600">{signupErrors.password}</p> : null}
-              </div>
-              <div>
-                <div className="relative">
-                  <input
-                    type={showSignupConfirm ? 'text' : 'password'}
-                    required
-                    autoComplete="new-password"
-                    value={signupForm.confirmPassword}
-                    onChange={(e) => setSignupForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
-                    placeholder="Confirm password"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 pr-20 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSignupConfirm((prev) => !prev)}
-                    className="absolute inset-y-0 right-3 my-auto h-fit rounded-md px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                  >
-                    {showSignupConfirm ? 'Hide' : 'Show'}
-                  </button>
-                </div>
-                {signupErrors.confirmPassword ? <p className="mt-1 text-xs text-red-600">{signupErrors.confirmPassword}</p> : null}
-              </div>
-              <label className="flex items-start gap-2 text-xs text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={acceptTerms}
-                  onChange={(e) => setAcceptTerms(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span>
-                  I agree to the{' '}
-                  <Link to={(signupContent?.terms_url as string) || '/p/terms'} className="font-semibold text-blue-700 hover:text-blue-800">
-                    Terms
-                  </Link>{' '}
-                  and{' '}
-                  <Link to={(signupContent?.privacy_url as string) || '/p/privacy'} className="font-semibold text-blue-700 hover:text-blue-800">
-                    Privacy Policy
-                  </Link>
-                  .
-                </span>
-              </label>
-              {signupErrors.terms ? <p className="mt-1 text-xs text-red-600">{signupErrors.terms}</p> : null}
-              <div className="flex items-center justify-between text-xs">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('login')}
-                  className="font-semibold text-blue-700 hover:text-blue-800"
-                >
-                  Already have an account?
-                </button>
-                <Link to="/auth/signup" className="font-semibold text-slate-500 hover:text-slate-700">
-                  Open full signup page
-                </Link>
-              </div>
-              <button
-                type="submit"
-                disabled={signupLoading}
-                className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {signupLoading ? 'Creating account...' : (content?.signupCtaLabel || 'Sign up')}
-              </button>
-            </form>
-          )}
+        <div className="space-y-4 sm:space-y-5 lg:sticky lg:top-24 lg:self-start">
+          <GuestAuthCard content={content} />
+          <GuestScrolithaPanel content={content} onRequestAuth={openAuthModal} />
         </div>
       </div>
-    </section>
+      </section>
+      <GuestAuthModal
+        open={isAuthModalOpen}
+        onClose={closeAuthModal}
+        content={content}
+        defaultTab={modalTab}
+      />
+    </>
   );
 };
 

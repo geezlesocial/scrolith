@@ -1,4 +1,5 @@
 import api from './api';
+import { beginManagedIdempotentRequest } from './idempotency';
 import { Conversation, Message, UserRole, MessageReaction, VoiceCall, MessengerVoiceConfig } from '../types';
 
 const extractData = <T>(response: any): T => {
@@ -333,18 +334,25 @@ export const MessagingService = {
     reactionSummary?: Record<string, number>;
     userReaction?: string | null;
   }> => {
-    const response = await api.post(`/messages/conversations/${conversationId}/messages/${messageId}/reactions`, {
-      userId,
-      emoji
-    });
-    const data = extractData<any>(response) || {};
-    return {
-      conversationId: safeString(data?.conversationId ?? data?.conversation_id),
-      messageId: safeString(data?.messageId ?? data?.message_id),
-      reactions: safeArray<any>(data?.reactions).map(normalizeReaction),
-      reactionSummary: data?.reactionSummary ?? data?.reaction_summary ?? {},
-      userReaction: data?.userReaction ?? data?.user_reaction ?? null
-    };
+    const request = beginManagedIdempotentRequest(`message-reaction:${conversationId}:${messageId}:${emoji}`);
+    try {
+      const response = await api.post(`/messages/conversations/${conversationId}/messages/${messageId}/reactions`, {
+        userId,
+        emoji
+      }, { headers: request.headers });
+      request.complete();
+      const data = extractData<any>(response) || {};
+      return {
+        conversationId: safeString(data?.conversationId ?? data?.conversation_id),
+        messageId: safeString(data?.messageId ?? data?.message_id),
+        reactions: safeArray<any>(data?.reactions).map(normalizeReaction),
+        reactionSummary: data?.reactionSummary ?? data?.reaction_summary ?? {},
+        userReaction: data?.userReaction ?? data?.user_reaction ?? null
+      };
+    } catch (error) {
+      request.retain();
+      throw error;
+    }
   },
 
   createConversation: async (participants: Conversation['participants']): Promise<string> => {

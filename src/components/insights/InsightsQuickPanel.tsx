@@ -1,11 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useSocket } from '../../context/SocketContext';
 import { useUser } from '../../context/UserContext';
-import { InsightsService, type FeedMode, type ProfessionalScore, type UserQuest } from '../../services/insights';
+import {
+  InsightsService,
+  type FeedMode,
+  type OpportunityBriefResult,
+  type OpportunityHubData,
+  type ProfessionalScore,
+  type UserQuest
+} from '../../services/insights';
 
 type Props = {
   compact?: boolean;
   className?: string;
+  desktopMode?: 'rail' | 'wide';
 };
 
 const FEED_MODE_OPTIONS: Array<{ value: FeedMode; label: string }> = [
@@ -34,9 +43,38 @@ const withFastFail = async <T,>(promise: Promise<T>, timeoutMs: number, fallback
   }
 };
 
-export default function InsightsQuickPanel({ compact = false, className = '' }: Props) {
+const takeValue = <T,>(result: PromiseSettledResult<T>) => (result.status === 'fulfilled' ? result.value : null);
+
+const takeErrorMessage = (results: Array<PromiseSettledResult<unknown>>) => {
+  const rejected = results.find((result) => result.status === 'rejected') as PromiseRejectedResult | undefined;
+  const reason = rejected?.reason as any;
+  return reason?.response?.data?.message || reason?.message || 'Failed to load insights.';
+};
+
+const compactNumberFormatter = new Intl.NumberFormat('en', {
+  notation: 'compact',
+  maximumFractionDigits: 1
+});
+
+const wholeNumberFormatter = new Intl.NumberFormat('en', {
+  maximumFractionDigits: 0
+});
+
+const formatMetric = (value: number) => compactNumberFormatter.format(Number.isFinite(value) ? value : 0);
+
+const formatWholeNumber = (value: number) => wholeNumberFormatter.format(Number.isFinite(value) ? value : 0);
+
+const INSIGHTS_CACHE_VERSION = 'v1';
+const INSIGHTS_CACHE_TTL_MS = 15 * 60 * 1000;
+
+export default function InsightsQuickPanel({
+  compact = false,
+  className = '',
+  desktopMode = 'rail'
+}: Props) {
   const { socket } = useSocket();
   const { user } = useUser();
+  const isDesktopRail = !compact && desktopMode === 'rail';
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -45,55 +83,155 @@ export default function InsightsQuickPanel({ compact = false, className = '' }: 
   const [achievements, setAchievements] = useState<any[]>([]);
   const [quests, setQuests] = useState<UserQuest[]>([]);
   const [matches, setMatches] = useState<any[]>([]);
+  const [hub, setHub] = useState<OpportunityHubData | null>(null);
   const [feedMode, setFeedMode] = useState<FeedMode>('growth');
   const [updatingFeedMode, setUpdatingFeedMode] = useState(false);
   const [skillGapBusy, setSkillGapBusy] = useState(false);
+  const [briefBusy, setBriefBusy] = useState(false);
   const [questBusyId, setQuestBusyId] = useState<string | null>(null);
   const [questStatus, setQuestStatus] = useState<string | null>(null);
   const [skillGap, setSkillGap] = useState<any>(null);
   const [skillGapStatus, setSkillGapStatus] = useState<string | null>(null);
+  const [briefPrompt, setBriefPrompt] = useState('');
+  const [briefResult, setBriefResult] = useState<OpportunityBriefResult | null>(null);
+  const [briefStatus, setBriefStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const hasLoadedRef = useRef(false);
   const lastSocketRefreshRef = useRef(0);
   const currentUserId = String((user as any)?.id || (user as any)?.user_id || '').trim();
+  const insightsCacheKey = useMemo(
+    () => `insights_quick_panel:${INSIGHTS_CACHE_VERSION}:${currentUserId || 'guest'}`,
+    [currentUserId]
+  );
+  const hasVisibleData =
+    Boolean(pgs) ||
+    Boolean(streak) ||
+    Boolean(hub) ||
+    Boolean(skillGap) ||
+    achievements.length > 0 ||
+    quests.length > 0 ||
+    matches.length > 0;
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    try {
+      const raw = localStorage.getItem(insightsCacheKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as {
+        ts?: number;
+        pgs?: ProfessionalScore | null;
+        streak?: any;
+        achievements?: any[];
+        quests?: UserQuest[];
+        hub?: OpportunityHubData | null;
+        matches?: any[];
+        feedMode?: FeedMode;
+        skillGap?: any;
+      };
+      const ts = Number(parsed?.ts || 0);
+      if (Date.now() - ts > INSIGHTS_CACHE_TTL_MS) return;
+      if (parsed?.pgs) setPgs(parsed.pgs);
+      if (parsed?.streak) setStreak(parsed.streak);
+      if (Array.isArray(parsed?.achievements)) setAchievements(parsed.achievements);
+      if (Array.isArray(parsed?.quests)) setQuests(parsed.quests.slice(0, compact ? 2 : 4));
+      if (parsed?.hub) setHub(parsed.hub);
+      if (Array.isArray(parsed?.matches)) setMatches(parsed.matches.slice(0, compact ? 2 : 3));
+      if (parsed?.feedMode) setFeedMode(parsed.feedMode);
+      if (parsed?.skillGap) setSkillGap(parsed.skillGap);
+      hasLoadedRef.current = true;
+      setLoading(false);
+      setError(null);
+    } catch {
+      // Ignore cache parse errors.
+    }
+  }, [compact, currentUserId, insightsCacheKey]);
 
   const refresh = useCallback(
     async (options?: { silent?: boolean }) => {
       const silent = Boolean(options?.silent);
-      if (!silent && !hasLoadedRef.current) setLoading(true);
+      if (!silent && !hasLoadedRef.current && !hasVisibleData) setLoading(true);
       if (silent && hasLoadedRef.current) setRefreshing(true);
       setError(null);
+      setStatusMessage(null);
       try {
-        const [pgsData, streakData, achievementsData, questsData, matchesData, feedModeData, skillGapData] = await withFastFail(
-          Promise.all([
+        const results = await withFastFail(
+          Promise.allSettled([
             InsightsService.getMyPgs(),
             InsightsService.getMyStreak(),
             InsightsService.getMyAchievements(),
             InsightsService.getMyQuests(),
+            InsightsService.getOpportunityHub(),
             InsightsService.getMatches('all'),
             InsightsService.getFeedMode(),
             InsightsService.getSkillGap()
           ]),
-          9000,
+          20000,
           'Insights request timed out. Please retry.'
         );
-        setPgs(pgsData);
-        setStreak(streakData);
-        setAchievements(achievementsData);
-        setQuests(questsData.slice(0, compact ? 2 : 4));
-        setMatches(matchesData.slice(0, compact ? 2 : 3));
-        setFeedMode((feedModeData?.mode || 'growth') as FeedMode);
-        setSkillGap(skillGapData);
+
+        const [pgsResult, streakResult, achievementsResult, questsResult, hubResult, matchesResult, feedModeResult, skillGapResult] = results;
+        const pgsData = takeValue(pgsResult);
+        const streakData = takeValue(streakResult);
+        const achievementsData = takeValue(achievementsResult);
+        const questsData = takeValue(questsResult);
+        const hubData = takeValue(hubResult);
+        const matchesData = takeValue(matchesResult);
+        const feedModeData = takeValue(feedModeResult);
+        const skillGapData = takeValue(skillGapResult);
+
+        if (pgsData) setPgs(pgsData);
+        if (streakData) setStreak(streakData);
+        if (Array.isArray(achievementsData)) setAchievements(achievementsData);
+        if (Array.isArray(questsData)) setQuests(questsData.slice(0, compact ? 2 : 4));
+        if (hubData) setHub(hubData);
+        const sourceMatches = Array.isArray(hubData?.matching?.matches)
+          ? hubData.matching.matches
+          : Array.isArray(matchesData)
+            ? matchesData
+            : [];
+        setMatches(sourceMatches.slice(0, compact ? 2 : 3));
+        if (feedModeData?.mode) setFeedMode((feedModeData.mode || 'growth') as FeedMode);
+        if (skillGapData) setSkillGap(skillGapData);
+        try {
+          localStorage.setItem(
+            insightsCacheKey,
+            JSON.stringify({
+              ts: Date.now(),
+              pgs: pgsData || null,
+              streak: streakData || null,
+              achievements: Array.isArray(achievementsData) ? achievementsData : [],
+              quests: Array.isArray(questsData) ? questsData : [],
+              hub: hubData || null,
+              matches: sourceMatches,
+              feedMode: (feedModeData?.mode || 'growth') as FeedMode,
+              skillGap: skillGapData || null
+            })
+          );
+        } catch {
+          // Ignore cache write errors.
+        }
+
+        if (!results.some((result) => result.status === 'fulfilled')) {
+          throw new Error(takeErrorMessage(results));
+        }
         hasLoadedRef.current = true;
       } catch (e: any) {
-        setError(e?.response?.data?.message || e?.message || 'Failed to load insights.');
+        const nextMessage = e?.response?.data?.message || e?.message || 'Failed to load insights.';
+        if (hasVisibleData) {
+          setError(null);
+          setStatusMessage('Showing saved insights while we reconnect.');
+        } else {
+          setStatusMessage(null);
+          setError(nextMessage);
+        }
       } finally {
         setLoading(false);
         setRefreshing(false);
       }
     },
-    [compact]
+    [compact, hasVisibleData, insightsCacheKey]
   );
 
   useEffect(() => {
@@ -118,7 +256,8 @@ export default function InsightsQuickPanel({ compact = false, className = '' }: 
       'insights:quests_progress',
       'insights:quests_completed',
       'insights:quest_reward_granted',
-      'insights:opportunity_match_ready'
+      'insights:opportunity_match_ready',
+      'insights:copilot_tip'
     ] as const;
     socketHandlers.forEach((eventName) => socket?.on(eventName, onRefresh));
     return () => {
@@ -148,6 +287,53 @@ export default function InsightsQuickPanel({ compact = false, className = '' }: 
       .filter(Boolean);
   }, [skillGap]);
 
+  const topHubSkills = useMemo(() => {
+    if (!Array.isArray(hub?.identity?.skills)) return [];
+    return hub.identity.skills.slice(0, compact ? 4 : 6);
+  }, [hub?.identity?.skills, compact]);
+
+  const briefMatches = useMemo(
+    () => ({
+      jobs: Array.isArray(briefResult?.matches?.jobs) ? briefResult.matches.jobs.slice(0, compact ? 2 : 3) : [],
+      gigs: Array.isArray(briefResult?.matches?.gigs) ? briefResult.matches.gigs.slice(0, compact ? 2 : 3) : [],
+      pages: Array.isArray(briefResult?.matches?.pages) ? briefResult.matches.pages.slice(0, compact ? 1 : 2) : []
+    }),
+    [briefResult, compact]
+  );
+
+  const resolveMatchTitle = (match: any) =>
+    String(match?.title || match?.name || match?.target?.title || match?.target?.name || `${String(match?.targetType || 'opportunity').toUpperCase()} match`);
+
+  const resolveMatchHref = (match: any) => {
+    const direct = String(match?.destinationUrl || '').trim();
+    if (direct) return direct;
+    const targetType = String(match?.targetType || '').toLowerCase();
+    const targetId = String(match?.targetId || match?.target?.id || '').trim();
+    if (targetType === 'job' && targetId) return `/jobs/${targetId}`;
+    if (targetType === 'gig' && targetId) return `/gigs/${targetId}`;
+    const slug = String(match?.slug || match?.target?.slug || '').trim();
+    if ((targetType === 'page' || targetType === 'company') && slug) return `/company/${slug}`;
+    return '';
+  };
+
+  const resolveMatchMeta = (match: any) => {
+    if (match?.clientName) return `Client: ${match.clientName}`;
+    if (match?.sellerName) return `Seller: ${match.sellerName}`;
+    if (match?.industry) return `Industry: ${match.industry}`;
+    if (match?.targetType === 'job') {
+      const budget = String(match?.target?.budget || match?.budget || '').trim();
+      return budget ? `Budget: ${budget}` : 'Job opportunity';
+    }
+    if (match?.targetType === 'gig') {
+      const price = Number(match?.target?.price ?? match?.price ?? 0);
+      return price > 0 ? `From ${formatWholeNumber(price)}` : 'Packaged service';
+    }
+    return 'Recommended opportunity';
+  };
+
+  const resolveMatchReason = (match: any) =>
+    Array.isArray(match?.reasons) && match.reasons.length > 0 ? String(match.reasons[0]) : 'Aligned with your current professional graph.';
+
   const updateFeedMode = async (mode: FeedMode) => {
     setFeedMode(mode);
     setUpdatingFeedMode(true);
@@ -176,6 +362,26 @@ export default function InsightsQuickPanel({ compact = false, className = '' }: 
     }
   };
 
+  const generateOpportunityBrief = async () => {
+    const prompt = String(briefPrompt || '').trim();
+    if (prompt.length < 12) {
+      setBriefStatus('Describe the opportunity in a little more detail to generate a useful brief.');
+      return;
+    }
+    setBriefBusy(true);
+    setBriefStatus(null);
+    try {
+      const result = await InsightsService.generateOpportunityBrief(prompt);
+      setBriefResult(result);
+      setBriefStatus('Opportunity brief generated.');
+      void refresh({ silent: true });
+    } catch (e: any) {
+      setBriefStatus(e?.response?.data?.message || e?.message || 'Failed to generate opportunity brief.');
+    } finally {
+      setBriefBusy(false);
+    }
+  };
+
   const completeQuest = async (quest: UserQuest) => {
     const questId = String(quest.id || '').trim();
     if (!questId) return;
@@ -200,25 +406,29 @@ export default function InsightsQuickPanel({ compact = false, className = '' }: 
   };
 
   return (
-    <section className={`rounded-3xl border border-white/70 bg-white p-4 shadow-sm ${className}`.trim()}>
+    <section
+      className={`rounded-3xl border border-white/70 bg-white p-4 shadow-sm ${isDesktopRail ? 'lg:p-5 xl:p-6' : ''} ${className}`.trim()}
+    >
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-indigo-500">Insights</p>
-          <h3 className="text-sm font-semibold text-slate-900">Professional Growth Score</h3>
+          <h3 className={`${compact ? 'text-sm' : isDesktopRail ? 'text-lg leading-tight' : 'text-sm'} font-semibold text-slate-900`}>
+            {compact ? 'Opportunity Hub' : 'Professional Opportunity Hub'}
+          </h3>
         </div>
         <button
           type="button"
           onClick={() => void refresh()}
           disabled={refreshing || loading}
-          className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold uppercase text-slate-600 disabled:opacity-50"
+          className={`rounded-full border border-slate-200 px-3 py-1 font-semibold uppercase text-slate-600 disabled:opacity-50 ${isDesktopRail ? 'text-[10px] lg:px-3.5 lg:py-1.5' : 'text-[11px]'}`}
         >
           {refreshing ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>
 
-      {loading ? (
+      {loading && !hasVisibleData ? (
         <p className="mt-3 text-sm text-slate-500">Loading insights...</p>
-      ) : error ? (
+      ) : error && !hasVisibleData ? (
         <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 p-3">
           <p className="text-sm text-rose-700">{error}</p>
           <button
@@ -231,11 +441,24 @@ export default function InsightsQuickPanel({ compact = false, className = '' }: 
         </div>
       ) : (
         <>
-          <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-            <div className="flex items-end justify-between">
-              <div className="text-2xl font-semibold tabular-nums text-slate-900">{Number(pgs?.score || 0).toFixed(0)}</div>
-              <div className="text-xs uppercase tracking-wide text-slate-500">
-                Streak {Number(streak?.currentStreakDays || 0)}d
+          {statusMessage ? (
+            <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+              <p className="text-sm font-medium text-amber-800">{statusMessage}</p>
+              <button
+                type="button"
+                onClick={() => void refresh()}
+                className="mt-2 rounded-xl bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white"
+              >
+                Retry insights
+              </button>
+            </div>
+          ) : null}
+          <div className={`mt-3 rounded-2xl border border-slate-200 bg-slate-50 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+            <div className="flex items-end justify-between gap-3">
+              <div className="text-2xl font-semibold tabular-nums text-slate-900">{pgs ? Number(pgs.score || 0).toFixed(0) : '--'}</div>
+              <div className="text-right text-xs uppercase tracking-wide text-slate-500">
+                <div>Streak {Number(streak?.currentStreakDays || 0)}d</div>
+                <div className="mt-1">{hub?.trust?.trustTier || 'Building'} tier</div>
               </div>
             </div>
             <div className="mt-2 h-2 rounded-full bg-slate-200">
@@ -248,6 +471,273 @@ export default function InsightsQuickPanel({ compact = false, className = '' }: 
               <span>Achievements: {achievements.length}</span>
               <span>Best streak: {Number(streak?.bestStreakDays || 0)}d</span>
             </div>
+          </div>
+
+          {hub ? (
+            <div className={`mt-3 grid gap-3 ${compact || isDesktopRail ? 'grid-cols-1' : 'xl:grid-cols-2'}`.trim()}>
+              <div className={`rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Identity and trust</p>
+                    <h4 className="mt-1 line-clamp-1 text-sm font-semibold text-slate-900">{hub.identity.name}</h4>
+                    <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+                      {hub.identity.title || hub.identity.role}
+                      {hub.identity.location ? ` | ${hub.identity.location}` : ''}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">
+                    {hub.identity.verificationState || 'Trust building'}
+                  </span>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="font-semibold uppercase tracking-wide text-slate-500">Trust score</div>
+                    <div className="mt-1 text-sm font-semibold text-indigo-700">{formatWholeNumber(hub.trust.score)}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="font-semibold uppercase tracking-wide text-slate-500">Profile</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900">{clampPercent(hub.identity.profileCompleteness)}% complete</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="font-semibold uppercase tracking-wide text-slate-500">Rating</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900">{hub.trust.averageRating.toFixed(1)} avg</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="font-semibold uppercase tracking-wide text-slate-500">Win rate</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900">{hub.trust.proposalWinRate.toFixed(0)}%</div>
+                  </div>
+                </div>
+                {topHubSkills.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {topHubSkills.map((skill) => (
+                      <span key={skill} className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-slate-500">
+                  <span>{formatMetric(hub.identity.followersCount)} followers</span>
+                  <span>{formatMetric(hub.identity.postsCount)} posts</span>
+                  <span>{formatMetric(hub.identity.portfolioProofs)} proofs</span>
+                </div>
+              </div>
+
+              <div className={`rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Delivery and packaging</p>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="font-semibold uppercase tracking-wide text-slate-500">Active contracts</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900">{formatMetric(hub.delivery.activeContracts)}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="font-semibold uppercase tracking-wide text-slate-500">Active orders</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900">{formatMetric(hub.delivery.activeOrders)}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="font-semibold uppercase tracking-wide text-slate-500">Open proposals</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900">{formatMetric(hub.delivery.openProposals)}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="font-semibold uppercase tracking-wide text-slate-500">Tracked hours</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900">{formatMetric(hub.delivery.trackedHours)}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="font-semibold uppercase tracking-wide text-slate-500">Active gigs</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900">{formatMetric(hub.packaging.activeGigs)}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="font-semibold uppercase tracking-wide text-slate-500">Active jobs</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900">{formatMetric(hub.packaging.activeJobs)}</div>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-slate-500">
+                  <span>Wallet {formatMetric(hub.delivery.walletBalance)}</span>
+                  <span>Pending due {formatMetric(hub.delivery.pendingDue)}</span>
+                  <span>{formatMetric(hub.packaging.activePages)} pages</span>
+                </div>
+                {Array.isArray(hub.packaging.pages) && hub.packaging.pages.length ? (
+                  <div className="mt-3 space-y-2">
+                    {hub.packaging.pages.slice(0, compact ? 1 : 2).map((page) => (
+                      <div key={page.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="line-clamp-1 text-sm font-semibold text-slate-800">{page.name}</p>
+                            <p className="line-clamp-1 text-[11px] text-slate-500">{page.tagline || page.industry || 'Business page'}</p>
+                          </div>
+                          <Link to={`/company/${page.slug}`} className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-700">
+                            Open
+                          </Link>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          <div className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Brief to match</p>
+                <p className="mt-1 text-xs text-slate-500">Turn a rough need into a structured brief, package plan, and live matches.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void generateOpportunityBrief()}
+                disabled={briefBusy}
+                className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                {briefBusy ? 'Generating...' : 'Generate'}
+              </button>
+            </div>
+            <textarea
+              value={briefPrompt}
+              onChange={(event) => setBriefPrompt(event.target.value)}
+              placeholder="Describe who you want to hire, the service you want to package, or the opportunity you want to pursue."
+              className="mt-3 min-h-[96px] w-full rounded-2xl border border-slate-200 px-3 py-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+            />
+            {briefStatus ? <p className="mt-2 text-xs text-slate-500">{briefStatus}</p> : null}
+            {briefResult ? (
+              <div className="mt-3 space-y-3">
+                <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold text-slate-900">{briefResult.brief.title}</p>
+                    <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold uppercase text-indigo-600">
+                      {briefResult.brief.intent}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-600">{briefResult.brief.summary}</p>
+                  <div className={`mt-3 grid gap-2 ${compact || isDesktopRail ? 'grid-cols-1' : 'sm:grid-cols-2'}`.trim()}>
+                    <div className="rounded-xl border border-white/80 bg-white px-3 py-2 text-[11px] text-slate-500">
+                      <div className="font-semibold uppercase tracking-wide">Budget range</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">{briefResult.brief.budgetRange}</div>
+                    </div>
+                    <div className="rounded-xl border border-white/80 bg-white px-3 py-2 text-[11px] text-slate-500">
+                      <div className="font-semibold uppercase tracking-wide">Timeline</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">{briefResult.brief.timeline}</div>
+                    </div>
+                  </div>
+                  {Array.isArray(briefResult.brief.skills) && briefResult.brief.skills.length ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {briefResult.brief.skills.slice(0, compact ? 4 : 6).map((skill) => (
+                        <span key={skill} className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                {Array.isArray(briefResult.packageBlueprint) && briefResult.packageBlueprint.length ? (
+                  <div className={`grid gap-3 ${compact || isDesktopRail ? 'grid-cols-1' : 'xl:grid-cols-3'}`.trim()}>
+                    {briefResult.packageBlueprint.slice(0, compact ? 2 : 3).map((blueprint) => (
+                      <div key={blueprint.tier} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{blueprint.tier}</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">{blueprint.name}</p>
+                        <p className="mt-2 text-xs text-slate-500">{blueprint.positioning}</p>
+                        <div className="mt-2 text-[11px] text-slate-500">
+                          <div>Turnaround: {blueprint.turnaround}</div>
+                          <div>Pricing: {blueprint.pricingGuidance}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                <div className={`grid gap-3 ${compact || isDesktopRail ? 'grid-cols-1' : 'xl:grid-cols-3'}`.trim()}>
+                  <div className="rounded-xl border border-slate-200 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Job matches</p>
+                    <div className="mt-2 space-y-2">
+                      {briefMatches.jobs.length ? (
+                        briefMatches.jobs.map((match) => {
+                          const href = resolveMatchHref(match);
+                          return (
+                            <div key={match.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="line-clamp-1 text-sm font-semibold text-slate-800">{resolveMatchTitle(match)}</p>
+                                  <p className="mt-1 line-clamp-1 text-[11px] text-slate-500">{resolveMatchMeta(match)}</p>
+                                </div>
+                                <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600">
+                                  {Number(match.score || 0).toFixed(0)}%
+                                </span>
+                              </div>
+                              {href ? <Link to={href} className="mt-2 inline-block text-[11px] font-semibold text-indigo-600">Open</Link> : null}
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <p className="text-xs text-slate-500">No job matches yet.</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Packaged offers</p>
+                    <div className="mt-2 space-y-2">
+                      {briefMatches.gigs.length ? (
+                        briefMatches.gigs.map((match) => {
+                          const href = resolveMatchHref(match);
+                          return (
+                            <div key={match.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="line-clamp-1 text-sm font-semibold text-slate-800">{resolveMatchTitle(match)}</p>
+                                  <p className="mt-1 line-clamp-1 text-[11px] text-slate-500">{resolveMatchMeta(match)}</p>
+                                </div>
+                                <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600">
+                                  {Number(match.score || 0).toFixed(0)}%
+                                </span>
+                              </div>
+                              {href ? <Link to={href} className="mt-2 inline-block text-[11px] font-semibold text-indigo-600">Open</Link> : null}
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <p className="text-xs text-slate-500">No packaged-offer matches yet.</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Page visibility</p>
+                    <div className="mt-2 space-y-2">
+                      {briefMatches.pages.length ? (
+                        briefMatches.pages.map((match) => {
+                          const href = resolveMatchHref(match);
+                          return (
+                            <div key={match.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="line-clamp-1 text-sm font-semibold text-slate-800">{resolveMatchTitle(match)}</p>
+                                  <p className="mt-1 line-clamp-1 text-[11px] text-slate-500">{resolveMatchMeta(match)}</p>
+                                </div>
+                                <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600">
+                                  {Number(match.score || 0).toFixed(0)}%
+                                </span>
+                              </div>
+                              {href ? <Link to={href} className="mt-2 inline-block text-[11px] font-semibold text-indigo-600">Open</Link> : null}
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <p className="text-xs text-slate-500">No page matches yet.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {Array.isArray(briefResult.suggestedActions) && briefResult.suggestedActions.length ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Next actions</p>
+                    <ul className="mt-2 space-y-1">
+                      {briefResult.suggestedActions.slice(0, compact ? 2 : 4).map((action) => (
+                        <li key={action} className="text-xs text-slate-600">
+                          - {action}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           <div className="mt-3">
@@ -266,30 +756,55 @@ export default function InsightsQuickPanel({ compact = false, className = '' }: 
             </select>
           </div>
 
+          {Array.isArray(hub?.actions) && hub.actions.length ? (
+            <div className={`mt-3 rounded-xl border border-slate-200 bg-slate-50 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Opportunity actions</p>
+                <span className="text-[11px] text-slate-400">{hub.actions.length} live</span>
+              </div>
+              <ul className="mt-2 space-y-1">
+                {hub.actions.slice(0, compact ? 3 : 5).map((action) => (
+                  <li key={action} className="text-xs text-slate-600">
+                    - {action}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           <div className="mt-3">
             <div className="flex items-center justify-between gap-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Opportunity matches</p>
-              <span className="text-[11px] text-slate-400">{matches.length} shown</span>
+              <span className="text-[11px] text-slate-400">
+                {matches.length} shown{hub?.matching?.total ? ` of ${hub.matching.total}` : ''}
+              </span>
             </div>
             {matches.length === 0 ? (
               <p className="mt-2 text-sm text-slate-500">No matches yet. Keep your profile updated for better recommendations.</p>
             ) : (
-              <div className="mt-2 space-y-2">
-                {matches.map((match) => (
-                  <div key={match.id} className="rounded-xl border border-slate-200 px-3 py-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="line-clamp-1 text-sm font-semibold text-slate-800">
-                        {match.target?.title || match.target?.name || `${String(match.targetType || '').toUpperCase()} match`}
-                      </p>
-                      <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600">
-                        {Number(match.score || 0).toFixed(0)}%
-                      </span>
+              <div className={`mt-2 ${isDesktopRail ? 'space-y-3' : 'space-y-2'}`}>
+                {matches.map((match) => {
+                  const href = resolveMatchHref(match);
+                  return (
+                    <div key={match.id} className={`rounded-xl border border-slate-200 ${isDesktopRail ? 'px-4 py-3' : 'px-3 py-2'}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="line-clamp-1 text-sm font-semibold text-slate-800">{resolveMatchTitle(match)}</p>
+                          <p className="mt-1 line-clamp-1 text-[11px] text-slate-500">{resolveMatchMeta(match)}</p>
+                        </div>
+                        <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600">
+                          {Number(match.score || 0).toFixed(0)}%
+                        </span>
+                      </div>
+                      <p className={`mt-2 text-xs text-slate-500 ${compact ? 'line-clamp-1' : 'line-clamp-2'}`.trim()}>{resolveMatchReason(match)}</p>
+                      {href ? (
+                        <Link to={href} className="mt-2 inline-block text-[11px] font-semibold text-indigo-600 hover:text-indigo-700">
+                          Open opportunity
+                        </Link>
+                      ) : null}
                     </div>
-                    {Array.isArray(match.reasons) && match.reasons.length > 0 ? (
-                      <p className="mt-1 line-clamp-1 text-xs text-slate-500">{String(match.reasons[0])}</p>
-                    ) : null}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

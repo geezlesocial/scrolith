@@ -1,10 +1,47 @@
 export type VerificationLevel = 'standard' | 'pro' | 'business' | 'government';
+export type VerificationSubjectRole = 'guest' | 'user' | 'freelancer' | 'employer' | 'business' | 'admin';
+
+export type VerificationSettings = {
+  enabled: boolean;
+  showTooltips: boolean;
+  levels: Record<VerificationLevel, boolean>;
+  roles: Record<VerificationSubjectRole, boolean>;
+};
+
+const DEFAULT_VERIFICATION_SETTINGS: VerificationSettings = {
+  enabled: true,
+  showTooltips: true,
+  levels: {
+    standard: true,
+    pro: true,
+    business: true,
+    government: true
+  },
+  roles: {
+    guest: true,
+    user: true,
+    freelancer: true,
+    employer: true,
+    business: true,
+    admin: false
+  }
+};
 
 const truthy = (value: unknown) => {
   if (value === true || value === 1) return true;
   if (typeof value !== 'string') return false;
   const normalized = value.trim().toLowerCase();
   return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'y';
+};
+
+const toBoolean = (value: unknown, fallback: boolean) => {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+  if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
+  return fallback;
 };
 
 const normalizeRawLevel = (value: unknown): VerificationLevel | null => {
@@ -21,6 +58,67 @@ const normalizeRawLevel = (value: unknown): VerificationLevel | null => {
 };
 
 export const normalizeVerificationLevel = (value: unknown): VerificationLevel | null => normalizeRawLevel(value);
+
+export const normalizeVerificationSettings = (value: any): VerificationSettings => {
+  const source = value && typeof value === 'object' ? value : {};
+  const levelSource = source.levels && typeof source.levels === 'object' ? source.levels : {};
+  const roleSource = source.roles && typeof source.roles === 'object' ? source.roles : {};
+
+  return {
+    enabled: toBoolean(source.enabled, DEFAULT_VERIFICATION_SETTINGS.enabled),
+    showTooltips: toBoolean(source.showTooltips ?? source.show_tooltips, DEFAULT_VERIFICATION_SETTINGS.showTooltips),
+    levels: {
+      standard: toBoolean(levelSource.standard, DEFAULT_VERIFICATION_SETTINGS.levels.standard),
+      pro: toBoolean(levelSource.pro, DEFAULT_VERIFICATION_SETTINGS.levels.pro),
+      business: toBoolean(levelSource.business, DEFAULT_VERIFICATION_SETTINGS.levels.business),
+      government: toBoolean(levelSource.government, DEFAULT_VERIFICATION_SETTINGS.levels.government)
+    },
+    roles: {
+      guest: toBoolean(roleSource.guest, DEFAULT_VERIFICATION_SETTINGS.roles.guest),
+      user: toBoolean(roleSource.user, DEFAULT_VERIFICATION_SETTINGS.roles.user),
+      freelancer: toBoolean(roleSource.freelancer, DEFAULT_VERIFICATION_SETTINGS.roles.freelancer),
+      employer: toBoolean(roleSource.employer, DEFAULT_VERIFICATION_SETTINGS.roles.employer),
+      business: toBoolean(roleSource.business, DEFAULT_VERIFICATION_SETTINGS.roles.business),
+      admin: toBoolean(roleSource.admin, DEFAULT_VERIFICATION_SETTINGS.roles.admin)
+    }
+  };
+};
+
+const readVerificationSettings = (source: any): VerificationSettings => {
+  const systemVerification = source?.system?.verification ?? source?.verification;
+  return normalizeVerificationSettings(systemVerification);
+};
+
+export const resolveVerificationSubjectRole = (
+  entity: any,
+  explicitRole?: unknown,
+  explicitType?: unknown
+): VerificationSubjectRole => {
+  const type = String(explicitType ?? entity?.type ?? entity?.accountType ?? entity?.account_type ?? '')
+    .trim()
+    .toLowerCase();
+  if (['business', 'company', 'merchant', 'corporate'].includes(type)) return 'business';
+
+  const role = String(
+    explicitRole ??
+      entity?.role ??
+      entity?.role_name ??
+      entity?.accountRole ??
+      entity?.account_role ??
+      entity?.userRole ??
+      entity?.user_role ??
+      ''
+  )
+    .trim()
+    .toLowerCase();
+
+  if (role.includes('admin')) return 'admin';
+  if (role.includes('business') || role.includes('company') || role.includes('merchant')) return 'business';
+  if (role.includes('employer') || role.includes('client') || role.includes('recruiter')) return 'employer';
+  if (role.includes('freelancer') || role.includes('seller') || role.includes('creator') || role.includes('talent')) return 'freelancer';
+  if (role.includes('guest')) return 'guest';
+  return 'user';
+};
 
 export const resolveVerificationLevel = (entity: any): VerificationLevel | null => {
   if (!entity) return null;
@@ -42,8 +140,12 @@ export const resolveVerificationLevel = (entity: any): VerificationLevel | null 
     truthy(entity.isVerified) ||
       truthy(entity.is_verified) ||
       truthy(entity.verified) ||
+      truthy(entity?.flags?.isVerified) ||
+      truthy(entity?.flags?.is_verified) ||
       truthy(entity.kycVerified) ||
       truthy(entity.kyc_verified) ||
+      truthy(entity?.professionalIdentity?.isVerified) ||
+      truthy(entity?.professional_identity?.is_verified) ||
       kycStatus === 'verified' ||
       kycStatus === 'approved'
   );
@@ -79,3 +181,25 @@ export const resolveVerificationLevel = (entity: any): VerificationLevel | null 
 
   return 'standard';
 };
+
+export const resolveVisibleVerificationLevel = (
+  entity: any,
+  options?: {
+    settings?: any;
+    role?: unknown;
+    type?: unknown;
+  }
+): VerificationLevel | null => {
+  const level = resolveVerificationLevel(entity);
+  if (!level) return null;
+
+  const settings = readVerificationSettings(options?.settings || {});
+  if (!settings.enabled || !settings.levels[level]) return null;
+
+  const subjectRole = resolveVerificationSubjectRole(entity, options?.role, options?.type);
+  if (!settings.roles[subjectRole]) return null;
+
+  return level;
+};
+
+export const shouldShowVerificationTooltip = (settings?: any) => readVerificationSettings(settings).showTooltips;

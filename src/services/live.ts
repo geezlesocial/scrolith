@@ -1,8 +1,183 @@
 import api from './api';
+import { beginManagedIdempotentRequest, createActionFingerprint } from './idempotency';
 
 export type LiveVisibility = 'public' | 'network' | 'followers' | 'private';
 export type LiveReactionType = 'like' | 'love';
 export type LiveFilterPreset = 'none' | 'vibrant' | 'cinematic' | 'bw' | 'sepia' | 'warm' | 'cool' | 'contrast';
+
+export const DEFAULT_LIVE_SAFETY_NOTICE_TEXT =
+  'Warning: Illegal activity, nudity/explicit content, and illegal product promotion are prohibited. All livestreams must follow Scrolith Terms and Community Guidelines.';
+
+export interface LiveExperienceConfig {
+  enableReactions: boolean;
+  enableShare: boolean;
+  enableRepost: boolean;
+  enableDashQuickAction: boolean;
+  enableGiftShoutouts: boolean;
+  showFeaturedRailInScrollFeed: boolean;
+  showFeaturedRailInCommunityHome: boolean;
+  showFeaturedRailInMemberHome: boolean;
+  enableStandbyRecovery: boolean;
+  keepViewerLayoutStable: boolean;
+  enableSafetyNotice: boolean;
+  safetyNoticeDelayMinutes: number;
+  safetyNoticeRepeatMinutes: number;
+  safetyNoticeVisibleSeconds: number;
+  safetyNoticeText: string;
+}
+
+export const DEFAULT_LIVE_EXPERIENCE_CONFIG: LiveExperienceConfig = {
+  enableReactions: true,
+  enableShare: true,
+  enableRepost: true,
+  enableDashQuickAction: true,
+  enableGiftShoutouts: true,
+  showFeaturedRailInScrollFeed: true,
+  showFeaturedRailInCommunityHome: true,
+  showFeaturedRailInMemberHome: true,
+  enableStandbyRecovery: true,
+  keepViewerLayoutStable: true,
+  enableSafetyNotice: true,
+  safetyNoticeDelayMinutes: 15,
+  safetyNoticeRepeatMinutes: 15,
+  safetyNoticeVisibleSeconds: 15,
+  safetyNoticeText: DEFAULT_LIVE_SAFETY_NOTICE_TEXT
+};
+
+export const DEFAULT_LIVE_DIAGNOSTICS_CONFIG: LiveDiagnosticsConfig = {
+  enabled: true,
+  sessionDiagnosticsAccess: true,
+  retentionDays: 14,
+  maxEventsPerSession: 120,
+  alertThresholds: {
+    viewerRetryCount: 3,
+    roundTripTimeMs: 1200,
+    signalFailures: 3,
+    socketDisconnects: 2,
+    fallbackTransitions: 1
+  }
+};
+
+const clampNumber = (value: unknown, fallback: number, min: number, max: number) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(parsed)));
+};
+
+const normalizeExperienceText = (value: unknown, fallback: string) => {
+  const text = String(value ?? '').trim();
+  return text ? text.slice(0, 500) : fallback;
+};
+
+const normalizeDiagnosticsBoolean = (value: unknown, fallback: boolean) => {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) return true;
+  if (['false', '0', 'no', 'n', 'off'].includes(normalized)) return false;
+  return fallback;
+};
+
+export const normalizeLiveExperienceConfig = (
+  input: Partial<LiveExperienceConfig> | null | undefined
+): LiveExperienceConfig => {
+  const source = input && typeof input === 'object' ? input : {};
+  return {
+    enableReactions: source.enableReactions !== false,
+    enableShare: source.enableShare !== false,
+    enableRepost: source.enableRepost !== false,
+    enableDashQuickAction: source.enableDashQuickAction !== false,
+    enableGiftShoutouts: source.enableGiftShoutouts !== false,
+    showFeaturedRailInScrollFeed: source.showFeaturedRailInScrollFeed !== false,
+    showFeaturedRailInCommunityHome: source.showFeaturedRailInCommunityHome !== false,
+    showFeaturedRailInMemberHome: source.showFeaturedRailInMemberHome !== false,
+    enableStandbyRecovery: source.enableStandbyRecovery !== false,
+    keepViewerLayoutStable: source.keepViewerLayoutStable !== false,
+    enableSafetyNotice: source.enableSafetyNotice !== false,
+    safetyNoticeDelayMinutes: clampNumber(
+      source.safetyNoticeDelayMinutes,
+      DEFAULT_LIVE_EXPERIENCE_CONFIG.safetyNoticeDelayMinutes,
+      0,
+      240
+    ),
+    safetyNoticeRepeatMinutes: clampNumber(
+      source.safetyNoticeRepeatMinutes,
+      DEFAULT_LIVE_EXPERIENCE_CONFIG.safetyNoticeRepeatMinutes,
+      1,
+      240
+    ),
+    safetyNoticeVisibleSeconds: clampNumber(
+      source.safetyNoticeVisibleSeconds,
+      DEFAULT_LIVE_EXPERIENCE_CONFIG.safetyNoticeVisibleSeconds,
+      3,
+      120
+    ),
+    safetyNoticeText: normalizeExperienceText(
+      source.safetyNoticeText,
+      DEFAULT_LIVE_EXPERIENCE_CONFIG.safetyNoticeText
+    )
+  };
+};
+
+export const normalizeLiveDiagnosticsConfig = (
+  input: Partial<LiveDiagnosticsConfig> | null | undefined
+): LiveDiagnosticsConfig => {
+  const source = input && typeof input === 'object' ? input : {};
+  const thresholds =
+    source.alertThresholds && typeof source.alertThresholds === 'object' ? source.alertThresholds : {};
+  return {
+    enabled: normalizeDiagnosticsBoolean(source.enabled, DEFAULT_LIVE_DIAGNOSTICS_CONFIG.enabled),
+    sessionDiagnosticsAccess: normalizeDiagnosticsBoolean(
+      source.sessionDiagnosticsAccess,
+      DEFAULT_LIVE_DIAGNOSTICS_CONFIG.sessionDiagnosticsAccess
+    ),
+    retentionDays: clampNumber(
+      source.retentionDays,
+      DEFAULT_LIVE_DIAGNOSTICS_CONFIG.retentionDays,
+      1,
+      90
+    ),
+    maxEventsPerSession: clampNumber(
+      source.maxEventsPerSession,
+      DEFAULT_LIVE_DIAGNOSTICS_CONFIG.maxEventsPerSession,
+      20,
+      500
+    ),
+    alertThresholds: {
+      viewerRetryCount: clampNumber(
+        thresholds.viewerRetryCount,
+        DEFAULT_LIVE_DIAGNOSTICS_CONFIG.alertThresholds.viewerRetryCount,
+        1,
+        20
+      ),
+      roundTripTimeMs: clampNumber(
+        thresholds.roundTripTimeMs,
+        DEFAULT_LIVE_DIAGNOSTICS_CONFIG.alertThresholds.roundTripTimeMs,
+        100,
+        10000
+      ),
+      signalFailures: clampNumber(
+        thresholds.signalFailures,
+        DEFAULT_LIVE_DIAGNOSTICS_CONFIG.alertThresholds.signalFailures,
+        1,
+        50
+      ),
+      socketDisconnects: clampNumber(
+        thresholds.socketDisconnects,
+        DEFAULT_LIVE_DIAGNOSTICS_CONFIG.alertThresholds.socketDisconnects,
+        1,
+        50
+      ),
+      fallbackTransitions: clampNumber(
+        thresholds.fallbackTransitions,
+        DEFAULT_LIVE_DIAGNOSTICS_CONFIG.alertThresholds.fallbackTransitions,
+        1,
+        20
+      )
+    }
+  };
+};
 
 export interface LiveRecordingState {
   fileId?: string | null;
@@ -62,9 +237,89 @@ export interface LiveGift {
   toUserId: string;
   amountGcoin: number;
   message?: string | null;
+  shoutoutText?: string | null;
   createdAt: string;
   fromUser?: LiveUserPreview;
   toUser?: LiveUserPreview;
+}
+
+export interface LiveRealtimeIceServer {
+  urls: string[];
+  username?: string | null;
+  credential?: string | null;
+}
+
+export interface LiveRealtimeConfig {
+  signalMode: 'socket-webrtc';
+  iceServers: LiveRealtimeIceServer[];
+  iceTransportPolicy: 'all' | 'relay';
+  relayConfigured: boolean;
+  relayRecommended: boolean;
+  connectionTimeoutMs: number;
+  viewerRetryIntervalMs: number;
+  viewerRetryLimit: number;
+  diagnosticsEnabled: boolean;
+}
+
+export interface LiveDiagnosticsThresholds {
+  viewerRetryCount: number;
+  roundTripTimeMs: number;
+  signalFailures: number;
+  socketDisconnects: number;
+  fallbackTransitions: number;
+}
+
+export interface LiveDiagnosticsConfig {
+  enabled: boolean;
+  sessionDiagnosticsAccess: boolean;
+  retentionDays: number;
+  maxEventsPerSession: number;
+  alertThresholds: LiveDiagnosticsThresholds;
+}
+
+export interface LiveDiagnosticsEvent {
+  id: string;
+  at: string;
+  source: 'client' | 'backend' | 'server' | string;
+  stage: string;
+  severity: 'info' | 'warn' | 'error' | string;
+  sessionId?: string | null;
+  userId?: string | null;
+  socketId?: string | null;
+  role?: string | null;
+  signalKind?: string | null;
+  transportMode?: string | null;
+  retryCount?: number | null;
+  roundTripTimeMs?: number | null;
+  reason?: string | null;
+  message?: string | null;
+  details?: Record<string, any>;
+}
+
+export interface LiveDiagnosticsSummary {
+  totalEvents: number;
+  signalFailures: number;
+  socketDisconnects: number;
+  fallbackTransitions: number;
+  peakRetryCount: number;
+  latestTransportMode?: string | null;
+  latestRoundTripTimeMs?: number | null;
+  failureReasons: Array<{ reason: string; count: number }>;
+  alerts: string[];
+  lastEventAt?: string | null;
+}
+
+export interface LiveFeatureStatus {
+  enabled: boolean;
+  enableConference: boolean;
+  enableGifts: boolean;
+  enableRecording: boolean;
+  minGiftGcoin?: number;
+  maxGiftGcoin?: number;
+  rateLimitReactionsPerMinute?: number;
+  rateLimitChatPerMinute?: number;
+  experienceConfig?: LiveExperienceConfig;
+  realtimeConfig?: LiveRealtimeConfig;
 }
 
 export interface LiveSession {
@@ -86,6 +341,9 @@ export interface LiveSession {
   startedAt?: string | null;
   endedAt?: string | null;
   metadata?: Record<string, any>;
+  realtimeConfig?: LiveRealtimeConfig;
+  diagnosticsSummary?: LiveDiagnosticsSummary | null;
+  diagnosticsEvents?: LiveDiagnosticsEvent[];
   recording?: LiveRecordingState;
   commentsCount?: number;
   participants: LiveParticipant[];
@@ -127,6 +385,10 @@ export interface LiveConfig {
   createdAt: string;
   updatedAt: string;
   _schemaMissing?: boolean;
+  experienceConfig?: LiveExperienceConfig;
+  realtimeConfig?: LiveRealtimeConfig;
+  diagnosticsConfig?: LiveDiagnosticsConfig;
+  endedSessionCount?: number;
 }
 
 const extractData = <T>(response: any): T => {
@@ -186,8 +448,15 @@ export class LiveService {
   }
 
   static async react(sessionId: string, type: LiveReactionType) {
-    const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/reactions`, { type });
-    return extractData<any>(response);
+    const request = beginManagedIdempotentRequest(`live-reaction:${sessionId}:${type}`);
+    try {
+      const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/reactions`, { type }, { headers: request.headers });
+      request.complete();
+      return extractData<any>(response);
+    } catch (error) {
+      request.retain();
+      throw error;
+    }
   }
 
   static async sendGift(sessionId: string, payload: { amountGcoin: number; message?: string; toUserId?: string }) {
@@ -213,8 +482,17 @@ export class LiveService {
   }
 
   static async addComment(sessionId: string, message: string) {
-    const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/comments`, { message });
-    return extractData<{ comment: LiveComment; commentsCount: number }>(response);
+    const request = beginManagedIdempotentRequest(
+      `live-comment:${sessionId}:${createActionFingerprint(message)}`
+    );
+    try {
+      const response = await api.post(`/live/sessions/${encodeURIComponent(sessionId)}/comments`, { message }, { headers: request.headers });
+      request.complete();
+      return extractData<{ comment: LiveComment; commentsCount: number }>(response);
+    } catch (error) {
+      request.retain();
+      throw error;
+    }
   }
 
   static async getRecording(sessionId: string) {
@@ -267,6 +545,16 @@ export class LiveService {
         createdAt: string;
       }>;
     }>(response);
+  }
+
+  static async getRuntimeConfig() {
+    const response = await api.get('/live/runtime-config');
+    return extractData<LiveRealtimeConfig>(response);
+  }
+
+  static async getFeatureStatus() {
+    const response = await api.get('/live/feature-status');
+    return extractData<LiveFeatureStatus>(response);
   }
 
   static async getAdminConfig() {

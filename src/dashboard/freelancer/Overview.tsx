@@ -24,6 +24,7 @@ import DashboardHero, {
 import KpiGrid, { KpiItem } from '../../components/dashboard/KpiGrid';
 import QuickActions from '../../components/dashboard/QuickActions';
 import ActivityPanel, { ActivityItem } from '../../components/dashboard/ActivityPanel';
+import OpportunityStudioPanel from '../../components/dashboard/OpportunityStudioPanel';
 import RightRail, { RightRailAction, RightRailMetric } from '../../components/dashboard/RightRail';
 import { useMessages } from '../../context/MessageContext';
 import { useNotification } from '../../context/NotificationContext';
@@ -531,6 +532,13 @@ export const Overview: React.FC = () => {
       }
       kpiContent={<KpiGrid items={kpiItems} loading={loading && !overview} />}
       quickActionsContent={<QuickActions items={quickActions} subtitle="Fast access to your highest-impact workflows." />}
+      supplementaryContent={
+        <OpportunityStudioPanel
+          audience="freelancer"
+          title="Freelancer Opportunity Studio"
+          subtitle="Use Scrolitha to reposition your offer, package services, and route toward stronger-fit work without leaving the dashboard."
+        />
+      }
       activityContent={
         <ActivityPanel
           title="Recent Activity"

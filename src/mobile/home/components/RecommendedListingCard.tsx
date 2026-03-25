@@ -53,6 +53,12 @@ type GigLike = {
   freelancer_badge_type?: string | null;
   freelancerIsPro?: boolean;
   freelancerType?: string | null;
+  freelancerTrustScore?: number | null;
+  freelancer_trust_score?: number | null;
+  freelancerTrustTier?: string | null;
+  freelancer_trust_tier?: string | null;
+  freelancerCompletedJobs?: number | null;
+  freelancer_completed_jobs?: number | null;
   image?: string | null;
   images?: string[] | null;
 };
@@ -190,7 +196,15 @@ export default function RecommendedListingCard({
                       {job.category ? <span className="rounded-full bg-slate-100 px-2 py-0.5">{job.category}</span> : null}
                       {budget ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">${budget}</span> : null}
                       {job.clientName ? <span className="break-words [overflow-wrap:anywhere]">by {job.clientName}</span> : null}
-                      {clientVerificationLevel ? <VerifiedBadge size={16} level={clientVerificationLevel} className="ml-1" /> : null}
+                      {clientVerificationLevel ? (
+                        <VerifiedBadge
+                          size={16}
+                          level={clientVerificationLevel}
+                          className="ml-1"
+                          subjectRole={job.clientType === 'business' ? 'business' : 'employer'}
+                          subjectType={job.clientType || 'business'}
+                        />
+                      ) : null}
                     </div>
                   </div>
                   <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
@@ -254,6 +268,9 @@ export default function RecommendedListingCard({
             type: gig.freelancerType || 'user'
           });
           const price = formatMoney(gig.price);
+          const freelancerTrustScore = gig.freelancerTrustScore ?? gig.freelancer_trust_score ?? null;
+          const freelancerTrustTier = gig.freelancerTrustTier ?? gig.freelancer_trust_tier ?? '';
+          const freelancerCompletedJobs = gig.freelancerCompletedJobs ?? gig.freelancer_completed_jobs ?? null;
           const href = `/gigs/${encodeURIComponent(id)}`;
           const canContact = Boolean(gig.freelancerId) && Boolean(onContact);
           const { imageKey, imageUrl, canRenderImage } = getImageState(id, gig);
@@ -271,8 +288,31 @@ export default function RecommendedListingCard({
                     {gig.category ? <span className="rounded-full bg-slate-100 px-2 py-0.5">{gig.category}</span> : null}
                     {price ? <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">${price}</span> : null}
                     {gig.freelancerName ? <span className="break-words [overflow-wrap:anywhere]">by {gig.freelancerName}</span> : null}
-                    {freelancerVerificationLevel ? <VerifiedBadge size={16} level={freelancerVerificationLevel} className="ml-1" /> : null}
+                    {freelancerVerificationLevel ? (
+                      <VerifiedBadge
+                        size={16}
+                        level={freelancerVerificationLevel}
+                        className="ml-1"
+                        subjectRole="freelancer"
+                        subjectType={gig.freelancerType || 'user'}
+                      />
+                    ) : null}
                   </div>
+                  {typeof freelancerTrustScore === 'number' ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700">
+                        Trust {Math.round(freelancerTrustScore)}/100
+                      </span>
+                      {freelancerTrustTier ? (
+                        <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 font-semibold capitalize text-blue-700">
+                          {freelancerTrustTier}
+                        </span>
+                      ) : null}
+                      {typeof freelancerCompletedJobs === 'number' && freelancerCompletedJobs > 0 ? (
+                        <span className="text-slate-500">{freelancerCompletedJobs} completed</span>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
                   {gig.freelancerAvatar ? <img src={gig.freelancerAvatar} alt="" className="h-full w-full object-cover" /> : null}

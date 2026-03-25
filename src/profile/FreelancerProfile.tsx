@@ -7,14 +7,16 @@ import { useNotification } from '../context/NotificationContext';
 import { UserProfile, TrustScore } from '../types';
 import ProBadge from '../components/ProBadge';
 import VerifiedBadge from '../components/common/VerifiedBadge';
+import GigCard from '../components/GigCard';
 import { ReputationService } from '../services/ai/reputation.service';
-import { UserService } from '../services/user';
+import { UserService, type UserStorefrontPayload } from '../services/user';
 import { CommunityService } from '../services/community';
 import { MessagingService } from '../services/messaging';
 import { ReviewsService, Review } from '../services/reviews';
 import { resolveVerificationLevel } from '../utils/verification';
 import { resolveAssetUrl } from '../utils/assetUrl';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../community/storyStyles';
+import { getPublicAppOrigin } from '../utils/siteUrl';
 import EditProfile from './EditProfile';
 
 type StoryVisibility = 'public' | 'followers' | 'following' | 'mutuals' | 'network' | 'private' | 'custom';
@@ -83,6 +85,25 @@ const toArray = <T = any>(value: any): T[] => {
   return [];
 };
 
+const getIdentityTierStyles = (tier?: string) => {
+  switch (String(tier || '').toLowerCase()) {
+    case 'elite':
+      return 'border-amber-200 bg-amber-50 text-amber-700';
+    case 'established':
+      return 'border-blue-200 bg-blue-50 text-blue-700';
+    default:
+      return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+  }
+};
+
+const formatIdentityVerification = (status?: string, isVerified?: boolean) => {
+  if (isVerified) return 'Verified identity';
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'pending') return 'Verification pending';
+  if (normalized === 'rejected') return 'Verification needs review';
+  return 'Community identity';
+};
+
 const isStoryActive = (story: any) => {
   const expiry = story?.expiresAt || story?.expires_at;
   if (!expiry) return true;
@@ -97,6 +118,8 @@ const FreelancerProfile = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [trustScore, setTrustScore] = useState<TrustScore | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [storefront, setStorefront] = useState<UserStorefrontPayload | null>(null);
+  const [storefrontLoading, setStorefrontLoading] = useState(false);
   const [publicUser, setPublicUser] = useState<{
     id?: string;
     name?: string;
@@ -130,7 +153,7 @@ const FreelancerProfile = () => {
   const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
   const [blockBusyId, setBlockBusyId] = useState<string | null>(null);
   const [showInlineEditor, setShowInlineEditor] = useState(false);
-  const publicBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://www.scrolith.com';
+  const publicBaseUrl = getPublicAppOrigin();
   const cleanBaseUrl = publicBaseUrl.replace(/\/$/, '');
   const portfolioItems = useMemo(
     () =>
@@ -139,6 +162,10 @@ const FreelancerProfile = () => {
           (profile as any)?.portfolioItems ??
           (profile as any)?.portfolio_items
       ),
+    [profile]
+  );
+  const professionalIdentity = useMemo(
+    () => (profile as any)?.professionalIdentity ?? (profile as any)?.professional_identity ?? null,
     [profile]
   );
   const storyEditPreviewStyle = getStoryTextStyle(storyEditDraft);
@@ -162,6 +189,26 @@ const FreelancerProfile = () => {
   );
   const publicGender = String(profile?.gender || '').trim();
   const publicBirthMonthDay = String((profile as any)?.birthMonthDay || (profile as any)?.birth_month_day || '').trim();
+  const storefrontMerchantSummary = useMemo(
+    () => storefront?.merchantSummary ?? storefront?.merchant_summary ?? null,
+    [storefront]
+  );
+  const storefrontFeaturedServices = useMemo(
+    () => storefront?.featuredServices ?? storefront?.featured_services ?? [],
+    [storefront]
+  );
+  const storefrontServices = useMemo(() => storefront?.services ?? [], [storefront]);
+  const storefrontHasTab = useMemo(
+    () =>
+      Boolean(
+        storefront &&
+          (storefront.canManage ||
+            storefront.enabled ||
+            storefrontFeaturedServices.length ||
+            storefrontServices.length)
+      ),
+    [storefront, storefrontFeaturedServices.length, storefrontServices.length]
+  );
 
   const filterActiveStories = useCallback((items: any[]) => items.filter(isStoryActive), []);
   const canManageStory = useCallback(
@@ -216,6 +263,19 @@ const FreelancerProfile = () => {
           });
           setProfile(profileData);
           setTrustScore(trust);
+          setStorefrontLoading(true);
+          UserService.getStorefront(userId)
+            .then((storefrontData) => {
+              if (!mounted) return;
+              setStorefront(storefrontData);
+            })
+            .catch(() => {
+              if (!mounted) return;
+              setStorefront(null);
+            })
+            .finally(() => {
+              if (mounted) setStorefrontLoading(false);
+            });
         } catch {
           if (mounted) setError('Unable to load profile right now.');
         } finally {
@@ -395,6 +455,12 @@ const FreelancerProfile = () => {
   useEffect(() => {
       refreshFollowing();
   }, [refreshFollowing]);
+
+  useEffect(() => {
+      if (activeTab === 'storefront' && !storefrontHasTab) {
+        setActiveTab('overview');
+      }
+  }, [activeTab, storefrontHasTab]);
 
   const handleFollow = async () => {
       if (!user || !publicUser?.id || followLoading) return;
@@ -615,7 +681,15 @@ const FreelancerProfile = () => {
                             <div className="mb-2">
                                 <div className="flex items-center gap-2">
                                     <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">{publicUser?.name || "Profile"}</h1>
-                                    {profileVerificationLevel ? <VerifiedBadge size={20} level={profileVerificationLevel} className="ml-1" /> : null}
+                                    {profileVerificationLevel ? (
+                                      <VerifiedBadge
+                                        size={20}
+                                        level={profileVerificationLevel}
+                                        className="ml-1"
+                                        subjectRole={publicUser?.isProFreelancer ? 'freelancer' : 'user'}
+                                        subjectType="user"
+                                      />
+                                    ) : null}
                                     <ProBadge role="freelancer" isPro={publicUser?.isProFreelancer} size="md" />
                                 </div>
                                 {publicUser?.username && (
@@ -681,17 +755,25 @@ const FreelancerProfile = () => {
 
                     {/* Navigation Tabs */}
                     <div className="flex border-b border-gray-200 mt-10 space-x-8">
-                        {['Overview', 'Portfolio', 'Reviews', 'Followers'].map((tab) => (
+                        {[
+                            { id: 'overview', label: 'Overview' },
+                            storefrontHasTab ? { id: 'storefront', label: 'Storefront' } : null,
+                            { id: 'portfolio', label: 'Portfolio' },
+                            { id: 'reviews', label: 'Reviews' },
+                            { id: 'followers', label: 'Followers' }
+                        ]
+                            .filter((tab): tab is { id: string; label: string } => Boolean(tab))
+                            .map((tab) => (
                             <button
-                                key={tab}
-                                onClick={() => setActiveTab(tab.toLowerCase())}
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
                                 className={`pb-4 text-sm font-medium border-b-2 transition-colors ${
-                                    activeTab === tab.toLowerCase() 
+                                    activeTab === tab.id
                                     ? 'border-blue-600 text-blue-600' 
                                     : 'border-transparent text-gray-500 hover:text-gray-700'
                                 }`}
                             >
-                                {tab}
+                                {tab.label}
                             </button>
                         ))}
                     </div>
@@ -770,18 +852,35 @@ const FreelancerProfile = () => {
 
                     {/* Right Column */}
                     <div className="space-y-6">
-                        {/* Trust Score AI */}
+                        {/* Delivery & Reliability Score */}
                         {trustScore && (
                             <div className="bg-gradient-to-br from-indigo-900 to-blue-900 p-6 rounded-xl shadow-lg text-white">
                                 <div className="flex items-center justify-between mb-4">
                                     <h3 className="font-bold flex items-center">
                                         <ShieldCheck className="w-5 h-5 mr-2 text-green-400" /> Trust Score
                                     </h3>
-                                    <span className="text-xs bg-white/20 px-2 py-1 rounded">AI Verified</span>
+                                    <span className="text-xs bg-white/20 px-2 py-1 rounded">Governed score</span>
                                 </div>
                                 <div className="flex items-end mb-4">
                                     <span className="text-4xl font-extrabold text-white">{trustScore.overallScore}</span>
                                     <span className="text-indigo-200 mb-1 ml-1">/100</span>
+                                </div>
+                                <div className="mb-4 flex flex-wrap gap-2 text-[11px]">
+                                    {((trustScore as any)?.trustTier || (trustScore as any)?.trust_tier) ? (
+                                        <span className="rounded-full bg-white/15 px-2 py-1 font-semibold capitalize text-white">
+                                            {(trustScore as any)?.trustTier || (trustScore as any)?.trust_tier}
+                                        </span>
+                                    ) : null}
+                                    {typeof ((trustScore as any)?.completedJobs ?? (trustScore as any)?.completed_jobs) === 'number' ? (
+                                        <span className="rounded-full bg-white/10 px-2 py-1 text-indigo-100">
+                                            {((trustScore as any)?.completedJobs ?? (trustScore as any)?.completed_jobs)} completed jobs
+                                        </span>
+                                    ) : null}
+                                    {typeof ((trustScore as any)?.responseRate ?? (trustScore as any)?.response_rate) === 'number' ? (
+                                        <span className="rounded-full bg-white/10 px-2 py-1 text-indigo-100">
+                                            {Math.round((trustScore as any)?.responseRate ?? (trustScore as any)?.response_rate)}% response rate
+                                        </span>
+                                    ) : null}
                                 </div>
                                 <div className="space-y-2 text-sm text-indigo-100">
                                     <div className="flex justify-between">
@@ -799,9 +898,135 @@ const FreelancerProfile = () => {
                                         <div className="bg-blue-400 h-1.5 rounded-full" style={{ width: `${trustScore.professionalism}%` }}></div>
                                     </div>
                                 </div>
+                                <div className="mt-4 grid grid-cols-3 gap-2 text-[11px] text-indigo-100">
+                                    <div className="rounded-lg bg-black/15 px-3 py-2">
+                                        <div className="font-semibold text-white">Completion</div>
+                                        <div>{Math.round((trustScore as any)?.completionRate ?? (trustScore as any)?.completion_rate ?? 0)}%</div>
+                                    </div>
+                                    <div className="rounded-lg bg-black/15 px-3 py-2">
+                                        <div className="font-semibold text-white">Cancellation</div>
+                                        <div>{Math.round((trustScore as any)?.cancellationRate ?? (trustScore as any)?.cancellation_rate ?? 0)}%</div>
+                                    </div>
+                                    <div className="rounded-lg bg-black/15 px-3 py-2">
+                                        <div className="font-semibold text-white">Disputes</div>
+                                        <div>{Math.round((trustScore as any)?.disputeRate ?? (trustScore as any)?.dispute_rate ?? 0)}%</div>
+                                    </div>
+                                </div>
+                                {Array.isArray((trustScore as any)?.riskIndicators ?? (trustScore as any)?.risk_indicators) &&
+                                ((trustScore as any)?.riskIndicators ?? (trustScore as any)?.risk_indicators).length > 0 ? (
+                                    <div className="mt-4 pt-3 border-t border-white/10">
+                                        <div className="text-[11px] font-semibold uppercase tracking-wide text-indigo-200">Risk Indicators</div>
+                                        <div className="mt-2 flex flex-wrap gap-2">
+                                            {((trustScore as any)?.riskIndicators ?? (trustScore as any)?.risk_indicators).map((risk: string) => (
+                                                <span key={risk} className="rounded-full bg-amber-500/15 px-2 py-1 text-[11px] text-amber-100">
+                                                    {risk}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : null}
                                 {trustScore.trend === 'up' && (
                                     <div className="mt-4 pt-3 border-t border-white/10 flex items-center text-xs text-green-300">
                                         <TrendingUp className="w-3 h-3 mr-1" /> Trending Up this month
+                                    </div>
+                                )}
+                                {trustScore.trend === 'down' && (
+                                    <div className="mt-4 pt-3 border-t border-white/10 flex items-center text-xs text-amber-200">
+                                        <X className="w-3 h-3 mr-1" /> Needs recovery attention
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {professionalIdentity && (
+                            <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-600">Professional Identity</p>
+                                        <h3 className="mt-2 text-lg font-bold text-gray-900">{formatIdentityVerification(professionalIdentity.verificationStatus, professionalIdentity.isVerified)}</h3>
+                                        <p className="mt-1 text-sm leading-6 text-gray-500">
+                                            Trustable profile signals connected to reviews, proof of work, certifications, and communities.
+                                        </p>
+                                    </div>
+                                    <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${getIdentityTierStyles(professionalIdentity.trustTier)}`}>
+                                        {String(professionalIdentity.trustTier || 'growing').replace(/^\w/, (value) => value.toUpperCase())}
+                                    </span>
+                                </div>
+
+                                <div className="mt-5 grid grid-cols-2 gap-3">
+                                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                        <div className="flex items-center text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                            <Star className="mr-1.5 h-3.5 w-3.5 text-amber-400" /> Reviews
+                                        </div>
+                                        <div className="mt-2 text-xl font-bold text-gray-900">
+                                            {Number(professionalIdentity.averageRating || 0).toFixed(1)}
+                                        </div>
+                                        <div className="text-xs text-gray-500">{professionalIdentity.reviewCount || 0} published reviews</div>
+                                    </div>
+                                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                        <div className="flex items-center text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                            <CheckCircle className="mr-1.5 h-3.5 w-3.5 text-emerald-500" /> Proof of Work
+                                        </div>
+                                        <div className="mt-2 text-xl font-bold text-gray-900">{professionalIdentity.portfolioProofCount || 0}</div>
+                                        <div className="text-xs text-gray-500">{professionalIdentity.verifiedPortfolioProofCount || 0} verified proofs</div>
+                                    </div>
+                                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                        <div className="flex items-center text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                            <Users className="mr-1.5 h-3.5 w-3.5 text-blue-500" /> Communities
+                                        </div>
+                                        <div className="mt-2 text-xl font-bold text-gray-900">{professionalIdentity.clubCount || 0}</div>
+                                        <div className="text-xs text-gray-500">Active community memberships</div>
+                                    </div>
+                                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                        <div className="flex items-center text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                            <Award className="mr-1.5 h-3.5 w-3.5 text-indigo-500" /> Credentials
+                                        </div>
+                                        <div className="mt-2 text-xl font-bold text-gray-900">{professionalIdentity.certificationCount || 0}</div>
+                                        <div className="text-xs text-gray-500">{professionalIdentity.verifiedCertificationCount || 0} verified certifications</div>
+                                    </div>
+                                </div>
+
+                                {Array.isArray(professionalIdentity.badges) && professionalIdentity.badges.length > 0 && (
+                                    <div className="mt-5 flex flex-wrap gap-2">
+                                        {professionalIdentity.badges.map((badge: string) => (
+                                            <span key={badge} className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                                                {badge}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {Array.isArray(professionalIdentity.featuredClubs) && professionalIdentity.featuredClubs.length > 0 && (
+                                    <div className="mt-5 border-t border-gray-100 pt-5">
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div>
+                                                <h4 className="text-sm font-semibold text-gray-900">Featured communities</h4>
+                                                <p className="mt-1 text-xs text-gray-500">Trusted circles this member is actively part of.</p>
+                                            </div>
+                                            <Link to="/community/clubs" className="text-xs font-semibold text-blue-600 hover:text-blue-700">
+                                                View communities
+                                            </Link>
+                                        </div>
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                            {professionalIdentity.featuredClubs.map((club: any) => (
+                                                <span key={club.id} className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700">
+                                                    {club.name} · {club.memberCount || club.member_count || 0}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {Array.isArray(professionalIdentity.topSkills) && professionalIdentity.topSkills.length > 0 && (
+                                    <div className="mt-5 border-t border-gray-100 pt-5">
+                                        <h4 className="text-sm font-semibold text-gray-900">Top verified strengths</h4>
+                                        <div className="mt-3 flex flex-wrap gap-2">
+                                            {professionalIdentity.topSkills.map((skill: string) => (
+                                                <span key={skill} className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                                                    {skill}
+                                                </span>
+                                            ))}
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -862,6 +1087,138 @@ const FreelancerProfile = () => {
                         </div>
                     </div>
                 </div>
+                )}
+
+                {activeTab === 'storefront' && (
+                  <div className="bg-gray-50 p-6 md:p-8 space-y-6">
+                    {storefrontLoading ? (
+                      <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500 shadow-sm">
+                        Loading storefront...
+                      </div>
+                    ) : null}
+
+                    {!storefrontLoading && storefrontMerchantSummary ? (
+                      <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-blue-50 p-6 shadow-sm">
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="max-w-2xl">
+                            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-700">Storefront</p>
+                            <h3 className="mt-2 text-2xl font-bold text-gray-900">{storefrontMerchantSummary.title || publicUser?.name || 'Storefront'}</h3>
+                            {storefrontMerchantSummary.subtitle ? (
+                              <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-600">{storefrontMerchantSummary.subtitle}</p>
+                            ) : null}
+                            <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                              {storefrontMerchantSummary.category ? (
+                                <span className="rounded-full border border-emerald-200 bg-emerald-100/70 px-3 py-1 font-semibold text-emerald-800">
+                                  {storefrontMerchantSummary.category}
+                                </span>
+                              ) : null}
+                              {storefrontMerchantSummary.location ? (
+                                <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 font-semibold text-blue-700">
+                                  {storefrontMerchantSummary.location}
+                                </span>
+                              ) : null}
+                              {storefrontMerchantSummary.trustTier ? (
+                                <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-semibold capitalize text-slate-700">
+                                  {storefrontMerchantSummary.trustTier}
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3 lg:min-w-[320px]">
+                            <div className="rounded-xl border border-white/80 bg-white/80 p-3">
+                              <div className="text-xs uppercase tracking-wide text-gray-500">Services</div>
+                              <div className="mt-1 text-2xl font-bold text-gray-900">{storefrontMerchantSummary.serviceCount || 0}</div>
+                            </div>
+                            <div className="rounded-xl border border-white/80 bg-white/80 p-3">
+                              <div className="text-xs uppercase tracking-wide text-gray-500">Featured</div>
+                              <div className="mt-1 text-2xl font-bold text-gray-900">{storefrontMerchantSummary.featuredCount || 0}</div>
+                            </div>
+                            <div className="rounded-xl border border-white/80 bg-white/80 p-3">
+                              <div className="text-xs uppercase tracking-wide text-gray-500">Price from</div>
+                              <div className="mt-1 text-lg font-bold text-gray-900">
+                                {storefrontMerchantSummary.priceFrom !== null && storefrontMerchantSummary.priceFrom !== undefined
+                                  ? `${String(storefrontMerchantSummary.currency || 'USD').toUpperCase()} ${Number(storefrontMerchantSummary.priceFrom).toFixed(2)}`
+                                  : 'Not set'}
+                              </div>
+                            </div>
+                            <div className="rounded-xl border border-white/80 bg-white/80 p-3">
+                              <div className="text-xs uppercase tracking-wide text-gray-500">Response</div>
+                              <div className="mt-1 text-lg font-bold text-gray-900">
+                                {typeof storefrontMerchantSummary.responseTimeHours === 'number'
+                                  ? `~ ${storefrontMerchantSummary.responseTimeHours}h`
+                                  : 'Flexible'}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {!storefrontLoading && storefront?.enabled === false && storefront?.canManage ? (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                        Storefront visibility is currently disabled for this profile by platform policy. Your services remain manageable, but the public tab is hidden until storefront access is re-enabled.
+                      </div>
+                    ) : null}
+
+                    {!storefrontLoading && storefrontFeaturedServices.length > 0 ? (
+                      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <h3 className="text-lg font-bold text-gray-900">Featured Services</h3>
+                            <p className="mt-1 text-sm text-gray-500">Top offers pinned for faster conversion from profile visits.</p>
+                          </div>
+                        </div>
+                        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+                          {storefrontFeaturedServices.map((gig) => (
+                            <GigCard key={`featured_${gig.id}`} gig={gig} />
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {!storefrontLoading && storefrontServices.length > 0 ? (
+                      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <h3 className="text-lg font-bold text-gray-900">Service Catalog</h3>
+                            <p className="mt-1 text-sm text-gray-500">Browse all public storefront services from this profile.</p>
+                          </div>
+                        </div>
+                        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                          {storefrontServices.map((gig) => (
+                            <GigCard key={gig.id} gig={gig} />
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {!storefrontLoading && storefront && !storefrontServices.length ? (
+                      <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center shadow-sm">
+                        <h3 className="text-lg font-bold text-gray-900">No storefront services yet</h3>
+                        <p className="mt-2 text-sm text-gray-500">
+                          {storefront.canManage
+                            ? 'Publish approved gigs to turn this profile into a commerce-ready storefront.'
+                            : 'This member has not published storefront services yet.'}
+                        </p>
+                        {storefront.canManage ? (
+                          <div className="mt-4 flex flex-wrap justify-center gap-3">
+                            <Link
+                              to="/create-gig"
+                              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                            >
+                              Create service
+                            </Link>
+                            <Link
+                              to="/freelancer/dashboard?tab=my-gigs"
+                              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                            >
+                              Manage gigs
+                            </Link>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
                 )}
 
                 {activeTab === 'portfolio' && (

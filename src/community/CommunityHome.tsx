@@ -10,15 +10,17 @@ import {
   Plus,
   Camera as CameraIcon,
   X,
-  Heart,
   Repeat2,
   Send,
   Coins,
   Download,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Sparkles,
+  AlertTriangle
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLiveFeature } from '../context/LiveFeatureContext';
 import { useUser } from '../context/UserContext';
 import DonateButton from '../components/DonateButton';
 import { CommunityService } from '../services/community';
@@ -26,7 +28,15 @@ import { AdService } from '../services/ads';
 import { ScrollService, type ScrollConfig, type ScrollVideo } from '../services/scroll';
 import { ReactionsService } from '../services/reactions';
 import InlineAutoplayVideo from '../components/media/InlineAutoplayVideo';
+import MediaPreviewModal, { type PreviewMedia } from '../components/media/MediaPreviewModal';
+import PostVideoActionBar from '../components/media/PostVideoActionBar';
+import OverlayActionRailButton from '../components/media/OverlayActionRailButton';
+import PostExpandModal from '../components/post/PostExpandModal';
 import ScrollCreateModal from '../features/scroll/ScrollCreateModal';
+import LiveFeaturedRail from '../features/live/components/LiveFeaturedRail';
+import ExpandablePreviewText from '../components/common/ExpandablePreviewText';
+import StaticPreviewText from '../components/common/StaticPreviewText';
+import ContentOfferTags from '../components/commerce/ContentOfferTags';
 import PostHeader from './components/PostHeader';
 import PostEngagementBar from './components/PostEngagementBar';
 import MentionText from './components/MentionText';
@@ -41,10 +51,23 @@ import SendGcoinModal from '../components/SendGcoinModal';
 import { FileService } from '../services/files';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from './storyStyles';
 import { resolveAssetUrl } from '../utils/assetUrl';
+import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../utils/inlineMedia';
+import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../utils/postAttachmentMedia';
+import { stashPendingPostVideoScrollViewerSource } from '../utils/postVideoScrollBridge';
+import { buildPublicAppUrl } from '../utils/siteUrl';
 import { downloadToDevice } from '../utils/deviceDownload';
 import { Capacitor } from '@capacitor/core';
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile';
 import { upsertImagePreloadLink } from '../utils/resourceHints';
+import GraphicWarningGate from '../components/media/GraphicWarningGate';
+import PostOriginPreview from '../components/post/PostOriginPreview';
+import {
+  postAiInsightPreferenceToBoolean,
+  resolvePostAiInsightPreference,
+  resolveStoredPostAiInsightPreference,
+  type PostAiInsightPreference
+} from '../utils/postAiControls';
+import { normalizeContentOfferTags } from '../utils/contentOffers';
 
 const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
   const explicit = String(media.type || '').toLowerCase();
@@ -57,6 +80,24 @@ const inferMediaType = (media: { url?: string; mimeType?: string; type?: string 
   if (/\.(png|jpe?g|gif|webp|svg)$/.test(url)) return 'image';
   return 'document';
 };
+
+const toPreviewMedia = (media: any): PreviewMedia | null => {
+  const url = String(media?.url || '').trim();
+  if (!url) return null;
+  return {
+    id: media?.id,
+    url,
+    name: media?.name,
+    mimeType: media?.mimeType || media?.mime_type,
+    type: media?.type,
+    thumbnailUrl: media?.thumbnailUrl || media?.thumbnail_url || null,
+    duration: media?.duration
+  };
+};
+
+const GRAPHIC_WARNING_LABEL = 'Graphic warning';
+const FEED_SINGLE_MEDIA_HEIGHT_CLASS = 'h-[20rem] sm:h-[24rem] lg:h-[28rem]';
+const FEED_MULTI_MEDIA_HEIGHT_CLASS = 'h-[15rem] sm:h-[18rem] lg:h-[22rem]';
 
 const formatRelativeTime = (value: string | Date | null | undefined) => {
   if (!value) return 'recently';
@@ -156,28 +197,8 @@ const normalizeStoryVisibility = (value?: string): StoryVisibility => {
 
 const isPrivateStoryVisibility = (value?: StoryVisibility) => value === 'private' || value === 'custom';
 
-const resolveStoryMediaUrl = (story: any) => {
-  const raw =
-    story?.media?.url ||
-    story?.mediaUrl ||
-    story?.media_url ||
-    story?.mediaFileUrl ||
-    story?.media_file_url ||
-    story?.media?.[0]?.url;
-  if (raw) return resolveAssetUrl(raw);
-
-  const fileId = story?.mediaFileId || story?.media_file_id;
-  if (typeof fileId === 'string') {
-    if (fileId.startsWith('disk:')) {
-      const relative = fileId.slice('disk:'.length).replace(/^\/+/, '');
-      return resolveAssetUrl(`/uploads/${relative}`);
-    }
-    if (fileId.startsWith('http://') || fileId.startsWith('https://')) {
-      return resolveAssetUrl(fileId);
-    }
-  }
-  return '';
-};
+const resolveStoryMedia = (story: any) => resolveInlineMedia(story, { typeHint: story?.type });
+const resolveStoryMediaUrl = (story: any) => resolveStoryMedia(story).src;
 
 const resolveStoryContent = (story: any) =>
   story?.content ||
@@ -227,7 +248,7 @@ const isStoryActive = (story: any) => {
   return Number.isNaN(expiresAt) ? true : expiresAt > Date.now();
 };
 
-const resolveReelMediaUrl = (scroll: ScrollVideo) => resolveAssetUrl(String(scroll?.media?.url || '').trim());
+const resolveReelMedia = (scroll: ScrollVideo) => resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
 
 const resolveReelAuthorName = (scroll: ScrollVideo, fallback = 'Scrolith') => {
   const normalized = String(scroll?.author?.name || '').trim();
@@ -253,6 +274,9 @@ type PostDraft = {
   location: string;
   visibility: 'public' | 'friends' | 'network' | 'private' | 'custom';
   commentPolicy: 'everyone' | 'followers' | 'following' | 'mutuals' | 'none';
+  graphicWarning: boolean;
+  isAIEnhanced: boolean;
+  aiInsightPreference: PostAiInsightPreference;
   media: Array<{
     localId: string;
     id?: string;
@@ -265,6 +289,7 @@ type PostDraft = {
 const CommunityHome = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { status: liveFeatureStatus } = useLiveFeature();
   const params = useParams<{ id?: string }>();
   const focusPostId = String(params.id || '').trim();
   const focusQuery = new URLSearchParams(location.search);
@@ -283,6 +308,10 @@ const CommunityHome = () => {
     events: 0
   });
   const [posts, setPosts] = useState<any[]>([]);
+  const [insightCollapsedByPost, setInsightCollapsedByPost] = useState<Record<string, boolean>>({});
+  const [revealedGraphicPosts, setRevealedGraphicPosts] = useState<Record<string, boolean>>({});
+  const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
+  const [expandedPost, setExpandedPost] = useState<any | null>(null);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<PostDraft | null>(null);
@@ -346,22 +375,59 @@ const CommunityHome = () => {
   const storyPreviewStyle = getStoryTextStyle(storyDraft);
   const storyEditPreviewStyle = getStoryTextStyle(storyEditDraft);
 
-  const openPostDetail = useCallback(
-    (postId: string) => {
-      const id = String(postId || '').trim();
-      if (!id) return;
-      navigate(`/post/${encodeURIComponent(id)}`);
+  const findPrimaryVideoAttachment = useCallback((post: any) => {
+    const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+    return (
+      attachments.find((entry: any) => {
+        const type = inferMediaType(entry || {});
+        return type === 'video';
+      }) || null
+    );
+  }, []);
+
+  const openVideoPostInScroll = useCallback(
+    (post: any, media: any) => {
+      const postId = String(post?.id || '').trim();
+      const mediaUrl = String(media?.url || resolvePostAttachmentMediaUrl(media) || '').trim();
+      if (!postId || !mediaUrl) return;
+      stashPendingPostVideoScrollViewerSource({
+        sourcePostId: postId,
+        fileId: String(media?.fileId || media?.file_id || media?.file?.id || media?.asset?.id || media?.id || '').trim() || null,
+        mediaUrl,
+        thumbnailUrl: String(media?.thumbnailUrl || resolvePostAttachmentPosterUrl(media) || '').trim() || null,
+        title: String(post?.title || media?.name || '').trim() || null,
+        description: String(post?.content || '').trim() || null,
+        location: String(post?.location || '').trim() || null,
+        authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
+        authorAvatar: String(post?.author?.avatarUrl || post?.authorAvatar || '').trim() || null,
+        authorUsername: String(post?.author?.username || post?.authorUsername || '').trim() || null,
+        createdAt: String(post?.createdAt || '').trim() || null
+      });
+      navigate('/scroll?watch=post-video');
     },
     [navigate]
   );
 
+  const openPostCard = useCallback(
+    (post: any) => {
+      if (!post?.id) return;
+      const primaryVideo = findPrimaryVideoAttachment(post);
+      if (primaryVideo) {
+        openVideoPostInScroll(post, primaryVideo);
+        return;
+      }
+      setExpandedPost(post);
+    },
+    [findPrimaryVideoAttachment, openVideoPostInScroll]
+  );
+
   const openPostFromText = useCallback(
-    (event: React.MouseEvent<HTMLElement>, postId: string) => {
+    (event: React.MouseEvent<HTMLElement>, post: any) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest('a, button, input, textarea, select, label, video, audio')) return;
-      openPostDetail(postId);
+      openPostCard(post);
     },
-    [openPostDetail]
+    [openPostCard]
   );
 
   const triggerPostDoubleTapLike = useCallback(
@@ -391,17 +457,40 @@ const CommunityHome = () => {
     [user?.id]
   );
 
+  const handlePostMediaPrimaryAction = useCallback(
+    (post: any, media: any) => {
+      const type = inferMediaType(media || {});
+      if (type === 'video') {
+        openVideoPostInScroll(post, media);
+        return;
+      }
+      const preview = toPreviewMedia({
+        ...media,
+        url: media?.url || resolvePostAttachmentMediaUrl(media),
+        thumbnailUrl: media?.thumbnailUrl || resolvePostAttachmentPosterUrl(media)
+      });
+      if (preview) {
+        setPreviewMedia(preview);
+        return;
+      }
+      setExpandedPost(post);
+    },
+    [openVideoPostInScroll]
+  );
+
   const queueOpenPostFromMediaTap = useCallback(
-    (postId: string, mediaKey: string) => {
+    (post: any, media: any, mediaKey: string) => {
+      const postId = String(post?.id || '').trim();
+      if (!postId) return;
       const timerKey = `${postId}:${mediaKey}`;
       const existing = postMediaTapTimersRef.current[timerKey];
       if (existing) window.clearTimeout(existing);
       postMediaTapTimersRef.current[timerKey] = window.setTimeout(() => {
         delete postMediaTapTimersRef.current[timerKey];
-        openPostDetail(postId);
+        handlePostMediaPrimaryAction(post, media);
       }, 220);
     },
-    [openPostDetail]
+    [handlePostMediaPrimaryAction]
   );
 
   const onPostMediaDoubleClick = useCallback(
@@ -475,6 +564,7 @@ const CommunityHome = () => {
     if (interactions.shares === undefined) interactions.shares = post.sharesCount ?? post.shares_count ?? 0;
     if (interactions.views === undefined) interactions.views = post.viewsCount ?? post.views_count ?? 0;
     if (interactions.reactions === undefined) interactions.reactions = post.reactions || {};
+    if (interactions.dashGcoinTotal === undefined) interactions.dashGcoinTotal = post.dashGcoinTotal ?? post.dash_gcoin_total ?? 0;
     const authorId = post.authorId || post.userId || post.user_id || post.author?.id || post.author?.userId || post.author?.user_id;
     const authorName = post.authorName || post.userName || post.user_name || post.author?.displayName || post.author?.name || 'Community member';
     const authorUsername =
@@ -498,12 +588,17 @@ const CommunityHome = () => {
       id: post.id || `${authorId}-${Date.now()}`,
       title: post.title,
       content: post.content,
-      attachments: (post.attachments || []).map((item: any) => ({
-        id: item.id || item.fileId,
-        url: item.url || item,
-        name: item.name || item.originalName || item.filename,
-        mimeType: item.mimeType || item.mime_type,
-        type: item.type || inferMediaType(item)
+    attachments: (post.attachments || []).map((item: any) => ({
+      id: item.id || item.fileId || item.file_id || resolvePostAttachmentMediaUrl(item),
+      fileId: item.fileId || item.file_id || item.file?.id || item.asset?.id || item.id || null,
+      url: resolvePostAttachmentMediaUrl(item),
+      name: item.name || item.originalName || item.filename,
+      mimeType: item.mimeType || item.mime_type,
+        type: item.type || inferMediaType(item),
+        thumbnailUrl: resolvePostAttachmentPosterUrl(item),
+        duration: item.duration,
+        width: item.width,
+        height: item.height
       })),
       author: {
         id: post.author?.id || (authorType === 'business' ? post.businessPage?.id : authorId),
@@ -531,8 +626,36 @@ const CommunityHome = () => {
       location: post.location || null,
       visibility: post.visibility,
       commentPolicy: post.commentPolicy || post.comment_policy || 'everyone',
+      repostsEnabled: post.repostsEnabled ?? post.reposts_enabled ?? true,
       isPinned: post.isPinned ?? post.is_pinned ?? false,
       isHighlighted: post.isHighlighted ?? post.is_highlighted ?? false,
+      graphicWarning: Boolean(post.graphicWarning ?? post.graphic_warning ?? false),
+      isAIEnhanced: Boolean(post.isAIEnhanced ?? post.is_ai_enhanced ?? false),
+      offerTags: normalizeContentOfferTags(post.offerTags ?? post.offer_tags),
+      originalPost:
+        post.originalPost && typeof post.originalPost === 'object'
+          ? {
+              id: post.originalPost.id,
+              authorName: post.originalPost.authorName ?? post.originalPost.author_name ?? null,
+              authorUsername: post.originalPost.authorUsername ?? post.originalPost.author_username ?? null,
+              title: post.originalPost.title ?? null,
+              content: post.originalPost.content ?? null
+            }
+          : null,
+      dashGcoinTotal: Number(post.dashGcoinTotal ?? post.dash_gcoin_total ?? interactions.dashGcoinTotal ?? 0),
+      aiInsightEnabled: Boolean(post.aiInsightEnabled ?? post.ai_insight_enabled ?? false),
+      aiInsightGenerated: Boolean(
+        post.aiInsightGenerated ??
+          post.ai_insight_generated ??
+          (String(post.aiInsightText ?? post.ai_insight_text ?? '').trim() ? true : false)
+      ),
+      aiInsightText: String(post.aiInsightText ?? post.ai_insight_text ?? '').trim() || null,
+      aiScore:
+        post.aiScore !== undefined && post.aiScore !== null
+          ? Number(post.aiScore)
+          : post.ai_score !== undefined && post.ai_score !== null
+            ? Number(post.ai_score)
+            : null,
       likesCount: post.likesCount ?? post.likes_count ?? interactions.likes,
       sharesCount: post.sharesCount ?? post.shares_count ?? interactions.shares,
       repostsCount: post.repostsCount ?? post.reposts_count ?? interactions.reposts,
@@ -997,18 +1120,40 @@ const CommunityHome = () => {
         )
       );
     };
+    const onPostAiInsightReady = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const postId = String(detail?.postId || detail?.id || '').trim();
+      if (!postId) return;
+      const insightTextRaw = detail?.aiInsightText ?? detail?.ai_insight_text ?? null;
+      const insightText =
+        insightTextRaw === null || insightTextRaw === undefined
+          ? null
+          : String(insightTextRaw).trim() || null;
+      applyPostUpdate({
+        id: postId,
+        aiInsightEnabled: Boolean(detail?.aiInsightEnabled ?? detail?.ai_insight_enabled ?? true),
+        aiInsightGenerated: Boolean(
+          detail?.aiInsightGenerated ?? detail?.ai_insight_generated ?? (insightText ? true : false)
+        ),
+        aiInsightText: insightText
+      });
+    };
 
     window.addEventListener('community:post_created', onPostCreated as EventListener);
     window.addEventListener('community:post_updated', onPostUpdated as EventListener);
     window.addEventListener('community:post_deleted', onPostDeleted as EventListener);
     window.addEventListener('community:post_metrics_updated', onPostMetricsUpdated as EventListener);
     window.addEventListener('community:post_reaction_updated', onPostReactionUpdated as EventListener);
+    window.addEventListener('community:post_ai_insight_ready', onPostAiInsightReady as EventListener);
+    window.addEventListener('post:aiInsightReady', onPostAiInsightReady as EventListener);
     return () => {
       window.removeEventListener('community:post_created', onPostCreated as EventListener);
       window.removeEventListener('community:post_updated', onPostUpdated as EventListener);
       window.removeEventListener('community:post_deleted', onPostDeleted as EventListener);
       window.removeEventListener('community:post_metrics_updated', onPostMetricsUpdated as EventListener);
       window.removeEventListener('community:post_reaction_updated', onPostReactionUpdated as EventListener);
+      window.removeEventListener('community:post_ai_insight_ready', onPostAiInsightReady as EventListener);
+      window.removeEventListener('post:aiInsightReady', onPostAiInsightReady as EventListener);
     };
   }, [applyPostUpdate, editingPostId, normalizePost]);
 
@@ -1130,7 +1275,7 @@ const CommunityHome = () => {
         textFont: storyDraft.textFont,
         textAlign: storyDraft.textAlign
       });
-      setStories((prev) => filterActiveStories([created, ...prev]));
+      setStories((prev) => filterActiveStories([created, ...prev.filter((item) => String(item?.id) !== String(created?.id))]));
       setStoryDraft({
         content: '',
         visibility: 'public',
@@ -1160,7 +1305,7 @@ const CommunityHome = () => {
         mediaFileId: uploaded.id,
         visibility: storyDraft.visibility
       });
-      setStories((prev) => filterActiveStories([created, ...prev]));
+      setStories((prev) => filterActiveStories([created, ...prev.filter((item) => String(item?.id) !== String(created?.id))]));
       showNotification('success', 'Stories', 'Your story is live.');
     } catch (error: any) {
       console.error(error);
@@ -1407,8 +1552,7 @@ const CommunityHome = () => {
   );
 
   const buildStoryUrl = useCallback((storyId: string) => {
-    if (typeof window === 'undefined') return `/community?story=${encodeURIComponent(storyId)}`;
-    return `${window.location.origin}/community?story=${encodeURIComponent(storyId)}`;
+    return buildPublicAppUrl(`/community?story=${encodeURIComponent(storyId)}`);
   }, []);
 
   const ensureStoryAuth = useCallback(
@@ -1609,22 +1753,22 @@ const CommunityHome = () => {
 
   const activeStoryShareUrl = storyActionTarget?.id
     ? buildStoryUrl(String(storyActionTarget.id))
-    : (typeof window === 'undefined' ? '/community' : `${window.location.origin}/community`);
+    : buildPublicAppUrl('/community');
   const activeStoryDashRecipient = String(
     storyActionTarget?.authorId || storyActionTarget?.author?.id || storyActionTarget?.userId || ''
   ).trim();
   const downloadStoryMedia = useCallback(
     async (story: any) => {
-      const mediaUrl = resolveStoryMediaUrl(story);
-      if (!mediaUrl) {
+      const media = resolveStoryMedia(story);
+      if (!media.src) {
         showNotification('warning', 'Stories', 'No downloadable media is attached to this story.');
         return;
       }
       try {
         const result = await downloadToDevice({
-          url: mediaUrl,
+          url: media.src,
           fileName: `${resolveStoryAuthorName(story, 'story')}-story-${String(story?.id || Date.now())}`,
-          mimeType: story?.type === 'video' ? 'video/mp4' : story?.type === 'image' ? 'image/jpeg' : ''
+          mimeType: media.kind === 'video' ? 'video/mp4' : media.kind === 'image' ? 'image/jpeg' : ''
         });
         showNotification(
           'success',
@@ -1684,6 +1828,9 @@ const CommunityHome = () => {
       location: post.location || '',
       visibility: (post.visibility as PostDraft['visibility']) || 'public',
       commentPolicy,
+      graphicWarning: Boolean(post.graphicWarning),
+      isAIEnhanced: Boolean(post.isAIEnhanced),
+      aiInsightPreference: resolveStoredPostAiInsightPreference(post.aiInsightEnabled),
       media: (post.attachments || []).map((media: any, index: number) => ({
         localId: `${post.id}-media-${media.id || index}`,
         id: media.id,
@@ -1734,7 +1881,12 @@ const CommunityHome = () => {
         topic: editingDraft.topic || undefined,
         location: editingDraft.location || undefined,
         visibility: editingDraft.visibility,
-        commentPolicy: editingDraft.commentPolicy
+        commentPolicy: editingDraft.commentPolicy,
+        graphicWarning: editingDraft.graphicWarning,
+        isAIEnhanced: editingDraft.isAIEnhanced,
+        aiInsightEnabled: postAiInsightPreferenceToBoolean(
+          resolvePostAiInsightPreference(editingDraft.aiInsightPreference, 'off')
+        )
       });
       if (updated) {
         applyPostUpdate(normalizePost(updated));
@@ -2130,13 +2282,15 @@ const CommunityHome = () => {
                         <CameraIcon className="h-3 w-3" />
                         Camera
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => navigate('/live/studio')}
-                        className={storyLiveButtonClass}
-                      >
-                        Go Live
-                      </button>
+                      {liveFeatureStatus.enabled ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate('/live/studio')}
+                          className={storyLiveButtonClass}
+                        >
+                          Go Live
+                        </button>
+                      ) : null}
                     </div>
                   ) : (
                     <div className={`grid gap-2 ${isMobileViewport ? 'grid-cols-2' : 'flex flex-wrap items-center'}`}>
@@ -2148,13 +2302,15 @@ const CommunityHome = () => {
                         <Plus className="h-3 w-3" />
                         Create Scroll
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => navigate('/live/studio')}
-                        className={`${isMobileViewport ? 'inline-flex w-full items-center justify-center gap-1 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-100' : 'inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-100'}`}
-                      >
-                        Go Live
-                      </button>
+                      {liveFeatureStatus.enabled ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate('/live/studio')}
+                          className={`${isMobileViewport ? 'inline-flex w-full items-center justify-center gap-1 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-100' : 'inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-100'}`}
+                        >
+                          Go Live
+                        </button>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -2163,7 +2319,7 @@ const CommunityHome = () => {
                   <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide sm:gap-3">
                     <button
                       onClick={() => storyDeviceInputRef.current?.click()}
-                      className="flex h-40 min-w-[108px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-300 text-xs text-gray-500 sm:h-44 sm:min-w-[120px]"
+                      className="flex h-48 min-w-[118px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-300 text-xs text-gray-500 sm:h-52 sm:min-w-[132px]"
                     >
                       <Plus className="h-5 w-5 mb-2" />
                       Your story
@@ -2177,26 +2333,51 @@ const CommunityHome = () => {
                         <button
                           key={story.id}
                           onClick={() => openStory(story)}
-                          className="relative h-40 min-w-[108px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-100 sm:h-44 sm:min-w-[120px]"
+                          className="relative h-48 min-w-[118px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-100 sm:h-52 sm:min-w-[132px]"
                         >
                           {(() => {
-                            const mediaUrl = resolveStoryMediaUrl(story);
-                            if (mediaUrl) {
-                              return story.type === 'video' ? (
-                                <video
-                                  src={mediaUrl}
-                                  className="h-full w-full object-cover"
-                                  autoPlay
-                                  muted
-                                  playsInline
-                                  loop
-                                  preload="metadata"
-                                />
-                              ) : (
-                                <img src={mediaUrl} alt="Story" className="h-full w-full object-cover" />
+                            const media = resolveStoryMedia(story);
+                            const text = resolveStoryContent(story);
+                            const isTextStory = String(story?.type || '').trim().toLowerCase() === 'text';
+                            if (isTextStory && text) {
+                              const style = getStoryTextStyle(story);
+                              return (
+                                <div
+                                  className="flex h-full w-full items-center justify-center px-3 text-center text-xs font-semibold"
+                                  style={{
+                                    background: style.background,
+                                    color: style.color,
+                                    fontFamily: style.fontFamily,
+                                    textAlign: style.textAlign as any
+                                  }}
+                                >
+                                  <StaticPreviewText
+                                    text={text}
+                                    className="line-clamp-4"
+                                    textClassName="whitespace-pre-wrap break-words"
+                                    moreClassName="opacity-90"
+                                  />
+                                </div>
                               );
                             }
-                            const text = resolveStoryContent(story);
+                            if (media.src) {
+                              return media.kind === 'video' ? (
+                                <InlineAutoplayVideo
+                                  key={String(story?.id || media.src)}
+                                  src={media.src}
+                                  poster={media.poster}
+                                  className="h-full w-full object-cover"
+                                  containerClassName="h-full w-full"
+                                  controls={false}
+                                  loop
+                                  preload="metadata"
+                                  autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                                  showMuteToggle={false}
+                                />
+                              ) : (
+                                <img src={media.src} alt="Story" className="h-full w-full object-cover" />
+                              );
+                            }
                             if (text) {
                               const style = getStoryTextStyle(story);
                               return (
@@ -2209,7 +2390,12 @@ const CommunityHome = () => {
                                     textAlign: style.textAlign as any
                                   }}
                                 >
-                                  <span className="line-clamp-4 whitespace-pre-wrap">{text}</span>
+                                  <StaticPreviewText
+                                    text={text}
+                                    className="line-clamp-4"
+                                    textClassName="whitespace-pre-wrap break-words"
+                                    moreClassName="opacity-90"
+                                  />
                                 </div>
                               );
                             }
@@ -2243,7 +2429,7 @@ const CommunityHome = () => {
                     <button
                       type="button"
                       onClick={() => setScrollCreateOpen(true)}
-                      className="flex h-40 min-w-[108px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-300 text-xs text-gray-500 sm:h-44 sm:min-w-[120px]"
+                      className="flex h-48 min-w-[118px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-300 text-xs text-gray-500 sm:h-52 sm:min-w-[132px]"
                     >
                       <Plus className="h-5 w-5 mb-2" />
                       Create Scroll
@@ -2258,11 +2444,11 @@ const CommunityHome = () => {
                           key={scroll.id}
                           type="button"
                           onClick={() => navigate(`/scroll?scroll=${encodeURIComponent(scroll.id)}`)}
-                          className="relative h-40 min-w-[108px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-900 sm:h-44 sm:min-w-[120px]"
+                          className="relative h-48 min-w-[118px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-900 sm:h-52 sm:min-w-[132px]"
                         >
                           {(() => {
-                            const mediaUrl = resolveReelMediaUrl(scroll);
-                            if (!mediaUrl) {
+                            const media = resolveReelMedia(scroll);
+                            if (!media.src) {
                               return (
                                 <div className="h-full w-full flex items-center justify-center text-xs text-white/75">
                                   Scroll
@@ -2270,14 +2456,17 @@ const CommunityHome = () => {
                               );
                             }
                             return (
-                              <video
-                                src={mediaUrl}
+                              <InlineAutoplayVideo
+                                key={String(scroll?.id || media.src)}
+                                src={media.src}
+                                poster={media.poster}
                                 className="h-full w-full object-cover"
-                                autoPlay
-                                muted
-                                playsInline
+                                containerClassName="h-full w-full"
+                                controls={false}
                                 loop
                                 preload="metadata"
+                                autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                                showMuteToggle={false}
                               />
                             );
                           })()}
@@ -2306,6 +2495,13 @@ const CommunityHome = () => {
                 )}
               </div>
             )}
+
+            <LiveFeaturedRail
+              surface="communityHome"
+              title="Featured Live Streams"
+              subtitle="Watch active livestreams from the community without leaving your web or mobile feed."
+              className="mt-4"
+            />
 
             {showCustomSections && visibleSections.length > 0 && (
               <div className="space-y-4">
@@ -2378,7 +2574,7 @@ const CommunityHome = () => {
                     <article
                       key={post.id}
                       id={`community-post-${post.id}`}
-                      className={`rounded-[24px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/70 p-4 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)] transition-shadow hover:shadow-[0_24px_48px_-26px_rgba(15,23,42,0.52)] sm:rounded-[30px] sm:p-5 ${focusPostId === post.id ? 'ring-2 ring-blue-100' : ''}`}
+                      className={`overflow-hidden rounded-[24px] border border-slate-200/85 bg-gradient-to-b from-white via-white to-slate-50/75 p-4 shadow-[0_20px_44px_-30px_rgba(15,23,42,0.38)] transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-[0_26px_56px_-30px_rgba(15,23,42,0.44)] sm:rounded-[30px] sm:p-5 ${focusPostId === post.id ? 'ring-2 ring-blue-100' : ''}`}
                     >
                       <PostHeader
                         author={resolvedAuthor}
@@ -2406,6 +2602,18 @@ const CommunityHome = () => {
                             )}
                             {post.isHighlighted && (
                               <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Highlighted</span>
+                            )}
+                            {post.isAIEnhanced && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                <Sparkles className="h-3 w-3" />
+                                AI-enhanced
+                              </span>
+                            )}
+                            {post.graphicWarning && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                <AlertTriangle className="h-3 w-3" />
+                                {GRAPHIC_WARNING_LABEL}
+                              </span>
                             )}
                           </>
                         }
@@ -2453,6 +2661,60 @@ const CommunityHome = () => {
                             className="min-h-[120px] w-full rounded-xl border border-gray-200 p-3 text-sm text-gray-700"
                           />
                           <div className="text-xs text-gray-500">Tip: type @ to mention people and # to add tags.</div>
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <label className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(editingDraft?.graphicWarning)}
+                                onChange={(event) =>
+                                  setEditingDraft((prev) =>
+                                    prev ? { ...prev, graphicWarning: event.target.checked } : prev
+                                  )
+                                }
+                              />
+                              <span className="inline-flex items-center gap-1">
+                                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                {GRAPHIC_WARNING_LABEL}
+                              </span>
+                            </label>
+                            <label className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(editingDraft?.isAIEnhanced)}
+                                onChange={(event) =>
+                                  setEditingDraft((prev) =>
+                                    prev ? { ...prev, isAIEnhanced: event.target.checked } : prev
+                                  )
+                                }
+                              />
+                              <span className="inline-flex items-center gap-1">
+                                <Sparkles className="h-4 w-4 text-emerald-600" />
+                                Mark as AI-enhanced
+                              </span>
+                            </label>
+                            <label className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700">
+                              <span className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                                Scrolitha AI insight
+                              </span>
+                              <select
+                                value={editingDraft?.aiInsightPreference || 'off'}
+                                onChange={(event) =>
+                                  setEditingDraft((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          aiInsightPreference: resolvePostAiInsightPreference(event.target.value, 'off')
+                                        }
+                                      : prev
+                                  )
+                                }
+                                className="mt-2 w-full bg-transparent text-sm font-semibold text-gray-900 outline-none"
+                              >
+                                <option value="on">Generate for this post</option>
+                                <option value="off">Do not generate</option>
+                              </select>
+                            </label>
+                          </div>
                           <div className="grid gap-3 md:grid-cols-2">
                             <select
                               value={editingDraft?.visibility || 'public'}
@@ -2551,36 +2813,44 @@ const CommunityHome = () => {
                         <>
                           <div className="mt-4 space-y-4">
                           {post.title ? (
-                            <button
-                              type="button"
-                              onClick={() => openPostDetail(post.id)}
-                              className="text-left text-xl font-semibold tracking-tight text-slate-950 hover:text-blue-700 hover:underline"
-                            >
-                              {post.title}
-                            </button>
+                              <button
+                                type="button"
+                                onClick={() => openPostCard(post)}
+                                className="text-left text-xl font-semibold leading-tight tracking-tight text-slate-950 transition hover:text-slate-700 [overflow-wrap:anywhere]"
+                              >
+                                {post.title}
+                              </button>
                           ) : null}
                           {focusPostId === post.id && focusMentionToken ? (
                             <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
                               You were mentioned in this post.
                             </div>
                           ) : null}
+                          <PostOriginPreview originalPost={post.originalPost} className="mt-2" />
                           <div
-                            className="cursor-pointer text-[15px] leading-7 text-slate-700"
-                            role="button"
-                            tabIndex={0}
-                            onClick={(event) => openPostFromText(event, post.id)}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter' || event.key === ' ') {
-                                event.preventDefault();
-                                openPostDetail(post.id);
-                              }
-                            }}
-                          >
-                            <MentionText
+                              className="cursor-pointer text-[15px] leading-[1.78] text-slate-700 [overflow-wrap:anywhere]"
+                              role="button"
+                              tabIndex={0}
+                              onClick={(event) => openPostFromText(event, post)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault();
+                                  openPostCard(post);
+                                }
+                              }}
+                            >
+                            <ExpandablePreviewText
                               text={post.content}
-                              mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
-                              viewerId={user?.id}
-                              viewerUsername={user?.username}
+                              className="inline"
+                              buttonClassName="text-slate-900"
+                              renderText={(visibleText) => (
+                                <MentionText
+                                  text={visibleText}
+                                  mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
+                                  viewerId={user?.id}
+                                  viewerUsername={user?.username}
+                                />
+                              )}
                             />
                           </div>
                           {post.tags?.length ? (
@@ -2592,86 +2862,32 @@ const CommunityHome = () => {
                               ))}
                             </div>
                           ) : null}
-                          {Array.isArray(post.attachments) && post.attachments.length > 0 && (
-                            <div
-                              className={`grid gap-3 ${
-                                post.attachments.length === 1 ? 'grid-cols-1' : 'md:grid-cols-2'
-                              }`}
-                            >
-                              {post.attachments.map((media: any) => {
-                                const type = inferMediaType(media || {});
-                                const mediaKey = String(media.id || media.url || '');
-                                const mediaHeightClass =
-                                  post.attachments.length === 1 ? 'h-64 md:h-80' : 'h-44 md:h-52';
-                                if (type === 'video') {
-                                  return (
-                                    <div
-                                      key={media.id || media.url}
-                                      role="button"
-                                      tabIndex={0}
-                                      onClick={(event) => {
-                                        if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
-                                        queueOpenPostFromMediaTap(post.id, mediaKey);
-                                      }}
-                                      onDoubleClick={(event) => {
-                                        if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
-                                        onPostMediaDoubleClick(event, post, mediaKey);
-                                      }}
-                                      onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter' || event.key === ' ') {
-                                          event.preventDefault();
-                                          openPostDetail(post.id);
-                                        }
-                                      }}
-                                      className="mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
-                                    >
-                                      <InlineAutoplayVideo
-                                        src={media.url}
-                                        poster={media.thumbnailUrl || undefined}
-                                        className={`${mediaHeightClass} w-full object-cover`}
-                                        controls={false}
-                                        autoplayEnabled={profile.autoplayEnabled}
-                                        preload="metadata"
-                                      />
-                                    </div>
-                                  );
-                                }
-                                if (type === 'image') {
-                                  return (
-                                    <button
-                                      key={media.id || media.url}
-                                      type="button"
-                                      onClick={() => queueOpenPostFromMediaTap(post.id, mediaKey)}
-                                      onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
-                                      onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
-                                      className="mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left shadow-sm"
-                                    >
-                                      <img
-                                        src={media.thumbnailUrl || media.url}
-                                        alt={media.name || 'Post media'}
-                                        className={`${mediaHeightClass} w-full object-cover`}
-                                        loading="lazy"
-                                        decoding="async"
-                                      />
-                                    </button>
-                                  );
-                                }
-                                return (
-                                  <button
-                                    key={media.id || media.url}
-                                    type="button"
-                                    onClick={() => openPostDetail(post.id)}
-                                    className="rounded-2xl border border-slate-200 bg-white p-3 text-left text-xs text-slate-600 shadow-sm hover:bg-slate-50"
-                                  >
-                                    <span className="text-blue-600 underline">
-                                      {media.name || media.url?.split('/').pop() || 'View attachment'}
-                                    </span>
-                                  </button>
-                                );
-                              })}
+                          <ContentOfferTags offerTags={post.offerTags} />
+                          {post.aiInsightGenerated && post.aiInsightText ? (
+                            <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                                  <Sparkles className="h-3.5 w-3.5" />
+                                  AI Insight
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setInsightCollapsedByPost((prev) => ({
+                                      ...prev,
+                                      [post.id]: !(prev[post.id] ?? true)
+                                    }))
+                                  }
+                                  className="text-[11px] font-semibold text-emerald-700 hover:underline"
+                                >
+                                  {(insightCollapsedByPost[post.id] ?? true) ? 'Show' : 'Hide'}
+                                </button>
+                              </div>
+                              {!(insightCollapsedByPost[post.id] ?? true) ? (
+                                <p className="mt-2 text-sm text-emerald-900">{post.aiInsightText}</p>
+                              ) : null}
                             </div>
-                          )}
+                          ) : null}
                           {(post.topic || post.location) && (
                             <div className="flex flex-wrap gap-2 text-[11px] text-slate-500">
                               {post.topic && (
@@ -2682,10 +2898,111 @@ const CommunityHome = () => {
                               )}
                             </div>
                           )}
+                          {Array.isArray(post.attachments) && post.attachments.length > 0 && (
+                            <GraphicWarningGate
+                              active={Boolean(post.graphicWarning)}
+                              revealed={Boolean(revealedGraphicPosts[post.id])}
+                              onReveal={() => setRevealedGraphicPosts((prev) => ({ ...prev, [post.id]: true }))}
+                              label={GRAPHIC_WARNING_LABEL}
+                            >
+                              <div
+                                className={`grid gap-3 ${
+                                  post.attachments.length === 1 ? 'grid-cols-1' : 'md:grid-cols-2'
+                                }`}
+                              >
+                                {post.attachments.map((media: any) => {
+                                  const type = inferMediaType(media || {});
+                                  const mediaKey = String(media.id || media.url || '');
+                                  const mediaHeightClass =
+                                    post.attachments.length === 1
+                                      ? FEED_SINGLE_MEDIA_HEIGHT_CLASS
+                                      : FEED_MULTI_MEDIA_HEIGHT_CLASS;
+                                  if (type === 'video') {
+                                    return (
+                                      <div
+                                        key={media.id || media.url}
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={(event) => {
+                                          if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
+                                          queueOpenPostFromMediaTap(post, media, mediaKey);
+                                        }}
+                                        onDoubleClick={(event) => {
+                                          if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
+                                          onPostMediaDoubleClick(event, post, mediaKey);
+                                        }}
+                                        onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
+                                        onKeyDown={(event) => {
+                                          if (event.key === 'Enter' || event.key === ' ') {
+                                            event.preventDefault();
+                                            handlePostMediaPrimaryAction(post, media);
+                                          }
+                                        }}
+                                        className="mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
+                                      >
+                                        <InlineAutoplayVideo
+                                          src={media.url}
+                                          poster={media.thumbnailUrl || undefined}
+                                          className={`${mediaHeightClass} w-full object-cover`}
+                                          controls={false}
+                                          autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                                          preload="metadata"
+                                          overlay={(videoElement) => (
+                                            <PostVideoActionBar
+                                              postId={post.id}
+                                              postTitle={post.title}
+                                              postContent={post.content}
+                                              postLocation={post.location}
+                                              media={media}
+                                              videoElement={videoElement}
+                                            />
+                                          )}
+                                        />
+                                      </div>
+                                    );
+                                  }
+                                  if (type === 'image') {
+                                    return (
+                                      <button
+                                        key={media.id || media.url}
+                                        type="button"
+                                        onClick={() => handlePostMediaPrimaryAction(post, media)}
+                                        onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
+                                        onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
+                                        className="mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left shadow-sm"
+                                      >
+                                        <img
+                                          src={media.thumbnailUrl || media.url}
+                                          alt={media.name || 'Post media'}
+                                          className={`${mediaHeightClass} w-full object-cover`}
+                                          loading="lazy"
+                                          decoding="async"
+                                        />
+                                      </button>
+                                    );
+                                  }
+                                  return (
+                                    <button
+                                      key={media.id || media.url}
+                                      type="button"
+                                      onClick={() => handlePostMediaPrimaryAction(post, media)}
+                                      className="rounded-2xl border border-slate-200 bg-white p-3 text-left text-xs text-slate-600 shadow-sm hover:bg-slate-50"
+                                    >
+                                      <span className="text-blue-600 underline">
+                                        {media.name || media.url?.split('/').pop() || 'View attachment'}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </GraphicWarningGate>
+                          )}
                           <PostEngagementBar
                             postId={post.id}
                             authorId={post.authorUserId || post.authorId}
+                            dashGcoinTotal={Number((post as any).dashGcoinTotal ?? post.interactions?.dashGcoinTotal ?? 0)}
                             commentPolicy={post.commentPolicy}
+                            postRepostsEnabled={post.repostsEnabled}
                             commentCount={commentCount}
                             repostCount={post.repostsCount ?? post.interactions?.reposts ?? 0}
                             shareCount={post.sharesCount ?? post.interactions?.shares ?? 0}
@@ -3003,21 +3320,23 @@ const CommunityHome = () => {
                   </div>
                 ) : (
                   (() => {
-                    const mediaUrl = resolveStoryMediaUrl(editingStory);
-                    if (mediaUrl) {
-                      return editingStory.type === 'video' ? (
-                        <video
-                          src={mediaUrl}
+                    const media = resolveStoryMedia(editingStory);
+                    if (media.src) {
+                      return media.kind === 'video' ? (
+                        <InlineAutoplayVideo
+                          key={String(editingStory?.id || media.src)}
+                          src={media.src}
+                          poster={media.poster}
+                          className="h-48 w-full object-cover"
+                          containerClassName="h-48 w-full"
                           controls
-                          autoPlay
-                          muted
-                          playsInline
                           loop
                           preload="metadata"
-                          className="h-48 w-full object-cover"
+                          autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                          showMuteToggle={false}
                         />
                       ) : (
-                        <img src={mediaUrl} alt="Story media" className="h-48 w-full object-cover" />
+                        <img src={media.src} alt="Story media" className="h-48 w-full object-cover" />
                       );
                     }
                     return (
@@ -3249,20 +3568,23 @@ const CommunityHome = () => {
               }}
             >
               {(() => {
-                const mediaUrl = resolveStoryMediaUrl(activeStory);
-                if (mediaUrl) {
-                  return activeStory.type === 'video' ? (
-                    <video
-                      src={mediaUrl}
-                      autoPlay
-                      muted
-                      playsInline
+                const media = resolveStoryMedia(activeStory);
+                if (media.src) {
+                  return media.kind === 'video' ? (
+                    <InlineAutoplayVideo
+                      key={String(activeStory.id || media.src)}
+                      src={media.src}
+                      poster={media.poster}
+                      className="h-full w-full object-cover"
+                      containerClassName="h-full w-full"
+                      controls={false}
                       loop
                       preload="metadata"
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <img src={mediaUrl} alt="Story" className="h-full w-full object-cover" />
+                      autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                      showMuteToggle={false}
+                    />
+                  ) : (
+                      <img src={media.src} alt="Story" className="h-full w-full object-cover" />
                     );
                   }
                 const text = resolveStoryContent(activeStory);
@@ -3278,7 +3600,12 @@ const CommunityHome = () => {
                         textAlign: style.textAlign as any
                       }}
                     >
-                      <p className="text-lg font-semibold leading-snug whitespace-pre-wrap">{text}</p>
+                      <ExpandablePreviewText
+                        text={text}
+                        className="max-w-full"
+                        textClassName="text-lg font-semibold leading-snug"
+                        buttonClassName="text-white"
+                      />
                     </div>
                   );
                 }
@@ -3319,61 +3646,53 @@ const CommunityHome = () => {
                 </div>
               </div>
               <div className="absolute right-2.5 top-[58%] z-30 flex -translate-y-1/2 flex-col items-center gap-1.5 pointer-events-auto">
-                <ReactionBar targetType="STORY" targetId={activeStory.id} layout="rail" compact className="w-[54px]" />
-                <button
-                  type="button"
+                <ReactionBar
+                  targetType="STORY"
+                  targetId={activeStory.id}
+                  layout="rail"
+                  compact
+                  className="w-[68px]"
+                  railVariant="launcher"
+                  railLauncherLabel="Reaction"
+                />
+                <OverlayActionRailButton
                   onClick={() => handleStoryCommentAction(activeStory)}
-                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
+                  icon={MessageCircle}
+                  label="Comment"
                   disabled={Boolean(storyActionBusy[activeStory.id])}
-                >
-                  <MessageCircle className="h-3.5 w-3.5" />
-                  <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(activeStory.commentsCount ?? activeStory.interactions?.comments)}</span>
-                </button>
-                <button
-                  type="button"
+                />
+                <OverlayActionRailButton
                   onClick={() => handleStoryRepostAction(activeStory)}
-                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
+                  icon={Repeat2}
+                  label="Repost"
                   disabled={Boolean(storyActionBusy[activeStory.id])}
-                >
-                  <Repeat2 className="h-3.5 w-3.5" />
-                  <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(activeStory.repostsCount ?? activeStory.interactions?.reposts)}</span>
-                </button>
-                <button
-                  type="button"
+                />
+                <OverlayActionRailButton
                   onClick={() => handleStoryDashAction(activeStory)}
-                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
+                  icon={Coins}
+                  label="Dash"
                   disabled={Boolean(storyActionBusy[activeStory.id])}
-                >
-                  <Coins className="h-3.5 w-3.5" />
-                  <span className="mt-1 text-[10px] font-semibold">Dash</span>
-                </button>
-                <button
-                  type="button"
+                />
+                <OverlayActionRailButton
                   onClick={() => handleStorySendAction(activeStory)}
-                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
+                  icon={Send}
+                  label="Send"
                   disabled={Boolean(storyActionBusy[activeStory.id])}
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(activeStory.sendsCount ?? activeStory.interactions?.sends)}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleStoryLike(activeStory)}
-                  className={`inline-flex min-w-[52px] flex-col items-center rounded-xl px-1.5 py-1.5 text-white transition ${
-                    activeStory.viewerLiked ? 'bg-rose-600/85' : 'bg-black/45 hover:bg-black/65'
-                  }`}
-                  disabled={storyActionBusy[activeStory.id]}
-                >
-                  <Heart className={`h-3.5 w-3.5 ${activeStory.viewerLiked ? 'fill-white text-white' : ''}`} />
-                  <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(activeStory.likesCount ?? activeStory._count?.likes ?? 0)}</span>
-                </button>
+                />
               </div>
             </div>
             {(() => {
               const text = resolveStoryContent(activeStory);
               const mediaUrl = resolveStoryMediaUrl(activeStory);
               if (text && mediaUrl) {
-                return <p className="mt-3 text-sm text-gray-700">{text}</p>;
+                return (
+                  <ExpandablePreviewText
+                    text={text}
+                    className="mt-3"
+                    textClassName="text-sm text-gray-700"
+                    buttonClassName="text-slate-900"
+                  />
+                );
               }
               return null;
             })()}
@@ -3384,6 +3703,20 @@ const CommunityHome = () => {
           </div>
         </div>
       )}
+
+      <PostExpandModal
+        open={Boolean(expandedPost)}
+        post={expandedPost}
+        viewerId={user?.id}
+        viewerUsername={user?.username}
+        onClose={() => setExpandedPost(null)}
+      />
+
+      <MediaPreviewModal
+        open={Boolean(previewMedia)}
+        media={previewMedia}
+        onClose={() => setPreviewMedia(null)}
+      />
 
       {storyCommentOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -3468,4 +3801,7 @@ const CommunityHome = () => {
 };
 
 export default CommunityHome;
+
+
+
 

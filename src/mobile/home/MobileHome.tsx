@@ -11,6 +11,7 @@ import { useUser } from '../../context/UserContext';
 import MobileHeader from './components/MobileHeader';
 import MobileBottomNav, { MobileHomeLayoutSettings, MobileTabKey } from './components/MobileBottomNav';
 import type { SearchCategory } from './components/SearchScreen';
+import { DEFAULT_MEMBER_HOME_LOCATIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../../constants/defaultAudienceOptions';
 
 const SearchScreen = lazy(() => import('./components/SearchScreen'));
 const MobileHomeSheets = lazy(() => import('./components/MobileHomeSheets'));
@@ -143,8 +144,8 @@ const DEFAULT_LAYOUT: MobileHomeLayoutConfig = {
     graphicWarningEnabled: true,
     graphicWarningLabel: 'Graphic warning',
     graphicWarningBlurMedia: true,
-    topics: ['Product', 'Design', 'Engineering', 'Marketing', 'Sales', 'Leadership'],
-    locations: ['Global', 'North America', 'Europe', 'Africa', 'Asia']
+    topics: DEFAULT_MEMBER_HOME_TOPICS,
+    locations: DEFAULT_MEMBER_HOME_LOCATIONS
   },
   postCard: {
     reactionsEnabled: true,

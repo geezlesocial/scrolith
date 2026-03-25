@@ -40,11 +40,30 @@ export const extractPathFromUrl = (url: string): string | null => {
 };
 
 export const registerDeepLinks = (navigate: (path: string) => void) => {
-  if (!Capacitor.isNativePlatform()) return;
-  App.addListener('appUrlOpen', (event) => {
-    const path = extractPathFromUrl(event.url || '');
+  if (!Capacitor.isNativePlatform()) return () => {};
+
+  let disposed = false;
+  const handleUrl = (url?: string | null) => {
+    if (disposed) return;
+    const path = extractPathFromUrl(url || '');
     if (path) navigate(path);
+  };
+
+  void App.getLaunchUrl()
+    .then((result) => handleUrl(result?.url))
+    .catch(() => {});
+
+  const listenerPromise = App.addListener('appUrlOpen', (event) => {
+    handleUrl(event.url || '');
   });
+
+  return async () => {
+    disposed = true;
+    try {
+      const listener = await listenerPromise;
+      await listener.remove();
+    } catch {}
+  };
 };
 
 

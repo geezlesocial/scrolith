@@ -14,7 +14,6 @@ import PostComments from '../../components/PostComments';
 import SendGcoinModal from '../../components/SendGcoinModal';
 import PostShareModal from './PostShareModal';
 import RepostModal from './RepostModal';
-import { useSocket } from '../../context/SocketContext';
 
 type AllowedReaction = {
   key: string;
@@ -26,6 +25,7 @@ type AllowedReaction = {
 type Props = {
   postId: string;
   authorId?: string;
+  dashGcoinTotal?: number;
   commentPolicy?: string | null;
   postRepostsEnabled?: boolean;
   commentCount: number;
@@ -77,6 +77,13 @@ const toSafeCount = (value: unknown) => {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return 0;
   return Math.max(0, Math.trunc(numeric));
+};
+
+const formatDashGcoin = (value: unknown) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return '0';
+  if (Number.isInteger(numeric)) return String(numeric);
+  return numeric.toFixed(numeric >= 100 ? 0 : 2).replace(/\.00$/, '');
 };
 
 const sumReactions = (counts?: Record<string, number>) =>
@@ -143,6 +150,7 @@ const buildPostUrl = (postId: string) =>
 const PostEngagementBar: React.FC<Props> = ({
   postId,
   authorId,
+  dashGcoinTotal = 0,
   commentPolicy,
   postRepostsEnabled,
   commentCount,
@@ -160,7 +168,6 @@ const PostEngagementBar: React.FC<Props> = ({
   const { user } = useUser();
   const { settings } = useContent();
   const { showNotification } = useNotification();
-  const { isConnected } = useSocket();
   const isCoarsePointer = useIsCoarsePointer();
 
   const reactionsSettings = (settings as any)?.reactions || {};
@@ -186,6 +193,7 @@ const PostEngagementBar: React.FC<Props> = ({
   const [counts, setCounts] = useState<Record<string, number>>(initialReactionCounts || {});
   const [userReaction, setUserReaction] = useState<string | null>(typeof initialUserReaction === 'undefined' ? null : (initialUserReaction || null));
   const [busy, setBusy] = useState(false);
+  const [dashTotal, setDashTotal] = useState<number>(Number(dashGcoinTotal || 0));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerAnchor, setPickerAnchor] = useState<'summary' | 'button'>('button');
   const [pickerPosition, setPickerPosition] = useState<FloatingPosition | null>(null);
@@ -216,6 +224,7 @@ const PostEngagementBar: React.FC<Props> = ({
   };
 
   useEffect(() => setCounts(initialReactionCounts || {}), [postId, initialReactionCounts]);
+  useEffect(() => setDashTotal(Number(dashGcoinTotal || 0)), [dashGcoinTotal, postId]);
   useEffect(() => {
     if (typeof initialUserReaction === 'undefined') return;
     setUserReaction(initialUserReaction || null);
@@ -237,8 +246,20 @@ const PostEngagementBar: React.FC<Props> = ({
         setUserReaction(mine || null);
       }
     };
+    const onGcoinDonated = (event: Event) => {
+      const raw = (event as CustomEvent).detail;
+      const detail = raw?.data && typeof raw.data === 'object' ? raw.data : raw;
+      if (!detail) return;
+      const eventPostId = String(detail.postId || detail.post_id || '').trim();
+      if (!eventPostId || eventPostId !== String(postId)) return;
+      setDashTotal(Number(detail.dashGcoinTotal || detail.dash_gcoin_total || 0));
+    };
     window.addEventListener('community:post_reaction_updated', onUpdated as EventListener);
-    return () => window.removeEventListener('community:post_reaction_updated', onUpdated as EventListener);
+    window.addEventListener('community:gcoin_donated', onGcoinDonated as EventListener);
+    return () => {
+      window.removeEventListener('community:post_reaction_updated', onUpdated as EventListener);
+      window.removeEventListener('community:gcoin_donated', onGcoinDonated as EventListener);
+    };
   }, [postId, user?.id]);
 
   useEffect(() => {
@@ -367,7 +388,7 @@ const PostEngagementBar: React.FC<Props> = ({
 
   return (
     <div className={`mt-3 ${className}`}>
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-slate-200/80 bg-slate-50/80 px-3 py-3 text-xs text-slate-500">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[24px] border border-slate-200/80 bg-white/90 px-3 py-3 text-xs text-slate-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.82)]">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           {showCounts && reactionsEnabled ? (
             totalReactions > 0 ? (
@@ -396,14 +417,6 @@ const PostEngagementBar: React.FC<Props> = ({
           ) : (
             <span className="text-slate-400">&nbsp;</span>
           )}
-          <span
-            className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 font-semibold shadow-sm ${
-              isConnected ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
-            }`}
-          >
-            <span className={`h-2 w-2 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-            {isConnected ? 'Live sync' : 'Syncing'}
-          </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -426,6 +439,9 @@ const PostEngagementBar: React.FC<Props> = ({
           )}
           <span className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
             <span className="font-semibold text-slate-900">{repostCount}</span> reposts
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-[11px] font-medium text-emerald-700 shadow-sm">
+            <span className="font-semibold text-emerald-900">{formatDashGcoin(dashTotal)}</span> GC dashed
           </span>
           <span className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
             <span className="font-semibold text-slate-900">{shareCount}</span> shares
@@ -542,10 +558,7 @@ const PostEngagementBar: React.FC<Props> = ({
             aria-label="Choose a reaction"
           >
             <div className="mb-3 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">React to this post</p>
-                <p className="text-xs text-slate-500">{isConnected ? 'Realtime sync active' : 'Realtime reconnecting'}</p>
-              </div>
+              <p className="text-sm font-semibold text-slate-900">React to this post</p>
               <button type="button" onClick={() => setPickerOpen(false)} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600">
                 Close
               </button>
@@ -584,7 +597,6 @@ const PostEngagementBar: React.FC<Props> = ({
         >
           <div className="mb-2 flex items-center justify-between">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Reactions</p>
-            <span className={`text-[11px] font-semibold ${isConnected ? 'text-emerald-600' : 'text-amber-600'}`}>{isConnected ? 'Live' : 'Syncing'}</span>
           </div>
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
             {allowed.map((item) => (

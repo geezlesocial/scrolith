@@ -1,8 +1,10 @@
+import { Capacitor } from '@capacitor/core';
 import { PlatformSettings, HomepageSection, HomeSlide, HeaderConfig, FooterConfig, TrendingConfig, ActivityConfig, UserRole, HeroSearchConfig, StaticPage, PageCategory, MediaItem, AuthPagesConfig, AnswersPageConfig, GuidesPageConfig, HirePageConfig, FreelancerPageConfig, SystemMessagesConfig, SystemMessagesVariables } from '../types';
 import { AdminService } from './admin';
 import { AuthService } from './authService';
 import { tokenStore } from './tokenStore';
 import { getApiBaseUrl, getBackendOrigin } from '../utils/apiBase';
+import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../constants/defaultAudienceOptions';
 
 // FIXED: Use relative URL for proxy instead of hardcoded localhost:5000
 // Resolve API base: prefer explicit backend URL in builds, otherwise use proxy '/api' in dev.
@@ -140,7 +142,7 @@ const fallbackData = {
     settings: {
         siteName: 'Scrolith Marketplace',
         siteDescription: 'Connect with top freelancers and find your next project',
-        siteTagline: 'Find, hire, and work with the best talent',
+        siteTagline: 'AI-Powered Social Freelance Marketplace with Secure Escrow & Monetization',
         logoUrl: BRAND_ASSET_URL,
         faviconUrl: BRAND_ASSET_URL,
         adminEmail: 'admin@Scrolith.com',
@@ -411,6 +413,14 @@ const getAuthHeaders = async () => {
     return headers;
 };
 
+const shouldIncludeBrowserCredentials = () => {
+    try {
+        return !Capacitor.isNativePlatform();
+    } catch {
+        return true;
+    }
+};
+
 // --- API HELPER ---
 const api = {
     get: async (endpoint: string) => {
@@ -420,6 +430,7 @@ const api = {
 
             const res = await fetch(url, {
                 method: 'GET',
+                credentials: shouldIncludeBrowserCredentials() ? 'include' : 'omit',
                 headers: {
                     'Accept': 'application/json',
                     'Content-Type': 'application/json',
@@ -454,6 +465,7 @@ const api = {
         try {
             const res = await fetch(`${getCmsApiUrl()}${endpoint}`, {
                 method: 'POST',
+                credentials: shouldIncludeBrowserCredentials() ? 'include' : 'omit',
                 headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
                 body: JSON.stringify(data)
             });
@@ -472,6 +484,7 @@ const api = {
         try {
             const res = await fetch(`${getCmsApiUrl()}${endpoint}`, {
                 method: 'PUT',
+                credentials: shouldIncludeBrowserCredentials() ? 'include' : 'omit',
                 headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
                 body: JSON.stringify(data)
             });
@@ -490,6 +503,7 @@ const api = {
         try {
             const res = await fetch(`${getCmsApiUrl()}${endpoint}`, {
                 method: 'DELETE',
+                credentials: shouldIncludeBrowserCredentials() ? 'include' : 'omit',
                 headers: { ...(await getAuthHeaders()) }
             });
             if (!res.ok) {
@@ -534,7 +548,11 @@ export const CMSService = {
         const source = raw?.settings ?? raw?.data?.settings ?? raw ?? {};
 
         const siteName = source.siteName ?? source.site_name ?? 'Scrolith';
-        const tagline = source.tagline ?? source.siteTagline ?? source.site_tagline ?? 'Marketplace';
+        const tagline =
+            source.tagline ??
+            source.siteTagline ??
+            source.site_tagline ??
+            'AI-Powered Social Freelance Marketplace with Secure Escrow & Monetization';
         const logoUrl = source.logoUrl ?? source.logo_url ?? '';
         const faviconUrl = source.faviconUrl ?? source.favicon_url ?? '';
         const adminEmail = source.adminEmail ?? source.admin_email ?? 'admin@Scrolith.com';
@@ -873,7 +891,11 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
     getHomepageSections: async (options?: { role?: UserRole; location?: string }) => {
         let rawSections: any[] = [];
         try {
-            const data = unwrap(await api.get('/cms/homepage/sections'));
+            const params = new URLSearchParams();
+            if (options?.role) params.append('role', options.role);
+            if (options?.location) params.append('location', options.location);
+            const queryString = params.toString();
+            const data = unwrap(await api.get(`/cms/homepage/sections${queryString ? `?${queryString}` : ''}`));
             rawSections =
                 (Array.isArray(data) ? data : null) ||
                 (Array.isArray(data?.sections) ? data.sections : null) ||
@@ -2265,8 +2287,9 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
 
             const res = await fetch(`${getCmsApiUrl()}/cms/media`, {
                 method: 'POST',
+                credentials: shouldIncludeBrowserCredentials() ? 'include' : 'omit',
                 headers: {
-                    ...getAuthHeaders()
+                    ...(await getAuthHeaders())
                 },
                 body: formData
             });
@@ -2290,7 +2313,61 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
     }),
 
     addHomepageSection: async (type: any) => {
+        const buildMemberHomeTemplate = () => ({
+            title: 'Grow your professional world',
+            subtitle: 'Catch up on your network, opportunities, and community highlights.',
+            searchPlaceholder: 'Search posts, jobs, gigs, people, or pages',
+            searchHint: 'Search across posts, jobs, gigs, people, and pages.',
+            showSearch: true,
+            showDiscover: true,
+            showFollowing: true,
+            showComposer: true,
+            showStories: true,
+            showMessages: true,
+            showSlider: true,
+            showProfiles: true,
+            showPagesRecommendations: true,
+            showProfileViewers: true,
+            showProfileViewing: true,
+            showJobs: true,
+            showEmployers: true,
+            showGigs: true,
+            showFreelancers: true,
+            maxFeedItems: 12,
+            maxStories: 8,
+            maxMessages: 6,
+            maxSearchResults: 8,
+            maxProfiles: 8,
+            maxPagesRecommendations: 6,
+            maxProfileViewers: 6,
+            maxProfileViewing: 6,
+            maxJobs: 6,
+            maxGigs: 6,
+            topics: DEFAULT_MEMBER_HOME_TOPICS,
+            regions: DEFAULT_MEMBER_HOME_REGIONS,
+            composerTitle: 'Share a quick update or idea with your network.',
+            storyTitle: 'Stories',
+            reelsTitle: 'Scroll',
+            feedTitle: 'Home feed',
+            profilesTitle: 'Add to your feed',
+            pagesTitle: 'Pages to follow',
+            profileViewersTitle: 'Profile viewers',
+            profileViewingTitle: 'Recently viewed',
+            jobsTitle: 'Job recommendations',
+            gigsTitle: 'Gigs you can hire',
+            employersTitle: 'Employers to follow',
+            freelancersTitle: 'Freelancers to connect',
+            messagesTitle: 'Recent messages',
+            sliderTitle: 'Highlights',
+            featuredActionsTitle: 'Featured',
+            projectBriefQuickActionTitle: 'Scrolitha Project Brief',
+            projectBriefQuickActionSubtitle: 'Draft a professional project brief with AI',
+            gigCreationQuickActionTitle: 'Scrolitha Gig Creation',
+            gigCreationQuickActionSubtitle: 'Generate your gig setup with AI guidance',
+            sliderItems: []
+        });
         const templates: Record<string, any> = {
+            member_home: buildMemberHomeTemplate(),
             popular_services: { title: '', subtitle: '', items: [] },
             promo_banners: { title: '', items: [] },
             trust_value: { title: '', subtitle: '', items: [] },
@@ -2312,7 +2389,28 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 defaultTab: 'signup',
                 enableSocialLogin: true,
                 loginCtaLabel: 'Login',
-                signupCtaLabel: 'Sign up'
+                signupCtaLabel: 'Sign up',
+                scrolitha: {
+                    enabled: true,
+                    eyebrow: 'Scrolitha Live Assistant',
+                    title: 'Talk to Scrolitha before you create your account',
+                    subtitle: 'Launch guided AI onboarding directly from the guest homepage.',
+                    description: 'Visitors can preview gig creation, hiring, briefs, and marketplace workflows before signing in.',
+                    primaryPrompt: 'Create a gig draft',
+                    primaryLabel: 'Open Scrolitha',
+                    secondaryLabel: 'Join with popup',
+                    secondaryUrl: '/auth/signup',
+                    promptChips: ['Create a gig draft', 'Generate a project brief', 'How do I start on Scrolith?']
+                },
+                authPopup: {
+                    enabled: true,
+                    delaySeconds: 120,
+                    headline: 'Stay on Scrolith and continue your account setup',
+                    subheadline: 'Sign in or join directly from the guest homepage with the same enterprise auth controls.',
+                    defaultTab: 'signup',
+                    dismissLabel: 'Maybe later',
+                    trustNote: 'This popup is additive to your existing auth pages and can be dismissed anytime.'
+                }
             },
             guest_what_is_scrolith: {
                 title: '',
@@ -2389,11 +2487,15 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             'guest_community_preview',
             'guest_final_cta'
         ]);
-        const targetingRoles = guestOnlyTypes.has(type) ? [UserRole.GUEST] : [];
+        const targetingRoles = type === 'member_home'
+            ? [UserRole.FREELANCER, UserRole.EMPLOYER, UserRole.ADMIN]
+            : guestOnlyTypes.has(type)
+                ? [UserRole.GUEST]
+                : [];
         const newSection = {
             id: `sec-${Date.now()}`,
             type,
-            name: `New ${type} Section`,
+            name: type === 'member_home' ? 'Signed-in Member Home' : `New ${type} Section`,
             isActive: true,
             position: 99,
             content: templates[type] ?? {},

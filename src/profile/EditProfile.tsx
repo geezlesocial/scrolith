@@ -14,6 +14,8 @@ import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import { FileService } from '../services/files';
 import { Capacitor } from '@capacitor/core';
 import { captureAndUpload } from '../mobile/uploads';
+import LocationPicker from '../components/common/LocationPicker';
+import { getPublicAppOrigin } from '../utils/siteUrl';
 
 interface EditProfileProps {
     isEmbedded?: boolean;
@@ -53,7 +55,7 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
     const [introRecording, setIntroRecording] = useState(false);
     const [introUploading, setIntroUploading] = useState(false);
     const usernameRegex = /^[a-z0-9][a-z0-9._-]{2,29}$/;
-    const publicBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://www.scrolith.com';
+    const publicBaseUrl = getPublicAppOrigin();
     const cleanBaseUrl = publicBaseUrl.replace(/\/$/, '');
     const profileDemographics = (settings as any)?.profileDemographics || {};
     const demographicsEnabled = profileDemographics?.enabled !== false;
@@ -101,6 +103,22 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                 title: '',
                 bio: '',
                 location: '',
+                formattedAddress: '',
+                formatted_address: '',
+                country: '',
+                countryCode: '',
+                country_code: '',
+                state: '',
+                city: '',
+                region: '',
+                postalCode: '',
+                postal_code: '',
+                latitude: null,
+                longitude: null,
+                placeId: '',
+                place_id: '',
+                locationSource: '',
+                location_source: '',
                 gender: '',
                 date_of_birth: null,
                 dateOfBirth: null,
@@ -219,6 +237,17 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
         } finally {
             setIsSaving(false);
         }
+    };
+
+    const handleLocationChange = (next: Partial<UserProfile>) => {
+        setProfile((prev) => {
+            if (!prev) return prev;
+            return {
+                ...prev,
+                ...next,
+                location: String(next.location ?? next.formattedAddress ?? next.formatted_address ?? prev.location ?? ''),
+            };
+        });
     };
 
     const saveUsername = async (value: string) => {
@@ -753,11 +782,11 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
-                                            <input 
-                                                className="w-full border-gray-300 rounded-lg p-2"
-                                                value={profile.location}
-                                                onChange={e => setProfile({...profile, location: e.target.value})}
+                                            <LocationPicker
+                                                value={profile}
+                                                onChange={handleLocationChange}
+                                                label="Location"
+                                                placeholder="Search your city, state, or country"
                                             />
                                         </div>
                                         {genderEnabled && (

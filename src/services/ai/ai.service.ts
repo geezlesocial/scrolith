@@ -5,6 +5,8 @@ import type { AITagInput, AIProjectBriefInput, AIProjectBriefResponse, AIReplyIn
 
 export type PostEnhanceMode = 'grammar' | 'rephrase' | 'professional' | 'shorten' | 'expand';
 
+const AI_REQUEST_TIMEOUT_MS = 95_000;
+
 const hasBackendEnv = Boolean(
   import.meta.env.VITE_BACKEND_URL ||
     import.meta.env.VITE_API_URL ||
@@ -19,26 +21,39 @@ if (import.meta.env.PROD && !hasBackendEnv) {
 const getPublicApiUrl = () => getApiBaseUrl();
 const unwrap = (payload: any) => payload?.data?.data ?? payload?.data ?? payload;
 
-const publicApi = {
-  get: async (endpoint: string) => {
-    const res = await fetch(`${getPublicApiUrl()}${endpoint}`);
-    if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
-    }
-    return res.json();
-  },
-  post: async (endpoint: string, data: any) => {
+const fetchJsonWithTimeout = async (endpoint: string, init?: RequestInit, timeoutMs = AI_REQUEST_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  try {
     const res = await fetch(`${getPublicApiUrl()}${endpoint}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      ...(init || {}),
+      signal: controller.signal
     });
     if (!res.ok) {
       const errorText = await res.text();
       throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
     }
     return res.json();
+  } catch (error: any) {
+    if (String(error?.name || '').trim() === 'AbortError') {
+      throw new Error(`Scrolitha AI timeout of ${timeoutMs}ms exceeded`);
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+};
+
+const publicApi = {
+  get: async (endpoint: string) => {
+    return fetchJsonWithTimeout(endpoint, { method: 'GET' });
+  },
+  post: async (endpoint: string, data: any) => {
+    return fetchJsonWithTimeout(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
   }
 };
 
@@ -169,7 +184,7 @@ export const AIService = {
     if (!prompt) throw new Error('Prompt is required');
 
     try {
-      const res = await apiClient.post('/briefs/generate', { prompt });
+      const res = await apiClient.post('/briefs/generate', { prompt }, { timeout: AI_REQUEST_TIMEOUT_MS });
       const data = unwrap(res);
       return normalizeProjectBrief(data, prompt);
     } catch (error: any) {
@@ -218,10 +233,14 @@ export const AIService = {
     const text = String(payload?.text || '').trim();
     if (!text) throw new Error('Text is required');
 
-    const res = await apiClient.post('/ai/post-enhance', {
-      text,
-      mode: payload.mode
-    });
+    const res = await apiClient.post(
+      '/ai/post-enhance',
+      {
+        text,
+        mode: payload.mode
+      },
+      { timeout: AI_REQUEST_TIMEOUT_MS }
+    );
     const data = unwrap(res);
     return {
       enhancedText: String(data?.enhancedText || '').trim()
@@ -229,7 +248,7 @@ export const AIService = {
   },
 
   generatePostInsight: async (payload: { postId?: string; text?: string; force?: boolean }): Promise<{ insightText?: string; aiInsightText?: string; generated?: boolean; reason?: string | null }> => {
-    const res = await apiClient.post('/ai/post-insight', payload || {});
+    const res = await apiClient.post('/ai/post-insight', payload || {}, { timeout: AI_REQUEST_TIMEOUT_MS });
     const data = unwrap(res);
     return {
       insightText: data?.insightText,

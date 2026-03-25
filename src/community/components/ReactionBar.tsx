@@ -20,6 +20,9 @@ type ReactionBarProps = {
   layout?: 'inline' | 'rail';
   quickLimit?: number;
   compact?: boolean;
+  railVariant?: 'quick' | 'launcher';
+  railLauncherLabel?: string;
+  railTextMode?: 'count' | 'label';
   className?: string;
 };
 
@@ -57,6 +60,9 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
   layout = 'inline',
   quickLimit = 4,
   compact = false,
+  railVariant = 'quick',
+  railLauncherLabel = 'Reaction',
+  railTextMode = 'count',
   className = ''
 }) => {
   const { user } = useUser();
@@ -89,6 +95,10 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
   useEffect(() => {
     setUserReaction(initialUserReaction || null);
   }, [initialUserReaction, targetId]);
+
+  useEffect(() => {
+    setOpenMore(false);
+  }, [targetId, targetType]);
 
   useEffect(() => {
     if (!targetId || !featureEnabled) return;
@@ -157,6 +167,17 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
       const summary = await ReactionsService.react(targetType, targetId, reactionKey);
       setCounts(summary?.counts || {});
       setUserReaction(summary?.userReaction || null);
+      window.dispatchEvent(
+        new CustomEvent('reactions:updated', {
+          detail: {
+            targetType,
+            targetId,
+            counts: summary?.counts || {},
+            userReaction: summary?.userReaction || null,
+            actorUserId: user?.id || null
+          }
+        })
+      );
     } catch (error: any) {
       setCounts(previousCounts);
       setUserReaction(previousReaction);
@@ -177,6 +198,59 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
       : 'inline-flex min-h-[46px] min-w-[64px] flex-col items-center justify-center rounded-2xl px-2 py-1.5';
     const railEmojiClass = compact ? 'text-sm leading-none' : 'text-lg';
     const railIconClass = compact ? 'h-3.5 w-3.5' : 'h-4 w-4';
+    const selectedReaction = allowed.find((item) => item.key === userReaction) || null;
+
+    if (railVariant === 'launcher') {
+      return (
+        <div className={`relative flex flex-col items-center gap-2 ${className}`} onClick={(event) => event.stopPropagation()}>
+          <button
+            type="button"
+            disabled={busy || disabled}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setOpenMore((prev) => !prev);
+            }}
+            className={`${railBaseClass} text-white transition ${
+              selectedReaction ? 'bg-blue-600/85 ring-1 ring-blue-200/60' : 'bg-black/45 hover:bg-black/65'
+            } disabled:cursor-not-allowed disabled:opacity-60`}
+            title={selectedReaction?.label || railLauncherLabel}
+          >
+            {selectedReaction ? (
+              <span className={railEmojiClass}>{selectedReaction.emoji}</span>
+            ) : (
+              <SmilePlus className={railIconClass} />
+            )}
+            <span className="text-[10px] font-semibold">{railLauncherLabel}</span>
+          </button>
+          {openMore ? (
+            <div
+              className={`absolute top-0 z-[80] flex max-w-[240px] flex-col gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl ${
+                compact ? 'right-[58px]' : 'right-[72px]'
+              }`}
+            >
+              {allowed.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={(event) => {
+                    void react(event, item.key);
+                    setOpenMore(false);
+                  }}
+                  className={`inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition ${
+                    userReaction === item.key ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-100'
+                  }`}
+                  title={item.label}
+                >
+                  <span className="text-base leading-none">{item.emoji}</span>
+                  <span className="font-semibold">{item.label}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      );
+    }
 
     return (
       <div className={`relative flex flex-col items-center gap-2 ${className}`} onClick={(event) => event.stopPropagation()}>
@@ -195,7 +269,11 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
               title={item.label}
             >
               <span className={railEmojiClass}>{item.emoji}</span>
-              {showCounts && count > 0 ? <span className="text-[10px] font-semibold">{count}</span> : null}
+              {railTextMode === 'label' ? (
+                <span className="text-[10px] font-semibold">{item.label}</span>
+              ) : showCounts && count > 0 ? (
+                <span className="text-[10px] font-semibold">{count}</span>
+              ) : null}
             </button>
           );
         })}

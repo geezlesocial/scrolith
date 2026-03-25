@@ -1,14 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, Loader2, X, UploadCloud, Sparkles, Film } from 'lucide-react';
+import { AlertTriangle, Camera, Loader2, X, UploadCloud, Sparkles, Film } from 'lucide-react';
 import { FileService } from '../../services/files';
 import { ScrollService, type ScrollConfig, type ScrollVideo } from '../../services/scroll';
 import { useNotification } from '../../context/NotificationContext';
+import { useUser } from '../../context/UserContext';
+import OfferTagSelector from '../../components/commerce/OfferTagSelector';
+import type { OfferTagSelection } from '../../utils/contentOffers';
+import type { PendingPostVideoScrollSource } from '../../utils/postVideoScrollBridge';
 
 type ScrollCreateModalProps = {
   open: boolean;
   onClose: () => void;
   onCreated: (scroll: ScrollVideo) => void;
   config?: ScrollConfig | null;
+  sourceVideo?: PendingPostVideoScrollSource | null;
 };
 
 const getScrollPreviewFilterStyle = (preset: string, strengthValue: number): React.CSSProperties => {
@@ -35,19 +40,22 @@ const getScrollPreviewFilterStyle = (preset: string, strengthValue: number): Rea
   return { filter: 'none' };
 };
 
-const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, onCreated, config }) => {
+const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, onCreated, config, sourceVideo }) => {
   const { showNotification } = useNotification();
+  const { user } = useUser();
   const deviceVideoInputRef = useRef<HTMLInputElement | null>(null);
   const cameraVideoInputRef = useRef<HTMLInputElement | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'network' | 'followers' | 'private'>('public');
+  const [graphicWarning, setGraphicWarning] = useState(false);
   const [isAIEnhanced, setIsAIEnhanced] = useState(false);
   const [filterPreset, setFilterPreset] = useState('none');
   const [filterStrength, setFilterStrength] = useState(60);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState('');
+  const [offerTags, setOfferTags] = useState<OfferTagSelection[]>([]);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
 
@@ -66,6 +74,28 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
     () => getScrollPreviewFilterStyle(filterPreset, filterStrength),
     [filterPreset, filterStrength]
   );
+
+  useEffect(() => {
+    if (!open) return;
+    setTitle(String(sourceVideo?.title || '').trim());
+    setDescription(String(sourceVideo?.description || '').trim());
+    setLocation(String(sourceVideo?.location || '').trim());
+    setVisibility((config?.defaultVisibility as any) || 'public');
+    setGraphicWarning(false);
+    setIsAIEnhanced(false);
+    setFilterPreset('none');
+    setFilterStrength(60);
+    setVideoFile(null);
+    setOfferTags([]);
+    setUploading(false);
+    setProgress(0);
+  }, [
+    config?.defaultVisibility,
+    open,
+    sourceVideo?.description,
+    sourceVideo?.location,
+    sourceVideo?.title
+  ]);
 
   useEffect(() => {
     if (!videoFile) {
@@ -90,17 +120,19 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
     setDescription('');
     setLocation('');
     setVisibility((config?.defaultVisibility as any) || 'public');
+    setGraphicWarning(false);
     setIsAIEnhanced(false);
     setFilterPreset('none');
     setFilterStrength(60);
     setVideoFile(null);
+    setOfferTags([]);
     setUploading(false);
     setProgress(0);
     onClose();
   };
 
   const handleSubmit = async () => {
-    if (!videoFile) {
+    if (!videoFile && !sourceVideo?.fileId) {
       showNotification('error', 'Scroll', 'Please choose a video file.');
       return;
     }
@@ -111,20 +143,29 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
 
     try {
       setUploading(true);
-      setProgress(2);
-      const uploaded = await FileService.uploadFile(videoFile, 'portfolio' as any, {
-        visibility: 'public',
-        onProgress: (percent) => setProgress(percent)
-      });
+      let fileId = String(sourceVideo?.fileId || '').trim();
+      if (videoFile) {
+        setProgress(2);
+        const uploaded = await FileService.uploadFile(videoFile, 'portfolio' as any, {
+          visibility: 'public',
+          onProgress: (percent) => setProgress(percent)
+        });
+        fileId = String(uploaded?.id || '').trim();
+      }
+      if (!fileId) {
+        throw new Error('Scroll source video is missing.');
+      }
       const created = await ScrollService.create({
-        fileId: uploaded.id,
+        fileId,
         title: title.trim() || undefined,
         description: description.trim() || undefined,
         location: location.trim() || undefined,
         visibility,
+        graphicWarning,
         isAIEnhanced,
         filterPreset,
-        filterStrength
+        filterStrength,
+        offerTags
       });
       onCreated(created);
       showNotification('success', 'Scroll', 'Scroll video published.');
@@ -141,6 +182,9 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
       setProgress(0);
     }
   };
+
+  const previewUrl = videoPreviewUrl || String(sourceVideo?.mediaUrl || '').trim();
+  const previewTitle = videoFile?.name || sourceVideo?.title || sourceVideo?.description || 'Selected video';
 
   return (
     <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
@@ -190,15 +234,20 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
                 <Camera className="h-4 w-4 text-cyan-300" />
                 Capture video
               </button>
+              {sourceVideo?.fileId ? (
+                <span className="inline-flex items-center rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-3 py-2 text-xs font-semibold text-cyan-100">
+                  Post video ready for Scroll
+                </span>
+              ) : null}
             </div>
             <div className="mt-3 overflow-hidden rounded-2xl border border-white/10 bg-black/40">
-              {videoPreviewUrl ? (
+              {previewUrl ? (
                 <div className="grid gap-3 p-3 md:grid-cols-[minmax(0,220px),1fr] md:items-center">
                   <div className="relative mx-auto w-full max-w-[220px] overflow-hidden rounded-2xl border border-white/10 bg-black shadow-lg">
                     <div className="aspect-[9/16] w-full">
                       <video
-                        key={videoPreviewUrl}
-                        src={videoPreviewUrl}
+                        key={previewUrl}
+                        src={previewUrl}
                         className="h-full w-full object-cover"
                         style={previewFilterStyle}
                         muted
@@ -213,21 +262,32 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
                   <div className="min-w-0 space-y-2">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-wide text-cyan-200">Preview</p>
-                      <p className="mt-1 truncate text-sm font-semibold text-white">{videoFile?.name}</p>
+                      <p className="mt-1 truncate text-sm font-semibold text-white">{previewTitle}</p>
                     </div>
                     <div className="flex flex-wrap gap-2 text-xs text-white/75">
-                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
-                        {videoFile?.type || 'video/*'}
-                      </span>
-                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
-                        {Math.max(1, Math.round((videoFile?.size || 0) / 1024 / 1024 * 10) / 10)} MB
-                      </span>
+                      {videoFile?.type ? (
+                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                          {videoFile.type}
+                        </span>
+                      ) : null}
+                      {videoFile ? (
+                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">
+                          {Math.max(1, Math.round((videoFile.size || 0) / 1024 / 1024 * 10) / 10)} MB
+                        </span>
+                      ) : null}
                       <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-cyan-100">
                         Filter: {filterPreset}
                       </span>
+                      {sourceVideo?.fileId && !videoFile ? (
+                        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-emerald-100">
+                          Featured from post
+                        </span>
+                      ) : null}
                     </div>
                     <p className="text-xs leading-5 text-white/60">
-                      This is the exact local video preview that will be uploaded when you publish the Scroll.
+                      {videoFile
+                        ? 'This is the exact local video preview that will be uploaded when you publish the Scroll.'
+                        : 'This is the existing post video that will be featured in Scroll when you publish.'}
                     </p>
                   </div>
                 </div>
@@ -268,6 +328,16 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
               className="w-full rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm outline-none focus:border-cyan-300"
             />
           </label>
+
+          <OfferTagSelector
+            mode="user"
+            ownerUserId={user?.id}
+            value={offerTags}
+            onChange={setOfferTags}
+            theme="dark"
+            label="Tag storefront offers"
+            helperText="Attach relevant services so viewers can open your storefront, message you, or start a brief without leaving Scroll."
+          />
 
           <div className="grid gap-3 md:grid-cols-3">
             <label className="block">
@@ -312,18 +382,32 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
             </label>
           </div>
 
-          <label className="inline-flex items-center gap-2 text-sm text-white/85">
-            <input
-              type="checkbox"
-              checked={isAIEnhanced}
-              onChange={(event) => setIsAIEnhanced(event.target.checked)}
-              className="h-4 w-4 rounded border-white/30 bg-white/10 accent-cyan-400"
-            />
-            <span className="inline-flex items-center gap-1">
-              <Sparkles className="h-4 w-4 text-cyan-300" />
-              Mark as AI-enhanced
-            </span>
-          </label>
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="inline-flex items-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white/85">
+              <input
+                type="checkbox"
+                checked={graphicWarning}
+                onChange={(event) => setGraphicWarning(event.target.checked)}
+                className="h-4 w-4 rounded border-white/30 bg-white/10 accent-amber-400"
+              />
+              <span className="inline-flex items-center gap-1">
+                <AlertTriangle className="h-4 w-4 text-amber-300" />
+                Graphic warning
+              </span>
+            </label>
+            <label className="inline-flex items-center gap-2 rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white/85">
+              <input
+                type="checkbox"
+                checked={isAIEnhanced}
+                onChange={(event) => setIsAIEnhanced(event.target.checked)}
+                className="h-4 w-4 rounded border-white/30 bg-white/10 accent-cyan-400"
+              />
+              <span className="inline-flex items-center gap-1">
+                <Sparkles className="h-4 w-4 text-cyan-300" />
+                Mark as AI-enhanced
+              </span>
+            </label>
+          </div>
 
           {uploading ? (
             <div className="rounded-xl border border-cyan-300/30 bg-cyan-400/10 p-3">

@@ -124,7 +124,15 @@ const BrowseJobs = () => {
                      <span>-</span>
                      <span className="inline-flex items-center gap-2">
                        <span>{job.clientName}</span>
-                       {clientVerificationLevel ? <VerifiedBadge size={16} level={clientVerificationLevel} className="ml-1" /> : null}
+                       {clientVerificationLevel ? (
+                         <VerifiedBadge
+                           size={16}
+                           level={clientVerificationLevel}
+                           className="ml-1"
+                           subjectRole={(job as any)?.clientType === 'business' ? 'business' : 'employer'}
+                           subjectType={(job as any)?.clientType || 'business'}
+                         />
+                       ) : null}
                        <ProBadge role="employer" isPro={(job as any)?.clientIsPro} />
                      </span>
                   </div>

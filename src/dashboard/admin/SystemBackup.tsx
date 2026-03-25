@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertCircle,
   Archive,
   CheckCircle2,
   Copy,
@@ -36,6 +37,30 @@ type BackupRecord = {
   licenseHint: string;
   notes: string | null;
   fileMissing?: boolean;
+};
+
+type BackupJobStatus = 'queued' | 'running' | 'completed' | 'failed';
+
+type BackupJobRecord = {
+  id: string;
+  type: 'create';
+  status: BackupJobStatus;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  failedAt: string | null;
+  requestedByAdminEmail: string | null;
+  mode: BackupMode;
+  sections: string[];
+  customTables: string[];
+  includeFiles: boolean;
+  notes: string | null;
+  backupId: string | null;
+  fileName: string | null;
+  scrolithLicense: string | null;
+  message: string | null;
+  errorCode: string | null;
 };
 
 type RestoreState = {
@@ -118,6 +143,7 @@ const SystemBackup: React.FC = () => {
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
   const [backups, setBackups] = useState<BackupRecord[]>([]);
+  const [backupJobs, setBackupJobs] = useState<BackupJobRecord[]>([]);
   const [sections, setSections] = useState<string[]>([]);
   const [selectedBackupIds, setSelectedBackupIds] = useState<Set<string>>(new Set());
   const [latestLicense, setLatestLicense] = useState<{ backupId: string; license: string } | null>(null);
@@ -138,13 +164,15 @@ const SystemBackup: React.FC = () => {
       if (!silent) setLoading(true);
       if (silent) setRefreshing(true);
       try {
-        const [meta, backupRows] = await Promise.all([
+        const [meta, backupRows, backupJobRows] = await Promise.all([
           AdminService.getSystemBackupMeta().catch(() => ({ sections: [] })),
-          AdminService.getSystemBackups()
+          AdminService.getSystemBackups(),
+          AdminService.getSystemBackupJobs().catch(() => [])
         ]);
         const resolvedSections = Array.isArray(meta?.sections) ? meta.sections : [];
         setSections(resolvedSections);
         setBackups(Array.isArray(backupRows) ? backupRows : []);
+        setBackupJobs(Array.isArray(backupJobRows) ? backupJobRows : []);
       } catch (error: any) {
         showNotification('error', 'System Backup', getApiErrorMessage(error, 'Failed to load backups.'));
       } finally {
@@ -160,16 +188,32 @@ const SystemBackup: React.FC = () => {
   }, [loadData]);
 
   useEffect(() => {
-    const refresh = () => {
+    const refresh = (event?: Event) => {
+      const detail = event instanceof CustomEvent ? event.detail : null;
+      if (detail?.action === 'job_completed' && detail?.backupId && detail?.scrolithLicense) {
+        setLatestLicense({
+          backupId: String(detail.backupId),
+          license: String(detail.scrolithLicense)
+        });
+        showNotification('success', 'System Backup', 'Backup generation completed successfully.');
+      }
+      if (detail?.action === 'job_failed') {
+        showNotification(
+          'error',
+          'System Backup',
+          String(detail?.error || 'Backup generation failed.')
+        );
+      }
       void loadData(true);
     };
+    const pollMs = backupJobs.some((job) => job.status === 'queued' || job.status === 'running') ? 5_000 : 45_000;
     window.addEventListener('admin:system_backup_updated', refresh as EventListener);
-    const pollId = window.setInterval(refresh, 45_000);
+    const pollId = window.setInterval(() => refresh(), pollMs);
     return () => {
       window.removeEventListener('admin:system_backup_updated', refresh as EventListener);
       window.clearInterval(pollId);
     };
-  }, [loadData]);
+  }, [backupJobs, loadData, showNotification]);
 
   useEffect(() => {
     setRestoreState((prev) => ({
@@ -182,6 +226,30 @@ const SystemBackup: React.FC = () => {
     () => backups.reduce((sum, backup) => sum + Number(backup?.sizeBytes || 0), 0),
     [backups]
   );
+
+  const activeCreateJob = useMemo(
+    () => backupJobs.find((job) => job.type === 'create' && (job.status === 'queued' || job.status === 'running')) || null,
+    [backupJobs]
+  );
+
+  const recentFailedCreateJob = useMemo(
+    () => backupJobs.find((job) => job.type === 'create' && job.status === 'failed') || null,
+    [backupJobs]
+  );
+
+  useEffect(() => {
+    const completedJobWithLicense = backupJobs.find(
+      (job) => job.status === 'completed' && job.backupId && job.scrolithLicense
+    );
+    if (!completedJobWithLicense?.backupId || !completedJobWithLicense?.scrolithLicense) return;
+    setLatestLicense((prev) => {
+      if (prev?.backupId === completedJobWithLicense.backupId) return prev;
+      return {
+        backupId: completedJobWithLicense.backupId,
+        license: completedJobWithLicense.scrolithLicense
+      };
+    });
+  }, [backupJobs]);
 
   const selectedBackups = useMemo(
     () => backups.filter((backup) => selectedBackupIds.has(backup.id)),
@@ -239,6 +307,14 @@ const SystemBackup: React.FC = () => {
   };
 
   const handleCreateBackup = async () => {
+    if (activeCreateJob) {
+      showNotification(
+        'info',
+        'System Backup',
+        'A backup job is already running. Wait for it to finish before starting a new one.'
+      );
+      return;
+    }
     if (createMode === 'partial' && !createSections.length && !parseLines(createCustomTablesText).length) {
       showNotification(
         'error',
@@ -256,12 +332,21 @@ const SystemBackup: React.FC = () => {
         includeFiles: createIncludeFiles,
         notes: createNotes.trim()
       });
-      const backupId = String(result?.backup?.id || '');
-      const license = String(result?.scrolithLicense || '');
-      if (backupId && license) {
-        setLatestLicense({ backupId, license });
+      const jobId = String(result?.job?.id || '');
+      if (jobId) {
+        showNotification(
+          'success',
+          'System Backup',
+          'Backup generation started. It will continue in the background and appear in the catalog when ready.'
+        );
+      } else {
+        const backupId = String(result?.backup?.id || '');
+        const license = String(result?.scrolithLicense || '');
+        if (backupId && license) {
+          setLatestLicense({ backupId, license });
+        }
+        showNotification('success', 'System Backup', 'Backup created successfully.');
       }
-      showNotification('success', 'System Backup', 'Backup created successfully.');
       setCreateNotes('');
       await loadData(true);
     } catch (error: any) {
@@ -339,10 +424,11 @@ const SystemBackup: React.FC = () => {
     }
   };
 
-  const openRestore = (backupId: string) => {
+  const openRestore = (backup: BackupRecord) => {
     setRestoreState((prev) => ({
-      ...createInitialRestoreState(String(user?.email || prev.adminEmail || '')),
-      backupId
+      ...createInitialRestoreState(String(backup.createdByAdminEmail || user?.email || prev.adminEmail || '')),
+      backupId: backup.id,
+      adminEmail: String(backup.createdByAdminEmail || user?.email || prev.adminEmail || '')
     }));
   };
 
@@ -356,7 +442,7 @@ const SystemBackup: React.FC = () => {
       return;
     }
     if (!restoreState.adminEmail.trim() || !restoreState.adminPassword) {
-      showNotification('error', 'Restore Backup', 'Admin email and password are required.');
+      showNotification('error', 'Restore Backup', 'Backup admin email and password are required.');
       return;
     }
     if (
@@ -439,6 +525,45 @@ const SystemBackup: React.FC = () => {
         </div>
       </section>
 
+      {activeCreateJob ? (
+        <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="flex items-center gap-2 text-sm font-semibold text-blue-900">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Backup generation in progress
+              </p>
+              <p className="mt-1 text-sm text-blue-800">
+                The backup is running in the background so the browser does not need to keep one long request open.
+              </p>
+              <p className="mt-2 font-mono text-xs text-blue-900">Job ID: {activeCreateJob.id}</p>
+              <p className="mt-1 text-xs text-blue-800">
+                Status: {activeCreateJob.status} • Mode: {activeCreateJob.mode} • Started:{' '}
+                {formatDateTime(activeCreateJob.startedAt || activeCreateJob.createdAt)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs text-blue-800">
+              Catalog refreshes automatically every 5 seconds while this job is active.
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {!activeCreateJob && recentFailedCreateJob ? (
+        <section className="rounded-2xl border border-red-200 bg-red-50 p-5">
+          <p className="flex items-center gap-2 text-sm font-semibold text-red-900">
+            <AlertCircle className="h-4 w-4" />
+            Last backup job failed
+          </p>
+          <p className="mt-1 text-sm text-red-800">
+            {recentFailedCreateJob.message || 'The last background backup job failed.'}
+          </p>
+          <p className="mt-2 text-xs text-red-700">
+            Failed at {formatDateTime(recentFailedCreateJob.failedAt || recentFailedCreateJob.updatedAt)}.
+          </p>
+        </section>
+      ) : null}
+
       {latestLicense ? (
         <section className="rounded-2xl border border-amber-300 bg-amber-50 p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -448,7 +573,7 @@ const SystemBackup: React.FC = () => {
                 Scrolith Restore License Generated
               </p>
               <p className="mt-1 text-xs text-amber-800">
-                Store this license securely. It is required together with admin credentials for restore.
+                Store this license securely. It is required together with the backup admin credentials for restore.
               </p>
             </div>
             <button
@@ -538,11 +663,11 @@ const SystemBackup: React.FC = () => {
             <button
               type="button"
               onClick={() => void handleCreateBackup()}
-              disabled={creating}
+              disabled={creating || Boolean(activeCreateJob)}
               className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
             >
               {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Database className="mr-2 h-4 w-4" />}
-              Generate Backup
+              {activeCreateJob ? 'Backup Running...' : 'Generate Backup'}
             </button>
           </div>
         </section>
@@ -598,6 +723,68 @@ const SystemBackup: React.FC = () => {
           </div>
         </section>
       </div>
+
+      {backupJobs.length ? (
+        <section className="rounded-2xl border border-gray-200 bg-white p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-base font-semibold text-gray-900">Backup Activity</h3>
+            <p className="text-xs text-gray-500">Recent background jobs for create backup operations.</p>
+          </div>
+
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="border-b border-gray-200 text-xs uppercase tracking-wide text-gray-500">
+                <tr>
+                  <th className="px-2 py-2">Started</th>
+                  <th className="px-2 py-2">Mode</th>
+                  <th className="px-2 py-2">Status</th>
+                  <th className="px-2 py-2">Backup</th>
+                  <th className="px-2 py-2">Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {backupJobs.slice(0, 8).map((job) => {
+                  const tone =
+                    job.status === 'completed'
+                      ? 'text-emerald-700'
+                      : job.status === 'failed'
+                        ? 'text-red-700'
+                        : 'text-blue-700';
+                  return (
+                    <tr key={job.id} className="border-b border-gray-100 align-top">
+                      <td className="px-2 py-3">
+                        <p className="font-medium text-gray-900">{formatDateTime(job.startedAt || job.createdAt)}</p>
+                        <p className="font-mono text-xs text-gray-500">{job.id}</p>
+                      </td>
+                      <td className="px-2 py-3">
+                        <p className="font-medium capitalize text-gray-900">{job.mode}</p>
+                        <p className="text-xs text-gray-600">Files: {job.includeFiles ? 'included' : 'excluded'}</p>
+                      </td>
+                      <td className={`px-2 py-3 text-sm font-semibold ${tone}`}>
+                        <span className="inline-flex items-center gap-1">
+                          {job.status === 'completed' ? (
+                            <CheckCircle2 className="h-4 w-4" />
+                          ) : job.status === 'failed' ? (
+                            <AlertCircle className="h-4 w-4" />
+                          ) : (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          )}
+                          {job.status}
+                        </span>
+                      </td>
+                      <td className="px-2 py-3 text-xs text-gray-700">
+                        <p>{job.backupId || '-'}</p>
+                        <p>{job.fileName || '-'}</p>
+                      </td>
+                      <td className="px-2 py-3 text-xs text-gray-600">{job.message || '-'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       <section className="rounded-2xl border border-gray-200 bg-white p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -687,7 +874,7 @@ const SystemBackup: React.FC = () => {
                         </button>
                         <button
                           type="button"
-                          onClick={() => openRestore(backup.id)}
+                          onClick={() => openRestore(backup)}
                           className="inline-flex items-center rounded border border-blue-300 px-2 py-1 text-xs text-blue-700 hover:bg-blue-50"
                         >
                           <ShieldCheck className="mr-1 h-3 w-3" />
@@ -736,7 +923,7 @@ const SystemBackup: React.FC = () => {
           </div>
 
           <p className="mt-2 text-xs text-blue-800">
-            Backup ID: <span className="font-mono">{restoreState.backupId}</span>. Provide matching license and admin credentials.
+            Backup ID: <span className="font-mono">{restoreState.backupId}</span>. Provide the matching license and backup admin credentials.
           </p>
 
           <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -752,7 +939,7 @@ const SystemBackup: React.FC = () => {
             </label>
 
             <label className="space-y-1 text-sm">
-              <span className="text-blue-900">Admin email</span>
+              <span className="text-blue-900">Backup admin email</span>
               <input
                 type="email"
                 value={restoreState.adminEmail}
@@ -854,7 +1041,7 @@ const SystemBackup: React.FC = () => {
               Restore Backup
             </button>
             <p className="self-center text-xs text-blue-900">
-              Only admin users with valid credentials and matching Scrolith license can restore this backup.
+              Only the backup admin user with valid credentials and matching Scrolith license can restore this backup.
             </p>
           </div>
         </section>

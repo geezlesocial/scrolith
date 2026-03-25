@@ -34,7 +34,7 @@ import { useCart } from "../context/CartContext";
 import { CMSService } from "../services/cms";
 import { HeaderConfig, ActivityConfig, UserRole, HeroSearchConfig } from "../types";
 import SearchInput from "./SearchInput";
-import { getNotificationActionUrl, getNotificationBucket } from "../utils/notificationRouting";
+import { getNotificationActionUrl, getNotificationBucket, isExternalNotificationUrl } from "../utils/notificationRouting";
 import { resolveResponsiveAssetUrl } from "../utils/assetUrl";
 
 type LucideIconComponent = React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
@@ -354,6 +354,10 @@ const Navbar = () => {
     markAsRead(id);
     setShowNotifications(false);
     if (actionUrl) {
+      if (isExternalNotificationUrl(actionUrl)) {
+        window.location.href = actionUrl;
+        return;
+      }
       navigate(actionUrl);
     }
   };

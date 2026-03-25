@@ -69,6 +69,8 @@ import { GcoinService } from '../../services/gcoin';
 import { useNotification } from '../../context/NotificationContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useUser } from '../../context/UserContext';
+import VerifiedBadge from '../../components/common/VerifiedBadge';
+import { resolveVerificationLevel } from '../../utils/verification';
 
 interface Wallet {
   userId: string;
@@ -979,6 +981,68 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                     <option value="suspended">Suspended</option>
                     <option value="banned">Banned</option>
                   </select>
+                </div>
+                <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-1">Verification Status</label>
+                    <select
+                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={String(editingUser.kycStatus || editingUser.kyc_status || (editingUser.isVerified ? 'verified' : 'pending')).toLowerCase()}
+                      onChange={e => {
+                        const nextStatus = e.target.value;
+                        const nextVerified = nextStatus === 'verified';
+                        setEditingUser({
+                          ...editingUser,
+                          kycStatus: nextStatus as any,
+                          kyc_status: nextStatus as any,
+                          isVerified: nextVerified,
+                          is_verified: nextVerified
+                        } as EditableUser);
+                      }}
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="under_review">Under review</option>
+                      <option value="verified">Verified</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Standard verification is controlled here. Business and Pro badge variants are still derived from account role and active plans.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg border border-white/80 bg-white px-3 py-2">
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">Public badge preview</div>
+                      <div className="text-xs text-gray-500">How this account will appear on public cards and profiles.</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {resolveVerificationLevel({
+                        isVerified: editingUser.isVerified,
+                        kycStatus: editingUser.kycStatus || editingUser.kyc_status,
+                        role: editingUser.role,
+                        type: editingUser.role === 'employer' ? 'business' : 'user',
+                        isProFreelancer: Boolean((editingUser as any).freelancerPlanActive && editingUser.role === 'freelancer'),
+                        isProEmployer: Boolean((editingUser as any).employerPlanActive && editingUser.role === 'employer')
+                      }) ? (
+                        <VerifiedBadge
+                          size={18}
+                          level={resolveVerificationLevel({
+                            isVerified: editingUser.isVerified,
+                            kycStatus: editingUser.kycStatus || editingUser.kyc_status,
+                            role: editingUser.role,
+                            type: editingUser.role === 'employer' ? 'business' : 'user',
+                            isProFreelancer: Boolean((editingUser as any).freelancerPlanActive && editingUser.role === 'freelancer'),
+                            isProEmployer: Boolean((editingUser as any).employerPlanActive && editingUser.role === 'employer')
+                          })}
+                          subjectRole={editingUser.role}
+                          subjectType={editingUser.role === 'employer' ? 'business' : 'user'}
+                        />
+                      ) : (
+                        <span className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-500">
+                          No badge
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Set New Password</label>

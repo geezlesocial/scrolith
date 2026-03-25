@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import { MessagingService } from '../services/messaging';
-import { Conversation, Message, UploadedFile, UserRole } from '../types';
+import { Conversation, Message, ProjectBrief, UploadedFile, UserRole } from '../types';
 import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download, Camera } from 'lucide-react';
 import { AIService } from '../services/ai/ai.service';
 import { UserService } from '../services/user';
@@ -17,6 +17,10 @@ import { FileService } from '../services/files';
 import VoiceRecorder from './VoiceRecorder';
 import VoiceCallModal from './VoiceCallModal';
 import { VoiceCallProvider, useVoiceCall } from './VoiceCallProvider';
+import { BriefsService } from '../services/briefs';
+import { proposalsApi } from '../services/proposals';
+import { normalizeDealFlowSettings } from '../utils/dealFlow';
+import AcceptProposalContractModal from '../components/contracts/AcceptProposalContractModal';
 
 
 const QUICK_REACTIONS = ['\u{1F44D}', '\u2764\uFE0F', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}'];
@@ -156,6 +160,7 @@ const VoiceCallControls: React.FC<{
 const Messages = () => {
   const { conversationId } = useParams<{ conversationId: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useUser();
   const { showNotification } = useNotification();
   const { refreshMessages } = useMessages();
@@ -184,6 +189,20 @@ const Messages = () => {
       blockedForCurrentUser: false
   });
   const [voiceNoteBusy, setVoiceNoteBusy] = useState(false);
+  const [dealFlowConfig, setDealFlowConfig] = useState(() => normalizeDealFlowSettings(null));
+  const [showBriefComposer, setShowBriefComposer] = useState(false);
+  const [briefComposerBusy, setBriefComposerBusy] = useState(false);
+  const [briefDraft, setBriefDraft] = useState<Partial<ProjectBrief>>({});
+  const [showProposalComposer, setShowProposalComposer] = useState(false);
+  const [proposalComposerBusy, setProposalComposerBusy] = useState(false);
+  const [proposalBrief, setProposalBrief] = useState<ProjectBrief | null>(null);
+  const [proposalDraft, setProposalDraft] = useState({
+      coverLetter: '',
+      proposedAmount: '',
+      proposedTimeline: 14
+  });
+  const [timelineActionBusyId, setTimelineActionBusyId] = useState<string | null>(null);
+  const [acceptProposalEvent, setAcceptProposalEvent] = useState<any | null>(null);
   
   // Advanced Features State
   const [typingUser, setTypingUser] = useState<string | null>(null);
@@ -205,12 +224,16 @@ const Messages = () => {
       () => (typeof window !== 'undefined' ? window.innerWidth < 768 : false)
   );
   const [mobileComposerHostHeight, setMobileComposerHostHeight] = useState<number | null>(null);
+  const [mobileViewportTop, setMobileViewportTop] = useState(0);
+  const [mobileViewportHeight, setMobileViewportHeight] = useState<number | null>(null);
+  const [mobileKeyboardInset, setMobileKeyboardInset] = useState(0);
   
   const layoutShellRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const conversationListRef = useRef<HTMLUListElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerDockRef = useRef<HTMLDivElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -294,13 +317,14 @@ const Messages = () => {
   const resizeComposerTextarea = useCallback(() => {
       const textarea = composerTextareaRef.current;
       if (!textarea) return;
-      const minHeight = isMobileViewport ? 68 : 108;
-      const maxHeight = isMobileViewport ? 136 : 220;
+      const keyboardOpen = isMobileViewport && mobileKeyboardInset > 96;
+      const minHeight = isMobileViewport ? (keyboardOpen ? 56 : 68) : 108;
+      const maxHeight = isMobileViewport ? (keyboardOpen ? 112 : 136) : 220;
       textarea.style.height = '0px';
       const nextHeight = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight));
       textarea.style.height = `${nextHeight}px`;
       textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
-  }, [isMobileViewport]);
+  }, [isMobileViewport, mobileKeyboardInset]);
 
   const syncMobileComposerHostHeight = useCallback(() => {
       if (typeof window === 'undefined') return;
@@ -308,14 +332,21 @@ const Messages = () => {
       setIsMobileViewport(mobile);
       if (!mobile) {
           setMobileComposerHostHeight(null);
+          setMobileViewportTop(0);
+          setMobileViewportHeight(null);
+          setMobileKeyboardInset(0);
           return;
       }
       const viewport = window.visualViewport;
       const visibleHeight = viewport?.height || window.innerHeight;
       const viewportTop = viewport?.offsetTop || 0;
+      const keyboardInset = Math.max(0, Math.round(window.innerHeight - visibleHeight - viewportTop));
       const shellTop = layoutShellRef.current?.getBoundingClientRect().top ?? 0;
       const availableHeight = Math.floor(visibleHeight - Math.max(shellTop - viewportTop, 0) - 8);
-      setMobileComposerHostHeight(Math.max(360, availableHeight));
+      setMobileViewportTop(Math.max(0, Math.round(viewportTop)));
+      setMobileViewportHeight(Math.max(0, Math.floor(visibleHeight)));
+      setMobileKeyboardInset(keyboardInset);
+      setMobileComposerHostHeight(Math.max(keyboardInset > 0 ? 0 : 360, availableHeight));
   }, []);
 
   const scrollComposerIntoView = useCallback((behavior: ScrollBehavior = 'smooth') => {
@@ -541,6 +572,14 @@ const Messages = () => {
   }, []);
 
   const activeConvo = conversations.find(c => c.id === activeConvoId);
+  const isMobileConversationMode = Boolean(isMobileViewport && activeConvo);
+  const isMobileKeyboardOpen = Boolean(isMobileViewport && mobileKeyboardInset > 96);
+  const mobileConversationViewportStyle: React.CSSProperties | undefined = isMobileConversationMode
+      ? {
+            top: `${mobileViewportTop}px`,
+            height: `${Math.max(mobileViewportHeight || 0, 280)}px`
+        }
+      : undefined;
   const visibleConversations = [...conversations]
       .sort((a, b) => {
           const aStar = Number(Boolean(a.isStarred ?? a.is_starred));
@@ -609,6 +648,18 @@ const Messages = () => {
       );
   const otherParticipantRole = resolveParticipantRole(otherParticipant);
   const otherParticipantIsPro = isParticipantPro(otherParticipant);
+  const normalizedUserRole = String(user?.role || '').toLowerCase();
+  const canCreateBriefFromConversation = Boolean(
+      activeConvoId &&
+      dealFlowConfig.enabled &&
+      dealFlowConfig.allowCreateBriefFromChat &&
+      (normalizedUserRole.includes('employer') || normalizedUserRole.includes('client') || normalizedUserRole.includes('admin'))
+  );
+  const canCreateProposalFromBrief = Boolean(
+      dealFlowConfig.enabled &&
+      dealFlowConfig.allowBriefToProposal &&
+      (normalizedUserRole.includes('freelancer') || normalizedUserRole.includes('seller') || normalizedUserRole.includes('admin'))
+  );
   const resolveParticipantProfileUrl = (participant: any) => {
       if (!participant) return '/profile/edit';
       const username = String(participant.username || '').trim();
@@ -665,6 +716,21 @@ const Messages = () => {
       });
       return ordered;
   })();
+
+  useEffect(() => {
+      if (typeof document === 'undefined' || !isMobileConversationMode) return;
+      const previousBodyOverflow = document.body.style.overflow;
+      const previousBodyOverscroll = document.body.style.overscrollBehavior;
+      const previousHtmlOverscroll = document.documentElement.style.overscrollBehavior;
+      document.body.style.overflow = 'hidden';
+      document.body.style.overscrollBehavior = 'none';
+      document.documentElement.style.overscrollBehavior = 'none';
+      return () => {
+          document.body.style.overflow = previousBodyOverflow;
+          document.body.style.overscrollBehavior = previousBodyOverscroll;
+          document.documentElement.style.overscrollBehavior = previousHtmlOverscroll;
+      };
+  }, [isMobileConversationMode]);
   const voiceCallsBlocked =
       Boolean(voiceRuntimeConfig.blockedForCurrentUser) ||
       !Boolean(voiceRuntimeConfig.enabledVoiceCalls);
@@ -689,6 +755,23 @@ const Messages = () => {
           mounted = false;
       };
   }, [showMessageSettings, user]);
+
+  useEffect(() => {
+      if (!user) return;
+      let mounted = true;
+      BriefsService.getConfig()
+          .then((config) => {
+              if (!mounted) return;
+              setDealFlowConfig(normalizeDealFlowSettings(config));
+          })
+          .catch(() => {
+              if (!mounted) return;
+              setDealFlowConfig(normalizeDealFlowSettings(null));
+          });
+      return () => {
+          mounted = false;
+      };
+  }, [user]);
 
   const toMediaType = (value: string) => {
       const normalized = (value || '').toLowerCase();
@@ -715,6 +798,68 @@ const Messages = () => {
           endedBy: String(voiceCall.endedBy || '').trim(),
           rejectedById: String(voiceCall.rejectedById || '').trim()
       };
+  };
+
+  const extractDealFlowEvent = (message: Message) => {
+      const metadata = message?.metadata && typeof message.metadata === 'object' ? message.metadata : null;
+      const dealFlow = metadata?.dealFlow && typeof metadata.dealFlow === 'object' ? metadata.dealFlow : null;
+      if (!dealFlow) return null;
+      const eventType = String(dealFlow.eventType || dealFlow.type || '').trim().toLowerCase();
+      if (!eventType) return null;
+      return {
+          ...dealFlow,
+          eventType
+      };
+  };
+
+  const normalizeBriefFromEvent = (event: any): ProjectBrief | null => {
+      const brief = event?.brief && typeof event.brief === 'object' ? event.brief : event;
+      const id = String(brief?.id || brief?.briefId || event?.briefId || '').trim();
+      if (!id) return null;
+      const normalizedConversationId = String(
+          brief?.conversation_id ?? brief?.conversationId ?? activeConvoId ?? ''
+      );
+
+      return {
+          id,
+          user_id: String(brief?.user_id ?? brief?.userId ?? ''),
+          prompt: String(brief?.prompt ?? brief?.description ?? ''),
+          title: String(brief?.title || ''),
+          category: String(brief?.category || ''),
+          budget_range: String(brief?.budget_range ?? brief?.budgetRange ?? event?.budgetRange ?? 'TBD'),
+          timeline: String(brief?.timeline ?? event?.timeline ?? ''),
+          description: String(brief?.description ?? ''),
+          required_skills: Array.isArray(brief?.required_skills ?? brief?.requiredSkills)
+              ? (brief?.required_skills ?? brief?.requiredSkills)
+              : [],
+          screening_questions: Array.isArray(brief?.screening_questions ?? brief?.screeningQuestions)
+              ? (brief?.screening_questions ?? brief?.screeningQuestions)
+              : [],
+          created_at: String(brief?.created_at ?? brief?.createdAt ?? new Date().toISOString()),
+          updated_at: String(brief?.updated_at ?? brief?.updatedAt ?? new Date().toISOString()),
+          conversation_id: normalizedConversationId,
+          conversationId: normalizedConversationId,
+          linked_job_id: brief?.linked_job_id ?? brief?.linkedJobId ?? event?.linkedJobId ?? null,
+          linkedJobId: brief?.linkedJobId ?? brief?.linked_job_id ?? event?.linkedJobId ?? null,
+          linked_proposals: Array.isArray(brief?.linked_proposals ?? brief?.linkedProposals)
+              ? (brief?.linked_proposals ?? brief?.linkedProposals)
+              : [],
+          linkedProposals: Array.isArray(brief?.linkedProposals ?? brief?.linked_proposals)
+              ? (brief?.linkedProposals ?? brief?.linked_proposals)
+              : [],
+          linked_contract: brief?.linked_contract ?? brief?.linkedContract ?? null,
+          linkedContract: brief?.linkedContract ?? brief?.linked_contract ?? null
+      };
+  };
+
+  const resolveDealFlowPreviewText = (event: any) => {
+      if (!event) return '';
+      const title = String(event?.title || event?.brief?.title || event?.contract?.title || '').trim();
+      if (event.eventType === 'brief_created') return title ? `Brief created: ${title}` : 'Brief created';
+      if (event.eventType === 'brief_updated') return title ? `Brief updated: ${title}` : 'Brief updated';
+      if (event.eventType === 'proposal_created') return title ? `Proposal created for ${title}` : 'Proposal created';
+      if (event.eventType === 'contract_created') return title ? `Contract created: ${title}` : 'Contract created';
+      return title || 'Deal flow update';
   };
 
   const formatVoiceCallDuration = (durationMs: number) => {
@@ -786,6 +931,8 @@ const Messages = () => {
   const resolveMessagePreviewText = (message: Partial<Message> | null | undefined) => {
       if (!message) return '';
       if (Boolean(message.isDeleted ?? message.is_deleted)) return '[Message deleted]';
+      const dealFlowEvent = extractDealFlowEvent(message as Message);
+      if (dealFlowEvent) return resolveDealFlowPreviewText(dealFlowEvent);
       const messageType = String(message.messageType || message.message_type || '').toLowerCase();
       if (messageType === 'voice_note' || message.voiceNote || message.voice_note) return 'Voice note';
       const text = String(message.text || '').trim();
@@ -1439,6 +1586,145 @@ const Messages = () => {
           </button>
       );
   };
+
+  const renderDealFlowCard = (message: Message) => {
+      const event = extractDealFlowEvent(message);
+      if (!event) return null;
+
+      const brief = normalizeBriefFromEvent(event);
+      const proposal = event?.proposal && typeof event.proposal === 'object' ? event.proposal : null;
+      const contract = event?.contract && typeof event.contract === 'object' ? event.contract : null;
+      const isEmployerViewer = normalizedUserRole.includes('employer') || normalizedUserRole.includes('client') || normalizedUserRole.includes('admin');
+      const proposalStatus = String(proposal?.status || '').trim().toLowerCase();
+      const canAcceptProposalFromCard =
+          isEmployerViewer &&
+          event.eventType === 'proposal_created' &&
+          Boolean(event?.proposalId || proposal?.id) &&
+          proposalStatus !== 'accepted' &&
+          timelineActionBusyId !== message.id;
+
+      return (
+          <div className="mx-auto w-full max-w-2xl rounded-3xl border border-indigo-100 bg-white/95 p-4 shadow-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-indigo-700">
+                      {event.eventType.replace(/_/g, ' ')}
+                  </span>
+                  <span className="text-[11px] text-gray-500">
+                      {new Date(message.timestamp).toLocaleString()}
+                  </span>
+              </div>
+
+              <div className="mt-3 space-y-3">
+                  {(event.eventType === 'brief_created' || event.eventType === 'brief_updated') && brief ? (
+                      <>
+                          <div>
+                              <h4 className="text-base font-bold text-gray-900">{brief.title || 'Conversation brief'}</h4>
+                              <p className="mt-1 text-sm text-gray-600 whitespace-pre-line">{brief.description || brief.prompt}</p>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-xs text-gray-600">
+                              {brief.category ? <span className="rounded-full bg-gray-100 px-2.5 py-1">{brief.category}</span> : null}
+                              {brief.budget_range ? <span className="rounded-full bg-gray-100 px-2.5 py-1">{brief.budget_range}</span> : null}
+                              {brief.timeline ? <span className="rounded-full bg-gray-100 px-2.5 py-1">{brief.timeline}</span> : null}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                              {canCreateBriefFromConversation ? (
+                                  <button
+                                      type="button"
+                                      onClick={() => void openExistingBriefComposer(brief.id, brief)}
+                                      disabled={briefComposerBusy}
+                                      className="rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                                  >
+                                      {briefComposerBusy ? 'Loading...' : 'Edit Brief'}
+                                  </button>
+                              ) : null}
+                              {canCreateProposalFromBrief && (brief.linked_job_id ?? brief.linkedJobId) ? (
+                                  <button
+                                      type="button"
+                                      onClick={() => void openProposalComposerForBrief(brief.id, brief)}
+                                      disabled={proposalComposerBusy}
+                                      className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                                  >
+                                      {proposalComposerBusy ? 'Loading...' : 'Create Proposal'}
+                                  </button>
+                              ) : null}
+                          </div>
+                      </>
+                  ) : null}
+
+                  {event.eventType === 'proposal_created' && proposal ? (
+                      <>
+                          <div>
+                              <h4 className="text-base font-bold text-gray-900">{event?.title || 'Proposal created'}</h4>
+                              <p className="mt-1 text-sm text-gray-600">
+                                  {proposal.freelancerName || 'Freelancer'} proposed {proposal.proposedAmount ? `$${Number(proposal.proposedAmount).toFixed(2)}` : 'a custom amount'}
+                                  {proposal.proposedTimeline ? ` for ${proposal.proposedTimeline} days` : ''}.
+                              </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-xs text-gray-600">
+                              {proposal.status ? <span className="rounded-full bg-gray-100 px-2.5 py-1 capitalize">{proposal.status}</span> : null}
+                              {proposal.proposedAmount ? <span className="rounded-full bg-gray-100 px-2.5 py-1">${Number(proposal.proposedAmount).toFixed(2)}</span> : null}
+                              {proposal.proposedTimeline ? <span className="rounded-full bg-gray-100 px-2.5 py-1">{proposal.proposedTimeline} days</span> : null}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                              {canAcceptProposalFromCard ? (
+                                  <button
+                                      type="button"
+                                      onClick={() => {
+                                          setAcceptProposalEvent({
+                                              messageId: message.id,
+                                              event
+                                          });
+                                      }}
+                                      disabled={timelineActionBusyId === message.id}
+                                      className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                                  >
+                                      {timelineActionBusyId === message.id ? 'Creating contract...' : 'Accept & Create Contract'}
+                                  </button>
+                              ) : null}
+                              <button
+                                  type="button"
+                                  onClick={() => navigate(isEmployerViewer ? '/client/dashboard?tab=proposals-offers' : '/freelancer/dashboard?tab=my-proposals')}
+                                  className="rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                              >
+                                  Open Proposal Pipeline
+                              </button>
+                          </div>
+                      </>
+                  ) : null}
+
+                  {event.eventType === 'contract_created' && contract ? (
+                      <>
+                          <div>
+                              <h4 className="text-base font-bold text-gray-900">{contract.title || event?.title || 'Contract created'}</h4>
+                              <p className="mt-1 text-sm text-gray-600">
+                                  The proposal has been converted into an active contract with the agreed delivery and payment structure.
+                              </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-xs text-gray-600">
+                              {contract.status ? <span className="rounded-full bg-gray-100 px-2.5 py-1 capitalize">{contract.status}</span> : null}
+                              {contract.paymentCycle ? <span className="rounded-full bg-gray-100 px-2.5 py-1 capitalize">{String(contract.paymentCycle).replace('_', ' ')}</span> : null}
+                              {contract.startDate ? <span className="rounded-full bg-gray-100 px-2.5 py-1">Starts {new Date(contract.startDate).toLocaleDateString()}</span> : null}
+                              {contract.contractValue ? <span className="rounded-full bg-gray-100 px-2.5 py-1">${Number(contract.contractValue).toFixed(2)} fixed</span> : null}
+                              {contract.hourlyRate ? <span className="rounded-full bg-gray-100 px-2.5 py-1">${Number(contract.hourlyRate).toFixed(2)}/hr</span> : null}
+                              {Array.isArray(contract.milestones) && contract.milestones.length ? (
+                                  <span className="rounded-full bg-gray-100 px-2.5 py-1">{contract.milestones.length} milestones</span>
+                              ) : null}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                              <button
+                                  type="button"
+                                  onClick={() => navigate(isEmployerViewer ? `/client/dashboard?tab=contracts&contract_id=${event.contractId || contract.id || ''}` : `/freelancer/dashboard?tab=contracts&contract_id=${event.contractId || contract.id || ''}`)}
+                                  className="rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                              >
+                                  Open Contract
+                              </button>
+                          </div>
+                      </>
+                  ) : null}
+              </div>
+          </div>
+      );
+  };
   // Typing indicator can be wired to real-time events later.
 
   const handleConversationClick = (id: string) => {
@@ -1451,6 +1737,192 @@ const Messages = () => {
       setReactionPanelMessageId(null);
       setShowConversationMenu(false);
       navigate('/messages', { replace: true });
+  };
+
+  const openConversationBriefComposer = useCallback(async () => {
+      if (!activeConvoId || !canCreateBriefFromConversation) return;
+      setBriefComposerBusy(true);
+      try {
+          const draft = await BriefsService.draftFromConversation({ conversationId: activeConvoId });
+          setBriefDraft({
+              ...draft,
+              conversation_id: activeConvoId,
+              conversationId: activeConvoId
+          });
+          setShowBriefComposer(true);
+      } catch (error: any) {
+          showNotification('error', 'Brief', error?.message || 'Unable to extract a brief from this conversation.');
+      } finally {
+          setBriefComposerBusy(false);
+      }
+  }, [activeConvoId, canCreateBriefFromConversation]);
+
+  useEffect(() => {
+      const shouldComposeBrief = ['1', 'true', 'yes', 'on'].includes(
+          String(searchParams.get('composeBrief') || '').trim().toLowerCase()
+      );
+      if (!shouldComposeBrief || !activeConvoId || showBriefComposer || briefComposerBusy || !canCreateBriefFromConversation) {
+          return;
+      }
+      void openConversationBriefComposer().finally(() => {
+          const next = new URLSearchParams(searchParams);
+          next.delete('composeBrief');
+          setSearchParams(next, { replace: true });
+      });
+  }, [
+      activeConvoId,
+      briefComposerBusy,
+      canCreateBriefFromConversation,
+      openConversationBriefComposer,
+      searchParams,
+      setSearchParams,
+      showBriefComposer
+  ]);
+
+  const openExistingBriefComposer = async (briefId: string, fallback?: ProjectBrief | null) => {
+      setBriefComposerBusy(true);
+      try {
+          const brief = briefId ? await BriefsService.getBrief(briefId) : fallback;
+          if (!brief) throw new Error('Brief not found');
+          setBriefDraft(brief);
+          setShowBriefComposer(true);
+      } catch (error: any) {
+          showNotification('error', 'Brief', error?.message || 'Unable to load brief.');
+      } finally {
+          setBriefComposerBusy(false);
+      }
+  };
+
+  const handleSaveBrief = async () => {
+      const title = String(briefDraft.title || '').trim();
+      const description = String(briefDraft.description || briefDraft.prompt || '').trim();
+      if (!title || !description) {
+          showNotification('error', 'Brief', 'Title and description are required.');
+          return;
+      }
+
+      setBriefComposerBusy(true);
+      try {
+          const saved = await BriefsService.saveBrief({
+              ...briefDraft,
+              title,
+              description,
+              prompt: String(briefDraft.prompt || description),
+              category: String(briefDraft.category || dealFlowConfig.defaultCategory || 'General'),
+              budget_range: String(briefDraft.budget_range || briefDraft.budgetRange || 'TBD'),
+              timeline: String(briefDraft.timeline || '2-4 weeks'),
+              required_skills: Array.isArray(briefDraft.required_skills ?? briefDraft.requiredSkills)
+                  ? (briefDraft.required_skills ?? briefDraft.requiredSkills)
+                  : [],
+              screening_questions: Array.isArray(briefDraft.screening_questions ?? briefDraft.screeningQuestions)
+                  ? (briefDraft.screening_questions ?? briefDraft.screeningQuestions)
+                  : []
+          } as Partial<ProjectBrief>);
+          setBriefDraft(saved);
+          setShowBriefComposer(false);
+          showNotification('success', 'Brief', 'Conversation brief saved.');
+          void refreshConversationData();
+      } catch (error: any) {
+          showNotification('error', 'Brief', error?.message || 'Failed to save brief.');
+      } finally {
+          setBriefComposerBusy(false);
+      }
+  };
+
+  const openProposalComposerForBrief = async (briefId: string, fallback?: ProjectBrief | null) => {
+      if (!canCreateProposalFromBrief) return;
+      setProposalComposerBusy(true);
+      try {
+          const brief = briefId ? await BriefsService.getBrief(briefId) : fallback;
+          if (!brief) throw new Error('Brief not found');
+          const linkedJobId = brief.linked_job_id ?? brief.linkedJobId;
+          if (!linkedJobId) throw new Error('This brief is not ready for proposal creation yet.');
+          setProposalBrief(brief);
+          setProposalDraft({
+              coverLetter: String(dealFlowConfig.proposalDefaults?.coverLetterIntro || ''),
+              proposedAmount: '',
+              proposedTimeline: Number(dealFlowConfig.proposalDefaults?.timelineDays ?? 14)
+          });
+          setShowProposalComposer(true);
+      } catch (error: any) {
+          showNotification('error', 'Proposal', error?.message || 'Unable to start a proposal from this brief.');
+      } finally {
+          setProposalComposerBusy(false);
+      }
+  };
+
+  const handleSubmitProposalFromBrief = async () => {
+      if (!proposalBrief) return;
+      const jobId = String(proposalBrief.linked_job_id ?? proposalBrief.linkedJobId ?? '').trim();
+      const coverLetter = String(proposalDraft.coverLetter || '').trim();
+      const proposedAmount = Number(proposalDraft.proposedAmount || 0);
+      const proposedTimeline = Number(proposalDraft.proposedTimeline || 0);
+      if (!jobId) {
+          showNotification('error', 'Proposal', 'This brief is not linked to a proposal-ready job yet.');
+          return;
+      }
+      if (coverLetter.length < 10 || !Number.isFinite(proposedAmount) || proposedAmount <= 0 || !Number.isFinite(proposedTimeline) || proposedTimeline <= 0) {
+          showNotification('error', 'Proposal', 'Add a cover letter, amount, and valid timeline before submitting.');
+          return;
+      }
+
+      setProposalComposerBusy(true);
+      try {
+          await proposalsApi.createProposal({
+              jobId,
+              coverLetter,
+              proposedAmount,
+              proposedTimeline,
+              briefId: proposalBrief.id,
+              conversationId: proposalBrief.conversation_id ?? proposalBrief.conversationId ?? activeConvoId ?? undefined
+          });
+          setShowProposalComposer(false);
+          setProposalBrief(null);
+          showNotification('success', 'Proposal', 'Proposal created from conversation brief.');
+          void refreshConversationData();
+      } catch (error: any) {
+          showNotification('error', 'Proposal', error?.message || 'Failed to create proposal.');
+      } finally {
+          setProposalComposerBusy(false);
+      }
+  };
+
+  const handleAcceptProposalFromTimeline = async (messageId: string, event: any, payload: any) => {
+      const proposalId = String(event?.proposalId || event?.proposal?.id || '').trim();
+      if (!proposalId || !activeConvoId) return;
+      setTimelineActionBusyId(messageId);
+      try {
+          await proposalsApi.acceptProposal(proposalId, {
+              ...(payload || {}),
+              conversationId: activeConvoId
+          });
+          applyConversationMessageChanges(activeConvoId, (messages) =>
+              messages.map((message) => {
+                  if (message.id !== messageId) return message;
+                  const metadata = message.metadata && typeof message.metadata === 'object' ? message.metadata : {};
+                  return {
+                      ...message,
+                      metadata: {
+                          ...metadata,
+                          dealFlow: {
+                              ...(metadata as any).dealFlow,
+                              proposal: {
+                                  ...(((metadata as any).dealFlow || {}).proposal || {}),
+                                  status: 'accepted'
+                              }
+                          }
+                      }
+                  };
+              })
+          );
+          showNotification('success', 'Contract', 'Proposal accepted and contract created.');
+          void refreshConversationData();
+          setAcceptProposalEvent(null);
+      } catch (error: any) {
+          showNotification('error', 'Contract', error?.message || 'Failed to accept proposal.');
+      } finally {
+          setTimelineActionBusyId(null);
+      }
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -2075,11 +2547,26 @@ const Messages = () => {
             </div>
             
             {/* Chat Area */}
-            <div className={`flex-1 min-w-0 min-h-0 flex flex-col bg-gradient-to-b from-gray-50 to-gray-100 ${!activeConvo ? 'hidden md:flex' : 'flex'}`}>
+            <div
+                className={`flex-1 min-w-0 min-h-0 flex flex-col bg-gradient-to-b from-gray-50 to-gray-100 ${
+                    !activeConvo ? 'hidden md:flex' : 'flex'
+                } ${
+                    isMobileConversationMode
+                        ? 'fixed inset-x-0 z-[80] rounded-none border-0 shadow-none'
+                        : ''
+                }`}
+                style={mobileConversationViewportStyle}
+            >
                 {activeConvo ? (
                     <>
                         {/* Chat Header */}
-                        <div className="sticky top-0 z-10 border-b border-gray-200 bg-white/95 px-3 py-3 shadow-sm backdrop-blur md:px-4">
+                        <div
+                            className={`z-10 border-b border-gray-200 bg-white/95 shadow-sm backdrop-blur md:px-4 ${
+                                isMobileConversationMode
+                                    ? 'shrink-0 px-3 pb-3 pt-[max(0.875rem,env(safe-area-inset-top))]'
+                                    : 'sticky top-0 px-3 py-3'
+                            }`}
+                        >
                             <div className="flex items-center justify-between gap-2">
                             <div className="flex min-w-0 items-center">
                                 <button onClick={handleBackToInbox} className="mr-2 inline-flex h-9 w-9 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 md:hidden">
@@ -2149,6 +2636,18 @@ const Messages = () => {
                                 </div>
                             </div>
                             <div className="flex items-center gap-1.5 sm:gap-2">
+                                {canCreateBriefFromConversation && (
+                                    <button
+                                        type="button"
+                                        onClick={() => void openConversationBriefComposer()}
+                                        disabled={briefComposerBusy}
+                                        className="inline-flex h-10 items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-indigo-700 shadow-sm transition hover:bg-indigo-100 disabled:opacity-60"
+                                        title="Create brief from chat"
+                                    >
+                                        {briefComposerBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                                        <span className="hidden sm:inline text-xs font-semibold">Create Brief</span>
+                                    </button>
+                                )}
                                 <VoiceCallControls
                                     disabled={!activeConvoId || voiceCallsBlocked}
                                     canConference={voiceRuntimeConfig.enabledConferenceCalls && voiceCallCandidateUsers.length > 1}
@@ -2274,7 +2773,9 @@ const Messages = () => {
 
                         {/* Messages List */}
                         <div
-                            className="flex-1 min-w-0 space-y-3 overflow-x-hidden overflow-y-auto p-3 pb-5 md:space-y-4 md:p-6"
+                            className={`flex-1 min-w-0 space-y-3 overflow-x-hidden overflow-y-auto overscroll-y-contain p-3 pb-5 md:space-y-4 md:p-6 ${
+                                isMobileConversationMode ? 'bg-gradient-to-b from-gray-50 to-gray-100' : ''
+                            }`}
                             ref={messagesContainerRef}
                             onScroll={handleMessagesScroll}
                         >
@@ -2282,6 +2783,7 @@ const Messages = () => {
                                 const attachmentList = (Array.isArray(msg.attachments) ? msg.attachments : [])
                                     .map((attachment) => normalizeAttachmentForDisplay(attachment))
                                     .filter(Boolean) as AttachmentDisplay[];
+                                const dealFlowEvent = extractDealFlowEvent(msg);
                                 const isOwner = msg.senderId === user?.id;
                                 const isAdmin = user?.role === UserRole.ADMIN;
                                 const canEditDelete = isOwner || isAdmin;
@@ -2300,6 +2802,15 @@ const Messages = () => {
                                     acc[emojiKey] = (acc[emojiKey] || 0) + 1;
                                     return acc;
                                 }, {});
+                                if (dealFlowEvent) {
+                                    return (
+                                        <div id={`message-${msg.id}`} key={msg.id} className="flex min-w-0 justify-center">
+                                            <div className="w-full max-w-3xl">
+                                                {renderDealFlowCard(msg)}
+                                            </div>
+                                        </div>
+                                    );
+                                }
                                 return (
                                 <div id={`message-${msg.id}`} key={msg.id} className={`flex min-w-0 ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
                                     <div className="min-w-0 max-w-[90%] md:max-w-[70%]">
@@ -2614,8 +3125,19 @@ const Messages = () => {
 
                         {/* Input Area */}
                         <div
-                            className="sticky bottom-0 border-t border-gray-200 bg-white/95 p-2.5 backdrop-blur md:p-4"
-                            style={isMobileViewport ? { paddingBottom: 'max(0.625rem, env(safe-area-inset-bottom))' } : undefined}
+                            ref={composerDockRef}
+                            className={`border-t border-gray-200 bg-white/95 p-2.5 backdrop-blur md:p-4 ${
+                                isMobileConversationMode ? 'shrink-0' : 'sticky bottom-0'
+                            }`}
+                            style={
+                                isMobileViewport
+                                    ? {
+                                          paddingBottom: isMobileConversationMode
+                                              ? 'max(0.875rem, env(safe-area-inset-bottom))'
+                                              : 'max(0.625rem, env(safe-area-inset-bottom))'
+                                      }
+                                    : undefined
+                            }
                         >
                             {replyToMessage && (
                                 <div className="mb-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 px-3 py-3 text-xs text-slate-600 shadow-sm">
@@ -2690,12 +3212,16 @@ const Messages = () => {
 
                             <form
                                 onSubmit={handleSendMessage}
-                                className="rounded-[26px] border border-gray-200 bg-white/95 p-2.5 shadow-[0_18px_48px_-28px_rgba(15,23,42,0.45)] md:rounded-[28px] md:p-3"
+                                className={`rounded-[26px] border border-gray-200 bg-white/95 p-2.5 shadow-[0_18px_48px_-28px_rgba(15,23,42,0.45)] md:rounded-[28px] md:p-3 ${
+                                    isMobileKeyboardOpen ? 'space-y-2.5' : ''
+                                }`}
                             >
                                 <div className="rounded-[22px] border border-slate-200 bg-gradient-to-b from-slate-50 via-white to-slate-50 p-1.5 transition focus-within:border-blue-300 focus-within:ring-4 focus-within:ring-blue-100/70 md:rounded-[24px]">
                                     <textarea
                                         ref={composerTextareaRef}
-                                        className="w-full resize-none border-0 bg-transparent px-2.5 py-2.5 text-[15px] leading-6 text-gray-800 outline-none placeholder:text-gray-400 md:px-3 md:py-3"
+                                        className={`w-full resize-none border-0 bg-transparent px-2.5 text-[15px] leading-6 text-gray-800 outline-none placeholder:text-gray-400 md:px-3 ${
+                                            isMobileKeyboardOpen ? 'py-2' : 'py-2.5 md:py-3'
+                                        }`}
                                         placeholder="Write a message. Press Enter to send, Shift+Enter for a new line."
                                         value={messageInput}
                                         onChange={(event) => handleMessageInputChange(event.target.value)}
@@ -2706,7 +3232,7 @@ const Messages = () => {
                                     />
                                 </div>
 
-                                <div className="mt-3 space-y-2.5">
+                                <div className={`mt-3 ${isMobileKeyboardOpen ? 'space-y-2' : 'space-y-2.5'}`}>
                                     <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                         <input
                                             ref={uploadInputRef}
@@ -2779,11 +3305,17 @@ const Messages = () => {
                                             className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-purple-200 bg-purple-50/70 px-3 text-purple-700 shadow-sm transition-colors hover:bg-purple-100 disabled:opacity-50"
                                         >
                                             {isGettingAiSuggestion ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                                            <span className="text-xs font-medium">{isGettingAiSuggestion ? 'Thinking...' : (isMobileViewport ? 'AI Reply' : 'Suggest Reply')}</span>
+                                            <span className="text-xs font-medium">
+                                                {isGettingAiSuggestion
+                                                    ? 'Thinking...'
+                                                    : isMobileViewport
+                                                        ? (isMobileKeyboardOpen ? 'AI' : 'AI Reply')
+                                                        : 'Suggest Reply'}
+                                            </span>
                                         </button>
                                     </div>
 
-                                    <div className="flex items-end justify-between gap-3">
+                                    <div className={`flex gap-3 ${isMobileKeyboardOpen ? 'items-center' : 'items-end'} justify-between`}>
                                         <div className="min-w-0 flex-1 text-[11px] text-gray-500">
                                             {pendingAttachments.length > 0
                                                 ? `${pendingAttachments.length} attachment${pendingAttachments.length === 1 ? '' : 's'} queued`
@@ -2864,6 +3396,260 @@ const Messages = () => {
             </div>
         </div>
     )}
+    {showBriefComposer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl">
+                <div className="mb-5 flex items-center justify-between gap-3">
+                    <div>
+                        <h3 className="text-lg font-bold text-gray-900">Conversation Brief</h3>
+                        <p className="text-sm text-gray-500">Edit the structured request before saving it back into the relationship timeline.</p>
+                    </div>
+                    <button type="button" onClick={() => setShowBriefComposer(false)} className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+                        <X className="h-4 w-4" />
+                    </button>
+                </div>
+
+                <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Title</span>
+                            <input
+                                type="text"
+                                value={String(briefDraft.title || '')}
+                                onChange={(e) => setBriefDraft((prev) => ({ ...prev, title: e.target.value }))}
+                                className="w-full rounded-xl border-gray-300 p-3 text-sm"
+                            />
+                        </label>
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Category</span>
+                            <input
+                                type="text"
+                                list="deal-flow-categories"
+                                value={String(briefDraft.category || '')}
+                                onChange={(e) => setBriefDraft((prev) => ({ ...prev, category: e.target.value }))}
+                                className="w-full rounded-xl border-gray-300 p-3 text-sm"
+                            />
+                        </label>
+                        <datalist id="deal-flow-categories">
+                            {(dealFlowConfig.allowedCategories || []).map((category) => (
+                                <option key={category} value={category} />
+                            ))}
+                        </datalist>
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Budget Range</span>
+                            <input
+                                type="text"
+                                value={String(briefDraft.budget_range || briefDraft.budgetRange || '')}
+                                onChange={(e) => setBriefDraft((prev) => ({ ...prev, budget_range: e.target.value }))}
+                                className="w-full rounded-xl border-gray-300 p-3 text-sm"
+                            />
+                        </label>
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Timeline</span>
+                            <input
+                                type="text"
+                                value={String(briefDraft.timeline || '')}
+                                onChange={(e) => setBriefDraft((prev) => ({ ...prev, timeline: e.target.value }))}
+                                className="w-full rounded-xl border-gray-300 p-3 text-sm"
+                            />
+                        </label>
+                    </div>
+
+                    <label className="block">
+                        <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Description</span>
+                        <textarea
+                            value={String(briefDraft.description || '')}
+                            onChange={(e) => setBriefDraft((prev) => ({ ...prev, description: e.target.value }))}
+                            className="w-full rounded-2xl border-gray-300 p-3 text-sm"
+                            rows={6}
+                        />
+                    </label>
+
+                    <label className="block">
+                        <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Required Skills</span>
+                        <input
+                            type="text"
+                            value={Array.isArray(briefDraft.required_skills ?? briefDraft.requiredSkills) ? (briefDraft.required_skills ?? briefDraft.requiredSkills)?.join(', ') : ''}
+                            onChange={(e) =>
+                                setBriefDraft((prev) => ({
+                                    ...prev,
+                                    required_skills: e.target.value.split(',').map((entry) => entry.trim()).filter(Boolean)
+                                }))
+                            }
+                            className="w-full rounded-xl border-gray-300 p-3 text-sm"
+                            placeholder="design, webflow, analytics"
+                        />
+                    </label>
+
+                    {(briefDraft.source_messages || briefDraft.sourceMessages) && (
+                        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Conversation Context</div>
+                            <div className="max-h-36 space-y-2 overflow-y-auto pr-1">
+                                {((briefDraft.source_messages || briefDraft.sourceMessages) as any[]).slice(-6).map((entry) => (
+                                    <div key={String(entry.id || entry.timestamp)} className="rounded-xl bg-white px-3 py-2 text-xs text-gray-600 shadow-sm">
+                                        <div className="font-semibold text-gray-700">{entry.sender_name || 'Participant'}</div>
+                                        <div className="mt-1 whitespace-pre-wrap">{entry.snippet}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="flex items-center justify-end gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setShowBriefComposer(false)}
+                            className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => void handleSaveBrief()}
+                            disabled={briefComposerBusy}
+                            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                        >
+                            {briefComposerBusy ? 'Saving...' : 'Save Brief'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )}
+    {showProposalComposer && proposalBrief && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
+                <div className="mb-5 flex items-center justify-between gap-3">
+                    <div>
+                        <h3 className="text-lg font-bold text-gray-900">Create Proposal From Brief</h3>
+                        <p className="text-sm text-gray-500">{proposalBrief.title}</p>
+                    </div>
+                    <button type="button" onClick={() => setShowProposalComposer(false)} className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+                        <X className="h-4 w-4" />
+                    </button>
+                </div>
+
+                <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-600">
+                        <div className="rounded-2xl bg-gray-50 px-3 py-2">
+                            <div className="font-semibold text-gray-700">Budget</div>
+                            <div className="mt-1">{proposalBrief.budget_range || proposalBrief.budgetRange || 'TBD'}</div>
+                        </div>
+                        <div className="rounded-2xl bg-gray-50 px-3 py-2">
+                            <div className="font-semibold text-gray-700">Timeline</div>
+                            <div className="mt-1">{proposalBrief.timeline || 'TBD'}</div>
+                        </div>
+                    </div>
+
+                    <label className="block">
+                        <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Cover Letter</span>
+                        <textarea
+                            value={proposalDraft.coverLetter}
+                            onChange={(e) => setProposalDraft((prev) => ({ ...prev, coverLetter: e.target.value }))}
+                            className="w-full rounded-2xl border-gray-300 p-3 text-sm"
+                            rows={6}
+                        />
+                    </label>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Proposed Amount</span>
+                            <input
+                                type="number"
+                                min={1}
+                                step={0.01}
+                                value={proposalDraft.proposedAmount}
+                                onChange={(e) => setProposalDraft((prev) => ({ ...prev, proposedAmount: e.target.value }))}
+                                className="w-full rounded-xl border-gray-300 p-3 text-sm"
+                            />
+                        </label>
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Timeline (days)</span>
+                            <input
+                                type="number"
+                                min={1}
+                                max={365}
+                                value={proposalDraft.proposedTimeline}
+                                onChange={(e) => setProposalDraft((prev) => ({ ...prev, proposedTimeline: Number.parseInt(e.target.value || '14', 10) }))}
+                                className="w-full rounded-xl border-gray-300 p-3 text-sm"
+                            />
+                        </label>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-3">
+                        <button
+                            type="button"
+                            onClick={() => setShowProposalComposer(false)}
+                            className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => void handleSubmitProposalFromBrief()}
+                            disabled={proposalComposerBusy}
+                            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                        >
+                            {proposalComposerBusy ? 'Submitting...' : 'Submit Proposal'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )}
+    <AcceptProposalContractModal
+        open={Boolean(acceptProposalEvent)}
+        proposal={
+            acceptProposalEvent
+                ? {
+                      id: String(acceptProposalEvent.event?.proposalId || acceptProposalEvent.event?.proposal?.id || ''),
+                      jobId: '',
+                      jobTitle: String(
+                          acceptProposalEvent.event?.title ||
+                              acceptProposalEvent.event?.proposal?.jobTitle ||
+                              acceptProposalEvent.event?.proposal?.job_title ||
+                              'Proposal'
+                      ),
+                      jobType: String(
+                          acceptProposalEvent.event?.proposal?.jobType ||
+                              acceptProposalEvent.event?.proposal?.job_type ||
+                              ''
+                      ),
+                      jobBudget:
+                          acceptProposalEvent.event?.proposal?.jobBudget ||
+                          acceptProposalEvent.event?.proposal?.job_budget ||
+                          undefined,
+                      freelancerId: '',
+                      freelancerName: String(
+                          acceptProposalEvent.event?.proposal?.freelancerName ||
+                              acceptProposalEvent.event?.proposal?.freelancer_name ||
+                              'Freelancer'
+                      ),
+                      coverLetter: '',
+                      proposedAmount: Number(acceptProposalEvent.event?.proposal?.proposedAmount || 0),
+                      proposedTimeline: Number(acceptProposalEvent.event?.proposal?.proposedTimeline || 14),
+                      attachments: [],
+                      status: String(acceptProposalEvent.event?.proposal?.status || 'pending') as any,
+                      createdAt: new Date().toISOString(),
+                      updatedAt: new Date().toISOString()
+                  }
+                : null
+        }
+        dealFlowConfig={dealFlowConfig}
+        loading={Boolean(acceptProposalEvent && timelineActionBusyId === String(acceptProposalEvent.messageId || ''))}
+        onClose={() => {
+            if (timelineActionBusyId) return;
+            setAcceptProposalEvent(null);
+        }}
+        onSubmit={async (payload) => {
+            if (!acceptProposalEvent) return;
+            await handleAcceptProposalFromTimeline(
+                String(acceptProposalEvent.messageId || ''),
+                acceptProposalEvent.event,
+                payload
+            );
+        }}
+    />
     </VoiceCallProvider>
   );
 };

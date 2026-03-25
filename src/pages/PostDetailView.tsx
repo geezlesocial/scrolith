@@ -1,19 +1,27 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ChevronLeft, ChevronRight, Download, Expand, MessageSquareText, Radar, Sparkles, X } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, ChevronLeft, ChevronRight, Download, Loader2, Sparkles, X } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
 import { useNotification } from '../context/NotificationContext';
 import { useUser } from '../context/UserContext';
 import { CommunityService } from '../services/community';
-import { resolveAssetUrl } from '../utils/assetUrl';
+import { jobsApi, type Job } from '../services/jobs';
+import { gigsApi, type Gig } from '../services/gigs';
+import { RecoService } from '../services/reco';
+import { INLINE_VIDEO_PREVIEW_AUTOPLAY } from '../utils/inlineMedia';
+import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../utils/postAttachmentMedia';
 import { downloadToDevice } from '../utils/deviceDownload';
 
 import PostHeader from '../community/components/PostHeader';
 import MentionText from '../community/components/MentionText';
 import PostEngagementBar from '../community/components/PostEngagementBar';
 import PostOptionsButton from '../community/components/post-options/PostOptionsButton';
+import GraphicWarningGate from '../components/media/GraphicWarningGate';
 import InlineAutoplayVideo from '../components/media/InlineAutoplayVideo';
-import usePerformanceProfile from '../hooks/usePerformanceProfile';
+import PostVideoActionBar from '../components/media/PostVideoActionBar';
+import FeedAdCard from '../mobile/home/components/FeedAdCard';
+import RecommendedListingCard from '../mobile/home/components/RecommendedListingCard';
+import SuggestedCard from '../mobile/home/components/SuggestedCard';
 
 const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
   const explicit = String(media.type || '').toLowerCase();
@@ -47,6 +55,31 @@ const formatDetailDate = (value: unknown) => {
   return new Date(timestamp).toLocaleString();
 };
 
+const GRAPHIC_WARNING_LABEL = 'Graphic warning';
+const FEED_SINGLE_MEDIA_HEIGHT_CLASS = 'h-[62svh] min-h-[20rem] max-h-[46rem] sm:h-[66svh] lg:h-[70svh]';
+const FEED_MULTI_MEDIA_HEIGHT_CLASS = 'h-[46svh] min-h-[16rem] max-h-[32rem] sm:h-[50svh] lg:h-[54svh]';
+const DETAIL_MEDIA_HEIGHT_CLASS = 'h-[64svh] min-h-[22rem] max-h-[54rem] md:h-[74svh]';
+const STREAM_SECTION_MIN_HEIGHT_CLASS = 'min-h-[calc(100svh-7rem)]';
+
+type SuggestedPage = {
+  id: string;
+  name: string;
+  username?: string | null;
+  avatarUrl?: string | null;
+  targetType: 'page';
+};
+
+type StreamSupplement =
+  | { type: 'ad'; key: string; ad: any }
+  | { type: 'jobs'; key: string; items: Job[] }
+  | { type: 'gigs'; key: string; items: Gig[] }
+  | { type: 'pages'; key: string; items: SuggestedPage[] };
+
+type StreamSection = {
+  post: any;
+  supplement: StreamSupplement | null;
+};
+
 const mergePostData = (current: any, incoming: any) => {
   if (!current) return incoming;
   if (!incoming) return current;
@@ -68,6 +101,7 @@ const normalizePost = (post: any) => {
   if (interactions.shares === undefined) interactions.shares = post.sharesCount ?? post.shares_count ?? 0;
   if (interactions.views === undefined) interactions.views = post.viewsCount ?? post.views_count ?? 0;
   if (interactions.reactions === undefined) interactions.reactions = post.reactions || {};
+  if (interactions.dashGcoinTotal === undefined) interactions.dashGcoinTotal = post.dashGcoinTotal ?? post.dash_gcoin_total ?? 0;
 
   const authorId =
     post.authorId ||
@@ -99,11 +133,16 @@ const normalizePost = (post: any) => {
     title: post.title,
     content: post.content,
     attachments: (post.attachments || []).map((item: any) => ({
-      id: item.id || item.fileId,
-      url: resolveAssetUrl(item.url || item),
+      id: item.id || item.fileId || item.file_id || resolvePostAttachmentMediaUrl(item),
+      fileId: item.fileId || item.file_id || item.file?.id || item.asset?.id || item.id || null,
+      url: resolvePostAttachmentMediaUrl(item),
       name: item.name || item.originalName || item.filename,
       mimeType: item.mimeType || item.mime_type,
-      type: item.type || inferMediaType(item)
+      type: item.type || inferMediaType(item),
+      thumbnailUrl: resolvePostAttachmentPosterUrl(item),
+      duration: item.duration,
+      width: item.width,
+      height: item.height
     })),
     author: {
       id: post.author?.id || (authorType === 'business' ? post.businessPage?.id : authorId),
@@ -134,6 +173,9 @@ const normalizePost = (post: any) => {
     repostsEnabled: post.repostsEnabled ?? post.reposts_enabled,
     isPinned: post.isPinned ?? post.is_pinned ?? false,
     isHighlighted: post.isHighlighted ?? post.is_highlighted ?? false,
+    graphicWarning: Boolean(post.graphicWarning ?? post.graphic_warning ?? false),
+    isAIEnhanced: Boolean(post.isAIEnhanced ?? post.is_ai_enhanced ?? false),
+    dashGcoinTotal: Number(post.dashGcoinTotal ?? post.dash_gcoin_total ?? interactions.dashGcoinTotal ?? 0),
     likesCount: post.likesCount ?? post.likes_count ?? interactions.likes,
     sharesCount: post.sharesCount ?? post.shares_count ?? interactions.shares,
     repostsCount: post.repostsCount ?? post.reposts_count ?? interactions.reposts,
@@ -144,6 +186,75 @@ const normalizePost = (post: any) => {
     aiScore: post.aiScore ?? post.ai_score ?? null,
     interactions,
     userState: post.userState || post.user_state || {}
+  };
+};
+
+const dedupeById = <T extends { id?: string | null }>(items: T[]) => {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  items.forEach((item) => {
+    const id = String(item?.id || '').trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    out.push(item);
+  });
+  return out;
+};
+
+const hashString = (input: string) => {
+  let hash = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash * 31 + input.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+};
+
+const pickSlotIndexes = (count: number, slots: number, seed: string) => {
+  if (count <= 0 || slots <= 0) return [] as number[];
+  const maxSlots = Math.min(count, slots);
+  const base = hashString(seed) || 1;
+  const scored = Array.from({ length: count }, (_, idx) => ({
+    idx,
+    score: hashString(`${base}:${idx}:${count}`)
+  }));
+  scored.sort((a, b) => a.score - b.score);
+  return scored
+    .slice(0, maxSlots)
+    .map((row) => row.idx)
+    .sort((a, b) => a - b);
+};
+
+const extractJobsFromPayload = (payload: any): Job[] => {
+  if (Array.isArray(payload?.jobs)) return payload.jobs as Job[];
+  if (Array.isArray(payload)) return payload as Job[];
+  return [];
+};
+
+const extractGigsFromPayload = (payload: any): Gig[] => {
+  if (Array.isArray(payload?.gigs)) return payload.gigs as Gig[];
+  if (Array.isArray(payload)) return payload as Gig[];
+  return [];
+};
+
+const normalizeSuggestedPage = (page: any): SuggestedPage | null => {
+  const account = page?.account || page || {};
+  const id = String(account?.id || page?.entityId || page?.id || page?.pageId || '').trim();
+  const name = String(account?.name || page?.name || 'Business page').trim();
+  if (!id || !name) return null;
+  return {
+    id,
+    name,
+    username: String(
+      account?.pageSlug ||
+        account?.slug ||
+        account?.handle ||
+        account?.username ||
+        page?.slug ||
+        page?.handle ||
+        ''
+    ).trim() || null,
+    avatarUrl: account?.avatar || page?.avatar || page?.logo?.url || page?.logoUrl || null,
+    targetType: 'page'
   };
 };
 
@@ -256,22 +367,29 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
   onDeletePost
 }) => {
   const attachments = Array.isArray(post.attachments) ? post.attachments : [];
+  const contentText = String(post?.content || '');
   const aiInsightText = String(post?.aiInsightText ?? post?.ai_insight_text ?? '').trim();
   const hasAiInsight = Boolean((post?.aiInsightGenerated ?? post?.ai_insight_generated ?? false) && aiInsightText);
+  const isAIEnhanced = Boolean(post?.isAIEnhanced ?? post?.is_ai_enhanced ?? false);
   const feedCommentCount = toCount(post?.interactions?.comments ?? post?.commentsCount ?? 0, 0);
+  const [graphicRevealed, setGraphicRevealed] = useState(false);
+
+  useEffect(() => {
+    setGraphicRevealed(false);
+  }, [post?.id]);
 
   return (
-    <article className="rounded-[30px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/80 p-5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)] transition-shadow hover:shadow-[0_24px_48px_-26px_rgba(15,23,42,0.52)]">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <span className="inline-flex rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-700">
-          Continue scrolling
+    <article className="overflow-hidden rounded-[30px] border border-slate-200/85 bg-gradient-to-b from-white via-white to-slate-50/80 p-5 shadow-[0_20px_45px_-28px_rgba(15,23,42,0.38)] transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-[0_28px_58px_-30px_rgba(15,23,42,0.44)]">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+          In this feed
         </span>
         <button
           type="button"
           onClick={() => onOpenPost(post.id)}
           className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
         >
-          Focus post
+          Open post
         </button>
       </div>
 
@@ -286,11 +404,23 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
             {post.isPinned ? (
               <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">Pinned</span>
             ) : null}
-            {post.isHighlighted ? (
-              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Highlighted</span>
-            ) : null}
-          </>
-        }
+                {post.isHighlighted ? (
+                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Highlighted</span>
+                ) : null}
+                {post.isAIEnhanced ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                    <Sparkles className="h-3 w-3" />
+                    AI-enhanced
+                  </span>
+                ) : null}
+                {post.graphicWarning ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                    <AlertTriangle className="h-3 w-3" />
+                    {GRAPHIC_WARNING_LABEL}
+                  </span>
+                ) : null}
+              </>
+            }
         rightSlot={
           <PostOptionsButton
             post={post}
@@ -306,7 +436,7 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
         <button
           type="button"
           onClick={() => onOpenPost(post.id)}
-          className="mt-4 text-left text-xl font-semibold tracking-tight text-slate-950 transition hover:text-blue-700"
+          className="mt-4 text-left text-xl font-semibold leading-tight tracking-tight text-slate-950 transition hover:text-slate-700 [overflow-wrap:anywhere]"
         >
           {post.title}
         </button>
@@ -316,7 +446,7 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
         role="button"
         tabIndex={0}
         onClick={() => onOpenPost(post.id)}
-        className="mt-3 block w-full text-left text-[15px] leading-7 text-slate-700"
+        className="mt-3 block w-full text-left text-[15px] leading-[1.78] text-slate-700 [overflow-wrap:anywhere]"
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
@@ -324,7 +454,7 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
           }
         }}
       >
-        <MentionText text={post.content} viewerId={currentUserId || undefined} />
+        <MentionText text={contentText} viewerId={currentUserId || undefined} />
       </div>
 
       {post.tags?.length ? (
@@ -338,67 +468,87 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
       ) : null}
 
       {attachments.length ? (
-        <div className={`mt-4 grid gap-3 ${attachments.length === 1 ? 'grid-cols-1' : 'md:grid-cols-2'}`}>
-          {attachments.map((media: any) => {
-            const type = inferMediaType(media || {});
-            const mediaHeightClass = attachments.length === 1 ? 'h-64 md:h-80' : 'h-48 md:h-56';
+        <GraphicWarningGate
+          active={Boolean(post.graphicWarning)}
+          revealed={graphicRevealed}
+          onReveal={() => setGraphicRevealed(true)}
+          label={GRAPHIC_WARNING_LABEL}
+          className="mt-4"
+        >
+          <div className={`grid gap-3 ${attachments.length === 1 ? 'grid-cols-1' : 'md:grid-cols-2'}`}>
+            {attachments.map((media: any) => {
+              const type = inferMediaType(media || {});
+              const mediaHeightClass =
+                attachments.length === 1 ? FEED_SINGLE_MEDIA_HEIGHT_CLASS : FEED_MULTI_MEDIA_HEIGHT_CLASS;
 
-            if (type === 'video') {
-              return (
-                <div
-                  key={media.id || media.url}
-                  role="button"
-                  tabIndex={0}
-                  onClick={(event) => {
-                    if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
-                    onOpenPost(post.id);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
+              if (type === 'video') {
+                return (
+                  <div
+                    key={media.id || media.url}
+                    role="button"
+                    tabIndex={0}
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
                       onOpenPost(post.id);
-                    }
-                  }}
-                  className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
-                >
-                  <InlineAutoplayVideo
-                    src={media.url}
-                    poster={media.thumbnailUrl || undefined}
-                    className={`${mediaHeightClass} w-full object-cover`}
-                    controls={false}
-                    autoplayEnabled={autoplayEnabled}
-                    preload="metadata"
-                  />
-                </div>
-              );
-            }
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        onOpenPost(post.id);
+                      }
+                    }}
+                    className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
+                  >
+                    <InlineAutoplayVideo
+                      src={media.url}
+                      poster={media.thumbnailUrl || undefined}
+                      className={`${mediaHeightClass} w-full object-cover`}
+                      controls={false}
+                      autoplayEnabled={autoplayEnabled}
+                      preload="metadata"
+                      loadingLabel="Video loading"
+                      overlay={(videoElement) => (
+                        <PostVideoActionBar
+                          postId={post.id}
+                          postTitle={post.title}
+                          postContent={post.content}
+                          postLocation={post.location}
+                          media={media}
+                          videoElement={videoElement}
+                        />
+                      )}
+                    />
+                  </div>
+                );
+              }
 
-            if (type === 'image') {
+              if (type === 'image') {
+                return (
+                  <button
+                    key={media.id || media.url}
+                    type="button"
+                    onClick={() => onOpenPost(post.id)}
+                    className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left shadow-sm"
+                  >
+                    <img src={media.url} alt={media.name || 'Post media'} className={`${mediaHeightClass} w-full object-cover`} />
+                  </button>
+                );
+              }
+
               return (
                 <button
                   key={media.id || media.url}
                   type="button"
                   onClick={() => onOpenPost(post.id)}
-                  className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left shadow-sm"
+                  className="rounded-2xl border border-slate-200 bg-white p-4 text-left text-sm text-slate-600 shadow-sm"
                 >
-                  <img src={media.url} alt={media.name || 'Post media'} className={`${mediaHeightClass} w-full object-cover`} />
+                  <div className="font-semibold text-slate-900">{media.name || 'Attachment'}</div>
+                  <span className="mt-2 inline-flex text-xs font-semibold text-blue-600 underline">Open post</span>
                 </button>
               );
-            }
-
-            return (
-              <button
-                key={media.id || media.url}
-                type="button"
-                onClick={() => onOpenPost(post.id)}
-                className="rounded-2xl border border-slate-200 bg-white p-4 text-left text-sm text-slate-600 shadow-sm"
-              >
-                <div className="font-semibold text-slate-900">{media.name || 'Attachment'}</div>
-                <span className="mt-2 inline-flex text-xs font-semibold text-blue-600 underline">Open in Post in Focus</span>
-              </button>
-            );
-          })}
-        </div>
+            })}
+          </div>
+        </GraphicWarningGate>
       ) : null}
 
       {hasAiInsight ? (
@@ -414,6 +564,7 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
       <PostEngagementBar
         postId={post.id}
         authorId={post.authorUserId || post.authorId}
+        dashGcoinTotal={Number(post.dashGcoinTotal ?? post.interactions?.dashGcoinTotal ?? 0)}
         commentPolicy={post.commentPolicy}
         postRepostsEnabled={post.repostsEnabled}
         commentCount={feedCommentCount}
@@ -436,7 +587,6 @@ export default function PostDetailView() {
 
   const { user } = useUser();
   const { showNotification } = useNotification();
-  const { profile } = usePerformanceProfile();
 
   const query = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const focusCommentId = String(query.get('comment') || '').trim();
@@ -448,17 +598,23 @@ export default function PostDetailView() {
   const [commentCount, setCommentCount] = useState<number>(0);
   const [activeMediaIndex, setActiveMediaIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [detailGraphicRevealed, setDetailGraphicRevealed] = useState(false);
   const [insightCollapsed, setInsightCollapsed] = useState(true);
   const [feedPosts, setFeedPosts] = useState<any[]>([]);
   const [feedCursor, setFeedCursor] = useState<string | null>(null);
   const [feedLoading, setFeedLoading] = useState(false);
   const [feedError, setFeedError] = useState<string | null>(null);
   const [feedLoadedOnce, setFeedLoadedOnce] = useState(false);
+  const [streamAds, setStreamAds] = useState<any[]>([]);
+  const [recommendedJobs, setRecommendedJobs] = useState<Job[]>([]);
+  const [recommendedGigs, setRecommendedGigs] = useState<Gig[]>([]);
+  const [suggestedPages, setSuggestedPages] = useState<SuggestedPage[]>([]);
+  const [streamActiveIndex, setStreamActiveIndex] = useState(0);
 
   const loadMoreRef = useRef(false);
   const feedSentinelRef = useRef<HTMLDivElement | null>(null);
-  const feedSectionRef = useRef<HTMLDivElement | null>(null);
-  const engagementSectionRef = useRef<HTMLDivElement | null>(null);
+  const streamItemRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const streamObserverRef = useRef<IntersectionObserver | null>(null);
 
   const load = useCallback(async () => {
     if (!postId) return;
@@ -477,6 +633,10 @@ export default function PostDetailView() {
       setLoading(false);
     }
   }, [postId]);
+
+  useEffect(() => {
+    setDetailGraphicRevealed(false);
+  }, [post?.id]);
 
   const loadFeed = useCallback(
     async (cursor?: string | null, replace = false) => {
@@ -525,10 +685,6 @@ export default function PostDetailView() {
     [navigate]
   );
 
-  const scrollToSection = useCallback((ref: React.RefObject<HTMLElement | HTMLDivElement | null>) => {
-    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
-
   const patchFeedPost = useCallback((targetId: string, updater: (item: any) => any | null) => {
     setFeedPosts((prev) =>
       prev
@@ -560,6 +716,47 @@ export default function PostDetailView() {
     },
     [navigate, patchFeedPost, showNotification]
   );
+
+  const loadStreamSupplements = useCallback(async () => {
+    const [adsResult, featuredJobsResult, recommendedJobsResult, randomJobsResult, featuredGigsResult, recommendedGigsResult, randomGigsResult, pagesResult] =
+      await Promise.allSettled([
+        CommunityService.getPublicAds({ limit: 10 }),
+        jobsApi.getJobs({ status: 'active', limit: 4, featuredOnly: true }),
+        jobsApi.getJobs({ status: 'active', limit: 4, recommended: true }),
+        jobsApi.getJobs({ status: 'active', limit: 4, random: true }),
+        gigsApi.getGigs({ status: 'active', limit: 4, featuredOnly: true }),
+        gigsApi.getGigs({ status: 'active', limit: 4, recommended: true }),
+        gigsApi.getGigs({ status: 'active', limit: 4, random: true }),
+        RecoService.getAccounts({ surface: 'member_home', type: 'page', limit: 6 }).catch(() =>
+          CommunityService.getRecommendedBusinessPages(6)
+        )
+      ]);
+
+    const nextAds = adsResult.status === 'fulfilled' && Array.isArray(adsResult.value) ? adsResult.value : [];
+    const nextJobs = dedupeById(
+      [
+        featuredJobsResult,
+        recommendedJobsResult,
+        randomJobsResult
+      ].flatMap((result) => (result.status === 'fulfilled' ? extractJobsFromPayload(result.value) : []))
+    ).slice(0, 6);
+    const nextGigs = dedupeById(
+      [
+        featuredGigsResult,
+        recommendedGigsResult,
+        randomGigsResult
+      ].flatMap((result) => (result.status === 'fulfilled' ? extractGigsFromPayload(result.value) : []))
+    ).slice(0, 6);
+    const nextPages =
+      pagesResult.status === 'fulfilled'
+        ? dedupeById((Array.isArray(pagesResult.value) ? pagesResult.value : []).map(normalizeSuggestedPage).filter(Boolean) as SuggestedPage[]).slice(0, 6)
+        : [];
+
+    setStreamAds(nextAds);
+    setRecommendedJobs(nextJobs);
+    setRecommendedGigs(nextGigs);
+    setSuggestedPages(nextPages);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -720,6 +917,148 @@ export default function PostDetailView() {
     };
   }, [load, navigate, patchFeedPost, post?.id, showNotification]);
 
+  useEffect(() => {
+    setStreamActiveIndex(0);
+    streamItemRefs.current = {};
+  }, [postId]);
+
+  useEffect(() => {
+    if (loading || error) return;
+    void loadStreamSupplements().catch(() => {
+      setStreamAds([]);
+      setRecommendedJobs([]);
+      setRecommendedGigs([]);
+      setSuggestedPages([]);
+    });
+  }, [error, loadStreamSupplements, loading, postId]);
+
+  const streamPosts = useMemo(() => {
+    if (!post) return feedPosts;
+    return mergePostList([post], feedPosts, undefined);
+  }, [feedPosts, post]);
+
+  const streamSections = useMemo<StreamSection[]>(() => {
+    const sections = streamPosts.map((entry) => ({ post: entry, supplement: null as StreamSupplement | null }));
+    if (sections.length <= 1) return sections;
+
+    const adCount = Math.min(streamAds.length, Math.max(1, Math.min(3, Math.floor(sections.length / 4))));
+    const supplementPool: StreamSupplement[] = [];
+    if (recommendedJobs.length) {
+      supplementPool.push({
+        type: 'jobs',
+        key: `jobs:${recommendedJobs.slice(0, 2).map((item) => item.id).join(':')}`,
+        items: recommendedJobs.slice(0, 2)
+      });
+    }
+    if (recommendedGigs.length) {
+      supplementPool.push({
+        type: 'gigs',
+        key: `gigs:${recommendedGigs.slice(0, 2).map((item) => item.id).join(':')}`,
+        items: recommendedGigs.slice(0, 2)
+      });
+    }
+    if (suggestedPages.length) {
+      supplementPool.push({
+        type: 'pages',
+        key: `pages:${suggestedPages.slice(0, 4).map((item) => item.id).join(':')}`,
+        items: suggestedPages.slice(0, 4)
+      });
+    }
+    streamAds.slice(0, adCount).forEach((ad) => {
+      const adId = String(ad?.id || '').trim();
+      if (!adId) return;
+      supplementPool.push({
+        type: 'ad',
+        key: `ad:${adId}`,
+        ad
+      });
+    });
+
+    if (!supplementPool.length) return sections;
+
+    const seed = `${postId}:${sections.length}:${streamPosts.map((entry) => entry?.id).join(':')}`;
+    const orderedSupplements = [...supplementPool].sort(
+      (a, b) => hashString(`${seed}:${a.key}`) - hashString(`${seed}:${b.key}`)
+    );
+    const slotIndexes = pickSlotIndexes(sections.length - 1, orderedSupplements.length, seed).map((value) => value + 1);
+    slotIndexes.forEach((sectionIndex, idx) => {
+      const target = sections[sectionIndex];
+      if (!target) return;
+      target.supplement = orderedSupplements[idx] || null;
+    });
+
+    return sections;
+  }, [postId, recommendedGigs, recommendedJobs, streamAds, streamPosts, suggestedPages]);
+
+  const scrollToStreamIndex = useCallback(
+    (nextIndex: number, behavior: ScrollBehavior = 'smooth') => {
+      const clamped = Math.max(0, Math.min(nextIndex, streamSections.length - 1));
+      const node = streamItemRefs.current[clamped];
+      if (!node) return;
+      node.scrollIntoView({ behavior, block: 'start' });
+      setStreamActiveIndex(clamped);
+    },
+    [streamSections.length]
+  );
+
+  useEffect(() => {
+    streamObserverRef.current?.disconnect();
+    const sections = streamSections;
+    if (!sections.length) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        let best: { idx: number; ratio: number } | null = null;
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          const idx = Number((entry.target as HTMLElement).dataset.index || -1);
+          if (idx < 0) return;
+          if (!best || entry.intersectionRatio > best.ratio) {
+            best = { idx, ratio: entry.intersectionRatio };
+          }
+        });
+        if (best) setStreamActiveIndex(best.idx);
+      },
+      {
+        threshold: [0.35, 0.55, 0.72],
+        rootMargin: '-6% 0px -18% 0px'
+      }
+    );
+
+    streamObserverRef.current = observer;
+    sections.forEach((_section, idx) => {
+      const node = streamItemRefs.current[idx];
+      if (!node) return;
+      node.dataset.index = String(idx);
+      observer.observe(node);
+    });
+
+    return () => observer.disconnect();
+  }, [streamSections]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+      const target = event.target as HTMLElement | null;
+      const tagName = String(target?.tagName || '').toLowerCase();
+      if (target?.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select') return;
+      event.preventDefault();
+      const delta = event.key === 'ArrowDown' ? 1 : -1;
+      scrollToStreamIndex(streamActiveIndex + delta);
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [scrollToStreamIndex, streamActiveIndex]);
+
+  useEffect(() => {
+    if (!feedCursor || feedLoading || loadMoreRef.current) return;
+    if (streamActiveIndex < Math.max(0, streamSections.length - 3)) return;
+    void loadFeed(feedCursor, false);
+  }, [feedCursor, feedLoading, loadFeed, streamActiveIndex, streamSections.length]);
+
+  const activeStreamPost = streamSections[streamActiveIndex]?.post || post;
+
   const mediaItems = useMemo(() => (Array.isArray(post?.attachments) ? post.attachments : []), [post?.attachments]);
   const selectedMedia = mediaItems[activeMediaIndex] || null;
   const selectedMediaType = inferMediaType(selectedMedia || {});
@@ -756,6 +1095,7 @@ export default function PostDetailView() {
 
   const aiInsightText = String(post?.aiInsightText ?? post?.ai_insight_text ?? '').trim();
   const hasAiInsight = Boolean((post?.aiInsightGenerated ?? post?.ai_insight_generated ?? false) && aiInsightText);
+  const isAIEnhanced = Boolean(post?.isAIEnhanced ?? post?.is_ai_enhanced ?? false);
 
   const analytics = useMemo(
     () => ({
@@ -782,6 +1122,38 @@ export default function PostDetailView() {
     },
     [mediaItems.length]
   );
+
+  const renderStreamSupplement = useCallback((supplement: StreamSupplement | null) => {
+    if (!supplement) return null;
+
+    if (supplement.type === 'ad') {
+      return <FeedAdCard ad={supplement.ad} />;
+    }
+
+    if (supplement.type === 'jobs') {
+      return (
+        <RecommendedListingCard
+          kind="jobs"
+          title="Recommended jobs"
+          items={supplement.items}
+          seeAllHref="/jobs"
+        />
+      );
+    }
+
+    if (supplement.type === 'gigs') {
+      return (
+        <RecommendedListingCard
+          kind="gigs"
+          title="Recommended gigs"
+          items={supplement.items}
+          seeAllHref="/gigs"
+        />
+      );
+    }
+
+    return <SuggestedCard data={{ kind: 'pages', title: 'Pages to follow', items: supplement.items }} />;
+  }, []);
 
   if (loading) {
     return (
@@ -831,43 +1203,96 @@ export default function PostDetailView() {
   const isOwner = Boolean(user?.id && post.authorUserId && String(user.id) === String(post.authorUserId));
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(96,165,250,0.16),_transparent_32%),linear-gradient(180deg,_#f8fafc_0%,_#f8fafc_35%,_#eef2ff_100%)]">
-      <div className="mx-auto max-w-7xl px-3 py-4 md:px-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => {
-              try {
-                navigate(-1);
-              } catch {
-                navigate('/community');
-              }
-            }}
-            className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm backdrop-blur hover:bg-slate-50"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </button>
-          <div className="inline-flex rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-700">
-            Expanded Post Experience
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(99,102,241,0.14),_transparent_35%),linear-gradient(180deg,_#f1f5f9_0%,_#eef2ff_40%,_#e2e8f0_100%)]">
+      <div className="mx-auto max-w-[92rem] px-3 py-4 md:px-5 lg:px-6">
+        <div className="sticky top-3 z-30 mb-4 rounded-[28px] border border-slate-200/80 bg-white/90 p-3 shadow-[0_18px_45px_-34px_rgba(15,23,42,0.4)] backdrop-blur md:p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    navigate(-1);
+                  } catch {
+                    navigate('/community');
+                  }
+                }}
+                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </button>
+              <div className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+                Post view
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-slate-900">
+                  Post {Math.min(streamActiveIndex + 1, Math.max(streamSections.length, 1))} of {Math.max(streamSections.length, 1)}
+                </div>
+                <div className="truncate text-xs text-slate-500">
+                  {activeStreamPost?.author?.displayName || activeStreamPost?.authorName || 'Community member'}
+                  {activeStreamPost?.title ? ` · ${activeStreamPost.title}` : ''}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => scrollToStreamIndex(streamActiveIndex - 1)}
+                disabled={streamActiveIndex <= 0}
+                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <ArrowUp className="h-4 w-4" />
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollToStreamIndex(streamActiveIndex + 1)}
+                disabled={streamActiveIndex >= streamSections.length - 1}
+                className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Next
+                <ArrowDown className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void loadFeed(null, true);
+                  void loadStreamSupplements();
+                }}
+                className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800"
+              >
+                <Loader2 className={`h-4 w-4 ${feedLoading ? 'animate-spin' : ''}`} />
+                Refresh posts
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_310px]">
-          <div className="space-y-5">
+        {feedError && !feedPosts.length ? (
+          <div className="mb-4 rounded-[28px] border border-red-200 bg-red-50/90 px-4 py-4 text-sm text-red-700 shadow-sm">
+            <div className="font-semibold">Unable to load more posts right now.</div>
+            <div className="mt-1">{feedError}</div>
+          </div>
+        ) : null}
+
+        <div className="space-y-5 snap-y snap-mandatory">
+          <section
+            ref={(node) => {
+              streamItemRefs.current[0] = node;
+            }}
+            className={`${STREAM_SECTION_MIN_HEIGHT_CLASS} snap-start scroll-mt-24 rounded-[34px] border border-slate-200/70 bg-white/65 p-3 shadow-[0_20px_55px_-36px_rgba(15,23,42,0.42)] backdrop-blur md:p-5`}
+          >
             <article className="overflow-hidden rounded-[32px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/70 p-4 shadow-[0_24px_55px_-35px_rgba(15,23,42,0.4)] md:p-6">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-600 shadow-sm">
-                    Post in Focus
-                  </div>
-                  <p className="mt-2 text-sm text-slate-500">
-                    Scroll through surrounding posts without losing the current post context.
-                  </p>
-                </div>
-                <div className="text-right text-xs text-slate-500">
-                  <div className="font-semibold text-slate-900">{post.visibility || 'public'}</div>
-                  <div>Updated {formatDetailDate(post.updatedAt || post.createdAt)}</div>
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4 text-xs text-slate-500">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 font-semibold text-slate-700">
+                    {post.visibility || 'public'}
+                  </span>
+                  <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-medium text-slate-500">
+                    Updated {formatDetailDate(post.updatedAt || post.createdAt)}
+                  </span>
                 </div>
               </div>
 
@@ -889,6 +1314,18 @@ export default function PostDetailView() {
                 {post.isHighlighted ? (
                   <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
                     Highlighted
+                  </span>
+                ) : null}
+                {isAIEnhanced ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                    <Sparkles className="h-3 w-3" />
+                    AI-enhanced
+                  </span>
+                ) : null}
+                {post.graphicWarning ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                    <AlertTriangle className="h-3 w-3" />
+                    {GRAPHIC_WARNING_LABEL}
                   </span>
                 ) : null}
               </>
@@ -919,7 +1356,7 @@ export default function PostDetailView() {
             </div>
           ) : null}
 
-          <div className="mt-4 text-[15px] leading-8 text-slate-700 md:text-base">
+          <div className="mt-4 text-[15px] leading-[1.82] text-slate-700 [overflow-wrap:anywhere] md:text-base">
             <MentionText
               text={post.content}
               mentionToken={focusMentionToken || undefined}
@@ -943,60 +1380,77 @@ export default function PostDetailView() {
 
           {mediaItems.length ? (
             <div className="mt-5 rounded-[26px] border border-slate-200/90 bg-slate-50/90 p-2.5 shadow-inner">
-              <div className="relative overflow-hidden rounded-[22px] border border-slate-200 bg-black">
-                {selectedMedia ? (
-                  <>
-                    {selectedMediaType === 'image' ? (
-                      <button
-                        type="button"
-                        onClick={() => openMediaLightbox(activeMediaIndex)}
-                        className="block w-full"
-                      >
-                        <img
+              <GraphicWarningGate
+                active={Boolean(post.graphicWarning)}
+                revealed={detailGraphicRevealed}
+                onReveal={() => setDetailGraphicRevealed(true)}
+                label={GRAPHIC_WARNING_LABEL}
+              >
+                <div className="relative overflow-hidden rounded-[22px] border border-slate-200 bg-black">
+                  {selectedMedia ? (
+                    <>
+                      {selectedMediaType === 'image' ? (
+                        <button
+                          type="button"
+                          onClick={() => openMediaLightbox(activeMediaIndex)}
+                          className="block w-full"
+                        >
+                          <img
+                            src={selectedMedia.url}
+                            alt={selectedMedia.name || 'Post media'}
+                            className={`${DETAIL_MEDIA_HEIGHT_CLASS} w-full object-contain`}
+                          />
+                        </button>
+                      ) : null}
+
+                      {selectedMediaType === 'video' ? (
+                        <InlineAutoplayVideo
                           src={selectedMedia.url}
-                          alt={selectedMedia.name || 'Post media'}
-                          className="h-[360px] w-full object-contain md:h-[520px]"
+                          poster={selectedMedia.thumbnailUrl || undefined}
+                          controls
+                          autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY && streamActiveIndex === 0 && !lightboxOpen}
+                          active={streamActiveIndex === 0 && !lightboxOpen}
+                          preload="metadata"
+                          className={`${DETAIL_MEDIA_HEIGHT_CLASS} w-full object-contain`}
+                          loadingLabel="Video loading"
+                          overlay={(videoElement) => (
+                            <PostVideoActionBar
+                              postId={post.id}
+                              postTitle={post.title}
+                              postContent={post.content}
+                              postLocation={post.location}
+                              media={selectedMedia}
+                              videoElement={videoElement}
+                            />
+                          )}
                         />
-                      </button>
-                    ) : null}
+                      ) : null}
 
-                    {selectedMediaType === 'video' ? (
-                      <video
-                        src={selectedMedia.url}
-                        controls
-                        controlsList="nodownload"
-                        playsInline
-                        className="h-[360px] w-full object-contain md:h-[520px]"
-                        onContextMenu={(event) => event.preventDefault()}
-                      />
-                    ) : null}
-
-                    {selectedMediaType === 'document' ? (
-                      <div className="flex h-[260px] w-full flex-col items-center justify-center gap-3 px-4 text-center text-sm text-slate-200">
-                        <p className="font-semibold">{selectedMedia.name || 'Attachment'}</p>
-                        <div className="flex flex-wrap items-center justify-center gap-2">
-                          <a
-                            href={selectedMedia.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-900"
-                          >
-                            Open document
-                          </a>
-                          <button
-                            type="button"
-                            onClick={() => void handleDownloadMedia(selectedMedia)}
-                            className="rounded-full border border-white/30 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white"
-                          >
-                            Download
-                          </button>
+                      {selectedMediaType === 'document' ? (
+                        <div className="flex h-[42svh] min-h-[16rem] w-full flex-col items-center justify-center gap-3 px-4 text-center text-sm text-slate-200">
+                          <p className="font-semibold">{selectedMedia.name || 'Attachment'}</p>
+                          <div className="flex flex-wrap items-center justify-center gap-2">
+                            <a
+                              href={selectedMedia.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="rounded-full bg-white px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-900"
+                            >
+                              Open document
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => void handleDownloadMedia(selectedMedia)}
+                              className="rounded-full border border-white/30 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white"
+                            >
+                              Download
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ) : null}
+                      ) : null}
 
-                    {(selectedMediaType === 'image' || selectedMediaType === 'video' || selectedMediaType === 'document') ? (
-                      <div className="absolute right-3 top-3 flex items-center gap-2">
-                        {canDownloadSelectedMedia ? (
+                      {canDownloadSelectedMedia ? (
+                        <div className="absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-1.5rem)] items-center gap-2">
                           <button
                             type="button"
                             onClick={() => void handleDownloadMedia(selectedMedia)}
@@ -1005,41 +1459,33 @@ export default function PostDetailView() {
                             <Download className="h-3.5 w-3.5" />
                             Download
                           </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          onClick={() => openMediaLightbox(activeMediaIndex)}
-                          className="inline-flex items-center gap-1 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm"
-                        >
-                          <Expand className="h-3.5 w-3.5" />
-                          Expand
-                        </button>
-                      </div>
-                    ) : null}
-                  </>
-                ) : null}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
 
-                {mediaItems.length > 1 ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => changeMedia(-1)}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 text-slate-700 shadow"
-                      aria-label="Previous media"
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => changeMedia(1)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 text-slate-700 shadow"
-                      aria-label="Next media"
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
-                  </>
-                ) : null}
-              </div>
+                  {mediaItems.length > 1 ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => changeMedia(-1)}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 text-slate-700 shadow"
+                        aria-label="Previous media"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => changeMedia(1)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 text-slate-700 shadow"
+                        aria-label="Next media"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              </GraphicWarningGate>
 
               {mediaItems.length > 1 ? (
                 <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
@@ -1123,10 +1569,11 @@ export default function PostDetailView() {
             </div>
           ) : null}
 
-          <div ref={engagementSectionRef} className="mt-4">
+          <div className="mt-4">
             <PostEngagementBar
               postId={post.id}
               authorId={post.authorUserId || post.authorId}
+              dashGcoinTotal={Number(post.dashGcoinTotal ?? post.interactions?.dashGcoinTotal ?? 0)}
               commentPolicy={post.commentPolicy}
               postRepostsEnabled={post.repostsEnabled}
               commentCount={commentCount}
@@ -1141,49 +1588,31 @@ export default function PostDetailView() {
             />
           </div>
             </article>
+          </section>
 
-            <section ref={feedSectionRef} className="rounded-[32px] border border-slate-200/80 bg-white/80 p-4 shadow-[0_18px_45px_-34px_rgba(15,23,42,0.34)] backdrop-blur md:p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-600">
-                    <Radar className="h-3.5 w-3.5" />
-                    Continue Through Posts
-                  </div>
-                  <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">Keep scrolling through the network</h2>
-                  <p className="mt-1 max-w-2xl text-sm text-slate-500">
-                    The focused post stays at the top, and the feed continues below it so you can move down and back up without leaving the detail experience.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void loadFeed(null, true)}
-                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700 shadow-sm transition hover:bg-slate-50"
+          <section className="space-y-5">
+            {streamSections.slice(1).map((section, offset) => {
+              const index = offset + 1;
+              const isActiveSection = index === streamActiveIndex;
+              return (
+                <section
+                  key={section.post.id}
+                  ref={(node) => {
+                    streamItemRefs.current[index] = node;
+                  }}
+                  className={`${STREAM_SECTION_MIN_HEIGHT_CLASS} snap-start scroll-mt-24 rounded-[34px] border border-slate-200/70 bg-white/70 p-3 shadow-[0_20px_55px_-36px_rgba(15,23,42,0.42)] backdrop-blur md:p-5`}
                 >
-                  Refresh stream
-                </button>
-              </div>
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3 text-xs text-slate-500">
+                    <span className="font-semibold text-slate-700">{isActiveSection ? 'Viewing now' : 'More posts'}</span>
+                    <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-medium text-slate-600">
+                      Post {index + 1} of {streamSections.length}
+                    </span>
+                  </div>
 
-              {feedError && !feedPosts.length ? (
-                <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700">
-                  <div className="font-semibold">Unable to continue the post stream.</div>
-                  <div className="mt-1">{feedError}</div>
-                  <button
-                    type="button"
-                    onClick={() => void loadFeed(null, true)}
-                    className="mt-3 inline-flex rounded-full border border-red-200 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-red-700"
-                  >
-                    Retry
-                  </button>
-                </div>
-              ) : null}
-
-              <div className="mt-5 space-y-4">
-                {feedPosts.map((feedPost) => (
                   <FeedPostCard
-                    key={feedPost.id}
-                    post={feedPost}
+                    post={section.post}
                     currentUserId={user?.id}
-                    autoplayEnabled={profile.autoplayEnabled}
+                    autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY && isActiveSection && !lightboxOpen}
                     onOpenPost={openPostDetail}
                     onRequireLogin={() => {
                       if (confirm('Log in to follow users?')) window.location.href = '/auth/login';
@@ -1203,89 +1632,39 @@ export default function PostDetailView() {
                       void handleDeletePost(targetPost);
                     }}
                   />
-                ))}
 
-                {feedLoading ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-                    Loading more posts...
-                  </div>
-                ) : null}
+                    {section.supplement ? (
+                      <div className="mt-4 rounded-[28px] border border-slate-200/80 bg-white/90 p-3 shadow-[0_18px_45px_-34px_rgba(15,23,42,0.25)] md:p-4">
+                      <div className="mb-3 inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+                        Related picks
+                      </div>
+                      {renderStreamSupplement(section.supplement)}
+                    </div>
+                  ) : null}
+                </section>
+              );
+            })}
 
-                {!feedLoading && feedLoadedOnce && !feedPosts.length && !feedError ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-                    No additional posts are available right now.
-                  </div>
-                ) : null}
+            {feedLoading ? (
+              <div className="rounded-[28px] border border-slate-200 bg-white/90 px-4 py-4 text-sm text-slate-600 shadow-sm">
+                Loading more posts.
+              </div>
+            ) : null}
 
-                {!feedLoading && !feedCursor && feedPosts.length ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
-                    You are caught up on the surrounding posts.
-                  </div>
-                ) : null}
+            {!feedLoading && feedLoadedOnce && streamSections.length <= 1 && !feedError ? (
+              <div className="rounded-[28px] border border-slate-200 bg-white/90 px-4 py-4 text-sm text-slate-600 shadow-sm">
+                No more posts are available right now.
+              </div>
+            ) : null}
 
-                <div ref={feedSentinelRef} className="h-6" />
+            {!feedLoading && !feedCursor && streamSections.length > 1 ? (
+              <div className="rounded-[28px] border border-slate-200 bg-white/90 px-4 py-4 text-sm text-slate-600 shadow-sm">
+                You're caught up.
               </div>
-            </section>
-          </div>
+            ) : null}
 
-          <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
-            <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-4 shadow-[0_18px_40px_-32px_rgba(15,23,42,0.35)] backdrop-blur">
-              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-600">
-                <MessageSquareText className="h-3.5 w-3.5" />
-                Post Overview
-              </div>
-              <div className="mt-4 space-y-3">
-                <PostMetricCard label="Views" value={analytics.views} emphasis />
-                <div className="grid grid-cols-2 gap-3">
-                  <PostMetricCard label="Comments" value={analytics.comments} />
-                  <PostMetricCard label="Reposts" value={analytics.reposts} />
-                </div>
-              </div>
-              <div className="mt-4 space-y-2 rounded-2xl border border-slate-200 bg-slate-50/90 p-3 text-sm text-slate-600">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-semibold text-slate-900">Published</span>
-                  <span>{formatDetailDate(post.createdAt)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-semibold text-slate-900">Visibility</span>
-                  <span className="capitalize">{String(post.visibility || 'public')}</span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-semibold text-slate-900">Attachments</span>
-                  <span>{mediaItems.length}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-[28px] border border-slate-200/80 bg-white/90 p-4 shadow-[0_18px_40px_-32px_rgba(15,23,42,0.35)] backdrop-blur">
-              <div className="inline-flex rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-blue-700">
-                Navigation
-              </div>
-              <div className="mt-4 grid gap-2">
-                <button
-                  type="button"
-                  onClick={() => scrollToSection(engagementSectionRef)}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                >
-                  Jump to discussion
-                </button>
-                <button
-                  type="button"
-                  onClick={() => scrollToSection(feedSectionRef)}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                >
-                  Continue scrolling posts
-                </button>
-                <button
-                  type="button"
-                  onClick={() => window.scrollTo({ top: 0, left: 0, behavior: 'smooth' })}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                >
-                  Return to top
-                </button>
-              </div>
-            </div>
-          </aside>
+            <div ref={feedSentinelRef} className="h-6" />
+          </section>
         </div>
       </div>
 

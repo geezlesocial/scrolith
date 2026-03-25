@@ -5,10 +5,31 @@ type GiftPanelProps = {
   sending?: boolean;
   minAmount?: number;
   maxAmount?: number;
+  title?: string;
+  subtitle?: string;
+  badgeLabel?: string;
+  balance?: number | null;
+  balanceLoading?: boolean;
+  messageLabel?: string;
+  submitLabel?: string;
+  onCancel?: (() => void) | null;
   onSend: (payload: { amountGcoin: number; message?: string }) => Promise<void> | void;
 };
 
-const GiftPanel: React.FC<GiftPanelProps> = ({ sending, minAmount = 1, maxAmount = 50000, onSend }) => {
+const GiftPanel: React.FC<GiftPanelProps> = ({
+  sending,
+  minAmount = 1,
+  maxAmount = 50000,
+  title = 'Send a Gcoin gift without leaving the stream.',
+  subtitle = 'Support the host in real time with a quick amount or a custom gift message.',
+  badgeLabel = 'Dash support',
+  balance = null,
+  balanceLoading = false,
+  messageLabel = 'Message',
+  submitLabel = 'Send Gift',
+  onCancel,
+  onSend
+}) => {
   const [amount, setAmount] = useState<number>(Math.max(1, Number(minAmount || 1)));
   const [message, setMessage] = useState('');
 
@@ -31,12 +52,15 @@ const GiftPanel: React.FC<GiftPanelProps> = ({ sending, minAmount = 1, maxAmount
       <div className="border-b border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.16),_transparent_40%),linear-gradient(135deg,_#ecfdf5,_#f8fafc)] px-5 py-5">
         <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-700">
           <Sparkles className="h-3.5 w-3.5" />
-          Dash support
+          {badgeLabel}
         </div>
-        <h3 className="mt-3 text-lg font-semibold text-slate-950">Send a Gcoin gift without leaving the stream.</h3>
+        <h3 className="mt-3 text-lg font-semibold text-slate-950">{title}</h3>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          Support the host in real time with a quick amount or a custom gift message.
+          {subtitle}
         </p>
+        <div className="mt-3 rounded-2xl border border-emerald-200/70 bg-white/80 px-4 py-3 text-sm text-emerald-800 shadow-sm">
+          {balanceLoading ? 'Loading your Gcoin balance...' : `Available balance: ${Number(balance || 0)} GC`}
+        </div>
       </div>
 
       <div className="p-5">
@@ -77,13 +101,13 @@ const GiftPanel: React.FC<GiftPanelProps> = ({ sending, minAmount = 1, maxAmount
           ) : null}
 
           <label className="space-y-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Message</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{messageLabel}</span>
             <input
               type="text"
               value={message}
               onChange={(event) => setMessage(event.target.value)}
               className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
-              placeholder="Add a quick support message"
+              placeholder="Optional note for the host"
             />
           </label>
 
@@ -91,15 +115,27 @@ const GiftPanel: React.FC<GiftPanelProps> = ({ sending, minAmount = 1, maxAmount
             Gifts are delivered instantly while the livestream is active. Limits remain enforced by your current wallet settings.
           </div>
 
-          <button
-            type="button"
-            onClick={() => void submit()}
-            disabled={Boolean(sending)}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
-          >
-            {sending ? <Sparkles className="h-4 w-4 animate-pulse" /> : <Gift className="h-4 w-4" />}
-            {sending ? 'Sending...' : 'Send Gift'}
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {onCancel ? (
+              <button
+                type="button"
+                onClick={onCancel}
+                disabled={Boolean(sending)}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void submit()}
+              disabled={Boolean(sending)}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {sending ? <Sparkles className="h-4 w-4 animate-pulse" /> : <Gift className="h-4 w-4" />}
+              {sending ? 'Sending...' : submitLabel}
+            </button>
+          </div>
         </div>
       </div>
     </div>

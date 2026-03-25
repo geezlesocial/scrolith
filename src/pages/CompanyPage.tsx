@@ -3,10 +3,14 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   BarChart3,
   Building2,
+  CheckCircle2,
+  Clock3,
   FileText,
   Megaphone,
+  Package,
   PenSquare,
   RefreshCw,
+  RotateCcw,
   Save,
   Settings,
   Trash2,
@@ -14,7 +18,11 @@ import {
   UserPlus,
   Users
 } from 'lucide-react';
-import { CommunityService } from '../services/community';
+import {
+  CommunityService,
+  type BusinessPageServicePackage,
+  type BusinessPageStorefrontPayload
+} from '../services/community';
 import { RecoService } from '../services/reco';
 import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
@@ -22,10 +30,18 @@ import MentionText from '../community/components/MentionText';
 import PostHeader from '../community/components/PostHeader';
 import ReactionBar from '../community/components/ReactionBar';
 import PostComments from '../components/PostComments';
+import ExpandablePreviewText from '../components/common/ExpandablePreviewText';
+import OfferTagSelector from '../components/commerce/OfferTagSelector';
+import ContentOfferTags from '../components/commerce/ContentOfferTags';
 import FilePickerModal from '../dashboard/shared/FilePickerModal';
+import OpportunityStudioPanel from '../components/dashboard/OpportunityStudioPanel';
+import LocationPicker from '../components/common/LocationPicker';
+import PostOriginPreview from '../components/post/PostOriginPreview';
 import { resolveAssetUrl } from '../utils/assetUrl';
+import { StructuredLocationFields } from '../types';
+import { normalizeContentOfferTags, type OfferTagSelection } from '../utils/contentOffers';
 
-type PageState = {
+type PageState = StructuredLocationFields & {
   id: string;
   ownerId: string;
   name: string;
@@ -39,7 +55,6 @@ type PageState = {
   website?: string | null;
   email?: string | null;
   phone?: string | null;
-  location?: string | null;
   description?: string | null;
   status?: string | null;
   statusReason?: string | null;
@@ -65,6 +80,14 @@ type PostState = {
   visibility?: string;
   commentPolicy?: string;
   attachments?: Array<{ id?: string; url: string; name?: string; type?: string; mimeType?: string }>;
+  offerTags?: any[];
+  originalPost?: {
+    id?: string;
+    authorName?: string | null;
+    authorUsername?: string | null;
+    title?: string | null;
+    content?: string | null;
+  } | null;
   interactions?: { comments?: number; reactions?: Record<string, number> };
   userState?: { reaction?: string | null };
 };
@@ -89,10 +112,34 @@ type BusinessFollowingEntry = {
   targetType?: 'user' | 'page';
 };
 
-type CompanyTab = 'dashboard' | 'posts' | 'followers' | 'following' | 'edit';
+type PageDetailsFormState = StructuredLocationFields & {
+  name: string;
+  handle: string;
+  slug: string;
+  tagline: string;
+  category: string;
+  industry: string;
+  orgSize: string;
+  orgType: string;
+  website: string;
+  email: string;
+  phone: string;
+  location: string;
+  description: string;
+};
+
+type CompanyTab = 'dashboard' | 'overview' | 'storefront' | 'posts' | 'followers' | 'following' | 'edit';
 
 type CompanyPageProps = {
   slugOverride?: string;
+  embedded?: boolean;
+};
+
+type ServicePackageSummaryState = {
+  total: number;
+  active: number;
+  priceFrom: number | null;
+  currency: string | null;
 };
 
 const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
@@ -132,6 +179,17 @@ const normalizePost = (post: any): PostState => ({
         mimeType: item?.mimeType || item?.mime_type
       }))
     : [],
+  offerTags: normalizeContentOfferTags(post?.offerTags ?? post?.offer_tags),
+  originalPost:
+    post?.originalPost && typeof post.originalPost === 'object'
+      ? {
+          id: post.originalPost.id,
+          authorName: post.originalPost.authorName ?? post.originalPost.author_name ?? null,
+          authorUsername: post.originalPost.authorUsername ?? post.originalPost.author_username ?? null,
+          title: post.originalPost.title ?? null,
+          content: post.originalPost.content ?? null
+        }
+      : null,
   interactions: {
     comments: Number(post?.interactions?.comments || post?.commentsCount || post?.comments_count || 0),
     reactions: post?.interactions?.reactions || {}
@@ -141,7 +199,79 @@ const normalizePost = (post: any): PostState => ({
   }
 });
 
-const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
+const normalizeServicePackage = (value: any, index: number): BusinessPageServicePackage | null => {
+  const title = String(value?.title || '').trim();
+  if (!title) return null;
+  const rawPrice = Number(value?.price);
+  const rawTurnaround = Number(value?.turnaroundDays);
+  const rawRevisions = Number(value?.revisions);
+  return {
+    id: String(value?.id || `pkg_${index}`),
+    title: title.slice(0, 140),
+    summary: value?.summary ? String(value.summary).trim().slice(0, 320) : null,
+    price: Number.isFinite(rawPrice) ? Math.max(0, Number(rawPrice.toFixed(2))) : 0,
+    currency: String(value?.currency || 'USD').toUpperCase().slice(0, 3) || 'USD',
+    billing:
+      String(value?.billing || '').toLowerCase() === 'hourly'
+        ? 'hourly'
+        : String(value?.billing || '').toLowerCase() === 'subscription'
+          ? 'subscription'
+          : 'fixed',
+    turnaroundDays: Number.isFinite(rawTurnaround) ? Math.max(0, Math.floor(rawTurnaround)) : null,
+    revisions: Number.isFinite(rawRevisions) ? Math.max(0, Math.floor(rawRevisions)) : null,
+    ctaLabel: value?.ctaLabel ? String(value.ctaLabel).trim().slice(0, 60) : null,
+    active: value?.active !== false,
+    sortOrder: Number.isFinite(Number(value?.sortOrder)) ? Number(value.sortOrder) : index,
+    features: Array.isArray(value?.features)
+      ? Array.from(
+          new Set(
+            value.features
+              .map((entry: any) => String(entry || '').trim())
+              .filter(Boolean)
+          )
+        )
+      : [],
+    addons: Array.isArray(value?.addons)
+      ? value.addons
+          .map((addon: any, addonIndex: number) => {
+            const name = String(addon?.name || '').trim();
+            if (!name) return null;
+            const rawAddonPrice = Number(addon?.price);
+            return {
+              id: String(addon?.id || `addon_${index}_${addonIndex}`),
+              name: name.slice(0, 120),
+              price: Number.isFinite(rawAddonPrice) ? Math.max(0, Number(rawAddonPrice.toFixed(2))) : 0,
+              description: addon?.description ? String(addon.description).trim().slice(0, 220) : null
+            };
+          })
+          .filter((addon): addon is NonNullable<typeof addon> => Boolean(addon))
+      : [],
+    createdAt: String(value?.createdAt || new Date().toISOString()),
+    updatedAt: String(value?.updatedAt || new Date().toISOString())
+  };
+};
+
+const normalizeServicePackageSummary = (value: any): ServicePackageSummaryState => ({
+  total: Math.max(0, Number(value?.total || 0)),
+  active: Math.max(0, Number(value?.active || 0)),
+  priceFrom:
+    value?.priceFrom === null || value?.priceFrom === undefined
+      ? null
+      : Number.isFinite(Number(value.priceFrom))
+        ? Number(value.priceFrom)
+        : null,
+  currency: value?.currency ? String(value.currency).toUpperCase().slice(0, 3) : null
+});
+
+const formatPackagePriceLabel = (pkg: BusinessPageServicePackage) => {
+  const currency = String(pkg.currency || 'USD').toUpperCase();
+  const value = Number.isFinite(Number(pkg.price)) ? Number(pkg.price).toFixed(2) : '0.00';
+  if (pkg.billing === 'hourly') return `${currency} ${value} / hr`;
+  if (pkg.billing === 'subscription') return `${currency} ${value} / mo`;
+  return `${currency} ${value}`;
+};
+
+const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = false }) => {
   const navigate = useNavigate();
   const { slug: routeSlug = '' } = useParams<{ slug: string }>();
   const slug = String(slugOverride || routeSlug || '').trim();
@@ -152,6 +282,14 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState<PageState | null>(null);
   const [posts, setPosts] = useState<PostState[]>([]);
+  const [storefront, setStorefront] = useState<BusinessPageStorefrontPayload | null>(null);
+  const [servicePackages, setServicePackages] = useState<BusinessPageServicePackage[]>([]);
+  const [servicePackageSummary, setServicePackageSummary] = useState<ServicePackageSummaryState>({
+    total: 0,
+    active: 0,
+    priceFrom: null,
+    currency: null
+  });
   const [followers, setFollowers] = useState<any[]>([]);
   const [recommendedUsers, setRecommendedUsers] = useState<any[]>([]);
   const [recommendedPages, setRecommendedPages] = useState<any[]>([]);
@@ -165,6 +303,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
   const [composerText, setComposerText] = useState('');
   const [composerBusy, setComposerBusy] = useState(false);
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
+  const [composerOfferTags, setComposerOfferTags] = useState<OfferTagSelection[]>([]);
   const [attachmentPickerOpen, setAttachmentPickerOpen] = useState(false);
   const [logoPickerOpen, setLogoPickerOpen] = useState(false);
   const [coverPickerOpen, setCoverPickerOpen] = useState(false);
@@ -175,7 +314,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
   const [editingPostContent, setEditingPostContent] = useState('');
   const [editingPostBusy, setEditingPostBusy] = useState(false);
   const [pageDetailsBusy, setPageDetailsBusy] = useState(false);
-  const [pageForm, setPageForm] = useState({
+  const [pageForm, setPageForm] = useState<PageDetailsFormState>({
     name: '',
     handle: '',
     slug: '',
@@ -188,6 +327,22 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
     email: '',
     phone: '',
     location: '',
+    formattedAddress: '',
+    formatted_address: '',
+    country: '',
+    countryCode: '',
+    country_code: '',
+    state: '',
+    city: '',
+    region: '',
+    postalCode: '',
+    postal_code: '',
+    latitude: null,
+    longitude: null,
+    placeId: '',
+    place_id: '',
+    locationSource: '',
+    location_source: '',
     description: ''
   });
 
@@ -284,6 +439,28 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
               email: pageData.email || null,
               phone: pageData.phone || null,
               location: pageData.location || null,
+              formattedAddress: pageData.formattedAddress || pageData.formatted_address || pageData.location || null,
+              formatted_address: pageData.formatted_address || pageData.formattedAddress || pageData.location || null,
+              country: pageData.country || null,
+              countryCode: pageData.countryCode || pageData.country_code || null,
+              country_code: pageData.country_code || pageData.countryCode || null,
+              state: pageData.state || null,
+              city: pageData.city || null,
+              region: pageData.region || null,
+              postalCode: pageData.postalCode || pageData.postal_code || null,
+              postal_code: pageData.postal_code || pageData.postalCode || null,
+              latitude:
+                pageData.latitude === null || pageData.latitude === undefined
+                  ? null
+                  : Number(pageData.latitude),
+              longitude:
+                pageData.longitude === null || pageData.longitude === undefined
+                  ? null
+                  : Number(pageData.longitude),
+              placeId: pageData.placeId || pageData.place_id || null,
+              place_id: pageData.place_id || pageData.placeId || null,
+              locationSource: pageData.locationSource || pageData.location_source || null,
+              location_source: pageData.location_source || pageData.locationSource || null,
               description: pageData.description || null,
               status: pageData.status || 'active',
               statusReason: pageData.statusReason || null,
@@ -304,6 +481,39 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
             ? feedData.items.map(normalizePost).filter((item: PostState) => item.id)
             : []
         );
+
+        if (normalizedPage?.id) {
+          try {
+            const storefrontPayload = await CommunityService.getBusinessPageStorefront(normalizedPage.id);
+            setStorefront(storefrontPayload);
+            setServicePackages(
+              (Array.isArray(storefrontPayload?.packages) ? storefrontPayload.packages : [])
+                .map((pkg: any, index: number) => normalizeServicePackage(pkg, index))
+                .filter((pkg): pkg is BusinessPageServicePackage => Boolean(pkg))
+                .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0))
+            );
+            setServicePackageSummary(normalizeServicePackageSummary(storefrontPayload?.summary));
+          } catch (error) {
+            console.warn('Failed to load storefront packages', error);
+            setStorefront(null);
+            setServicePackages([]);
+            setServicePackageSummary({
+              total: 0,
+              active: 0,
+              priceFrom: null,
+              currency: null
+            });
+          }
+        } else {
+          setStorefront(null);
+          setServicePackages([]);
+          setServicePackageSummary({
+            total: 0,
+            active: 0,
+            priceFrom: null,
+            currency: null
+          });
+        }
 
         if (normalizedPage?.id && user?.id) {
           const [followersData] = await Promise.allSettled([
@@ -412,6 +622,22 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
       email: page.email || '',
       phone: page.phone || '',
       location: page.location || '',
+      formattedAddress: page.formattedAddress || page.formatted_address || page.location || '',
+      formatted_address: page.formatted_address || page.formattedAddress || page.location || '',
+      country: page.country || '',
+      countryCode: page.countryCode || page.country_code || '',
+      country_code: page.country_code || page.countryCode || '',
+      state: page.state || '',
+      city: page.city || '',
+      region: page.region || '',
+      postalCode: page.postalCode || page.postal_code || '',
+      postal_code: page.postal_code || page.postalCode || '',
+      latitude: page.latitude ?? null,
+      longitude: page.longitude ?? null,
+      placeId: page.placeId || page.place_id || '',
+      place_id: page.place_id || page.placeId || '',
+      locationSource: page.locationSource || page.location_source || '',
+      location_source: page.location_source || page.locationSource || '',
       description: page.description || ''
     });
     setLogoFileId(page.logoFileId || null);
@@ -430,6 +656,22 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
     page?.email,
     page?.phone,
     page?.location,
+    page?.formattedAddress,
+    page?.formatted_address,
+    page?.country,
+    page?.countryCode,
+    page?.country_code,
+    page?.state,
+    page?.city,
+    page?.region,
+    page?.postalCode,
+    page?.postal_code,
+    page?.latitude,
+    page?.longitude,
+    page?.placeId,
+    page?.place_id,
+    page?.locationSource,
+    page?.location_source,
     page?.description,
     page?.logoFileId,
     page?.coverFileId
@@ -532,17 +774,26 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
       }
     };
 
+    const onPackagesUpdated = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      const targetId = String(detail?.pageId || '');
+      if (!targetId || targetId !== String(page.id)) return;
+      void loadAll(true);
+    };
+
     window.addEventListener('community:post_created', onPostCreated as EventListener);
     window.addEventListener('community:post_updated', onPostUpdated as EventListener);
     window.addEventListener('community:post_deleted', onPostDeleted as EventListener);
     window.addEventListener('community:business_page_updated', onPageUpdated as EventListener);
     window.addEventListener('community:follow_updated', onFollowUpdated as EventListener);
+    window.addEventListener('community:business_page_packages_updated', onPackagesUpdated as EventListener);
     return () => {
       window.removeEventListener('community:post_created', onPostCreated as EventListener);
       window.removeEventListener('community:post_updated', onPostUpdated as EventListener);
       window.removeEventListener('community:post_deleted', onPostDeleted as EventListener);
       window.removeEventListener('community:business_page_updated', onPageUpdated as EventListener);
       window.removeEventListener('community:follow_updated', onFollowUpdated as EventListener);
+      window.removeEventListener('community:business_page_packages_updated', onPackagesUpdated as EventListener);
     };
   }, [isOwner, loadAll, page?.id, page?.slug]);
 
@@ -685,14 +936,19 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
       const created = await CommunityService.createBusinessPagePost(page.id, {
         content,
         attachments: attachmentIds,
-        visibility: 'public'
+        visibility: 'public',
+        offerTags: composerOfferTags
       });
       if (created?.id) {
-        setPosts((prev) => [normalizePost(created), ...prev]);
+        setPosts((prev) => {
+          const normalized = normalizePost(created);
+          return [normalized, ...prev.filter((entry) => String(entry.id) !== String(normalized.id))];
+        });
         setPage((prev) => (prev ? { ...prev, postsCount: Number(prev.postsCount || 0) + 1 } : prev));
       }
       setComposerText('');
       setAttachments([]);
+      setComposerOfferTags([]);
       showNotification('success', 'Business Page', 'Post published.');
     } catch (error: any) {
       showNotification('error', 'Business Page', error?.response?.data?.error || 'Unable to publish post.');
@@ -793,6 +1049,14 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
     setPageForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  const handleLocationChange = (next: Partial<StructuredLocationFields>) => {
+    setPageForm((prev) => ({
+      ...prev,
+      ...next,
+      location: String(next.location ?? next.formattedAddress ?? next.formatted_address ?? prev.location ?? '')
+    }));
+  };
+
   const handleSavePageDetails = async () => {
     if (!isOwner || !page?.id) return;
     const payload: Record<string, any> = {
@@ -808,6 +1072,17 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
       email: pageForm.email.trim(),
       phone: pageForm.phone.trim(),
       location: pageForm.location.trim(),
+      formattedAddress: String(pageForm.formattedAddress || pageForm.formatted_address || pageForm.location || '').trim(),
+      country: String(pageForm.country || '').trim(),
+      countryCode: String(pageForm.countryCode || pageForm.country_code || '').trim(),
+      state: String(pageForm.state || '').trim(),
+      city: String(pageForm.city || '').trim(),
+      region: String(pageForm.region || '').trim(),
+      postalCode: String(pageForm.postalCode || pageForm.postal_code || '').trim(),
+      latitude: pageForm.latitude ?? null,
+      longitude: pageForm.longitude ?? null,
+      placeId: String(pageForm.placeId || pageForm.place_id || '').trim(),
+      locationSource: String(pageForm.locationSource || pageForm.location_source || '').trim(),
       description: pageForm.description.trim()
     };
     if (logoFileId) payload.logoFileId = logoFileId;
@@ -822,6 +1097,14 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
     try {
       const updated = await CommunityService.updateBusinessPage(page.id, payload);
       if (updated?.id) {
+        const nextPage = {
+          ...(page || {}),
+          ...updated,
+          logoFileId: updated.logoFileId || logoFileId || page.logoFileId || null,
+          coverFileId: updated.coverFileId || coverFileId || page.coverFileId || null,
+          logo: updated.logo || page.logo,
+          cover: updated.cover || page.cover
+        };
         setPage((prev) =>
           prev
             ? {
@@ -834,6 +1117,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
               }
             : prev
         );
+        window.dispatchEvent(new CustomEvent('community:business_page_updated', { detail: { page: nextPage } }));
       }
       showNotification('success', 'Business Page', 'Page details saved.');
       await loadAll(true);
@@ -844,12 +1128,29 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
     }
   };
 
+  useEffect(() => {
+    if (!isOwner && activeTab === 'dashboard') {
+      setActiveTab('overview');
+    }
+  }, [activeTab, isOwner]);
+
+  const storefrontMerchantSummary = storefront?.merchantSummary ?? storefront?.merchant_summary ?? null;
+  const featuredServicePackages = useMemo(
+    () => (Array.isArray(storefront?.featuredPackages) ? storefront.featuredPackages : []),
+    [storefront]
+  );
   const ownerTabs: Array<{ id: CompanyTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-    { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
-    { id: 'posts', label: 'Page posts', icon: FileText },
     { id: 'followers', label: 'Followers', icon: Users },
     { id: 'following', label: 'Following', icon: UserPlus },
     { id: 'edit', label: 'Edit page', icon: Settings }
+  ];
+  const primaryTabs: Array<{ id: CompanyTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+    ...(isOwner ? [{ id: 'dashboard' as CompanyTab, label: 'Dashboard', icon: BarChart3 }] : []),
+    { id: 'overview', label: 'Overview', icon: Building2 },
+    ...((storefront?.enabled || storefront?.canManage || servicePackages.length)
+      ? [{ id: 'storefront' as CompanyTab, label: 'Storefront', icon: Package }]
+      : []),
+    { id: 'posts', label: 'Posts', icon: FileText }
   ];
   const sortedPosts = useMemo(
     () =>
@@ -860,10 +1161,46 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
       }),
     [posts]
   );
+  const visibleServicePackages = useMemo(
+    () => (isOwner ? servicePackages : servicePackages.filter((entry) => entry.active)),
+    [isOwner, servicePackages]
+  );
+  const isDashboardView = isOwner && activeTab === 'dashboard';
+  const isOverviewView = activeTab === 'overview';
+  const isStorefrontView = activeTab === 'storefront';
+  const isPostsView = activeTab === 'posts';
+  const showStorefrontSection =
+    (storefront?.enabled || storefront?.canManage || visibleServicePackages.length) &&
+    (isDashboardView || isOverviewView || isStorefrontView);
+  const featuredPackagesPreview = featuredServicePackages.length
+    ? (isOwner ? featuredServicePackages : featuredServicePackages.filter((entry) => entry.active))
+    : visibleServicePackages.slice(0, Math.min(4, visibleServicePackages.length));
+  const storefrontCatalogPackages = isStorefrontView ? visibleServicePackages : visibleServicePackages.slice(0, 4);
+  const renderedPosts = isPostsView ? sortedPosts : sortedPosts.slice(0, 3);
+
+  useEffect(() => {
+    const storefrontAvailable = Boolean(storefront?.enabled || storefront?.canManage || visibleServicePackages.length);
+    if (activeTab === 'storefront' && !storefrontAvailable) {
+      setActiveTab(isOwner ? 'dashboard' : 'overview');
+    }
+  }, [activeTab, isOwner, storefront?.canManage, storefront?.enabled, visibleServicePackages.length]);
+
+  const pageShellClassName = embedded ? 'w-full' : 'mx-auto w-full max-w-6xl px-4 py-6';
+  const centeredShellClassName = embedded ? 'w-full' : 'mx-auto w-full max-w-6xl px-4 py-8';
+  const contentGridClassName = embedded
+    ? isOwner
+      ? 'xl:grid-cols-[minmax(0,1fr),320px] 2xl:grid-cols-[220px,minmax(0,1fr),320px]'
+      : 'xl:grid-cols-[minmax(0,1fr),320px]'
+    : isOwner
+      ? 'lg:grid-cols-[220px,minmax(0,1fr),340px]'
+      : 'lg:grid-cols-[minmax(0,1fr),340px]';
+  const ownerAsideClassName = embedded ? 'space-y-4 xl:col-span-2 2xl:col-span-1' : 'space-y-4';
+  const mainColumnClassName = 'min-w-0 space-y-4';
+  const secondaryAsideClassName = 'min-w-0 space-y-4';
 
   if (loading) {
     return (
-      <div className="mx-auto w-full max-w-6xl px-4 py-8">
+      <div className={centeredShellClassName}>
         <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading page...</div>
       </div>
     );
@@ -871,7 +1208,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
 
   if (!page?.id) {
     return (
-      <div className="mx-auto w-full max-w-6xl px-4 py-8">
+      <div className={centeredShellClassName}>
         <div className="rounded-2xl border border-red-100 bg-red-50 p-6 text-sm text-red-600">Business page not found.</div>
       </div>
     );
@@ -881,7 +1218,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
   const coverUrl = resolveAssetUrl(page.cover?.url || '');
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6">
+    <div className={pageShellClassName}>
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
         <div className="h-44 w-full bg-slate-100">
           {coverUrl ? <img src={coverUrl} alt={page.name} className="h-full w-full object-cover" /> : null}
@@ -942,12 +1279,33 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
             </div>
           </div>
           {page.description ? <p className="mt-4 whitespace-pre-wrap text-sm text-slate-700">{page.description}</p> : null}
+          <div className="mt-5 flex flex-wrap gap-2">
+            {primaryTabs.map((tab) => {
+              const Icon = tab.icon;
+              const active = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                    active
+                      ? 'border-blue-200 bg-blue-50 text-blue-700'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </section>
 
-      <div className={`mt-6 grid grid-cols-1 gap-6 ${isOwner ? 'lg:grid-cols-[220px,minmax(0,1fr),340px]' : 'lg:grid-cols-[minmax(0,1fr),340px]'}`}>
+      <div className={`mt-6 grid grid-cols-1 gap-6 ${contentGridClassName}`}>
         {isOwner ? (
-          <aside className="space-y-4">
+          <aside className={ownerAsideClassName}>
             <section className="rounded-2xl border border-slate-200 bg-white p-3">
               <h3 className="mb-3 px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Manage Page</h3>
               <div className="space-y-1">
@@ -985,7 +1343,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
             </section>
           </aside>
         ) : null}
-        <main className="space-y-4">
+        <main className={mainColumnClassName}>
           {isOwner && (activeTab === 'dashboard' || activeTab === 'posts') ? (
             <section className="rounded-2xl border border-slate-200 bg-white p-4">
               <h2 className="mb-3 text-sm font-semibold text-slate-900">Post as {page.name}</h2>
@@ -1013,6 +1371,16 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
                   ))}
                 </div>
               ) : null}
+              <div className="mt-3">
+                <OfferTagSelector
+                  mode="business"
+                  businessPageId={page.id}
+                  value={composerOfferTags}
+                  onChange={setComposerOfferTags}
+                  label="Tag packaged offers"
+                  helperText="Attach business offers so visitors can open your storefront, message your team, or start a brief from this post."
+                />
+              </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <button
@@ -1038,30 +1406,258 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
           ) : null}
 
           {isOwner && activeTab === 'dashboard' ? (
-            <section className="rounded-2xl border border-slate-200 bg-white p-4">
-              <h3 className="text-sm font-semibold text-slate-900">Page dashboard</h3>
-              <p className="mt-1 text-xs text-slate-500">Quick overview of your page growth and activity.</p>
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <p className="text-xs text-slate-500">Total followers</p>
-                  <p className="text-lg font-semibold text-slate-900">{Number(page.followersCount || 0)}</p>
+            <>
+              <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                <h3 className="text-sm font-semibold text-slate-900">Page dashboard</h3>
+                <p className="mt-1 text-xs text-slate-500">Quick overview of your page growth and activity.</p>
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <p className="text-xs text-slate-500">Total followers</p>
+                    <p className="text-lg font-semibold text-slate-900">{Number(page.followersCount || 0)}</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <p className="text-xs text-slate-500">Total posts</p>
+                    <p className="text-lg font-semibold text-slate-900">{Number(page.postsCount || 0)}</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                    <p className="text-xs text-slate-500">Following</p>
+                    <p className="text-lg font-semibold text-slate-900">
+                      {Number(pageFollowingUsersList.length + pageFollowingPagesList.length)}
+                    </p>
+                  </div>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <p className="text-xs text-slate-500">Total posts</p>
-                  <p className="text-lg font-semibold text-slate-900">{Number(page.postsCount || 0)}</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                  <p className="text-xs text-slate-500">Following</p>
-                  <p className="text-lg font-semibold text-slate-900">
-                    {Number(pageFollowingUsersList.length + pageFollowingPagesList.length)}
-                  </p>
-                </div>
-              </div>
-            </section>
+              </section>
+              <OpportunityStudioPanel
+                audience="page"
+                title={`${page.name} opportunity studio`}
+                subtitle="Use Scrolitha to turn this page into a stronger trust, hiring, and packaged-offer conversion surface."
+              />
+            </>
           ) : null}
 
-          {(!isOwner || activeTab === 'posts' || activeTab === 'dashboard') &&
-            (isOwner && activeTab === 'dashboard' ? sortedPosts.slice(0, 3) : sortedPosts).map((post) => (
+          {showStorefrontSection ? (
+            <>
+              {storefrontMerchantSummary ? (
+                <section className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-blue-50 p-5">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="max-w-2xl">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Storefront</p>
+                      <h3 className="mt-2 text-xl font-bold text-slate-900">{storefrontMerchantSummary.title || page.name}</h3>
+                      {storefrontMerchantSummary.subtitle ? (
+                        <p className="mt-2 text-sm leading-6 text-slate-600">{storefrontMerchantSummary.subtitle}</p>
+                      ) : null}
+                      <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                        {storefrontMerchantSummary.category ? (
+                          <span className="rounded-full border border-emerald-200 bg-emerald-100/70 px-3 py-1 font-semibold text-emerald-800">
+                            {storefrontMerchantSummary.category}
+                          </span>
+                        ) : null}
+                        {storefrontMerchantSummary.location ? (
+                          <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 font-semibold text-blue-700">
+                            {storefrontMerchantSummary.location}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 lg:min-w-[320px]">
+                      <div className="rounded-xl border border-white/80 bg-white/80 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-slate-500">Offers</p>
+                        <p className="mt-1 text-2xl font-bold text-slate-900">{storefrontMerchantSummary.serviceCount || 0}</p>
+                      </div>
+                      <div className="rounded-xl border border-white/80 bg-white/80 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-slate-500">Featured</p>
+                        <p className="mt-1 text-2xl font-bold text-slate-900">{storefrontMerchantSummary.featuredCount || 0}</p>
+                      </div>
+                      <div className="rounded-xl border border-white/80 bg-white/80 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-slate-500">Price from</p>
+                        <p className="mt-1 text-lg font-bold text-slate-900">
+                          {storefrontMerchantSummary.priceFrom !== null && storefrontMerchantSummary.priceFrom !== undefined
+                            ? `${String(storefrontMerchantSummary.currency || 'USD').toUpperCase()} ${Number(storefrontMerchantSummary.priceFrom).toFixed(2)}`
+                            : 'Not set'}
+                        </p>
+                      </div>
+                      <div className="rounded-xl border border-white/80 bg-white/80 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-slate-500">Social proof</p>
+                        <p className="mt-1 text-lg font-bold text-slate-900">
+                          {Number(storefrontMerchantSummary.followerCount || 0)} followers
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
+              {featuredPackagesPreview.length ? (
+                <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-900">Featured Offers</h3>
+                      <p className="mt-1 text-xs text-slate-500">Pinned service packages highlighted across the storefront surface.</p>
+                    </div>
+                    {!isStorefrontView && visibleServicePackages.length > featuredPackagesPreview.length ? (
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('storefront')}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        View full storefront
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+                    {featuredPackagesPreview.map((pkg) => (
+                      <article key={`featured_${pkg.id}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-base font-semibold text-slate-900">{pkg.title}</p>
+                            <p className="mt-1 text-sm font-semibold text-blue-700">{formatPackagePriceLabel(pkg)}</p>
+                          </div>
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">
+                            Featured
+                          </span>
+                        </div>
+                        {pkg.summary ? <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-700">{pkg.summary}</p> : null}
+                        {pkg.features.length ? (
+                          <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                            {pkg.features.slice(0, 4).map((feature, index) => (
+                              <span key={`${pkg.id}_badge_${index}`} className="rounded-full border border-slate-200 bg-white px-2 py-1 font-medium text-slate-600">
+                                {feature}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                      <Package className="h-4 w-4" />
+                      Packaged Offers
+                    </h3>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Structured offers for faster buyer decisions and clearer project scope.
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                      {servicePackageSummary.active} active / {servicePackageSummary.total} total
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-slate-900">
+                      {servicePackageSummary.priceFrom !== null
+                        ? `${String(servicePackageSummary.currency || 'USD').toUpperCase()} ${Number(servicePackageSummary.priceFrom).toFixed(2)}+`
+                        : 'No baseline price yet'}
+                    </p>
+                  </div>
+                </div>
+
+                {storefrontCatalogPackages.length ? (
+                  <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+                    {storefrontCatalogPackages.map((pkg) => (
+                      <article key={pkg.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-base font-semibold text-slate-900">{pkg.title}</p>
+                            <p className="mt-1 text-sm font-semibold text-blue-700">{formatPackagePriceLabel(pkg)}</p>
+                          </div>
+                          <span
+                            className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${
+                              pkg.active
+                                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                : 'border-slate-200 bg-white text-slate-500'
+                            }`}
+                          >
+                            {pkg.active ? 'Active' : 'Inactive'}
+                          </span>
+                        </div>
+
+                        {pkg.summary ? (
+                          <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-700">{pkg.summary}</p>
+                        ) : null}
+
+                        {pkg.features.length ? (
+                          <ul className="mt-3 space-y-1.5 text-sm text-slate-700">
+                            {pkg.features.slice(0, 5).map((feature, index) => (
+                              <li key={`${pkg.id}_feature_${index}`} className="flex items-start gap-2">
+                                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                                <span>{feature}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+
+                        <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-semibold text-slate-600">
+                          {pkg.turnaroundDays !== null ? (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1">
+                              <Clock3 className="h-3.5 w-3.5" />
+                              {pkg.turnaroundDays}d turnaround
+                            </span>
+                          ) : null}
+                          {pkg.revisions !== null ? (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1">
+                              <RotateCcw className="h-3.5 w-3.5" />
+                              {pkg.revisions} revisions
+                            </span>
+                          ) : null}
+                          {pkg.ctaLabel ? (
+                            <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-blue-700">
+                              {pkg.ctaLabel}
+                            </span>
+                          ) : null}
+                        </div>
+
+                        {pkg.addons.length ? (
+                          <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Add-ons</p>
+                            <div className="mt-2 space-y-1.5">
+                              {pkg.addons.slice(0, 4).map((addon) => (
+                                <div key={addon.id} className="flex items-start justify-between gap-2 text-sm text-slate-700">
+                                  <div className="min-w-0">
+                                    <p className="truncate font-medium">{addon.name}</p>
+                                    {addon.description ? (
+                                      <p className="line-clamp-1 text-xs text-slate-500">{addon.description}</p>
+                                    ) : null}
+                                  </div>
+                                  <span className="shrink-0 font-semibold text-slate-900">
+                                    {String(pkg.currency || 'USD').toUpperCase()} {Number(addon.price || 0).toFixed(2)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                    {isOwner
+                      ? 'No packaged offers yet. Add offers from Manage Pages to publish them here.'
+                      : 'This page has not published packaged offers yet.'}
+                  </div>
+                )}
+
+                {!isStorefrontView && visibleServicePackages.length > storefrontCatalogPackages.length ? (
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('storefront')}
+                      className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Browse full storefront
+                    </button>
+                  </div>
+                ) : null}
+              </section>
+            </>
+          ) : null}
+
+          {(isDashboardView || isOverviewView || isPostsView) &&
+            renderedPosts.map((post) => (
             <article key={post.id} id={`company-post-${post.id}`} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <PostHeader
@@ -1134,6 +1730,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
                   </div>
                 ) : (
                   <>
+                    <PostOriginPreview originalPost={post.originalPost} className="mb-3" />
                     {post.content ? (
                       <div
                         className="block w-full cursor-pointer text-left"
@@ -1147,9 +1744,15 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
                           }
                         }}
                       >
-                        <MentionText text={post.content} className="whitespace-pre-wrap" />
+                        <ExpandablePreviewText
+                          text={post.content}
+                          className="inline"
+                          buttonClassName="text-slate-900"
+                          renderText={(visibleText) => <MentionText text={visibleText} className="whitespace-pre-wrap" />}
+                        />
                       </div>
                     ) : null}
+                    <ContentOfferTags offerTags={post.offerTags} />
                     {post.attachments?.length ? (
                       <div className="space-y-2">
                         {post.attachments.map((file) => {
@@ -1223,7 +1826,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
             </article>
           ))}
 
-          {(!isOwner || activeTab === 'posts' || activeTab === 'dashboard') && !sortedPosts.length ? (
+          {(isDashboardView || isOverviewView || isPostsView) && !renderedPosts.length ? (
             <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">No posts yet.</div>
           ) : null}
 
@@ -1396,12 +1999,14 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
                   placeholder="Phone"
                   className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
-                <input
-                  value={pageForm.location}
-                  onChange={(event) => handlePageFieldChange('location', event.target.value)}
-                  placeholder="Location"
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                />
+                <div className="md:col-span-2">
+                  <LocationPicker
+                    value={pageForm}
+                    onChange={handleLocationChange}
+                    label="Business location"
+                    placeholder="Search office city, state, or country"
+                  />
+                </div>
               </div>
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -1451,7 +2056,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride }) => {
           ) : null}
         </main>
 
-        <aside className="space-y-4">
+        <aside className={secondaryAsideClassName}>
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
             <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
               <Users className="h-4 w-4" />

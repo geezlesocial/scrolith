@@ -10,6 +10,12 @@ import { AIService, type PostEnhanceMode } from '../../../services/ai/ai.service
 import { FileService } from '../../../services/files';
 import { Camera, Download, Loader2, Paperclip } from 'lucide-react';
 import { downloadToDevice } from '../../../utils/deviceDownload';
+import {
+  postAiInsightPreferenceToBoolean,
+  resolvePostAiInsightPreference,
+  resolveStoredPostAiInsightPreference,
+  type PostAiInsightPreference
+} from '../../../utils/postAiControls';
 
 const getMimeType = (file: any) =>
   String(file?.mime_type || file?.mimeType || file?.mimetype || file?.mime || '').toLowerCase();
@@ -68,6 +74,8 @@ export default function MobilePostScreen() {
 
   const [visibility, setVisibility] = useState<string>(defaultVisibility);
   const [graphicWarning, setGraphicWarning] = useState(false);
+  const [isAIEnhanced, setIsAIEnhanced] = useState(false);
+  const [aiInsightPreference, setAiInsightPreference] = useState<PostAiInsightPreference>('auto');
   const [topic, setTopic] = useState('');
   const [place, setPlace] = useState('');
 
@@ -185,6 +193,8 @@ export default function MobilePostScreen() {
     setContent(String(post?.content || '').trimStart());
     setVisibility(String(post?.visibility || defaultVisibility || 'public').toLowerCase());
     setGraphicWarning(Boolean(post?.graphicWarning ?? post?.graphic_warning ?? false));
+    setIsAIEnhanced(Boolean(post?.isAIEnhanced ?? post?.is_ai_enhanced ?? false));
+    setAiInsightPreference(resolveStoredPostAiInsightPreference(post?.aiInsightEnabled ?? post?.ai_insight_enabled));
     setTopic(String(post?.topic || '').trim());
     setPlace(String(post?.location || '').trim());
 
@@ -320,6 +330,8 @@ export default function MobilePostScreen() {
           attachments: attachmentIds,
           visibility: visibilityEnabled ? visibility : defaultVisibility,
           graphicWarning: graphicWarningEnabled ? graphicWarning : false,
+          isAIEnhanced,
+          aiInsightEnabled: postAiInsightPreferenceToBoolean(resolvePostAiInsightPreference(aiInsightPreference, 'off')),
           topic: topic.trim() || undefined,
           location: place.trim() || undefined
         } as any);
@@ -338,6 +350,8 @@ export default function MobilePostScreen() {
         attachments: attachmentIds,
         visibility: visibilityEnabled ? visibility : defaultVisibility,
         graphicWarning: graphicWarningEnabled ? graphicWarning : false,
+        isAIEnhanced,
+        aiInsightEnabled: postAiInsightPreferenceToBoolean(aiInsightPreference),
         topic: topic.trim() || undefined,
         location: place.trim() || undefined
       } as any);
@@ -347,6 +361,8 @@ export default function MobilePostScreen() {
       setContent('');
       setAttachments([]);
       setGraphicWarning(false);
+      setIsAIEnhanced(false);
+      setAiInsightPreference('auto');
       setTopic('');
       setPlace('');
       showNotification('success', 'Posted', 'Your update is live.');
@@ -413,6 +429,38 @@ export default function MobilePostScreen() {
             ) : null}
           </div>
         ) : null}
+
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <label className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+            <input
+              type="checkbox"
+              checked={isAIEnhanced}
+              onChange={(e) => setIsAIEnhanced(e.target.checked)}
+              disabled={busy || loadingPost}
+            />
+            <span>Mark as AI-enhanced</span>
+          </label>
+          <label className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+            <span className="text-slate-500">Scrolitha AI insight</span>
+            <select
+              value={aiInsightPreference}
+              onChange={(e) =>
+                setAiInsightPreference(resolvePostAiInsightPreference(e.target.value, isEditing ? 'off' : 'auto'))
+              }
+              className="mt-1 w-full bg-transparent text-xs font-semibold text-slate-900 outline-none"
+              disabled={busy || loadingPost}
+            >
+              {isEditing ? null : <option value="auto">Automatic</option>}
+              <option value="on">Generate for this post</option>
+              <option value="off">Do not generate</option>
+            </select>
+          </label>
+        </div>
+        <p className="mt-2 text-[11px] text-slate-500">
+          {isEditing
+            ? 'This setting updates whether Scrolitha keeps AI insight on this post.'
+            : 'Automatic preserves your current Scrolitha insight settings for new posts.'}
+        </p>
 
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           <div>

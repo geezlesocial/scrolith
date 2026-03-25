@@ -28,6 +28,7 @@ export interface ChatFlow {
 }
 
 const getAiApiUrl = () => getApiBaseUrl();
+const SUPPORT_CHAT_TIMEOUT_MS = 95_000;
 
 // Cache the flow to avoid refetching constantly for fallback
 let cachedChatFlow: ChatFlow | null = null;
@@ -127,15 +128,23 @@ export const getSupportResponse = async (
   if (detectPromptInjection(message)) return 'I cannot process that request due to security policies.';
 
   try {
-    const res = await fetch(`${getAiApiUrl()}/ai/support-chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message,
-        role: userRole,
-        history: Array.isArray(history) ? history.slice(-20) : []
-      })
-    });
+    const controller = new AbortController();
+    const timeoutId = globalThis.setTimeout(() => controller.abort(), SUPPORT_CHAT_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetch(`${getAiApiUrl()}/ai/support-chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message,
+          role: userRole,
+          history: Array.isArray(history) ? history.slice(-20) : []
+        }),
+        signal: controller.signal
+      });
+    } finally {
+      globalThis.clearTimeout(timeoutId);
+    }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
@@ -143,7 +152,10 @@ export const getSupportResponse = async (
     const payload = await res.json().catch(() => null);
     const reply = String(payload?.data?.reply || payload?.data?.text || payload?.reply || '').trim();
     if (reply) return roleSafetyFilter(reply, userRole);
-  } catch (error) {
+  } catch (error: any) {
+    if (String(error?.name || '').trim() === 'AbortError') {
+      console.warn('[SupportWidget] support-chat timed out, falling back to static flow');
+    }
     console.warn('[SupportWidget] support-chat failed, falling back to static flow:', error);
   }
 

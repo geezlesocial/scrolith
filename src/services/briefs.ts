@@ -1,5 +1,8 @@
 import api from './api';
-import { ProjectBrief } from '../types';
+import { DealFlowSettings, ProjectBrief } from '../types';
+import { normalizeDealFlowSettings } from '../utils/dealFlow';
+
+const BRIEFS_AI_TIMEOUT_MS = 95_000;
 
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
@@ -23,7 +26,34 @@ const normalizeBrief = (brief: any): ProjectBrief => ({
     ? (brief.screening_questions ?? brief.screeningQuestions)
     : [],
   created_at: brief.created_at ?? brief.createdAt ?? new Date().toISOString(),
-  updated_at: brief.updated_at ?? brief.updatedAt ?? new Date().toISOString()
+  updated_at: brief.updated_at ?? brief.updatedAt ?? new Date().toISOString(),
+  conversation_id: brief.conversation_id ?? brief.conversationId ?? undefined,
+  conversationId: brief.conversationId ?? brief.conversation_id ?? undefined,
+  template_id: brief.template_id ?? brief.templateId ?? undefined,
+  templateId: brief.templateId ?? brief.template_id ?? undefined,
+  participant_summary: Array.isArray(brief.participant_summary ?? brief.participantSummary)
+    ? (brief.participant_summary ?? brief.participantSummary)
+    : [],
+  participantSummary: Array.isArray(brief.participantSummary ?? brief.participant_summary)
+    ? (brief.participantSummary ?? brief.participant_summary)
+    : [],
+  source_messages: Array.isArray(brief.source_messages ?? brief.sourceMessages)
+    ? (brief.source_messages ?? brief.sourceMessages)
+    : [],
+  sourceMessages: Array.isArray(brief.sourceMessages ?? brief.source_messages)
+    ? (brief.sourceMessages ?? brief.source_messages)
+    : [],
+  linked_job_id: brief.linked_job_id ?? brief.linkedJobId ?? null,
+  linkedJobId: brief.linkedJobId ?? brief.linked_job_id ?? null,
+  linked_proposals: Array.isArray(brief.linked_proposals ?? brief.linkedProposals)
+    ? (brief.linked_proposals ?? brief.linkedProposals)
+    : [],
+  linkedProposals: Array.isArray(brief.linkedProposals ?? brief.linked_proposals)
+    ? (brief.linkedProposals ?? brief.linked_proposals)
+    : [],
+  linked_contract: brief.linked_contract ?? brief.linkedContract ?? null,
+  linkedContract: brief.linkedContract ?? brief.linked_contract ?? null,
+  history: Array.isArray(brief.history) ? brief.history : []
 });
 
 export const BriefsService = {
@@ -33,8 +63,18 @@ export const BriefsService = {
     return Array.isArray(data) ? data.map(normalizeBrief) : [];
   },
 
+  async getConfig(): Promise<DealFlowSettings> {
+    const res = await api.get('/briefs/config');
+    return normalizeDealFlowSettings(extractData<any>(res));
+  },
+
+  async getBrief(id: string): Promise<ProjectBrief> {
+    const res = await api.get(`/briefs/${id}`);
+    return normalizeBrief(extractData<ProjectBrief>(res));
+  },
+
   async generateBrief(prompt: string) {
-    const res = await api.post('/briefs/generate', { prompt });
+    const res = await api.post('/briefs/generate', { prompt }, { timeout: BRIEFS_AI_TIMEOUT_MS });
     const data = extractData<any>(res);
     return {
       title: data.title ?? '',
@@ -49,6 +89,15 @@ export const BriefsService = {
         ? (data.screeningQuestions ?? data.screening_questions)
         : []
     };
+  },
+
+  async draftFromConversation(payload: {
+    conversationId: string;
+    templateId?: string;
+    category?: string;
+  }): Promise<ProjectBrief> {
+    const res = await api.post('/briefs/from-conversation/draft', payload);
+    return normalizeBrief(extractData<ProjectBrief>(res));
   },
 
   async saveBrief(payload: Partial<ProjectBrief>): Promise<ProjectBrief> {

@@ -511,6 +511,7 @@ const SystemSettings = () => {
                                         <option value="ses">Amazon SES</option>
                                         <option value="sendgrid">SendGrid</option>
                                         <option value="mailgun">Mailgun</option>
+                                        <option value="brevo">Brevo</option>
                                     </select>
                                 </div>
                                 <div>

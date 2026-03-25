@@ -58,6 +58,7 @@ import {
 } from "lucide-react";
 
 import FilePickerModal from "../shared/FilePickerModal";
+import { DEFAULT_MEMBER_HOME_LOCATIONS, DEFAULT_MEMBER_HOME_TOPICS } from "../../constants/defaultAudienceOptions";
 
 // Apply favicon helper: updates icon links with cache-bust
 function applyFaviconToDocument(url?: string | null) {
@@ -389,6 +390,11 @@ const ReactionsEngagementManager = () => {
         defaultSort: "latest",
         defaultScope: "discover",
         enableTrendingTab: true,
+        enableIntentModes: true,
+        enableTopicFollows: true,
+        enablePipelineSave: true,
+        enableWhyThisPost: true,
+        defaultIntentMode: "for_you",
         postDensity: "comfortable",
         showReactionCounts: true,
         showCommentsPreviewCount: true,
@@ -418,8 +424,8 @@ const ReactionsEngagementManager = () => {
         showRecommendedGigsJobs: true,
       },
       postComposer: {
-        topics: [],
-        locations: []
+        topics: DEFAULT_MEMBER_HOME_TOPICS,
+        locations: DEFAULT_MEMBER_HOME_LOCATIONS
       },
       postCard: {
         reactionsEnabled: true,
@@ -924,6 +930,31 @@ const ReactionsEngagementManager = () => {
               <option value="latest">Latest</option>
               <option value="following">Following</option>
               <option value="trending">Trending</option>
+              <option value="for_you">For you</option>
+              <option value="hire">Hire</option>
+              <option value="sell">Sell</option>
+              <option value="learn">Learn</option>
+              <option value="local">Local</option>
+            </select>
+          </label>
+          <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            <div className="mb-1 text-xs font-semibold text-gray-500">Default intent mode</div>
+            <select
+              className="w-full rounded border border-gray-200 px-2 py-1"
+              value={config.memberHome.feed.defaultIntentMode || "for_you"}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, feed: { ...p.memberHome.feed, defaultIntentMode: e.target.value } },
+                }))
+              }
+            >
+              <option value="for_you">For you</option>
+              <option value="following">Following</option>
+              <option value="hire">Hire</option>
+              <option value="sell">Sell</option>
+              <option value="learn">Learn</option>
+              <option value="local">Local</option>
             </select>
           </label>
           <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm">
@@ -968,6 +999,58 @@ const ReactionsEngagementManager = () => {
                 setConfig((p: any) => ({
                   ...p,
                   memberHome: { ...p.memberHome, feed: { ...p.memberHome.feed, enableTrendingTab: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Enable intent feed modes
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.feed.enableIntentModes)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, feed: { ...p.memberHome.feed, enableIntentModes: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Enable topic follows
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.feed.enableTopicFollows)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, feed: { ...p.memberHome.feed, enableTopicFollows: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Enable pipeline save
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.feed.enablePipelineSave)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, feed: { ...p.memberHome.feed, enablePipelineSave: e.target.checked } },
+                }))
+              }
+            />
+          </label>
+          <label className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+            Enable “Why this post”
+            <input
+              type="checkbox"
+              checked={Boolean(config.memberHome.feed.enableWhyThisPost)}
+              onChange={(e) =>
+                setConfig((p: any) => ({
+                  ...p,
+                  memberHome: { ...p.memberHome, feed: { ...p.memberHome.feed, enableWhyThisPost: e.target.checked } },
                 }))
               }
             />
@@ -3903,6 +3986,9 @@ const LayoutManager = () => {
   const memberHomeToggles: { key: string; label: string }[] = [
     { key: "showSearch", label: "Search bar" },
     { key: "showStories", label: "Stories strip" },
+    { key: "showPagesRecommendations", label: "Pages to follow" },
+    { key: "showProfileViewers", label: "Profile viewers" },
+    { key: "showProfileViewing", label: "Recently viewed" },
     { key: "showComposer", label: "Post composer" },
     { key: "showSlider", label: "Highlights slider" },
     { key: "showMessages", label: "Messages preview" },
@@ -3948,6 +4034,10 @@ const LayoutManager = () => {
           </button>
         </div>
       </div>
+      <p className="text-xs text-gray-500">
+        Use <span className="font-semibold text-gray-700">member_home</span> to manage the signed-in homepage shown on
+        member web sessions without changing the guest homepage builder.
+      </p>
 
       <div className="bg-white border rounded-xl overflow-hidden">
         {sections.map((section: any, idx: number) => (
@@ -4074,6 +4164,9 @@ const LayoutManager = () => {
               {(editingSection as any).type === "member_home" && (
                 <div className="rounded-lg border border-gray-200 p-3 space-y-3">
                   <div className="text-[10px] font-bold uppercase text-gray-500">Member Home Settings</div>
+                  <p className="text-[11px] text-gray-500">
+                    These fields control the signed-in member homepage content and update live through CMS section events.
+                  </p>
                   <div className="grid gap-3">
                     <div>
                       <label className="block text-[11px] font-semibold text-gray-600 mb-1">Section Title</label>
@@ -4168,6 +4261,15 @@ const LayoutManager = () => {
                       />
                     </div>
                     <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Scroll Title</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.reelsTitle || ""}
+                        onChange={(e) => updateEditingContent({ reelsTitle: e.target.value })}
+                        placeholder="Scroll"
+                      />
+                    </div>
+                    <div>
                       <label className="block text-[11px] font-semibold text-gray-600 mb-1">Feed Title</label>
                       <input
                         className="w-full border rounded p-2 text-sm"
@@ -4183,6 +4285,33 @@ const LayoutManager = () => {
                         value={memberHomeContent.profilesTitle || ""}
                         onChange={(e) => updateEditingContent({ profilesTitle: e.target.value })}
                         placeholder="Recommended profiles"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Pages Title</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.pagesTitle || ""}
+                        onChange={(e) => updateEditingContent({ pagesTitle: e.target.value })}
+                        placeholder="Pages to follow"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Profile Viewers Title</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.profileViewersTitle || ""}
+                        onChange={(e) => updateEditingContent({ profileViewersTitle: e.target.value })}
+                        placeholder="Profile viewers"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1">Recently Viewed Title</label>
+                      <input
+                        className="w-full border rounded p-2 text-sm"
+                        value={memberHomeContent.profileViewingTitle || ""}
+                        onChange={(e) => updateEditingContent({ profileViewingTitle: e.target.value })}
+                        placeholder="Recently viewed"
                       />
                     </div>
                     <div>
@@ -4312,15 +4441,18 @@ const LayoutManager = () => {
                   </div>
 
                   <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { key: "maxFeedItems", label: "Max feed" },
-                      { key: "maxStories", label: "Max stories" },
-                      { key: "maxMessages", label: "Max messages" },
-                      { key: "maxSearchResults", label: "Max search" },
-                      { key: "maxProfiles", label: "Max profiles" },
-                      { key: "maxJobs", label: "Max jobs" },
-                      { key: "maxGigs", label: "Max gigs" },
-                    ].map((item) => (
+                      {[
+                        { key: "maxFeedItems", label: "Max feed" },
+                        { key: "maxStories", label: "Max stories" },
+                        { key: "maxMessages", label: "Max messages" },
+                        { key: "maxSearchResults", label: "Max search" },
+                        { key: "maxProfiles", label: "Max profiles" },
+                        { key: "maxPagesRecommendations", label: "Max pages" },
+                        { key: "maxProfileViewers", label: "Max viewers" },
+                        { key: "maxProfileViewing", label: "Max viewed" },
+                        { key: "maxJobs", label: "Max jobs" },
+                        { key: "maxGigs", label: "Max gigs" },
+                      ].map((item) => (
                       <div key={item.key}>
                         <label className="block text-[11px] font-semibold text-gray-600 mb-1">{item.label}</label>
                         <input

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Capacitor } from '@capacitor/core';
 import { AuthProviderKey, SocialAuthConfig, UserRole } from '../types';
 import { getApiBaseUrl } from '../utils/apiBase';
 
@@ -83,6 +84,14 @@ const providerBadge: Record<AuthProviderKey, string> = {
   linkedin: 'bg-blue-700 text-white'
 };
 
+const isNativePlatform = () => {
+  try {
+    return Capacitor.isNativePlatform();
+  } catch {
+    return false;
+  }
+};
+
 const shouldShowProvider = (
   config: SocialAuthConfig,
   provider: AuthProviderKey,
@@ -105,11 +114,17 @@ const shouldShowProvider = (
   return true;
 };
 
-const buildOAuthUrl = (provider: AuthProviderKey, mode: 'login' | 'signup', role?: UserRole, redirectTo?: string) => {
+const buildOAuthUrl = (
+  provider: AuthProviderKey,
+  mode: 'login' | 'signup',
+  role?: UserRole,
+  redirectTo?: string
+) => {
   const params = new URLSearchParams();
   params.set('mode', mode);
   if (role) params.set('role', role);
   if (redirectTo) params.set('redirect', redirectTo);
+  if (isNativePlatform()) params.set('returnTarget', 'app');
   const query = params.toString();
   return `${getApiBaseUrl()}/auth/oauth/${provider}${query ? `?${query}` : ''}`;
 };

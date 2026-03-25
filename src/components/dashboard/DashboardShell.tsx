@@ -16,6 +16,7 @@ interface DashboardShellProps {
   heroContent?: React.ReactNode;
   kpiContent: React.ReactNode;
   quickActionsContent: React.ReactNode;
+  supplementaryContent?: React.ReactNode;
   activityContent: React.ReactNode;
   rightRailContent: React.ReactNode;
 }
@@ -40,6 +41,7 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
   heroContent,
   kpiContent,
   quickActionsContent,
+  supplementaryContent,
   activityContent,
   rightRailContent
 }) => {
@@ -137,6 +139,7 @@ export const DashboardShell: React.FC<DashboardShellProps> = ({
         <section className="space-y-4 lg:col-span-8">
           {kpiContent}
           {quickActionsContent}
+          {supplementaryContent}
           {activityContent}
         </section>
         <section className="space-y-4 lg:col-span-4">{rightRailContent}</section>

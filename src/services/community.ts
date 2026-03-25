@@ -1,4 +1,5 @@
 import api from './api';
+import { beginManagedIdempotentRequest, createActionFingerprint } from './idempotency';
 import {
   ForumThread,
   CommunityClub,
@@ -12,13 +13,25 @@ import {
   ModerationLog,
   CommunityComment,
   UserRole,
-  PlatformSettings
+  PlatformSettings,
+  StorefrontMerchantSummary,
+  StorefrontSettings
 } from '../types';
+import { normalizeStorefrontSettings } from '../utils/storefront';
 
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
   if (response?.data !== undefined) return response.data as T;
   return response as T;
+};
+
+const toArray = (value: any): any[] => {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.items)) return value.items;
+  if (Array.isArray(value?.rows)) return value.rows;
+  if (Array.isArray(value?.results)) return value.results;
+  if (Array.isArray(value?.data)) return value.data;
+  return [];
 };
 
 const normalizeThread = (thread: any): ForumThread => ({
@@ -78,6 +91,29 @@ const normalizeMessage = (msg: any, channelId: string): CommunityMessage => ({
   timestamp: msg.timestamp || msg.created_at || msg.createdAt || new Date().toISOString(),
   ai_flagged: msg.ai_flagged !== undefined ? msg.ai_flagged : (msg.aiFlagged || false),
   ai_reason: msg.ai_reason || msg.aiReason || undefined
+});
+
+const normalizeClub = (club: any): CommunityClub => ({
+  id: String(club?.id || ''),
+  name: String(club?.name || 'Community club'),
+  description: String(club?.description || ''),
+  visibility: String(club?.visibility || 'public').toLowerCase() === 'private' ? 'private' : 'public',
+  member_count: Number(club?.member_count ?? club?.memberCount ?? 0),
+  memberCount: Number(club?.memberCount ?? club?.member_count ?? 0),
+  cover_image: String(club?.cover_image ?? club?.coverImage ?? ''),
+  coverImage: String(club?.coverImage ?? club?.cover_image ?? ''),
+  owner_id: String(club?.owner_id ?? club?.ownerId ?? ''),
+  ownerId: String(club?.ownerId ?? club?.owner_id ?? ''),
+  owner_name: String(club?.owner_name ?? club?.ownerName ?? ''),
+  ownerName: String(club?.ownerName ?? club?.owner_name ?? ''),
+  owner_avatar: String(club?.owner_avatar ?? club?.ownerAvatar ?? ''),
+  ownerAvatar: String(club?.ownerAvatar ?? club?.owner_avatar ?? ''),
+  is_joined: Boolean(club?.is_joined ?? club?.isJoined),
+  isJoined: Boolean(club?.isJoined ?? club?.is_joined),
+  joined_at: club?.joined_at ?? club?.joinedAt ?? null,
+  joinedAt: club?.joinedAt ?? club?.joined_at ?? null,
+  created_at: String(club?.created_at ?? club?.createdAt ?? ''),
+  createdAt: String(club?.createdAt ?? club?.created_at ?? '')
 });
 
 const normalizeCommunitySettings = (s: any): any => ({
@@ -150,14 +186,261 @@ const denormalizeAdminConfig = (cfg: any): any => ({
   story_expiry_hours: typeof cfg.storyExpiryHours !== 'undefined' ? Number(cfg.storyExpiryHours) : cfg.story_expiry_hours
 });
 
+export type BusinessPagePackageBilling = 'fixed' | 'hourly' | 'subscription';
+
+export type BusinessPagePackageAddon = {
+  id: string;
+  name: string;
+  price: number;
+  description: string | null;
+};
+
+export type BusinessPageServicePackage = {
+  id: string;
+  title: string;
+  summary: string | null;
+  price: number;
+  currency: string;
+  billing: BusinessPagePackageBilling;
+  turnaroundDays: number | null;
+  revisions: number | null;
+  ctaLabel: string | null;
+  active: boolean;
+  sortOrder: number;
+  features: string[];
+  addons: BusinessPagePackageAddon[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BusinessPageServicePackageInput = {
+  id?: string;
+  title: string;
+  summary?: string | null;
+  price?: number;
+  currency?: string;
+  billing?: BusinessPagePackageBilling;
+  turnaroundDays?: number | null;
+  revisions?: number | null;
+  ctaLabel?: string | null;
+  active?: boolean;
+  sortOrder?: number;
+  features?: string[];
+  addons?: Array<{
+    id?: string;
+    name: string;
+    price?: number;
+    description?: string | null;
+  }>;
+};
+
+export type BusinessPagePackageSummary = {
+  total: number;
+  active: number;
+  priceFrom: number | null;
+  currency: string | null;
+};
+
+export type BusinessPagePackagesPayload = {
+  pageId: string;
+  packages: BusinessPageServicePackage[];
+  summary: BusinessPagePackageSummary;
+};
+
+export type BusinessPageStorefrontPayload = {
+  pageId: string;
+  page_id: string;
+  enabled: boolean;
+  canManage: boolean;
+  can_manage: boolean;
+  settings: StorefrontSettings;
+  merchantSummary: StorefrontMerchantSummary | null;
+  merchant_summary: StorefrontMerchantSummary | null;
+  featuredPackages: BusinessPageServicePackage[];
+  featured_packages: BusinessPageServicePackage[];
+  packages: BusinessPageServicePackage[];
+  summary: BusinessPagePackageSummary;
+};
+
+const normalizeBusinessPagePackageBilling = (value: unknown): BusinessPagePackageBilling => {
+  const normalized = String(value || '').toLowerCase();
+  if (normalized === 'hourly') return 'hourly';
+  if (normalized === 'subscription') return 'subscription';
+  return 'fixed';
+};
+
+const normalizeBusinessPagePackageCurrency = (value: unknown) => {
+  const normalized = String(value || '').trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(normalized) ? normalized : 'USD';
+};
+
+const normalizeBusinessPagePackageSummary = (value: any): BusinessPagePackageSummary => ({
+  total: Math.max(0, Number(value?.total || 0)),
+  active: Math.max(0, Number(value?.active || 0)),
+  priceFrom:
+    value?.priceFrom === null || value?.priceFrom === undefined
+      ? null
+      : Number.isFinite(Number(value.priceFrom))
+        ? Number(value.priceFrom)
+        : null,
+  currency: value?.currency ? normalizeBusinessPagePackageCurrency(value.currency) : null
+});
+
+const normalizeBusinessPagePackageAddon = (value: any, fallbackId: string): BusinessPagePackageAddon | null => {
+  const name = String(value?.name || '').trim();
+  if (!name) return null;
+  const rawPrice = Number(value?.price);
+  const price = Number.isFinite(rawPrice) ? Math.max(0, Number(rawPrice.toFixed(2))) : 0;
+  return {
+    id: String(value?.id || fallbackId),
+    name: name.slice(0, 120),
+    price,
+    description: value?.description ? String(value.description).trim().slice(0, 220) : null
+  };
+};
+
+const normalizeBusinessPageServicePackage = (value: any, index: number): BusinessPageServicePackage | null => {
+  const title = String(value?.title || '').trim();
+  if (!title) return null;
+  const rawPrice = Number(value?.price);
+  const price = Number.isFinite(rawPrice) ? Math.max(0, Number(rawPrice.toFixed(2))) : 0;
+  const rawTurnaround = Number(value?.turnaroundDays);
+  const rawRevisions = Number(value?.revisions);
+  const features = Array.isArray(value?.features)
+    ? Array.from(
+        new Set(
+          value.features
+            .map((entry: any) => String(entry || '').trim())
+            .filter(Boolean)
+        )
+      ).slice(0, 12)
+    : [];
+  const addons = Array.isArray(value?.addons)
+    ? value.addons
+        .map((addon: any, addonIndex: number) =>
+          normalizeBusinessPagePackageAddon(addon, `addon_${index}_${addonIndex}`)
+        )
+        .filter((addon: BusinessPagePackageAddon | null): addon is BusinessPagePackageAddon => Boolean(addon))
+    : [];
+
+  return {
+    id: String(value?.id || `pkg_${index}`),
+    title: title.slice(0, 140),
+    summary: value?.summary ? String(value.summary).trim().slice(0, 320) : null,
+    price,
+    currency: normalizeBusinessPagePackageCurrency(value?.currency),
+    billing: normalizeBusinessPagePackageBilling(value?.billing),
+    turnaroundDays: Number.isFinite(rawTurnaround) ? Math.max(0, Math.floor(rawTurnaround)) : null,
+    revisions: Number.isFinite(rawRevisions) ? Math.max(0, Math.floor(rawRevisions)) : null,
+    ctaLabel: value?.ctaLabel ? String(value.ctaLabel).trim().slice(0, 60) : null,
+    active: value?.active !== false,
+    sortOrder: Number.isFinite(Number(value?.sortOrder)) ? Number(value.sortOrder) : index,
+    features,
+    addons,
+    createdAt: String(value?.createdAt || new Date().toISOString()),
+    updatedAt: String(value?.updatedAt || new Date().toISOString())
+  };
+};
+
+const normalizeBusinessPagePackagesPayload = (value: any): BusinessPagePackagesPayload => {
+  const packagesSource = Array.isArray(value?.packages) ? value.packages : [];
+  const packages = packagesSource
+    .map((entry, index) => normalizeBusinessPageServicePackage(entry, index))
+    .filter((entry: BusinessPageServicePackage | null): entry is BusinessPageServicePackage => Boolean(entry))
+    .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+
+  const summary =
+    value?.summary && typeof value.summary === 'object'
+      ? normalizeBusinessPagePackageSummary(value.summary)
+      : normalizeBusinessPagePackageSummary({
+          total: packages.length,
+          active: packages.filter((entry) => entry.active).length,
+          priceFrom: (() => {
+            const prices = packages
+              .filter((entry) => entry.active)
+              .map((entry) => Number(entry.price))
+              .filter((price) => Number.isFinite(price));
+            return prices.length ? Math.min(...prices) : null;
+          })(),
+          currency: packages[0]?.currency || null
+        });
+
+  return {
+    pageId: String(value?.pageId || ''),
+    packages,
+    summary
+  };
+};
+
+const normalizeStorefrontMerchantSummary = (value: any): StorefrontMerchantSummary | null => {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    title: String(value?.title || '').trim(),
+    subtitle: value?.subtitle ? String(value.subtitle).trim() : '',
+    location: value?.location ?? null,
+    category: value?.category ?? null,
+    currency: value?.currency ? String(value.currency).toUpperCase() : null,
+    priceFrom:
+      value?.priceFrom === null || value?.price_from === null
+        ? null
+        : Number.isFinite(Number(value?.priceFrom ?? value?.price_from))
+          ? Number(value?.priceFrom ?? value?.price_from)
+          : null,
+    price_from:
+      value?.priceFrom === null || value?.price_from === null
+        ? null
+        : Number.isFinite(Number(value?.priceFrom ?? value?.price_from))
+          ? Number(value?.priceFrom ?? value?.price_from)
+          : null,
+    serviceCount: Number(value?.serviceCount ?? value?.service_count ?? 0),
+    service_count: Number(value?.serviceCount ?? value?.service_count ?? 0),
+    featuredCount: Number(value?.featuredCount ?? value?.featured_count ?? 0),
+    featured_count: Number(value?.featuredCount ?? value?.featured_count ?? 0),
+    followerCount: Number(value?.followerCount ?? value?.follower_count ?? 0),
+    follower_count: Number(value?.followerCount ?? value?.follower_count ?? 0),
+    postCount: Number(value?.postCount ?? value?.post_count ?? 0),
+    post_count: Number(value?.postCount ?? value?.post_count ?? 0)
+  };
+};
+
+const normalizeBusinessPageStorefrontPayload = (value: any): BusinessPageStorefrontPayload => {
+  const featuredPackages = toArray(value?.featuredPackages ?? value?.featured_packages)
+    .map((entry, index) => normalizeBusinessPageServicePackage(entry, index))
+    .filter((entry: BusinessPageServicePackage | null): entry is BusinessPageServicePackage => Boolean(entry))
+    .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+  const packages = toArray(value?.packages)
+    .map((entry, index) => normalizeBusinessPageServicePackage(entry, index))
+    .filter((entry: BusinessPageServicePackage | null): entry is BusinessPageServicePackage => Boolean(entry))
+    .sort((left, right) => Number(left.sortOrder || 0) - Number(right.sortOrder || 0));
+  const summary = normalizeBusinessPagePackageSummary(value?.summary);
+  const merchantSummary = normalizeStorefrontMerchantSummary(
+    value?.merchantSummary ?? value?.merchant_summary
+  );
+
+  return {
+    pageId: String(value?.pageId || value?.page_id || ''),
+    page_id: String(value?.page_id || value?.pageId || ''),
+    enabled: Boolean(value?.enabled),
+    canManage: Boolean(value?.canManage ?? value?.can_manage),
+    can_manage: Boolean(value?.can_manage ?? value?.canManage),
+    settings: normalizeStorefrontSettings(value?.settings),
+    merchantSummary,
+    merchant_summary: merchantSummary,
+    featuredPackages,
+    featured_packages: featuredPackages,
+    packages,
+    summary
+  };
+};
+
 class CommunityService {
   static async get(endpoint: string) {
     const response = await api.get(endpoint);
     return extractData<any>(response);
   }
 
-  static async post(endpoint: string, data: any) {
-    const response = await api.post(endpoint, data);
+  static async post(endpoint: string, data: any, config?: any) {
+    const response = await api.post(endpoint, data, config);
     return extractData<any>(response);
   }
 
@@ -280,21 +563,37 @@ class CommunityService {
   }
 
   static async postComment(threadId: string, content: string, user: any, parentId: string | null = null): Promise<CommunityComment> {
-    const response = await this.post('/community/comments', {
-      threadId,
-      content,
-      userId: user.id,
-      parentId,
-      userName: user.name,
-      userAvatar: user.avatar,
-      userRole: user.role
-    });
-    return normalizeComment(response, threadId);
+    const request = beginManagedIdempotentRequest(
+      `forum-comment:${threadId}:${parentId || 'root'}:${createActionFingerprint(content, user?.id)}`
+    );
+    try {
+      const response = await this.post('/community/comments', {
+        threadId,
+        content,
+        userId: user.id,
+        parentId,
+        userName: user.name,
+        userAvatar: user.avatar,
+        userRole: user.role
+      }, { headers: request.headers });
+      request.complete();
+      return normalizeComment(response, threadId);
+    } catch (error) {
+      request.retain();
+      throw error;
+    }
   }
 
   static async toggleLike(id: string, type: 'thread' | 'comment', currentState?: boolean): Promise<boolean> {
-    const response = await this.post('/community/like', { id, type, currentState });
-    return response?.liked !== undefined ? response.liked : Boolean(response?.success);
+    const request = beginManagedIdempotentRequest(`forum-like:${type}:${id}:${currentState ? 'on' : 'off'}`);
+    try {
+      const response = await this.post('/community/like', { id, type, currentState }, { headers: request.headers });
+      request.complete();
+      return response?.liked !== undefined ? response.liked : Boolean(response?.success);
+    } catch (error) {
+      request.retain();
+      throw error;
+    }
   }
 
   static async repost(id: string, type: string, currentState?: boolean): Promise<boolean> {
@@ -324,7 +623,8 @@ class CommunityService {
 
   static async getClubs(): Promise<CommunityClub[]> {
     const data = await this.get('/community/clubs');
-    return Array.isArray(data) ? data : [];
+    if (!Array.isArray(data)) return [];
+    return data.map((club: any) => normalizeClub(club));
   }
 
   static async joinClub(clubId: string): Promise<boolean> {
@@ -464,12 +764,24 @@ class CommunityService {
     return Array.isArray(data) ? data : [];
   }
 
-  static async getFeed(params?: { limit?: number; cursor?: string; scope?: string; topic?: string; region?: string }): Promise<any> {
+  static async getFeed(params?: {
+    limit?: number;
+    cursor?: string;
+    scope?: string;
+    mode?: string;
+    topic?: string;
+    topicId?: string;
+    topicSlug?: string;
+    region?: string;
+  }): Promise<any> {
     const search = new URLSearchParams();
     if (params?.limit !== undefined) search.set('limit', String(params.limit));
     if (params?.cursor) search.set('cursor', params.cursor);
     if (params?.scope) search.set('scope', params.scope);
+    if (params?.mode) search.set('mode', params.mode);
     if (params?.topic) search.set('topic', params.topic);
+    if (params?.topicId) search.set('topicId', params.topicId);
+    if (params?.topicSlug) search.set('topicSlug', params.topicSlug);
     if (params?.region) search.set('region', params.region);
     const query = search.toString();
     const endpoint = `/community/feed${query ? `?${query}` : ''}`;
@@ -533,7 +845,9 @@ class CommunityService {
     location?: string;
     commentPolicy?: string;
     graphicWarning?: boolean;
+    isAIEnhanced?: boolean;
     aiInsightEnabled?: boolean;
+    offerTags?: Array<{ offerType: 'user_gig' | 'business_package'; offerId: string }>;
   }): Promise<any> {
     const attachmentFileIds = Array.from(
       new Set([...(data.attachmentFileIds || []), ...(data.attachments || [])].filter(Boolean))
@@ -552,30 +866,57 @@ class CommunityService {
       graphicWarning: data.graphicWarning === true,
       businessPageId: data.businessPageId,
       commentPolicy: data.commentPolicy,
-      aiInsightEnabled: typeof data.aiInsightEnabled === 'boolean' ? data.aiInsightEnabled : undefined
+      isAIEnhanced: data.isAIEnhanced === true,
+      aiInsightEnabled: typeof data.aiInsightEnabled === 'boolean' ? data.aiInsightEnabled : undefined,
+      offerTags: Array.isArray(data.offerTags) ? data.offerTags : []
     };
     const response = await this.post('/community/posts', payload);
     return response;
   }
 
   static async reactToPost(postId: string, type: string): Promise<any> {
-    return this.post(`/community/posts/${postId}/reactions`, { type });
+    const request = beginManagedIdempotentRequest(`post-reaction:add:${postId}:${type}`);
+    try {
+      const response = await this.post(`/community/posts/${postId}/reactions`, { type }, { headers: request.headers });
+      request.complete();
+      return response;
+    } catch (error) {
+      request.retain();
+      throw error;
+    }
   }
 
   static async removePostReaction(postId: string): Promise<any> {
-    const response = await api.delete(`/community/posts/${postId}/reactions`);
-    return extractData<any>(response);
+    const request = beginManagedIdempotentRequest(`post-reaction:remove:${postId}`);
+    try {
+      const response = await api.delete(`/community/posts/${postId}/reactions`, { headers: request.headers });
+      request.complete();
+      return extractData<any>(response);
+    } catch (error) {
+      request.retain();
+      throw error;
+    }
   }
 
   static async commentOnPost(postId: string, payload: { content: string; attachments?: string[]; attachmentFileIds?: string[]; parentId?: string | null }): Promise<any> {
     const attachmentFileIds = Array.from(
       new Set([...(payload.attachmentFileIds || []), ...(payload.attachments || [])].filter(Boolean))
     );
-    return this.post(`/community/posts/${postId}/comments`, {
-      ...payload,
-      attachmentFileIds,
-      attachments: attachmentFileIds
-    });
+    const request = beginManagedIdempotentRequest(
+      `post-comment:${postId}:${payload.parentId || 'root'}:${createActionFingerprint(payload.content, attachmentFileIds.join(','))}`
+    );
+    try {
+      const response = await this.post(`/community/posts/${postId}/comments`, {
+        ...payload,
+        attachmentFileIds,
+        attachments: attachmentFileIds
+      }, { headers: request.headers });
+      request.complete();
+      return response;
+    } catch (error) {
+      request.retain();
+      throw error;
+    }
   }
 
   static async getPostComments(postId: string, params?: { limit?: number; cursor?: string }): Promise<any> {
@@ -604,8 +945,15 @@ class CommunityService {
   }
 
   static async togglePostCommentLike(commentId: string): Promise<any> {
-    const response = await this.post(`/community/comments/${commentId}/like`, {});
-    return response;
+    const request = beginManagedIdempotentRequest(`post-comment-like:${commentId}`);
+    try {
+      const response = await this.post(`/community/comments/${commentId}/like`, {}, { headers: request.headers });
+      request.complete();
+      return response;
+    } catch (error) {
+      request.retain();
+      throw error;
+    }
   }
 
   static async updatePost(postId: string, payload: {
@@ -623,8 +971,11 @@ class CommunityService {
     repostsEnabled?: boolean;
     isPinned?: boolean;
     isHighlighted?: boolean;
+    graphicWarning?: boolean;
+    isAIEnhanced?: boolean;
     aiInsightEnabled?: boolean;
     regenerateAiInsight?: boolean;
+    offerTags?: Array<{ offerType: 'user_gig' | 'business_package'; offerId: string }>;
   }): Promise<any> {
     const attachmentFileIds = Array.from(
       new Set([...(payload.attachmentFileIds || []), ...(payload.attachments || [])].filter(Boolean))
@@ -773,6 +1124,58 @@ class CommunityService {
     if (params?.cursor) search.set('cursor', params.cursor);
     if (typeof params?.limit !== 'undefined') search.set('limit', String(params.limit));
     return this.get(`/community/business-pages/${slug}/feed${search.toString() ? `?${search.toString()}` : ''}`);
+  }
+
+  static async getBusinessPagePackages(pageId: string): Promise<BusinessPagePackagesPayload> {
+    const id = String(pageId || '').trim();
+    if (!id) {
+      return normalizeBusinessPagePackagesPayload({ pageId: '', packages: [], summary: { total: 0, active: 0, priceFrom: null, currency: null } });
+    }
+    const data = await this.get(`/community/business-pages/${id}/packages`);
+    return normalizeBusinessPagePackagesPayload(data || { pageId: id, packages: [] });
+  }
+
+  static async updateBusinessPagePackages(
+    pageId: string,
+    packages: BusinessPageServicePackageInput[]
+  ): Promise<BusinessPagePackagesPayload> {
+    const id = String(pageId || '').trim();
+    if (!id) {
+      return normalizeBusinessPagePackagesPayload({ pageId: '', packages: [], summary: { total: 0, active: 0, priceFrom: null, currency: null } });
+    }
+    const response = await api.put(`/community/business-pages/${id}/packages`, {
+      packages: Array.isArray(packages) ? packages : []
+    });
+    return normalizeBusinessPagePackagesPayload(extractData<any>(response) || { pageId: id, packages: [] });
+  }
+
+  static async getBusinessPageStorefront(pageId: string): Promise<BusinessPageStorefrontPayload> {
+    const id = String(pageId || '').trim();
+    if (!id) {
+      return normalizeBusinessPageStorefrontPayload({
+        pageId: '',
+        enabled: false,
+        canManage: false,
+        settings: {},
+        merchantSummary: null,
+        featuredPackages: [],
+        packages: [],
+        summary: { total: 0, active: 0, priceFrom: null, currency: null }
+      });
+    }
+    const data = await this.get(`/community/business-pages/${id}/storefront`);
+    return normalizeBusinessPageStorefrontPayload(
+      data || {
+        pageId: id,
+        enabled: false,
+        canManage: false,
+        settings: {},
+        merchantSummary: null,
+        featuredPackages: [],
+        packages: [],
+        summary: { total: 0, active: 0, priceFrom: null, currency: null }
+      }
+    );
   }
 
   static async getRecommendedBusinessPages(limit: number = 6): Promise<any[]> {

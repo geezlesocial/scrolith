@@ -96,7 +96,15 @@ const PostHeader: React.FC<PostHeaderProps> = ({
             <Link to={profileUrl} className="text-sm font-semibold leading-6 text-slate-950 hover:text-slate-700 sm:text-[15px]">
               {authorName}
             </Link>
-            {verificationLevel ? <VerifiedBadge level={verificationLevel} size={18} className="ml-1" /> : null}
+            {verificationLevel ? (
+              <VerifiedBadge
+                level={verificationLevel}
+                size={18}
+                className="ml-1"
+                subjectType={author.type || 'user'}
+                subjectRole={authorType === 'business' ? 'business' : 'user'}
+              />
+            ) : null}
             {author.isPro ? (
               <span
                 className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-700"

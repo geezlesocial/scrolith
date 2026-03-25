@@ -8,13 +8,13 @@ import {
   useNavigate
 } from 'react-router-dom';
 import Navbar from './components/Navbar';
-import DynamicFooter from './components/DynamicFooter';
 import ToastContainer from './components/ToastContainer';
 import OfflineBanner from './components/OfflineBanner';
 import AppDistributionPrompt from './components/AppDistributionPrompt';
 import { UserRole } from './types';
 import { CurrencyProvider } from './context/CurrencyContext';
 import { ContentProvider, useContent } from './context/ContentContext';
+import { LiveFeatureProvider, useLiveFeature } from './context/LiveFeatureContext';
 import { NotificationProvider, useNotification } from './context/NotificationContext';
 import { FavoritesProvider } from './context/FavoritesContext';
 import { CartProvider } from './context/CartContext';
@@ -39,6 +39,7 @@ import {
 } from './mobile/biometrics';
 import { MarketingService } from './services/marketing';
 import { resolveResponsiveAssetUrl } from './utils/assetUrl';
+import { getCanonicalAppOrigin, getCanonicalRedirectUrl } from './utils/siteUrl';
 
 // Lazy Loaded Components
 const Landing = React.lazy(() => import('./main/Landing'));
@@ -50,6 +51,7 @@ const OAuthCallback = React.lazy(() => import('./auth/OAuthCallback'));
 const BrowseTalent = React.lazy(() => import('./main/BrowseTalent'));
 const BrowseJobs = React.lazy(() => import('./main/BrowseJobs'));
 const SearchResults = React.lazy(() => import('./pages/SearchResults'));
+const DynamicFooter = React.lazy(() => import('./components/DynamicFooter'));
 const SupportWidget = React.lazy(() => import('./components/SupportWidget'));
 const MarketingPopups = React.lazy(() => import('./components/MarketingPopups'));
 const AdminDashboard = React.lazy(() => import('./dashboard/AdminDashboard'));
@@ -224,6 +226,7 @@ const AppContent = () => {
   const { showNotification } = useNotification();
   const location = useLocation();
   const navigate = useNavigate();
+  const canonicalRedirectUrl = getCanonicalRedirectUrl();
   const isHomeRoute = location.pathname === '/';
   const themeKey = 'Scrolith.pref.theme';
   const [biometricEnabled, setBiometricEnabled] = useState(false);
@@ -242,6 +245,26 @@ const AppContent = () => {
   const lastBiometricSuccessAtRef = useRef(0);
   const lastBiometricPromptAtRef = useRef(0);
   const isNative = isNativePlatform();
+
+  useEffect(() => {
+    if (!canonicalRedirectUrl || typeof window === 'undefined') return;
+    if (window.location.href === canonicalRedirectUrl) return;
+    window.location.replace(canonicalRedirectUrl);
+  }, [canonicalRedirectUrl]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const canonicalUrl = `${getCanonicalAppOrigin()}${location.pathname || '/'}`;
+    let link = document.querySelector("link[rel='canonical']") as HTMLLinkElement | null;
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'canonical';
+      document.head.appendChild(link);
+    }
+    if (link.href !== canonicalUrl) {
+      link.href = canonicalUrl;
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     if (!isHomeRoute) {
@@ -288,6 +311,14 @@ const AppContent = () => {
       disposed = true;
     };
   }, [isHomeRoute]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const frame = window.requestAnimationFrame(() => {
+      window.dispatchEvent(new Event('scrolith:app-ready'));
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   useEffect(() => {
     const referralCode = new URLSearchParams(location.search).get('ref');
@@ -481,7 +512,10 @@ const AppContent = () => {
   );
 
   useEffect(() => {
-    registerDeepLinks((path) => navigate(path, { replace: true }));
+    const cleanup = registerDeepLinks((path) => navigate(path, { replace: true }));
+    return () => {
+      void cleanup?.();
+    };
   }, [navigate]);
 
   useEffect(() => {
@@ -770,7 +804,9 @@ const AppContent = () => {
                 path="/live"
                 element={
                   <ProtectedRoute>
-                    <Navigate to="/live/studio" replace />
+                    <LiveFeatureRoute>
+                      <Navigate to="/live/studio" replace />
+                    </LiveFeatureRoute>
                   </ProtectedRoute>
                 }
               />
@@ -778,7 +814,9 @@ const AppContent = () => {
                 path="/live/studio"
                 element={
                   <ProtectedRoute>
-                    <LiveStudio />
+                    <LiveFeatureRoute>
+                      <LiveStudio />
+                    </LiveFeatureRoute>
                   </ProtectedRoute>
                 }
               />
@@ -786,7 +824,9 @@ const AppContent = () => {
                 path="/live/:id"
                 element={
                   <ProtectedRoute>
-                    <LiveViewer />
+                    <LiveFeatureRoute>
+                      <LiveViewer />
+                    </LiveFeatureRoute>
                   </ProtectedRoute>
                 }
               />
@@ -998,7 +1038,11 @@ const AppContent = () => {
           </Suspense>
         </ErrorBoundary>
       </main>
-      {!shouldHideFooter && <DynamicFooter />}
+      {!shouldHideFooter && nonCriticalUiReady && (
+        <Suspense fallback={null}>
+          <DynamicFooter />
+        </Suspense>
+      )}
       {!shouldHideSupportWidget && nonCriticalUiReady && (
         <Suspense fallback={null}>
           <SupportWidget />
@@ -1108,6 +1152,21 @@ const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) 
   return <>{children}</>;
 };
 
+const LiveFeatureRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useUser();
+  const { loading, status } = useLiveFeature();
+
+  if (loading) {
+    return null;
+  }
+
+  if (!status.enabled) {
+    return <Navigate to={resolveDashboardPath(user?.role)} replace />;
+  }
+
+  return <>{children}</>;
+};
+
 // Update the ProtectedRoute component to NOT redirect for homepage
   const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
     const { user, isAuthenticated, isLoading } = useUser();
@@ -1140,6 +1199,10 @@ const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) 
   // TODO: Re-add RealtimeProvider after fixing socket initialization issues
   // RealtimeProvider removed temporarily to fix lazy loading errors
 
+  if (canonicalRedirectUrl) {
+    return null;
+  }
+
   return <>{children}</>;
 };
 // ============ END ProtectedRoute ============
@@ -1158,8 +1221,10 @@ function App() {
                     <FavoritesProvider>
                       <CartProvider>
                         <MessageProvider>
-                          <GlobalPreloader />
-                          <AppContent />
+                          <LiveFeatureProvider>
+                            <GlobalPreloader />
+                            <AppContent />
+                          </LiveFeatureProvider>
                         </MessageProvider>
                       </CartProvider>
                     </FavoritesProvider>

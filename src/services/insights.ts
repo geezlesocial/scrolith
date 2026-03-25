@@ -29,6 +29,149 @@ export type ProfessionalScore = {
   updatedAt: string;
 };
 
+export type OpportunityHubData = {
+  identity: {
+    userId: string;
+    name: string;
+    username?: string | null;
+    role: string;
+    title?: string;
+    location?: string;
+    skills?: string[];
+    profileCompleteness: number;
+    verificationState?: string;
+    verified?: boolean;
+    kycStatus?: string;
+    followersCount: number;
+    postsCount: number;
+    commentsCount: number;
+    portfolioProofs: number;
+    verifiedProofs: number;
+    activePages: number;
+  };
+  trust: {
+    score: number;
+    trustTier: string;
+    breakdown: Record<string, any>;
+    riskFlags: Record<string, any>;
+    averageRating: number;
+    ratingsCount: number;
+    completedOrders: number;
+    cancelledOrders: number;
+    proposalWinRate: number;
+    responseRate: number;
+    responseTimeHours: number;
+    updatedAt: string;
+  };
+  delivery: {
+    activeContracts: number;
+    activeTrackingSessions: number;
+    activeOrders: number;
+    openProposals: number;
+    pendingDue: number;
+    totalEarned: number;
+    totalSpent: number;
+    walletBalance: number;
+    trackedHours: number;
+  };
+  packaging: {
+    activeGigs: number;
+    featuredGigs: number;
+    activeJobs: number;
+    activePages: number;
+    pages: Array<{
+      id: string;
+      name: string;
+      slug: string;
+      tagline?: string | null;
+      industry?: string | null;
+      followersCount: number;
+      postsCount: number;
+      status: string;
+    }>;
+  };
+  matching: {
+    total: number;
+    matches: any[];
+  };
+  workroom?: {
+    totalWorkstreams: number;
+    needsAttention: number;
+    activeContracts: number;
+    activeOrders: number;
+    openProposals: number;
+    items: Array<{
+      id: string;
+      source: 'contract' | 'order' | 'proposal';
+      sourceId: string;
+      title: string;
+      subtitle?: string;
+      status: string;
+      priority: 'high' | 'medium' | 'low';
+      updatedAt: string;
+      dueAt?: string | null;
+      amount?: number;
+      actionLabel: string;
+      actionUrl: string;
+    }>;
+  };
+  actions: string[];
+};
+
+export type OpportunityBriefResult = {
+  brief: {
+    title: string;
+    intent: string;
+    summary: string;
+    budgetRange: string;
+    timeline: string;
+    skills: string[];
+    deliverables: string[];
+  };
+  packageBlueprint: Array<{
+    tier: string;
+    name: string;
+    positioning: string;
+    turnaround: string;
+    deliverables: string[];
+    pricingGuidance: string;
+  }>;
+  matches: {
+    jobs: Array<{
+      id: string;
+      title: string;
+      budget?: string | null;
+      type?: string | null;
+      clientName?: string;
+      score: number;
+      reasons: string[];
+      destinationUrl: string;
+    }>;
+    gigs: Array<{
+      id: string;
+      title: string;
+      price?: number | null;
+      deliveryTime?: number | null;
+      sellerName?: string;
+      score: number;
+      reasons: string[];
+      destinationUrl: string;
+    }>;
+    pages: Array<{
+      id: string;
+      name: string;
+      slug: string;
+      tagline?: string | null;
+      industry?: string | null;
+      followersCount: number;
+      score: number;
+      reasons: string[];
+      destinationUrl: string;
+    }>;
+  };
+  suggestedActions: string[];
+};
+
 export type UserQuest = {
   id: string;
   userId: string;
@@ -100,6 +243,16 @@ class InsightsService {
   static async getRevenue(): Promise<any> {
     const response = await api.get('/insights/revenue/me');
     return extractData<any>(response);
+  }
+
+  static async getOpportunityHub(): Promise<OpportunityHubData | null> {
+    const response = await api.get('/insights/opportunity-hub/me');
+    return extractData<OpportunityHubData | null>(response);
+  }
+
+  static async generateOpportunityBrief(prompt: string): Promise<OpportunityBriefResult> {
+    const response = await api.post('/insights/opportunity-brief', { prompt }, { timeout: 45_000 });
+    return extractData<OpportunityBriefResult>(response);
   }
 
   static async getPostPrediction(postId: string, force = false): Promise<any> {

@@ -1,8 +1,31 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import {
+  ArrowUpRight,
+  BarChart3,
+  CheckCircle2,
+  Clock3,
+  Copy,
+  Eye,
+  Filter,
+  Globe2,
+  LayoutTemplate,
+  Megaphone,
+  MousePointerClick,
+  PauseCircle,
+  PencilLine,
+  PlayCircle,
+  Plus,
+  RefreshCw,
+  Rocket,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  Wallet
+} from 'lucide-react';
 import { AdService } from '../services/ads';
 import { CommunityService } from '../services/community';
-import AdCard from '../components/AdCard';
 import { AdCampaign } from '../types';
 import { useNotification } from '../context/NotificationContext';
 import { useCurrency } from '../context/CurrencyContext';
@@ -11,6 +34,7 @@ import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import { PaymentService } from '../services/payment';
 import { PaymentGateway } from '../types';
 import { getUserFacingPaymentMethodName } from '../utils/paymentGatewayDisplay';
+import { DEFAULT_AD_TARGET_COUNTRIES } from '../constants/defaultAudienceOptions';
 
 const toNumber = (value: any): number => {
   const n = typeof value === 'number' ? value : Number(value ?? 0);
@@ -44,32 +68,206 @@ const PLACEMENT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'chat_sidebar', label: 'Chat Side Bar' }
 ];
 
-const DEFAULT_TARGET_COUNTRIES = [
-  'United States',
-  'United Kingdom',
-  'Canada',
-  'Australia',
-  'New Zealand',
-  'Germany',
-  'France',
-  'Netherlands',
-  'Sweden',
-  'Norway',
-  'Denmark',
-  'Ireland',
-  'Spain',
-  'Italy',
-  'United Arab Emirates',
-  'Saudi Arabia',
-  'India',
-  'Nigeria',
-  'South Africa',
-  'Brazil',
-  'Mexico',
-  'Singapore',
-  'Malaysia',
-  'Philippines'
+type StudioStatusFilter = 'all' | 'active' | 'draft' | 'review' | 'action' | 'paused' | 'ended';
+type StudioSortMode = 'recent' | 'budget_high' | 'spend_high' | 'best_ctr' | 'attention';
+
+const STATUS_FILTER_OPTIONS: Array<{ value: StudioStatusFilter; label: string }> = [
+  { value: 'all', label: 'All campaigns' },
+  { value: 'active', label: 'Active' },
+  { value: 'action', label: 'Needs action' },
+  { value: 'review', label: 'In review' },
+  { value: 'draft', label: 'Drafts' },
+  { value: 'paused', label: 'Paused' },
+  { value: 'ended', label: 'Ended' }
 ];
+
+const SORT_OPTIONS: Array<{ value: StudioSortMode; label: string }> = [
+  { value: 'recent', label: 'Most recent' },
+  { value: 'attention', label: 'Highest priority' },
+  { value: 'budget_high', label: 'Highest budget' },
+  { value: 'spend_high', label: 'Most spent' },
+  { value: 'best_ctr', label: 'Best CTR' }
+];
+
+const normalizeCampaignStatus = (status?: string) =>
+  String(status || '')
+    .toLowerCase()
+    .replace(/-/g, '_')
+    .trim();
+
+const clampPercent = (value: number) => Math.max(0, Math.min(100, value));
+
+const formatCompactNumber = (value: number) => {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      notation: 'compact',
+      maximumFractionDigits: value >= 1000 ? 1 : 0
+    }).format(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const formatDateLabel = (value?: string | null) => {
+  if (!value) return 'Not scheduled';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Not scheduled';
+  return parsed.toLocaleDateString();
+};
+
+const getCampaignTargeting = (ad: AdCampaign): Record<string, any> => {
+  if (!ad?.targeting || typeof ad.targeting !== 'object' || Array.isArray(ad.targeting)) {
+    return {};
+  }
+  return ad.targeting as Record<string, any>;
+};
+
+const getCampaignPlacements = (ad: AdCampaign): string[] => {
+  const targeting = getCampaignTargeting(ad);
+  const placementsSource =
+    Array.isArray(targeting.placements) && targeting.placements.length > 0
+      ? targeting.placements
+      : Array.isArray(ad.placements) && ad.placements.length > 0
+        ? ad.placements
+        : [ad.placement || 'community_feed'];
+  return Array.from(
+    new Set(
+      placementsSource
+        .map((placement: any) => normalizePlacement(placement))
+        .filter(Boolean)
+    )
+  );
+};
+
+const getCampaignCountries = (ad: AdCampaign): string[] => {
+  const targeting = getCampaignTargeting(ad);
+  const countriesSource =
+    Array.isArray(targeting.targetCountries) && targeting.targetCountries.length > 0
+      ? targeting.targetCountries
+      : Array.isArray(ad.targetCountries) && ad.targetCountries.length > 0
+        ? ad.targetCountries
+        : [];
+  return Array.from(
+    new Set(
+      countriesSource
+        .map((entry: any) => String(entry || '').trim())
+        .filter(Boolean)
+    )
+  );
+};
+
+const getCampaignAudience = (ad: AdCampaign): 'users' | 'businesses' | 'all' => {
+  const targeting = getCampaignTargeting(ad);
+  const audience = String(targeting.targetAudience || ad.targetAudience || 'users')
+    .trim()
+    .toLowerCase();
+  if (audience === 'businesses' || audience === 'all') return audience;
+  return 'users';
+};
+
+const getCampaignDailySpend = (ad: AdCampaign): number => {
+  const targeting = getCampaignTargeting(ad);
+  return toNumber(targeting.dailySpend ?? ad.dailySpend ?? 0);
+};
+
+const getCampaignPrimaryMedia = (ad: AdCampaign) => {
+  const media =
+    Array.isArray(ad.media) && ad.media.length > 0
+      ? ad.media[0]
+      : ad.creativeUrl
+        ? { url: ad.creativeUrl, type: 'image', mimeType: 'image/*' }
+        : null;
+
+  const mediaType = String(media?.mimeType || media?.type || '')
+    .toLowerCase()
+    .startsWith('video/')
+    ? 'video'
+    : String(media?.type || '').toLowerCase() === 'video'
+      ? 'video'
+      : 'image';
+
+  return {
+    url: String(media?.url || '').trim(),
+    type: mediaType,
+    name: String(media?.name || ad.title || 'Creative').trim()
+  };
+};
+
+const getStatusGroup = (status?: string): Exclude<StudioStatusFilter, 'all'> => {
+  const normalized = normalizeCampaignStatus(status);
+  if (normalized === 'active') return 'active';
+  if (normalized === 'paused') return 'paused';
+  if (normalized === 'ended' || normalized === 'completed') return 'ended';
+  if (['submitted_for_review', 'approved'].includes(normalized)) return 'review';
+  if (normalized === 'draft') return 'draft';
+  return 'action';
+};
+
+const getStatusMeta = (status?: string) => {
+  const normalized = normalizeCampaignStatus(status);
+  if (normalized === 'active') {
+    return {
+      label: 'Active',
+      badgeClass: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      toneClass: 'bg-emerald-500',
+      description: 'Serving impressions and clicks live.'
+    };
+  }
+  if (normalized === 'paused') {
+    return {
+      label: 'Paused',
+      badgeClass: 'border-slate-200 bg-slate-100 text-slate-700',
+      toneClass: 'bg-slate-400',
+      description: 'Ready to resume without rebuilding.'
+    };
+  }
+  if (normalized === 'submitted_for_review' || normalized === 'approved') {
+    return {
+      label: normalized === 'approved' ? 'Approved' : 'In review',
+      badgeClass: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+      toneClass: 'bg-indigo-500',
+      description: normalized === 'approved' ? 'Approved and awaiting activation.' : 'Queued for moderation review.'
+    };
+  }
+  if (normalized === 'ended' || normalized === 'completed') {
+    return {
+      label: 'Ended',
+      badgeClass: 'border-slate-200 bg-slate-50 text-slate-600',
+      toneClass: 'bg-slate-300',
+      description: 'Campaign flight has finished.'
+    };
+  }
+  if (normalized === 'paid') {
+    return {
+      label: 'Paid',
+      badgeClass: 'border-cyan-200 bg-cyan-50 text-cyan-700',
+      toneClass: 'bg-cyan-500',
+      description: 'Funding completed. Ready for review submission.'
+    };
+  }
+  if (normalized === 'rejected') {
+    return {
+      label: 'Rejected',
+      badgeClass: 'border-rose-200 bg-rose-50 text-rose-700',
+      toneClass: 'bg-rose-500',
+      description: 'Needs revision before it can run.'
+    };
+  }
+  if (normalized === 'awaiting_payment') {
+    return {
+      label: 'Awaiting payment',
+      badgeClass: 'border-amber-200 bg-amber-50 text-amber-700',
+      toneClass: 'bg-amber-500',
+      description: 'Funding is required before launch.'
+    };
+  }
+  return {
+    label: 'Draft',
+    badgeClass: 'border-slate-200 bg-slate-50 text-slate-700',
+    toneClass: 'bg-slate-500',
+    description: 'Creative is still being assembled.'
+  };
+};
 
 const GuideTip: React.FC<{ text: string }> = ({ text }) => (
   <details className="group relative shrink-0">
@@ -165,6 +363,10 @@ const MyAds = () => {
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [formActionMode, setFormActionMode] = useState<'draft' | 'submit' | 'pay' | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StudioStatusFilter>('all');
+  const [sortMode, setSortMode] = useState<StudioSortMode>('attention');
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
@@ -203,7 +405,7 @@ const MyAds = () => {
       ? adsConfig.targetCountries
           .map((entry: any) => String(entry || '').trim())
           .filter(Boolean)
-      : DEFAULT_TARGET_COUNTRIES;
+      : DEFAULT_AD_TARGET_COUNTRIES;
     const selected = Array.isArray(form.targetCountries)
       ? form.targetCountries.map((entry) => String(entry || '').trim()).filter(Boolean)
       : [];
@@ -939,6 +1141,79 @@ const MyAds = () => {
     );
   }, [form.media]);
 
+  const buildPromotionSelectionFromAd = useCallback((ad: AdCampaign): PromotionSelection | null => {
+    const targeting = getCampaignTargeting(ad);
+    const promotionType = String(targeting.promotionType || '').trim().toLowerCase();
+    if (promotionType === 'post') {
+      const entityId = String(targeting.promotionEntityId || '').trim();
+      if (!entityId) return null;
+      return {
+        type: 'post',
+        entityId,
+        entityUrl:
+          String(targeting.promotionEntityUrl || '').trim() ||
+          `${window.location.origin}/community/posts/${encodeURIComponent(entityId)}`,
+        title: String(targeting.promotionTitle || ad.title || 'Promoted Post').trim(),
+        subtitle: String(targeting.promotionSubtitle || 'Community Post').trim(),
+        bodyDraft: String(ad.body || '').trim()
+      };
+    }
+
+    if (promotionType === 'page') {
+      const entityId = String(targeting.promotionEntityId || '').trim();
+      const entitySlug = String(targeting.promotionEntitySlug || '').trim();
+      if (!entityId || !entitySlug) return null;
+      return {
+        type: 'page',
+        entityId,
+        entitySlug,
+        entityUrl:
+          String(targeting.promotionEntityUrl || '').trim() ||
+          `${window.location.origin}/company/${encodeURIComponent(entitySlug)}`,
+        title: String(targeting.promotionTitle || ad.title || 'Promoted Page').trim(),
+        subtitle: String(targeting.promotionSubtitle || 'Business Page').trim(),
+        bodyDraft: String(ad.body || '').trim()
+      };
+    }
+
+    return null;
+  }, []);
+
+  const buildFormFromAd = useCallback(
+    (ad: AdCampaign): AdFormState => {
+      const targeting = getCampaignTargeting(ad);
+      const placements = getCampaignPlacements(ad).slice(0, maxPlacements);
+      const mediaFromAd =
+        Array.isArray(ad.media) && ad.media.length > 0
+          ? ad.media.map((media: any) => ({
+              id: media.id || '',
+              url: media.url,
+              name: media.name,
+              mimeType: media.mimeType
+            }))
+          : (ad.mediaFileIds || []).map((id) => ({ id } as any));
+
+      return {
+        title: ad.title || '',
+        body: ad.body || '',
+        objective: (ad.objective || 'traffic') as 'traffic' | 'messages',
+        destinationType: (ad.destinationType || (ad.objective === 'messages' ? 'messages' : 'url')) as 'url' | 'messages',
+        destinationUrl: ad.destinationUrl || '',
+        ctaText: ad.ctaText || '',
+        placements: placements.length ? placements : ['community_feed'],
+        pricingModel: normalizePricingModel(targeting.pricingModel || (ad as any).pricingModel || 'CPM'),
+        targetCountries: getCampaignCountries(ad),
+        targetAudience: getCampaignAudience(ad),
+        dailySpend: getCampaignDailySpend(ad),
+        budget: toNumber(ad.budget),
+        currency: ad.currency || selectedCurrency.code || 'USD',
+        durationDays: toNumber(ad.durationDays || 7) || 7,
+        media: mediaFromAd
+      };
+    },
+    [maxPlacements, selectedCurrency.code]
+  );
+
   const openCreate = () => {
     setFormMode('create');
     setEditingAdId(null);
@@ -950,100 +1225,29 @@ const MyAds = () => {
   };
 
   const openEdit = (ad: AdCampaign) => {
-    const targeting =
-      ad.targeting && typeof ad.targeting === 'object' && !Array.isArray(ad.targeting)
-        ? (ad.targeting as Record<string, any>)
-        : {};
-    const placements = Array.from(
-      new Set(
-        (
-          Array.isArray(targeting.placements) && targeting.placements.length > 0
-            ? targeting.placements
-            : [ad.placement || 'community_feed']
-        )
-          .map((placement: any) => normalizePlacement(placement))
-          .filter(Boolean)
-      )
-    ).slice(0, maxPlacements);
-    const mediaFromAd = Array.isArray(ad.media) && ad.media.length > 0
-      ? ad.media.map((m: any) => ({ id: m.id || '', url: m.url, name: m.name, mimeType: m.mimeType }))
-      : (ad.mediaFileIds || []).map((id) => ({ id } as any));
-    const promotionType = String(targeting.promotionType || '').trim().toLowerCase();
-    if (promotionType === 'post') {
-      const entityId = String(targeting.promotionEntityId || '').trim();
-      if (entityId) {
-        setPromotionSelection({
-          type: 'post',
-          entityId,
-          entityUrl:
-            String(targeting.promotionEntityUrl || '').trim() ||
-            `${window.location.origin}/community/posts/${encodeURIComponent(entityId)}`,
-          title: String(targeting.promotionTitle || ad.title || 'Promoted Post').trim(),
-          subtitle: String(targeting.promotionSubtitle || 'Community Post').trim(),
-          bodyDraft: String(ad.body || '').trim()
-        });
-      } else {
-        setPromotionSelection(null);
-      }
-    } else if (promotionType === 'page') {
-      const entityId = String(targeting.promotionEntityId || '').trim();
-      const entitySlug = String(targeting.promotionEntitySlug || '').trim();
-      if (entityId && entitySlug) {
-        setPromotionSelection({
-          type: 'page',
-          entityId,
-          entitySlug,
-          entityUrl:
-            String(targeting.promotionEntityUrl || '').trim() ||
-            `${window.location.origin}/company/${encodeURIComponent(entitySlug)}`,
-          title: String(targeting.promotionTitle || ad.title || 'Promoted Page').trim(),
-          subtitle: String(targeting.promotionSubtitle || 'Business Page').trim(),
-          bodyDraft: String(ad.body || '').trim()
-        });
-      } else {
-        setPromotionSelection(null);
-      }
-    } else {
-      setPromotionSelection(null);
-    }
+    setPromotionSelection(buildPromotionSelectionFromAd(ad));
     setPromotionLoading(false);
     setFormMode('edit');
     setEditingAdId(ad.id);
     setFormGatewayId(adGatewaySelections[ad.id] || getPreferredCheckoutGatewayId());
-    setForm({
-      title: ad.title || '',
-      body: ad.body || '',
-      objective: (ad.objective || 'traffic') as 'traffic' | 'messages',
-      destinationType: (ad.destinationType || (ad.objective === 'messages' ? 'messages' : 'url')) as 'url' | 'messages',
-      destinationUrl: ad.destinationUrl || '',
-      ctaText: ad.ctaText || '',
-      placements: placements.length ? placements : ['community_feed'],
-      pricingModel: normalizePricingModel(targeting.pricingModel || (ad as any).pricingModel || 'CPM'),
-      targetCountries: Array.from(
-        new Set(
-          (
-            Array.isArray(targeting.targetCountries)
-              ? targeting.targetCountries
-              : typeof targeting.targetCountries === 'string'
-                ? targeting.targetCountries.split(',')
-                : []
-          )
-            .map((entry: any) => String(entry || '').trim())
-            .filter(Boolean)
-        )
-      ),
-      targetAudience: (() => {
-        const audience = String(targeting.targetAudience || '').toLowerCase();
-        if (audience === 'businesses' || audience === 'all') return audience as 'businesses' | 'all';
-        return 'users';
-      })(),
-      dailySpend: toNumber(targeting.dailySpend),
-      budget: toNumber(ad.budget),
-      currency: ad.currency || selectedCurrency.code || 'USD',
-      durationDays: toNumber(ad.durationDays || 7) || 7,
-      media: mediaFromAd
-    });
+    setForm(buildFormFromAd(ad));
     setFormOpen(true);
+    setSelectedCampaignId(ad.id);
+  };
+
+  const openDuplicate = (ad: AdCampaign) => {
+    const duplicateForm = buildFormFromAd(ad);
+    setFormMode('create');
+    setEditingAdId(null);
+    setPromotionSelection(buildPromotionSelectionFromAd(ad));
+    setPromotionLoading(false);
+    setForm({
+      ...duplicateForm,
+      title: `${duplicateForm.title || 'Ad campaign'} (Copy)`
+    });
+    setFormGatewayId(adGatewaySelections[ad.id] || getPreferredCheckoutGatewayId());
+    setFormOpen(true);
+    setSelectedCampaignId(ad.id);
   };
 
   const handleDelete = async (id: string) => {
@@ -1475,6 +1679,47 @@ const MyAds = () => {
     }
   };
 
+  const getCampaignCapabilities = useCallback((ad: AdCampaign) => {
+    const status = normalizeCampaignStatus(ad.status);
+    const canEdit = ['draft', 'rejected', 'awaiting_payment', 'paused', 'ended'].includes(status);
+    const canPay = ['draft', 'rejected', 'awaiting_payment'].includes(status);
+    const canSubmit = ['draft', 'rejected', 'awaiting_payment', 'paid'].includes(status);
+    const canDelete = [
+      'draft',
+      'rejected',
+      'awaiting_payment',
+      'paused',
+      'ended',
+      'paid',
+      'submitted_for_review',
+      'approved'
+    ].includes(status);
+    const canPause = status === 'active';
+    const canResume = status === 'paused';
+    const needsAction = ['draft', 'rejected', 'awaiting_payment', 'paid'].includes(status);
+
+    return {
+      status,
+      canEdit,
+      canPay,
+      canSubmit,
+      canDelete,
+      canPause,
+      canResume,
+      needsAction,
+      actionLabel:
+        status === 'awaiting_payment'
+          ? 'Funding required'
+          : status === 'paid'
+            ? 'Ready to submit'
+            : status === 'rejected'
+              ? 'Needs revision'
+              : status === 'draft'
+                ? 'Draft in progress'
+                : 'Healthy'
+    };
+  }, []);
+
   const performanceTotals = useMemo(() => {
     const totals = performanceMetrics.reduce(
       (acc, item) => {
@@ -1497,174 +1742,920 @@ const MyAds = () => {
     });
   }, [performanceMetrics]);
 
+  const studioPortfolio = useMemo(() => {
+    return ads.reduce(
+      (acc, ad) => {
+        const budget = toNumber(ad.budget);
+        const remaining = toNumber(ad.remainingBudget ?? budget);
+        const spent = Math.max(0, budget - remaining);
+        const statusGroup = getStatusGroup(ad.status);
+        const capabilities = getCampaignCapabilities(ad);
+
+        acc.total += 1;
+        acc.budget += budget;
+        acc.remaining += remaining;
+        acc.spent += spent;
+        acc.impressions += toNumber(ad.impressions);
+        acc.clicks += toNumber(ad.clicks);
+        if (statusGroup === 'active') acc.active += 1;
+        if (statusGroup === 'review') acc.review += 1;
+        if (capabilities.needsAction) acc.needsAction += 1;
+        return acc;
+      },
+      {
+        total: 0,
+        active: 0,
+        review: 0,
+        needsAction: 0,
+        budget: 0,
+        remaining: 0,
+        spent: 0,
+        impressions: 0,
+        clicks: 0
+      }
+    );
+  }, [ads, getCampaignCapabilities]);
+
+  const studioCtr = studioPortfolio.impressions
+    ? (studioPortfolio.clicks / studioPortfolio.impressions) * 100
+    : 0;
+
+  const filteredAds = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const filtered = ads.filter((ad) => {
+      const targeting = getCampaignTargeting(ad);
+      const placementText = getCampaignPlacements(ad).join(' ');
+      const countryText = getCampaignCountries(ad).join(' ');
+      const audience = getCampaignAudience(ad);
+      const statusText = normalizeCampaignStatus(ad.status);
+
+      const matchesSearch =
+        !query ||
+        [
+          ad.title,
+          ad.body,
+          ad.id,
+          ad.clientName,
+          ad.destinationUrl,
+          ad.ctaText,
+          placementText,
+          countryText,
+          audience,
+          statusText,
+          targeting.promotionTitle,
+          targeting.promotionSubtitle
+        ]
+          .map((value) => String(value || '').toLowerCase())
+          .some((value) => value.includes(query));
+
+      const group = getStatusGroup(ad.status);
+      const matchesStatus =
+        statusFilter === 'all'
+          ? true
+          : statusFilter === 'action'
+            ? getCampaignCapabilities(ad).needsAction
+            : group === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+
+    return filtered.sort((left, right) => {
+      const leftBudget = toNumber(left.budget);
+      const rightBudget = toNumber(right.budget);
+      const leftRemaining = toNumber(left.remainingBudget ?? leftBudget);
+      const rightRemaining = toNumber(right.remainingBudget ?? rightBudget);
+      const leftSpent = Math.max(0, leftBudget - leftRemaining);
+      const rightSpent = Math.max(0, rightBudget - rightRemaining);
+      const leftCtr = toNumber(left.ctr);
+      const rightCtr = toNumber(right.ctr);
+      const leftCreated = new Date(left.createdAt || left.startAt || 0).getTime();
+      const rightCreated = new Date(right.createdAt || right.startAt || 0).getTime();
+      const leftPriority = getCampaignCapabilities(left).needsAction ? 1 : 0;
+      const rightPriority = getCampaignCapabilities(right).needsAction ? 1 : 0;
+
+      if (sortMode === 'budget_high') return rightBudget - leftBudget || rightCreated - leftCreated;
+      if (sortMode === 'spend_high') return rightSpent - leftSpent || rightCreated - leftCreated;
+      if (sortMode === 'best_ctr') return rightCtr - leftCtr || rightCreated - leftCreated;
+      if (sortMode === 'attention') return rightPriority - leftPriority || rightCreated - leftCreated;
+      return rightCreated - leftCreated;
+    });
+  }, [ads, getCampaignCapabilities, searchQuery, sortMode, statusFilter]);
+
+  useEffect(() => {
+    if (filteredAds.length === 0) {
+      if (selectedCampaignId) setSelectedCampaignId(null);
+      return;
+    }
+    if (!selectedCampaignId || !filteredAds.some((ad) => ad.id === selectedCampaignId)) {
+      setSelectedCampaignId(filteredAds[0].id);
+    }
+  }, [filteredAds, selectedCampaignId]);
+
+  const selectedAd = useMemo(
+    () => filteredAds.find((ad) => ad.id === selectedCampaignId) || filteredAds[0] || null,
+    [filteredAds, selectedCampaignId]
+  );
+
+  const selectedCapabilities = selectedAd ? getCampaignCapabilities(selectedAd) : null;
+  const selectedStatusMeta = selectedAd ? getStatusMeta(selectedAd.status) : null;
+  const selectedMedia = selectedAd ? getCampaignPrimaryMedia(selectedAd) : null;
+  const selectedPlacements = selectedAd ? getCampaignPlacements(selectedAd) : [];
+  const selectedCountries = selectedAd ? getCampaignCountries(selectedAd) : [];
+  const selectedAudience = selectedAd ? getCampaignAudience(selectedAd) : 'users';
+  const selectedBudget = toNumber(selectedAd?.budget);
+  const selectedRemaining = toNumber(selectedAd?.remainingBudget ?? selectedBudget);
+  const selectedSpent = Math.max(0, selectedBudget - selectedRemaining);
+  const selectedSpendProgress = selectedBudget ? clampPercent((selectedSpent / selectedBudget) * 100) : 0;
+
+  const actionQueue = useMemo(
+    () => ads.filter((ad) => getCampaignCapabilities(ad).needsAction).slice(0, 4),
+    [ads, getCampaignCapabilities]
+  );
+
+  const formReadiness = useMemo(() => {
+    const checks = [
+      { label: 'Campaign title', complete: Boolean(form.title.trim()) },
+      { label: 'Creative message', complete: Boolean(form.body.trim()) },
+      {
+        label: 'Destination',
+        complete:
+          form.objective === 'messages' ||
+          form.destinationType === 'messages' ||
+          Boolean(form.destinationUrl.trim())
+      },
+      { label: 'Placement strategy', complete: Array.isArray(form.placements) && form.placements.length > 0 },
+      { label: 'Budget configured', complete: toNumber(form.budget) >= minBudget },
+      { label: 'Payment method', complete: Boolean(formGatewayId) }
+    ];
+    const completed = checks.filter((check) => check.complete).length;
+    return {
+      checks,
+      completed,
+      total: checks.length,
+      score: Math.round((completed / checks.length) * 100)
+    };
+  }, [form.body, form.budget, form.destinationType, form.destinationUrl, form.objective, form.placements, form.title, formGatewayId, minBudget]);
+
+  const formPreviewMedia = form.media[0] || null;
+  const formPlacementLabels = form.placements
+    .map((placement) => placementOptions.find((option) => option.value === placement)?.label || placement)
+    .slice(0, maxPlacements);
+  const averageDailyBudget = form.durationDays > 0 ? toNumber(form.budget) / Math.max(1, toNumber(form.durationDays)) : toNumber(form.budget);
+  const policySignals = [
+    { label: 'Placement limit', value: `${maxPlacements} surfaces` },
+    { label: 'Budget guardrail', value: `${formatCurrency(minBudget, form.currency)} to ${formatCurrency(maxBudget, form.currency)}` },
+    { label: 'Creative capacity', value: `${maxImageAssets} images / ${maxVideoAssets} video` },
+    { label: 'Checkout routes', value: paymentGateways.length > 0 ? `${paymentGateways.length} active` : 'No active gateways' }
+  ];
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-xl font-bold">My Ads</h2>
-          <p className="text-sm text-gray-500">Create, manage, and track your ad campaigns.</p>
+      <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.18),_transparent_36%),linear-gradient(135deg,_#ffffff,_#f8fafc_55%,_#eef2ff)] p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] sm:p-7">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div className="max-w-3xl space-y-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white/85 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-700">
+              <Megaphone className="h-3.5 w-3.5" />
+              My Ads Studio
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Run campaigns with a cleaner, stronger ads command center.</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600 sm:text-[15px]">
+                Plan creative, watch delivery health, resolve payment and review blockers, and keep campaign operations in one workspace without changing the existing ad rules or checkout flow.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {[
+                `${studioPortfolio.active} active`,
+                `${studioPortfolio.review} in review`,
+                `${studioPortfolio.needsAction} need attention`,
+                `${formatCompactNumber(studioPortfolio.impressions)} impressions`
+              ].map((chip) => (
+                <span key={chip} className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                  {chip}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => void load()}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Refresh data
+            </button>
+            <button
+              onClick={openCreate}
+              className="inline-flex items-center gap-2 rounded-2xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/25 transition hover:bg-sky-700"
+            >
+              <Plus className="h-4 w-4" />
+              Create campaign
+            </button>
+          </div>
         </div>
-        <button
-          onClick={openCreate}
-          className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold"
-        >
-          Create Ad Campaign
-        </button>
-      </div>
-      {!gatewayLoading && paymentGateways.length === 0 && (
-        <div className="rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3 text-xs text-yellow-700">
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Portfolio budget</p>
+              <Wallet className="h-4 w-4 text-sky-600" />
+            </div>
+            <p className="mt-3 text-2xl font-bold text-slate-950">{formatCurrency(studioPortfolio.budget, selectedCurrency.code)}</p>
+            <p className="mt-1 text-xs text-slate-500">Remaining {formatCurrency(studioPortfolio.remaining, selectedCurrency.code)}</p>
+          </div>
+          <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Live engagement</p>
+              <MousePointerClick className="h-4 w-4 text-indigo-600" />
+            </div>
+            <p className="mt-3 text-2xl font-bold text-slate-950">{formatCompactNumber(studioPortfolio.clicks)}</p>
+            <p className="mt-1 text-xs text-slate-500">{studioCtr.toFixed(2)}% portfolio CTR</p>
+          </div>
+          <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Operational state</p>
+              <ShieldCheck className="h-4 w-4 text-emerald-600" />
+            </div>
+            <p className="mt-3 text-2xl font-bold text-slate-950">{studioPortfolio.active}</p>
+            <p className="mt-1 text-xs text-slate-500">{studioPortfolio.review} in moderation or approval flow</p>
+          </div>
+          <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Priority queue</p>
+              <Sparkles className="h-4 w-4 text-amber-500" />
+            </div>
+            <p className="mt-3 text-2xl font-bold text-slate-950">{studioPortfolio.needsAction}</p>
+            <p className="mt-1 text-xs text-slate-500">Campaigns requiring funding, fixes, or submission</p>
+          </div>
+        </div>
+      </section>
+
+      {!gatewayLoading && paymentGateways.length === 0 ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           No active payment gateways are configured. Ask an admin to enable one.
         </div>
-      )}
+      ) : null}
 
-      {loading ? (
-        <div className="p-6 bg-white rounded-xl">Loading...</div>
-      ) : ads.length === 0 ? (
-        <div className="p-6 bg-white rounded-xl space-y-3">
-          <p>You have no ads yet.</p>
-          <button
-            onClick={openCreate}
-            className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold"
-          >
-            Create your first ad
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {ads.map((ad) => {
-            const status = normalizeStatus(ad.status);
-            const budget = toNumber(ad.budget);
-            const remaining = toNumber(ad.remainingBudget ?? budget);
-            const spent = Math.max(0, budget - remaining);
-            const progress = budget > 0 ? Math.min(100, (spent / budget) * 100) : 0;
-            const canEdit = ['draft', 'rejected', 'awaiting_payment', 'paused', 'ended'].includes(status);
-            const canPay = ['draft', 'rejected', 'awaiting_payment'].includes(status);
-            const canSubmit = ['draft', 'rejected', 'awaiting_payment', 'paid'].includes(status);
-            const canDelete = [
-              'draft',
-              'rejected',
-              'awaiting_payment',
-              'paused',
-              'ended',
-              'paid',
-              'submitted_for_review',
-              'approved'
-            ].includes(status);
-            const canPause = status === 'active';
-            const canResume = status === 'paused';
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.95fr)]">
+        <div className="space-y-4">
+          <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Campaign portfolio</p>
+                <p className="text-xs text-slate-500">
+                  Search, prioritize, and operate every campaign from one dashboard.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs font-medium text-slate-500">
+                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1">
+                  <LayoutTemplate className="h-3.5 w-3.5" />
+                  {filteredAds.length} visible
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1">
+                  <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                  {actionQueue.length} queued for action
+                </span>
+              </div>
+            </div>
 
-            return (
-              <div key={ad.id} className="bg-white p-4 rounded-xl border">
-                <AdCard ad={ad} showDonate={false} />
-                <div className="mt-3 space-y-2">
-                  <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span>Budget: {formatCurrency(budget, ad.currency)}</span>
-                    <span>Remaining: {formatCurrency(remaining, ad.currency)}</span>
-                  </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div className="h-2 bg-blue-500" style={{ width: `${progress}%` }} />
+            <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.3fr)_200px_200px]">
+              <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                <Search className="h-4 w-4 text-slate-400" />
+                <input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search by title, placement, audience, URL, or promotion target"
+                  className="w-full bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400"
+                />
+              </label>
+
+              <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                <Filter className="h-4 w-4 text-slate-400" />
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value as StudioStatusFilter)}
+                  className="w-full bg-transparent text-sm font-medium text-slate-700 outline-none"
+                >
+                  {STATUS_FILTER_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                <BarChart3 className="h-4 w-4 text-slate-400" />
+                <select
+                  value={sortMode}
+                  onChange={(event) => setSortMode(event.target.value as StudioSortMode)}
+                  className="w-full bg-transparent text-sm font-medium text-slate-700 outline-none"
+                >
+                  {SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="grid gap-4">
+              {[0, 1, 2].map((entry) => (
+                <div
+                  key={entry}
+                  className="animate-pulse rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm"
+                >
+                  <div className="h-5 w-1/3 rounded-full bg-slate-200" />
+                  <div className="mt-4 aspect-[16/8] rounded-[1.25rem] bg-slate-100" />
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                    <div className="h-16 rounded-2xl bg-slate-100" />
+                    <div className="h-16 rounded-2xl bg-slate-100" />
+                    <div className="h-16 rounded-2xl bg-slate-100" />
                   </div>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    onClick={() => openPerformance(ad)}
-                    className="px-3 py-1 rounded bg-gray-100 text-gray-700 text-sm"
+              ))}
+            </div>
+          ) : filteredAds.length === 0 ? (
+            <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-sky-50 text-sky-600">
+                <Megaphone className="h-7 w-7" />
+              </div>
+              <h3 className="mt-4 text-lg font-semibold text-slate-900">No campaigns match this view</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                Adjust your filters or create a new campaign. Existing billing, review, and delivery rules stay unchanged.
+              </p>
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                <button
+                  onClick={openCreate}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:bg-sky-700"
+                >
+                  <Plus className="h-4 w-4" />
+                  Create campaign
+                </button>
+                <button
+                  onClick={() => {
+                    setSearchQuery('');
+                    setStatusFilter('all');
+                    setSortMode('attention');
+                  }}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Reset filters
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filteredAds.map((ad) => {
+                const statusMeta = getStatusMeta(ad.status);
+                const capabilities = getCampaignCapabilities(ad);
+                const primaryMedia = getCampaignPrimaryMedia(ad);
+                const placements = getCampaignPlacements(ad);
+                const countries = getCampaignCountries(ad);
+                const audience = getCampaignAudience(ad);
+                const budget = toNumber(ad.budget);
+                const remaining = toNumber(ad.remainingBudget ?? budget);
+                const spent = Math.max(0, budget - remaining);
+                const spendProgress = budget ? clampPercent((spent / budget) * 100) : 0;
+                const targeting = getCampaignTargeting(ad);
+                const promotionLabel =
+                  targeting.promotionType === 'page'
+                    ? 'Promoted page'
+                    : targeting.promotionType === 'post'
+                      ? 'Promoted post'
+                      : 'Direct campaign';
+                const isSelected = ad.id === selectedAd?.id;
+
+                return (
+                  <article
+                    key={ad.id}
+                    onClick={() => setSelectedCampaignId(ad.id)}
+                    className={`overflow-hidden rounded-[1.75rem] border bg-white shadow-sm transition ${
+                      isSelected
+                        ? 'border-sky-400 shadow-[0_20px_60px_rgba(14,165,233,0.16)]'
+                        : 'border-slate-200 hover:border-slate-300 hover:shadow-md'
+                    }`}
                   >
-                    View Progress
+                    <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
+                      <div className="overflow-hidden rounded-[1.25rem] border border-slate-200 bg-slate-950/95">
+                        <div className="relative aspect-[16/10]">
+                          {primaryMedia.url ? (
+                            primaryMedia.type === 'video' ? (
+                              <video
+                                src={primaryMedia.url}
+                                muted
+                                playsInline
+                                preload="metadata"
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <img
+                                src={primaryMedia.url}
+                                alt={primaryMedia.name}
+                                className="h-full w-full object-cover"
+                              />
+                            )
+                          ) : (
+                            <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.18),_transparent_38%),linear-gradient(180deg,_#0f172a,_#1e293b)] text-center text-sm text-slate-300">
+                              Creative preview will appear here
+                            </div>
+                          )}
+                          <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/65 via-black/15 to-transparent px-4 py-3 text-white">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-white/12 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] backdrop-blur">
+                              <LayoutTemplate className="h-3.5 w-3.5" />
+                              {promotionLabel}
+                            </span>
+                            <span className="rounded-full bg-black/35 px-2.5 py-1 text-[11px] font-medium backdrop-blur">
+                              {placements.length} placements
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${statusMeta.badgeClass}`}
+                              >
+                                <span className={`h-2 w-2 rounded-full ${statusMeta.toneClass}`} />
+                                {statusMeta.label}
+                              </span>
+                              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+                                <Clock3 className="h-3.5 w-3.5" />
+                                {formatDateLabel(ad.createdAt || ad.startAt)}
+                              </span>
+                            </div>
+                            <h3 className="mt-3 truncate text-lg font-semibold text-slate-950">{ad.title}</h3>
+                            <p className="mt-1 text-sm leading-6 text-slate-500">{statusMeta.description}</p>
+                          </div>
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedCampaignId(ad.id);
+                            }}
+                            className="inline-flex items-center gap-2 self-start rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+                          >
+                            <Eye className="h-4 w-4" />
+                            Open studio
+                          </button>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <div className="rounded-2xl bg-slate-50 p-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                              Budget
+                            </p>
+                            <p className="mt-2 text-base font-semibold text-slate-950">
+                              {formatCurrency(budget, ad.currency)}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {formatCurrency(remaining, ad.currency)} remaining
+                            </p>
+                          </div>
+                          <div className="rounded-2xl bg-slate-50 p-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                              Reach
+                            </p>
+                            <p className="mt-2 text-base font-semibold text-slate-950">
+                              {formatCompactNumber(toNumber(ad.impressions))}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {formatCompactNumber(toNumber(ad.clicks))} clicks
+                            </p>
+                          </div>
+                          <div className="rounded-2xl bg-slate-50 p-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                              Performance
+                            </p>
+                            <p className="mt-2 text-base font-semibold text-slate-950">
+                              {toNumber(ad.ctr).toFixed(2)}% CTR
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">{capabilities.actionLabel}</p>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+                            <span>Budget usage</span>
+                            <span>{spendProgress.toFixed(0)}%</span>
+                          </div>
+                          <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-indigo-500"
+                              style={{ width: `${spendProgress}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600">
+                            <Rocket className="h-3.5 w-3.5 text-sky-600" />
+                            {String(ad.objective || 'traffic').replace(/^\w/, (value) => value.toUpperCase())}
+                          </span>
+                          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600">
+                            <Wallet className="h-3.5 w-3.5 text-emerald-600" />
+                            {normalizePricingModel(ad.pricingModel)} billing
+                          </span>
+                          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600">
+                            <LayoutTemplate className="h-3.5 w-3.5 text-indigo-600" />
+                            {placements.slice(0, 2).join(' • ')}
+                            {placements.length > 2 ? ` +${placements.length - 2}` : ''}
+                          </span>
+                          <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600">
+                            <Globe2 className="h-3.5 w-3.5 text-slate-500" />
+                            {audience === 'all'
+                              ? 'All audiences'
+                              : audience === 'businesses'
+                                ? 'Businesses'
+                                : 'Users'}
+                          </span>
+                          {countries.length > 0 ? (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600">
+                              <Globe2 className="h-3.5 w-3.5 text-slate-500" />
+                              {countries.slice(0, 2).join(', ')}
+                              {countries.length > 2 ? ` +${countries.length - 2}` : ''}
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openPerformance(ad);
+                            }}
+                            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+                          >
+                            <BarChart3 className="h-4 w-4" />
+                            Performance
+                          </button>
+                          {capabilities.canEdit ? (
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openEdit(ad);
+                              }}
+                              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+                            >
+                              <PencilLine className="h-4 w-4" />
+                              Edit
+                            </button>
+                          ) : null}
+                          <button
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openDuplicate(ad);
+                            }}
+                            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+                          >
+                            <Copy className="h-4 w-4" />
+                            Duplicate
+                          </button>
+                          {capabilities.canPay ? (
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handlePay(ad, adGatewaySelections[ad.id]);
+                              }}
+                              disabled={payingId === ad.id}
+                              className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
+                            >
+                              <Wallet className="h-4 w-4" />
+                              {payingId === ad.id ? 'Processing...' : 'Fund'}
+                            </button>
+                          ) : null}
+                          {capabilities.canSubmit ? (
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleSubmit(ad.id);
+                              }}
+                              disabled={submittingId === ad.id}
+                              className="inline-flex items-center gap-2 rounded-2xl bg-sky-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
+                            >
+                              <Rocket className="h-4 w-4" />
+                              {submittingId === ad.id ? 'Submitting...' : 'Submit'}
+                            </button>
+                          ) : null}
+                          {capabilities.canPause ? (
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handlePause(ad.id);
+                              }}
+                              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+                            >
+                              <PauseCircle className="h-4 w-4" />
+                              Pause
+                            </button>
+                          ) : null}
+                          {capabilities.canResume ? (
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleResume(ad.id);
+                              }}
+                              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+                            >
+                              <PlayCircle className="h-4 w-4" />
+                              Resume
+                            </button>
+                          ) : null}
+                          {capabilities.canDelete ? (
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleDelete(ad.id);
+                              }}
+                              className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 px-3 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-50"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              Delete
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
+          <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Campaign studio</p>
+                  <p className="text-xs text-slate-500">Selected campaign intelligence and controls.</p>
+                </div>
+                {selectedAd ? (
+                  <span
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${selectedStatusMeta?.badgeClass || 'border-slate-200 bg-slate-50 text-slate-600'}`}
+                  >
+                    <span className={`h-2 w-2 rounded-full ${selectedStatusMeta?.toneClass || 'bg-slate-400'}`} />
+                    {selectedStatusMeta?.label || 'Draft'}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            {selectedAd ? (
+              <div className="space-y-5 p-5">
+                <div className="overflow-hidden rounded-[1.35rem] border border-slate-200 bg-slate-950">
+                  <div className="relative aspect-[16/10]">
+                    {selectedMedia?.url ? (
+                      selectedMedia.type === 'video' ? (
+                        <video
+                          src={selectedMedia.url}
+                          muted
+                          playsInline
+                          preload="metadata"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <img
+                          src={selectedMedia.url}
+                          alt={selectedMedia.name}
+                          className="h-full w-full object-cover"
+                        />
+                      )
+                    ) : (
+                      <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.2),_transparent_35%),linear-gradient(180deg,_#0f172a,_#1e293b)] text-center text-sm text-slate-300">
+                        No creative uploaded yet
+                      </div>
+                    )}
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/65 to-transparent px-4 py-4 text-white">
+                      <p className="truncate text-base font-semibold">{selectedAd.title}</p>
+                      <p className="mt-1 text-xs text-white/75">{selectedCapabilities?.actionLabel}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Spend</p>
+                    <p className="mt-2 text-xl font-semibold text-slate-950">
+                      {formatCurrency(selectedSpent, selectedAd.currency)}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {formatCurrency(selectedRemaining, selectedAd.currency)} remaining
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Reach</p>
+                    <p className="mt-2 text-xl font-semibold text-slate-950">
+                      {formatCompactNumber(toNumber(selectedAd.impressions))}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {formatCompactNumber(toNumber(selectedAd.clicks))} clicks
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">CTR</p>
+                    <p className="mt-2 text-xl font-semibold text-slate-950">
+                      {toNumber(selectedAd.ctr).toFixed(2)}%
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {normalizePricingModel(selectedAd.pricingModel)} optimization
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Flight</p>
+                    <p className="mt-2 text-xl font-semibold text-slate-950">
+                      {selectedAd.durationDays || 0} days
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Created {formatDateLabel(selectedAd.createdAt || selectedAd.startAt)}
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+                    <span>Budget consumption</span>
+                    <span>{selectedSpendProgress.toFixed(0)}%</span>
+                  </div>
+                  <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-indigo-500"
+                      style={{ width: `${selectedSpendProgress}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => openPerformance(selectedAd)}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                    Performance
                   </button>
-                  {canEdit && (
+                  {selectedCapabilities?.canEdit ? (
                     <button
-                      onClick={() => openEdit(ad)}
-                      className="px-3 py-1 rounded bg-blue-600 text-white text-sm"
+                      onClick={() => openEdit(selectedAd)}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
                     >
+                      <PencilLine className="h-4 w-4" />
                       Edit
                     </button>
-                  )}
-                  {canPay && (
-                    <select
-                      value={adGatewaySelections[ad.id] || ''}
-                      onChange={(e) => setAdGatewaySelections((prev) => ({ ...prev, [ad.id]: e.target.value }))}
-                      className="px-2 py-1 rounded border border-gray-200 text-sm"
-                      disabled={gatewayLoading || paymentGateways.length === 0}
+                  ) : null}
+                  <button
+                    onClick={() => openDuplicate(selectedAd)}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+                  >
+                    <Copy className="h-4 w-4" />
+                    Duplicate
+                  </button>
+                  {selectedAd.destinationUrl ? (
+                    <a
+                      href={selectedAd.destinationUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
                     >
-                      {gatewayLoading ? (
-                        <option value="">Loading...</option>
-                      ) : paymentGateways.length === 0 ? (
-                        <option value="">No active gateways</option>
-                      ) : (
-                        paymentGateways.map((gateway) => (
-                          <option key={gateway.id} value={gateway.id}>
-                            {getUserFacingPaymentMethodName(gateway)}
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  )}
-                  {canPay && (
-                    <button
-                      onClick={() => handlePay(ad, adGatewaySelections[ad.id])}
-                      disabled={payingId === ad.id || !adGatewaySelections[ad.id]}
-                      className={`px-3 py-1 rounded text-white text-sm ${payingId === ad.id ? 'bg-gray-400' : 'bg-emerald-600'}`}
-                    >
-                      {payingId === ad.id ? 'Processing...' : 'Pay Now'}
-                    </button>
-                  )}
-                  {canSubmit && (
-                    <button
-                      onClick={() => handleSubmit(ad.id)}
-                      disabled={submittingId === ad.id}
-                      className={`px-3 py-1 rounded text-white text-sm ${submittingId === ad.id ? 'bg-gray-400' : 'bg-indigo-600'}`}
-                    >
-                      {submittingId === ad.id ? 'Submitting...' : 'Submit for Review'}
-                    </button>
-                  )}
-                  {canPause && (
-                    <button
-                      onClick={() => handlePause(ad.id)}
-                      className="px-3 py-1 rounded bg-amber-500 text-white text-sm"
-                    >
-                      Pause
-                    </button>
-                  )}
-                  {canResume && (
-                    <button
-                      onClick={() => handleResume(ad.id)}
-                      className="px-3 py-1 rounded bg-emerald-600 text-white text-sm"
-                    >
-                      Resume
-                    </button>
-                  )}
-                  {canDelete && (
-                    <button
-                      onClick={() => handleDelete(ad.id)}
-                      className="px-3 py-1 rounded bg-red-600 text-white text-sm"
-                    >
-                      Delete
-                    </button>
-                  )}
+                      <ArrowUpRight className="h-4 w-4" />
+                      Destination
+                    </a>
+                  ) : null}
+                </div>
+
+                {selectedAd.adminReviewNotes ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+                      Admin review notes
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-amber-900">{selectedAd.adminReviewNotes}</p>
+                  </div>
+                ) : null}
+
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <p className="text-sm font-semibold text-slate-900">Targeting and delivery</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {selectedPlacements.map((placement) => (
+                      <span
+                        key={placement}
+                        className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600"
+                      >
+                        <LayoutTemplate className="h-3.5 w-3.5 text-indigo-600" />
+                        {placement}
+                      </span>
+                    ))}
+                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                      <Globe2 className="h-3.5 w-3.5 text-slate-500" />
+                      {selectedAudience === 'all'
+                        ? 'All audiences'
+                        : selectedAudience === 'businesses'
+                          ? 'Businesses'
+                          : 'Users'}
+                    </span>
+                    {selectedCountries.length > 0 ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                        <Globe2 className="h-3.5 w-3.5 text-slate-500" />
+                        {selectedCountries.join(', ')}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                        <Globe2 className="h-3.5 w-3.5 text-slate-500" />
+                        All configured regions
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
-            );
-          })}
-        </div>
-      )}
+            ) : (
+              <div className="p-5 text-sm text-slate-500">
+                Select a campaign to inspect creative, spend, delivery, and moderation details.
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Priority queue</p>
+                <p className="text-xs text-slate-500">Campaigns that need funding, edits, or moderation follow-up.</p>
+              </div>
+              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+            </div>
+            <div className="mt-4 space-y-3">
+              {actionQueue.length === 0 ? (
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                  No campaigns currently need action.
+                </div>
+              ) : (
+                actionQueue.map((ad) => {
+                  const statusMeta = getStatusMeta(ad.status);
+                  return (
+                    <button
+                      key={ad.id}
+                      onClick={() => setSelectedCampaignId(ad.id)}
+                      className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-900">{ad.title}</p>
+                        <p className="mt-1 text-xs text-slate-500">{getCampaignCapabilities(ad).actionLabel}</p>
+                      </div>
+                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${statusMeta.badgeClass}`}>
+                        {statusMeta.label}
+                      </span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Operational guardrails</p>
+                <p className="text-xs text-slate-500">Live limits and billing controls from the existing ads configuration.</p>
+              </div>
+              <ShieldCheck className="h-5 w-5 text-sky-600" />
+            </div>
+            <div className="mt-4 space-y-3">
+              {policySignals.map((signal) => (
+                <div key={signal.label} className="flex items-center justify-between gap-4 rounded-2xl bg-slate-50 px-4 py-3">
+                  <span className="text-sm font-medium text-slate-600">{signal.label}</span>
+                  <span className="text-sm font-semibold text-slate-900">{signal.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
+      </section>
 
       {formOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-6 border-b">
+          <div className="w-full max-w-6xl overflow-y-auto rounded-[2rem] bg-white shadow-[0_32px_120px_rgba(15,23,42,0.24)] max-h-[90vh]">
+            <div className="flex items-center justify-between border-b border-slate-200 p-6">
               <div>
-                <h3 className="text-lg font-bold">{formMode === 'create' ? 'Create Ad Campaign' : 'Edit Ad Campaign'}</h3>
-                <p className="text-xs text-gray-500">Drafts can be edited until payment is submitted.</p>
+                <h3 className="text-lg font-bold text-slate-950">
+                  {formMode === 'create' ? 'Create Ad Campaign' : 'Edit Ad Campaign'}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Drafts can be edited until payment is submitted.
+                </p>
               </div>
               <button
                 onClick={() => setFormOpen(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-sm font-medium text-slate-400 transition hover:text-slate-700"
               >
                 Close
               </button>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="grid gap-6 p-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="space-y-4">
               {promotionLoading ? (
                 <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-700">
                   Preparing promotion target...
@@ -1996,8 +2987,8 @@ const MyAds = () => {
                 )}
               </div>
               <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-600">
-                  Available payment methods.
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+                  Available payment methods are shown live from your active checkout configuration.
                 </div>
                 <div>
                   <FieldLabel label="Payment method" help="Select the payment provider to fund this ad campaign before review." />
@@ -2021,18 +3012,154 @@ const MyAds = () => {
                   </select>
                 </div>
               </div>
+
+              </div>
+
+              <div className="space-y-4">
+                <div className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm">
+                  <div className="border-b border-slate-100 px-4 py-3">
+                    <p className="text-sm font-semibold text-slate-900">Live preview</p>
+                    <p className="text-xs text-slate-500">How this campaign is shaping up before payment or review.</p>
+                  </div>
+                  <div className="p-4">
+                    <div className="overflow-hidden rounded-[1.25rem] border border-slate-200 bg-slate-950">
+                      <div className="relative aspect-[4/5]">
+                        {formPreviewMedia?.url ? (
+                          String(formPreviewMedia.mimeType || formPreviewMedia.type || '').toLowerCase().startsWith('video/') ? (
+                            <video
+                              src={formPreviewMedia.url}
+                              muted
+                              playsInline
+                              preload="metadata"
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <img
+                              src={formPreviewMedia.url}
+                              alt={formPreviewMedia.name || form.title || 'Ad preview'}
+                              className="h-full w-full object-cover"
+                            />
+                          )
+                        ) : (
+                          <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.18),_transparent_35%),linear-gradient(180deg,_#0f172a,_#1e293b)] px-6 text-center text-sm text-slate-300">
+                            Upload creative to unlock a richer ad preview.
+                          </div>
+                        )}
+                        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/15 to-transparent px-4 py-4 text-white">
+                          <p className="text-xs uppercase tracking-[0.18em] text-white/70">
+                            {promotionSelection
+                              ? promotionSelection.type === 'page'
+                                ? 'Promoted page'
+                                : 'Promoted post'
+                              : 'Campaign preview'}
+                          </p>
+                          <p className="mt-2 line-clamp-2 text-base font-semibold">
+                            {form.title || 'Campaign title'}
+                          </p>
+                          <p className="mt-1 line-clamp-3 text-sm text-white/75">
+                            {form.body || 'Your primary message will appear here.'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {(formPlacementLabels.length > 0 ? formPlacementLabels : ['No placement selected']).map((label) => (
+                        <span
+                          key={label}
+                          className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600"
+                        >
+                          <LayoutTemplate className="h-3.5 w-3.5 text-indigo-600" />
+                          {label}
+                        </span>
+                      ))}
+                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                        <Globe2 className="h-3.5 w-3.5 text-slate-500" />
+                        {form.targetAudience === 'all'
+                          ? 'All audiences'
+                          : form.targetAudience === 'businesses'
+                            ? 'Businesses'
+                            : 'Users'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Launch readiness</p>
+                      <p className="text-xs text-slate-500">{formReadiness.score}% complete</p>
+                    </div>
+                    <div className="rounded-2xl bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700">
+                      {formReadiness.completed}/{formReadiness.total}
+                    </div>
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    {formReadiness.checks.map((check) => (
+                      <div key={check.label} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 px-3 py-2.5">
+                        <span className="text-sm text-slate-600">{check.label}</span>
+                        <span className={`inline-flex items-center gap-1 text-xs font-semibold ${check.complete ? 'text-emerald-600' : 'text-amber-600'}`}>
+                          <CheckCircle2 className="h-4 w-4" />
+                          {check.complete ? 'Ready' : 'Pending'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm">
+                  <p className="text-sm font-semibold text-slate-900">Budget planner</p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                    <div className="rounded-2xl bg-slate-50 p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Daily average</p>
+                      <p className="mt-2 text-lg font-semibold text-slate-950">
+                        {formatCurrency(averageDailyBudget, form.currency)}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Estimated outcome</p>
+                      <p className="mt-2 text-lg font-semibold text-slate-950">
+                        {form.pricingModel === 'CPM'
+                          ? `${formatCompactNumber(estimatedOutcomes.impressions)} impressions`
+                          : `${formatCompactNumber(estimatedOutcomes.clicks)} clicks`}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Checkout route</p>
+                      <p className="mt-2 text-lg font-semibold text-slate-950">
+                        {paymentGateways.find((gateway) => gateway.id === formGatewayId)
+                          ? getUserFacingPaymentMethodName(paymentGateways.find((gateway) => gateway.id === formGatewayId) as PaymentGateway)
+                          : 'Select method'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm">
+                  <p className="text-sm font-semibold text-slate-900">Policy and ops</p>
+                  <div className="mt-4 space-y-2">
+                    {policySignals.map((signal) => (
+                      <div key={signal.label} className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 px-3 py-2.5">
+                        <span className="text-sm text-slate-600">{signal.label}</span>
+                        <span className="text-sm font-semibold text-slate-900">{signal.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="p-6 border-t flex flex-wrap items-center justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 p-6">
               <button
                 onClick={() => setFormOpen(false)}
-                className="px-4 py-2 rounded-xl border text-sm"
+                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleFormAction('draft')}
                 disabled={saving}
-                className="px-4 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-700 text-sm font-semibold"
+                className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-100"
               >
                 {saving && formActionMode === 'draft'
                   ? formMode === 'create'
@@ -2045,14 +3172,14 @@ const MyAds = () => {
               <button
                 onClick={() => handleFormAction('submit')}
                 disabled={saving || gatewayLoading || paymentGateways.length === 0 || !formGatewayId}
-                className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold disabled:bg-gray-300"
+                className="rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:bg-slate-300"
               >
                 {saving && formActionMode === 'submit' ? 'Submitting...' : 'Submit for Review'}
               </button>
               <button
                 onClick={() => handleFormAction('pay')}
                 disabled={saving || gatewayLoading || paymentGateways.length === 0 || !formGatewayId}
-                className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold disabled:bg-gray-300"
+                className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:bg-slate-300"
               >
                 {saving && formActionMode === 'pay' ? 'Processing payment...' : 'Pay Now'}
               </button>

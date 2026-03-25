@@ -1,14 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Edit3, Heart, MessageCircle, Paperclip, Send, Trash2, X } from 'lucide-react';
+import { Edit3, Heart, Loader2, MessageCircle, Paperclip, Send, Trash2, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
 import { CommunityService } from '../services/community';
+import { FileService } from '../services/files';
 import { ReactionsService } from '../services/reactions';
 import ReactionBar from '../community/components/ReactionBar';
 import MentionText from '../community/components/MentionText';
-import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import { UploadedFile } from '../types';
+import CommentAiAssist from './post/CommentAiAssist';
 
 type CommentAuthor = {
   id?: string;
@@ -68,6 +69,9 @@ const policyLabels: Record<CommentPolicy, string> = {
   mutuals: 'Mutual followers can comment',
   none: 'Comments are disabled'
 };
+
+const COMMENT_ATTACHMENT_ACCEPT =
+  'image/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv';
 
 const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
   const explicit = String(media.type || '').toLowerCase();
@@ -129,6 +133,15 @@ const resolveCommentProfileUrl = (comment: PostComment): string => {
   const id = String(comment.userId || comment.author?.id || '').trim();
   if (id) return `/profile/${id}`;
   return '/profile/edit';
+};
+
+const resolveCommentAvatar = (comment: PostComment): string | null => {
+  const avatar = String(comment.userAvatar || comment.author?.avatar || '').trim();
+  return avatar || null;
+};
+
+const resolveCommentUsername = (comment: PostComment): string => {
+  return String(comment.userUsername || comment.author?.username || '').trim().replace(/^@+/, '');
 };
 
 const insertComment = (items: PostComment[], comment: PostComment): PostComment[] => {
@@ -203,8 +216,8 @@ const PostComments: React.FC<PostCommentsProps> = ({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerTarget, setPickerTarget] = useState<'draft' | 'reply'>('draft');
+  const [uploadingAttachmentCount, setUploadingAttachmentCount] = useState(0);
+  const [uploadingAttachmentLabel, setUploadingAttachmentLabel] = useState('');
   const [count, setCount] = useState(() => normalizeCount(initialCount));
   const [commentReactionSummary, setCommentReactionSummary] = useState<
     Record<string, { counts: Record<string, number>; userReaction: string | null }>
@@ -218,6 +231,8 @@ const PostComments: React.FC<PostCommentsProps> = ({
   const pendingCreatedIdsRef = useRef<Set<string>>(new Set());
   const expandedRef = useRef(expanded);
   const draftRef = useRef<HTMLTextAreaElement | null>(null);
+  const deviceUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadTargetRef = useRef<'draft' | 'reply'>('draft');
 
   const policy = useMemo(() => String(commentPolicy || 'everyone').toLowerCase() as CommentPolicy, [commentPolicy]);
   const isAuthor = !!user?.id && !!authorId && String(user.id) === String(authorId);
@@ -371,6 +386,10 @@ const PostComments: React.FC<PostCommentsProps> = ({
   const handleSubmit = async (parentId?: string | null) => {
     if (submitLockRef.current) return;
     if (!checkAuth()) return;
+    if (uploadingAttachmentCount > 0) {
+      showNotification('warning', 'Comments', 'Please wait for your attachment upload to finish.');
+      return;
+    }
     if (commentsDisabled) {
       showNotification('warning', 'Comments', 'Comments are disabled for this post.');
       return;
@@ -429,7 +448,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
     mimeType: file.mimeType || file.mime_type
   });
 
-  const addAttachments = (target: 'draft' | 'reply', files: UploadedFile[]) => {
+  const addAttachments = useCallback((target: 'draft' | 'reply', files: UploadedFile[]) => {
     const mapped = files.map(toPendingAttachment).filter((item) => item.id && item.url);
     if (!mapped.length) return;
     const setter = target === 'draft' ? setDraftAttachments : setReplyAttachments;
@@ -438,12 +457,51 @@ const PostComments: React.FC<PostCommentsProps> = ({
       [...prev, ...mapped].forEach((item) => map.set(item.id, item));
       return Array.from(map.values());
     });
-  };
+  }, []);
 
-  const removeAttachment = (target: 'draft' | 'reply', id: string) => {
+  const removeAttachment = useCallback((target: 'draft' | 'reply', id: string) => {
     const setter = target === 'draft' ? setDraftAttachments : setReplyAttachments;
     setter((prev) => prev.filter((item) => item.id !== id));
-  };
+  }, []);
+
+  const uploadFilesFromDevice = useCallback(
+    async (target: 'draft' | 'reply', files: File[]) => {
+      if (!files.length) return;
+      setUploadingAttachmentCount(files.length);
+      try {
+        for (let index = 0; index < files.length; index += 1) {
+          const file = files[index];
+          setUploadingAttachmentLabel(`Uploading ${index + 1} of ${files.length}: ${file.name}`);
+          const uploaded = await FileService.uploadFile(file, 'community' as any, {
+            role: user?.role,
+            visibility: 'public',
+            userId: user?.id
+          });
+          addAttachments(target, [uploaded]);
+        }
+      } catch (error: any) {
+        const message =
+          error?.response?.data?.error ||
+          error?.response?.data?.message ||
+          error?.message ||
+          'Unable to upload attachment.';
+        showNotification('error', 'Comments', message);
+      } finally {
+        setUploadingAttachmentCount(0);
+        setUploadingAttachmentLabel('');
+      }
+    },
+    [addAttachments, showNotification, user?.id, user?.role]
+  );
+
+  const handleDeviceFileInput = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files || []);
+      event.currentTarget.value = '';
+      void uploadFilesFromDevice(uploadTargetRef.current, files);
+    },
+    [uploadFilesFromDevice]
+  );
 
   const openPicker = (target: 'draft' | 'reply') => {
     if (!checkAuth()) return;
@@ -451,8 +509,8 @@ const PostComments: React.FC<PostCommentsProps> = ({
       showNotification('warning', 'Comments', 'Comments are disabled for this post.');
       return;
     }
-    setPickerTarget(target);
-    setPickerOpen(true);
+    uploadTargetRef.current = target;
+    deviceUploadInputRef.current?.click();
   };
 
   const handleEditSave = async () => {
@@ -725,7 +783,9 @@ const PostComments: React.FC<PostCommentsProps> = ({
     const reactionCount = sumReactionTotals(reactionSummary?.counts);
     const replyCount = countActiveComments(comment.replies || []);
     const commentProfileUrl = resolveCommentProfileUrl(comment);
+    const commentAuthorAvatar = resolveCommentAvatar(comment);
     const commentAuthorName = comment.userName || comment.author?.name || 'Community member';
+    const commentAuthorUsername = resolveCommentUsername(comment);
     return (
       <div
         key={comment.id}
@@ -734,8 +794,8 @@ const PostComments: React.FC<PostCommentsProps> = ({
       >
         <div className="flex items-start gap-3">
           <Link to={commentProfileUrl} className="h-9 w-9 rounded-full bg-slate-100 overflow-hidden">
-            {comment.userAvatar ? (
-              <img src={comment.userAvatar} alt={commentAuthorName} className="h-full w-full object-cover" />
+            {commentAuthorAvatar ? (
+              <img src={commentAuthorAvatar} alt={commentAuthorName} className="h-full w-full object-cover" />
             ) : (
               <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold text-slate-500">
                 {commentAuthorName.slice(0, 1)}
@@ -747,6 +807,9 @@ const PostComments: React.FC<PostCommentsProps> = ({
               <Link to={commentProfileUrl} className="font-semibold text-slate-900 hover:text-slate-700 hover:underline">
                 {commentAuthorName}
               </Link>
+              {commentAuthorUsername ? (
+                <span className="text-xs text-slate-400">@{commentAuthorUsername}</span>
+              ) : null}
               {comment.createdAt && (
                 <span className="text-xs text-slate-500">{formatTime(comment.createdAt)}</span>
               )}
@@ -760,7 +823,13 @@ const PostComments: React.FC<PostCommentsProps> = ({
                 <textarea
                   value={editDraft}
                   onChange={(event) => setEditDraft(event.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700"
+                  className="min-h-[110px] w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700"
+                />
+                <CommentAiAssist
+                  value={editDraft}
+                  onReplace={setEditDraft}
+                  disabled={submitting}
+                  scopeLabel="edit"
                 />
                 <div className="flex gap-2">
                   <button
@@ -880,14 +949,27 @@ const PostComments: React.FC<PostCommentsProps> = ({
                   value={replyDraft}
                   onChange={(event) => setReplyDraft(event.target.value)}
                   placeholder="Write a reply..."
-                  className="w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700"
+                  className="min-h-[110px] w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700"
+                />
+                <CommentAiAssist
+                  value={replyDraft}
+                  onReplace={setReplyDraft}
+                  disabled={submitting}
+                  scopeLabel="reply"
                 />
                 {renderPendingAttachments(replyAttachments, 'reply')}
+                {uploadingAttachmentCount > 0 ? (
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>{uploadingAttachmentLabel || 'Uploading attachment...'}</span>
+                  </div>
+                ) : null}
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => openPicker('reply')}
-                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                    disabled={submitting || uploadingAttachmentCount > 0}
+                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
                   >
                     <Paperclip className="h-3.5 w-3.5" />
                     Upload Files
@@ -906,7 +988,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
                   <button
                     type="button"
                     onClick={() => handleSubmit(comment.id)}
-                    disabled={submitting}
+                    disabled={submitting || uploadingAttachmentCount > 0}
                     className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold uppercase text-white disabled:opacity-60"
                   >
                     <Send className="h-3.5 w-3.5" />
@@ -946,9 +1028,21 @@ const PostComments: React.FC<PostCommentsProps> = ({
             onChange={(event) => setDraft(event.target.value)}
             placeholder={commentsDisabled ? 'Comments are disabled for this post.' : 'Write a comment...'}
             disabled={commentsDisabled || submitting}
-            className="w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700 disabled:bg-slate-100"
+            className="min-h-[120px] w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700 disabled:bg-slate-100"
+          />
+          <CommentAiAssist
+            value={draft}
+            onReplace={setDraft}
+            disabled={commentsDisabled || submitting}
+            scopeLabel="comment"
           />
           {renderPendingAttachments(draftAttachments, 'draft')}
+          {uploadingAttachmentCount > 0 ? (
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span>{uploadingAttachmentLabel || 'Uploading attachment...'}</span>
+            </div>
+          ) : null}
           <div className="flex items-center justify-between">
             <p className="text-xs text-slate-400">
               {commentsDisabled ? 'Only the post author can comment.' : 'Be respectful and keep it constructive.'}
@@ -957,7 +1051,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
               <button
                 type="button"
                 onClick={() => openPicker('draft')}
-                disabled={commentsDisabled || submitting}
+                disabled={commentsDisabled || submitting || uploadingAttachmentCount > 0}
                 className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-700 disabled:opacity-60"
               >
                 <Paperclip className="h-4 w-4" />
@@ -966,7 +1060,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
               <button
                 type="button"
                 onClick={() => handleSubmit(null)}
-                disabled={commentsDisabled || submitting}
+                disabled={commentsDisabled || submitting || uploadingAttachmentCount > 0}
                 className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-4 py-2 text-[11px] font-semibold uppercase text-white disabled:opacity-60"
               >
                 <Send className="h-4 w-4" />
@@ -997,19 +1091,13 @@ const PostComments: React.FC<PostCommentsProps> = ({
         </button>
       )}
 
-      <FilePickerModal
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        onSelect={(file) => addAttachments(pickerTarget, [file])}
-        onSelectMultiple={(files) => addAttachments(pickerTarget, files)}
-        confirmLabel="Add Selected Files"
-        allowUpload
+      <input
+        ref={deviceUploadInputRef}
+        type="file"
+        className="hidden"
         multiple
-        filterType="all"
-        acceptedTypes={['image', 'video']}
-        title="Attach media from Uploaded Files"
-        role={user?.role}
-        visibility="public"
+        accept={COMMENT_ATTACHMENT_ACCEPT}
+        onChange={handleDeviceFileInput}
       />
     </div>
   );
