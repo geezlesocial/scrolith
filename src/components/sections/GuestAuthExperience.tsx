@@ -198,7 +198,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
     <div
       className={
         surfaceClassName ||
-        "rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-7"
+        "min-w-0 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-7"
       }
     >
       <div className="mb-4">
@@ -209,11 +209,11 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
           <p className="mt-1 text-sm text-slate-500">{subtitle || content?.authPanelSubtitle}</p>
         ) : null}
       </div>
-      <div className="mb-4 flex rounded-full border border-slate-200 bg-slate-50 p-1">
+      <div className="mb-4 flex min-w-0 rounded-full border border-slate-200 bg-slate-50 p-1">
         <button
           type="button"
           onClick={() => setActiveTab("login")}
-          className={`flex-1 rounded-full px-3 py-2.5 text-sm font-semibold transition ${
+          className={`min-w-0 flex-1 rounded-full px-3 py-2.5 text-sm font-semibold transition ${
             activeTab === "login" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
           }`}
         >
@@ -222,7 +222,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab("signup")}
-          className={`flex-1 rounded-full px-3 py-2.5 text-sm font-semibold transition ${
+          className={`min-w-0 flex-1 rounded-full px-3 py-2.5 text-sm font-semibold transition ${
             activeTab === "signup" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
           }`}
         >
@@ -486,7 +486,7 @@ export const GuestScrolithaPanel: React.FC<GuestScrolithaPanelProps> = ({ conten
   };
 
   return (
-    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-5 text-white shadow-[0_20px_65px_rgba(15,23,42,0.3)] sm:p-6">
+    <div className="min-w-0 overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-5 text-white shadow-[0_20px_65px_rgba(15,23,42,0.3)] sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-200/90">

@@ -349,7 +349,7 @@ const DynamicFooter = () => {
   };
 
   return (
-    <footer className="bg-slate-950 text-white">
+    <footer className="overflow-x-clip bg-slate-950 text-white">
       <div className="mx-auto max-w-7xl px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-10 sm:px-6 lg:px-8">
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1.85fr)]">
           {(footerLogo || brandName || footerDescription) && (

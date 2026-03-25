@@ -574,15 +574,15 @@ const Navbar = () => {
   const getCtaClass = (cta: any) => {
     const variant = String(cta?.variant || cta?.style || "").toLowerCase();
     if (variant === "primary") {
-      return "inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700";
+      return "inline-flex items-center justify-center rounded-full px-3 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 sm:px-4";
     }
     if (variant === "ghost") {
-      return "inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-gray-700 hover:bg-gray-100";
+      return "inline-flex items-center justify-center rounded-full px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 sm:px-4";
     }
     if (variant === "outline") {
-      return "inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-gray-700 border border-gray-200 hover:bg-gray-50";
+      return "inline-flex items-center justify-center rounded-full px-3 py-2 text-sm font-semibold text-gray-700 border border-gray-200 hover:bg-gray-50 sm:px-4";
     }
-    return "inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-gray-700 border border-gray-200 hover:bg-gray-50";
+    return "inline-flex items-center justify-center rounded-full px-3 py-2 text-sm font-semibold text-gray-700 border border-gray-200 hover:bg-gray-50 sm:px-4";
   };
 
   const renderProfileItem = (item: any) => {
@@ -922,16 +922,16 @@ const Navbar = () => {
   }
 
   return (
-    <div className={headerWrapperClass}>
+    <div className={`${headerWrapperClass} overflow-x-clip`}>
       {/* TOP NAV */}
       <nav className="bg-white transition-colors">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
+          <div className="flex h-16 items-center justify-between gap-3 sm:gap-4">
             {/* Left: Logo */}
-            <div className="flex items-center">
+            <div className="flex min-w-0 flex-1 items-center">
                 <Link
                   to={(headerConfig as any)?.homeUrl || (headerConfig as any)?.home_url || "/"}
-                  className="flex-shrink-0 flex items-center mr-8"
+                  className="flex min-w-0 items-center gap-2 sm:mr-8"
                 >
                 {brandLogoSrc ? (
                   <img
@@ -940,13 +940,13 @@ const Navbar = () => {
                     width={160}
                     height={32}
                     decoding="async"
-                    className="h-8 w-auto object-contain"
+                    className="h-7 w-auto max-w-[7.5rem] object-contain sm:h-8 sm:max-w-[10rem]"
                   />
                 ) : (
-                  <div className="w-8 h-8 bg-gray-200 rounded-lg" aria-hidden="true" />
+                  <div className="h-8 w-8 flex-shrink-0 rounded-lg bg-gray-200" aria-hidden="true" />
                 )}
                 {brandName ? (
-                  <span className="ml-2 text-xl font-bold text-gray-900 hidden sm:block">{brandName}</span>
+                  <span className="hidden truncate text-xl font-bold text-gray-900 sm:block">{brandName}</span>
                 ) : null}
               </Link>
             </div>
@@ -977,7 +977,7 @@ const Navbar = () => {
             </div>
 
             {/* Right: Actions */}
-            <div className="flex items-center space-x-2 md:space-x-4">
+            <div className="ml-auto flex flex-shrink-0 items-center gap-2 md:gap-4">
               {/* Dynamic Activity Icons */}
               {isAuthenticated && activityConfig ? (
                 <div className="flex items-center space-x-1 sm:space-x-2">
@@ -1272,7 +1272,7 @@ const Navbar = () => {
 
       {/* HEADER SEARCH (non-home only) */}
       {showHeaderSearch ? (
-        <div className="bg-white border-t border-gray-100">
+        <div className="overflow-x-clip bg-white border-t border-gray-100">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
             <div className="max-w-3xl mx-auto">
               <SearchInput

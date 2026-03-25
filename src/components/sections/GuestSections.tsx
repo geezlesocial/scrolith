@@ -198,10 +198,10 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
 
   return (
     <>
-      <section className="py-8 sm:py-10" style={{ background: style?.background }}>
-      <div className="mx-auto grid w-full max-w-7xl gap-4 px-4 sm:gap-5 sm:px-6 lg:grid-cols-2 lg:gap-8 lg:px-8">
+      <section className="overflow-x-clip py-6 sm:py-10" style={{ background: style?.background }}>
+      <div className="mx-auto grid w-full max-w-7xl min-w-0 gap-4 px-4 sm:gap-5 sm:px-6 lg:grid-cols-2 lg:gap-8 lg:px-8">
         <div
-          className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-7"
+          className="relative min-w-0 overflow-hidden rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-7"
           style={!backgroundImageUrl ? undefined : { backgroundColor: 'rgba(255,255,255,0.92)' }}
         >
           {backgroundImageUrl ? (
@@ -215,15 +215,15 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
               className="absolute inset-0 h-full w-full object-cover"
             />
           ) : null}
-          <div className={backgroundImageUrl ? 'relative z-10 rounded-2xl bg-white/90 p-4 backdrop-blur sm:p-5' : ''}>
-            <h1 className="text-2xl font-bold leading-tight text-slate-900 sm:text-3xl xl:text-4xl">
+          <div className={backgroundImageUrl ? 'relative z-10 min-w-0 rounded-2xl bg-white/90 p-4 backdrop-blur sm:p-5' : 'min-w-0'}>
+            <h1 className="max-w-[14ch] text-2xl font-bold leading-tight text-slate-900 sm:max-w-none sm:text-3xl xl:text-4xl">
               {content?.headline || 'Build your next opportunity on Scrolith'}
             </h1>
             {content?.subheadline ? (
-              <p className="mt-3 text-base text-slate-600">{content.subheadline}</p>
+              <p className="mt-3 max-w-2xl text-base leading-8 text-slate-600">{content.subheadline}</p>
             ) : null}
             {content?.description ? (
-              <p className="mt-3 text-sm text-slate-500">{content.description}</p>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-500">{content.description}</p>
             ) : null}
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               <button
@@ -243,7 +243,7 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
             </div>
             <div className="mt-5 grid gap-2 min-[480px]:grid-cols-2 sm:grid-cols-3">
               {displayedTrustPoints.map((point, index) => (
-                <div key={`trust-point-${index}`} className="rounded-xl border border-white/60 bg-white/75 px-3 py-2 text-xs font-semibold text-slate-700 backdrop-blur-sm">
+                <div key={`trust-point-${index}`} className="min-w-0 rounded-xl border border-white/60 bg-white/75 px-3 py-2 text-xs font-semibold text-slate-700 backdrop-blur-sm">
                   {point}
                 </div>
               ))}
@@ -252,7 +252,7 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
               {displayedBanners.map((banner, index) => (
                 <div
                   key={banner.id || `side-banner-${index}`}
-                  className="rounded-2xl border border-slate-200/70 bg-white/80 p-3.5 backdrop-blur-sm"
+                  className="min-w-0 rounded-2xl border border-slate-200/70 bg-white/80 p-3.5 backdrop-blur-sm"
                 >
                   {banner.image ? (
                     <div className="mb-2 overflow-hidden rounded-xl border border-slate-200 bg-white/60">
@@ -265,8 +265,8 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                       />
                     </div>
                   ) : null}
-                  <p className="text-sm font-semibold text-slate-900">{banner.title || `Scrolith Advantage ${index + 1}`}</p>
-                  {banner.subtitle ? <p className="mt-1 text-xs text-slate-600">{banner.subtitle}</p> : null}
+                  <p className="break-words text-sm font-semibold text-slate-900">{banner.title || `Scrolith Advantage ${index + 1}`}</p>
+                  {banner.subtitle ? <p className="mt-1 break-words text-xs leading-6 text-slate-600">{banner.subtitle}</p> : null}
                 </div>
               ))}
             </div>
@@ -289,7 +289,7 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                     <Wrapper
                       key={logo.id || `brand-logo-${index}`}
                       url={logo.url}
-                      className="flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-2"
+                      className="flex min-w-0 h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-2"
                     >
                       {logo.image ? (
                         <img
@@ -300,7 +300,7 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                           className="max-h-6 w-auto object-contain"
                         />
                       ) : (
-                        <span className="text-[11px] font-semibold text-slate-600">{logo.label || `Brand ${index + 1}`}</span>
+                        <span className="truncate text-[11px] font-semibold text-slate-600">{logo.label || `Brand ${index + 1}`}</span>
                       )}
                     </Wrapper>
                   ))}
@@ -311,7 +311,7 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
           {backgroundImageUrl ? <div className="absolute inset-0 bg-gradient-to-t from-white/40 to-white/10" /> : null}
         </div>
 
-        <div className="space-y-4 sm:space-y-5 lg:sticky lg:top-24 lg:self-start">
+        <div className="min-w-0 space-y-4 sm:space-y-5 lg:sticky lg:top-24 lg:self-start">
           <GuestAuthCard content={content} />
           <GuestScrolithaPanel content={content} onRequestAuth={openAuthModal} />
         </div>

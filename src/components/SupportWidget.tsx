@@ -849,13 +849,13 @@ const SupportWidget: React.FC = () => {
 
   return (
     <div
-      className="fixed right-6 z-[100] flex flex-col items-end font-sans"
+      className="fixed right-3 z-[100] flex flex-col items-end font-sans sm:right-6"
       style={{ bottom: 'calc(1.5rem + var(--support-widget-offset, 0px))' }}
     >
       
       {/* Chat Window */}
       {isOpen && (
-        <div className="bg-white w-80 sm:w-96 h-[600px] rounded-2xl shadow-2xl border border-gray-200 mb-4 flex flex-col overflow-hidden animate-fade-in-up">
+        <div className="mb-4 flex h-[min(600px,calc(100dvh-7rem))] w-[min(calc(100vw-1rem),20rem)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl animate-fade-in-up sm:h-[600px] sm:w-96">
           
           {/* Header */}
           <div className="p-4 flex justify-between items-center text-white shadow-md" style={{ backgroundColor: headerColor }}>
