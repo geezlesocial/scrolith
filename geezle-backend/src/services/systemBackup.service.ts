@@ -1140,6 +1140,152 @@ const resolveRestoreOrder = async (client: Client, tables: string[]) => {
   return ordered;
 };
 
+const cloneRestoreDatabase = (database: Record<string, any[]>, tables: string[]) => {
+  const cloned: Record<string, any[]> = {};
+  tables.forEach((table) => {
+    const rows = Array.isArray(database?.[table]) ? database[table] : [];
+    cloned[table] = rows.map((row) => (row && typeof row === 'object' ? { ...row } : row));
+  });
+  return cloned;
+};
+
+const resolveExistingUserIdRemap = async (client: Client, userRows: any[]) => {
+  const backupUsers = Array.isArray(userRows)
+    ? userRows.filter((row) => row && typeof row === 'object')
+    : [];
+  if (!backupUsers.length) return new Map<string, string>();
+
+  const backupByEmail = new Map<string, { id: string; email: string }>();
+  backupUsers.forEach((row) => {
+    const id = String(row?.id || '').trim();
+    const email = String(row?.email || '')
+      .trim()
+      .toLowerCase();
+    if (!id || !email) return;
+    backupByEmail.set(email, { id, email });
+  });
+
+  if (!backupByEmail.size) return new Map<string, string>();
+
+  const existingUsersResult = await client.query<{ id: string; email: string }>(
+    `
+      SELECT id, email
+      FROM "User"
+      WHERE lower(email) = ANY($1::text[])
+    `,
+    [Array.from(backupByEmail.keys())]
+  );
+
+  const remap = new Map<string, string>();
+  existingUsersResult.rows.forEach((row) => {
+    const email = String(row?.email || '')
+      .trim()
+      .toLowerCase();
+    const backupUser = backupByEmail.get(email);
+    if (!backupUser) return;
+    const nextId = String(row?.id || '').trim();
+    if (!nextId || backupUser.id === nextId) return;
+    remap.set(backupUser.id, nextId);
+  });
+
+  return remap;
+};
+
+const resolveForeignKeyColumnsForReference = async (
+  client: Client,
+  tables: string[],
+  referencedTable: string
+) => {
+  if (!tables.length) return new Map<string, string[]>();
+
+  const result = await client.query<{ table_name: string; column_name: string }>(
+    `
+      SELECT tc.table_name AS table_name, kcu.column_name AS column_name
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu
+        ON tc.constraint_name = kcu.constraint_name
+       AND tc.table_schema = kcu.table_schema
+      JOIN information_schema.constraint_column_usage ccu
+        ON ccu.constraint_name = tc.constraint_name
+       AND ccu.table_schema = tc.table_schema
+      WHERE tc.constraint_type = 'FOREIGN KEY'
+        AND tc.table_schema = 'public'
+        AND ccu.table_name = $1
+        AND tc.table_name = ANY($2::text[])
+      ORDER BY tc.table_name ASC, kcu.ordinal_position ASC
+    `,
+    [referencedTable, tables]
+  );
+
+  const columnsByTable = new Map<string, Set<string>>();
+  result.rows.forEach((row) => {
+    const tableName = String(row?.table_name || '').trim();
+    const columnName = String(row?.column_name || '').trim();
+    if (!tableName || !columnName) return;
+    if (!columnsByTable.has(tableName)) {
+      columnsByTable.set(tableName, new Set());
+    }
+    columnsByTable.get(tableName)?.add(columnName);
+  });
+
+  return new Map<string, string[]>(
+    Array.from(columnsByTable.entries()).map(([table, columns]) => [table, Array.from(columns)])
+  );
+};
+
+const applyIdRemapToRows = (rows: any[], columns: string[], remap: Map<string, string>) => {
+  if (!Array.isArray(rows) || !rows.length || !columns.length || !remap.size) return rows;
+
+  return rows.map((row) => {
+    if (!row || typeof row !== 'object') return row;
+
+    let nextRow = row;
+    columns.forEach((column) => {
+      const rawValue = row?.[column];
+      if (rawValue === null || rawValue === undefined) return;
+      const currentValue = String(rawValue).trim();
+      if (!currentValue) return;
+      const mappedValue = remap.get(currentValue);
+      if (!mappedValue || mappedValue === currentValue) return;
+      if (nextRow === row) {
+        nextRow = { ...row };
+      }
+      nextRow[column] = mappedValue;
+    });
+
+    return nextRow;
+  });
+};
+
+const applyAppendUserIdRemap = async (
+  client: Client,
+  database: Record<string, any[]>,
+  tables: string[]
+) => {
+  const userRows = Array.isArray(database?.User) ? database.User : [];
+  if (!userRows.length) return new Map<string, string>();
+
+  const userIdRemap = await resolveExistingUserIdRemap(client, userRows);
+  if (!userIdRemap.size) return userIdRemap;
+
+  const foreignKeyColumns = await resolveForeignKeyColumnsForReference(client, tables, 'User');
+  foreignKeyColumns.forEach((columns, table) => {
+    database[table] = applyIdRemapToRows(database[table] || [], columns, userIdRemap);
+  });
+
+  database.User = userRows.filter((row) => {
+    const id = String(row?.id || '').trim();
+    return !id || !userIdRemap.has(id);
+  });
+
+  console.warn('[system-backup] remapped backup user ids to existing production users:', {
+    remappedUsers: userIdRemap.size,
+    sample: Array.from(userIdRemap.entries()).slice(0, 10)
+  });
+
+  return userIdRemap;
+};
+
 const restoreManagedStorageSnapshot = async (file: FileSnapshot) => {
   const relativePath = stripUploadsPrefix(file.relativePath);
   if (!relativePath || relativePath.includes('..')) return false;
@@ -1884,6 +2030,7 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
   const dbClient = createDbClient();
   let restoredFileRows: any[] = [];
   const skippedTables: string[] = [];
+  let remappedUserIds = 0;
   await dbClient.connect();
   try {
     const existingTables = new Set(await listPublicTables(dbClient));
@@ -1896,10 +2043,14 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
       );
     }
 
+    const restorableDatabase = cloneRestoreDatabase(backupPackage.payload?.database || {}, restorableTables);
+    if (mode === 'append') {
+      remappedUserIds = (
+        await applyAppendUserIdRemap(dbClient, restorableDatabase, restorableTables)
+      ).size;
+    }
     if (restorableTables.includes('files')) {
-      restoredFileRows = Array.isArray(backupPackage.payload?.database?.files)
-        ? backupPackage.payload.database.files
-        : [];
+      restoredFileRows = Array.isArray(restorableDatabase.files) ? restorableDatabase.files : [];
     }
 
     const insertionOrder = await resolveRestoreOrder(dbClient, restorableTables);
@@ -1912,9 +2063,7 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
 
     for (let index = 0; index < insertionOrder.length; index += 1) {
       const table = insertionOrder[index];
-      const rows = Array.isArray(backupPackage.payload?.database?.[table])
-        ? backupPackage.payload.database[table]
-        : [];
+      const rows = Array.isArray(restorableDatabase?.[table]) ? restorableDatabase[table] : [];
       if (!rows.length) continue;
       const savepointName = `restore_table_${index}`;
       try {
@@ -1976,6 +2125,7 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
     backupId: record.id,
     restoredTables: selectedTables.length,
     skippedTables,
+    remappedUserIds,
     restoredFiles,
     restoredByAdminId: admin.id,
     restoredAt: now
