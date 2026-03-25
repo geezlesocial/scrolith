@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { addFileUsage, removeUsage } from '../utils/fileUsage';
+import { resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
 import {
   getOrCreateScrollConfig,
   updateScrollConfig,
@@ -33,23 +34,7 @@ const SCROLL_ENGAGEMENT_TYPES = new Set([
   'view_95'
 ]);
 
-const getBaseFileUrl = (req?: Request) => {
-  const envBase =
-    process.env.FILE_BASE_URL ||
-    process.env.BACKEND_URL ||
-    process.env.API_BASE_URL ||
-    process.env.APP_URL;
-  if (envBase) return envBase.replace(/\/$/, '');
-
-  if (req?.headers?.host) {
-    const proto = req.headers['x-forwarded-proto']?.toString().split(',')[0] || req.protocol || 'http';
-    return `${proto}://${req.headers.host}`;
-  }
-
-  const host = process.env.HOST || 'localhost';
-  const port = process.env.PORT || '5000';
-  return `http://${host}:${port}`;
-};
+const getBaseFileUrl = (req?: Request) => resolveFileBaseUrl(req);
 
 const buildFileContentUrl = (fileId: string, baseUrl: string) =>
   `${baseUrl}/api/files/content/${encodeURIComponent(fileId)}`;
@@ -59,14 +44,15 @@ const resolveStoredFileUrl = (
   baseUrl: string
 ) => {
   const provider = String(file.storageProvider || '').trim().toLowerCase();
+  const directUrl = resolveDirectMediaUrl(file.url, baseUrl);
   if (provider === 'azure_blob') {
     if (file.id) return buildFileContentUrl(file.id, baseUrl);
-    return file.url || null;
+    return directUrl || file.url || null;
   }
   if (file.storageKey) {
     return `${baseUrl}/uploads/${String(file.storageKey).replace(/^\/+/, '')}`;
   }
-  return file.url || null;
+  return directUrl || file.url || null;
 };
 
 const toInt = (value: any, fallback: number) => {
@@ -342,7 +328,7 @@ const fetchScrollPayloadList = async (req: Request, rows: any[], viewerId?: stri
       author: {
         id: author?.id || scroll.authorId,
         name: author?.name || 'Community member',
-        avatar: author?.avatar || null,
+        avatar: resolveDirectMediaUrl(author?.avatar, getBaseFileUrl(req)) || author?.avatar || null,
         username: author?.username || null,
         isVerified: Boolean(author?.isVerified)
       },

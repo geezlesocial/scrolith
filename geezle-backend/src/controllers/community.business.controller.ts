@@ -9,6 +9,7 @@ import {
   normalizeStoredContentOfferTags,
   resolveSubmittedContentOfferTags
 } from '../services/contentOfferTagging.service';
+import { normalizeUploadsPath, resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
 
 const PAGE_STATUS_ALIASES: Record<string, string> = {
   active: 'active',
@@ -31,23 +32,7 @@ const defaultBusinessConfig = {
   businessPageFollowEnabled: true
 };
 
-const getBaseFileUrl = (req?: Request) => {
-  const envBase =
-    process.env.FILE_BASE_URL ||
-    process.env.BACKEND_URL ||
-    process.env.API_BASE_URL ||
-    process.env.APP_URL;
-  if (envBase) return envBase.replace(/\/$/, '');
-
-  if (req?.headers?.host) {
-    const proto = req.headers['x-forwarded-proto']?.toString().split(',')[0] || req.protocol || 'http';
-    return `${proto}://${req.headers.host}`;
-  }
-
-  const host = process.env.HOST || 'localhost';
-  const port = process.env.PORT || '5000';
-  return `http://${host}:${port}`;
-};
+const getBaseFileUrl = (req?: Request) => resolveFileBaseUrl(req);
 
 const buildFileContentUrl = (fileId: string, req?: Request) =>
   `${getBaseFileUrl(req)}/api/files/content/${encodeURIComponent(fileId)}`;
@@ -364,29 +349,6 @@ const looksLikeDirectMediaUrl = (value: string) => {
   );
 };
 
-const normalizeUploadsPath = (value: string) => {
-  const normalized = String(value || '')
-    .trim()
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '');
-  const withoutPrefix = normalized.replace(/^uploads\//, '');
-  return `/uploads/${withoutPrefix}`;
-};
-
-const normalizeDirectMediaUrl = (value?: string | null) => {
-  const normalized = String(value || '').trim();
-  if (!normalized) return null;
-  if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
-  if (normalized.startsWith('data:') || normalized.startsWith('blob:')) return normalized;
-  if (normalized.startsWith('/api/files/content/') || normalized.startsWith('api/files/content/')) {
-    return normalized.startsWith('/') ? normalized : `/${normalized}`;
-  }
-  if (normalized.startsWith('/uploads/') || normalized.startsWith('uploads/')) {
-    return normalizeUploadsPath(normalized);
-  }
-  return null;
-};
-
 const resolveStoredFileUrl = (file: {
   id?: string;
   url?: string | null;
@@ -394,7 +356,7 @@ const resolveStoredFileUrl = (file: {
   storageProvider?: string | null;
 }, req?: Request) => {
   const storageProvider = String(file.storageProvider || '').trim().toLowerCase();
-  const directUrl = normalizeDirectMediaUrl(file.url);
+  const directUrl = resolveDirectMediaUrl(file.url, getBaseFileUrl(req));
   if (storageProvider === 'azure_blob') {
     if (file.id) return buildFileContentUrl(file.id, req);
     return file.url || directUrl || null;
@@ -409,7 +371,7 @@ const resolveLogoUrlMap = async (logoRefs: Array<string | null | undefined>, req
     new Set(
       logoRefs
         .map((value) => String(value || '').trim())
-        .filter((value) => value && !normalizeDirectMediaUrl(value))
+        .filter((value) => value && !resolveDirectMediaUrl(value, getBaseFileUrl(req)))
     )
   );
   if (!ids.length) return new Map<string, string>();
@@ -428,11 +390,12 @@ const resolveLogoUrlMap = async (logoRefs: Array<string | null | undefined>, req
 
 const resolveLogoUrl = (
   logoRef: string | null | undefined,
-  logoMap: Map<string, string>
+  logoMap: Map<string, string>,
+  req?: Request
 ) => {
   const normalized = String(logoRef || '').trim();
   if (!normalized) return null;
-  const direct = normalizeDirectMediaUrl(normalized);
+  const direct = resolveDirectMediaUrl(normalized, getBaseFileUrl(req));
   if (direct) return direct;
   return logoMap.get(normalized) || null;
 };
@@ -540,7 +503,7 @@ const resolvePostAuthorIdentity = (
 };
 const resolvePageMedia = async (fileId?: string | null, req?: Request) => {
   if (!fileId) return null;
-  const directUrl = normalizeDirectMediaUrl(fileId);
+  const directUrl = resolveDirectMediaUrl(fileId, getBaseFileUrl(req));
   if (directUrl) {
     return { id: fileId, url: directUrl, mimeType: null, name: null };
   }
@@ -1270,7 +1233,7 @@ export const createBusinessPagePost = async (req: Request, res: Response) => {
     }
 
     const logoUrlMap = await resolveLogoUrlMap([post.businessPage?.logoFileId], req);
-    const businessLogoUrl = resolveLogoUrl(post.businessPage?.logoFileId, logoUrlMap);
+    const businessLogoUrl = resolveLogoUrl(post.businessPage?.logoFileId, logoUrlMap, req);
 
     const author = {
       id: post.businessPage?.id || post.author?.id || userId,
@@ -1468,7 +1431,7 @@ export const getBusinessPageFeed = async (req: Request, res: Response) => {
 
     const items = await Promise.all(
       posts.map(async (post) => {
-        const businessLogoUrl = resolveLogoUrl(post.businessPage?.logoFileId, logoUrlMap);
+        const businessLogoUrl = resolveLogoUrl(post.businessPage?.logoFileId, logoUrlMap, req);
         const author = {
           id: post.businessPage?.id || post.author?.id || post.authorId,
           username: post.businessPage?.handle || post.businessPage?.slug || post.author?.username || null,

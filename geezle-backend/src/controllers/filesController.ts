@@ -19,6 +19,7 @@ const uuidv4 = () => {
 };
 import { FileVisibility, FileOwnerRole } from '@prisma/client';
 import prisma from '../utils/prismaClient';
+import { resolveFileBaseUrl } from '../utils/mediaUrl';
 import {
   downloadBlobByName,
   deleteBlobByName,
@@ -271,23 +272,7 @@ const stripUploadsPrefix = (value: string) => {
   return pathValue.replace(/^\/?uploads\//, '');
 };
 
-const getBaseFileUrl = (req?: Request) => {
-  const envBase =
-    process.env.FILE_BASE_URL ||
-    process.env.BACKEND_URL ||
-    process.env.API_BASE_URL ||
-    process.env.APP_URL;
-  if (envBase) return envBase.replace(/\/$/, '');
-
-  if (req?.headers?.host) {
-    const proto = req.headers['x-forwarded-proto']?.toString().split(',')[0] || req.protocol || 'http';
-    return `${proto}://${req.headers.host}`;
-  }
-
-  const host = process.env.HOST || 'localhost';
-  const port = process.env.PORT || '5000';
-  return `http://${host}:${port}`;
-};
+const getBaseFileUrl = (req?: Request) => resolveFileBaseUrl(req);
 
 const buildUploadsUrl = (relativePath: string, baseUrl?: string) => {
   const normalized = normalizeSlashes(relativePath).replace(/^\/+/, '');

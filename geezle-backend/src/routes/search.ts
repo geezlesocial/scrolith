@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
+import { normalizeUploadsPath, resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
 
 const router = express.Router();
 
@@ -40,53 +41,13 @@ type SearchFileRecord = {
   storageProvider: string | null;
 };
 
-const resolveBaseUrl = (req?: Request) => {
-  const envBase =
-    process.env.BACKEND_PUBLIC_URL ||
-    process.env.PUBLIC_BACKEND_URL ||
-    process.env.API_BASE_URL ||
-    process.env.APP_URL;
-  if (envBase) return String(envBase).replace(/\/$/, '');
-
-  if (req?.headers?.host) {
-    const proto = req.headers['x-forwarded-proto']?.toString().split(',')[0] || req.protocol || 'http';
-    return `${proto}://${req.headers.host}`;
-  }
-
-  const host = process.env.HOST || 'localhost';
-  const port = process.env.PORT || '5000';
-  return `http://${host}:${port}`;
-};
-
-const normalizeUploadsPath = (value: string) => {
-  const normalized = String(value || '')
-    .trim()
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '');
-  const withoutPrefix = normalized.replace(/^uploads\//, '');
-  return `/uploads/${withoutPrefix}`;
-};
-
-const normalizeMediaUrl = (value?: string | null) => {
-  const raw = String(value || '').trim();
-  if (!raw) return null;
-  if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
-  if (raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
-  if (raw.startsWith('/api/files/content/') || raw.startsWith('api/files/content/')) {
-    return raw.startsWith('/') ? raw : `/${raw}`;
-  }
-  if (raw.startsWith('/uploads/') || raw.startsWith('uploads/')) return normalizeUploadsPath(raw);
-  if (raw.startsWith('/')) return raw;
-  return raw;
-};
-
 const resolveFileUrl = (file: SearchFileRecord, req?: Request) => {
   if (!file) return null;
   const storageProvider = String(file.storageProvider || '').trim().toLowerCase();
   if (storageProvider === 'azure_blob') {
-    return `${resolveBaseUrl(req)}/api/files/content/${encodeURIComponent(file.id)}`;
+    return `${resolveFileBaseUrl(req)}/api/files/content/${encodeURIComponent(file.id)}`;
   }
-  const direct = normalizeMediaUrl(file.url);
+  const direct = resolveDirectMediaUrl(file.url, resolveFileBaseUrl(req));
   if (direct) return direct;
   if (file.storageKey) return normalizeUploadsPath(file.storageKey);
   return null;
@@ -124,7 +85,7 @@ const searchPosts = async (q: string, limit: number) => {
   });
 };
 
-const searchPeople = async (q: string, limit: number): Promise<SearchEntry[]> => {
+const searchPeople = async (q: string, limit: number, req?: Request): Promise<SearchEntry[]> => {
   const contains = containsFilter(q);
   const rows = await prisma.user.findMany({
     where: {
@@ -138,7 +99,9 @@ const searchPeople = async (q: string, limit: number): Promise<SearchEntry[]> =>
 
   return rows.map((user) => {
     const displayName = user.name || user.username || 'User';
-    const avatar = normalizeMediaUrl(user.avatar) || fallbackAvatar(displayName, 'User');
+    const avatar =
+      resolveDirectMediaUrl(user.avatar, resolveFileBaseUrl(req)) ||
+      fallbackAvatar(displayName, 'User');
     return {
       id: user.id,
       type: 'people',
@@ -161,11 +124,11 @@ const resolvePageAvatar = (
 ) => {
   const raw = String(page.logoFileId || '').trim();
   if (!raw) return fallbackAvatar(page.name, 'Page');
-  const direct = normalizeMediaUrl(raw);
+  const direct = resolveDirectMediaUrl(raw, resolveFileBaseUrl(req));
   if (direct) return direct;
   const mapped = logoMap.get(raw);
   if (mapped) return mapped;
-  return `${resolveBaseUrl(req)}/api/files/content/${encodeURIComponent(raw)}`;
+  return `${resolveFileBaseUrl(req)}/api/files/content/${encodeURIComponent(raw)}`;
 };
 
 const searchPages = async (q: string, limit: number, req?: Request): Promise<SearchEntry[]> => {
@@ -184,7 +147,7 @@ const searchPages = async (q: string, limit: number, req?: Request): Promise<Sea
     new Set(
       rows
         .map((page) => String(page.logoFileId || '').trim())
-        .filter((id) => id && !normalizeMediaUrl(id))
+        .filter((id) => id && !resolveDirectMediaUrl(id, resolveFileBaseUrl(req)))
     )
   );
 
@@ -245,7 +208,7 @@ const searchJobs = async (q: string, limit: number): Promise<SearchEntry[]> => {
   }));
 };
 
-const searchGigs = async (q: string, limit: number): Promise<SearchEntry[]> => {
+const searchGigs = async (q: string, limit: number, req?: Request): Promise<SearchEntry[]> => {
   const contains = containsFilter(q);
   const rows = await prisma.gig.findMany({
     where: {
@@ -265,7 +228,7 @@ const searchGigs = async (q: string, limit: number): Promise<SearchEntry[]> => {
     subtitle: Number.isFinite(Number(gig.price)) ? `From $${Number(gig.price).toFixed(0)}` : 'View gig',
     description: Number.isFinite(Number(gig.price)) ? `From $${Number(gig.price).toFixed(0)}` : 'View gig',
     url: `/gigs/${encodeURIComponent(gig.slug || gig.id)}`,
-    image: normalizeMediaUrl(gig.image) || null,
+    image: resolveDirectMediaUrl(gig.image, resolveFileBaseUrl(req)) || null,
     meta: {
       price: Number.isFinite(Number(gig.price)) ? Number(gig.price) : null,
       categoryId: gig.categoryId || null
@@ -297,10 +260,10 @@ const interleaveSearchGroups = (
 
 const resolveUnifiedSearch = async (req: Request, q: string, perType: number, limit: number) => {
   const [people, pages, jobs, gigs] = await Promise.all([
-    searchPeople(q, perType),
+    searchPeople(q, perType, req),
     searchPages(q, perType, req),
     searchJobs(q, perType),
-    searchGigs(q, perType)
+    searchGigs(q, perType, req)
   ]);
 
   const groups: Record<SearchBucketKey, SearchEntry[]> = { people, pages, jobs, gigs };
@@ -364,7 +327,7 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     if (type === 'people' || type === 'users' || type === 'user') {
-      const data = await searchPeople(q, limit);
+      const data = await searchPeople(q, limit, req);
       return res.json({ success: true, data });
     }
 
@@ -379,7 +342,7 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     if (type === 'gigs' || type === 'gig') {
-      const data = await searchGigs(q, limit);
+      const data = await searchGigs(q, limit, req);
       return res.json({ success: true, data });
     }
 

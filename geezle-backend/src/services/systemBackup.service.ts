@@ -5,6 +5,7 @@ import zlib from 'zlib';
 import bcrypt from 'bcryptjs';
 import { Client } from 'pg';
 import prisma from '../utils/prismaClient';
+import { resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
 import {
   blobExistsByName,
   deleteBlobByName,
@@ -195,7 +196,24 @@ const ensureBackupDir = () => {
   fs.mkdirSync(BACKUP_ROOT_DIR, { recursive: true });
 };
 
-const shouldUseAzureBackupStorage = () => isAzureBlobConfigured();
+function resolveBackupStorageProvider() {
+  const explicitDriver = String(
+    process.env.SYSTEM_BACKUP_STORAGE_DRIVER || process.env.BACKUP_STORAGE_DRIVER || ''
+  )
+    .trim()
+    .toLowerCase();
+
+  if (['azure_blob', 'azure', 'blob'].includes(explicitDriver)) {
+    return isAzureBlobConfigured() ? AZURE_BLOB_STORAGE_PROVIDER : DEFAULT_STORAGE_PROVIDER;
+  }
+  if (['local', 'disk', 'filesystem'].includes(explicitDriver)) {
+    return DEFAULT_STORAGE_PROVIDER;
+  }
+
+  return resolveManagedStorageProvider();
+}
+
+const shouldUseAzureBackupStorage = () => resolveBackupStorageProvider() === AZURE_BLOB_STORAGE_PROVIDER;
 
 const buildBackupBlobName = (fileName: string) =>
   `${BACKUP_BLOB_PREFIX}/${path.basename(String(fileName || '').trim())}`;
@@ -557,16 +575,7 @@ const resolveManagedStorageProvider = () => {
 };
 
 const getSystemBackupBaseUrl = () => {
-  const envBase =
-    process.env.FILE_BASE_URL ||
-    process.env.BACKEND_URL ||
-    process.env.API_BASE_URL ||
-    process.env.APP_URL ||
-    process.env.FRONTEND_URL;
-  if (envBase) return String(envBase).replace(/\/$/, '');
-  const host = process.env.HOST || 'localhost';
-  const port = process.env.PORT || '5000';
-  return `http://${host}:${port}`;
+  return resolveFileBaseUrl();
 };
 
 const buildUploadsUrlForRestore = (relativePath: string) =>
@@ -581,6 +590,56 @@ const resolveStoredThumbnailRelativePath = (value: string | null | undefined) =>
   if (relativePath === DEFAULT_VIDEO_THUMBNAIL_FILENAME) return null;
   if (relativePath.startsWith('api/files/content/')) return null;
   return relativePath;
+};
+
+const rewriteLegacyLocalMediaUrlForRestore = (value: string | null | undefined) => {
+  const raw = String(value || '').trim();
+  if (!raw) return raw;
+
+  const normalized = resolveDirectMediaUrl(raw, getSystemBackupBaseUrl());
+  if (!normalized) return raw;
+
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    try {
+      const parsed = new URL(raw);
+      const hostname = parsed.hostname.trim().toLowerCase();
+      if (!['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(hostname)) {
+        return raw;
+      }
+    } catch {
+      return raw;
+    }
+  } else if (!raw.startsWith('/uploads/') && !raw.startsWith('uploads/') && !raw.startsWith('/api/files/content/')) {
+    return raw;
+  }
+
+  return normalized;
+};
+
+const normalizeLegacyMediaPayload = (value: any): any => {
+  if (typeof value === 'string') {
+    return rewriteLegacyLocalMediaUrlForRestore(value);
+  }
+  if (Array.isArray(value)) {
+    let changed = false;
+    const next = value.map((entry) => {
+      const normalized = normalizeLegacyMediaPayload(entry);
+      if (normalized !== entry) changed = true;
+      return normalized;
+    });
+    return changed ? next : value;
+  }
+  if (value && typeof value === 'object') {
+    let changed = false;
+    const next: Record<string, any> = {};
+    Object.entries(value).forEach(([key, entry]) => {
+      const normalized = normalizeLegacyMediaPayload(entry);
+      next[key] = normalized;
+      if (normalized !== entry) changed = true;
+    });
+    return changed ? next : value;
+  }
+  return value;
 };
 
 const guessContentTypeFromPath = (value: string) => {
@@ -1062,7 +1121,7 @@ const restoreManagedStorageSnapshot = async (file: FileSnapshot) => {
   fs.mkdirSync(path.dirname(localTarget), { recursive: true });
   fs.writeFileSync(localTarget, content);
 
-  if (isAzureBlobConfigured()) {
+  if (resolveManagedStorageProvider() === AZURE_BLOB_STORAGE_PROVIDER) {
     await uploadBufferToBlob({
       buffer: content,
       contentType: String(file.contentType || 'application/octet-stream'),
@@ -1197,6 +1256,127 @@ const reconcileRestoredFileRecords = async (rows: any[]) => {
         });
       })
     );
+  }
+};
+
+const normalizeRestoredLegacyMediaReferences = async (tables: string[]) => {
+  const normalizedTables = new Set((tables || []).map((table) => String(table || '').trim().toLowerCase()));
+  if (!normalizedTables.size) return;
+
+  if (normalizedTables.has('user')) {
+    const users = await prisma.user.findMany({
+      where: { avatar: { not: null } },
+      select: { id: true, avatar: true }
+    });
+    for (const user of users) {
+      const nextAvatar = rewriteLegacyLocalMediaUrlForRestore(user.avatar);
+      if (nextAvatar !== String(user.avatar || '')) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { avatar: nextAvatar || null }
+        });
+      }
+    }
+  }
+
+  if (normalizedTables.has('gig')) {
+    const gigs = await prisma.gig.findMany({
+      select: { id: true, image: true, images: true }
+    });
+    for (const gig of gigs) {
+      const nextImage = rewriteLegacyLocalMediaUrlForRestore(gig.image);
+      const nextImages = normalizeLegacyMediaPayload(gig.images);
+      if (nextImage !== (gig.image || '') || nextImages !== gig.images) {
+        await prisma.gig.update({
+          where: { id: gig.id },
+          data: {
+            image: nextImage || null,
+            images: nextImages as any
+          }
+        });
+      }
+    }
+  }
+
+  if (normalizedTables.has('communitypost')) {
+    const posts = await prisma.communityPost.findMany({
+      select: { id: true, attachments: true }
+    });
+    for (const post of posts) {
+      const nextAttachments = normalizeLegacyMediaPayload(post.attachments);
+      if (nextAttachments !== post.attachments) {
+        await prisma.communityPost.update({
+          where: { id: post.id },
+          data: { attachments: nextAttachments as any }
+        });
+      }
+    }
+  }
+
+  if (normalizedTables.has('communityclub')) {
+    const clubs = await prisma.communityClub.findMany({
+      where: { coverImage: { not: null } },
+      select: { id: true, coverImage: true }
+    });
+    for (const club of clubs) {
+      const nextCoverImage = rewriteLegacyLocalMediaUrlForRestore(club.coverImage);
+      if (nextCoverImage !== String(club.coverImage || '')) {
+        await prisma.communityClub.update({
+          where: { id: club.id },
+          data: { coverImage: nextCoverImage || null }
+        });
+      }
+    }
+  }
+
+  if (normalizedTables.has('communityevent')) {
+    const events = await prisma.communityEvent.findMany({
+      where: { image: { not: null } },
+      select: { id: true, image: true }
+    });
+    for (const event of events) {
+      const nextImage = rewriteLegacyLocalMediaUrlForRestore(event.image);
+      if (nextImage !== String(event.image || '')) {
+        await prisma.communityEvent.update({
+          where: { id: event.id },
+          data: { image: nextImage || null }
+        });
+      }
+    }
+  }
+
+  if (normalizedTables.has('communitybusinesspage')) {
+    const pages = await prisma.communityBusinessPage.findMany({
+      select: { id: true, logoFileId: true, coverFileId: true }
+    });
+    for (const page of pages) {
+      const nextLogo = rewriteLegacyLocalMediaUrlForRestore(page.logoFileId);
+      const nextCover = rewriteLegacyLocalMediaUrlForRestore(page.coverFileId);
+      if (nextLogo !== String(page.logoFileId || '') || nextCover !== String(page.coverFileId || '')) {
+        await prisma.communityBusinessPage.update({
+          where: { id: page.id },
+          data: {
+            logoFileId: nextLogo || null,
+            coverFileId: nextCover || null
+          }
+        });
+      }
+    }
+  }
+
+  if (normalizedTables.has('appsetting')) {
+    const settings = await prisma.appSetting.findMany({
+      select: { id: true, data: true }
+    });
+    for (const setting of settings) {
+      const nextData = normalizeLegacyMediaPayload(setting.data);
+      if (nextData !== setting.data) {
+        await prisma.appSetting.update({
+          where: { id: setting.id },
+          data: { data: nextData as any }
+        });
+      }
+    }
   }
 };
 
@@ -1721,6 +1901,7 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
   if (restoredFileRows.length) {
     await reconcileRestoredFileRecords(restoredFileRows);
   }
+  await normalizeRestoredLegacyMediaReferences(selectedTables);
 
   const now = toIso();
   const updated = catalog.map((entry) =>

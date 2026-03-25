@@ -2,27 +2,12 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { addFileUsage, removeUsage } from '../utils/fileUsage';
+import { resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
 
 const DISK_ID_PREFIX = 'disk:';
 const DEFAULT_VIDEO_THUMBNAIL_FILENAME = '__video_fallback_thumbnail.svg';
 const normalizeSlashes = (value: string) => value.replace(/\\/g, '/');
-const getBaseFileUrl = (req?: Request) => {
-  const envBase =
-    process.env.FILE_BASE_URL ||
-    process.env.BACKEND_URL ||
-    process.env.API_BASE_URL ||
-    process.env.APP_URL;
-  if (envBase) return envBase.replace(/\/$/, '');
-
-  if (req?.headers?.host) {
-    const proto = req.headers['x-forwarded-proto']?.toString().split(',')[0] || req.protocol || 'http';
-    return `${proto}://${req.headers.host}`;
-  }
-
-  const host = process.env.HOST || 'localhost';
-  const port = process.env.PORT || '5000';
-  return `http://${host}:${port}`;
-};
+const getBaseFileUrl = (req?: Request) => resolveFileBaseUrl(req);
 
 const buildUploadsUrl = (relativePath: string, baseUrl?: string) => {
   const normalized = normalizeSlashes(relativePath).replace(/^\/+/, '');
@@ -38,14 +23,15 @@ const resolveStoredFileUrl = (
   baseUrl: string
 ) => {
   const storageProvider = String(file.storageProvider || '').trim().toLowerCase();
+  const directUrl = resolveDirectMediaUrl(file.url, baseUrl);
   if (storageProvider === 'azure_blob') {
     if (file.id) return buildFileContentUrl(file.id, baseUrl);
-    return file.url || null;
+    return directUrl || file.url || null;
   }
   if (file.storageKey) {
     return buildUploadsUrl(file.storageKey, baseUrl);
   }
-  return file.url || null;
+  return directUrl || file.url || null;
 };
 
 const getStoryExpiryHours = async () => {
@@ -81,7 +67,10 @@ const resolveStoryMedia = async (fileId?: string | null, req?: Request) => {
     mimeType: file.mimeType,
     name: file.originalName,
     storageKey: file.storageKey,
-    thumbnailUrl: file.thumbnailUrl || (isVideo ? fallbackVideoThumbnail : null),
+    thumbnailUrl:
+      resolveDirectMediaUrl(file.thumbnailUrl, baseUrl) ||
+      file.thumbnailUrl ||
+      (isVideo ? fallbackVideoThumbnail : null),
     width: file.width ?? null,
     height: file.height ?? null,
     duration: file.duration ?? null
@@ -226,7 +215,7 @@ const buildStoryPayload = async (
     id: story.id,
     authorId: story.authorId,
     authorName: story.author?.name || 'Anonymous',
-    authorAvatar: story.author?.avatar || null,
+    authorAvatar: resolveDirectMediaUrl(story.author?.avatar, getBaseFileUrl(req)) || story.author?.avatar || null,
     authorUsername: story.author?.username || null,
     type: story.type,
     content: story.content,
