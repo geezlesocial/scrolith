@@ -868,8 +868,28 @@ const collectFileSnapshots = async () => {
   return allFiles;
 };
 
+const normalizeBackupDatabaseUrl = (raw: string) => {
+  const normalized = String(raw || '').trim();
+  if (!normalized) return normalized;
+
+  try {
+    const parsed = new URL(normalized);
+    const sslmode = String(parsed.searchParams.get('sslmode') || '').trim().toLowerCase();
+
+    if (!sslmode) {
+      parsed.searchParams.set('sslmode', 'no-verify');
+    } else if (['require', 'prefer', 'verify-ca'].includes(sslmode)) {
+      parsed.searchParams.set('sslmode', 'no-verify');
+    }
+
+    return parsed.toString();
+  } catch {
+    return normalized;
+  }
+};
+
 const createDbClient = () => {
-  const connectionString = process.env.DATABASE_URL || '';
+  const connectionString = normalizeBackupDatabaseUrl(process.env.DATABASE_URL || '');
   if (!connectionString) {
     throw toError('DATABASE_URL is not configured for backup operations.', 500, 'BACKUP_DATABASE_URL_MISSING');
   }
