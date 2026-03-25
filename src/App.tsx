@@ -1199,10 +1199,6 @@ const LiveFeatureRoute: React.FC<{ children: React.ReactNode }> = ({ children })
   // TODO: Re-add RealtimeProvider after fixing socket initialization issues
   // RealtimeProvider removed temporarily to fix lazy loading errors
 
-  if (canonicalRedirectUrl) {
-    return null;
-  }
-
   return <>{children}</>;
 };
 // ============ END ProtectedRoute ============
