@@ -180,6 +180,9 @@ model User {
   aiCopilotLogs             AICopilotLog[]
   skillGapReports           SkillGapReport[]
   feedModePreference        FeedModePreference?
+  topicFollows              TopicFollow[]
+  feedIntentSignals         FeedIntentSignal[]
+  savedPipelineItems        SavedPipelineItem[]
   questCatalogsCreated      QuestCatalog[]        @relation("QuestCatalogCreatedBy")
   questCatalogsUpdated      QuestCatalog[]        @relation("QuestCatalogUpdatedBy")
   userQuests                UserQuest[]           @relation("UserQuestUser")
@@ -217,6 +220,17 @@ model Profile {
   title                   String?
   bio                     String?
   location                String?
+  formattedAddress        String?
+  country                 String?
+  countryCode             String?
+  state                   String?
+  city                    String?
+  region                  String?
+  postalCode              String?
+  latitude                Float?
+  longitude               Float?
+  placeId                 String?
+  locationSource          String?
   gender                  String?
   dateOfBirth             DateTime?
   showBirthMonthDayPublic Boolean   @default(true)
@@ -420,6 +434,10 @@ model Contract {
 
   hourlyRate   Float        @default(0)
   paymentCycle PaymentCycle @default(WEEKLY)
+  contractValue Float?
+  deliveryDays  Int?
+  paymentSchedule Json?
+  milestones      Json?
 
   status    ContractStatus @default(ACTIVE)
   startDate DateTime       @default(now())
@@ -965,6 +983,86 @@ model FeedModePreference {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([mode])
+}
+
+model Topic {
+  id           String       @id @default(cuid())
+  slug         String       @unique
+  label        String
+  kind         String       @default("general")
+  status       String       @default("active")
+  description  String?
+  followerCount Int         @default(0)
+  usageCount   Int          @default(0)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  aliases  TopicAlias[]
+  follows  TopicFollow[]
+
+  @@index([label])
+  @@index([kind, status])
+}
+
+model TopicAlias {
+  id        String   @id @default(cuid())
+  topicId   String
+  alias     String
+  createdAt DateTime @default(now())
+
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([topicId, alias])
+  @@index([alias])
+}
+
+model TopicFollow {
+  id        String   @id @default(cuid())
+  userId    String
+  topicId   String
+  createdAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic Topic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, topicId])
+  @@index([userId, createdAt])
+  @@index([topicId, createdAt])
+}
+
+model FeedIntentSignal {
+  id         String   @id @default(cuid())
+  userId     String
+  entityType String
+  entityId   String
+  signal     String
+  surface    String   @default("community_feed")
+  weight     Float    @default(1)
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([entityType, entityId, createdAt])
+  @@index([signal, createdAt])
+}
+
+model SavedPipelineItem {
+  id            String   @id @default(cuid())
+  userId        String
+  entityType    String
+  entityId      String
+  sourceSurface String   @default("member_home")
+  note          String?
+  meta          Json?
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, entityType, entityId])
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
 }
 
 model QuestCatalog {
@@ -2881,6 +2979,7 @@ model CommunityPost {
   title              String?
   content            String   @db.Text
   attachments        String[] @default([])
+  offerTags          Json?
   tags               String[] @default([])
   mentions           String[] @default([])
   topic              String?
@@ -2898,6 +2997,7 @@ model CommunityPost {
   status             String   @default("active") // active, draft, deleted
   isPinned           Boolean  @default(false)
   isHighlighted      Boolean  @default(false)
+  isAIEnhanced       Boolean  @default(false)
   aiInsightEnabled   Boolean  @default(false)
   aiInsightGenerated Boolean  @default(false)
   aiInsightText      String?  @db.Text
@@ -3080,8 +3180,10 @@ model ScrollVideo {
   fileId                    String
   title                     String?
   description               String?  @db.Text
+  offerTags                 Json?
   location                  String?
   visibility                String   @default("public")
+  graphicWarning            Boolean  @default(false)
   isAIEnhanced              Boolean  @default(false)
   filterPreset              String?  @default("none")
   filterStrength            Float?
@@ -3109,6 +3211,7 @@ model ScrollVideo {
   updatedAt                 DateTime @updatedAt
 
   tags        ScrollTag[]
+  comments    ScrollComment[]
   engagements ScrollEngagement[]
   reports     ScrollReport[]
 
@@ -3119,6 +3222,25 @@ model ScrollVideo {
   @@index([status, visibility, createdAt])
   @@index([videoIntegrityStatus])
   @@index([videoMonetizationBlocked])
+}
+
+model ScrollComment {
+  id        String   @id @default(cuid())
+  scrollId  String
+  parentId  String?
+  authorId  String
+  content   String   @db.Text
+  status    String   @default("active")
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scroll ScrollVideo @relation(fields: [scrollId], references: [id], onDelete: Cascade)
+
+  @@index([scrollId, createdAt])
+  @@index([scrollId, parentId, createdAt])
+  @@index([authorId, createdAt])
+  @@index([status, createdAt])
 }
 
 model ScrollTag {
@@ -3391,6 +3513,17 @@ model CommunityBusinessPage {
   orgSize         String?
   orgType         String?
   location        String?
+  formattedAddress String?
+  country         String?
+  countryCode     String?
+  state           String?
+  city            String?
+  region          String?
+  postalCode      String?
+  latitude        Float?
+  longitude       Float?
+  placeId         String?
+  locationSource  String?
   logoFileId      String?
   coverFileId     String?
   status          String    @default("active")

@@ -11,6 +11,11 @@ import {
   assessVideoIntegrityByFile,
   buildVideoIntegrityUpdate
 } from '../services/videoIntegrity.service';
+import { getScrollDashTotals } from '../services/gcoinDonationTotals.service';
+import {
+  normalizeStoredContentOfferTags,
+  resolveSubmittedContentOfferTags
+} from '../services/contentOfferTagging.service';
 
 const SCROLL_VISIBILITIES = new Set(['public', 'network', 'followers', 'private']);
 const SCROLL_FILTER_PRESETS = new Set(['none', 'vibrant', 'cinematic', 'bw', 'sepia', 'warm']);
@@ -97,6 +102,45 @@ const normalizeTagRows = (rawTags: any): Array<{ taggedUserId: string | null; ta
     rows.push({ taggedUserId, taggedPageId });
   }
   return rows;
+};
+
+const hasUserBlockRelation = async (userId?: string | null, otherUserId?: string | null) => {
+  const actorId = String(userId || '').trim();
+  const targetId = String(otherUserId || '').trim();
+  if (!actorId || !targetId || actorId === targetId) return false;
+  const row = await prisma.userBlock.findFirst({
+    where: {
+      OR: [
+        { blockerId: actorId, blockedId: targetId },
+        { blockerId: targetId, blockedId: actorId }
+      ]
+    },
+    select: { id: true }
+  });
+  return Boolean(row);
+};
+
+const isPrivilegedUser = (user: any) => {
+  const role = String(user?.role || '').trim().toLowerCase();
+  return role.includes('admin') || role.includes('moderator') || role.includes('superadmin');
+};
+
+const canAccessScroll = async (
+  scroll: { id: string; authorId: string; visibility?: string | null; status?: string | null } | null,
+  viewerId?: string | null,
+  privileged = false
+) => {
+  if (!scroll || String(scroll.status || '').toLowerCase() !== 'active') {
+    return { ok: false, status: 404, error: 'Scroll video not found.' };
+  }
+  if (viewerId && await hasUserBlockRelation(viewerId, scroll.authorId)) {
+    return { ok: false, status: 404, error: 'Scroll video not found.' };
+  }
+  const visibility = String(scroll.visibility || '').trim().toLowerCase();
+  if (visibility === 'private' && !privileged && String(scroll.authorId) !== String(viewerId || '').trim()) {
+    return { ok: false, status: 403, error: 'You are not allowed to access this scroll.' };
+  }
+  return { ok: true, status: 200, error: '' };
 };
 
 const isAdminRequest = (req: Request) => String((req as any)?.user?.role || '').toLowerCase().includes('admin');
@@ -192,8 +236,10 @@ const scrollVideoListSelect: any = {
   fileId: true,
   title: true,
   description: true,
+  offerTags: true,
   location: true,
   visibility: true,
+  graphicWarning: true,
   isAIEnhanced: true,
   filterPreset: true,
   filterStrength: true,
@@ -217,6 +263,18 @@ const scrollVideoListSelect: any = {
   updatedAt: true
 };
 
+const scrollCommentListSelect: any = {
+  id: true,
+  scrollId: true,
+  parentId: true,
+  authorId: true,
+  content: true,
+  status: true,
+  deletedAt: true,
+  createdAt: true,
+  updatedAt: true
+};
+
 const fetchScrollPayload = async (req: Request, scroll: any, viewerId?: string | null) => {
   const rows = await fetchScrollPayloadList(req, [scroll], viewerId);
   return rows[0] || null;
@@ -229,7 +287,7 @@ const fetchScrollPayloadList = async (req: Request, rows: any[], viewerId?: stri
   const authorIds = Array.from(new Set(scrolls.map((scroll) => String(scroll?.authorId || '').trim()).filter(Boolean)));
   const fileIds = Array.from(new Set(scrolls.map((scroll) => String(scroll?.fileId || '').trim()).filter(Boolean)));
   const scrollIds = Array.from(new Set(scrolls.map((scroll) => String(scroll?.id || '').trim()).filter(Boolean)));
-  const [authors, mediaMap, tags, viewerLikes] = await Promise.all([
+  const [authors, mediaMap, tags, viewerLikes, dashTotals] = await Promise.all([
     authorIds.length
       ? prisma.user.findMany({
           where: { id: { in: authorIds } },
@@ -255,7 +313,8 @@ const fetchScrollPayloadList = async (req: Request, rows: any[], viewerId?: stri
           where: { scrollId: { in: scrollIds }, userId: viewerId, type: { in: ['like', 'impression'] } },
           select: { scrollId: true, type: true }
         })
-      : Promise.resolve([])
+      : Promise.resolve([]),
+    getScrollDashTotals(scrollIds)
   ]);
   const authorMap = new Map<string, any>((authors as any[]).map((author: any) => [String(author.id), author]));
   const tagsMap = new Map<string, any[]>();
@@ -291,7 +350,9 @@ const fetchScrollPayloadList = async (req: Request, rows: any[], viewerId?: stri
       description: scroll.description || null,
       location: scroll.location || null,
       visibility: scroll.visibility,
+      graphicWarning: Boolean(scroll.graphicWarning),
       isAIEnhanced: Boolean(scroll.isAIEnhanced),
+      dashGcoinTotal: dashTotals.get(String(scroll.id)) || 0,
       filterPreset: scroll.filterPreset || 'none',
       filterStrength: typeof scroll.filterStrength === 'number' ? scroll.filterStrength : null,
       videoIntegrityStatus: scroll.videoIntegrityStatus || 'clear',
@@ -300,6 +361,7 @@ const fetchScrollPayloadList = async (req: Request, rows: any[], viewerId?: stri
         typeof scroll.videoIntegrityMatchScore === 'number' ? scroll.videoIntegrityMatchScore : null,
       videoMonetizationBlocked: Boolean(scroll.videoMonetizationBlocked),
       media: mediaMap.get(String(scroll.fileId)) || null,
+      offerTags: normalizeStoredContentOfferTags(scroll.offerTags),
       tags: tagsMap.get(String(scroll.id)) || [],
       status: scroll.status,
       metrics: {
@@ -313,7 +375,8 @@ const fetchScrollPayloadList = async (req: Request, rows: any[], viewerId?: stri
         comments: Number(scroll.commentsCount || 0),
         reposts: Number(scroll.repostsCount || 0),
         shares: Number(scroll.sharesCount || 0),
-        sends: Number(scroll.sendCount || 0)
+        sends: Number(scroll.sendCount || 0),
+        dashGcoinTotal: dashTotals.get(String(scroll.id)) || 0
       },
       viewer: {
         liked: viewerState.has('like'),
@@ -323,6 +386,142 @@ const fetchScrollPayloadList = async (req: Request, rows: any[], viewerId?: stri
       updatedAt: scroll.updatedAt
     };
   });
+};
+
+const countActiveScrollComments = (items: any[]) =>
+  (Array.isArray(items) ? items : []).reduce((count, item) => {
+    if (String(item?.status || '').toLowerCase() === 'deleted') return count;
+    return count + 1;
+  }, 0);
+
+const loadScrollCommentReactionSummaryMap = async (commentIds: string[], viewerId?: string | null) => {
+  const ids = Array.from(new Set((commentIds || []).map((value) => String(value || '').trim()).filter(Boolean)));
+  if (!ids.length) return new Map<string, { counts: Record<string, number>; userReaction: string | null }>();
+
+  const [grouped, mine] = await Promise.all([
+    prisma.reaction.groupBy({
+      by: ['targetId', 'reactionKey'],
+      where: {
+        targetType: 'COMMENT',
+        targetId: { in: ids }
+      },
+      _count: { _all: true }
+    }),
+    viewerId
+      ? prisma.reaction.findMany({
+          where: { targetType: 'COMMENT', targetId: { in: ids }, userId: viewerId },
+          select: { targetId: true, reactionKey: true }
+        })
+      : Promise.resolve([])
+  ]);
+
+  const map = new Map<string, { counts: Record<string, number>; userReaction: string | null }>();
+  ids.forEach((id) => {
+    map.set(id, { counts: {}, userReaction: null });
+  });
+  (grouped as Array<{ targetId: string; reactionKey: string; _count: { _all: number } }>).forEach((row) => {
+    const current = map.get(row.targetId) || { counts: {}, userReaction: null };
+    current.counts[row.reactionKey] = row._count._all;
+    map.set(row.targetId, current);
+  });
+  (mine as Array<{ targetId: string; reactionKey: string }>).forEach((row) => {
+    const current = map.get(row.targetId) || { counts: {}, userReaction: null };
+    current.userReaction = row.reactionKey;
+    map.set(row.targetId, current);
+  });
+
+  return map;
+};
+
+const buildScrollCommentPayload = (
+  req: Request,
+  comment: any,
+  authorMap: Map<string, any>,
+  reactionSummaryMap: Map<string, { counts: Record<string, number>; userReaction: string | null }>,
+  viewerId?: string | null
+) => {
+  const author = authorMap.get(String(comment.authorId || '')) || null;
+  const isDeleted = String(comment.status || '').toLowerCase() === 'deleted';
+  return {
+    id: comment.id,
+    scrollId: comment.scrollId,
+    parentId: comment.parentId || null,
+    userId: comment.authorId,
+    userName: author?.name || 'Community member',
+    userUsername: author?.username || null,
+    userAvatar: author?.avatar || null,
+    content: isDeleted ? '' : String(comment.content || ''),
+    status: comment.status,
+    deletedAt: comment.deletedAt ? new Date(comment.deletedAt).toISOString() : null,
+    createdAt: new Date(comment.createdAt).toISOString(),
+    updatedAt: new Date(comment.updatedAt).toISOString(),
+    canEdit: Boolean(viewerId) && (String(comment.authorId) === String(viewerId) || isPrivilegedUser((req as any)?.user)),
+    canDelete: Boolean(viewerId) && (String(comment.authorId) === String(viewerId) || isPrivilegedUser((req as any)?.user)),
+    reactionSummary: reactionSummaryMap.get(String(comment.id)) || { counts: {}, userReaction: null },
+    replies: [] as any[]
+  };
+};
+
+const loadScrollCommentsBundle = async (req: Request, scrollId: string, viewerId?: string | null) => {
+  const prismaAny = prisma as any;
+  const comments = await prismaAny.scrollComment.findMany({
+    where: { scrollId },
+    select: scrollCommentListSelect,
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+  });
+  const authorIds = Array.from(
+    new Set((comments || []).map((comment: any) => String(comment?.authorId || '').trim()).filter(Boolean))
+  );
+  const [authors, reactionSummaryMap] = await Promise.all([
+    authorIds.length
+      ? prisma.user.findMany({
+          where: { id: { in: authorIds } },
+          select: { id: true, name: true, username: true, avatar: true }
+        })
+      : Promise.resolve([]),
+    loadScrollCommentReactionSummaryMap(
+      comments.map((comment: any) => String(comment.id)),
+      viewerId
+    )
+  ]);
+  const authorMap = new Map<string, any>((authors as any[]).map((author: any) => [String(author.id), author]));
+  const payloadMap = new Map<string, any>();
+  (comments || []).forEach((comment: any) => {
+    payloadMap.set(
+      String(comment.id),
+      buildScrollCommentPayload(req, comment, authorMap, reactionSummaryMap, viewerId)
+    );
+  });
+  const roots: any[] = [];
+  (comments || []).forEach((comment: any) => {
+    const payload = payloadMap.get(String(comment.id));
+    if (!payload) return;
+    const parentId = String(comment.parentId || '').trim();
+    if (parentId && payloadMap.has(parentId)) {
+      payloadMap.get(parentId).replies.push(payload);
+      return;
+    }
+    roots.push(payload);
+  });
+  return {
+    items: roots,
+    count: countActiveScrollComments(comments)
+  };
+};
+
+const buildSingleScrollCommentPayload = async (req: Request, comment: any, viewerId?: string | null) => {
+  const authorIds = Array.from(new Set([String(comment?.authorId || '').trim()].filter(Boolean)));
+  const [authors, reactionSummaryMap] = await Promise.all([
+    authorIds.length
+      ? prisma.user.findMany({
+          where: { id: { in: authorIds } },
+          select: { id: true, name: true, username: true, avatar: true }
+        })
+      : Promise.resolve([]),
+    loadScrollCommentReactionSummaryMap([String(comment.id)], viewerId)
+  ]);
+  const authorMap = new Map<string, any>((authors as any[]).map((author: any) => [String(author.id), author]));
+  return buildScrollCommentPayload(req, comment, authorMap, reactionSummaryMap, viewerId);
 };
 
 const ensureScrollOwnership = (scroll: any, userId: string, isAdmin: boolean) => {
@@ -374,6 +573,7 @@ export const createScroll = async (req: Request, res: Response) => {
     }
 
     const isAIEnhanced = Boolean(req.body?.isAIEnhanced);
+    const graphicWarning = Boolean(req.body?.graphicWarning);
     if (config.aiLabelRequired && !isAIEnhanced) {
       return res.status(400).json({ success: false, error: 'AI label is required by admin settings.' });
     }
@@ -385,6 +585,14 @@ export const createScroll = async (req: Request, res: Response) => {
         ? null
         : Number(req.body?.filterStrength);
     const tags = normalizeTagRows(req.body?.tags);
+    const offerTags = await resolveSubmittedContentOfferTags(
+      req.body?.offerTags ?? req.body?.offer_tags,
+      {
+        actorUserId: userId,
+        actorRole: (req as any)?.user?.role,
+        contentType: 'scroll'
+      }
+    );
     const videoIntegrity = await assessVideoIntegrityByFile(fileId, userId);
 
     const prismaAny = prisma as any;
@@ -394,8 +602,10 @@ export const createScroll = async (req: Request, res: Response) => {
         fileId,
         title: String(req.body?.title || '').trim() || null,
         description: String(req.body?.description || '').trim() || null,
+        offerTags: offerTags.length ? offerTags : null,
         location: String(req.body?.location || '').trim() || null,
         visibility,
+        graphicWarning,
         isAIEnhanced,
         filterPreset,
         filterStrength: Number.isFinite(filterStrength as number) ? Number(filterStrength) : null,
@@ -466,6 +676,9 @@ export const updateScroll = async (req: Request, res: Response) => {
     if (typeof req.body?.visibility !== 'undefined') {
       updateData.visibility = normalizeVisibility(req.body?.visibility, existing.visibility || config.defaultVisibility || 'public');
     }
+    if (typeof req.body?.graphicWarning !== 'undefined') {
+      updateData.graphicWarning = Boolean(req.body?.graphicWarning);
+    }
     if (typeof req.body?.isAIEnhanced !== 'undefined') {
       updateData.isAIEnhanced = Boolean(req.body?.isAIEnhanced);
     }
@@ -475,6 +688,17 @@ export const updateScroll = async (req: Request, res: Response) => {
     if (typeof req.body?.filterStrength !== 'undefined') {
       const nextStrength = Number(req.body?.filterStrength);
       updateData.filterStrength = Number.isFinite(nextStrength) ? nextStrength : null;
+    }
+    if (typeof req.body?.offerTags !== 'undefined' || typeof req.body?.offer_tags !== 'undefined') {
+      const offerTags = await resolveSubmittedContentOfferTags(
+        req.body?.offerTags ?? req.body?.offer_tags,
+        {
+          actorUserId: userId,
+          actorRole: (req as any)?.user?.role,
+          contentType: 'scroll'
+        }
+      );
+      updateData.offerTags = offerTags.length ? offerTags : null;
     }
 
     if (typeof req.body?.fileId !== 'undefined') {
@@ -773,6 +997,217 @@ export const engageScroll = async (req: Request, res: Response) => {
     }
     console.error('engageScroll error:', error);
     return res.status(500).json({ success: false, error: error?.message || 'Failed to update engagement.' });
+  }
+};
+
+export const getScrollComments = async (req: Request, res: Response) => {
+  try {
+    const scrollId = String(req.params.id || '').trim();
+    const viewerId = String((req as any)?.user?.id || '').trim() || null;
+    const privileged = isPrivilegedUser((req as any)?.user);
+    const prismaAny = prisma as any;
+
+    const scroll = await prismaAny.scrollVideo.findUnique({
+      where: { id: scrollId },
+      select: { id: true, authorId: true, visibility: true, status: true }
+    });
+    const access = await canAccessScroll(scroll, viewerId, privileged);
+    if (!access.ok) return res.status(access.status).json({ success: false, error: access.error });
+
+    const bundle = await loadScrollCommentsBundle(req, scrollId, viewerId);
+    return res.json({ success: true, data: bundle });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll comment tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    console.error('getScrollComments error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to load scroll comments.' });
+  }
+};
+
+export const createScrollComment = async (req: Request, res: Response) => {
+  try {
+    const scrollId = String(req.params.id || '').trim();
+    const userId = String((req as any)?.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const content = String(req.body?.content || '').trim();
+    const parentId = String(req.body?.parentId || '').trim() || null;
+    if (!content) {
+      return res.status(400).json({ success: false, error: 'Content required.' });
+    }
+
+    const privileged = isPrivilegedUser((req as any)?.user);
+    const prismaAny = prisma as any;
+    const scroll = await prismaAny.scrollVideo.findUnique({
+      where: { id: scrollId },
+      select: { id: true, authorId: true, visibility: true, status: true }
+    });
+    const access = await canAccessScroll(scroll, userId, privileged);
+    if (!access.ok) return res.status(access.status).json({ success: false, error: access.error });
+
+    let parentComment: any = null;
+    if (parentId) {
+      parentComment = await prismaAny.scrollComment.findUnique({
+        where: { id: parentId },
+        select: { id: true, scrollId: true, authorId: true, status: true }
+      });
+      if (!parentComment || String(parentComment.scrollId) !== scrollId) {
+        return res.status(404).json({ success: false, error: 'Reply target not found.' });
+      }
+      if (String(parentComment.status || '').toLowerCase() === 'deleted') {
+        return res.status(400).json({ success: false, error: 'Cannot reply to a deleted comment.' });
+      }
+      if (await hasUserBlockRelation(userId, parentComment.authorId)) {
+        return res.status(403).json({ success: false, error: 'Interaction is not allowed for this comment.' });
+      }
+    }
+
+    const [created, updatedScroll] = await prisma.$transaction([
+      prismaAny.scrollComment.create({
+        data: {
+          scrollId,
+          parentId,
+          authorId: userId,
+          content
+        },
+        select: scrollCommentListSelect
+      }),
+      prismaAny.scrollVideo.update({
+        where: { id: scrollId },
+        data: { commentsCount: { increment: 1 } },
+        select: { commentsCount: true }
+      })
+    ]);
+
+    const payload = await buildSingleScrollCommentPayload(req, created, userId);
+    const metrics = { comments: Number(updatedScroll?.commentsCount || 0) };
+    emitScrollEvent(req, 'scroll:comment_created', { scrollId, comment: payload, metrics });
+    emitScrollEvent(req, 'scroll:engagement_update', { scrollId, type: 'comment', metrics });
+
+    return res.json({ success: true, data: { comment: payload, metrics } });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll comment tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    console.error('createScrollComment error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to create scroll comment.' });
+  }
+};
+
+export const updateScrollComment = async (req: Request, res: Response) => {
+  try {
+    const commentId = String(req.params.id || '').trim();
+    const userId = String((req as any)?.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const content = String(req.body?.content || '').trim();
+    if (!content) {
+      return res.status(400).json({ success: false, error: 'Content required.' });
+    }
+
+    const prismaAny = prisma as any;
+    const existing = await prismaAny.scrollComment.findUnique({
+      where: { id: commentId },
+      select: scrollCommentListSelect
+    });
+    if (!existing) return res.status(404).json({ success: false, error: 'Comment not found.' });
+    if (String(existing.status || '').toLowerCase() === 'deleted') {
+      return res.status(400).json({ success: false, error: 'Cannot edit a deleted comment.' });
+    }
+    if (String(existing.authorId) !== userId && !isPrivilegedUser((req as any)?.user)) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+
+    const updated = await prismaAny.scrollComment.update({
+      where: { id: commentId },
+      data: { content },
+      select: scrollCommentListSelect
+    });
+    const payload = await buildSingleScrollCommentPayload(req, updated, userId);
+    emitScrollEvent(req, 'scroll:comment_updated', { scrollId: updated.scrollId, comment: payload });
+
+    return res.json({ success: true, data: payload });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll comment tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    console.error('updateScrollComment error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to update scroll comment.' });
+  }
+};
+
+export const deleteScrollComment = async (req: Request, res: Response) => {
+  try {
+    const commentId = String(req.params.id || '').trim();
+    const userId = String((req as any)?.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const prismaAny = prisma as any;
+    const existing = await prismaAny.scrollComment.findUnique({
+      where: { id: commentId },
+      select: scrollCommentListSelect
+    });
+    if (!existing) return res.status(404).json({ success: false, error: 'Comment not found.' });
+    if (String(existing.authorId) !== userId && !isPrivilegedUser((req as any)?.user)) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+    if (String(existing.status || '').toLowerCase() === 'deleted') {
+      return res.json({ success: true });
+    }
+
+    const [, updatedScroll] = await prisma.$transaction([
+      prismaAny.scrollComment.update({
+        where: { id: commentId },
+        data: {
+          status: 'deleted',
+          deletedAt: new Date(),
+          content: ''
+        }
+      }),
+      prismaAny.scrollVideo.update({
+        where: { id: existing.scrollId },
+        data: { commentsCount: { decrement: 1 } },
+        select: { commentsCount: true }
+      })
+    ]);
+
+    const metrics = { comments: Math.max(0, Number(updatedScroll?.commentsCount || 0)) };
+    emitScrollEvent(req, 'scroll:comment_deleted', {
+      scrollId: existing.scrollId,
+      commentId: existing.id,
+      parentId: existing.parentId || null,
+      metrics
+    });
+    emitScrollEvent(req, 'scroll:engagement_update', {
+      scrollId: existing.scrollId,
+      type: 'comment',
+      metrics
+    });
+
+    return res.json({ success: true });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll comment tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    console.error('deleteScrollComment error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to delete scroll comment.' });
   }
 };
 

@@ -19,6 +19,9 @@ export type ScrolithaLlmRuntime = {
   allowGeminiFallback: boolean;
 };
 
+const OLLAMA_MODEL_PULL_TIMEOUT_MS = 240_000;
+const ollamaPullsInFlight = new Map<string, Promise<void>>();
+
 const asBool = (value: unknown, fallback: boolean) => {
   const v = String(value ?? '').trim().toLowerCase();
   if (!v) return fallback;
@@ -33,7 +36,11 @@ const asNumber = (value: unknown, fallback: number) => {
   return n;
 };
 
-const normalizeHost = (value: string) => String(value || '').trim().replace(/\/$/, '');
+const normalizeHost = (value: string) =>
+  String(value || '')
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/api(?:\/(?:chat|tags|pull))?$/i, '');
 
 const pickString = (...values: Array<unknown>) => {
   for (const value of values) {
@@ -41,6 +48,87 @@ const pickString = (...values: Array<unknown>) => {
     if (s) return s;
   }
   return '';
+};
+
+const readResponseText = async (response: Response) => {
+  try {
+    return String((await response.text()) || '').trim();
+  } catch {
+    return '';
+  }
+};
+
+const isAbortError = (error: any) =>
+  Boolean(error) &&
+  (String(error?.name || '').trim() === 'AbortError' ||
+    String(error?.code || '').trim().toUpperCase() === 'ABORT_ERR');
+
+const hasOllamaModel = (models: string[], requestedModel: string) => {
+  const requested = String(requestedModel || '').trim().toLowerCase();
+  if (!requested) return false;
+  return models.some((model) => String(model || '').trim().toLowerCase() === requested);
+};
+
+const isMissingModelError = (status: number, bodyText: string) => {
+  const source = String(bodyText || '').trim().toLowerCase();
+  return (
+    status === 404 ||
+    source.includes('model') && source.includes('not found') ||
+    source.includes('pull') && source.includes('model') && source.includes('not found')
+  );
+};
+
+export const ollamaPullModel = async (host: string, model: string, timeoutMs = OLLAMA_MODEL_PULL_TIMEOUT_MS) => {
+  const normalizedHost = normalizeHost(host);
+  const normalizedModel = String(model || '').trim();
+  if (!normalizedHost) throw new Error('Ollama host is missing');
+  if (!normalizedModel) throw new Error('Ollama model is missing');
+
+  const key = `${normalizedHost}::${normalizedModel.toLowerCase()}`;
+  const existing = ollamaPullsInFlight.get(key);
+  if (existing) return existing;
+
+  const pullPromise = (async () => {
+    const url = `${normalizedHost}/api/pull`;
+    const res = await withTimeout(async (signal) => {
+      return fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        },
+        body: JSON.stringify({
+          name: normalizedModel,
+          stream: false
+        }),
+        signal
+      });
+    }, Math.max(15_000, Math.floor(asNumber(timeoutMs, OLLAMA_MODEL_PULL_TIMEOUT_MS))));
+
+    const responseText = await readResponseText(res);
+    if (!res.ok) {
+      throw new Error(`Ollama pull HTTP ${res.status}: ${responseText || res.statusText}`);
+    }
+
+    if (responseText) {
+      try {
+        const payload = JSON.parse(responseText);
+        const errorMessage = String(payload?.error || '').trim();
+        if (errorMessage) {
+          throw new Error(`Ollama pull failed: ${errorMessage}`);
+        }
+      } catch (error: any) {
+        if (!(error instanceof SyntaxError)) {
+          throw error;
+        }
+      }
+    }
+  })().finally(() => {
+    ollamaPullsInFlight.delete(key);
+  });
+
+  ollamaPullsInFlight.set(key, pullPromise);
+  return pullPromise;
 };
 
 const readLlmMetadata = (metadata: any): Record<string, any> => {
@@ -115,6 +203,11 @@ const withTimeout = async <T>(fn: (signal: AbortSignal) => Promise<T>, timeoutMs
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fn(controller.signal);
+  } catch (error: any) {
+    if (isAbortError(error)) {
+      throw new Error(`Scrolitha AI timeout of ${timeoutMs}ms exceeded`);
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -154,18 +247,27 @@ export const ollamaChat = async (input: {
     }
   };
 
-  const res = await withTimeout(async (signal) => {
-    return fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal
-    });
-  }, timeoutMs);
+  const requestChat = () =>
+    withTimeout(async (signal) => {
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal
+      });
+    }, timeoutMs);
 
+  let res = await requestChat();
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Ollama HTTP ${res.status}: ${text || res.statusText}`);
+    let responseText = await readResponseText(res);
+    if (isMissingModelError(res.status, responseText)) {
+      await ollamaPullModel(host, model, Math.max(OLLAMA_MODEL_PULL_TIMEOUT_MS, timeoutMs * 4));
+      res = await requestChat();
+      responseText = await readResponseText(res);
+    }
+    if (!res.ok) {
+      throw new Error(`Ollama HTTP ${res.status}: ${responseText || res.statusText}`);
+    }
   }
 
   const json: any = await res.json().catch(() => null);
@@ -206,16 +308,26 @@ export const getScrolithaOllamaHealth = async (scope: ScrolithaScope) => {
   }
 
   try {
-    const models = await ollamaListModels(runtime.host, Math.min(10_000, runtime.timeoutMs));
-    const hasModel = models.includes(runtime.model);
+    let models = await ollamaListModels(runtime.host, Math.min(10_000, runtime.timeoutMs));
+    let modelPresent = hasOllamaModel(models, runtime.model);
+    let autoPulled = false;
+
+    if (!modelPresent && runtime.model) {
+      await ollamaPullModel(runtime.host, runtime.model, Math.max(OLLAMA_MODEL_PULL_TIMEOUT_MS, runtime.timeoutMs * 4));
+      autoPulled = true;
+      models = await ollamaListModels(runtime.host, Math.min(15_000, Math.max(runtime.timeoutMs, 15_000)));
+      modelPresent = hasOllamaModel(models, runtime.model);
+    }
+
     return {
-      ok: true,
+      ok: modelPresent,
       provider: runtime.provider,
       enabled: true,
       host: runtime.host,
       model: runtime.model,
       models,
-      modelPresent: hasModel
+      modelPresent,
+      autoPulled
     };
   } catch (error: any) {
     return {

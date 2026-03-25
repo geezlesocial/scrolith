@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../services/scrolitha/scrolitha.audit';
-import { getScrolithaOllamaHealth, ollamaListModels, resolveScrolithaLlmRuntime } from '../services/scrolitha/scrolitha.ollama';
+import { getScrolithaOllamaHealth } from '../services/scrolitha/scrolitha.ollama';
 import { clearPostInsights, regeneratePostInsightsBatch } from '../services/postAi.service';
 import {
   createScrolithaSkill,
@@ -67,16 +67,18 @@ export const getAdminScrolithaHealthController = async (req: Request, res: Respo
 export const getAdminScrolithaModelsController = async (req: Request, res: Response) => {
   try {
     const scope = String(req.query.scope || 'admin').trim().toLowerCase();
-    const runtime = await resolveScrolithaLlmRuntime(scope === 'user' ? 'user' : 'admin');
-    const models = runtime.host ? await ollamaListModels(runtime.host, Math.min(10_000, runtime.timeoutMs)) : [];
+    const health = await getScrolithaOllamaHealth(scope === 'user' ? 'user' : 'admin');
     return res.json({
       success: true,
       data: {
-        provider: runtime.provider,
-        enabled: runtime.enabled,
-        host: runtime.host || null,
-        model: asScrolithaModelLabel(runtime.model),
-        models
+        provider: health?.provider || 'ollama',
+        enabled: Boolean(health?.enabled),
+        host: health?.host || null,
+        model: asScrolithaModelLabel(health?.model),
+        models: Array.isArray((health as any)?.models) ? (health as any).models : [],
+        modelPresent: Boolean((health as any)?.modelPresent),
+        autoPulled: Boolean((health as any)?.autoPulled),
+        error: (health as any)?.error || null
       },
       message: 'Scrolitha model list loaded'
     });

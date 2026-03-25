@@ -195,7 +195,28 @@ const DEFAULT_GUEST_HOMEPAGE_SECTIONS = [
       defaultTab: 'signup',
       enableSocialLogin: true,
       loginCtaLabel: 'Login',
-      signupCtaLabel: 'Sign up'
+      signupCtaLabel: 'Sign up',
+      scrolitha: {
+        enabled: true,
+        eyebrow: 'Scrolitha Live Assistant',
+        title: 'Talk to Scrolitha before you create your account',
+        subtitle: 'Launch guided AI onboarding directly from the guest homepage.',
+        description: 'Visitors can preview gig creation, hiring, briefs, and marketplace workflows before signing in.',
+        primaryPrompt: 'Create a gig draft',
+        primaryLabel: 'Open Scrolitha',
+        secondaryLabel: 'Join with popup',
+        secondaryUrl: '/auth/signup',
+        promptChips: ['Create a gig draft', 'Generate a project brief', 'How do I start on Scrolith?']
+      },
+      authPopup: {
+        enabled: true,
+        delaySeconds: 120,
+        headline: 'Stay on Scrolith and continue your account setup',
+        subheadline: 'Sign in or join directly from the guest homepage with the same enterprise auth controls.',
+        defaultTab: 'signup',
+        dismissLabel: 'Maybe later',
+        trustNote: 'This popup is additive to your existing auth pages and can be dismissed anytime.'
+      }
     }
   },
   {
@@ -510,7 +531,7 @@ router.get('/ai/analytics', async (_req, res) => {
 router.get('/platform/settings', async (req, res) => {
   const defaults = {
     siteName: 'Scrolith Marketplace',
-    tagline: 'Find, hire, and work with the best talent',
+    tagline: 'AI-Powered Social Freelance Marketplace with Secure Escrow & Monetization',
     logoUrl: BRAND_ASSET_URL,
     faviconUrl: BRAND_ASSET_URL,
     adminEmail: 'admin@Scrolith.com',
@@ -1048,7 +1069,7 @@ router.get('/settings', (req, res) => {
     success: true,
     data: {
       siteName: 'Scrolith Marketplace',
-      tagline: 'Find, hire, and work with the best talent',
+      tagline: 'AI-Powered Social Freelance Marketplace with Secure Escrow & Monetization',
       logoUrl: BRAND_ASSET_URL
     }
   });

@@ -2,6 +2,14 @@ import { Request, Response } from "express";
 import prisma from "../utils/prismaClient";
 import { sendSystemMessage } from "../services/systemMessaging";
 import realtime from "../utils/realtime";
+import {
+  buildContractPlan,
+  normalizeContractTypeDb,
+  normalizePaymentCycleDb,
+  normalizeStoredMilestones,
+  normalizeStoredPaymentSchedule,
+  paymentCycleDbToView
+} from "../utils/contractConversion";
 
 type RoleNorm = "admin" | "superadmin" | "freelancer" | "client" | "employer" | "user" | "guest" | "";
 
@@ -102,12 +110,8 @@ const toContractTypeStr = (dbType: any): "fixed" | "hourly" => {
   return t === "FIXED" ? "fixed" : "hourly";
 };
 
-const toPaymentCycleStr = (dbCycle: any): "weekly" | "bi-weekly" | "monthly" => {
-  const c = (dbCycle || "").toString().toUpperCase();
-  if (c === "BI_WEEKLY") return "bi-weekly";
-  if (c === "MONTHLY") return "monthly";
-  return "weekly";
-};
+const toPaymentCycleStr = (dbCycle: any): "weekly" | "bi-weekly" | "monthly" =>
+  paymentCycleDbToView(dbCycle);
 
 const toContractStatusStr = (dbStatus: any): "active" | "paused" | "terminated" | "completed" => {
   const s = (dbStatus || "").toString().toUpperCase();
@@ -125,18 +129,9 @@ const parseContractStatusEnum = (statusRaw?: string) => {
   return "ACTIVE";
 };
 
-const parseContractTypeEnum = (typeRaw?: string) => {
-  const t = (typeRaw || "").toString().toLowerCase().trim();
-  if (t === "fixed") return "FIXED";
-  return "HOURLY";
-};
+const parseContractTypeEnum = (typeRaw?: string) => normalizeContractTypeDb(typeRaw, "HOURLY");
 
-const parsePaymentCycleEnum = (cycleRaw?: string) => {
-  const c = (cycleRaw || "").toString().toLowerCase().trim();
-  if (c === "bi-weekly" || c === "bi_weekly" || c === "biweekly") return "BI_WEEKLY";
-  if (c === "monthly") return "MONTHLY";
-  return "WEEKLY";
-};
+const parsePaymentCycleEnum = (cycleRaw?: string) => normalizePaymentCycleDb(cycleRaw, "WEEKLY");
 
 const timeEntryStatusToStr = (dbStatus: any): "pending" | "approved" | "paid" | "rejected" => {
   const s = (dbStatus || "").toString().toUpperCase();
@@ -183,12 +178,40 @@ const serializeContract = async (c: any) => {
     type: toContractTypeStr(c.type),
     hourlyRate: Number(c.hourlyRate || 0),
     paymentCycle: toPaymentCycleStr(c.paymentCycle),
+    contractValue: c.contractValue !== undefined && c.contractValue !== null ? Number(c.contractValue) : null,
+    deliveryDays: c.deliveryDays !== undefined && c.deliveryDays !== null ? Number(c.deliveryDays) : null,
+    paymentSchedule: normalizeStoredPaymentSchedule(c.paymentSchedule),
+    milestones: normalizeStoredMilestones(c.milestones),
     status: toContractStatusStr(c.status),
     startDate: (c.startDate instanceof Date ? c.startDate : new Date(c.startDate)).toISOString(),
     description: c.description || "",
     activeSessionId: activeSession?.id || undefined,
     ...totals
   };
+};
+
+const mutateMilestoneStatus = (
+  milestonesRaw: any,
+  milestoneId: string,
+  status: "pending" | "submitted" | "approved" | "paid"
+) => {
+  const current = normalizeStoredMilestones(milestonesRaw);
+  const index = current.findIndex((entry) => entry.id === milestoneId);
+  if (index === -1) {
+    throw new Error("Milestone not found");
+  }
+
+  const timestamp = new Date().toISOString();
+  const next = current.map((entry, entryIndex) => {
+    if (entryIndex !== index) return entry;
+    const updated: any = { ...entry, status };
+    if (status === "submitted") updated.submittedAt = timestamp;
+    if (status === "approved") updated.approvedAt = timestamp;
+    if (status === "paid") updated.paidAt = timestamp;
+    return updated;
+  });
+
+  return next;
 };
 
 const ensureContractAccess = (role: RoleNorm, userId: string, contract: any) => {
@@ -274,6 +297,18 @@ export const createContract = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: "Client and freelancer cannot be the same user" });
     }
 
+    const plan = buildContractPlan({
+      proposal: {
+        proposedAmount: req.body?.contractValue ?? req.body?.hourlyRate ?? req.body?.hourly_rate,
+        proposedTimeline: req.body?.deliveryDays ?? req.body?.delivery_days,
+        job: {
+          type: req.body?.type
+        }
+      },
+      payload: req.body,
+      settings: null
+    });
+
     const created = await prisma.contract.create({
       data: {
         id: req.body?.id || undefined,
@@ -282,12 +317,16 @@ export const createContract = async (req: Request, res: Response) => {
         freelancerId,
         clientName: req.body?.clientName || "Client",
         freelancerName: req.body?.freelancerName || "Freelancer",
-        type: parseContractTypeEnum(req.body?.type),
-        hourlyRate: Number(req.body?.hourlyRate || 0),
-        paymentCycle: parsePaymentCycleEnum(req.body?.paymentCycle),
+        type: parseContractTypeEnum(plan.contractType),
+        hourlyRate: Number(plan.hourlyRate || 0),
+        paymentCycle: parsePaymentCycleEnum(plan.paymentCycle),
+        contractValue: plan.contractValue,
+        deliveryDays: plan.deliveryDays,
+        paymentSchedule: plan.paymentSchedule as any,
+        milestones: plan.milestones as any,
         status: parseContractStatusEnum(req.body?.status),
-        startDate: req.body?.startDate ? new Date(req.body.startDate) : new Date(),
-        description: req.body?.description || "",
+        startDate: plan.startDate,
+        description: plan.description || "",
         jobId: req.body?.jobId || null,
         sourceProposalId: req.body?.sourceProposalId || null
       }
@@ -332,7 +371,56 @@ export const createContract = async (req: Request, res: Response) => {
     return res.json({ success: true, data: payload });
   } catch (err: any) {
     console.error("createContract error:", err);
+    const message = String(err?.message || "").trim();
+    if (message) {
+      return res.status(400).json({ success: false, error: message });
+    }
     return res.status(500).json({ success: false, error: "Failed to create contract" });
+  }
+};
+
+export const updateContractMilestoneStatus = async (req: Request, res: Response) => {
+  try {
+    const { role, userId } = getAuth(req);
+    const contract = await prisma.contract.findUnique({ where: { id: req.params.id } });
+    if (!contract) return res.status(404).json({ success: false, error: "Contract not found" });
+
+    if (!ensureContractAccess(role, userId, contract)) {
+      return res.status(403).json({ success: false, error: "Not authorized" });
+    }
+
+    const statusRaw = String(req.body?.status || "").trim().toLowerCase();
+    if (!["pending", "submitted", "approved", "paid"].includes(statusRaw)) {
+      return res.status(400).json({ success: false, error: "Invalid milestone status" });
+    }
+
+    const isFreelancer = contract.freelancerId === userId;
+    const isClient = contract.clientId === userId || isAdminRole(role);
+    if (isFreelancer && statusRaw !== "submitted") {
+      return res.status(403).json({ success: false, error: "Freelancers can only submit milestones" });
+    }
+    if (!isFreelancer && !isClient) {
+      return res.status(403).json({ success: false, error: "Not authorized" });
+    }
+
+    const milestones = mutateMilestoneStatus(contract.milestones, req.params.milestoneId, statusRaw as any);
+    const updated = await prisma.contract.update({
+      where: { id: contract.id },
+      data: { milestones: milestones as any }
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        id: updated.id,
+        milestones: normalizeStoredMilestones(updated.milestones)
+      }
+    });
+  } catch (err: any) {
+    console.error("updateContractMilestoneStatus error:", err);
+    const message = err?.message === "Milestone not found" ? err.message : "Failed to update milestone status";
+    const status = err?.message === "Milestone not found" ? 404 : 500;
+    return res.status(status).json({ success: false, error: message });
   }
 };
 

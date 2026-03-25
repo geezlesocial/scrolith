@@ -157,6 +157,7 @@ export const listJobs = async (req: Request, res: Response) => {
   try {
     const { ownerId, status, search } = req.query as Record<string, string | undefined>;
     const userId = req.user?.id as string | undefined;
+    const isOwnListingRequest = ownerId === 'me';
     const recommendedOnly = parseBooleanQuery(req.query.recommended);
     const featuredOnly = parseBooleanQuery(req.query.featuredOnly);
     const explicitRandomize = parseBooleanQuery(req.query.random);
@@ -164,18 +165,23 @@ export const listJobs = async (req: Request, res: Response) => {
     const limit = parseLimitQuery(req.query.limit, 100);
     const shouldDefaultRandomize =
       !hasRandomParam &&
-      ownerId !== 'me' &&
+      !isOwnListingRequest &&
       String(status || '').toLowerCase() === 'active' &&
       limit !== null;
     const randomize = explicitRandomize || shouldDefaultRandomize;
 
     const where: any = {};
-    if (ownerId === 'me') {
+    if (isOwnListingRequest) {
       if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
       where.clientId = userId;
+    } else {
+      where.isActive = true;
+      where.isVisible = true;
+      where.adminStatus = 'APPROVED';
+      where.status = 'ACTIVE';
     }
 
-    if (status) {
+    if (status && isOwnListingRequest) {
       where.status = status.toUpperCase();
     }
 
@@ -233,6 +239,19 @@ export const getJob = async (req: Request, res: Response) => {
       include: { category: true, client: { select: safeUserSelect } }
     });
     if (!job) return res.status(404).json({ success: false, error: 'Job not found' });
+    const requesterId = String(req.user?.id || '').trim();
+    const requesterRole = String(req.user?.role || '').trim().toUpperCase();
+    const canViewPrivate =
+      Boolean(requesterId) &&
+      (requesterRole === 'ADMIN' || requesterId === String(job.clientId || ''));
+    const isPublicJob =
+      Boolean(job.isActive) &&
+      Boolean(job.isVisible) &&
+      String(job.status || '').toUpperCase() === 'ACTIVE' &&
+      String(job.adminStatus || '').toUpperCase() === 'APPROVED';
+    if (!isPublicJob && !canViewPrivate) {
+      return res.status(404).json({ success: false, error: 'Job not found' });
+    }
     return res.json({ success: true, data: serializeJob(job) });
   } catch (error: any) {
     console.error('Get job error:', error);

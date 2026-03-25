@@ -1,5 +1,6 @@
 import express from 'express';
 import prisma from '../utils/prismaClient';
+import { DEFAULT_MEMBER_HOME_LOCATIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../constants/defaultAudienceOptions';
 
 const router = express.Router();
 
@@ -77,8 +78,8 @@ const DEFAULT_MOBILE_HOME_LAYOUT = {
     graphicWarningEnabled: true,
     graphicWarningLabel: 'Graphic warning',
     graphicWarningBlurMedia: true,
-    topics: [],
-    locations: []
+    topics: DEFAULT_MEMBER_HOME_TOPICS,
+    locations: DEFAULT_MEMBER_HOME_LOCATIONS
   },
   postCard: {
     reactionsEnabled: true,
@@ -119,7 +120,28 @@ const DEFAULT_GUEST_HOMEPAGE_SECTIONS = [
       defaultTab: 'signup',
       enableSocialLogin: true,
       loginCtaLabel: 'Login',
-      signupCtaLabel: 'Sign up'
+      signupCtaLabel: 'Sign up',
+      scrolitha: {
+        enabled: true,
+        eyebrow: 'Scrolitha Live Assistant',
+        title: 'Talk to Scrolitha before you create your account',
+        subtitle: 'Launch guided AI onboarding directly from the guest homepage.',
+        description: 'Visitors can preview gig creation, hiring, briefs, and marketplace workflows before signing in.',
+        primaryPrompt: 'Create a gig draft',
+        primaryLabel: 'Open Scrolitha',
+        secondaryLabel: 'Join with popup',
+        secondaryUrl: '/auth/signup',
+        promptChips: ['Create a gig draft', 'Generate a project brief', 'How do I start on Scrolith?']
+      },
+      authPopup: {
+        enabled: true,
+        delaySeconds: 120,
+        headline: 'Stay on Scrolith and continue your account setup',
+        subheadline: 'Sign in or join directly from the guest homepage with the same enterprise auth controls.',
+        defaultTab: 'signup',
+        dismissLabel: 'Maybe later',
+        trustNote: 'This popup is additive to your existing auth pages and can be dismissed anytime.'
+      }
     }
   },
   {

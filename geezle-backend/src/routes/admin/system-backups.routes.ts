@@ -8,6 +8,7 @@ import {
   deleteAdminSystemBackupBatch,
   downloadAdminSystemBackup,
   getAdminSystemBackupMeta,
+  getAdminSystemBackupJobs,
   getAdminSystemBackups,
   importAdminSystemBackup,
   restoreAdminSystemBackup
@@ -62,6 +63,7 @@ const backupImportUploadMiddleware: express.RequestHandler = (req, res, next) =>
 
 router.get('/meta', getAdminSystemBackupMeta);
 router.get('/', getAdminSystemBackups);
+router.get('/jobs', getAdminSystemBackupJobs);
 router.post('/create', createAdminSystemBackup);
 router.get('/:id/download', downloadAdminSystemBackup);
 router.post('/import', backupImportUploadMiddleware, importAdminSystemBackup);

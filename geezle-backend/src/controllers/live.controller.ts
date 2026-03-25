@@ -4,12 +4,27 @@ import gcoinService from '../services/gcoinService';
 import { addFileUsage, removeUsage } from '../utils/fileUsage';
 import { notifyUser } from '../utils/notify';
 import {
+  getLiveRealtimeConfig,
+  getLiveExperienceConfig,
   getLiveConfigFallback,
   getOrCreateLiveConfig,
   isLiveSchemaMissingError,
   resolveLiveParticipantLimit,
-  updateLiveConfig
+  updateLiveConfig,
+  updateLiveExperienceConfig
 } from '../services/live.service';
+import {
+  appendLiveDiagnosticsEvent,
+  buildLiveDiagnosticsSummary,
+  getLiveDiagnosticsConfig,
+  getLiveDiagnosticsEvents,
+  type LiveDiagnosticsConfig,
+  updateLiveDiagnosticsConfig
+} from '../services/liveDiagnostics.service';
+import {
+  normalizeStoredContentOfferTags,
+  resolveSubmittedContentOfferTags
+} from '../services/contentOfferTagging.service';
 
 const LIVE_VISIBILITIES = new Set(['public', 'network', 'followers', 'private']);
 const LIVE_REACTION_TYPES = new Set(['like', 'love']);
@@ -167,19 +182,31 @@ const resolveTaggedPages = async (value: any) => {
   return Array.from(new Map(ordered.map((row: any) => [row.id, row])).values());
 };
 
-const normalizeLiveMetadata = async (value: any) => {
+const normalizeLiveMetadata = async (
+  value: any,
+  options?: { actorUserId?: string | null; actorRole?: string | null }
+) => {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? { ...(value as Record<string, any>) } : {};
   const mentionUsernames = toUniqueTextList(source.mentionUsernames || source.mentions, { stripAt: true });
   const taggedPageRefs = toUniqueTextList(source.taggedPageRefs || source.taggedPages, { stripAt: true });
   const mentionedUsers = await resolveMentionedUsers(mentionUsernames);
   const taggedPages = await resolveTaggedPages(taggedPageRefs);
   const liveFilter = parseLiveFilterPayload(source.liveFilter || source.filter || null);
+  const offerTags =
+    options?.actorUserId
+      ? await resolveSubmittedContentOfferTags(source.offerTags ?? source.offer_tags, {
+          actorUserId: String(options.actorUserId || '').trim(),
+          actorRole: options.actorRole,
+          contentType: 'live'
+        })
+      : normalizeStoredContentOfferTags(source.offerTags ?? source.offer_tags);
   return {
     ...source,
     mentionUsernames,
     taggedPageRefs,
     mentionedUsers,
     taggedPages,
+    offerTags,
     notifyFollowersOnLive: Boolean(source.notifyFollowersOnLive),
     notifyNetworkOnLive: Boolean(source.notifyNetworkOnLive),
     liveFilter
@@ -437,14 +464,31 @@ const fetchSessionById = async (sessionId: string) =>
     }
   });
 
-const buildSessionPayload = async (session: any, viewerId?: string | null) => {
+type BuildSessionPayloadOptions = {
+  diagnosticsConfig?: LiveDiagnosticsConfig | null;
+  includeDiagnosticsEvents?: boolean;
+};
+
+const buildSessionPayload = async (
+  session: any,
+  viewerId?: string | null,
+  options?: BuildSessionPayloadOptions
+) => {
   if (!session) return null;
   const participantRows = Array.isArray(session.participants) ? session.participants : [];
   const inviteRows = Array.isArray(session.invites) ? session.invites : [];
   const giftRows = Array.isArray(session.gifts) ? session.gifts : [];
   const metadata = getSessionMetadata(session);
+  metadata.offerTags = normalizeStoredContentOfferTags(metadata.offerTags ?? metadata.offer_tags);
   const recording = getRecordingStateFromMetadata(metadata);
   const comments = getLiveCommentsFromMetadata(metadata);
+  const diagnosticsSummary = options?.diagnosticsConfig
+    ? buildLiveDiagnosticsSummary(metadata, options.diagnosticsConfig)
+    : undefined;
+  const diagnosticsEvents =
+    options?.diagnosticsConfig && options?.includeDiagnosticsEvents
+      ? getLiveDiagnosticsEvents(metadata, options.diagnosticsConfig)
+      : undefined;
 
   const userIds = [
     String(session.hostUserId || ''),
@@ -493,6 +537,7 @@ const buildSessionPayload = async (session: any, viewerId?: string | null) => {
           ? `/api/files/content/${encodeURIComponent(String(session.recordingFileId || recording.fileId))}`
           : null
     },
+    realtimeConfig: getLiveRealtimeConfig(),
     commentsCount: comments.length,
     participants: participantRows.map((entry: any) => ({
       id: String(entry.id || ''),
@@ -531,6 +576,8 @@ const buildSessionPayload = async (session: any, viewerId?: string | null) => {
       status: viewerParticipant ? String(viewerParticipant.status || 'invited').toLowerCase() : null,
       isHost: viewerId ? String(viewerId) === String(session.hostUserId || '') : false
     },
+    diagnosticsSummary,
+    diagnosticsEvents,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt
   };
@@ -559,22 +606,140 @@ const ensureSessionAccess = (session: any, userId: string, role: string) => {
   return { ok: false, status: 403, message: 'Session is private.' };
 };
 
+const buildLiveFeatureStatusPayload = (config: any, experienceConfig?: any, diagnosticsConfig?: any) => {
+  const baseRealtimeConfig = getLiveRealtimeConfig();
+  const realtimeConfig = {
+    ...baseRealtimeConfig,
+    diagnosticsEnabled:
+      diagnosticsConfig?.enabled !== undefined ? Boolean(diagnosticsConfig.enabled) : baseRealtimeConfig.diagnosticsEnabled
+  };
+  return {
+    enabled: Boolean(config?.enabled !== false),
+    enableConference: Boolean(config?.enableConference !== false),
+    enableGifts: Boolean(config?.enableGifts !== false),
+    enableRecording: Boolean(config?.enableRecording !== false),
+    minGiftGcoin: Number(config?.minGiftGcoin || 1),
+    maxGiftGcoin: Number(config?.maxGiftGcoin || 50000),
+    rateLimitReactionsPerMinute: Number(config?.rateLimitReactionsPerMinute || 80),
+    rateLimitChatPerMinute: Number(config?.rateLimitChatPerMinute || 40),
+    experienceConfig: experienceConfig || undefined,
+    realtimeConfig
+  };
+};
+
+const ensureLiveFeatureEnabled = async (
+  req: Request,
+  res: Response,
+  options?: { emptyData?: any }
+) => {
+  const config = await getOrCreateLiveConfig();
+  if ((config as any)?._schemaMissing || config.enabled) {
+    return { ok: true, config, handled: false };
+  }
+  if (options && Object.prototype.hasOwnProperty.call(options, 'emptyData')) {
+    ok(res, options.emptyData);
+    return { ok: false, config, handled: true };
+  }
+  fail(res, 403, 'Livestreaming is disabled by admin.', 'LIVE_DISABLED');
+  return { ok: false, config, handled: true };
+};
+
+const endSessionsForLiveDisable = async (req: Request, actorUserId?: string | null) => {
+  const openSessions = await (prisma as any).liveSession.findMany({
+    where: { status: { in: ['SCHEDULED', 'LIVE'] } },
+    include: {
+      participants: true,
+      invites: true,
+      gifts: true
+    }
+  });
+  if (!openSessions.length) return [];
+
+  const endedAt = new Date();
+  const sessionIds = openSessions.map((entry: any) => String(entry.id || '').trim()).filter(Boolean);
+  if (!sessionIds.length) return [];
+
+  await (prisma as any).liveSession.updateMany({
+    where: { id: { in: sessionIds } },
+    data: {
+      status: 'ENDED',
+      endedAt
+    }
+  });
+
+  await (prisma as any).liveParticipant.updateMany({
+    where: {
+      sessionId: { in: sessionIds },
+      OR: [{ leftAt: null }, { status: { in: ['INVITED', 'JOINED'] } }]
+    },
+    data: {
+      status: 'LEFT',
+      leftAt: endedAt
+    }
+  });
+
+  const payloads = await Promise.all(
+    sessionIds.map(async (sessionId) => buildSessionPayload(await fetchSessionById(sessionId), actorUserId || null))
+  );
+
+  await Promise.all(
+    sessionIds.map((sessionId) =>
+      appendLiveDiagnosticsEvent(sessionId, {
+        source: 'backend',
+        stage: 'session:end',
+        severity: 'warn',
+        userId: actorUserId || 'admin',
+        role: 'admin',
+        reason: 'admin_disabled',
+        message: 'Livestream ended because admin disabled livestreaming.'
+      }).catch(() => null)
+    )
+  );
+
+  payloads.filter(Boolean).forEach((payload: any) => {
+    const participantIds = Array.isArray(payload?.participants)
+      ? payload.participants.map((entry: any) => String(entry?.userId || '').trim())
+      : [];
+    const userIds = Array.from(
+      new Set([String(payload?.hostUserId || '').trim(), ...participantIds].filter(Boolean))
+    );
+    emitLiveEvent(
+      req,
+      'live:ended',
+      {
+        session: payload,
+        sessionId: String(payload?.id || ''),
+        reason: 'admin_disabled',
+        endedBy: actorUserId || 'admin'
+      },
+      {
+        sessionId: String(payload?.id || ''),
+        userIds
+      }
+    );
+  });
+
+  return payloads.filter(Boolean);
+};
+
 export const createLiveSession = async (req: Request, res: Response) => {
   try {
     const hostUserId = resolveUserId(req);
     if (!hostUserId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
     if (!(await enforceLivePrivileges(res, hostUserId))) return res;
 
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
     const config = await ensureLiveSchema();
-    if (!config.enabled) {
-      return fail(res, 403, 'Livestreaming is disabled by admin.', 'LIVE_DISABLED');
-    }
 
     const visibility = normalizeVisibility(req.body?.visibility, config.defaultVisibility || 'public');
     const title = String(req.body?.title || '').trim() || null;
     const description = String(req.body?.description || '').trim() || null;
     const roomName = String(req.body?.roomName || '').trim() || `live-${Date.now()}`;
-    const metadata = await normalizeLiveMetadata(req.body?.metadata);
+    const metadata = await normalizeLiveMetadata(req.body?.metadata, {
+      actorUserId: hostUserId,
+      actorRole: resolveRole(req)
+    });
 
     const session = await (prisma as any).liveSession.create({
       data: {
@@ -611,6 +776,15 @@ export const createLiveSession = async (req: Request, res: Response) => {
       }
     });
 
+    await appendLiveDiagnosticsEvent(session.id, {
+      source: 'backend',
+      stage: 'session:created',
+      severity: 'info',
+      userId: hostUserId,
+      role: 'host',
+      message: 'Livestream session created.'
+    });
+
     const payload = await buildSessionPayload(await fetchSessionById(session.id), hostUserId);
     emitLiveEvent(req, 'live:session_created', { session: payload }, { sessionId: session.id });
     return res.status(201).json({ success: true, data: payload, timestamp: nowIso() });
@@ -636,6 +810,8 @@ export const startLiveSession = async (req: Request, res: Response) => {
     if (!userId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
     if (!isAdminRole(role) && !(await enforceLivePrivileges(res, userId))) return res;
     if (!sessionId) return fail(res, 400, 'Session ID is required.');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
 
     await ensureLiveSchema();
     const session = await fetchSessionById(sessionId);
@@ -676,6 +852,15 @@ export const startLiveSession = async (req: Request, res: Response) => {
       }
     });
 
+    await appendLiveDiagnosticsEvent(sessionId, {
+      source: 'backend',
+      stage: 'session:start',
+      severity: 'info',
+      userId,
+      role: String(session.hostUserId || '') === userId ? 'host' : role || 'admin',
+      message: 'Livestream started.'
+    });
+
     const startedSession = await fetchSessionById(sessionId);
     await notifyLiveStartRecipients(req, startedSession);
 
@@ -711,6 +896,8 @@ export const setLiveSessionFilter = async (req: Request, res: Response) => {
     const role = resolveRole(req);
     if (!userId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
     if (!sessionId) return fail(res, 400, 'Session ID is required.');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
 
     await ensureLiveSchema();
     const session = await fetchSessionById(sessionId);
@@ -767,6 +954,8 @@ export const endLiveSession = async (req: Request, res: Response) => {
     const role = resolveRole(req);
     if (!userId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
     if (!sessionId) return fail(res, 400, 'Session ID is required.');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
 
     await ensureLiveSchema();
     const session = await fetchSessionById(sessionId);
@@ -795,6 +984,16 @@ export const endLiveSession = async (req: Request, res: Response) => {
       }
     });
 
+    await appendLiveDiagnosticsEvent(sessionId, {
+      source: 'backend',
+      stage: 'session:end',
+      severity: 'info',
+      userId,
+      role: String(session.hostUserId || '') === userId ? 'host' : role || 'admin',
+      reason: 'host_ended',
+      message: 'Livestream ended.'
+    });
+
     const payload = await buildSessionPayload(await fetchSessionById(sessionId), userId);
     emitLiveEvent(req, 'live:ended', { session: payload, sessionId }, { sessionId });
     return ok(res, payload);
@@ -819,6 +1018,8 @@ export const leaveLiveSession = async (req: Request, res: Response) => {
     const role = resolveRole(req);
     if (!userId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
     if (!sessionId) return fail(res, 400, 'Session ID is required.');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
 
     await ensureLiveSchema();
     const session = await fetchSessionById(sessionId);
@@ -917,10 +1118,14 @@ export const leaveLiveSession = async (req: Request, res: Response) => {
 
 export const getLiveActiveSessions = async (req: Request, res: Response) => {
   try {
-    await ensureLiveSchema();
     const viewerId = resolveUserId(req) || null;
     const role = resolveRole(req);
     const limit = Math.max(1, Math.min(60, toInt(req.query?.limit, 20)));
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res, {
+      emptyData: { items: [], count: 0, limit }
+    });
+    if (!liveAvailability.ok) return res;
+    await ensureLiveSchema();
     const rows = await (prisma as any).liveSession.findMany({
       where: { status: 'LIVE' },
       orderBy: [{ startedAt: 'desc' }, { createdAt: 'desc' }],
@@ -959,6 +1164,8 @@ export const getLiveSessionComments = async (req: Request, res: Response) => {
     const role = resolveRole(req);
     if (!userId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
     if (!sessionId) return fail(res, 400, 'Session ID is required.');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
 
     await ensureLiveSchema();
     const session = await fetchSessionById(sessionId);
@@ -991,6 +1198,8 @@ export const addLiveSessionComment = async (req: Request, res: Response) => {
     const message = String(req.body?.message || '').trim();
     if (!message) return fail(res, 400, 'Comment message is required.', 'LIVE_COMMENT_REQUIRED');
     if (message.length > 500) return fail(res, 400, 'Comment is too long (max 500 chars).', 'LIVE_COMMENT_TOO_LONG');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
 
     await ensureLiveSchema();
     const session = await fetchSessionById(sessionId);
@@ -1051,6 +1260,8 @@ export const saveLiveRecording = async (req: Request, res: Response) => {
     const role = resolveRole(req);
     if (!actorUserId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
     if (!sessionId) return fail(res, 400, 'Session ID is required.');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
 
     await ensureLiveSchema();
     const session = await fetchSessionById(sessionId);
@@ -1140,6 +1351,8 @@ export const getLiveRecording = async (req: Request, res: Response) => {
     const role = resolveRole(req);
     if (!userId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
     if (!sessionId) return fail(res, 400, 'Session ID is required.');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
 
     await ensureLiveSchema();
     const session = await fetchSessionById(sessionId);
@@ -1168,6 +1381,8 @@ export const publishLiveRecording = async (req: Request, res: Response) => {
     const role = resolveRole(req);
     if (!actorUserId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
     if (!sessionId) return fail(res, 400, 'Session ID is required.');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
 
     await ensureLiveSchema();
     const session = await fetchSessionById(sessionId);
@@ -1289,6 +1504,8 @@ export const unpublishLiveRecording = async (req: Request, res: Response) => {
     const role = resolveRole(req);
     if (!actorUserId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
     if (!sessionId) return fail(res, 400, 'Session ID is required.');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
 
     await ensureLiveSchema();
     const session = await fetchSessionById(sessionId);
@@ -1365,6 +1582,8 @@ export const deleteLiveRecording = async (req: Request, res: Response) => {
     const role = resolveRole(req);
     if (!actorUserId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
     if (!sessionId) return fail(res, 400, 'Session ID is required.');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
 
     await ensureLiveSchema();
     const session = await fetchSessionById(sessionId);
@@ -1431,6 +1650,8 @@ export const inviteLiveParticipant = async (req: Request, res: Response) => {
     if (!inviterId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
     if (!isAdminRole(role) && !(await enforceLivePrivileges(res, inviterId))) return res;
     if (!sessionId) return fail(res, 400, 'Session ID is required.');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
 
     const config = await ensureLiveSchema();
     const session = await fetchSessionById(sessionId);
@@ -1530,6 +1751,8 @@ export const acceptLiveInvite = async (req: Request, res: Response) => {
     if (!userId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
     if (!(await enforceLivePrivileges(res, userId))) return res;
     if (!inviteId) return fail(res, 400, 'Invite ID is required.');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
 
     await ensureLiveSchema();
     const invite = await (prisma as any).liveInvite.findUnique({ where: { id: inviteId } });
@@ -1597,6 +1820,8 @@ export const reactLiveSession = async (req: Request, res: Response) => {
     const userId = resolveUserId(req);
     if (!userId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
     if (!sessionId) return fail(res, 400, 'Session ID is required.');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
 
     await ensureLiveSchema();
     const reactionType = String(req.body?.type || '').trim().toLowerCase();
@@ -1660,6 +1885,8 @@ export const sendLiveGift = async (req: Request, res: Response) => {
     const fromUserId = resolveUserId(req);
     if (!fromUserId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
     if (!sessionId) return fail(res, 400, 'Session ID is required.');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
 
     const config = await ensureLiveSchema();
     if (!config.enableGifts) {
@@ -1686,6 +1913,14 @@ export const sendLiveGift = async (req: Request, res: Response) => {
     if (!toUserId) return fail(res, 400, 'Gift recipient is required.');
     if (toUserId === fromUserId) return fail(res, 400, 'You cannot send a gift to yourself.');
 
+    const recipientUser = await prisma.user.findUnique({
+      where: { id: toUserId },
+      select: { id: true }
+    });
+    if (!recipientUser?.id) {
+      return fail(res, 404, 'Gift recipient account was not found.', 'LIVE_GIFT_RECIPIENT_NOT_FOUND');
+    }
+
     await gcoinService.ensureWalletForUser(fromUserId);
     const recipientWallet = await gcoinService.ensureWalletForUser(toUserId);
     const transferResult = await gcoinService.transfer(fromUserId, {
@@ -1704,6 +1939,10 @@ export const sendLiveGift = async (req: Request, res: Response) => {
         message: String(req.body?.message || '').trim() || null
       }
     });
+    const giftUserMap = await fetchUsers([fromUserId, toUserId]);
+    const fromUser = mapUserPreview(giftUserMap, fromUserId);
+    const toUser = mapUserPreview(giftUserMap, toUserId);
+    const shoutoutText = `${fromUser.name} sent ${amountGcoin} Dash${gift.message ? `: ${gift.message}` : ''}`;
 
     const payload = {
       sessionId,
@@ -1713,7 +1952,10 @@ export const sendLiveGift = async (req: Request, res: Response) => {
         toUserId,
         amountGcoin,
         message: gift.message || null,
-        createdAt: gift.createdAt
+        createdAt: gift.createdAt,
+        fromUser,
+        toUser,
+        shoutoutText
       },
       transfer: {
         transactionId: transferResult.transactionId
@@ -1746,6 +1988,8 @@ export const getLiveSession = async (req: Request, res: Response) => {
     const userId = resolveUserId(req);
     const role = resolveRole(req);
     if (!sessionId) return fail(res, 400, 'Session ID is required.');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res);
+    if (!liveAvailability.ok) return res;
 
     await ensureLiveSchema();
     const session = await fetchSessionById(sessionId);
@@ -1772,6 +2016,10 @@ export const getMyLiveSessions = async (req: Request, res: Response) => {
   try {
     const userId = resolveUserId(req);
     if (!userId) return fail(res, 401, 'Unauthorized', 'UNAUTHORIZED');
+    const liveAvailability = await ensureLiveFeatureEnabled(req, res, {
+      emptyData: { hosted: [], participating: [], invites: [] }
+    });
+    if (!liveAvailability.ok) return res;
 
     await ensureLiveSchema();
 
@@ -1849,6 +2097,15 @@ export const reportLiveSession = async (req: Request, res: Response) => {
         status: 'PENDING'
       }
     });
+    await appendLiveDiagnosticsEvent(sessionId, {
+      source: 'backend',
+      stage: 'session:report',
+      severity: 'warn',
+      userId,
+      role: 'viewer',
+      reason,
+      message: 'Livestream was reported by a viewer.'
+    });
     emitLiveEvent(
       req,
       'live:reported',
@@ -1877,22 +2134,86 @@ export const reportLiveSession = async (req: Request, res: Response) => {
 
 export const getLiveAdminConfig = async (_req: Request, res: Response) => {
   try {
-    const config = await getOrCreateLiveConfig();
-    return ok(res, config);
+    const [config, experienceConfig, diagnosticsConfig] = await Promise.all([
+      getOrCreateLiveConfig(),
+      getLiveExperienceConfig(),
+      getLiveDiagnosticsConfig()
+    ]);
+    return ok(res, {
+      ...config,
+      experienceConfig,
+      diagnosticsConfig,
+      realtimeConfig: {
+        ...getLiveRealtimeConfig(),
+        diagnosticsEnabled: Boolean(diagnosticsConfig.enabled)
+      }
+    });
   } catch (error: any) {
     if (isLiveSchemaMissingError(error)) {
-      return ok(res, getLiveConfigFallback());
+      const [experienceConfig, diagnosticsConfig] = await Promise.all([
+        getLiveExperienceConfig(),
+        getLiveDiagnosticsConfig()
+      ]);
+      return ok(res, {
+        ...getLiveConfigFallback(),
+        experienceConfig,
+        diagnosticsConfig,
+        realtimeConfig: {
+          ...getLiveRealtimeConfig(),
+          diagnosticsEnabled: Boolean(diagnosticsConfig.enabled)
+        }
+      });
     }
     return fail(res, 500, error?.message || 'Failed to load live config.');
+  }
+};
+
+export const getLiveFeatureStatus = async (_req: Request, res: Response) => {
+  try {
+    const [config, experienceConfig, diagnosticsConfig] = await Promise.all([
+      getOrCreateLiveConfig(),
+      getLiveExperienceConfig(),
+      getLiveDiagnosticsConfig()
+    ]);
+    return ok(res, buildLiveFeatureStatusPayload(config, experienceConfig, diagnosticsConfig));
+  } catch (error: any) {
+    if (isLiveSchemaMissingError(error)) {
+      const [experienceConfig, diagnosticsConfig] = await Promise.all([
+        getLiveExperienceConfig(),
+        getLiveDiagnosticsConfig()
+      ]);
+      return ok(res, buildLiveFeatureStatusPayload(getLiveConfigFallback(), experienceConfig, diagnosticsConfig));
+    }
+    return fail(res, 500, error?.message || 'Failed to load live feature status.');
   }
 };
 
 export const updateLiveAdminConfig = async (req: Request, res: Response) => {
   try {
     const userId = resolveUserId(req) || null;
-    const config = await updateLiveConfig(req.body, userId);
-    emitLiveEvent(req, 'live:config_updated', { config });
-    return ok(res, config);
+    const previousConfig = await getOrCreateLiveConfig();
+    const previousDiagnosticsConfig = await getLiveDiagnosticsConfig();
+    const [config, experienceConfig, diagnosticsConfig] = await Promise.all([
+      updateLiveConfig(req.body, userId),
+      updateLiveExperienceConfig(req.body?.experienceConfig ?? req.body),
+      updateLiveDiagnosticsConfig(req.body?.diagnosticsConfig ?? previousDiagnosticsConfig)
+    ]);
+    const endedSessions =
+      Boolean(previousConfig?.enabled) && !Boolean(config?.enabled)
+        ? await endSessionsForLiveDisable(req, userId)
+        : [];
+    const payload = {
+      ...config,
+      experienceConfig,
+      diagnosticsConfig,
+      realtimeConfig: {
+        ...getLiveRealtimeConfig(),
+        diagnosticsEnabled: Boolean(diagnosticsConfig.enabled)
+      },
+      endedSessionCount: endedSessions.length
+    };
+    emitLiveEvent(req, 'live:config_updated', { config: payload, endedSessionCount: endedSessions.length });
+    return ok(res, payload);
   } catch (error: any) {
     if (isLiveSchemaMissingError(error)) {
       return fail(
@@ -1906,9 +2227,38 @@ export const updateLiveAdminConfig = async (req: Request, res: Response) => {
   }
 };
 
+export const getLiveRuntimeConfig = async (_req: Request, res: Response) => {
+  try {
+    const [config, experienceConfig, diagnosticsConfig] = await Promise.all([
+      getOrCreateLiveConfig(),
+      getLiveExperienceConfig(),
+      getLiveDiagnosticsConfig()
+    ]);
+    const featureStatus = buildLiveFeatureStatusPayload(config, experienceConfig, diagnosticsConfig);
+    return ok(res, {
+      ...featureStatus.realtimeConfig,
+      ...featureStatus
+    });
+  } catch (error: any) {
+    if (isLiveSchemaMissingError(error)) {
+      const [experienceConfig, diagnosticsConfig] = await Promise.all([
+        getLiveExperienceConfig(),
+        getLiveDiagnosticsConfig()
+      ]);
+      const featureStatus = buildLiveFeatureStatusPayload(getLiveConfigFallback(), experienceConfig, diagnosticsConfig);
+      return ok(res, {
+        ...featureStatus.realtimeConfig,
+        ...featureStatus
+      });
+    }
+    return fail(res, 500, error?.message || 'Failed to load livestream runtime config.');
+  }
+};
+
 export const getLiveAdminSessions = async (req: Request, res: Response) => {
   try {
     await ensureLiveSchema();
+    const diagnosticsConfig = await getLiveDiagnosticsConfig();
     const status = String(req.query?.status || '').trim().toUpperCase();
     const limit = Math.max(1, Math.min(200, toInt(req.query?.limit, 100)));
 
@@ -1926,7 +2276,14 @@ export const getLiveAdminSessions = async (req: Request, res: Response) => {
       }
     });
 
-    const payload = await Promise.all(sessions.map((session: any) => buildSessionPayload(session, null)));
+    const payload = await Promise.all(
+      sessions.map((session: any) =>
+        buildSessionPayload(session, null, {
+          diagnosticsConfig,
+          includeDiagnosticsEvents: Boolean(diagnosticsConfig.sessionDiagnosticsAccess)
+        })
+      )
+    );
     return ok(res, payload.filter(Boolean));
   } catch (error: any) {
     if (error?.code === 'LIVE_SCHEMA_MISSING' || isLiveSchemaMissingError(error)) {
@@ -1965,7 +2322,20 @@ export const endLiveAdminSession = async (req: Request, res: Response) => {
         leftAt: endedAt
       }
     });
-    const payload = await buildSessionPayload(await fetchSessionById(sessionId), null);
+    await appendLiveDiagnosticsEvent(sessionId, {
+      source: 'backend',
+      stage: 'session:end',
+      severity: 'warn',
+      userId: resolveUserId(req) || 'admin',
+      role: 'admin',
+      reason: 'admin_ended',
+      message: 'Livestream force-ended by admin.'
+    });
+    const diagnosticsConfig = await getLiveDiagnosticsConfig();
+    const payload = await buildSessionPayload(await fetchSessionById(sessionId), null, {
+      diagnosticsConfig,
+      includeDiagnosticsEvents: Boolean(diagnosticsConfig.sessionDiagnosticsAccess)
+    });
     emitLiveEvent(req, 'live:ended', { session: payload, sessionId }, { sessionId });
     return ok(res, payload);
   } catch (error: any) {

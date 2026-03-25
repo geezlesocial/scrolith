@@ -31,6 +31,7 @@ type TargetAccessOk = {
   targetType: ReactionTargetType;
   targetId: string;
   postId?: string;
+  scrollId?: string;
   conversationId?: string;
   participantUserIds?: string[];
 };
@@ -228,13 +229,35 @@ const ensureTargetAccess = async (
       where: { id: targetId },
       select: { id: true, status: true, postId: true, authorId: true, post: { select: { status: true, authorId: true } } }
     });
-    if (!comment || comment.status === 'deleted' || comment.post?.status === 'deleted') {
+    if (comment && comment.status !== 'deleted' && comment.post?.status !== 'deleted') {
+      if (await hasBlockRelation(comment.authorId) || await hasBlockRelation(comment.post?.authorId)) {
+        return { ok: false, status: 403, error: 'Not authorized for this comment' };
+      }
+      return { ok: true, targetType, targetId, postId: comment.postId };
+    }
+
+    const prismaAny = prisma as any;
+    const scrollComment = await prismaAny.scrollComment?.findUnique?.({
+      where: { id: targetId },
+      select: {
+        id: true,
+        status: true,
+        scrollId: true,
+        authorId: true,
+        scroll: { select: { id: true, status: true, authorId: true, visibility: true } }
+      }
+    });
+    if (!scrollComment || String(scrollComment.status || '').toLowerCase() === 'deleted' || String(scrollComment.scroll?.status || '').toLowerCase() !== 'active') {
       return { ok: false, status: 404, error: 'Comment not found' };
     }
-    if (await hasBlockRelation(comment.authorId) || await hasBlockRelation(comment.post?.authorId)) {
+    if (await hasBlockRelation(scrollComment.authorId) || await hasBlockRelation(scrollComment.scroll?.authorId)) {
       return { ok: false, status: 403, error: 'Not authorized for this comment' };
     }
-    return { ok: true, targetType, targetId, postId: comment.postId };
+    const visibility = String(scrollComment.scroll?.visibility || '').toLowerCase();
+    if (visibility === 'private' && String(scrollComment.scroll?.authorId || '') !== String(userId)) {
+      return { ok: false, status: 403, error: 'Not authorized for this comment' };
+    }
+    return { ok: true, targetType, targetId, scrollId: scrollComment.scrollId };
   }
 
   if (targetType === 'STORY') {
@@ -271,7 +294,7 @@ const ensureTargetAccess = async (
     if (visibility === 'private' && String(scroll.authorId) !== String(userId)) {
       return { ok: false, status: 403, error: 'Not authorized for this scroll' };
     }
-    return { ok: true, targetType, targetId };
+    return { ok: true, targetType, targetId, scrollId: scroll.id };
   }
 
   const message = await prisma.directMessage.findUnique({
@@ -336,6 +359,75 @@ const rebuildSummary = async (targetType: ReactionTargetType, targetId: string) 
   return counts;
 };
 
+const sumReactionCounts = (counts: Record<string, number>) =>
+  Object.values(counts || {}).reduce((total, value) => total + Math.max(0, Number(value || 0)), 0);
+
+const syncScrollReactionMetrics = async (
+  req: Request,
+  scrollId: string,
+  counts: Record<string, number>,
+  actorUserId: string
+) => {
+  const prismaAny = prisma as any;
+  const updated = await prismaAny.scrollVideo.update({
+    where: { id: scrollId },
+    data: { likesCount: sumReactionCounts(counts) },
+    select: {
+      id: true,
+      authorId: true,
+      impressions: true,
+      views3s: true,
+      views10s: true,
+      views25pct: true,
+      views50pct: true,
+      views95pct: true,
+      likesCount: true,
+      commentsCount: true,
+      repostsCount: true,
+      sharesCount: true,
+      sendCount: true
+    }
+  });
+
+  const io = getAppIo(req);
+  const payload = {
+    scrollId,
+    type: 'like',
+    userId: actorUserId,
+    created: Number(updated?.likesCount || 0) > 0,
+    liked: Number(updated?.likesCount || 0) > 0,
+    metrics: {
+      impressions: Number(updated?.impressions || 0),
+      views3s: Number(updated?.views3s || 0),
+      views10s: Number(updated?.views10s || 0),
+      views25pct: Number(updated?.views25pct || 0),
+      views50pct: Number(updated?.views50pct || 0),
+      views95pct: Number(updated?.views95pct || 0),
+      likes: Number(updated?.likesCount || 0),
+      comments: Number(updated?.commentsCount || 0),
+      reposts: Number(updated?.repostsCount || 0),
+      shares: Number(updated?.sharesCount || 0),
+      sends: Number(updated?.sendCount || 0)
+    }
+  };
+
+  try {
+    io?.emit?.('scroll:engagement_update', payload);
+  } catch (error) {
+    console.warn('[reactions] scroll engagement emit failed', error);
+  }
+
+  try {
+    realtime.emitToRoom('community:global', 'scroll:engagement_update', payload);
+  } catch {}
+
+  if (updated?.authorId) {
+    try {
+      realtime.emitToUser(String(updated.authorId), 'scroll:engagement_update', payload);
+    } catch {}
+  }
+};
+
 const getSummaryCounts = async (targetType: ReactionTargetType, targetId: string) => {
   const summaryDelegate = getReactionSummaryDelegate();
   const findUnique = summaryDelegate && typeof summaryDelegate.findUnique === 'function'
@@ -370,6 +462,7 @@ const emitReactionUpdate = async (
     userReaction: string | null;
     actorUserId: string;
     postId?: string;
+    scrollId?: string;
     conversationId?: string;
     participantUserIds?: string[];
   }
@@ -400,6 +493,18 @@ const emitReactionUpdate = async (
     } catch (e) {}
     try {
       io?.emit?.('comments:updated', payload);
+    } catch (e) {}
+  }
+
+  if (details.targetType === 'COMMENT' && details.scrollId) {
+    try {
+      realtime.emitToRoom('community:global', 'reactions:updated', payload);
+    } catch (e) {}
+    try {
+      io?.emit?.('scroll:comment_reaction_updated', {
+        scrollId: details.scrollId,
+        ...payload
+      });
     } catch (e) {}
   }
 
@@ -542,6 +647,9 @@ export const upsertReaction = async (req: Request, res: Response) => {
     }
 
     const counts = await rebuildSummary(targetType, targetId);
+    if (targetType === 'SCROLL') {
+      await syncScrollReactionMetrics(req, access.scrollId || targetId, counts, userId);
+    }
     await emitReactionUpdate(req, {
       targetType,
       targetId,
@@ -549,6 +657,7 @@ export const upsertReaction = async (req: Request, res: Response) => {
       userReaction,
       actorUserId: userId,
       postId: access.postId,
+      scrollId: access.scrollId,
       conversationId: access.conversationId,
       participantUserIds: access.participantUserIds
     });
@@ -661,11 +770,38 @@ export const getReactionSummaryBulk = async (req: Request, res: Response) => {
       });
       scopedTargetIds = posts.map((post) => post.id);
     } else if (targetType === 'COMMENT') {
-      const comments = await prisma.communityPostComment.findMany({
-        where: { id: { in: scopedTargetIds }, status: { not: 'deleted' }, post: { status: { not: 'deleted' } } },
-        select: { id: true }
-      });
-      scopedTargetIds = comments.map((comment) => comment.id);
+      const prismaAny = prisma as any;
+      const [postComments, scrollComments] = await Promise.all([
+        prisma.communityPostComment.findMany({
+          where: { id: { in: scopedTargetIds }, status: { not: 'deleted' }, post: { status: { not: 'deleted' } } },
+          select: { id: true }
+        }),
+        prismaAny.scrollComment?.findMany?.({
+          where: {
+            id: { in: scopedTargetIds },
+            status: { not: 'deleted' },
+            scroll: { status: 'active' }
+          },
+          select: {
+            id: true,
+            scroll: { select: { authorId: true, visibility: true } }
+          }
+        }) || Promise.resolve([])
+      ]);
+      scopedTargetIds = Array.from(
+        new Set([
+          ...(postComments || []).map((comment) => comment.id),
+          ...(scrollComments || [])
+            .filter((comment: any) => {
+              const visibility = String(comment?.scroll?.visibility || '').toLowerCase();
+              if (visibility === 'private') {
+                return String(comment?.scroll?.authorId || '') === String(userId);
+              }
+              return true;
+            })
+            .map((comment: any) => comment.id)
+        ])
+      );
     } else if (targetType === 'STORY') {
       const stories = await prisma.communityStory.findMany({
         where: { id: { in: scopedTargetIds }, expiresAt: { gt: new Date() } },

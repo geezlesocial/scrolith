@@ -5,6 +5,8 @@ import {
   getUserBasics,
   getUserByUsername,
   getUserProfile,
+  getUserStorefront,
+  getUserTrustScore,
   logProfileView,
   listProfileViewers,
   listProfilesViewed,
@@ -28,6 +30,8 @@ router.get('/username/availability/:username', checkUsernameAvailability);
 router.get('/username/:username', getUserByUsername);
 
 router.get('/:userId/profile', getUserProfile);
+router.get('/:userId/storefront', getUserStorefront);
+router.get('/:userId/trust-score', getUserTrustScore);
 router.put('/:userId/profile', authMiddleware, updateUserProfile);
 router.post('/:userId/views', authMiddleware, logProfileView);
 router.get('/:userId/viewers', authMiddleware, listProfileViewers);

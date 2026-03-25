@@ -184,7 +184,7 @@ const ALLOWED_ADMIN_BINARY_MIME_TYPES = new Set([
 ]);
 
 const ALLOWED_ADMIN_BINARY_EXTENSIONS = new Set(['.apk']);
-const MAX_ADMIN_BINARY_BYTES = 200 * 1024 * 1024;
+const MAX_ADMIN_BINARY_BYTES = 500 * 1024 * 1024;
 
 const MAX_UPLOAD_BYTES: Record<'image' | 'video' | 'audio' | 'document', number> = {
   image: 15 * 1024 * 1024,
@@ -194,6 +194,47 @@ const MAX_UPLOAD_BYTES: Record<'image' | 'video' | 'audio' | 'document', number>
 };
 
 type UploadKind = 'image' | 'video' | 'audio' | 'document';
+
+const UPLOAD_MIME_BY_EXTENSION: Record<string, string> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.bmp': 'image/bmp',
+  '.tif': 'image/tiff',
+  '.tiff': 'image/tiff',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.avi': 'video/x-msvideo',
+  '.wmv': 'video/x-ms-wmv',
+  '.mkv': 'video/x-matroska',
+  '.m4v': 'video/x-m4v',
+  '.3gp': 'video/3gpp',
+  '.3g2': 'video/3gpp2',
+  '.mpeg': 'video/mpeg',
+  '.mpg': 'video/mpeg',
+  '.flv': 'video/x-flv',
+  '.ogg': 'audio/ogg',
+  '.opus': 'audio/ogg;codecs=opus',
+  '.m4a': 'audio/mp4',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
+  '.pdf': 'application/pdf',
+  '.txt': 'text/plain',
+  '.csv': 'text/csv',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.apk': 'application/vnd.android.package-archive'
+};
 
 type MediaMetadata = {
   width: number | null;
@@ -386,8 +427,8 @@ const resolveUploadKind = (
 };
 
 const validateUploadFile = (file: Express.Multer.File, req?: Request) => {
-  const mimeType = String(file?.mimetype || '').toLowerCase();
   const originalName = String(file?.originalname || file?.filename || '');
+  const mimeType = resolveUploadMimeType(file?.mimetype, originalName);
   const allowAdminBinary = isAdminUploadRequest(req);
   const ext = path.extname(originalName).toLowerCase();
   const isAdminBinaryUpload =
@@ -405,6 +446,15 @@ const validateUploadFile = (file: Express.Multer.File, req?: Request) => {
   }
   return { kind };
 };
+
+function resolveUploadMimeType(mimeType?: string | null, originalName?: string | null) {
+  const normalizedMime = String(mimeType || '').trim().toLowerCase();
+  if (normalizedMime && normalizedMime !== 'application/octet-stream') {
+    return normalizedMime;
+  }
+  const ext = path.extname(String(originalName || '')).toLowerCase();
+  return UPLOAD_MIME_BY_EXTENSION[ext] || normalizedMime || 'application/octet-stream';
+}
 
 const getUploadUrlFromFile = (file: Express.Multer.File, baseUrl?: string) => {
   const filePath = file.path || path.join(UPLOAD_DIR, file.filename);
@@ -700,11 +750,18 @@ const loadStoredFileBuffer = async (file: {
 }) => {
   const storedProvider = String(file.storageProvider || DEFAULT_STORAGE_PROVIDER).toLowerCase();
   if (storedProvider === AZURE_BLOB_STORAGE_PROVIDER) {
-    if (!file.storageKey) return null;
-    const blobResponse = await downloadBlobByName(file.storageKey);
-    const stream = blobResponse.readableStreamBody;
-    if (!stream) return null;
-    return streamToBuffer(stream);
+    if (file.storageKey) {
+      try {
+        const blobResponse = await downloadBlobByName(file.storageKey);
+        const stream = blobResponse.readableStreamBody;
+        if (stream) {
+          return streamToBuffer(stream);
+        }
+      } catch {
+        // Fall back to local storage so restored cross-cloud backups remain readable
+        // even when the original source used Azure Blob but the target server does not.
+      }
+    }
   }
 
   const localPath = resolveLocalStoredFilePath(file);
@@ -1692,7 +1749,8 @@ const persistUploadedFile = async (params: {
   const baseUrl = getBaseFileUrl(req);
   const storageProvider = resolveStorageProvider();
   const visibility = resolveVisibility(req.body?.visibility);
-  const category = inferCategory(file.mimetype, req.body?.category || req.body?.file_category);
+  const normalizedMimeType = resolveUploadMimeType(file.mimetype, file.originalname || file.filename);
+  const category = inferCategory(normalizedMimeType, req.body?.category || req.body?.file_category);
 
   let storageKey = '';
   let url = '';
@@ -1707,11 +1765,11 @@ const persistUploadedFile = async (params: {
     filename = storageKey;
     await uploadBufferToBlob({
       buffer: file.buffer,
-      contentType: file.mimetype,
+      contentType: normalizedMimeType,
       fileName: storageKey
     });
     url = buildFileContentUrl(fileId, baseUrl);
-    mediaMetadata = await buildMediaMetadataForAzure(file, storageKey, baseUrl);
+    mediaMetadata = await buildMediaMetadataForAzure({ ...file, mimetype: normalizedMimeType }, storageKey, baseUrl);
   } else {
     const fallbackFilename =
       file.filename || `${Date.now()}-${safeFilename(file.originalname || 'upload.bin')}`;
@@ -1720,7 +1778,7 @@ const persistUploadedFile = async (params: {
     filename = fallbackFilename;
     url = buildUploadsUrl(storageKey, baseUrl);
     mediaMetadata = await buildMediaMetadata(
-      { ...file, filename: fallbackFilename, path: filePath },
+      { ...file, filename: fallbackFilename, path: filePath, mimetype: normalizedMimeType },
       storageKey,
       baseUrl
     );
@@ -1733,7 +1791,7 @@ const persistUploadedFile = async (params: {
       ownerRole,
       filename,
       originalName: file.originalname,
-      mimeType: file.mimetype,
+      mimeType: normalizedMimeType,
       size: BigInt(file.size),
       url,
       storageKey,

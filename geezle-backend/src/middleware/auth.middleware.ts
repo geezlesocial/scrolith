@@ -17,97 +17,111 @@ declare global {
   }
 }
 
+const parseCookies = (cookieHeader?: string): Record<string, string> => {
+  const jar: Record<string, string> = {};
+  if (!cookieHeader) return jar;
+  cookieHeader.split(';').forEach((part) => {
+    const [rawKey, ...rest] = part.trim().split('=');
+    if (!rawKey) return;
+    const key = rawKey.trim();
+    const value = rest.join('=').trim();
+    if (!key) return;
+    try {
+      jar[key] = decodeURIComponent(value);
+    } catch {
+      jar[key] = value;
+    }
+  });
+  return jar;
+};
+
+const resolveAuthorizationHeader = (req: Request) => {
+  let authHeader = req.headers.authorization as string | undefined;
+  if (!authHeader) {
+    const cookies = parseCookies(req.headers.cookie as string | undefined);
+    const cookieToken = cookies['Scrolith_token'] || cookies['token'];
+    if (cookieToken) {
+      authHeader = `Bearer ${cookieToken}`;
+    }
+  }
+  return authHeader;
+};
+
+const resolveAuthenticatedUser = async (req: Request) => {
+  const authHeader = resolveAuthorizationHeader(req);
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { user: null, status: 401, error: 'No token provided', missingToken: true } as const;
+  }
+
+  const token = authHeader.split(' ')[1];
+  const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    let user: any = null;
+    try {
+      user = await prisma.user.findUnique({
+        where: { id: decoded.id },
+        select: { id: true, email: true, role: true, isActive: true }
+      });
+    } catch (e) {
+      console.warn('[auth.middleware] Full user select failed. Falling back to minimal select.', (e as any)?.message || e);
+      user = await prisma.user.findUnique({
+        where: { id: decoded.id },
+        select: { id: true, email: true, role: true }
+      });
+    }
+    if (!user) return { user: null, status: 401, error: 'User not found', missingToken: false } as const;
+    if (user.isActive === false) {
+      return { user: null, status: 403, error: 'Account is deactivated', missingToken: false } as const;
+    }
+
+    try {
+      const staff = await prisma.staffUser.findUnique({
+        where: { userId: user.id },
+        include: {
+          role: {
+            select: { name: true, isActive: true }
+          }
+        }
+      });
+      if (staff) {
+        if (staff.status !== 'ACTIVE') {
+          return { user: null, status: 403, error: 'Staff account is not active', missingToken: false } as const;
+        }
+        if (!staff.role?.isActive) {
+          return { user: null, status: 403, error: 'Assigned staff role is inactive', missingToken: false } as const;
+        }
+      }
+    } catch (staffError) {
+      const message = String((staffError as any)?.message || '');
+      if (!message.toLowerCase().includes('staffuser')) {
+        console.warn('[auth.middleware] Staff guardrail check failed:', message);
+      }
+    }
+
+    return {
+      user: { id: user.id, email: user.email, role: user.role } as Express.Request['user'],
+      status: 200,
+      error: null,
+      missingToken: false
+    } as const;
+  } catch {
+    return { user: null, status: 401, error: 'Invalid token', missingToken: false } as const;
+  }
+};
+
 export const authMiddleware = async (
   req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
-    // If an Authorization header is present, verify the JWT and populate req.user.
-    let authHeader = req.headers.authorization as string | undefined;
-    const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
-
-    const parseCookies = (cookieHeader?: string): Record<string, string> => {
-      const jar: Record<string, string> = {};
-      if (!cookieHeader) return jar;
-      cookieHeader.split(';').forEach((part) => {
-        const [rawKey, ...rest] = part.trim().split('=');
-        if (!rawKey) return;
-        const key = rawKey.trim();
-        const value = rest.join('=').trim();
-        if (!key) return;
-        try {
-          jar[key] = decodeURIComponent(value);
-        } catch {
-          jar[key] = value;
-        }
-      });
-      return jar;
-    };
-
-    // Fallback: support token via cookie (set by frontend in dev)
-    if (!authHeader) {
-      const cookies = parseCookies(req.headers.cookie as string | undefined);
-      const cookieToken = cookies['Scrolith_token'] || cookies['token'];
-      if (cookieToken) {
-        authHeader = `Bearer ${cookieToken}`;
-      }
-    }
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.split(' ')[1];
-      try {
-        const decoded = jwt.verify(token, JWT_SECRET) as any;
-        // Lookup user in DB to ensure it's still valid/active (safe select for older schemas)
-        let user: any = null;
-        try {
-          user = await prisma.user.findUnique({
-            where: { id: decoded.id },
-            select: { id: true, email: true, role: true, isActive: true }
-          });
-        } catch (e) {
-          console.warn('[auth.middleware] Full user select failed. Falling back to minimal select.', (e as any)?.message || e);
-          user = await prisma.user.findUnique({
-            where: { id: decoded.id },
-            select: { id: true, email: true, role: true }
-          });
-        }
-        if (!user) { res.status(401).json({ error: 'User not found' }); return; }
-        if (user.isActive === false) { res.status(403).json({ error: 'Account is deactivated' }); return; }
-
-        // RBAC staff guardrail: suspended/inactive staff and inactive roles are blocked.
-        try {
-          const staff = await prisma.staffUser.findUnique({
-            where: { userId: user.id },
-            include: {
-              role: {
-                select: { name: true, isActive: true }
-              }
-            }
-          });
-          if (staff) {
-            if (staff.status !== 'ACTIVE') {
-              res.status(403).json({ error: 'Staff account is not active' });
-              return;
-            }
-            if (!staff.role?.isActive) {
-              res.status(403).json({ error: 'Assigned staff role is inactive' });
-              return;
-            }
-          }
-        } catch (staffError) {
-          const message = String((staffError as any)?.message || '');
-          if (!message.toLowerCase().includes('staffuser')) {
-            console.warn('[auth.middleware] Staff guardrail check failed:', message);
-          }
-        }
-
-        req.user = { id: user.id, email: user.email, role: user.role } as unknown as Express.Request['user'];
-        next();
-        return;
-      } catch (e) {
-        res.status(401).json({ error: 'Invalid token' });
-        return;
-      }
+    const resolved = await resolveAuthenticatedUser(req);
+    if (resolved.user) {
+      req.user = resolved.user;
+      next();
+      return;
     }
 
     // Optional dev bypass (explicit opt-in only)
@@ -157,7 +171,7 @@ export const authMiddleware = async (
     }
 
     // No token provided
-    res.status(401).json({ error: 'No token provided' });
+    res.status(resolved.status || 401).json({ error: resolved.error || 'Authentication failed' });
     return;
     
     /*
@@ -207,5 +221,21 @@ export const authMiddleware = async (
     res.status(500).json({ error: 'Authentication failed' });
     return;
   }
+};
+
+export const optionalAuthMiddleware = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const resolved = await resolveAuthenticatedUser(req);
+    if (resolved.user) {
+      req.user = resolved.user;
+    }
+  } catch (error) {
+    console.warn('[auth.middleware] Optional auth resolution failed:', error);
+  }
+  next();
 };
 

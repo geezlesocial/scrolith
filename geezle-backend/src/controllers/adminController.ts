@@ -78,7 +78,7 @@ export const getPlatformSettings = async (req: Request, res: Response) => {
   try {
     const platformSettings = {
       siteName: 'Scrolith Marketplace',
-      tagline: 'Find, hire, and work with the best talent',
+      tagline: 'AI-Powered Social Freelance Marketplace with Secure Escrow & Monetization',
       logoUrl: '/logo.svg',
       faviconUrl: '/favicon.ico',
       adminEmail: 'admin@Scrolith.com',

@@ -1,0 +1,2 @@
+ALTER TABLE "CommunityPost"
+ADD COLUMN "isAIEnhanced" BOOLEAN NOT NULL DEFAULT false;

@@ -5,7 +5,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { CmsTarget } from '@prisma/client';
 import { defaultAuthPagesConfig, normalizeAuthPagesConfig, sanitizeAuthPagesConfig } from '../utils/authPagesConfig';
 import { sendSystemMessage } from '../services/systemMessaging';
+import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../constants/defaultAudienceOptions';
 import prisma from '../utils/prismaClient';
+import { sanitizePublicVerificationSettings } from '../utils/verificationSettings';
+import { sanitizePublicTrustScoreSettings } from '../utils/trustScoreSettings';
+import { sanitizePublicStorefrontSettings } from '../utils/storefrontSettings';
+import { sanitizePublicContentOfferSettings } from '../utils/contentOfferSettings';
 
 const emitCmsEvent = (req: Request, event: string, payload?: any) => {
   const io = req.app.get('io');
@@ -33,7 +38,7 @@ const BRAND_ASSET_URL = 'https://scrolith.com/icon-192.png';
 const PLATFORM_SETTINGS_FILE = path.resolve(__dirname, '../../data/platform-system-settings.json');
 const PUBLIC_PLATFORM_DEFAULTS = {
   siteName: 'Scrolith Marketplace',
-  tagline: 'Find, hire, and work with the best talent',
+  tagline: 'AI-Powered Social Freelance Marketplace with Secure Escrow & Monetization',
   logoUrl: BRAND_ASSET_URL,
   faviconUrl: BRAND_ASSET_URL,
   adminEmail: 'admin@Scrolith.com',
@@ -56,11 +61,47 @@ const PUBLIC_PLATFORM_DEFAULTS = {
 const isObjectLike = (value: any): value is Record<string, any> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
-const mergePublicPlatformSettings = (platform: any) => {
+const mergePublicPlatformSettings = (platform: any, system?: any) => {
   const safePlatform = isObjectLike(platform) ? platform : {};
+  const verification = sanitizePublicVerificationSettings(
+    system?.verification ?? safePlatform?.system?.verification ?? safePlatform?.verification
+  );
+  const trustScore = sanitizePublicTrustScoreSettings(
+    system?.trustScore ??
+      system?.trust_score ??
+      safePlatform?.system?.trustScore ??
+      safePlatform?.system?.trust_score ??
+      safePlatform?.trustScore ??
+      safePlatform?.trust_score
+  );
+  const storefront = sanitizePublicStorefrontSettings(
+    system?.storefront ??
+      system?.storefront_settings ??
+      safePlatform?.system?.storefront ??
+      safePlatform?.system?.storefront_settings ??
+      safePlatform?.storefront ??
+      safePlatform?.storefront_settings
+  );
+  const contentOffers = sanitizePublicContentOfferSettings(
+    system?.contentOffers ??
+      system?.content_offers ??
+      safePlatform?.system?.contentOffers ??
+      safePlatform?.system?.content_offers ??
+      safePlatform?.contentOffers ??
+      safePlatform?.content_offers
+  );
   return {
     ...PUBLIC_PLATFORM_DEFAULTS,
     ...safePlatform,
+    system: {
+      verification,
+      trustScore,
+      trust_score: trustScore,
+      storefront,
+      storefront_settings: storefront,
+      contentOffers,
+      content_offers: contentOffers
+    },
     gigExperience: {
       ...PUBLIC_PLATFORM_DEFAULTS.gigExperience,
       ...(safePlatform.gigExperience || {}),
@@ -78,20 +119,23 @@ const getPublicPlatformSettings = () => {
       const raw = fs.readFileSync(PLATFORM_SETTINGS_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
       if (isObjectLike(parsed?.platform)) {
-        return mergePublicPlatformSettings(parsed.platform);
+        return mergePublicPlatformSettings(parsed.platform, parsed.system);
       }
     }
   } catch (e) {
     console.warn('[cms] Failed to read platform settings file', e);
   }
-  return mergePublicPlatformSettings({});
+  return mergePublicPlatformSettings({}, null);
 };
 
 const getPublicPlatformSettingsFromDb = async () => {
   try {
-    const record = await prisma.appSetting.findUnique({ where: { scope: 'platform' } });
-    if (isObjectLike(record?.data)) {
-      return mergePublicPlatformSettings(record.data);
+    const [platformRecord, systemRecord] = await Promise.all([
+      prisma.appSetting.findUnique({ where: { scope: 'platform' } }),
+      prisma.appSetting.findUnique({ where: { scope: 'system' } })
+    ]);
+    if (isObjectLike(platformRecord?.data)) {
+      return mergePublicPlatformSettings(platformRecord.data, systemRecord?.data);
     }
   } catch (error) {
     console.warn('[cms] Failed to read platform settings from DB', error);
@@ -870,22 +914,143 @@ const broadcastPolicyUpdate = async (page: any) => {
   }
 };
 
+const GUEST_ONLY_HOMEPAGE_SECTION_TYPES = new Set([
+  'popular_services',
+  'promo_banners',
+  'trust_value',
+  'video_feature',
+  'marketplace_tiles',
+  'guides_grid',
+  'made_on_Scrolith',
+  'footer_cta_strip',
+  'guest_hero_auth',
+  'guest_what_is_scrolith',
+  'guest_paths',
+  'guest_feature_showcase',
+  'guest_trending_preview',
+  'guest_community_preview',
+  'guest_final_cta'
+]);
+
+const normalizeHomepageSectionRole = (role: any): string => {
+  if (!role) return '';
+  const normalized = String(role).trim().toLowerCase();
+  if (!normalized) return '';
+  if (normalized === 'public') return 'guest';
+  if (normalized === 'client') return 'employer';
+  return normalized;
+};
+
+const normalizeHomepageSectionRoleList = (value: any): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => normalizeHomepageSectionRole(entry))
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((entry) => normalizeHomepageSectionRole(entry))
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const getHomepageSectionRoles = (section: any): string[] =>
+  normalizeHomepageSectionRoleList(
+    section?.targeting?.roles ?? section?.target_roles ?? section?.roles ?? section?.visibility
+  );
+
+const getDefaultHomepageSectionRoles = (type: string): string[] => {
+  if (type === 'member_home') {
+    return ['freelancer', 'employer', 'admin'];
+  }
+  if (GUEST_ONLY_HOMEPAGE_SECTION_TYPES.has(type)) {
+    return ['guest'];
+  }
+  return [];
+};
+
+const buildMemberHomeSectionContent = () => ({
+  title: 'Grow your professional world',
+  subtitle: 'Catch up on your network, opportunities, and community highlights.',
+  searchPlaceholder: 'Search posts, jobs, gigs, people, or pages',
+  searchHint: 'Search across posts, jobs, gigs, people, and pages.',
+  showSearch: true,
+  showDiscover: true,
+  showFollowing: true,
+  showComposer: true,
+  showStories: true,
+  showMessages: true,
+  showSlider: true,
+  showProfiles: true,
+  showPagesRecommendations: true,
+  showProfileViewers: true,
+  showProfileViewing: true,
+  showJobs: true,
+  showEmployers: true,
+  showGigs: true,
+  showFreelancers: true,
+  maxFeedItems: 12,
+  maxStories: 8,
+  maxMessages: 6,
+  maxSearchResults: 8,
+  maxProfiles: 8,
+  maxPagesRecommendations: 6,
+  maxProfileViewers: 6,
+  maxProfileViewing: 6,
+  maxJobs: 6,
+  maxGigs: 6,
+  topics: DEFAULT_MEMBER_HOME_TOPICS,
+  regions: DEFAULT_MEMBER_HOME_REGIONS,
+  composerTitle: 'Share a quick update or idea with your network.',
+  storyTitle: 'Stories',
+  reelsTitle: 'Scroll',
+  feedTitle: 'Home feed',
+  profilesTitle: 'Add to your feed',
+  pagesTitle: 'Pages to follow',
+  profileViewersTitle: 'Profile viewers',
+  profileViewingTitle: 'Recently viewed',
+  jobsTitle: 'Job recommendations',
+  gigsTitle: 'Gigs you can hire',
+  employersTitle: 'Employers to follow',
+  freelancersTitle: 'Freelancers to connect',
+  messagesTitle: 'Recent messages',
+  sliderTitle: 'Highlights',
+  featuredActionsTitle: 'Featured',
+  projectBriefQuickActionTitle: 'Scrolitha Project Brief',
+  projectBriefQuickActionSubtitle: 'Draft a professional project brief with AI',
+  gigCreationQuickActionTitle: 'Scrolitha Gig Creation',
+  gigCreationQuickActionSubtitle: 'Generate your gig setup with AI guidance',
+  sliderItems: []
+});
+
 export const getHomepageSections = async (req: Request, res: Response) => {
   try {
-    const { role, location } = req.query;
-    // Filter sections based on role if needed - handle both camelCase and snake_case
+    const { role } = req.query;
+    const requestedRole = normalizeHomepageSectionRole(role);
     const filteredSections = cmsData.homepageSections
       .filter(section => {
         const isActive = (section as any).isActive !== false;
-        return isActive;
+        if (!isActive) return false;
+        if (!requestedRole) return true;
+        const roles = getHomepageSectionRoles(section);
+        if (roles.length === 0) return true;
+        return roles.includes(requestedRole) || roles.includes('all') || roles.includes('*');
       })
-      .map(section => ({
-        ...section,
+      .map(section => {
+        const roles = getHomepageSectionRoles(section);
+        return {
+          ...section,
         // Transform to snake_case for frontend types
         is_active: (section as any).isActive !== false,
         position: (section as any).sortOrder || 0,
-        name: (section as any).name || (section as any).title || 'Section'
-      }))
+          name: (section as any).name || (section as any).title || 'Section',
+          target_roles: roles,
+          targeting: { ...((section as any).targeting || {}), roles },
+          roles
+        };
+      })
       .sort((a, b) => ((a as any).position || 0) - ((b as any).position || 0));
 
     console.log('âœ… Homepage sections served:', {
@@ -1418,6 +1583,7 @@ export const saveTrendingConfig = async (req: Request, res: Response) => {
 export const saveHomepageSection = async (req: Request, res: Response) => {
   try {
     const section = req.body;
+    const normalizedTargetRoles = getHomepageSectionRoles(section);
 
     // Normalize incoming data (handle both camelCase and snake_case)
     const normalized = {
@@ -1429,6 +1595,9 @@ export const saveHomepageSection = async (req: Request, res: Response) => {
       sortOrder: section.position !== undefined ? section.position : (section.sortOrder !== undefined ? section.sortOrder : 0),
       content: section.content || {},
       style: section.style || {},
+      target_roles: normalizedTargetRoles,
+      targeting: { ...(section.targeting || {}), roles: normalizedTargetRoles },
+      roles: normalizedTargetRoles,
       updatedAt: new Date()
     };
 
@@ -1470,13 +1639,18 @@ export const saveHomepageSection = async (req: Request, res: Response) => {
 export const addHomepageSection = async (req: Request, res: Response) => {
   try {
     const { type } = req.body;
+    const normalizedType = String(type || 'hero');
+    const targetRoles = getDefaultHomepageSectionRoles(normalizedType);
+    const sectionName = normalizedType === 'member_home' ? 'Signed-in Member Home' : `New ${normalizedType} Section`;
     const newSection = {
       id: `section-${Date.now()}`,
-      type,
-      title: `New ${type} Section`,
+      type: normalizedType,
+      title: sectionName,
+      name: sectionName,
       isActive: true,
       sortOrder: cmsData.homepageSections.length + 1,
-      content: type === 'hero' ? {
+      content: normalizedType === 'member_home' ? buildMemberHomeSectionContent() :
+        normalizedType === 'hero' ? {
         title: 'New Hero Section',
         subtitle: 'Add your content here',
         description: '',
@@ -1484,14 +1658,17 @@ export const addHomepageSection = async (req: Request, res: Response) => {
         secondaryAction: { label: 'Get Started', url: '/start', style: 'secondary' },
         image: '',
         features: []
-      } : type === 'categories' ? {
+      } : normalizedType === 'categories' ? {
         categories: []
-      } : type === 'featured' ? {
+      } : normalizedType === 'featured' ? {
         services: []
       } : {},
-      style: type === 'hero' ? { theme: 'light', animation: 'fade-in' } :
-        type === 'categories' ? { layout: 'grid', columns: 3 } :
-          type === 'featured' ? { layout: 'carousel', autoplay: true } : {}
+      style: normalizedType === 'hero' ? { theme: 'light', animation: 'fade-in' } :
+        normalizedType === 'categories' ? { layout: 'grid', columns: 3 } :
+          normalizedType === 'featured' ? { layout: 'carousel', autoplay: true } : {},
+      target_roles: targetRoles,
+      targeting: { roles: targetRoles },
+      roles: targetRoles
     };
 
     cmsData.homepageSections.push(newSection as any);
@@ -1749,12 +1926,13 @@ export const getHomepageAnalytics = async (req: Request, res: Response) => {
 // This is a PUBLIC endpoint (no auth required) for the homepage
 export const getHomepage = async (req: Request, res: Response) => {
   try {
-    const { role, location, pageType } = req.query;
+    const { role, pageType } = req.query;
+    const requestedRole = normalizeHomepageSectionRole(role);
 
     // Determine page type
     const pageTypeValue = (pageType as string) ||
-      (role === 'FREELANCER' ? 'freelancer_home' :
-        role === 'EMPLOYER' ? 'employer_home' :
+      (requestedRole === 'freelancer' ? 'freelancer_home' :
+        requestedRole === 'employer' ? 'employer_home' :
           'public_home');
 
     // Fetch from DB
@@ -1783,16 +1961,28 @@ export const getHomepage = async (req: Request, res: Response) => {
     // Get active sections - transform to match frontend types (snake_case)
     const activeSections = homepageSections
       .filter((section: any) => (section as any).isActive !== false)
+      .filter((section: any) => {
+        if (!requestedRole) return true;
+        const roles = getHomepageSectionRoles(section);
+        if (roles.length === 0) return true;
+        return roles.includes(requestedRole) || roles.includes('all') || roles.includes('*');
+      })
       .sort((a: any, b: any) => ((a as any).sortOrder || 0) - ((b as any).sortOrder || 0))
-      .map((section: any) => ({
-        id: section.id || `section-${Date.now()}`,
-        type: section.type || 'hero',
-        name: (section as any).title || section.name || 'Section',
-        is_active: (section as any).isActive !== false,
-        position: (section as any).sortOrder || 0,
-        content: section.content,
-        style: section.style
-      }));
+      .map((section: any) => {
+        const roles = getHomepageSectionRoles(section);
+        return {
+          id: section.id || `section-${Date.now()}`,
+          type: section.type || 'hero',
+          name: (section as any).title || section.name || 'Section',
+          is_active: (section as any).isActive !== false,
+          position: (section as any).sortOrder || 0,
+          content: section.content,
+          style: section.style,
+          target_roles: roles,
+          targeting: { ...(section.targeting || {}), roles },
+          roles
+        };
+      });
 
     // Get active slides - transform to match frontend types (snake_case)
     const activeSlides = homeSlides

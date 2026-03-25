@@ -5,6 +5,7 @@ import { recordClick, recordImpression } from '../services/adService';
 import { syncFileUsages } from '../utils/fileUsage';
 import { sendSystemEmail } from '../services/email.service';
 import { getStripeClient } from '../services/stripeConfig.service';
+import { DEFAULT_AD_TARGET_COUNTRIES } from '../constants/defaultAudienceOptions';
 
 const ADS_CONFIG_SCOPE = 'community_ads_config';
 const PLATFORM_ORIGIN = process.env.PLATFORM_URL || 'https://scrolith.com';
@@ -29,33 +30,6 @@ const DEFAULT_ALLOWED_PLACEMENTS = [
   'forum_listing',
   'thread_detail',
   'chat_sidebar'
-];
-
-const DEFAULT_TARGET_COUNTRIES = [
-  'United States',
-  'United Kingdom',
-  'Canada',
-  'Australia',
-  'New Zealand',
-  'Germany',
-  'France',
-  'Netherlands',
-  'Sweden',
-  'Norway',
-  'Denmark',
-  'Ireland',
-  'Spain',
-  'Italy',
-  'United Arab Emirates',
-  'Saudi Arabia',
-  'India',
-  'Nigeria',
-  'South Africa',
-  'Brazil',
-  'Mexico',
-  'Singapore',
-  'Malaysia',
-  'Philippines'
 ];
 
 const AD_PAYMENT_COMPLETED_STATUSES = ['completed', 'paid', 'succeeded'] as const;
@@ -149,7 +123,7 @@ const defaultAdsConfig = {
   autoApproveAds: false,
   notifyAdminOnAdCreate: true,
   allowedPlacements: DEFAULT_ALLOWED_PLACEMENTS,
-  targetCountries: DEFAULT_TARGET_COUNTRIES,
+  targetCountries: DEFAULT_AD_TARGET_COUNTRIES,
   allowedMediaTypes: ['text', 'image', 'video'],
   requireLoginToInteract: false
 };
@@ -188,7 +162,7 @@ const mergeAdsConfig = (raw: any) => {
   const cpmByPlacement = { ...defaultAdsConfig.cpmByPlacement, ...(input.cpmByPlacement || {}) } as Record<string, any>;
   const cpcByPlacement = { ...defaultAdsConfig.cpcByPlacement, ...(input.cpcByPlacement || {}) } as Record<string, any>;
   const normalizedAllowedPlacements = resolveAllowedPlacements(input.allowedPlacements);
-  const normalizedTargetCountries = normalizeCountryList(input.targetCountries, DEFAULT_TARGET_COUNTRIES);
+  const normalizedTargetCountries = normalizeCountryList(input.targetCountries, DEFAULT_AD_TARGET_COUNTRIES);
   const normalized = {
     ...defaultAdsConfig,
     ...input,
@@ -382,7 +356,7 @@ const normalizePromotionType = (value: any): 'post' | 'page' | null => {
 };
 
 const buildPlatformPromotionUrl = (type: 'post' | 'page', entityId: string, slug?: string | null) => {
-  if (type === 'post') return `${PLATFORM_ORIGIN}/community/posts/${encodeURIComponent(entityId)}`;
+  if (type === 'post') return `${PLATFORM_ORIGIN}/post/${encodeURIComponent(entityId)}`;
   const safeSlug = String(slug || '').trim();
   if (!safeSlug) throw createValidationError('Promotion page slug is required.', 'PROMOTION_PAGE_REQUIRED');
   return `${PLATFORM_ORIGIN}/company/${encodeURIComponent(safeSlug)}`;

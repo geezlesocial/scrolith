@@ -3,6 +3,10 @@ import bcrypt from 'bcryptjs';
 import prisma from '../utils/prismaClient';
 import { resolveUserProStatus } from '../utils/proStatus';
 import realtime from '../utils/realtime';
+import { extractLocationMutation, toLocationResponse } from '../services/location/location.service';
+import { computeUserTrustScore, getTrustScoreSettings } from '../services/trustScore.service';
+import { serializeGig } from './gigs.controller';
+import { getStorefrontSettings, isUserStorefrontEnabled } from '../services/storefront.service';
 
 const nowIso = () => new Date().toISOString();
 
@@ -65,11 +69,28 @@ const formatBirthMonthDay = (value?: Date | string | null) => {
   return `${month}-${day}`;
 };
 
-const toProfileResponse = (profile: any, options?: { includePrivateDob?: boolean }) => ({
+const toProfileResponse = (
+  profile: any,
+  options?: { includePrivateDob?: boolean; professionalIdentity?: any | null; userCountry?: string | null }
+) => ({
   user_id: profile.userId,
   title: profile.title || '',
   bio: profile.bio || '',
   location: profile.location || '',
+  ...toLocationResponse({
+    location: profile.location || '',
+    formattedAddress: profile.formattedAddress || profile.location || null,
+    country: profile.country || options?.userCountry || null,
+    countryCode: profile.countryCode || null,
+    state: profile.state || null,
+    city: profile.city || null,
+    region: profile.region || null,
+    postalCode: profile.postalCode || null,
+    latitude: profile.latitude ?? null,
+    longitude: profile.longitude ?? null,
+    placeId: profile.placeId || null,
+    locationSource: profile.locationSource || null
+  }),
   gender: profile.gender || '',
   date_of_birth:
     options?.includePrivateDob && profile.dateOfBirth
@@ -92,7 +113,9 @@ const toProfileResponse = (profile: any, options?: { includePrivateDob?: boolean
   rating: Number(profile.rating || 0),
   completed_jobs: Number(profile.completedJobs || 0),
   response_rate: Number(profile.responseRate || 0),
-  response_time: profile.responseTime || null
+  response_time: profile.responseTime || null,
+  professional_identity: options?.professionalIdentity ?? null,
+  professionalIdentity: options?.professionalIdentity ?? null
 });
 
 const toSettingsResponse = (settings: any) => ({
@@ -150,6 +173,156 @@ const parseDays = (value: any, fallback = 7) => {
   return Math.max(1, Math.min(30, Math.floor(parsed)));
 };
 
+const isMissingPrismaTableError = (error: unknown) => {
+  const code = (error as { code?: string } | undefined)?.code;
+  return code === 'P2021' || code === 'P2022';
+};
+
+const withPrismaFallback = async <T>(promise: Promise<T>, fallback: T): Promise<T> => {
+  try {
+    return await promise;
+  } catch (error) {
+    if (isMissingPrismaTableError(error)) {
+      return fallback;
+    }
+    throw error;
+  }
+};
+
+const toFiniteNumber = (value: unknown, fallback = 0) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const buildProfessionalIdentity = async (profile: any, user: any) => {
+  const userId = String(profile?.userId || user?.id || '').trim();
+  if (!userId) return null;
+
+  const certifications = normalizeArray(profile?.certifications);
+  const verifiedCertificationCount = certifications.filter((item: any) => Boolean(item?.isVerified || item?.is_verified)).length;
+  const pro = resolveUserProStatus(user || {});
+  const kycStatus = String(user?.kycStatus || '').toLowerCase();
+  const isVerified = Boolean(user?.isVerified || kycStatus === 'verified' || kycStatus === 'approved');
+
+  const [reviewAggregate, featuredMemberships, membershipCount, proofCount, verifiedProofCount] = await Promise.all([
+    withPrismaFallback(
+      prisma.review.aggregate({
+        where: {
+          subjectId: userId,
+          status: 'PUBLISHED'
+        },
+        _avg: { rating: true },
+        _count: { id: true }
+      }),
+      { _avg: { rating: 0 }, _count: { id: 0 } } as any
+    ),
+    withPrismaFallback(
+      prisma.clubMembership.findMany({
+        where: { userId },
+        orderBy: { joinedAt: 'desc' },
+        take: 3,
+        include: {
+          club: {
+            select: {
+              id: true,
+              name: true,
+              visibility: true,
+              memberCount: true,
+              coverImage: true
+            }
+          }
+        }
+      }),
+      [] as any[]
+    ),
+    withPrismaFallback(prisma.clubMembership.count({ where: { userId } }), 0),
+    withPrismaFallback(prisma.portfolioProof.count({ where: { userId } }), 0),
+    withPrismaFallback(prisma.portfolioProof.count({ where: { userId, verifiedAt: { not: null } } }), 0)
+  ]);
+
+  const reviewCount = toFiniteNumber(reviewAggregate?._count?.id, 0);
+  const averageRating = toFiniteNumber(reviewAggregate?._avg?.rating, Number(profile?.rating || 0));
+  const completedJobs = toFiniteNumber(profile?.completedJobs, 0);
+  const responseRate = toFiniteNumber(profile?.responseRate, 0);
+  const responseTimeHours = profile?.responseTime ?? null;
+  const topSkills = normalizeArray(profile?.skills)
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, 6);
+  const featuredClubs = featuredMemberships
+    .map((membership) => {
+      const club = membership?.club;
+      if (!club?.id) return null;
+      return {
+        id: club.id,
+        name: club.name || 'Community club',
+        visibility: String(club.visibility || 'PUBLIC').toLowerCase() === 'private' ? 'private' : 'public',
+        memberCount: toFiniteNumber(club.memberCount, 0),
+        member_count: toFiniteNumber(club.memberCount, 0),
+        coverImage: club.coverImage || '',
+        cover_image: club.coverImage || '',
+        joinedAt: membership.joinedAt ? new Date(membership.joinedAt).toISOString() : null,
+        joined_at: membership.joinedAt ? new Date(membership.joinedAt).toISOString() : null
+      };
+    })
+    .filter(Boolean);
+
+  const badges = [
+    isVerified ? 'Verified identity' : '',
+    pro.freelancerIsPro ? 'Pro freelancer' : '',
+    averageRating >= 4.8 && reviewCount >= 3 ? 'Top reviewed' : '',
+    verifiedProofCount > 0 ? 'Proof of work' : '',
+    membershipCount > 0 ? 'Community active' : ''
+  ].filter(Boolean);
+
+  const trustTier =
+    averageRating >= 4.8 && completedJobs >= 10
+      ? 'elite'
+      : averageRating >= 4.5 || completedJobs >= 5 || isVerified
+      ? 'established'
+      : 'growing';
+
+  return {
+    isVerified,
+    is_verified: isVerified,
+    kycStatus,
+    kyc_status: kycStatus,
+    verificationStatus: isVerified ? 'verified' : kycStatus || 'pending',
+    verification_status: isVerified ? 'verified' : kycStatus || 'pending',
+    isProFreelancer: pro.freelancerIsPro,
+    is_pro_freelancer: pro.freelancerIsPro,
+    isProEmployer: pro.employerIsPro,
+    is_pro_employer: pro.employerIsPro,
+    trustTier,
+    trust_tier: trustTier,
+    reviewCount,
+    review_count: reviewCount,
+    averageRating,
+    average_rating: averageRating,
+    completedJobs,
+    completed_jobs: completedJobs,
+    responseRate,
+    response_rate: responseRate,
+    responseTimeHours,
+    response_time_hours: responseTimeHours,
+    certificationCount: certifications.length,
+    certification_count: certifications.length,
+    verifiedCertificationCount,
+    verified_certification_count: verifiedCertificationCount,
+    portfolioProofCount: proofCount,
+    portfolio_proof_count: proofCount,
+    verifiedPortfolioProofCount: verifiedProofCount,
+    verified_portfolio_proof_count: verifiedProofCount,
+    clubCount: membershipCount,
+    club_count: membershipCount,
+    featuredClubs,
+    featured_clubs: featuredClubs,
+    topSkills,
+    top_skills: topSkills,
+    badges
+  };
+};
+
 const getOrCreateProfile = async (userId: string) => {
   return prisma.profile.upsert({
     where: { userId },
@@ -159,6 +332,17 @@ const getOrCreateProfile = async (userId: string) => {
       title: '',
       bio: '',
       location: '',
+      formattedAddress: '',
+      country: '',
+      countryCode: '',
+      state: '',
+      city: '',
+      region: '',
+      postalCode: '',
+      latitude: null,
+      longitude: null,
+      placeId: null,
+      locationSource: 'manual',
       skills: [],
       hourlyRate: 0,
       languages: [],
@@ -197,6 +381,52 @@ const getOrCreateSettings = async (userId: string) => {
   });
 };
 
+const buildUserStorefrontMerchantSummary = (params: {
+  user: any;
+  profile: any;
+  professionalIdentity: any | null;
+  trustScore: any | null;
+  services: any[];
+  featuredServices: any[];
+}) => {
+  const { user, profile, professionalIdentity, trustScore, services, featuredServices } = params;
+  const prices = services
+    .map((entry) => Number(entry?.price))
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  const priceFrom = prices.length ? Number(Math.min(...prices).toFixed(2)) : null;
+
+  return {
+    title: profile?.title || user?.name || 'Storefront',
+    subtitle: profile?.bio ? String(profile.bio).trim().slice(0, 220) : '',
+    location: profile?.location || null,
+    category: services[0]?.category?.name || services[0]?.categoryId || null,
+    currency: 'USD',
+    priceFrom,
+    price_from: priceFrom,
+    serviceCount: services.length,
+    service_count: services.length,
+    featuredCount: featuredServices.length,
+    featured_count: featuredServices.length,
+    rating: toFiniteNumber(professionalIdentity?.averageRating ?? profile?.rating, 0),
+    completedJobs: toFiniteNumber(professionalIdentity?.completedJobs ?? profile?.completedJobs, 0),
+    completed_jobs: toFiniteNumber(professionalIdentity?.completedJobs ?? profile?.completedJobs, 0),
+    responseRate: toFiniteNumber(professionalIdentity?.responseRate ?? profile?.responseRate, 0),
+    response_rate: toFiniteNumber(professionalIdentity?.responseRate ?? profile?.responseRate, 0),
+    responseTimeHours:
+      professionalIdentity?.responseTimeHours ??
+      profile?.responseTime ??
+      null,
+    response_time_hours:
+      professionalIdentity?.responseTimeHours ??
+      profile?.responseTime ??
+      null,
+    trustScore: trustScore?.overallScore ?? trustScore?.overall_score ?? null,
+    trust_score: trustScore?.overallScore ?? trustScore?.overall_score ?? null,
+    trustTier: trustScore?.trustTier ?? trustScore?.trust_tier ?? null,
+    trust_tier: trustScore?.trustTier ?? trustScore?.trust_tier ?? null
+  };
+};
+
 export const getUserProfile = async (req: Request, res: Response) => {
   try {
     const userId = req.params.userId;
@@ -206,10 +436,152 @@ export const getUserProfile = async (req: Request, res: Response) => {
     if (!user) return fail(res, 404, 'User not found', 'ERR_NOT_FOUND');
 
     const profile = await getOrCreateProfile(userId);
-    return ok(res, toProfileResponse(profile, { includePrivateDob: canAccessUser(req, userId) }));
+    const professionalIdentity = await buildProfessionalIdentity(profile, user);
+    return ok(
+      res,
+      toProfileResponse(profile, {
+        includePrivateDob: canAccessUser(req, userId),
+        professionalIdentity,
+        userCountry: user.country || null
+      })
+    );
   } catch (error: any) {
     console.error('getUserProfile error:', error);
     return fail(res, 500, error?.message || 'Failed to load profile', 'ERR_INTERNAL');
+  }
+};
+
+export const getUserTrustScore = async (req: Request, res: Response) => {
+  try {
+    const userId = req.params.userId;
+    if (!userId) return fail(res, 400, 'Missing userId', 'ERR_BAD_REQUEST');
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { profile: true }
+    });
+    if (!user) return fail(res, 404, 'User not found', 'ERR_NOT_FOUND');
+
+    const settings = await getTrustScoreSettings();
+    if (!settings.enabled || !settings.showOnProfiles) {
+      return ok(res, null);
+    }
+
+    const score = await computeUserTrustScore(userId, {
+      user,
+      profile: user.profile,
+      settings
+    });
+
+    return ok(res, score);
+  } catch (error: any) {
+    console.error('getUserTrustScore error:', error);
+    return fail(res, 500, error?.message || 'Failed to load trust score', 'ERR_INTERNAL');
+  }
+};
+
+export const getUserStorefront = async (req: Request, res: Response) => {
+  try {
+    const userId = req.params.userId;
+    if (!userId) return fail(res, 400, 'Missing userId', 'ERR_BAD_REQUEST');
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { profile: true }
+    });
+    if (!user) return fail(res, 404, 'User not found', 'ERR_NOT_FOUND');
+
+    const storefrontSettings = await getStorefrontSettings();
+    const enabled = isUserStorefrontEnabled(storefrontSettings, user.role);
+    const canManage = canAccessUser(req, userId);
+
+    const services = enabled
+      ? await prisma.gig.findMany({
+          where: {
+            userId,
+            status: 'ACTIVE',
+            adminStatus: 'APPROVED',
+            isActive: true
+          },
+          orderBy: [
+            { isFeatured: 'desc' },
+            { isTopSelected: 'desc' },
+            { isRecommended: 'desc' },
+            { updatedAt: 'desc' }
+          ],
+          include: {
+            category: true,
+            user: {
+              include: {
+                profile: true
+              }
+            }
+          }
+        })
+      : [];
+
+    const catalogServices = services.slice(0, storefrontSettings.maxCatalogItems);
+    const featuredPool = services.filter(
+      (entry) => entry.isFeatured || entry.isTopSelected || entry.isRecommended
+    );
+    const featuredSource = featuredPool.length ? featuredPool : services;
+    const featuredServices = featuredSource.slice(0, storefrontSettings.maxFeaturedItems);
+
+    const trustSettings = await getTrustScoreSettings();
+    const trustScore =
+      enabled && trustSettings.enabled && storefrontSettings.modules.merchantSummary
+        ? await computeUserTrustScore(userId, {
+            user,
+            profile: user.profile,
+            settings: trustSettings
+          })
+        : null;
+    const professionalIdentity = enabled
+      ? await buildProfessionalIdentity(user.profile, user)
+      : null;
+
+    return ok(res, {
+      userId,
+      user_id: userId,
+      enabled,
+      canManage,
+      can_manage: canManage,
+      settings: storefrontSettings,
+      merchantSummary:
+        enabled && storefrontSettings.modules.merchantSummary
+          ? buildUserStorefrontMerchantSummary({
+              user,
+              profile: user.profile,
+              professionalIdentity,
+              trustScore,
+              services,
+              featuredServices
+            })
+          : null,
+      merchant_summary:
+        enabled && storefrontSettings.modules.merchantSummary
+          ? buildUserStorefrontMerchantSummary({
+              user,
+              profile: user.profile,
+              professionalIdentity,
+              trustScore,
+              services,
+              featuredServices
+            })
+          : null,
+      featuredServices: enabled
+        ? featuredServices.map((entry) => serializeGig(entry, trustSettings))
+        : [],
+      featured_services: enabled
+        ? featuredServices.map((entry) => serializeGig(entry, trustSettings))
+        : [],
+      services: enabled
+        ? catalogServices.map((entry) => serializeGig(entry, trustSettings))
+        : []
+    });
+  } catch (error: any) {
+    console.error('getUserStorefront error:', error);
+    return fail(res, 500, error?.message || 'Failed to load storefront', 'ERR_INTERNAL');
   }
 };
 
@@ -238,6 +610,7 @@ export const updateUserProfile = async (req: Request, res: Response) => {
     const experience = pick(req.body, 'experience', 'experience');
     const education = pick(req.body, 'education', 'education');
     const certifications = pick(req.body, 'certifications', 'certifications');
+    const locationInput = extractLocationMutation(req.body || {});
 
     if (title !== undefined) data.title = title || '';
     if (bio !== undefined) data.bio = bio || '';
@@ -257,13 +630,34 @@ export const updateUserProfile = async (req: Request, res: Response) => {
     if (experience !== undefined) data.experienceItems = normalizeArray(experience);
     if (education !== undefined) data.educationItems = normalizeArray(education);
     if (certifications !== undefined) data.certifications = normalizeArray(certifications);
+    if (locationInput.hasChanges) Object.assign(data, locationInput.data);
 
-    const updated = await prisma.profile.update({
-      where: { userId },
-      data
+    const updated = await prisma.$transaction(async (tx) => {
+      const profileRow = await tx.profile.update({
+        where: { userId },
+        data
+      });
+
+      if (locationInput.hasChanges && Object.prototype.hasOwnProperty.call(locationInput.data, 'country')) {
+        await tx.user.update({
+          where: { id: userId },
+          data: { country: locationInput.data.country || null }
+        });
+      }
+
+      return profileRow;
     });
 
-    return ok(res, toProfileResponse(updated, { includePrivateDob: canAccessUser(req, userId) }));
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const professionalIdentity = user ? await buildProfessionalIdentity(updated, user) : null;
+    return ok(
+      res,
+      toProfileResponse(updated, {
+        includePrivateDob: canAccessUser(req, userId),
+        professionalIdentity,
+        userCountry: user?.country || null
+      })
+    );
   } catch (error: any) {
     console.error('updateUserProfile error:', error);
     return fail(res, 500, error?.message || 'Failed to update profile', 'ERR_INTERNAL');

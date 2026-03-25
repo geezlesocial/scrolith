@@ -12,6 +12,26 @@ import {
   normalizeRuntimeOptimizationConfig,
   serializeRuntimeOptimizationConfig
 } from '../services/runtimeOptimization.service';
+import {
+  DEFAULT_VERIFICATION_SETTINGS,
+  normalizeVerificationSettings
+} from '../utils/verificationSettings';
+import {
+  DEFAULT_TRUST_SCORE_SETTINGS,
+  normalizeTrustScoreSettings
+} from '../utils/trustScoreSettings';
+import {
+  DEFAULT_DEAL_FLOW_SETTINGS,
+  normalizeDealFlowSettings
+} from '../utils/dealFlowSettings';
+import {
+  DEFAULT_STOREFRONT_SETTINGS,
+  normalizeStorefrontSettings
+} from '../utils/storefrontSettings';
+import {
+  DEFAULT_CONTENT_OFFER_SETTINGS,
+  normalizeContentOfferSettings
+} from '../utils/contentOfferSettings';
 
 const DEFAULT_SYSTEM = {
   maintenanceMode: false,
@@ -35,6 +55,11 @@ const DEFAULT_SYSTEM = {
     provider: 'openexchangerates'
   },
   optimization: serializeRuntimeOptimizationConfig(DEFAULT_RUNTIME_OPTIMIZATION_CONFIG),
+  verification: DEFAULT_VERIFICATION_SETTINGS,
+  trustScore: DEFAULT_TRUST_SCORE_SETTINGS,
+  dealFlow: DEFAULT_DEAL_FLOW_SETTINGS,
+  storefront: DEFAULT_STOREFRONT_SETTINGS,
+  contentOffers: DEFAULT_CONTENT_OFFER_SETTINGS,
   currencies: []
 };
 
@@ -56,6 +81,16 @@ const hydrateSystemSettings = (raw: any) => {
   const merged = deepMergeReplaceArrays(DEFAULT_SYSTEM, raw || {});
   const normalizedOptimization = normalizeRuntimeOptimizationConfig(merged?.optimization);
   merged.optimization = serializeRuntimeOptimizationConfig(normalizedOptimization);
+  merged.verification = normalizeVerificationSettings(merged?.verification);
+  merged.trustScore = normalizeTrustScoreSettings(merged?.trustScore ?? merged?.trust_score);
+  merged.dealFlow = normalizeDealFlowSettings(merged?.dealFlow ?? merged?.deal_flow);
+  merged.storefront = normalizeStorefrontSettings(merged?.storefront ?? merged?.storefront_settings);
+  merged.contentOffers = normalizeContentOfferSettings(
+    merged?.contentOffers ??
+      merged?.content_offers ??
+      merged?.contentOfferTags ??
+      merged?.content_offer_tags
+  );
   return merged;
 };
 
@@ -114,8 +149,8 @@ export const validateSystem = (obj: any) => {
   if (obj.email && obj.email.port !== undefined && typeof obj.email.port !== 'number') errors.push('email.port must be a number');
   if (obj.email && obj.email.provider !== undefined) {
     const provider = String(obj.email.provider).trim().toLowerCase();
-    if (!['smtp', 'ses', 'sendgrid', 'mailgun'].includes(provider)) {
-      errors.push('email.provider must be one of smtp, ses, sendgrid, mailgun');
+    if (!['smtp', 'ses', 'sendgrid', 'mailgun', 'brevo'].includes(provider)) {
+      errors.push('email.provider must be one of smtp, ses, sendgrid, mailgun, brevo');
     }
   }
   if (obj.email && obj.email.encryption !== undefined) {
@@ -212,6 +247,432 @@ export const validateSystem = (obj: any) => {
         const normalized = String(mediaQualityPreset || '').trim().toLowerCase();
         if (!['auto', 'low', 'balanced', 'high'].includes(normalized)) {
           errors.push('optimization.mediaQualityPreset must be one of auto, low, balanced, high');
+        }
+      }
+    }
+  }
+
+  if (obj.verification !== undefined) {
+    if (!isPlainObject(obj.verification)) {
+      errors.push('verification must be an object');
+    } else {
+      const verification = obj.verification as Record<string, any>;
+      if (verification.enabled !== undefined && typeof verification.enabled !== 'boolean') {
+        errors.push('verification.enabled must be boolean');
+      }
+      if (verification.showTooltips !== undefined && typeof verification.showTooltips !== 'boolean') {
+        errors.push('verification.showTooltips must be boolean');
+      }
+
+      if (verification.levels !== undefined) {
+        if (!isPlainObject(verification.levels)) {
+          errors.push('verification.levels must be an object');
+        } else {
+          ['standard', 'pro', 'business', 'government'].forEach((key) => {
+            if (verification.levels[key] !== undefined && typeof verification.levels[key] !== 'boolean') {
+              errors.push(`verification.levels.${key} must be boolean`);
+            }
+          });
+        }
+      }
+
+      if (verification.roles !== undefined) {
+        if (!isPlainObject(verification.roles)) {
+          errors.push('verification.roles must be an object');
+        } else {
+          ['guest', 'user', 'freelancer', 'employer', 'business', 'admin'].forEach((key) => {
+            if (verification.roles[key] !== undefined && typeof verification.roles[key] !== 'boolean') {
+              errors.push(`verification.roles.${key} must be boolean`);
+            }
+          });
+        }
+      }
+    }
+  }
+
+  if (obj.trustScore !== undefined || obj.trust_score !== undefined) {
+    const trustScore = (obj.trustScore ?? obj.trust_score) as Record<string, any>;
+    if (!isPlainObject(trustScore)) {
+      errors.push('trustScore must be an object');
+    } else {
+      ['enabled', 'showOnProfiles', 'showOnListings', 'showRiskIndicators'].forEach((key) => {
+        const raw = pickFirstDefined(trustScore, [key, key.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`)]);
+        if (raw !== undefined && typeof raw !== 'boolean') {
+          errors.push(`trustScore.${key} must be boolean`);
+        }
+      });
+
+      const weights = trustScore.weights;
+      if (weights !== undefined) {
+        if (!isPlainObject(weights)) {
+          errors.push('trustScore.weights must be an object');
+        } else {
+          [
+            'completionRate',
+            'responseRate',
+            'responseTime',
+            'reviewRating',
+            'reviewVolume',
+            'disputeRate',
+            'cancellationRate'
+          ].forEach((key) => {
+            const raw = pickFirstDefined(weights, [key, key.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`)]);
+            if (raw === undefined) return;
+            const numeric = Number(raw);
+            if (!Number.isFinite(numeric)) {
+              errors.push(`trustScore.weights.${key} must be a number`);
+              return;
+            }
+            if (numeric < 0 || numeric > 1) {
+              errors.push(`trustScore.weights.${key} must be between 0 and 1`);
+            }
+          });
+        }
+      }
+
+      const thresholds = trustScore.thresholds;
+      if (thresholds !== undefined) {
+        if (!isPlainObject(thresholds)) {
+          errors.push('trustScore.thresholds must be an object');
+        } else {
+          ['elite', 'established'].forEach((key) => {
+            if (thresholds[key] === undefined) return;
+            const numeric = Number(thresholds[key]);
+            if (!Number.isFinite(numeric)) {
+              errors.push(`trustScore.thresholds.${key} must be a number`);
+              return;
+            }
+            if (numeric < 0 || numeric > 100) {
+              errors.push(`trustScore.thresholds.${key} must be between 0 and 100`);
+            }
+          });
+        }
+      }
+    }
+  }
+
+  if (obj.dealFlow !== undefined || obj.deal_flow !== undefined) {
+    const dealFlow = (obj.dealFlow ?? obj.deal_flow) as Record<string, any>;
+    if (!isPlainObject(dealFlow)) {
+      errors.push('dealFlow must be an object');
+    } else {
+      const booleanKeys = ['enabled', 'allowCreateBriefFromChat', 'allowBriefToProposal', 'autoCreatePrivateJobs'];
+      booleanKeys.forEach((key) => {
+        const raw = pickFirstDefined(dealFlow, [key, key.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`)]);
+        if (raw !== undefined && typeof raw !== 'boolean') {
+          errors.push(`dealFlow.${key} must be boolean`);
+        }
+      });
+
+      const defaultCategory = pickFirstDefined(dealFlow, ['defaultCategory', 'default_category']);
+      if (defaultCategory !== undefined && !String(defaultCategory || '').trim()) {
+        errors.push('dealFlow.defaultCategory must be a non-empty string');
+      }
+
+      const allowedCategories = pickFirstDefined(dealFlow, ['allowedCategories', 'allowed_categories']);
+      if (allowedCategories !== undefined) {
+        if (!Array.isArray(allowedCategories)) {
+          errors.push('dealFlow.allowedCategories must be an array');
+        } else if (allowedCategories.some((entry) => !String(entry || '').trim())) {
+          errors.push('dealFlow.allowedCategories cannot contain empty values');
+        }
+      }
+
+      if (dealFlow.templates !== undefined) {
+        if (!Array.isArray(dealFlow.templates)) {
+          errors.push('dealFlow.templates must be an array');
+        } else {
+          dealFlow.templates.forEach((template: any, index: number) => {
+            if (!isPlainObject(template)) {
+              errors.push(`dealFlow.templates[${index}] must be an object`);
+              return;
+            }
+            if (!String(template.id || '').trim()) errors.push(`dealFlow.templates[${index}].id is required`);
+            if (!String(template.label || '').trim()) errors.push(`dealFlow.templates[${index}].label is required`);
+            if (!String(template.category || '').trim()) errors.push(`dealFlow.templates[${index}].category is required`);
+          });
+        }
+      }
+
+      if (dealFlow.timeline !== undefined) {
+        if (!isPlainObject(dealFlow.timeline)) {
+          errors.push('dealFlow.timeline must be an object');
+        } else {
+          ['briefs', 'proposals', 'contracts'].forEach((key) => {
+            if (dealFlow.timeline[key] !== undefined && typeof dealFlow.timeline[key] !== 'boolean') {
+              errors.push(`dealFlow.timeline.${key} must be boolean`);
+            }
+          });
+        }
+      }
+
+      const proposalDefaults = dealFlow.proposalDefaults ?? dealFlow.proposal_defaults;
+      if (proposalDefaults !== undefined) {
+        if (!isPlainObject(proposalDefaults)) {
+          errors.push('dealFlow.proposalDefaults must be an object');
+        } else {
+          const timelineDays = pickFirstDefined(proposalDefaults, ['timelineDays', 'timeline_days']);
+          if (timelineDays !== undefined) {
+            const numeric = Number(timelineDays);
+            if (!Number.isFinite(numeric) || numeric < 1 || numeric > 365) {
+              errors.push('dealFlow.proposalDefaults.timelineDays must be between 1 and 365');
+            }
+          }
+
+          const paymentCycle = pickFirstDefined(proposalDefaults, ['paymentCycle', 'payment_cycle']);
+          if (paymentCycle !== undefined) {
+            const normalized = String(paymentCycle || '').trim().toUpperCase();
+            if (!['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(normalized)) {
+              errors.push('dealFlow.proposalDefaults.paymentCycle must be one of WEEKLY, BIWEEKLY, MONTHLY');
+            }
+          }
+        }
+      }
+
+      const contractTemplates = pickFirstDefined(dealFlow, ['contractTemplates', 'contract_templates']);
+      if (contractTemplates !== undefined) {
+        if (!Array.isArray(contractTemplates)) {
+          errors.push('dealFlow.contractTemplates must be an array');
+        } else {
+          contractTemplates.forEach((template: any, index: number) => {
+            if (!isPlainObject(template)) {
+              errors.push(`dealFlow.contractTemplates[${index}] must be an object`);
+              return;
+            }
+            if (!String(template.id || '').trim()) errors.push(`dealFlow.contractTemplates[${index}].id is required`);
+            if (!String(template.label || '').trim()) errors.push(`dealFlow.contractTemplates[${index}].label is required`);
+            const contractType = String(template.contractType ?? template.contract_type ?? '').trim().toUpperCase();
+            if (contractType && !['FIXED', 'HOURLY'].includes(contractType)) {
+              errors.push(`dealFlow.contractTemplates[${index}].contractType must be FIXED or HOURLY`);
+            }
+            const paymentCycle = String(template.paymentCycle ?? template.payment_cycle ?? '').trim().toUpperCase();
+            if (paymentCycle && !['WEEKLY', 'BIWEEKLY', 'MONTHLY'].includes(paymentCycle)) {
+              errors.push(`dealFlow.contractTemplates[${index}].paymentCycle must be WEEKLY, BIWEEKLY, or MONTHLY`);
+            }
+            const milestoneCount = pickFirstDefined(template, ['milestoneCount', 'milestone_count']);
+            if (milestoneCount !== undefined) {
+              const numeric = Number(milestoneCount);
+              if (!Number.isFinite(numeric) || numeric < 0 || numeric > 12) {
+                errors.push(`dealFlow.contractTemplates[${index}].milestoneCount must be between 0 and 12`);
+              }
+            }
+          });
+        }
+      }
+
+      const contractDefaults = dealFlow.contractDefaults ?? dealFlow.contract_defaults;
+      if (contractDefaults !== undefined) {
+        if (!isPlainObject(contractDefaults)) {
+          errors.push('dealFlow.contractDefaults must be an object');
+        } else {
+          const numericRules: Array<{ key: string; min: number; max: number }> = [
+            { key: 'startLeadDays', min: 0, max: 30 },
+            { key: 'fixedMilestoneCount', min: 1, max: 12 },
+            { key: 'hourlyWeeklyCap', min: 1, max: 168 },
+            { key: 'upfrontPercent', min: 0, max: 100 }
+          ];
+          numericRules.forEach(({ key, min, max }) => {
+            const raw = pickFirstDefined(contractDefaults, [key, key.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`)]);
+            if (raw === undefined) return;
+            const numeric = Number(raw);
+            if (!Number.isFinite(numeric) || numeric < min || numeric > max) {
+              errors.push(`dealFlow.contractDefaults.${key} must be between ${min} and ${max}`);
+            }
+          });
+        }
+      }
+
+      const contractRules = dealFlow.contractRules ?? dealFlow.contract_rules;
+      if (contractRules !== undefined) {
+        if (!isPlainObject(contractRules)) {
+          errors.push('dealFlow.contractRules must be an object');
+        } else {
+          ['allowFixedContracts', 'allowHourlyContracts', 'requireMilestonesForFixed'].forEach((key) => {
+            const raw = pickFirstDefined(contractRules, [key, key.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`)]);
+            if (raw !== undefined && typeof raw !== 'boolean') {
+              errors.push(`dealFlow.contractRules.${key} must be boolean`);
+            }
+          });
+          const maxMilestones = pickFirstDefined(contractRules, ['maxMilestones', 'max_milestones']);
+          if (maxMilestones !== undefined) {
+            const numeric = Number(maxMilestones);
+            if (!Number.isFinite(numeric) || numeric < 1 || numeric > 20) {
+              errors.push('dealFlow.contractRules.maxMilestones must be between 1 and 20');
+            }
+          }
+        }
+      }
+
+      const feePolicy = dealFlow.feePolicy ?? dealFlow.fee_policy;
+      if (feePolicy !== undefined) {
+        if (!isPlainObject(feePolicy)) {
+          errors.push('dealFlow.feePolicy must be an object');
+        } else {
+          ['clientFeePercent', 'contractorFeePercent'].forEach((key) => {
+            const raw = pickFirstDefined(feePolicy, [key, key.replace(/[A-Z]/g, (match) => `_${match.toLowerCase()}`)]);
+            if (raw === undefined) return;
+            const numeric = Number(raw);
+            if (!Number.isFinite(numeric) || numeric < 0 || numeric > 100) {
+              errors.push(`dealFlow.feePolicy.${key} must be between 0 and 100`);
+            }
+          });
+          const allowDeposits = pickFirstDefined(feePolicy, ['allowDeposits', 'allow_deposits']);
+          if (allowDeposits !== undefined && typeof allowDeposits !== 'boolean') {
+            errors.push('dealFlow.feePolicy.allowDeposits must be boolean');
+          }
+        }
+      }
+    }
+  }
+
+  if (obj.storefront !== undefined || obj.storefront_settings !== undefined) {
+    const storefront = (obj.storefront ?? obj.storefront_settings) as Record<string, any>;
+    if (!isPlainObject(storefront)) {
+      errors.push('storefront must be an object');
+    } else {
+      const booleanRules: Array<{ key: string; aliases?: string[] }> = [
+        { key: 'enabled' },
+        { key: 'userProfilesEnabled', aliases: ['user_profiles_enabled'] },
+        { key: 'businessPagesEnabled', aliases: ['business_pages_enabled'] }
+      ];
+      for (const rule of booleanRules) {
+        const raw = pickFirstDefined(storefront, [rule.key, ...(rule.aliases || [])]);
+        if (raw === undefined) continue;
+        if (typeof raw !== 'boolean') {
+          errors.push(`storefront.${rule.key} must be boolean`);
+        }
+      }
+
+      if (storefront.roles !== undefined) {
+        if (!isPlainObject(storefront.roles)) {
+          errors.push('storefront.roles must be an object');
+        } else {
+          ['user', 'freelancer', 'employer', 'business', 'admin'].forEach((key) => {
+            if (storefront.roles[key] !== undefined && typeof storefront.roles[key] !== 'boolean') {
+              errors.push(`storefront.roles.${key} must be boolean`);
+            }
+          });
+        }
+      }
+
+      if (storefront.modules !== undefined) {
+        if (!isPlainObject(storefront.modules)) {
+          errors.push('storefront.modules must be an object');
+        } else {
+          [
+            ['merchantSummary', 'merchant_summary'],
+            ['userGigs', 'user_gigs'],
+            ['businessPackages', 'business_packages']
+          ].forEach(([camel, snake]) => {
+            const raw = pickFirstDefined(storefront.modules, [camel, snake]);
+            if (raw !== undefined && typeof raw !== 'boolean') {
+              errors.push(`storefront.modules.${camel} must be boolean`);
+            }
+          });
+        }
+      }
+
+      [
+        ['maxFeaturedItems', 'max_featured_items', 1, 12],
+        ['maxCatalogItems', 'max_catalog_items', 1, 60]
+      ].forEach(([camel, snake, min, max]) => {
+        const raw = pickFirstDefined(storefront, [camel as string, snake as string]);
+        if (raw === undefined) return;
+        const numeric = Number(raw);
+        if (!Number.isFinite(numeric)) {
+          errors.push(`storefront.${camel} must be a number`);
+          return;
+        }
+        if (numeric < (min as number) || numeric > (max as number)) {
+          errors.push(`storefront.${camel} must be between ${min} and ${max}`);
+        }
+      });
+    }
+  }
+
+  if (
+    obj.contentOffers !== undefined ||
+    obj.content_offers !== undefined ||
+    obj.contentOfferTags !== undefined ||
+    obj.content_offer_tags !== undefined
+  ) {
+    const contentOffers = (
+      obj.contentOffers ??
+      obj.content_offers ??
+      obj.contentOfferTags ??
+      obj.content_offer_tags
+    ) as Record<string, any>;
+    if (!isPlainObject(contentOffers)) {
+      errors.push('contentOffers must be an object');
+    } else {
+      const booleanRules: Array<{ key: string; aliases?: string[] }> = [
+        { key: 'enabled' },
+        { key: 'postsEnabled', aliases: ['posts_enabled'] },
+        { key: 'scrollEnabled', aliases: ['scroll_enabled'] },
+        { key: 'liveEnabled', aliases: ['live_enabled'] }
+      ];
+      for (const rule of booleanRules) {
+        const raw = pickFirstDefined(contentOffers, [rule.key, ...(rule.aliases || [])]);
+        if (raw === undefined) continue;
+        if (typeof raw !== 'boolean') {
+          errors.push(`contentOffers.${rule.key} must be boolean`);
+        }
+      }
+
+      if (contentOffers.roles !== undefined) {
+        if (!isPlainObject(contentOffers.roles)) {
+          errors.push('contentOffers.roles must be an object');
+        } else {
+          ['user', 'freelancer', 'employer', 'business', 'admin'].forEach((key) => {
+            if (contentOffers.roles[key] !== undefined && typeof contentOffers.roles[key] !== 'boolean') {
+              errors.push(`contentOffers.roles.${key} must be boolean`);
+            }
+          });
+        }
+      }
+
+      if (contentOffers.modules !== undefined) {
+        if (!isPlainObject(contentOffers.modules)) {
+          errors.push('contentOffers.modules must be an object');
+        } else {
+          [
+            ['userGigs', 'user_gigs'],
+            ['businessPackages', 'business_packages'],
+            ['storefrontCta', 'storefront_cta'],
+            ['messageCta', 'message_cta'],
+            ['briefCta', 'brief_cta']
+          ].forEach(([camel, snake]) => {
+            const raw = pickFirstDefined(contentOffers.modules, [camel, snake]);
+            if (raw !== undefined && typeof raw !== 'boolean') {
+              errors.push(`contentOffers.modules.${camel} must be boolean`);
+            }
+          });
+        }
+      }
+
+      const maxTags = pickFirstDefined(contentOffers, ['maxTagsPerContent', 'max_tags_per_content']);
+      if (maxTags !== undefined) {
+        const numeric = Number(maxTags);
+        if (!Number.isFinite(numeric) || numeric < 1 || numeric > 6) {
+          errors.push('contentOffers.maxTagsPerContent must be between 1 and 6');
+        }
+      }
+
+      const moderationMode = pickFirstDefined(contentOffers, ['moderationMode', 'moderation_mode']);
+      if (moderationMode !== undefined) {
+        const normalized = String(moderationMode || '').trim().toLowerCase();
+        if (!['off', 'review', 'strict'].includes(normalized)) {
+          errors.push('contentOffers.moderationMode must be one of off, review, strict');
+        }
+      }
+
+      const restrictedCategories = pickFirstDefined(contentOffers, ['restrictedCategories', 'restricted_categories']);
+      if (restrictedCategories !== undefined) {
+        const valid =
+          Array.isArray(restrictedCategories) ||
+          typeof restrictedCategories === 'string';
+        if (!valid) {
+          errors.push('contentOffers.restrictedCategories must be an array or comma-separated string');
         }
       }
     }

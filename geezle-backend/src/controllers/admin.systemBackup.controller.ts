@@ -1,14 +1,17 @@
 import { Request, Response } from 'express';
 import fs from 'fs';
 import {
-  createSystemBackup,
   deleteSystemBackups,
   getSystemBackupDownload,
   getSystemBackupSections,
   importSystemBackup,
+  listSystemBackupJobs,
   listSystemBackups,
-  restoreSystemBackup
+  queueSystemBackupCreation,
+  restoreSystemBackup,
+  runSystemBackupCreationJob
 } from '../services/systemBackup.service';
+import { downloadBlobBufferByName } from '../services/storage/blobStorage';
 
 const parseCsvOrArray = (value: unknown): string[] => {
   const raw = Array.isArray(value) ? value : String(value || '').split(/[\n,]/g);
@@ -57,10 +60,19 @@ export const getAdminSystemBackupMeta = async (_req: Request, res: Response) => 
 
 export const getAdminSystemBackups = async (_req: Request, res: Response) => {
   try {
-    const rows = listSystemBackups();
+    const rows = await listSystemBackups();
     return res.json({ success: true, data: rows });
   } catch (error: any) {
     return toErrorResponse(res, error, 'Failed to load system backups.');
+  }
+};
+
+export const getAdminSystemBackupJobs = async (_req: Request, res: Response) => {
+  try {
+    const rows = await listSystemBackupJobs();
+    return res.json({ success: true, data: rows });
+  } catch (error: any) {
+    return toErrorResponse(res, error, 'Failed to load system backup jobs.');
   }
 };
 
@@ -69,23 +81,37 @@ export const createAdminSystemBackup = async (req: Request, res: Response) => {
     if (!req.user?.id) {
       return res.status(401).json({ success: false, error: 'Authentication required.' });
     }
-    const result = await createSystemBackup({
+    const mode: 'full' | 'partial' = req.body?.mode === 'partial' ? 'partial' : 'full';
+    const input = {
       adminId: req.user.id,
       adminEmail: req.user.email || null,
-      mode: req.body?.mode === 'partial' ? 'partial' : 'full',
+      mode,
       sections: parseCsvOrArray(req.body?.sections) as any,
       customTables: parseCsvOrArray(req.body?.customTables),
       includeFiles: req.body?.includeFiles !== false,
       notes: req.body?.notes
-    });
+    };
+    const job = await queueSystemBackupCreation(input);
 
     emitAdminSystemBackupUpdate(req, {
-      action: 'created',
-      backupId: result.backup.id,
-      createdAt: result.backup.createdAt
+      action: 'job_queued',
+      jobId: job.id,
+      status: job.status,
+      requestedAt: job.createdAt
     });
 
-    return res.status(201).json({ success: true, data: result });
+    void runSystemBackupCreationJob(job.id, input, {
+      onUpdate: async (payload) => {
+        emitAdminSystemBackupUpdate(req, payload);
+      }
+    });
+
+    return res.status(202).json({
+      success: true,
+      data: {
+        job
+      }
+    });
   } catch (error: any) {
     return toErrorResponse(res, error, 'Failed to create system backup.');
   }
@@ -94,8 +120,16 @@ export const createAdminSystemBackup = async (req: Request, res: Response) => {
 export const downloadAdminSystemBackup = async (req: Request, res: Response) => {
   try {
     const backupId = String(req.params.id || '').trim();
-    const { record, absolutePath } = getSystemBackupDownload(backupId);
-    return res.download(absolutePath, record.fileName);
+    const download = await getSystemBackupDownload(backupId);
+    if (download.storage === 'azure_blob') {
+      const buffer = await downloadBlobBufferByName(download.blobName);
+      res.setHeader('Content-Type', 'application/gzip');
+      res.setHeader('Content-Disposition', `attachment; filename="${download.record.fileName}"`);
+      res.setHeader('Content-Length', String(buffer.length || 0));
+      res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+      return res.end(buffer);
+    }
+    return res.download(download.absolutePath, download.record.fileName);
   } catch (error: any) {
     return toErrorResponse(res, error, 'Failed to download system backup.');
   }
@@ -198,7 +232,7 @@ export const restoreAdminSystemBackup = async (req: Request, res: Response) => {
 export const deleteAdminSystemBackup = async (req: Request, res: Response) => {
   try {
     const backupId = String(req.params.id || '').trim();
-    const deleted = deleteSystemBackups([backupId]);
+    const deleted = await deleteSystemBackups([backupId]);
 
     emitAdminSystemBackupUpdate(req, {
       action: 'deleted',
@@ -220,7 +254,7 @@ export const deleteAdminSystemBackup = async (req: Request, res: Response) => {
 export const deleteAdminSystemBackupBatch = async (req: Request, res: Response) => {
   try {
     const backupIds = parseCsvOrArray(req.body?.backupIds);
-    const deleted = deleteSystemBackups(backupIds);
+    const deleted = await deleteSystemBackups(backupIds);
 
     emitAdminSystemBackupUpdate(req, {
       action: 'deleted_batch',

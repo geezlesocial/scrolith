@@ -2,8 +2,10 @@ import type { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../../../services/scrolitha/scrolitha.audit';
 import {
   completeUserQuest,
+  generateOpportunityBriefMatches,
   generatePostPrediction,
   generateSkillGapReport,
+  getOpportunityHubForUser,
   getUserQuests,
   getLatestSkillGapReport,
   getLeaderboard,
@@ -230,6 +232,40 @@ export const getRevenueController = async (req: Request, res: Response) => {
       return res.json({ success: true, data: fallbackRevenue(), message: 'Revenue insights loaded' });
     }
     return fail(res, 'Failed to load revenue insights', error);
+  }
+};
+
+export const getOpportunityHubController = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
+    const data = await getOpportunityHubForUser({ userId, app: req.app });
+    return res.json({ success: true, data, message: 'Opportunity hub loaded' });
+  } catch (error) {
+    return fail(res, 'Failed to load opportunity hub', error);
+  }
+};
+
+export const generateOpportunityBriefController = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
+    const prompt = String(req.body?.prompt || '').trim();
+    if (!prompt) {
+      return res.status(400).json({ success: false, data: null, message: 'Prompt is required' });
+    }
+    const actor = resolveActorFromRequest(req);
+    const data = await generateOpportunityBriefMatches({
+      userId,
+      prompt,
+      actor,
+      app: req.app
+    });
+    return res.json({ success: true, data, message: 'Opportunity brief generated' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to generate opportunity brief');
+    const status = message.toLowerCase().includes('required') ? 400 : 500;
+    return fail(res, 'Failed to generate opportunity brief', error, status);
   }
 };
 

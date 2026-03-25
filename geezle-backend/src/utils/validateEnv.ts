@@ -14,7 +14,7 @@ const REQUIRED_KEYS: EnvKey[] = [
 ];
 
 const OPTIONAL_KEYS: EnvKey[] = [
-  { key: 'EMAIL_PROVIDER', description: 'Email provider: smtp | ses | sendgrid | mailgun' },
+  { key: 'EMAIL_PROVIDER', description: 'Email provider: smtp | ses | sendgrid | mailgun | brevo' },
   { key: 'EMAIL_HOST', description: 'SMTP host' },
   { key: 'EMAIL_PORT', description: 'SMTP port' },
   { key: 'EMAIL_USER', description: 'SMTP username' },
@@ -32,6 +32,9 @@ const OPTIONAL_KEYS: EnvKey[] = [
   { key: 'MAILGUN_API_KEY', description: 'Mailgun API key' },
   { key: 'MAILGUN_SMTP_USERNAME', description: 'Mailgun SMTP username' },
   { key: 'MAILGUN_SMTP_PASSWORD', description: 'Mailgun SMTP password' },
+  { key: 'BREVO_SMTP_LOGIN', description: 'Brevo SMTP login email' },
+  { key: 'BREVO_SMTP_KEY', description: 'Brevo SMTP key' },
+  { key: 'BREVO_SMTP_PASSWORD', description: 'Brevo SMTP password alias (same as SMTP key)' },
   { key: 'GOOGLE_API_KEY', description: 'Google / Vertex AI key' },
   { key: 'OPENAI_API_KEY', description: 'OpenAI API key' },
   { key: 'SCROLITHA_PROVIDER', description: 'Scrolitha provider: ollama | disabled' },

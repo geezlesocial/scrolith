@@ -3,6 +3,7 @@ import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { notifyUser } from '../utils/notify';
 import { computeWalletFraudScore, recomputeAllWalletScores } from '../services/fraudDetector';
+import { getPostDashTotal, getScrollDashTotal } from '../services/gcoinDonationTotals.service';
 import { getGcoinSettingsSafe, saveGcoinSettingsSafe } from '../utils/gcoinSettings';
 
 interface AuthRequest extends Request {
@@ -34,6 +35,31 @@ const getOrCreateGcoinWallet = async (userId: string) => {
   await prisma.user.upsert({ where: { id: userId }, update: {}, create: { id: userId, email: `${userId}@local.dev`, role: 'USER' } });
   const recipientId = `GC-${Math.random().toString(36).slice(2, 12)}`;
   return prisma.gcoinWallet.create({ data: { userId, recipientId, balance: 0, lifetimeEarned: 0, status: 'active' } });
+};
+
+const resolveTransferFee = async (value: number) => {
+  const settingsRaw = await getOrCreateGcoinSettings();
+  const settings: any = settingsRaw as any;
+  const feeType = (settings.transferFeeType || 'percentage').toString();
+  const feeValue = Number(settings.transferFeeValue || 0);
+  let feeAmount = 0;
+  if (feeType === 'percentage') {
+    feeAmount = Number((value * (feeValue / 100)).toFixed(8));
+  } else {
+    feeAmount = Number(feeValue);
+  }
+  return { settings, feeType, feeValue, feeAmount };
+};
+
+const emitWalletBalanceUpdates = (
+  req: AuthRequest,
+  balances: Array<{ userId: string; balance: number }>
+) => {
+  const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
+  balances.forEach(({ userId, balance }) => {
+    try { io?.emit('community:gcoin_balance_updated', { userId, balance }); } catch (e) {}
+    try { realtime.emitToWallet(userId, 'community:gcoin_balance_updated', { userId, balance }); } catch (e) {}
+  });
 };
 
 const emitConversionEvents = async (req: AuthRequest, payload: any) => {
@@ -713,17 +739,7 @@ export const donateGcoin = async (req: AuthRequest, res: Response) => {
     const allowed = await tryRecordTransfer(sender.id);
     if (!allowed) return fail(res, 429, 'Transfer rate limit exceeded');
     
-    // Apply transfer fee
-    const settingsRaw = await getOrCreateGcoinSettings();
-    const settings: any = settingsRaw as any;
-    const feeType = (settings.transferFeeType || 'percentage').toString();
-    const feeValue = Number(settings.transferFeeValue || 0);
-    let feeAmount = 0;
-    if (feeType === 'percentage') {
-      feeAmount = Number((value * (feeValue / 100)).toFixed(8));
-    } else {
-      feeAmount = Number(feeValue);
-    }
+    const { feeAmount } = await resolveTransferFee(value);
     
     const totalDeduct = Number((value + feeAmount).toFixed(8));
     if (Number(senderW.balance) < totalDeduct) return fail(res, 400, 'Insufficient balance for amount and fee');
@@ -815,18 +831,36 @@ export const donateGcoin = async (req: AuthRequest, res: Response) => {
       }
     });
     
+    const dashGcoinTotal = await getPostDashTotal(postId);
+
     // Emit socket events
     const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
-    try { io?.emit('community:gcoin_donated', { postId, donorId: sender.id, recipientId: recipientUser.id, amount: value }); } catch (e) { console.error('Socket emit error (gcoin_donated):', e); }
+    try {
+      io?.emit('community:gcoin_donated', {
+        postId,
+        donorId: sender.id,
+        recipientId: recipientUser.id,
+        amount: value,
+        dashGcoinTotal
+      });
+    } catch (e) { console.error('Socket emit error (gcoin_donated):', e); }
     try { io?.emit('community:gcoin_transaction_created', { from: sender.id, to: recipientUser.id, amount: value, type: 'donation', postId }); } catch (e) {}
-    try { io?.emit('community:gcoin_balance_updated', { userId: sender.id, balance: Number(senderW.balance) - totalDeduct }); } catch (e) {}
-    try { io?.emit('community:gcoin_balance_updated', { userId: recipientUser.id, balance: Number(recipientWallet.balance) + value }); } catch (e) {}
+    emitWalletBalanceUpdates(req, [
+      { userId: sender.id, balance: Number(senderW.balance) - totalDeduct },
+      { userId: recipientUser.id, balance: Number(recipientWallet.balance) + value }
+    ]);
     // targeted emits
-    try { realtime.emitToPost(postId, 'community:gcoin_donated', { postId, donorId: sender.id, recipientId: recipientUser.id, amount: value }); } catch (e) {}
+    try {
+      realtime.emitToPost(postId, 'community:gcoin_donated', {
+        postId,
+        donorId: sender.id,
+        recipientId: recipientUser.id,
+        amount: value,
+        dashGcoinTotal
+      });
+    } catch (e) {}
     try { realtime.emitToUser(sender.id, 'community:gcoin_transaction_created', { from: sender.id, to: recipientUser.id, amount: value, type: 'donation', postId }); } catch (e) {}
     try { realtime.emitToUser(recipientUser.id, 'community:gcoin_transaction_created', { from: sender.id, to: recipientUser.id, amount: value, type: 'donation', postId }); } catch (e) {}
-    try { realtime.emitToWallet(sender.id, 'community:gcoin_balance_updated', { userId: sender.id, balance: Number(senderW.balance) - totalDeduct }); } catch (e) {}
-    try { realtime.emitToWallet(recipientUser.id, 'community:gcoin_balance_updated', { userId: recipientUser.id, balance: Number(recipientWallet.balance) + value }); } catch (e) {}
 
     // Persist a notification so Dash appears in Notifications even after refresh.
     // (Also emits realtime + push via notifyUser.)
@@ -884,11 +918,351 @@ export const donateGcoin = async (req: AuthRequest, res: Response) => {
       donorId: sender.id,
       recipientId: recipientUser.id,
       amount: value,
-      fee: feeAmount
+      fee: feeAmount,
+      dashGcoinTotal
     });
   } catch (e: any) {
     console.error(e);
     return fail(res, 500, 'Failed to process donation');
+  }
+};
+
+export const donateScrollGcoin = async (req: AuthRequest, res: Response) => {
+  try {
+    const sender = req.user;
+    if (!sender?.id) return fail(res, 401, 'Unauthorized');
+
+    const { scrollId, amount, amountGcoin, note } = req.body || {};
+    const resolvedAmount = amount !== undefined ? amount : amountGcoin;
+    const value = Number(resolvedAmount);
+    const normalizedScrollId = String(scrollId || '').trim();
+
+    if (!normalizedScrollId || !value || value <= 0) {
+      return fail(res, 400, 'scrollId and amount are required');
+    }
+
+    const prismaAny = prisma as any;
+    const scroll = await prismaAny.scrollVideo.findUnique({
+      where: { id: normalizedScrollId },
+      select: {
+        id: true,
+        authorId: true,
+        title: true,
+        status: true,
+        likesCount: true,
+        commentsCount: true,
+        repostsCount: true,
+        sharesCount: true,
+        sendCount: true,
+        impressions: true,
+        views3s: true,
+        views10s: true,
+        views25pct: true,
+        views50pct: true,
+        views95pct: true
+      }
+    });
+
+    if (!scroll || String(scroll.status || '').toLowerCase() !== 'active') {
+      return fail(res, 404, 'Scroll not found');
+    }
+    if (String(scroll.authorId || '') === sender.id) {
+      return fail(res, 400, 'Cannot donate to your own scroll');
+    }
+
+    const recipientUser = await prisma.user.findUnique({
+      where: { id: scroll.authorId },
+      include: { gcoinWallet: true }
+    });
+    if (!recipientUser) return fail(res, 404, 'Scroll owner not found');
+
+    const recipientWallet = recipientUser.gcoinWallet || (await getOrCreateGcoinWallet(recipientUser.id));
+    const senderW = await getOrCreateGcoinWallet(sender.id);
+    if (senderW.status === 'frozen') return fail(res, 403, 'Wallet frozen');
+
+    const allowed = await tryRecordTransfer(sender.id);
+    if (!allowed) return fail(res, 429, 'Transfer rate limit exceeded');
+
+    const { feeAmount } = await resolveTransferFee(value);
+    const totalDeduct = Number((value + feeAmount).toFixed(8));
+    if (Number(senderW.balance) < totalDeduct) return fail(res, 400, 'Insufficient balance for amount and fee');
+
+    const adminUserId = await getAdminRevenueUserId();
+    const donationNote = note || `Donation for scroll: ${normalizedScrollId}`;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.gcoinWallet.update({
+        where: { userId: sender.id },
+        data: { balance: Number(senderW.balance) - totalDeduct }
+      });
+      await tx.gcoinWallet.update({
+        where: { userId: recipientUser.id },
+        data: { balance: Number(recipientWallet.balance) + value }
+      });
+
+      await tx.gcoinTransaction.create({
+        data: {
+          userId: sender.id,
+          amount: -value,
+          type: 'scroll_donation',
+          source: 'scroll',
+          reason: donationNote,
+          referenceId: normalizedScrollId,
+          status: 'completed',
+          createdBy: sender.id
+        }
+      });
+      await tx.gcoinTransaction.create({
+        data: {
+          userId: recipientUser.id,
+          amount: value,
+          type: 'scroll_donation_received',
+          source: 'scroll',
+          reason: donationNote,
+          referenceId: normalizedScrollId,
+          status: 'completed',
+          createdBy: sender.id
+        }
+      });
+
+      await tx.transaction.create({
+        data: {
+          userId: sender.id,
+          amount: -value,
+          type: 'TRANSFER',
+          status: 'COMPLETED',
+          description: `Gcoin donation to scroll ${normalizedScrollId}`,
+          metadata: {
+            community: true,
+            subtype: 'GCOIN_SCROLL_DONATION',
+            scrollId: normalizedScrollId,
+            recipientId: recipientUser.id,
+            fee: feeAmount
+          }
+        }
+      });
+      await tx.transaction.create({
+        data: {
+          userId: recipientUser.id,
+          amount: value,
+          type: 'TRANSFER',
+          status: 'COMPLETED',
+          description: `Gcoin donation received for scroll ${normalizedScrollId}`,
+          metadata: {
+            community: true,
+            subtype: 'GCOIN_SCROLL_DONATION_RECEIVED',
+            scrollId: normalizedScrollId,
+            donorId: sender.id
+          }
+        }
+      });
+
+      await (tx as any).scrollVideo.update({
+        where: { id: normalizedScrollId },
+        data: { sharesCount: { increment: 1 } }
+      });
+
+      if (feeAmount > 0 && adminUserId) {
+        const adminWallet = await tx.gcoinWallet.findUnique({ where: { userId: adminUserId } });
+        if (!adminWallet) {
+          await tx.gcoinWallet.create({
+            data: { userId: adminUserId, recipientId: `GC-${Date.now().toString().slice(-6)}` }
+          });
+        }
+        await tx.gcoinWallet.update({
+          where: { userId: adminUserId },
+          data: { balance: { increment: feeAmount } }
+        });
+        await tx.gcoinTransaction.create({
+          data: {
+            userId: adminUserId,
+            amount: feeAmount,
+            type: 'TRANSFER_FEE',
+            reason: `scroll_donation_fee_from_${sender.id}`,
+            status: 'completed',
+            createdBy: sender.id
+          }
+        });
+        await tx.transaction.create({
+          data: {
+            userId: adminUserId,
+            amount: feeAmount,
+            type: 'FEE',
+            status: 'COMPLETED',
+            description: `Gcoin scroll donation fee from ${sender.id}`,
+            metadata: {
+              community: true,
+              subtype: 'GCOIN_SCROLL_DONATION_FEE',
+              scrollId: normalizedScrollId,
+              source: sender.id
+            }
+          }
+        });
+      }
+    });
+
+    const [dashGcoinTotal, updatedScroll, donor] = await Promise.all([
+      getScrollDashTotal(normalizedScrollId),
+      prismaAny.scrollVideo.findUnique({
+        where: { id: normalizedScrollId },
+        select: {
+          impressions: true,
+          views3s: true,
+          views10s: true,
+          views25pct: true,
+          views50pct: true,
+          views95pct: true,
+          likesCount: true,
+          commentsCount: true,
+          repostsCount: true,
+          sharesCount: true,
+          sendCount: true
+        }
+      }),
+      prisma.user.findUnique({
+        where: { id: sender.id },
+        select: { id: true, name: true, username: true, avatar: true }
+      })
+    ]);
+
+    const metrics = {
+      impressions: Number(updatedScroll?.impressions || scroll.impressions || 0),
+      views3s: Number(updatedScroll?.views3s || scroll.views3s || 0),
+      views10s: Number(updatedScroll?.views10s || scroll.views10s || 0),
+      views25pct: Number(updatedScroll?.views25pct || scroll.views25pct || 0),
+      views50pct: Number(updatedScroll?.views50pct || scroll.views50pct || 0),
+      views95pct: Number(updatedScroll?.views95pct || scroll.views95pct || 0),
+      likes: Number(updatedScroll?.likesCount || scroll.likesCount || 0),
+      comments: Number(updatedScroll?.commentsCount || scroll.commentsCount || 0),
+      reposts: Number(updatedScroll?.repostsCount || scroll.repostsCount || 0),
+      shares: Number(updatedScroll?.sharesCount || scroll.sharesCount || 0),
+      sends: Number(updatedScroll?.sendCount || scroll.sendCount || 0)
+    };
+
+    const payload = {
+      scrollId: normalizedScrollId,
+      donorId: sender.id,
+      recipientId: recipientUser.id,
+      amount: value,
+      dashGcoinTotal,
+      metrics,
+      emittedAt: nowIso()
+    };
+
+    const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
+    try { io?.emit('scroll:gcoin_donated', payload); } catch (e) {}
+    try {
+      io?.emit('scroll:engagement_update', {
+        scrollId: normalizedScrollId,
+        type: 'dash',
+        userId: sender.id,
+        created: true,
+        liked: false,
+        dashGcoinTotal,
+        metrics
+      });
+    } catch (e) {}
+    try {
+      io?.emit('community:gcoin_transaction_created', {
+        from: sender.id,
+        to: recipientUser.id,
+        amount: value,
+        type: 'scroll_donation',
+        scrollId: normalizedScrollId
+      });
+    } catch (e) {}
+    emitWalletBalanceUpdates(req, [
+      { userId: sender.id, balance: Number(senderW.balance) - totalDeduct },
+      { userId: recipientUser.id, balance: Number(recipientWallet.balance) + value }
+    ]);
+
+    try { realtime.emitToRoom('community:global', 'scroll:gcoin_donated', payload); } catch (e) {}
+    try {
+      realtime.emitToRoom('community:global', 'scroll:engagement_update', {
+        scrollId: normalizedScrollId,
+        type: 'dash',
+        userId: sender.id,
+        created: true,
+        liked: false,
+        dashGcoinTotal,
+        metrics
+      });
+    } catch (e) {}
+    try {
+      realtime.emitToUser(sender.id, 'community:gcoin_transaction_created', {
+        from: sender.id,
+        to: recipientUser.id,
+        amount: value,
+        type: 'scroll_donation',
+        scrollId: normalizedScrollId
+      });
+    } catch (e) {}
+    try {
+      realtime.emitToUser(recipientUser.id, 'community:gcoin_transaction_created', {
+        from: sender.id,
+        to: recipientUser.id,
+        amount: value,
+        type: 'scroll_donation',
+        scrollId: normalizedScrollId
+      });
+    } catch (e) {}
+    try {
+      const donorName = String(donor?.name || donor?.username || 'Someone').trim() || 'Someone';
+      const actionUrl = `/scroll?scroll=${encodeURIComponent(normalizedScrollId)}`;
+      const meta = {
+        action_url: actionUrl,
+        actionUrl,
+        entityType: 'scroll',
+        entityId: normalizedScrollId,
+        scrollId: normalizedScrollId,
+        amount: value,
+        fee: feeAmount,
+        dashGcoinTotal,
+        donorId: sender.id,
+        recipientId: recipientUser.id,
+        actorId: sender.id,
+        actorName: donorName,
+        actorAvatar: donor?.avatar || null
+      };
+
+      const created = await prisma.notification.create({
+        data: {
+          userId: recipientUser.id,
+          actorId: sender.id,
+          type: 'gcoin_donation_received',
+          title: 'New Dash received',
+          body: `${donorName} sent you ${value} Gcoin on your Scroll.`,
+          meta: meta as any,
+          isRead: false
+        }
+      });
+
+      notifyUser(recipientUser.id, {
+        id: created.id,
+        type: created.type,
+        title: created.title || 'Notification',
+        body: created.body || '',
+        action_url: actionUrl,
+        meta,
+        createdAt: created.createdAt.toISOString()
+      });
+    } catch (notifyErr) {
+      console.warn('Failed to create scroll Dash notification:', notifyErr);
+    }
+
+    return ok(res, {
+      success: true,
+      scrollId: normalizedScrollId,
+      donorId: sender.id,
+      recipientId: recipientUser.id,
+      amount: value,
+      fee: feeAmount,
+      dashGcoinTotal,
+      metrics
+    });
+  } catch (e: any) {
+    console.error(e);
+    return fail(res, 500, 'Failed to process scroll donation');
   }
 };
 

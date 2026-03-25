@@ -8,6 +8,10 @@ type StoredEntry = {
 };
 
 const DEFAULT_TTL = 24 * 60 * 60 * 1000; // 24 hours
+const IN_FLIGHT_STATUS = 202;
+const IN_FLIGHT_BODY = { inFlight: true };
+const IN_FLIGHT_WAIT_MS = 5000;
+const IN_FLIGHT_POLL_MS = 100;
 
 // Simple in-memory store as a fallback. Production should replace with Redis.
 const memoryStore = new Map<string, StoredEntry>();
@@ -19,7 +23,6 @@ export const idempotency = (opts?: { ttlMs?: number }) => {
     try {
       const keyHeader = req.header('Idempotency-Key') || req.header('idempotency-key') || req.header('Idempotency-Key'.toLowerCase());
       const key = keyHeader && String(keyHeader).trim();
-      try { console.log('[idempotency] received request with key', key); } catch (e) {}
       if (!key) return next();
 
       // Try Redis if available on global scope (optional)
@@ -57,27 +60,47 @@ export const idempotency = (opts?: { ttlMs?: number }) => {
         try { if (typeof (t as any).unref === 'function') (t as any).unref(); } catch (e) {}
       };
 
+      const waitForSettledEntry = async (timeoutMs: number): Promise<StoredEntry | null> => {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, IN_FLIGHT_POLL_MS));
+          const entry = await getEntry();
+          if (!entry) return null;
+          const isInFlight =
+            entry.status === IN_FLIGHT_STATUS &&
+            entry.body &&
+            typeof entry.body === 'object' &&
+            entry.body.inFlight === true;
+          if (!isInFlight) return entry;
+        }
+        return await getEntry();
+      };
+
       const existing = await getEntry();
       if (existing) {
+        const isInFlight =
+          existing.status === IN_FLIGHT_STATUS &&
+          existing.body &&
+          typeof existing.body === 'object' &&
+          existing.body.inFlight === true;
+        const replayable = isInFlight ? await waitForSettledEntry(IN_FLIGHT_WAIT_MS) : existing;
+        if (!replayable) return next();
         // replay stored response
-        try { console.log('[idempotency] replaying response for key', key); } catch (e) {}
-        res.status(existing.status);
-        try { res.set(existing.headers || {}); } catch (e) {}
-        return res.json(existing.body);
+        res.status(replayable.status);
+        try { res.set(replayable.headers || {}); } catch (e) {}
+        return res.json(replayable.body);
       }
 
       // Reserve an in-flight entry to prevent duplicate handlers from running
       try {
-        const placeholder: StoredEntry = { expires: Date.now() + ttl, status: 202, headers: {}, body: { inFlight: true } };
+        const placeholder: StoredEntry = { expires: Date.now() + ttl, status: IN_FLIGHT_STATUS, headers: {}, body: IN_FLIGHT_BODY };
         // best-effort: don't await, just set reservation
-        try { console.log('[idempotency] setting in-flight placeholder for key', key); } catch (e) {}
         void setEntry(placeholder).catch(() => {});
       } catch (e) {}
 
       // capture send/json
       const originalJson = res.json.bind(res);
       const originalSend = res.send.bind(res);
-      const chunks: any[] = [];
 
       const captureAndStore = (body: any) => {
         const headers: Record<string, any> = {};
@@ -98,7 +121,6 @@ export const idempotency = (opts?: { ttlMs?: number }) => {
         }
 
         const entry: StoredEntry = { expires: Date.now() + ttl, status: res.statusCode || 200, headers, body: storedBody };
-        try { console.log('[idempotency] storing response for key', key); } catch (e) {}
         void setEntry(entry).catch(() => {});
       };
 

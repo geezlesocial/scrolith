@@ -14,6 +14,7 @@ import {
   adminAdjustBalance,
   transferGcoin,
   donateGcoin,
+  donateScrollGcoin,
   requestConversion,
   getConversionRequests,
   processConversion,
@@ -49,6 +50,7 @@ router.post('/admin/adjust', authMiddleware, adminMiddleware, adminAdjustBalance
 
 router.post('/transfer', authMiddleware, transferGcoin);
 router.post('/donate', authMiddleware, donateGcoin);
+router.post('/donate/scroll', authMiddleware, donateScrollGcoin);
 
 router.get('/earnings/summary', authMiddleware, getEarningsSummary);
 router.get('/earnings/by-post', authMiddleware, getEarningsByPost);

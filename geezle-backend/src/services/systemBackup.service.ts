@@ -5,6 +5,15 @@ import zlib from 'zlib';
 import bcrypt from 'bcryptjs';
 import { Client } from 'pg';
 import prisma from '../utils/prismaClient';
+import {
+  blobExistsByName,
+  deleteBlobByName,
+  downloadBlobByName,
+  getBlobUrl,
+  getBlobPropertiesByName,
+  isAzureBlobConfigured,
+  uploadBufferToBlob
+} from './storage/blobStorage';
 
 export type BackupMode = 'full' | 'partial';
 export type RestoreMode = 'replace' | 'append';
@@ -44,6 +53,32 @@ export interface BackupCatalogRecord {
   licenseHint: string;
 }
 
+export type BackupJobType = 'create';
+export type BackupJobStatus = 'queued' | 'running' | 'completed' | 'failed';
+
+export interface BackupJobRecord {
+  id: string;
+  type: BackupJobType;
+  status: BackupJobStatus;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  failedAt: string | null;
+  requestedByAdminId: string;
+  requestedByAdminEmail: string | null;
+  mode: BackupMode;
+  sections: BackupSection[];
+  customTables: string[];
+  includeFiles: boolean;
+  notes: string | null;
+  backupId: string | null;
+  fileName: string | null;
+  scrolithLicense: string | null;
+  message: string | null;
+  errorCode: string | null;
+}
+
 type FileSnapshot = {
   sourceId: string;
   relativePath: string;
@@ -51,6 +86,7 @@ type FileSnapshot = {
   mtime: string;
   sha256: string;
   contentBase64: string;
+  contentType?: string | null;
 };
 
 type BackupPackage = {
@@ -83,6 +119,13 @@ const BACKUP_FORMAT_VERSION = '1.0';
 const BACKUP_LICENSE_PREFIX = 'SCROLITH';
 const BACKUP_ROOT_DIR = path.resolve(__dirname, '../../data/system-backups');
 const BACKUP_CATALOG_FILE = path.join(BACKUP_ROOT_DIR, 'catalog.json');
+const BACKUP_JOBS_FILE = path.join(BACKUP_ROOT_DIR, 'jobs.json');
+const UPLOAD_DIR = path.resolve(__dirname, '../../uploads');
+const BACKUP_BLOB_PREFIX = String(process.env.SYSTEM_BACKUP_BLOB_PREFIX || 'system-backups')
+  .trim()
+  .replace(/^\/+|\/+$/g, '');
+const BACKUP_CATALOG_BLOB = `${BACKUP_BLOB_PREFIX}/catalog.json`;
+const BACKUP_JOBS_BLOB = `${BACKUP_BLOB_PREFIX}/jobs.json`;
 const BACKUP_IMPORT_LIMIT_BYTES = Math.max(
   10 * 1024 * 1024,
   Number(process.env.BACKUP_IMPORT_LIMIT_BYTES || 512 * 1024 * 1024)
@@ -98,6 +141,11 @@ const BACKUP_MAX_TOTAL_FILE_BYTES = Math.max(
 const BACKUP_LICENSE_PEPPER =
   process.env.BACKUP_LICENSE_PEPPER || process.env.JWT_SECRET || 'scrolith-backup-license-pepper';
 const EXCLUDED_TABLES = new Set<string>(['_prisma_migrations']);
+const DEFAULT_STORAGE_PROVIDER = 'local';
+const AZURE_BLOB_STORAGE_PROVIDER = 'azure_blob';
+const DEFAULT_VIDEO_THUMBNAIL_FILENAME = '__video_fallback_thumbnail.svg';
+const MANAGED_UPLOAD_SOURCE_ID = 'managed_upload';
+const MANAGED_THUMBNAIL_SOURCE_ID = 'managed_thumbnail';
 
 const SECTION_KEYWORDS: Record<Exclude<BackupSection, 'custom'>, string[]> = {
   settings: ['setting', 'config', 'cms', 'translation', 'i18n', 'navigation', 'homepage'],
@@ -146,6 +194,19 @@ const toIso = (date = new Date()) => date.toISOString();
 const ensureBackupDir = () => {
   fs.mkdirSync(BACKUP_ROOT_DIR, { recursive: true });
 };
+
+const shouldUseAzureBackupStorage = () => isAzureBlobConfigured();
+
+const buildBackupBlobName = (fileName: string) =>
+  `${BACKUP_BLOB_PREFIX}/${path.basename(String(fileName || '').trim())}`;
+
+const streamToBuffer = async (stream: NodeJS.ReadableStream) =>
+  new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    stream.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    stream.once('error', reject);
+    stream.once('end', () => resolve(Buffer.concat(chunks)));
+  });
 
 const isSafeIdentifier = (value: string) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
 
@@ -200,34 +261,142 @@ const generateBackupLicense = (backupId: string) => {
   };
 };
 
-const readCatalog = (): BackupCatalogRecord[] => {
-  ensureBackupDir();
-  if (!fs.existsSync(BACKUP_CATALOG_FILE)) return [];
+const normalizeCatalogRecord = (entry: any): BackupCatalogRecord | null => {
+  if (!entry?.id || !entry?.fileName) return null;
+  return {
+    ...entry,
+    sections: normalizeSections(entry?.sections),
+    tables: normalizeTableList(entry?.tables),
+    restoreCount: Number(entry?.restoreCount || 0),
+    includeFiles: Boolean(entry?.includeFiles),
+    fileCount: Number(entry?.fileCount || 0),
+    sizeBytes: Number(entry?.sizeBytes || 0),
+    notes: entry?.notes ? String(entry.notes) : null,
+    importedAt: entry?.importedAt ? String(entry.importedAt) : null,
+    lastRestoredAt: entry?.lastRestoredAt ? String(entry.lastRestoredAt) : null,
+    lastRestoredByAdminId: entry?.lastRestoredByAdminId ? String(entry.lastRestoredByAdminId) : null,
+    createdByAdminEmail: entry?.createdByAdminEmail ? String(entry.createdByAdminEmail) : null,
+    licenseHash: String(entry?.licenseHash || ''),
+    licenseHint: String(entry?.licenseHint || '')
+  } as BackupCatalogRecord;
+};
+
+const parseCatalogPayload = (raw: string): BackupCatalogRecord[] => {
   try {
-    const raw = fs.readFileSync(BACKUP_CATALOG_FILE, 'utf-8');
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed)
       ? parsed
-          .map((entry: any) => ({
-            ...entry,
-            sections: normalizeSections(entry?.sections),
-            tables: normalizeTableList(entry?.tables),
-            restoreCount: Number(entry?.restoreCount || 0),
-            includeFiles: Boolean(entry?.includeFiles),
-            fileCount: Number(entry?.fileCount || 0),
-            notes: entry?.notes ? String(entry.notes) : null,
-            importedAt: entry?.importedAt ? String(entry.importedAt) : null,
-            lastRestoredAt: entry?.lastRestoredAt ? String(entry.lastRestoredAt) : null,
-            lastRestoredByAdminId: entry?.lastRestoredByAdminId ? String(entry.lastRestoredByAdminId) : null
-          }))
-          .filter((entry: BackupCatalogRecord) => entry?.id && entry?.fileName)
+          .map(normalizeCatalogRecord)
+          .filter((entry): entry is BackupCatalogRecord => Boolean(entry))
       : [];
   } catch {
     return [];
   }
 };
 
-const writeCatalog = (records: BackupCatalogRecord[]) => {
+const normalizeBackupJobRecord = (entry: any): BackupJobRecord | null => {
+  if (!entry?.id || !entry?.type || !entry?.status) return null;
+  const type = String(entry.type || '').trim().toLowerCase();
+  const status = String(entry.status || '').trim().toLowerCase();
+  if (type !== 'create') return null;
+  if (!['queued', 'running', 'completed', 'failed'].includes(status)) return null;
+
+  return {
+    id: String(entry.id),
+    type: 'create',
+    status: status as BackupJobStatus,
+    createdAt: String(entry.createdAt || toIso()),
+    updatedAt: String(entry.updatedAt || entry.createdAt || toIso()),
+    startedAt: entry?.startedAt ? String(entry.startedAt) : null,
+    completedAt: entry?.completedAt ? String(entry.completedAt) : null,
+    failedAt: entry?.failedAt ? String(entry.failedAt) : null,
+    requestedByAdminId: String(entry.requestedByAdminId || ''),
+    requestedByAdminEmail: entry?.requestedByAdminEmail ? String(entry.requestedByAdminEmail) : null,
+    mode: entry?.mode === 'partial' ? 'partial' : 'full',
+    sections: normalizeSections(entry?.sections),
+    customTables: normalizeTableList(entry?.customTables),
+    includeFiles: Boolean(entry?.includeFiles),
+    notes: entry?.notes ? String(entry.notes) : null,
+    backupId: entry?.backupId ? String(entry.backupId) : null,
+    fileName: entry?.fileName ? String(entry.fileName) : null,
+    scrolithLicense: entry?.scrolithLicense ? String(entry.scrolithLicense) : null,
+    message: entry?.message ? String(entry.message) : null,
+    errorCode: entry?.errorCode ? String(entry.errorCode) : null
+  };
+};
+
+const parseJobsPayload = (raw: string): BackupJobRecord[] => {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed
+          .map(normalizeBackupJobRecord)
+          .filter((entry): entry is BackupJobRecord => Boolean(entry))
+      : [];
+  } catch {
+    return [];
+  }
+};
+
+const readCatalogLocal = (): BackupCatalogRecord[] => {
+  ensureBackupDir();
+  if (!fs.existsSync(BACKUP_CATALOG_FILE)) return [];
+  try {
+    const raw = fs.readFileSync(BACKUP_CATALOG_FILE, 'utf-8');
+    return parseCatalogPayload(raw);
+  } catch {
+    return [];
+  }
+};
+
+const readJobsLocal = (): BackupJobRecord[] => {
+  ensureBackupDir();
+  if (!fs.existsSync(BACKUP_JOBS_FILE)) return [];
+  try {
+    const raw = fs.readFileSync(BACKUP_JOBS_FILE, 'utf-8');
+    return parseJobsPayload(raw);
+  } catch {
+    return [];
+  }
+};
+
+const readCatalog = async (): Promise<BackupCatalogRecord[]> => {
+  ensureBackupDir();
+  if (!shouldUseAzureBackupStorage()) {
+    return readCatalogLocal();
+  }
+  try {
+    const exists = await blobExistsByName(BACKUP_CATALOG_BLOB);
+    if (!exists) return readCatalogLocal();
+    const blobResponse = await downloadBlobByName(BACKUP_CATALOG_BLOB);
+    const stream = blobResponse.readableStreamBody;
+    if (!stream) return readCatalogLocal();
+    const raw = (await streamToBuffer(stream as NodeJS.ReadableStream)).toString('utf-8');
+    return parseCatalogPayload(raw);
+  } catch {
+    return readCatalogLocal();
+  }
+};
+
+const readJobs = async (): Promise<BackupJobRecord[]> => {
+  ensureBackupDir();
+  if (!shouldUseAzureBackupStorage()) {
+    return readJobsLocal();
+  }
+  try {
+    const exists = await blobExistsByName(BACKUP_JOBS_BLOB);
+    if (!exists) return readJobsLocal();
+    const blobResponse = await downloadBlobByName(BACKUP_JOBS_BLOB);
+    const stream = blobResponse.readableStreamBody;
+    if (!stream) return readJobsLocal();
+    const raw = (await streamToBuffer(stream as NodeJS.ReadableStream)).toString('utf-8');
+    return parseJobsPayload(raw);
+  } catch {
+    return readJobsLocal();
+  }
+};
+
+const writeCatalogLocal = (records: BackupCatalogRecord[]) => {
   ensureBackupDir();
   const sorted = [...records].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -237,14 +406,215 @@ const writeCatalog = (records: BackupCatalogRecord[]) => {
   fs.renameSync(tempFile, BACKUP_CATALOG_FILE);
 };
 
+const sanitizeJobsForWrite = (records: BackupJobRecord[]) => {
+  const sorted = [...records].sort(
+    (a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()
+  );
+  return sorted.map((record) => {
+    const ageMs = Date.now() - new Date(record.updatedAt || record.createdAt).getTime();
+    if (ageMs > 24 * 60 * 60 * 1000 && record.status === 'completed') {
+      return {
+        ...record,
+        scrolithLicense: null
+      };
+    }
+    return record;
+  });
+};
+
+const persistJobsLocal = (records: BackupJobRecord[]) => {
+  ensureBackupDir();
+  const tempFile = `${BACKUP_JOBS_FILE}.tmp`;
+  fs.writeFileSync(tempFile, JSON.stringify(records, null, 2), 'utf-8');
+  fs.renameSync(tempFile, BACKUP_JOBS_FILE);
+};
+
+const writeCatalog = async (records: BackupCatalogRecord[]) => {
+  const sorted = [...records].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+  writeCatalogLocal(sorted);
+  if (!shouldUseAzureBackupStorage()) return;
+  await uploadBufferToBlob({
+    buffer: Buffer.from(JSON.stringify(sorted, null, 2), 'utf-8'),
+    contentType: 'application/json',
+    fileName: BACKUP_CATALOG_BLOB
+  });
+};
+
+const writeJobs = async (records: BackupJobRecord[]) => {
+  const trimmed = sanitizeJobsForWrite(records);
+  persistJobsLocal(trimmed);
+  if (!shouldUseAzureBackupStorage()) return;
+  await uploadBufferToBlob({
+    buffer: Buffer.from(JSON.stringify(trimmed, null, 2), 'utf-8'),
+    contentType: 'application/json',
+    fileName: BACKUP_JOBS_BLOB
+  });
+};
+
 const resolveBackupPath = (fileName: string) => path.join(BACKUP_ROOT_DIR, path.basename(fileName));
+
+const writeBackupBinary = async (fileName: string, buffer: Buffer) => {
+  ensureBackupDir();
+  if (!shouldUseAzureBackupStorage()) {
+    fs.writeFileSync(resolveBackupPath(fileName), buffer);
+    return;
+  }
+  await uploadBufferToBlob({
+    buffer,
+    contentType: 'application/gzip',
+    fileName: buildBackupBlobName(fileName)
+  });
+};
+
+const readBackupBinary = async (fileName: string) => {
+  const localPath = resolveBackupPath(fileName);
+  if (!shouldUseAzureBackupStorage()) {
+    return fs.readFileSync(localPath);
+  }
+  const blobName = buildBackupBlobName(fileName);
+  if (await blobExistsByName(blobName)) {
+    const blobResponse = await downloadBlobByName(blobName);
+    const stream = blobResponse.readableStreamBody;
+    if (stream) {
+      return streamToBuffer(stream as NodeJS.ReadableStream);
+    }
+  }
+  if (fs.existsSync(localPath)) {
+    return fs.readFileSync(localPath);
+  }
+  throw toError('Backup file is missing on the server.', 404, 'BACKUP_FILE_MISSING');
+};
+
+const getBackupFileStatus = async (fileName: string, fallbackSizeBytes: number) => {
+  const absolutePath = resolveBackupPath(fileName);
+  if (!shouldUseAzureBackupStorage()) {
+    const exists = fs.existsSync(absolutePath);
+    return {
+      exists,
+      sizeBytes: exists ? fs.statSync(absolutePath).size : fallbackSizeBytes,
+      storage: exists ? ('local' as const) : null
+    };
+  }
+  try {
+    const blobName = buildBackupBlobName(fileName);
+    const exists = await blobExistsByName(blobName);
+    if (!exists) {
+      const localExists = fs.existsSync(absolutePath);
+      return {
+        exists: localExists,
+        sizeBytes: localExists ? fs.statSync(absolutePath).size : fallbackSizeBytes,
+        storage: localExists ? ('local' as const) : null
+      };
+    }
+    const properties = await getBlobPropertiesByName(blobName);
+    return {
+      exists: true,
+      sizeBytes: Number(properties.contentLength || fallbackSizeBytes || 0),
+      storage: 'azure_blob' as const
+    };
+  } catch {
+    const localExists = fs.existsSync(absolutePath);
+    return {
+      exists: localExists,
+      sizeBytes: localExists ? fs.statSync(absolutePath).size : fallbackSizeBytes,
+      storage: localExists ? ('local' as const) : null
+    };
+  }
+};
+
+const deleteBackupBinary = async (fileName: string) => {
+  const absolutePath = resolveBackupPath(fileName);
+  if (shouldUseAzureBackupStorage()) {
+    await deleteBlobByName(buildBackupBlobName(fileName)).catch(() => undefined);
+  }
+  if (fs.existsSync(absolutePath)) fs.unlinkSync(absolutePath);
+};
+
+const getPathFromUrl = (value: string) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    return new URL(raw).pathname;
+  } catch {
+    return raw;
+  }
+};
+
+const stripUploadsPrefix = (value: string) =>
+  getPathFromUrl(String(value || ''))
+    .replace(/^\/+/, '')
+    .replace(/^uploads\/+/i, '');
+
+const resolveManagedStorageProvider = () => {
+  const driver = String(process.env.UPLOAD_DRIVER || process.env.STORAGE_DRIVER || DEFAULT_STORAGE_PROVIDER)
+    .trim()
+    .toLowerCase();
+  return ['azure_blob', 'azure', 'blob'].includes(driver) && isAzureBlobConfigured()
+    ? AZURE_BLOB_STORAGE_PROVIDER
+    : DEFAULT_STORAGE_PROVIDER;
+};
+
+const getSystemBackupBaseUrl = () => {
+  const envBase =
+    process.env.FILE_BASE_URL ||
+    process.env.BACKEND_URL ||
+    process.env.API_BASE_URL ||
+    process.env.APP_URL ||
+    process.env.FRONTEND_URL;
+  if (envBase) return String(envBase).replace(/\/$/, '');
+  const host = process.env.HOST || 'localhost';
+  const port = process.env.PORT || '5000';
+  return `http://${host}:${port}`;
+};
+
+const buildUploadsUrlForRestore = (relativePath: string) =>
+  `${getSystemBackupBaseUrl()}/uploads/${String(relativePath || '').replace(/^\/+/, '')}`;
+
+const buildFileContentUrlForRestore = (fileId: string) =>
+  `${getSystemBackupBaseUrl()}/api/files/content/${encodeURIComponent(String(fileId || '').trim())}`;
+
+const resolveStoredThumbnailRelativePath = (value: string | null | undefined) => {
+  const relativePath = stripUploadsPrefix(String(value || ''));
+  if (!relativePath || relativePath.includes('..')) return null;
+  if (relativePath === DEFAULT_VIDEO_THUMBNAIL_FILENAME) return null;
+  if (relativePath.startsWith('api/files/content/')) return null;
+  return relativePath;
+};
+
+const guessContentTypeFromPath = (value: string) => {
+  switch (path.extname(String(value || '')).toLowerCase()) {
+    case '.png':
+      return 'image/png';
+    case '.webp':
+      return 'image/webp';
+    case '.gif':
+      return 'image/gif';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.jpeg':
+    case '.jpg':
+    default:
+      return 'image/jpeg';
+  }
+};
+
+const buildRestoredThumbnailUrl = (relativePath: string | null, mimeType: string) => {
+  if (relativePath) {
+    return resolveManagedStorageProvider() === AZURE_BLOB_STORAGE_PROVIDER
+      ? getBlobUrl(relativePath)
+      : buildUploadsUrlForRestore(relativePath);
+  }
+  return String(mimeType || '').toLowerCase().startsWith('video/')
+    ? buildUploadsUrlForRestore(DEFAULT_VIDEO_THUMBNAIL_FILENAME)
+    : null;
+};
 
 const getDataDirectoriesForSnapshot = () => {
   const candidates = [
     { sourceId: 'backend_data', absolutePath: path.resolve(__dirname, '../../data') },
-    { sourceId: 'backend_uploads', absolutePath: path.resolve(__dirname, '../../uploads') },
-    { sourceId: 'cwd_data', absolutePath: path.resolve(process.cwd(), 'data') },
-    { sourceId: 'cwd_uploads', absolutePath: path.resolve(process.cwd(), 'uploads') }
+    { sourceId: 'cwd_data', absolutePath: path.resolve(process.cwd(), 'data') }
   ];
   const seen = new Set<string>();
   return candidates.filter((entry) => {
@@ -298,10 +668,134 @@ const collectDirectoryFiles = (sourceId: string, absolutePath: string, remaining
   return { snapshots, consumedBytes: consumed };
 };
 
-const collectFileSnapshots = () => {
+const readManagedFileBuffer = async (file: {
+  storageKey?: string | null;
+  storageProvider?: string | null;
+  url?: string | null;
+}) => {
+  const normalizedStorageKey = stripUploadsPrefix(String(file.storageKey || file.url || ''));
+  if (!normalizedStorageKey) {
+    throw toError('Managed file snapshot is missing a storage key.', 400, 'BACKUP_FILE_STORAGE_KEY_MISSING');
+  }
+
+  const provider = String(file.storageProvider || '').trim().toLowerCase();
+  if (provider === 'azure_blob' && isAzureBlobConfigured()) {
+    const blobResponse = await downloadBlobByName(normalizedStorageKey);
+    const stream = blobResponse.readableStreamBody;
+    if (!stream) {
+      throw toError('Managed upload blob is not available for backup.', 404, 'BACKUP_FILE_BLOB_MISSING');
+    }
+    return {
+      relativePath: normalizedStorageKey,
+      buffer: await streamToBuffer(stream as NodeJS.ReadableStream)
+    };
+  }
+
+  const localPath = path.resolve(UPLOAD_DIR, normalizedStorageKey);
+  if (localPath.startsWith(path.resolve(UPLOAD_DIR)) && fs.existsSync(localPath)) {
+    return {
+      relativePath: normalizedStorageKey,
+      buffer: fs.readFileSync(localPath)
+    };
+  }
+
+  if (isAzureBlobConfigured()) {
+    const blobResponse = await downloadBlobByName(normalizedStorageKey);
+    const stream = blobResponse.readableStreamBody;
+    if (stream) {
+      return {
+        relativePath: normalizedStorageKey,
+        buffer: await streamToBuffer(stream as NodeJS.ReadableStream)
+      };
+    }
+  }
+
+  throw toError('Managed upload file is missing from storage.', 404, 'BACKUP_FILE_SOURCE_MISSING');
+};
+
+const collectManagedUploadSnapshots = async (remainingBytes: number) => {
+  const snapshots: FileSnapshot[] = [];
+  let consumedBytes = 0;
+  const files = await prisma.file.findMany({
+    select: {
+      id: true,
+      storageKey: true,
+      storageProvider: true,
+      url: true,
+      mimeType: true,
+      size: true,
+      thumbnailUrl: true,
+      createdAt: true
+    },
+    orderBy: { createdAt: 'asc' }
+  });
+
+  for (const file of files) {
+    const numericSize = Number(file.size || 0);
+    if (!Number.isFinite(numericSize) || numericSize <= 0) continue;
+    if (numericSize > BACKUP_MAX_FILE_BYTES) continue;
+    if (consumedBytes + numericSize > remainingBytes) continue;
+
+    try {
+      const { relativePath, buffer } = await readManagedFileBuffer(file);
+      if (!buffer.length) continue;
+      if (buffer.length > BACKUP_MAX_FILE_BYTES) continue;
+      if (consumedBytes + buffer.length > remainingBytes) continue;
+
+      snapshots.push({
+        sourceId: MANAGED_UPLOAD_SOURCE_ID,
+        relativePath,
+        sizeBytes: buffer.length,
+        mtime: file.createdAt ? file.createdAt.toISOString() : toIso(),
+        sha256: hashBytes(buffer),
+        contentBase64: buffer.toString('base64'),
+        contentType: file.mimeType || 'application/octet-stream'
+      });
+      consumedBytes += buffer.length;
+
+      const thumbnailRelativePath = resolveStoredThumbnailRelativePath(file.thumbnailUrl);
+      if (!thumbnailRelativePath) continue;
+      if (consumedBytes >= remainingBytes) continue;
+
+      try {
+        const thumbnailBufferResult = await readManagedFileBuffer({
+          storageKey: thumbnailRelativePath,
+          storageProvider: file.storageProvider,
+          url: file.thumbnailUrl
+        });
+        const thumbnailBuffer = thumbnailBufferResult.buffer;
+        if (!thumbnailBuffer.length) continue;
+        if (thumbnailBuffer.length > BACKUP_MAX_FILE_BYTES) continue;
+        if (consumedBytes + thumbnailBuffer.length > remainingBytes) continue;
+
+        snapshots.push({
+          sourceId: MANAGED_THUMBNAIL_SOURCE_ID,
+          relativePath: thumbnailRelativePath,
+          sizeBytes: thumbnailBuffer.length,
+          mtime: file.createdAt ? file.createdAt.toISOString() : toIso(),
+          sha256: hashBytes(thumbnailBuffer),
+          contentBase64: thumbnailBuffer.toString('base64'),
+          contentType: guessContentTypeFromPath(thumbnailRelativePath)
+        });
+        consumedBytes += thumbnailBuffer.length;
+      } catch {
+        // Skip missing thumbnails so backup generation stays resilient.
+      }
+    } catch {
+      // Skip missing/unreadable managed files so backup generation stays resilient.
+    }
+  }
+
+  return { snapshots, consumedBytes };
+};
+
+const collectFileSnapshots = async () => {
   const directories = getDataDirectoriesForSnapshot();
   let remainingBytes = BACKUP_MAX_TOTAL_FILE_BYTES;
   const allFiles: FileSnapshot[] = [];
+  const managedUploads = await collectManagedUploadSnapshots(remainingBytes);
+  allFiles.push(...managedUploads.snapshots);
+  remainingBytes -= managedUploads.consumedBytes;
   for (const directory of directories) {
     if (remainingBytes <= 0) break;
     const { snapshots, consumedBytes } = collectDirectoryFiles(
@@ -512,6 +1006,10 @@ const resolveRestoreOrder = async (client: Client, tables: string[]) => {
   dependencyResult.rows.forEach((dep) => {
     const child = String(dep.table_name || '').trim();
     const parent = String(dep.referenced_table || '').trim();
+    if (!child || !parent) return;
+    // Self-referencing tables are restorable within the same table payload and
+    // should not force the whole table into the cyclic fallback bucket.
+    if (child === parent) return;
     if (!tableSet.has(child) || !tableSet.has(parent)) return;
     const children = parentsToChildren.get(parent);
     if (!children) return;
@@ -544,34 +1042,68 @@ const resolveRestoreOrder = async (client: Client, tables: string[]) => {
 
   if (ordered.length !== tables.length) {
     const remaining = tables.filter((table) => !ordered.includes(table)).sort();
+    if (remaining.length) {
+      console.warn('[system-backup] unresolved restore order tables, using fallback order:', remaining);
+    }
     return [...ordered, ...remaining];
   }
   return ordered;
 };
 
-const restoreFileSnapshots = (files: FileSnapshot[]) => {
+const restoreManagedStorageSnapshot = async (file: FileSnapshot) => {
+  const relativePath = stripUploadsPrefix(file.relativePath);
+  if (!relativePath || relativePath.includes('..')) return false;
+  const content = Buffer.from(String(file.contentBase64 || ''), 'base64');
+  if (!content.length) return false;
+  if (content.length > BACKUP_MAX_FILE_BYTES) return false;
+
+  const localTarget = path.resolve(UPLOAD_DIR, relativePath);
+  if (!localTarget.startsWith(path.resolve(UPLOAD_DIR))) return false;
+  fs.mkdirSync(path.dirname(localTarget), { recursive: true });
+  fs.writeFileSync(localTarget, content);
+
+  if (isAzureBlobConfigured()) {
+    await uploadBufferToBlob({
+      buffer: content,
+      contentType: String(file.contentType || 'application/octet-stream'),
+      fileName: relativePath
+    });
+  }
+
+  return true;
+};
+
+const restoreFileSnapshots = async (files: FileSnapshot[]) => {
   if (!Array.isArray(files) || !files.length) return 0;
   const knownDirectories = getDataDirectoriesForSnapshot();
   const sourceMap = new Map<string, string>();
   knownDirectories.forEach((entry) => sourceMap.set(entry.sourceId, entry.absolutePath));
 
   let restoredCount = 0;
-  files.forEach((file) => {
+  for (const file of files) {
+    const sourceId = String(file.sourceId || '').trim();
+    if (sourceId === MANAGED_UPLOAD_SOURCE_ID || sourceId === MANAGED_THUMBNAIL_SOURCE_ID) {
+      if (await restoreManagedStorageSnapshot(file)) {
+        restoredCount += 1;
+      }
+      continue;
+    }
+
     const sourceRoot = sourceMap.get(String(file.sourceId || '').trim());
-    if (!sourceRoot) return;
+    if (!sourceRoot) continue;
     const relativePath = String(file.relativePath || '').replace(/\\/g, '/');
-    if (!relativePath || relativePath.includes('..')) return;
+    if (!relativePath || relativePath.includes('..')) continue;
     const targetFile = path.resolve(sourceRoot, relativePath);
-    if (!targetFile.startsWith(path.resolve(sourceRoot))) return;
+    if (!targetFile.startsWith(path.resolve(sourceRoot))) continue;
 
     const content = Buffer.from(String(file.contentBase64 || ''), 'base64');
-    if (!content.length) return;
-    if (content.length > BACKUP_MAX_FILE_BYTES) return;
+    if (!content.length) continue;
+    if (content.length > BACKUP_MAX_FILE_BYTES) continue;
 
     fs.mkdirSync(path.dirname(targetFile), { recursive: true });
     fs.writeFileSync(targetFile, content);
     restoredCount += 1;
-  });
+  }
 
   return restoredCount;
 };
@@ -612,6 +1144,62 @@ const assertAdminCredentials = async (email: string, password: string) => {
   return admin;
 };
 
+const assertBackupAdminEmailMatches = (record: BackupCatalogRecord, email: string) => {
+  const expectedEmail = String(record.createdByAdminEmail || '').trim().toLowerCase();
+  if (!expectedEmail) return;
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) {
+    throw toError('Backup admin email is required for restore.', 400, 'BACKUP_ADMIN_EMAIL_REQUIRED');
+  }
+  if (normalizedEmail !== expectedEmail) {
+    throw toError(
+      'Backup admin email does not match the selected backup file.',
+      401,
+      'BACKUP_ADMIN_EMAIL_MISMATCH'
+    );
+  }
+};
+
+const reconcileRestoredFileRecords = async (rows: any[]) => {
+  const targetProvider = resolveManagedStorageProvider();
+  const uniqueRows = Array.from(
+    new Map(
+      (Array.isArray(rows) ? rows : [])
+        .map((row) => [String(row?.id || '').trim(), row] as const)
+        .filter(([id]) => Boolean(id))
+    ).values()
+  );
+
+  const chunkSize = 50;
+  for (let index = 0; index < uniqueRows.length; index += chunkSize) {
+    const chunk = uniqueRows.slice(index, index + chunkSize);
+    await Promise.all(
+      chunk.map(async (row) => {
+        const fileId = String(row?.id || '').trim();
+        const storageKey = stripUploadsPrefix(String(row?.storage_key || row?.storageKey || row?.url || ''));
+        if (!fileId || !storageKey || storageKey.includes('..')) return;
+
+        const mimeType = String(row?.mime_type || row?.mimeType || row?.type || '').trim().toLowerCase();
+        const thumbnailRelativePath = resolveStoredThumbnailRelativePath(row?.thumbnail_url || row?.thumbnailUrl);
+        const nextUrl =
+          targetProvider === AZURE_BLOB_STORAGE_PROVIDER
+            ? buildFileContentUrlForRestore(fileId)
+            : buildUploadsUrlForRestore(storageKey);
+
+        await prisma.file.updateMany({
+          where: { id: fileId },
+          data: {
+            storageKey,
+            storageProvider: targetProvider,
+            url: nextUrl,
+            thumbnailUrl: buildRestoredThumbnailUrl(thumbnailRelativePath, mimeType)
+          }
+        });
+      })
+    );
+  }
+};
+
 const resolveRecordById = (records: BackupCatalogRecord[], backupId: string) => {
   const id = String(backupId || '').trim();
   if (!id) throw toError('Backup id is required.', 400, 'BACKUP_ID_REQUIRED');
@@ -625,6 +1213,45 @@ const sanitizeNotes = (value: unknown) => {
   if (!raw) return null;
   return raw.slice(0, 1500);
 };
+
+const resolveJobById = (records: BackupJobRecord[], jobId: string) => {
+  const id = String(jobId || '').trim();
+  if (!id) throw toError('Backup job id is required.', 400, 'BACKUP_JOB_ID_REQUIRED');
+  const found = records.find((record) => record.id === id);
+  if (!found) throw toError('Backup job not found.', 404, 'BACKUP_JOB_NOT_FOUND');
+  return found;
+};
+
+const saveBackupJob = async (record: BackupJobRecord) => {
+  const jobs = await readJobs();
+  const nextJobs = jobs.filter((entry) => entry.id !== record.id);
+  nextJobs.push({
+    ...record,
+    updatedAt: record.updatedAt || toIso()
+  });
+  await writeJobs(nextJobs);
+  return record;
+};
+
+const patchBackupJob = async (jobId: string, patch: Partial<BackupJobRecord>) => {
+  const jobs = await readJobs();
+  const record = resolveJobById(jobs, jobId);
+  const next: BackupJobRecord = {
+    ...record,
+    ...patch,
+    updatedAt: toIso()
+  };
+  await writeJobs(jobs.map((entry) => (entry.id === jobId ? next : entry)));
+  return next;
+};
+
+const gzipBuffer = (buffer: Buffer, level = 6) =>
+  new Promise<Buffer>((resolve, reject) => {
+    zlib.gzip(buffer, { level }, (error, output) => {
+      if (error) return reject(error);
+      return resolve(output);
+    });
+  });
 
 export const getSystemBackupSections = (): BackupSection[] => [
   'settings',
@@ -640,18 +1267,26 @@ export const getSystemBackupSections = (): BackupSection[] => [
   'custom'
 ];
 
-export const listSystemBackups = () => {
-  const records = readCatalog().map((record) => {
-    const backupFilePath = resolveBackupPath(record.fileName);
-    const exists = fs.existsSync(backupFilePath);
-    const sizeBytes = exists ? fs.statSync(backupFilePath).size : record.sizeBytes;
-    return {
-      ...record,
-      sizeBytes,
-      fileMissing: !exists
-    };
-  });
+export const listSystemBackups = async () => {
+  const catalog = await readCatalog();
+  const records = await Promise.all(
+    catalog.map(async (record) => {
+      const status = await getBackupFileStatus(record.fileName, record.sizeBytes);
+      return {
+        ...record,
+        sizeBytes: status.sizeBytes,
+        fileMissing: !status.exists
+      };
+    })
+  );
   return records.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+};
+
+export const listSystemBackupJobs = async () => {
+  const jobs = await readJobs();
+  return jobs.sort(
+    (a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()
+  );
 };
 
 export const createSystemBackup = async (input: CreateBackupInput) => {
@@ -672,7 +1307,7 @@ export const createSystemBackup = async (input: CreateBackupInput) => {
       database[table] = await loadTableRows(dbClient, table);
     }
 
-    const files = includeFiles ? collectFileSnapshots() : [];
+    const files = includeFiles ? await collectFileSnapshots() : [];
     const backupId = crypto.randomUUID();
     const createdAt = toIso();
     const { license, licenseHash, licenseHint } = generateBackupLicense(backupId);
@@ -704,12 +1339,11 @@ export const createSystemBackup = async (input: CreateBackupInput) => {
     };
 
     const packageBuffer = Buffer.from(JSON.stringify(backupPackage), 'utf-8');
-    const compressed = zlib.gzipSync(packageBuffer, { level: 9 });
+    const compressed = await gzipBuffer(packageBuffer, 6);
     const checksumSha256 = hashBytes(compressed);
     const timestamp = createdAt.replace(/[-:.TZ]/g, '').slice(0, 14);
     const fileName = `${timestamp}_${backupId}.scrolith-backup.json.gz`;
-    const absolutePath = resolveBackupPath(fileName);
-    fs.writeFileSync(absolutePath, compressed);
+    await writeBackupBinary(fileName, compressed);
 
     const record: BackupCatalogRecord = {
       id: backupId,
@@ -734,9 +1368,9 @@ export const createSystemBackup = async (input: CreateBackupInput) => {
       licenseHint
     };
 
-    const catalog = readCatalog();
+    const catalog = await readCatalog();
     catalog.push(record);
-    writeCatalog(catalog);
+    await writeCatalog(catalog);
 
     return {
       backup: record,
@@ -747,14 +1381,144 @@ export const createSystemBackup = async (input: CreateBackupInput) => {
   }
 };
 
-export const getSystemBackupDownload = (backupId: string) => {
-  const catalog = readCatalog();
+export const queueSystemBackupCreation = async (input: CreateBackupInput) => {
+  const jobs = await readJobs();
+  const existingActiveJob = jobs.find(
+    (entry) => entry.type === 'create' && (entry.status === 'queued' || entry.status === 'running')
+  );
+  if (existingActiveJob) {
+    throw toError(
+      'Another system backup is already running. Wait for it to finish before starting a new one.',
+      409,
+      'BACKUP_JOB_ALREADY_RUNNING'
+    );
+  }
+
+  const job: BackupJobRecord = {
+    id: crypto.randomUUID(),
+    type: 'create',
+    status: 'queued',
+    createdAt: toIso(),
+    updatedAt: toIso(),
+    startedAt: null,
+    completedAt: null,
+    failedAt: null,
+    requestedByAdminId: input.adminId,
+    requestedByAdminEmail: input.adminEmail || null,
+    mode: input.mode === 'partial' ? 'partial' : 'full',
+    sections: normalizeSections(input.sections),
+    customTables: normalizeTableList(input.customTables),
+    includeFiles: Boolean(input.includeFiles),
+    notes: sanitizeNotes(input.notes),
+    backupId: null,
+    fileName: null,
+    scrolithLicense: null,
+    message: 'Queued for background processing.',
+    errorCode: null
+  };
+
+  await saveBackupJob(job);
+  return job;
+};
+
+export const runSystemBackupCreationJob = async (
+  jobId: string,
+  input: CreateBackupInput,
+  hooks?: {
+    onUpdate?: (payload: Record<string, any>) => void | Promise<void>;
+  }
+) => {
+  const emitUpdate = async (payload: Record<string, any>) => {
+    try {
+      await hooks?.onUpdate?.(payload);
+    } catch (error) {
+      console.warn('[system-backup] job update emit failed:', (error as any)?.message || error);
+    }
+  };
+
+  await patchBackupJob(jobId, {
+    status: 'running',
+    startedAt: toIso(),
+    failedAt: null,
+    completedAt: null,
+    message: 'Generating backup package.',
+    errorCode: null
+  });
+  await emitUpdate({
+    action: 'job_running',
+    jobId,
+    status: 'running'
+  });
+
+  try {
+    const result = await createSystemBackup(input);
+    const completedJob = await patchBackupJob(jobId, {
+      status: 'completed',
+      completedAt: toIso(),
+      failedAt: null,
+      backupId: result.backup.id,
+      fileName: result.backup.fileName,
+      scrolithLicense: result.scrolithLicense,
+      message: 'Backup completed successfully.',
+      errorCode: null
+    });
+
+    await emitUpdate({
+      action: 'job_completed',
+      jobId: completedJob.id,
+      status: completedJob.status,
+      backupId: result.backup.id,
+      createdAt: result.backup.createdAt,
+      scrolithLicense: result.scrolithLicense
+    });
+
+    return completedJob;
+  } catch (error: any) {
+    const failedJob = await patchBackupJob(jobId, {
+      status: 'failed',
+      failedAt: toIso(),
+      message: String(error?.message || 'System backup generation failed.'),
+      errorCode: String(error?.code || 'SYSTEM_BACKUP_ERROR'),
+      scrolithLicense: null
+    });
+
+    console.warn('[system-backup] create job failed:', {
+      jobId,
+      code: failedJob.errorCode,
+      message: failedJob.message
+    });
+
+    await emitUpdate({
+      action: 'job_failed',
+      jobId: failedJob.id,
+      status: failedJob.status,
+      error: failedJob.message,
+      code: failedJob.errorCode
+    });
+
+    return failedJob;
+  }
+};
+
+export const getSystemBackupDownload = async (backupId: string) => {
+  const catalog = await readCatalog();
   const record = resolveRecordById(catalog, backupId);
-  const absolutePath = resolveBackupPath(record.fileName);
-  if (!fs.existsSync(absolutePath)) {
+  const status = await getBackupFileStatus(record.fileName, record.sizeBytes);
+  if (!status.exists) {
     throw toError('Backup file is missing on the server.', 404, 'BACKUP_FILE_MISSING');
   }
-  return { record, absolutePath };
+  if (status.storage === 'azure_blob') {
+    return {
+      record,
+      storage: 'azure_blob' as const,
+      blobName: buildBackupBlobName(record.fileName)
+    };
+  }
+  return {
+    record,
+    storage: 'local' as const,
+    absolutePath: resolveBackupPath(record.fileName)
+  };
 };
 
 export const importSystemBackup = async (params: {
@@ -773,7 +1537,7 @@ export const importSystemBackup = async (params: {
   }
 
   const parsed = parseBackupBuffer(params.fileBuffer);
-  const catalog = readCatalog();
+  const catalog = await readCatalog();
 
   let backupId = String(parsed.backup.id || '').trim() || crypto.randomUUID();
   if (catalog.some((entry) => entry.id === backupId)) {
@@ -810,7 +1574,7 @@ export const importSystemBackup = async (params: {
   const safeInputName = path.basename(String(params.fileName || '').trim() || 'imported-backup');
   const extension = safeInputName.endsWith('.gz') ? '.json.gz' : '.json.gz';
   const outputName = `${timestamp}_${backupId}_imported.scrolith-backup${extension}`;
-  fs.writeFileSync(resolveBackupPath(outputName), normalizedBuffer);
+  await writeBackupBinary(outputName, normalizedBuffer);
 
   const record: BackupCatalogRecord = {
     id: backupId,
@@ -838,7 +1602,7 @@ export const importSystemBackup = async (params: {
   };
 
   catalog.push(record);
-  writeCatalog(catalog);
+  await writeCatalog(catalog);
 
   return {
     backup: record,
@@ -846,37 +1610,37 @@ export const importSystemBackup = async (params: {
   };
 };
 
-export const deleteSystemBackups = (backupIds: string[]) => {
+export const deleteSystemBackups = async (backupIds: string[]) => {
   const ids = Array.from(new Set(backupIds.map((id) => String(id || '').trim()).filter(Boolean)));
   if (!ids.length) {
     throw toError('Select at least one backup file to delete.', 400, 'BACKUP_DELETE_SELECTION_REQUIRED');
   }
 
-  const catalog = readCatalog();
+  const catalog = await readCatalog();
   const remaining: BackupCatalogRecord[] = [];
   const deleted: BackupCatalogRecord[] = [];
 
-  catalog.forEach((record) => {
+  for (const record of catalog) {
     if (ids.includes(record.id)) {
       deleted.push(record);
       try {
-        const absolutePath = resolveBackupPath(record.fileName);
-        if (fs.existsSync(absolutePath)) fs.unlinkSync(absolutePath);
+        await deleteBackupBinary(record.fileName);
       } catch {
         // ignore file delete failures to keep catalog cleanup moving
       }
-      return;
+      continue;
     }
     remaining.push(record);
-  });
+  }
 
-  writeCatalog(remaining);
+  await writeCatalog(remaining);
   return deleted;
 };
 
 export const restoreSystemBackup = async (input: RestoreBackupInput) => {
-  const catalog = readCatalog();
+  const catalog = await readCatalog();
   const record = resolveRecordById(catalog, input.backupId);
+  assertBackupAdminEmailMatches(record, input.adminEmail);
   const admin = await assertAdminCredentials(input.adminEmail, input.adminPassword);
   const providedLicense = String(input.scrolithLicense || '').trim();
   if (!providedLicense) {
@@ -886,12 +1650,12 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
     throw toError('Invalid Scrolith license for this backup file.', 401, 'BACKUP_LICENSE_INVALID');
   }
 
-  const backupFile = resolveBackupPath(record.fileName);
-  if (!fs.existsSync(backupFile)) {
+  const fileStatus = await getBackupFileStatus(record.fileName, record.sizeBytes);
+  if (!fileStatus.exists) {
     throw toError('Backup file is missing on the server.', 404, 'BACKUP_FILE_MISSING');
   }
 
-  const backupBuffer = fs.readFileSync(backupFile);
+  const backupBuffer = await readBackupBinary(record.fileName);
   const backupPackage = parseBackupBuffer(backupBuffer);
   const packageTables = Object.keys(backupPackage.payload?.database || {}).filter(isSafeIdentifier);
   const mode: RestoreMode = input.mode === 'append' ? 'append' : 'replace';
@@ -907,6 +1671,7 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
   }
 
   const dbClient = createDbClient();
+  let restoredFileRows: any[] = [];
   await dbClient.connect();
   try {
     const existingTables = new Set(await listPublicTables(dbClient));
@@ -917,6 +1682,12 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
         400,
         'BACKUP_RESTORE_TABLES_MISSING'
       );
+    }
+
+    if (restorableTables.includes('files')) {
+      restoredFileRows = Array.isArray(backupPackage.payload?.database?.files)
+        ? backupPackage.payload.database.files
+        : [];
     }
 
     const insertionOrder = await resolveRestoreOrder(dbClient, restorableTables);
@@ -945,7 +1716,10 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
 
   let restoredFiles = 0;
   if (input.includeFiles && Array.isArray(backupPackage.payload?.files)) {
-    restoredFiles = restoreFileSnapshots(backupPackage.payload.files);
+    restoredFiles = await restoreFileSnapshots(backupPackage.payload.files);
+  }
+  if (restoredFileRows.length) {
+    await reconcileRestoredFileRecords(restoredFileRows);
   }
 
   const now = toIso();
@@ -959,7 +1733,7 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
         }
       : entry
   );
-  writeCatalog(updated);
+  await writeCatalog(updated);
 
   return {
     backupId: record.id,

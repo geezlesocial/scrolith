@@ -4,6 +4,7 @@ import {
   getContract,
   createContract,
   updateContractStatus,
+  updateContractMilestoneStatus,
   startTracking,
   stopTracking,
   getActiveSessionForContract,
@@ -30,6 +31,7 @@ router.post('/time-entries/:id/approve', authMiddleware, approveTimeEntry);
 router.post('/', authMiddleware, createContract);
 router.get('/:id', authMiddleware, getContract);
 router.patch('/:id/status', authMiddleware, updateContractStatus);
+router.patch('/:id/milestones/:milestoneId', authMiddleware, updateContractMilestoneStatus);
 
 router.post('/:id/tracking/start', authMiddleware, startTracking);
 router.post('/:id/tracking/stop', authMiddleware, stopTracking);

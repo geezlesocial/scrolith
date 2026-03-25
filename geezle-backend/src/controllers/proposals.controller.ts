@@ -1,12 +1,20 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import { resolveUserProStatus } from '../utils/proStatus';
+import { normalizeDealFlowSettings } from '../utils/dealFlowSettings';
+import {
+  attachContractToBriefByProposalId,
+  attachProposalToBrief,
+  getBriefRecordById
+} from '../utils/briefStore';
+import { appendConversationTimelineEvent } from '../services/conversationTimeline.service';
 import {
   buildSnippet,
   createEngagementNotification,
   getPlatformNotificationSettings
 } from '../services/engagementNotifications.service';
 import { sendSystemEmail } from '../services/email.service';
+import { buildContractPlan, paymentCycleDbToView } from '../utils/contractConversion';
 
 const normalizeRole = (role?: string) => (role || '').toString().toLowerCase();
 const isFreelancerRole = (role?: string) => {
@@ -35,6 +43,17 @@ const fail = (res: Response, error: string, code?: string, status = 400) =>
 const getUser = (req: Request) => req.user as { id: string; role?: string; name?: string } | undefined;
 const FRONTEND_BASE_URL = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
 
+const getDealFlowSettings = async () => {
+  try {
+    const record = await prisma.appSetting.findUnique({ where: { scope: 'system' } });
+    const data: any = record?.data || {};
+    return normalizeDealFlowSettings(data?.dealFlow ?? data?.deal_flow);
+  } catch (error) {
+    console.warn('[proposals] failed to load deal flow settings', error);
+    return normalizeDealFlowSettings(null);
+  }
+};
+
 type ProposalLifecycleNotificationType =
   | 'job_application_created'
   | 'proposal_opened'
@@ -58,6 +77,8 @@ const mapProposal = (proposal: any) => {
   id: proposal.id,
   job_id: proposal.jobId,
   job_title: proposal.job?.title || '',
+  job_type: proposal.job?.type || null,
+  job_budget: proposal.job?.budget || null,
   freelancer_id: proposal.freelancerId,
   freelancer_name: proposal.freelancer?.name || '',
   freelancer_avatar: proposal.freelancer?.avatar || null,
@@ -357,6 +378,8 @@ export const createProposal = async (req: Request, res: Response) => {
     const proposedAmount = Number(payload.proposedAmount ?? payload.proposed_amount ?? payload.amount ?? 0);
     const proposedTimeline = Number(payload.proposedTimeline ?? payload.proposed_timeline ?? payload.timeline ?? 0);
     const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
+    const briefId = String(payload.briefId || payload.brief_id || '').trim();
+    let conversationId = String(payload.conversationId || payload.conversation_id || '').trim();
 
     if (!jobId) return fail(res, 'Job ID is required', 'VALIDATION', 400);
     if (!coverLetter || String(coverLetter).trim().length < 10) {
@@ -392,6 +415,33 @@ export const createProposal = async (req: Request, res: Response) => {
 
     if (existing) {
       return fail(res, 'You already submitted a proposal for this job', 'ALREADY_EXISTS', 400);
+    }
+
+    let briefRecord: any = null;
+    if (briefId) {
+      briefRecord = await getBriefRecordById(briefId);
+      if (!briefRecord) {
+        return fail(res, 'Linked brief not found', 'NOT_FOUND', 404);
+      }
+      if (briefRecord.linked_job_id && String(briefRecord.linked_job_id) !== String(jobId)) {
+        return fail(res, 'Brief linkage does not match this proposal target', 'INVALID', 400);
+      }
+      if (!conversationId) {
+        conversationId = String(briefRecord.conversation_id || '').trim();
+      }
+      if (conversationId) {
+        const participant = await prisma.conversationParticipant.findFirst({
+          where: {
+            conversationId,
+            userId: user?.id || '',
+            deletedAt: null
+          },
+          select: { userId: true }
+        });
+        if (!participant && !role.includes('admin') && !role.includes('superadmin')) {
+          return fail(res, 'Not authorized for the linked conversation', 'FORBIDDEN', 403);
+        }
+      }
     }
 
     const [proposal] = await prisma.$transaction([
@@ -430,6 +480,64 @@ export const createProposal = async (req: Request, res: Response) => {
       });
     }
 
+    if (briefId) {
+      const now = new Date().toISOString();
+      await attachProposalToBrief(
+        briefId,
+        {
+          proposal_id: proposal.id,
+          freelancer_id: proposal.freelancerId,
+          freelancer_name: proposal.freelancer?.name || user?.name || '',
+          status: String(proposal.status || '').toLowerCase(),
+          proposed_amount: Number(proposal.proposedAmount || 0),
+          proposed_timeline: Number(proposal.proposedTimeline || 0),
+          created_at: now,
+          updated_at: now
+        },
+        {
+          id: `proposal_created_${Date.now().toString(36)}`,
+          type: 'proposal_created',
+          actor_user_id: user?.id || undefined,
+          proposal_id: proposal.id,
+          timestamp: now,
+          summary: 'Proposal created from conversation brief',
+          metadata: {
+            briefId,
+            conversationId: conversationId || null
+          }
+        }
+      );
+
+      const dealFlowSettings = await getDealFlowSettings();
+      if (conversationId && dealFlowSettings.timeline.proposals) {
+        try {
+          await appendConversationTimelineEvent(req, {
+            conversationId,
+            actorUserId: user?.id || '',
+            eventType: 'proposal_created',
+            previewText: `Proposal created for ${proposal.job?.title || 'brief'}`,
+            metadata: {
+              briefId,
+              proposalId: proposal.id,
+              title: proposal.job?.title || briefRecord?.title || 'Proposal',
+              proposal: {
+                id: proposal.id,
+                status: String(proposal.status || '').toLowerCase(),
+                proposedAmount: Number(proposal.proposedAmount || 0),
+                proposedTimeline: Number(proposal.proposedTimeline || 0),
+                freelancerName: proposal.freelancer?.name || user?.name || '',
+                jobTitle: proposal.job?.title || '',
+                jobType: proposal.job?.type || null,
+                jobBudget: proposal.job?.budget || null
+              }
+            }
+          });
+        } catch (timelineError) {
+          console.warn('[proposals] failed to append proposal timeline event', timelineError);
+        }
+      }
+    }
+
     return ok(res, mapProposal(proposal), 'Submitted');
   } catch (error: any) {
     console.error('createProposal error:', error);
@@ -442,6 +550,7 @@ export const acceptProposal = async (req: Request, res: Response) => {
     const user = getUser(req);
     const role = normalizeRole(user?.role);
     const { id } = req.params;
+    const payload = req.body || {};
 
     const proposal = await prisma.proposal.findUnique({
       where: { id },
@@ -458,7 +567,18 @@ export const acceptProposal = async (req: Request, res: Response) => {
       return fail(res, 'Proposal cannot be accepted in current state', 'INVALID_STATE', 400);
     }
 
-    const contractType = proposal.job?.type === 'HOURLY' ? 'HOURLY' : 'FIXED';
+    const dealFlowSettings = await getDealFlowSettings();
+    let plan;
+    try {
+      plan = buildContractPlan({
+        proposal,
+        payload,
+        settings: dealFlowSettings
+      });
+    } catch (validationError: any) {
+      return fail(res, validationError?.message || 'Invalid contract plan', 'VALIDATION', 400);
+    }
+
     const [freelancer, client] = await Promise.all([
       prisma.user.findUnique({ where: { id: proposal.freelancerId }, select: { name: true } }),
       proposal.job?.clientId
@@ -473,10 +593,16 @@ export const acceptProposal = async (req: Request, res: Response) => {
         freelancerId: proposal.freelancerId,
         clientName: client?.name || (user as any)?.name || 'Client',
         freelancerName: freelancer?.name || 'Freelancer',
-        type: contractType as any,
-        hourlyRate: 0,
-        paymentCycle: 'WEEKLY',
+        type: plan.contractType as any,
+        hourlyRate: Number.isFinite(plan.hourlyRate) && plan.hourlyRate >= 0 ? plan.hourlyRate : 0,
+        paymentCycle: plan.paymentCycle as any,
+        contractValue: plan.contractValue,
+        deliveryDays: plan.deliveryDays,
+        paymentSchedule: plan.paymentSchedule as any,
+        milestones: plan.milestones as any,
         status: 'ACTIVE',
+        startDate: plan.startDate,
+        description: plan.description || '',
         jobId: proposal.jobId,
         sourceProposalId: proposal.id
       }
@@ -487,7 +613,84 @@ export const acceptProposal = async (req: Request, res: Response) => {
       data: { status: 'ACCEPTED', contractId: contract.id }
     });
 
-    return ok(res, { contract_id: contract.id }, 'Accepted');
+    const brief = await attachContractToBriefByProposalId(
+      proposal.id,
+      {
+        contract_id: contract.id,
+        status: String(contract.status || '').toLowerCase(),
+        payment_cycle: paymentCycleDbToView(contract.paymentCycle),
+        start_date: contract.startDate ? contract.startDate.toISOString() : plan.startDate.toISOString(),
+        title: contract.title,
+        contract_value: plan.contractValue,
+        delivery_days: plan.deliveryDays,
+        milestones: plan.milestones,
+        payment_schedule: plan.paymentSchedule,
+        created_at: new Date().toISOString()
+      },
+      {
+        id: `contract_created_${Date.now().toString(36)}`,
+        type: 'contract_created',
+        actor_user_id: user?.id || undefined,
+        proposal_id: proposal.id,
+        contract_id: contract.id,
+        timestamp: new Date().toISOString(),
+        summary: 'Contract created from accepted proposal',
+        metadata: {
+          proposalId: proposal.id,
+          contractId: contract.id
+        }
+      }
+    );
+
+    const conversationId = String(payload.conversationId || payload.conversation_id || brief?.conversation_id || '').trim();
+    if (conversationId && dealFlowSettings.timeline.contracts) {
+      try {
+        await appendConversationTimelineEvent(req, {
+          conversationId,
+          actorUserId: user?.id || '',
+          eventType: 'contract_created',
+          previewText: `Contract created: ${contract.title}`,
+          metadata: {
+            briefId: brief?.id || null,
+            proposalId: proposal.id,
+            contractId: contract.id,
+            title: contract.title,
+            contract: {
+              id: contract.id,
+              type: String(contract.type || '').toLowerCase(),
+              paymentCycle: paymentCycleDbToView(contract.paymentCycle),
+              startDate: contract.startDate ? contract.startDate.toISOString() : plan.startDate.toISOString(),
+              hourlyRate: Number(contract.hourlyRate || 0),
+              contractValue: plan.contractValue,
+              deliveryDays: plan.deliveryDays,
+              description: plan.description || '',
+              paymentSchedule: plan.paymentSchedule,
+              milestones: plan.milestones,
+              status: String(contract.status || '').toLowerCase()
+            }
+          }
+        });
+      } catch (timelineError) {
+        console.warn('[proposals] failed to append contract timeline event', timelineError);
+      }
+    }
+
+    return ok(res, {
+      contract_id: contract.id,
+      contract: {
+        id: contract.id,
+        type: String(contract.type || '').toLowerCase(),
+        paymentCycle: paymentCycleDbToView(contract.paymentCycle),
+        startDate: contract.startDate ? contract.startDate.toISOString() : plan.startDate.toISOString(),
+        hourlyRate: Number(contract.hourlyRate || 0),
+        contractValue: plan.contractValue,
+        deliveryDays: plan.deliveryDays,
+        description: plan.description || '',
+        paymentSchedule: plan.paymentSchedule,
+        milestones: plan.milestones,
+        status: String(contract.status || '').toLowerCase()
+      }
+    }, 'Accepted');
   } catch (error: any) {
     console.error('acceptProposal error:', error);
     return fail(res, 'Failed to accept proposal', 'SERVER_ERROR', 500);

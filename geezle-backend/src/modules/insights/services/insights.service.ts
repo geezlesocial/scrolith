@@ -1578,6 +1578,766 @@ export const getRevenueInsights = async (userId: string) => {
   };
 };
 
+const inferOpportunityIntent = (prompt: string, role: string) => {
+  const normalized = String(prompt || '').toLowerCase();
+  const normalizedRole = String(role || '').toUpperCase();
+
+  if (
+    normalized.includes('hire') ||
+    normalized.includes('looking for') ||
+    normalized.includes('need someone') ||
+    normalized.includes('need a') ||
+    normalized.includes('build for me') ||
+    normalized.includes('help me')
+  ) {
+    return 'hire';
+  }
+
+  if (
+    normalized.includes('offer') ||
+    normalized.includes('service') ||
+    normalized.includes('package') ||
+    normalized.includes('sell') ||
+    normalized.includes('client work') ||
+    normalized.includes('freelance')
+  ) {
+    return 'sell';
+  }
+
+  if (normalizedRole === 'EMPLOYER' || normalizedRole === 'CLIENT') return 'hire';
+  if (normalizedRole === 'FREELANCER') return 'sell';
+  return 'grow';
+};
+
+const buildOpportunityBriefTitle = (prompt: string, intent: string) => {
+  const cleaned = String(prompt || '').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return intent === 'sell' ? 'New Service Offer' : 'New Opportunity Brief';
+  const sentence = cleaned.split(/[.!?]/)[0] || cleaned;
+  const trimmed = sentence.length > 72 ? `${sentence.slice(0, 69)}...` : sentence;
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+};
+
+const inferBudgetRange = (prompt: string, intent: string) => {
+  const normalized = String(prompt || '').toLowerCase();
+  const currencyMatch = normalized.match(/([$€£₦])\s?(\d[\d,]*(?:\.\d+)?)(?:\s*-\s*([$€£₦])?\s?(\d[\d,]*(?:\.\d+)?))?/);
+  if (currencyMatch) {
+    const symbol = currencyMatch[1] || currencyMatch[3] || '$';
+    const start = currencyMatch[2];
+    const end = currencyMatch[4];
+    return end ? `${symbol}${start} - ${symbol}${end}` : `${symbol}${start}`;
+  }
+  if (normalized.includes('enterprise') || normalized.includes('scale')) {
+    return intent === 'sell' ? 'Premium package pricing recommended' : 'Mid to enterprise budget recommended';
+  }
+  if (normalized.includes('urgent') || normalized.includes('asap')) {
+    return intent === 'sell' ? 'Fast-turn package pricing recommended' : 'Expedited budget recommended';
+  }
+  return intent === 'sell' ? 'Starter / Growth / Premium package pricing' : 'Budget to be refined after shortlist';
+};
+
+const inferTimelineWindow = (prompt: string) => {
+  const normalized = String(prompt || '').toLowerCase();
+  if (normalized.includes('today') || normalized.includes('24 hours') || normalized.includes('tomorrow')) {
+    return '24-48 hours';
+  }
+  if (normalized.includes('urgent') || normalized.includes('asap') || normalized.includes('this week')) {
+    return '3-7 days';
+  }
+  if (normalized.includes('month') || normalized.includes('quarter')) {
+    return '2-6 weeks';
+  }
+  return '1-3 weeks';
+};
+
+const uniqueSkillTokens = (prompt: string) => Array.from(new Set(tokenize(prompt))).slice(0, 8);
+
+const buildDeliverables = (skills: string[], intent: string) => {
+  const base = skills.slice(0, 4).map((skill) => `${skill} execution`);
+  if (intent === 'hire') {
+    return base.length
+      ? base
+      : ['Qualified shortlist', 'Delivery plan', 'Execution milestones'];
+  }
+  return base.length
+    ? base
+    : ['Service scope', 'Delivery workflow', 'Client-ready package'];
+};
+
+const buildPackageBlueprint = (title: string, skills: string[]) => {
+  const anchor = skills[0] || 'delivery';
+  const deliverables = buildDeliverables(skills, 'sell');
+  return [
+    {
+      tier: 'starter',
+      name: `${title} Starter`,
+      positioning: `Fast entry package for ${anchor} needs.`,
+      turnaround: '3 days',
+      deliverables: deliverables.slice(0, 2),
+      pricingGuidance: 'Entry pricing'
+    },
+    {
+      tier: 'growth',
+      name: `${title} Growth`,
+      positioning: `Balanced scope with stronger ${anchor} depth and revisions.`,
+      turnaround: '5-7 days',
+      deliverables: deliverables.slice(0, 3),
+      pricingGuidance: 'Mid-tier pricing'
+    },
+    {
+      tier: 'premium',
+      name: `${title} Premium`,
+      positioning: `Full-service execution with strategy, QA, and launch support.`,
+      turnaround: '7-14 days',
+      deliverables: [...deliverables.slice(0, 3), 'Executive handoff summary'].slice(0, 4),
+      pricingGuidance: 'Premium pricing'
+    }
+  ];
+};
+
+const resolveTrustTier = (score: number, riskFlags?: Record<string, any> | null) => {
+  const riskPenalty =
+    Number(Boolean(riskFlags?.highViolationRisk)) +
+    Number(Boolean(riskFlags?.weakDeliveryReliability)) +
+    Number(Boolean(riskFlags?.weakProfileCompleteness));
+  if (score >= 760 && riskPenalty === 0) return 'Elite';
+  if (score >= 620 && riskPenalty <= 1) return 'Strong';
+  if (score >= 420) return 'Building';
+  return 'Starter';
+};
+
+const buildOpportunityActions = (input: {
+  role: string;
+  profileCompleteness: number;
+  kycVerified: boolean;
+  activeGigs: number;
+  activeJobs: number;
+  activePages: number;
+  portfolioProofs: number;
+  activeContracts: number;
+  matchesCount: number;
+  ratingsCount: number;
+}) => {
+  const actions: string[] = [];
+  const role = String(input.role || '').toUpperCase();
+
+  if (input.profileCompleteness < 80) actions.push('Complete your professional profile to unlock stronger ranking and matching.');
+  if (!input.kycVerified) actions.push('Finish verification to strengthen trust signals across hiring, gigs, and pages.');
+  if (input.portfolioProofs === 0) actions.push('Add proof-of-work artifacts so buyers and employers can verify delivery quality.');
+
+  if (role === 'FREELANCER') {
+    if (input.activeGigs === 0) actions.push('Publish a packaged service offer so buyers can engage you instantly.');
+    if (input.activeContracts === 0) actions.push('Use brief-to-match to target jobs and pages that align with your strongest skills.');
+  } else if (role === 'EMPLOYER' || role === 'CLIENT') {
+    if (input.activeJobs === 0) actions.push('Publish a structured job or brief to attract targeted proposals faster.');
+    if (input.activePages === 0) actions.push('Create or optimize a business page to build credibility and pipeline visibility.');
+  } else {
+    actions.push('Pick a primary growth path: hire, sell services, or build through content and pages.');
+  }
+
+  if (input.matchesCount < 3) actions.push('Add more skills and portfolio detail to widen your opportunity graph coverage.');
+  if (input.ratingsCount < 3) actions.push('Close more verified deliveries to strengthen review and trust momentum.');
+
+  return Array.from(new Set(actions)).slice(0, 5);
+};
+
+type WorkroomPriority = 'high' | 'medium' | 'low';
+
+const normalizeRoleLabel = (value: string) => String(value || '').trim().toUpperCase();
+
+const isFreelancerRole = (role: string) => normalizeRoleLabel(role) === 'FREELANCER';
+
+const getDashboardBase = (role: string) =>
+  isFreelancerRole(role) ? '/freelancer/dashboard' : '/client/dashboard';
+
+const getWorkroomActionUrl = (input: {
+  role: string;
+  source: 'contract' | 'order' | 'proposal';
+  sourceId?: string | null;
+  contractId?: string | null;
+}) => {
+  const base = getDashboardBase(input.role);
+  if (input.source === 'contract' && input.sourceId) return `${base}?tab=contracts&contract_id=${encodeURIComponent(input.sourceId)}`;
+  if (input.source === 'order') {
+    return isFreelancerRole(input.role) ? `${base}?tab=orders` : `${base}?tab=contracts`;
+  }
+  if (input.contractId) return `${base}?tab=contracts&contract_id=${encodeURIComponent(input.contractId)}`;
+  return isFreelancerRole(input.role) ? `${base}?tab=my-proposals` : `${base}?tab=proposals-offers`;
+};
+
+const getWorkroomPriorityRank = (priority: WorkroomPriority) => {
+  if (priority === 'high') return 0;
+  if (priority === 'medium') return 1;
+  return 2;
+};
+
+const scoreBusinessPageMatch = (skills: string[], page: any, trustScore: number) => {
+  const haystack = tokenize(
+    `${page.name || ''} ${page.tagline || ''} ${page.description || ''} ${page.industry || ''} ${page.category || ''}`
+  );
+  const similarity = jaccard(skills, haystack);
+  const followerSignal = clamp(Number(page?._count?.followers || 0) / 250, 0, 0.18);
+  const score = clamp((similarity * 0.7 + followerSignal + trustScore / 1000 * 0.15) * 100, 0, 100);
+  const reasons = [
+    similarity > 0.2 ? 'Business page context aligns with the brief keywords.' : 'Partial page alignment detected.',
+    followerSignal > 0.08 ? 'Audience traction suggests stronger commercial visibility.' : 'Early-stage audience signal.',
+    `Professional trust signal applied (${Math.round((trustScore / 1000) * 100)}%).`
+  ];
+  return { score: Number(score.toFixed(2)), reasons };
+};
+
+export const getOpportunityHubForUser = async (input: {
+  userId: string;
+  app?: Application;
+}) => {
+  const userId = String(input.userId || '').trim();
+  if (!userId) throw new Error('userId is required');
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { profile: true }
+  });
+  if (!user) throw new Error('User not found');
+
+  const role = normalizeRoleLabel(String(user.role || 'USER'));
+  const metrics = await loadMetricsSnapshot(userId);
+  const [
+    professionalScore,
+    matches,
+    revenue,
+    portfolioProofs,
+    verifiedProofs,
+    activeContracts,
+    activeTrackingSessions,
+    activeOrders,
+    openProposals,
+    activeGigs,
+    featuredGigs,
+    activeJobs,
+    pages,
+    workroomContracts,
+    workroomOrders,
+    workroomProposals
+  ] =
+    await Promise.all([
+      getProfessionalScoreForUser(userId, input.app).catch(() => ({
+        userId,
+        score: 0,
+        breakdown: {},
+        riskFlags: { unavailable: true },
+        updatedAt: new Date().toISOString()
+      })),
+      getOpportunityMatches({ userId, app: input.app }).catch(() => []),
+      getRevenueInsights(userId).catch(() => ({
+        totalEarned: 0,
+        totalSpent: 0,
+        pendingDue: 0,
+        walletBalance: 0,
+        completedOrders: 0,
+        clientOrders: 0,
+        trackedHours: 0
+      })),
+      prisma.portfolioProof.count({ where: { userId } }).catch(() => 0),
+      prisma.portfolioProof.count({ where: { userId, status: 'verified' } }).catch(() => 0),
+      prisma.contract.count({
+        where: {
+          OR: [{ clientId: userId }, { freelancerId: userId }],
+          status: 'ACTIVE'
+        }
+      }),
+      prisma.trackingSession.count({ where: { freelancerId: userId, status: 'ACTIVE' } }),
+      prisma.order.count({
+        where: {
+          OR: [{ clientId: userId }, { freelancerId: userId }],
+          status: { in: ['PAID', 'IN_PROGRESS', 'UNDER_REVIEW'] }
+        }
+      }),
+      prisma.proposal.count({
+        where: isFreelancerRole(role)
+          ? {
+              freelancerId: userId,
+              status: { in: ['PENDING', 'SHORTLISTED'] }
+            }
+          : {
+              job: { clientId: userId },
+              status: { in: ['PENDING', 'SHORTLISTED'] }
+            }
+      }),
+      prisma.gig.count({ where: { userId, isActive: true, status: 'ACTIVE' } }),
+      prisma.gig.count({
+        where: {
+          userId,
+          isActive: true,
+          status: 'ACTIVE',
+          OR: [{ isFeatured: true }, { isRecommended: true }, { isTopSelected: true }]
+        }
+      }),
+      prisma.job.count({ where: { clientId: userId, isActive: true, isVisible: true, status: 'ACTIVE' } }),
+      prisma.communityBusinessPage.findMany({
+        where: { ownerId: userId, status: 'active' },
+        take: 3,
+        orderBy: [{ updatedAt: 'desc' }],
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          tagline: true,
+          status: true,
+          industry: true,
+          _count: {
+            select: {
+              followers: true,
+              posts: true
+            }
+          }
+        }
+      }),
+      prisma.contract.findMany({
+        where: {
+          OR: [{ clientId: userId }, { freelancerId: userId }],
+          status: { in: ['ACTIVE', 'PAUSED'] }
+        },
+        take: 4,
+        orderBy: [{ updatedAt: 'desc' }],
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          status: true,
+          updatedAt: true,
+          clientId: true,
+          freelancerId: true,
+          clientName: true,
+          freelancerName: true,
+          client: { select: { name: true } },
+          freelancer: { select: { name: true } }
+        }
+      }),
+      prisma.order.findMany({
+        where: {
+          OR: [{ clientId: userId }, { freelancerId: userId }],
+          status: { in: ['PAID', 'IN_PROGRESS', 'UNDER_REVIEW'] }
+        },
+        take: 4,
+        orderBy: [{ updatedAt: 'desc' }],
+        select: {
+          id: true,
+          status: true,
+          amount: true,
+          deliveryDate: true,
+          updatedAt: true,
+          clientId: true,
+          freelancerId: true,
+          gig: { select: { title: true } },
+          client: { select: { name: true } },
+          freelancer: { select: { name: true } }
+        }
+      }),
+      prisma.proposal.findMany({
+        where: isFreelancerRole(role)
+          ? {
+              freelancerId: userId,
+              status: { in: ['PENDING', 'SHORTLISTED', 'ACCEPTED'] }
+            }
+          : {
+              job: { clientId: userId },
+              status: { in: ['PENDING', 'SHORTLISTED', 'ACCEPTED'] }
+            },
+        take: 4,
+        orderBy: [{ updatedAt: 'desc' }],
+        select: {
+          id: true,
+          status: true,
+          contractId: true,
+          updatedAt: true,
+          job: {
+            select: {
+              title: true,
+              client: { select: { name: true } }
+            }
+          },
+          freelancer: { select: { name: true } }
+        }
+      })
+    ]);
+
+  const profile = user.profile;
+  const topSkills = Array.isArray(profile?.skills) ? profile.skills.slice(0, 6) : [];
+  const activePages = pages.length;
+  const trustTier = resolveTrustTier(Number(professionalScore?.score || 0), professionalScore?.riskFlags || {});
+  const verificationState = metrics.kycVerified
+    ? 'KYC verified'
+    : Boolean(user.isVerified)
+      ? 'Identity verified'
+      : 'Verification in progress';
+
+  const nowTs = Date.now();
+  const contractWorkrooms = workroomContracts.map((contract) => {
+    const counterpartName =
+      contract.clientId === userId
+        ? contract.freelancerName || contract.freelancer?.name || 'Freelancer'
+        : contract.clientName || contract.client?.name || 'Client';
+    const stale = nowTs - new Date(contract.updatedAt).getTime() > 72 * 60 * 60 * 1000;
+    const priority: WorkroomPriority = contract.status === 'PAUSED' || stale ? 'high' : 'medium';
+    return {
+      id: `contract:${contract.id}`,
+      source: 'contract',
+      sourceId: contract.id,
+      title: contract.title || 'Contract',
+      subtitle: `${counterpartName} - ${String(contract.type || '').toLowerCase()} contract`,
+      status: String(contract.status || 'ACTIVE'),
+      priority,
+      updatedAt: contract.updatedAt.toISOString(),
+      actionLabel: 'Open contract',
+      actionUrl: getWorkroomActionUrl({ role, source: 'contract', sourceId: contract.id })
+    };
+  });
+
+  const orderWorkrooms = workroomOrders.map((order) => {
+    const counterpartName =
+      order.clientId === userId ? order.freelancer?.name || 'Freelancer' : order.client?.name || 'Client';
+    const deliveryTs = order.deliveryDate ? new Date(order.deliveryDate).getTime() : null;
+    const nearDue = deliveryTs !== null && deliveryTs <= nowTs + 24 * 60 * 60 * 1000;
+    const priority: WorkroomPriority =
+      order.status === 'UNDER_REVIEW' || nearDue ? 'high' : order.status === 'IN_PROGRESS' ? 'medium' : 'low';
+    return {
+      id: `order:${order.id}`,
+      source: 'order',
+      sourceId: order.id,
+      title: order.gig?.title || 'Service order',
+      subtitle: counterpartName ? `Counterparty: ${counterpartName}` : 'Order in progress',
+      status: String(order.status || 'PAID'),
+      priority,
+      updatedAt: order.updatedAt.toISOString(),
+      dueAt: order.deliveryDate ? order.deliveryDate.toISOString() : null,
+      amount: Number(order.amount || 0),
+      actionLabel: isFreelancerRole(role) ? 'Open orders' : 'Open workspace',
+      actionUrl: getWorkroomActionUrl({ role, source: 'order', sourceId: order.id })
+    };
+  });
+
+  const proposalWorkrooms = workroomProposals.map((proposal) => {
+    const subtitle = isFreelancerRole(role)
+      ? `Client: ${proposal.job?.client?.name || 'Client'}`
+      : `Freelancer: ${proposal.freelancer?.name || 'Freelancer'}`;
+    const priority: WorkroomPriority =
+      proposal.status === 'SHORTLISTED' ? 'high' : proposal.status === 'ACCEPTED' ? 'medium' : 'low';
+    return {
+      id: `proposal:${proposal.id}`,
+      source: 'proposal',
+      sourceId: proposal.id,
+      title: proposal.job?.title || 'Proposal pipeline',
+      subtitle,
+      status: String(proposal.status || 'PENDING'),
+      priority,
+      updatedAt: proposal.updatedAt.toISOString(),
+      actionLabel: proposal.contractId ? 'Open contract' : 'Open proposal',
+      actionUrl: getWorkroomActionUrl({
+        role,
+        source: 'proposal',
+        sourceId: proposal.id,
+        contractId: proposal.contractId || null
+      })
+    };
+  });
+
+  const workroomItems = [...contractWorkrooms, ...orderWorkrooms, ...proposalWorkrooms]
+    .sort((a, b) => {
+      const priorityDiff = getWorkroomPriorityRank(a.priority) - getWorkroomPriorityRank(b.priority);
+      if (priorityDiff !== 0) return priorityDiff;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    })
+    .slice(0, 8);
+  const workroomNeedsAttention = workroomItems.filter((item) => item.priority === 'high').length;
+
+  return {
+    identity: {
+      userId,
+      name: user.name || 'Scrolith member',
+      username: user.username || null,
+      role: String(user.role || 'USER'),
+      title: profile?.title || '',
+      location: profile?.location || user.country || '',
+      skills: topSkills,
+      profileCompleteness: metrics.profileCompleteness,
+      verificationState,
+      verified: Boolean(user.isVerified),
+      kycStatus: String(user.kycStatus || 'PENDING'),
+      followersCount: metrics.followersCount,
+      postsCount: metrics.postsCount,
+      commentsCount: metrics.commentsCount,
+      portfolioProofs,
+      verifiedProofs,
+      activePages
+    },
+    trust: {
+      score: Number(professionalScore?.score || 0),
+      trustTier,
+      breakdown: professionalScore?.breakdown || {},
+      riskFlags: professionalScore?.riskFlags || {},
+      averageRating: Number(metrics.avgRating.toFixed(2)),
+      ratingsCount: metrics.ratingsCount,
+      completedOrders: metrics.completedOrders,
+      cancelledOrders: metrics.cancelledOrders,
+      proposalWinRate:
+        metrics.totalProposals > 0 ? Number(((metrics.acceptedProposals / metrics.totalProposals) * 100).toFixed(1)) : 0,
+      responseRate: Number(profile?.responseRate || 0),
+      responseTimeHours: Number(profile?.responseTime || 0),
+      updatedAt: professionalScore?.updatedAt || new Date().toISOString()
+    },
+    delivery: {
+      activeContracts,
+      activeTrackingSessions,
+      activeOrders,
+      openProposals,
+      pendingDue: Number(revenue.pendingDue || 0),
+      totalEarned: Number(revenue.totalEarned || 0),
+      totalSpent: Number(revenue.totalSpent || 0),
+      walletBalance: Number(revenue.walletBalance || 0),
+      trackedHours: Number(revenue.trackedHours || 0)
+    },
+    packaging: {
+      activeGigs,
+      featuredGigs,
+      activeJobs,
+      activePages,
+      pages: pages.map((page) => ({
+        id: page.id,
+        name: page.name,
+        slug: page.slug,
+        tagline: page.tagline,
+        industry: page.industry,
+        followersCount: Number(page._count?.followers || 0),
+        postsCount: Number(page._count?.posts || 0),
+        status: page.status
+      }))
+    },
+    matching: {
+      total: Array.isArray(matches) ? matches.length : 0,
+      matches: Array.isArray(matches) ? matches.slice(0, 5) : []
+    },
+    workroom: {
+      totalWorkstreams: contractWorkrooms.length + orderWorkrooms.length + proposalWorkrooms.length,
+      needsAttention: workroomNeedsAttention,
+      activeContracts: contractWorkrooms.length,
+      activeOrders: orderWorkrooms.length,
+      openProposals: proposalWorkrooms.length,
+      items: workroomItems
+    },
+    actions: buildOpportunityActions({
+      role: String(user.role || 'USER'),
+      profileCompleteness: metrics.profileCompleteness,
+      kycVerified: metrics.kycVerified,
+      activeGigs,
+      activeJobs,
+      activePages,
+      portfolioProofs,
+      activeContracts,
+      matchesCount: Array.isArray(matches) ? matches.length : 0,
+      ratingsCount: metrics.ratingsCount
+    })
+  };
+};
+
+export const generateOpportunityBriefMatches = async (input: {
+  userId: string;
+  prompt: string;
+  actor?: ScrolithaActor;
+  app?: Application;
+}) => {
+  const userId = String(input.userId || '').trim();
+  const prompt = String(input.prompt || '').trim();
+  if (!userId) throw new Error('userId is required');
+  if (!prompt) throw new Error('Prompt is required');
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { profile: true }
+  });
+  if (!user) throw new Error('User not found');
+
+  const trustScore = Number(
+    (
+      await getProfessionalScoreForUser(userId, input.app).catch(() => ({
+        score: 0
+      }))
+    )?.score || 0
+  );
+  const intent = inferOpportunityIntent(prompt, String(user.role || 'USER'));
+  const skills = uniqueSkillTokens(prompt);
+  const title = buildOpportunityBriefTitle(prompt, intent);
+  const deliverables = buildDeliverables(skills, intent);
+  const budgetRange = inferBudgetRange(prompt, intent);
+  const timeline = inferTimelineWindow(prompt);
+  const summary = `${intent === 'hire' ? 'Hiring brief' : intent === 'sell' ? 'Service blueprint' : 'Growth brief'} focused on ${skills.slice(0, 3).join(', ') || 'execution'}, with delivery emphasis on ${deliverables.slice(0, 2).join(' and ')}.`;
+
+  const [jobs, gigs, pages] = await Promise.all([
+    prisma.job.findMany({
+      where: { isActive: true, isVisible: true, status: 'ACTIVE', clientId: { not: userId } },
+      orderBy: { updatedAt: 'desc' },
+      take: 30,
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        tags: true,
+        budget: true,
+        type: true,
+        subcategory: true,
+        proposalsCount: true,
+        client: { select: { name: true } }
+      }
+    }),
+    prisma.gig.findMany({
+      where: { isActive: true, status: 'ACTIVE', userId: { not: userId } },
+      orderBy: { updatedAt: 'desc' },
+      take: 30,
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        tags: true,
+        price: true,
+        rating: true,
+        deliveryTime: true,
+        subcategory: true,
+        user: { select: { name: true } }
+      }
+    }),
+    prisma.communityBusinessPage.findMany({
+      where: { status: 'active', ownerId: { not: userId } },
+      orderBy: { updatedAt: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        tagline: true,
+        description: true,
+        category: true,
+        industry: true,
+        _count: { select: { followers: true } }
+      }
+    })
+  ]);
+
+  const jobMatches = jobs
+    .map((job) => {
+      const scored = scoreJobMatch(skills, job, trustScore);
+      return {
+        id: job.id,
+        title: job.title,
+        budget: job.budget,
+        type: job.type,
+        clientName: job.client?.name || 'Client',
+        score: scored.score,
+        reasons: scored.reasons,
+        destinationUrl: `/jobs/${job.id}`
+      };
+    })
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4);
+
+  const gigMatches = gigs
+    .map((gig) => {
+      const scored = scoreGigMatch(skills, gig, trustScore);
+      return {
+        id: gig.id,
+        title: gig.title,
+        price: gig.price,
+        deliveryTime: gig.deliveryTime,
+        sellerName: gig.user?.name || 'Seller',
+        score: scored.score,
+        reasons: scored.reasons,
+        destinationUrl: `/gigs/${gig.id}`
+      };
+    })
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4);
+
+  const pageMatches = pages
+    .map((page) => {
+      const scored = scoreBusinessPageMatch(skills, page, trustScore);
+      return {
+        id: page.id,
+        name: page.name,
+        slug: page.slug,
+        tagline: page.tagline,
+        industry: page.industry,
+        followersCount: Number(page?._count?.followers || 0),
+        score: scored.score,
+        reasons: scored.reasons,
+        destinationUrl: `/company/${page.slug}`
+      };
+    })
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+
+  const suggestedActions = [
+    intent === 'hire'
+      ? 'Use this brief to shortlist talent quickly and post a structured job if you need custom execution.'
+      : 'Use this blueprint to create a packaged offer, company-page service post, or outbound pitch.',
+    jobMatches.length ? 'Review the top aligned jobs to validate demand and positioning.' : 'Broaden the brief with clearer skills to surface stronger job demand.',
+    gigMatches.length ? 'Study existing service packaging to refine your pricing and scope tiers.' : 'Create a stronger package outline so buyers can compare options instantly.',
+    pageMatches.length ? 'Follow relevant business pages to build warm pipeline visibility and partnership context.' : 'Add industry keywords to surface stronger page and partner matches.'
+  ].slice(0, 4);
+
+  const promptHash = createHash('sha256').update(prompt).digest('hex');
+  await prisma.aICopilotLog.create({
+    data: {
+      userId,
+      scope: 'opportunity_brief_match',
+      promptHash,
+      inputSummary: prompt.slice(0, 500),
+      outputSummary: JSON.stringify({
+        title,
+        intent,
+        skills,
+        jobs: jobMatches.length,
+        gigs: gigMatches.length,
+        pages: pageMatches.length
+      }).slice(0, 1200),
+      riskLevel: 'low',
+      metadata: {
+        intent,
+        skills,
+        jobs: jobMatches.length,
+        gigs: gigMatches.length,
+        pages: pageMatches.length
+      }
+    }
+  });
+
+  emitInsightsEvent(input.app, 'insights:copilot_tip', {
+    userId,
+    scope: 'opportunity_brief_match',
+    title,
+    intent,
+    totalMatches: jobMatches.length + gigMatches.length + pageMatches.length
+  });
+
+  return {
+    brief: {
+      title,
+      intent,
+      summary,
+      budgetRange,
+      timeline,
+      skills,
+      deliverables
+    },
+    packageBlueprint: buildPackageBlueprint(title, skills),
+    matches: {
+      jobs: jobMatches,
+      gigs: gigMatches,
+      pages: pageMatches
+    },
+    suggestedActions
+  };
+};
+
 const parseAiList = (text: string) =>
   String(text || '')
     .split(/\r?\n/)

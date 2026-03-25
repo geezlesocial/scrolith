@@ -3,6 +3,8 @@ import prisma from '../utils/prismaClient';
 import { resolveUserProStatus } from '../utils/proStatus';
 import { notifyFollowersAboutPublication } from '../services/followPublicationNotifications.service';
 import { resolveFeaturedListingEligibility } from '../services/listingFeaturePolicy.service';
+import { computeListingTrustSummary, getTrustScoreSettings } from '../services/trustScore.service';
+import { DEFAULT_TRUST_SCORE_SETTINGS, TrustScoreSettings } from '../utils/trustScoreSettings';
 
 const getAutoApproveGigs = async () => {
   try {
@@ -40,6 +42,14 @@ const shuffleItems = <T>(items: T[]) => {
   return next;
 };
 const safeArray = <T>(value: unknown): T[] => (Array.isArray(value) ? value : []);
+const GIG_INCLUDE = {
+  category: true,
+  user: {
+    include: {
+      profile: true
+    }
+  }
+} as const;
 const resolvePricingMode = (payload: any, existing?: any) =>
   payload?.pricingMode ?? payload?.pricing_mode ?? existing?.pricingMode ?? 'packages';
 const toBoolFromPayload = (value: unknown) => {
@@ -90,11 +100,23 @@ const mapGigStatus = (gig: { status: string; adminStatus: string }) => {
   return status || 'draft';
 };
 
-export const serializeGig = (gig: any) => {
+export const serializeGig = (
+  gig: any,
+  trustSettings: TrustScoreSettings = DEFAULT_TRUST_SCORE_SETTINGS
+) => {
   const images = safeArray<string>(gig.images);
   const tags = safeArray<string>(gig.tags);
   const pro = gig.user ? resolveUserProStatus(gig.user) : { freelancerIsPro: false };
   const freelancerIsVerified = resolveUserVerified(gig.user);
+  const trustSummary =
+    computeListingTrustSummary(
+      {
+        user: gig.user,
+        rating: gig.rating,
+        reviewCount: gig.reviewCount
+      },
+      trustSettings
+    ) || {};
   return {
     id: gig.id,
     title: gig.title,
@@ -143,6 +165,7 @@ export const serializeGig = (gig: any) => {
     freelancerIsVerified,
     freelancer_is_verified: freelancerIsVerified,
     freelancerVerified: freelancerIsVerified,
+    ...trustSummary,
     media: images,
     createdAt: gig.createdAt?.toISOString(),
     updatedAt: gig.updatedAt?.toISOString()
@@ -231,10 +254,12 @@ export const listGigs = async (req: Request, res: Response) => {
       where.AND = andFilters;
     }
 
+    const trustSettings = await getTrustScoreSettings();
+
     let gigs = await prisma.gig.findMany({
       where,
       orderBy: { updatedAt: 'desc' },
-      include: { category: true, user: true }
+      include: GIG_INCLUDE
     });
     if (recommendedOnly && !randomize) {
       gigs = [...gigs].sort((a, b) => {
@@ -250,7 +275,7 @@ export const listGigs = async (req: Request, res: Response) => {
       gigs = gigs.slice(0, limit);
     }
 
-    return res.json({ success: true, data: gigs.map(serializeGig) });
+    return res.json({ success: true, data: gigs.map((gig) => serializeGig(gig, trustSettings)) });
   } catch (error: any) {
     console.error('List gigs error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to fetch gigs' });
@@ -259,12 +284,13 @@ export const listGigs = async (req: Request, res: Response) => {
 
 export const getGig = async (req: Request, res: Response) => {
   try {
+    const trustSettings = await getTrustScoreSettings();
     const gig = await prisma.gig.findUnique({
       where: { id: req.params.id },
-      include: { category: true, user: true }
+      include: GIG_INCLUDE
     });
     if (!gig) return res.status(404).json({ success: false, error: 'Gig not found' });
-    return res.json({ success: true, data: serializeGig(gig) });
+    return res.json({ success: true, data: serializeGig(gig, trustSettings) });
   } catch (error: any) {
     console.error('Get gig error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to fetch gig' });
@@ -276,6 +302,7 @@ export const createGig = async (req: Request, res: Response) => {
     const userId = req.user?.id as string | undefined;
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
+    const trustSettings = await getTrustScoreSettings();
     const payload = req.body || {};
     const requestedFeatured = toBoolFromPayload(payload.is_featured ?? payload.isFeatured);
     if (requestedFeatured) {
@@ -326,10 +353,10 @@ export const createGig = async (req: Request, res: Response) => {
         adminStatus: 'PENDING',
         adminReason: null
       } as any),
-      include: { category: true, user: true }
+      include: GIG_INCLUDE
     });
 
-    return res.status(201).json({ success: true, data: serializeGig(created) });
+    return res.status(201).json({ success: true, data: serializeGig(created, trustSettings) });
   } catch (error: any) {
     console.error('Create gig error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to create gig' });
@@ -341,6 +368,7 @@ export const updateGig = async (req: Request, res: Response) => {
     const userId = req.user?.id as string | undefined;
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
+    const trustSettings = await getTrustScoreSettings();
     const existing = await prisma.gig.findUnique({ where: { id: req.params.id } });
     if (!existing) return res.status(404).json({ success: false, error: 'Gig not found' });
     if (existing.userId !== userId) {
@@ -405,10 +433,10 @@ export const updateGig = async (req: Request, res: Response) => {
         revisions: revisions !== undefined ? Number(revisions) : existing.revisions,
         isFeatured: nextIsFeatured
       } as any),
-      include: { category: true, user: true }
+      include: GIG_INCLUDE
     });
 
-    return res.json({ success: true, data: serializeGig(updated) });
+    return res.json({ success: true, data: serializeGig(updated, trustSettings) });
   } catch (error: any) {
     console.error('Update gig error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to update gig' });
@@ -439,6 +467,7 @@ export const submitGig = async (req: Request, res: Response) => {
     const userId = req.user?.id as string | undefined;
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
+    const trustSettings = await getTrustScoreSettings();
     const gig = await prisma.gig.findUnique({ where: { id: req.params.id } });
     if (!gig) return res.status(404).json({ success: false, error: 'Gig not found' });
     if (gig.userId !== userId) return res.status(403).json({ success: false, error: 'Not authorized' });
@@ -449,13 +478,13 @@ export const submitGig = async (req: Request, res: Response) => {
       data: autoApprove
         ? { status: 'ACTIVE', adminStatus: 'APPROVED', isActive: true, adminReason: null }
         : { status: 'PENDING', adminStatus: 'PENDING', isActive: false, adminReason: null },
-      include: { category: true, user: true }
+      include: GIG_INCLUDE
     });
     if (updated.status === 'ACTIVE' && gig.status !== 'ACTIVE') {
       await notifyFollowersAboutGigPublication(req, updated);
     }
 
-    return res.json({ success: true, data: serializeGig(updated) });
+    return res.json({ success: true, data: serializeGig(updated, trustSettings) });
   } catch (error: any) {
     console.error('Submit gig error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to submit gig' });
@@ -467,6 +496,7 @@ export const pauseGig = async (req: Request, res: Response) => {
     const userId = req.user?.id as string | undefined;
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
+    const trustSettings = await getTrustScoreSettings();
     const gig = await prisma.gig.findUnique({ where: { id: req.params.id } });
     if (!gig) return res.status(404).json({ success: false, error: 'Gig not found' });
     if (gig.userId !== userId) return res.status(403).json({ success: false, error: 'Not authorized' });
@@ -474,10 +504,10 @@ export const pauseGig = async (req: Request, res: Response) => {
     const updated = await prisma.gig.update({
       where: { id: req.params.id },
       data: { status: 'PAUSED', isActive: false },
-      include: { category: true, user: true }
+      include: GIG_INCLUDE
     });
 
-    return res.json({ success: true, data: serializeGig(updated) });
+    return res.json({ success: true, data: serializeGig(updated, trustSettings) });
   } catch (error: any) {
     console.error('Pause gig error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to pause gig' });
@@ -489,6 +519,7 @@ export const activateGig = async (req: Request, res: Response) => {
     const userId = req.user?.id as string | undefined;
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
+    const trustSettings = await getTrustScoreSettings();
     const gig = await prisma.gig.findUnique({ where: { id: req.params.id } });
     if (!gig) return res.status(404).json({ success: false, error: 'Gig not found' });
     if (gig.userId !== userId) return res.status(403).json({ success: false, error: 'Not authorized' });
@@ -499,13 +530,13 @@ export const activateGig = async (req: Request, res: Response) => {
     const updated = await prisma.gig.update({
       where: { id: req.params.id },
       data: { status: 'ACTIVE', isActive: true },
-      include: { category: true, user: true }
+      include: GIG_INCLUDE
     });
     if (gig.status !== 'ACTIVE') {
       await notifyFollowersAboutGigPublication(req, updated);
     }
 
-    return res.json({ success: true, data: serializeGig(updated) });
+    return res.json({ success: true, data: serializeGig(updated, trustSettings) });
   } catch (error: any) {
     console.error('Activate gig error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to activate gig' });

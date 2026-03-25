@@ -23,8 +23,6 @@ router.post('/:id/pay', idempotency(), async (req: any, res) => {
     const adId = req.params.id;
     const ad = await prisma.communityAd.findUnique({ where: { id: adId } });
     if (!ad) return res.status(404).json({ success:false, error:{code:'NOT_FOUND'} });
-    // log idempotency key for debugging
-    try { console.log('[ads.pay] Idempotency-Key:', req.header('Idempotency-Key')); } catch (e) {}
 
     // Use an in-memory lock per adId to avoid duplicate payment creation during races
     try {
@@ -33,14 +31,12 @@ router.post('/:id/pay', idempotency(), async (req: any, res) => {
       globalAny.__adPayLocks = globalAny.__adPayLocks || new Map<string, Promise<any>>();
       const existingLock: Promise<any> | undefined = globalAny.__adPayLocks.get(adId);
       if (existingLock) {
-        try { console.log('[ads.pay] detected existing lock, awaiting result for adId', adId); } catch (e) {}
         await existingLock;
         const existingPayment = await prisma.adPayment.findFirst({ where: { adId, OR: [{ status: 'pending' }, { status: 'completed' }] } });
         if (existingPayment) return res.json({ success: true, data: { paymentIntentId: existingPayment.transactionId, status: existingPayment.status } });
       }
 
       // Check again for an existing payment record
-      try { console.log('[ads.pay] checking for existing payment before create'); } catch (e) {}
       const existingPayment = await prisma.adPayment.findFirst({ where: { adId, OR: [{ status: 'pending' }, { status: 'completed' }] } });
       if (existingPayment) {
         return res.json({ success: true, data: { paymentIntentId: existingPayment.transactionId, status: existingPayment.status } });
@@ -51,13 +47,10 @@ router.post('/:id/pay', idempotency(), async (req: any, res) => {
       const lockPromise = new Promise<void>((resolve) => { resolveLock = resolve; });
       globalAny.__adPayLocks.set(adId, lockPromise as any);
       try {
-        try { console.log('[ads.pay] creating payment for adId', adId); } catch (e) {}
-        try { console.trace('[ads.pay] create call stack'); } catch (e) {}
         // Create a payment intent using existing payment flow (stubbed)
         // TODO: integrate with payments service
         const paymentIntentId = `pi_${Date.now()}`;
         await prisma.adPayment.create({ data: { adId, transactionId: paymentIntentId, amount: ad.budget, currency: ad.currency, status: 'completed' } });
-        try { console.log('[ads.pay] created payment for adId', adId, 'intent', paymentIntentId); } catch (e) {}
         await prisma.communityAd.update({ where: { id: adId }, data: { status: 'PAID' } });
         return res.json({ success: true, data: { paymentIntentId, status: 'completed' } });
       } finally {

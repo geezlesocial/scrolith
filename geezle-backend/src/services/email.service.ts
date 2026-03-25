@@ -2,7 +2,7 @@ import prisma from '../utils/prismaClient';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const nodemailer = require('nodemailer');
 
-export type EmailProvider = 'smtp' | 'ses' | 'sendgrid' | 'mailgun';
+export type EmailProvider = 'smtp' | 'ses' | 'sendgrid' | 'mailgun' | 'brevo';
 export type EmailEncryption = 'tls' | 'ssl' | 'none';
 
 export type EmailSettings = {
@@ -48,7 +48,9 @@ const pickFirstString = (...values: any[]): string => {
 
 const parseProvider = (value: any): EmailProvider => {
   const normalized = String(value || 'smtp').trim().toLowerCase();
-  if (normalized === 'ses' || normalized === 'sendgrid' || normalized === 'mailgun') return normalized;
+  if (normalized === 'ses' || normalized === 'sendgrid' || normalized === 'mailgun' || normalized === 'brevo') {
+    return normalized;
+  }
   return 'smtp';
 };
 
@@ -67,6 +69,8 @@ const defaultHostByProvider = (provider: EmailProvider, region: string): string 
       return 'smtp.sendgrid.net';
     case 'mailgun':
       return 'smtp.mailgun.org';
+    case 'brevo':
+      return 'smtp-relay.brevo.com';
     default:
       return '';
   }
@@ -178,6 +182,26 @@ export const normalizeEmailSettings = (raw: any): EmailSettings | null => {
       process.env.EMAIL_PASS,
       apiKey
     );
+  } else if (provider === 'brevo') {
+    username = pickFirstString(
+      source.username,
+      source.user,
+      source.brevoSmtpLogin,
+      source.brevo_smtp_login,
+      process.env.BREVO_SMTP_LOGIN,
+      process.env.EMAIL_USER
+    );
+    password = pickFirstString(
+      source.password,
+      source.pass,
+      source.brevoSmtpKey,
+      source.brevo_smtp_key,
+      source.brevoSmtpPassword,
+      source.brevo_smtp_password,
+      process.env.BREVO_SMTP_KEY,
+      process.env.BREVO_SMTP_PASSWORD,
+      process.env.EMAIL_PASS
+    );
   }
 
   const encryption = parseEncryption(source.encryption ?? source.smtpEncryption ?? source.smtp_encryption);
@@ -228,6 +252,11 @@ export const validateEmailSettings = (settings: EmailSettings | null): string[] 
   if (settings.provider === 'smtp' || settings.provider === 'ses') {
     if (!settings.username) errors.push(`${settings.provider.toUpperCase()} username is required`);
     if (!settings.password) errors.push(`${settings.provider.toUpperCase()} password is required`);
+  }
+
+  if (settings.provider === 'brevo') {
+    if (!settings.username) errors.push('Brevo SMTP login is required');
+    if (!settings.password) errors.push('Brevo SMTP key is required');
   }
 
   if (settings.provider === 'sendgrid') {

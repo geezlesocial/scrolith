@@ -10,6 +10,29 @@ interface AuthRequest extends Request {
   };
 }
 
+type ClubWithRelations = {
+  id: string;
+  name: string;
+  description: string;
+  coverImage: string | null;
+  visibility: string;
+  ownerId: string;
+  memberCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+  owner?: {
+    id: string;
+    name: string | null;
+    username: string | null;
+    avatar: string | null;
+  };
+  memberships?: Array<{
+    id?: string;
+    userId: string;
+    joinedAt?: Date;
+  }>;
+};
+
 type EventWithRelations = {
   id: string;
   title: string;
@@ -66,6 +89,57 @@ const resolveCommunitySettings = async () => {
     select: { enableEvents: true, enableClubs: true, requireLoginToView: true }
   });
   return settings || { enableEvents: true, enableClubs: true, requireLoginToView: false };
+};
+
+const isMissingPrismaTableError = (error: unknown) => {
+  const code = (error as { code?: string } | undefined)?.code;
+  return code === 'P2021' || code === 'P2022';
+};
+
+const normalizeClubVisibility = (value: unknown): 'public' | 'private' => {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  return normalized === 'private' ? 'private' : 'public';
+};
+
+const normalizeClubPayload = (club: ClubWithRelations, userId?: string) => {
+  const visibility = normalizeClubVisibility(club.visibility);
+  const joinedMembership =
+    userId && Array.isArray(club.memberships)
+      ? club.memberships.find((membership) => String(membership.userId) === String(userId))
+      : null;
+  const ownerName = club.owner?.name || club.owner?.username || 'Community member';
+  const coverImage = club.coverImage || '';
+  const joinedAt =
+    joinedMembership?.joinedAt instanceof Date
+      ? joinedMembership.joinedAt.toISOString()
+      : joinedMembership?.joinedAt
+      ? String(joinedMembership.joinedAt)
+      : null;
+
+  return {
+    id: club.id,
+    name: club.name,
+    description: club.description || '',
+    visibility,
+    memberCount: Math.max(0, Number(club.memberCount || 0)),
+    member_count: Math.max(0, Number(club.memberCount || 0)),
+    coverImage,
+    cover_image: coverImage,
+    ownerId: club.ownerId,
+    owner_id: club.ownerId,
+    ownerName,
+    owner_name: ownerName,
+    ownerAvatar: club.owner?.avatar || '',
+    owner_avatar: club.owner?.avatar || '',
+    isJoined: Boolean(joinedMembership),
+    is_joined: Boolean(joinedMembership),
+    joinedAt,
+    joined_at: joinedAt,
+    createdAt: club.createdAt instanceof Date ? club.createdAt.toISOString() : String(club.createdAt || ''),
+    created_at: club.createdAt instanceof Date ? club.createdAt.toISOString() : String(club.createdAt || '')
+  };
 };
 
 const normalizeEventType = (value: unknown): 'WORKSHOP' | 'MEETUP' | 'WEBINAR' => {
@@ -355,16 +429,258 @@ export const postChannelMessage = (req: AuthRequest, res: Response) => {
   });
 };
 
-export const getClubs = (_req: Request, res: Response) => {
-  return res.json([]);
+export const getClubs = async (req: AuthRequest, res: Response) => {
+  try {
+    const settings = await resolveCommunitySettings();
+    if (!settings.enableClubs) {
+      return res.json([]);
+    }
+
+    const userId = String(req.user?.id || '').trim();
+    const limitRaw = Number(req.query?.limit);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(50, Math.trunc(limitRaw))) : 24;
+    const joinedOnly = parseBool(req.query?.joinedOnly) === true;
+
+    const where: Record<string, unknown> = {};
+    if (joinedOnly && userId) {
+      where.memberships = { some: { userId } };
+    }
+
+    const clubs = await prisma.communityClub.findMany({
+      where,
+      orderBy: [{ memberCount: 'desc' }, { createdAt: 'desc' }],
+      take: limit,
+      include: {
+        owner: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            avatar: true
+          }
+        },
+        memberships: {
+          where: userId ? { userId } : undefined,
+          select: {
+            id: true,
+            userId: true,
+            joinedAt: true
+          }
+        }
+      }
+    });
+
+    return res.json(clubs.map((club) => normalizeClubPayload(club as unknown as ClubWithRelations, userId || undefined)));
+  } catch (error: any) {
+    if (isMissingPrismaTableError(error)) {
+      console.warn('getClubs fallback: community club tables are not available yet');
+      return res.json([]);
+    }
+    console.error('getClubs error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to load clubs' });
+  }
 };
 
-export const joinClub = (_req: AuthRequest, res: Response) => {
-  return res.json({ success: true });
+export const joinClub = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = String(req.user?.id || '').trim();
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const settings = await resolveCommunitySettings();
+    if (!settings.enableClubs) {
+      return res.status(403).json({ success: false, error: 'Community clubs are currently disabled' });
+    }
+
+    const clubId = String(req.body?.clubId || req.body?.club_id || '').trim();
+    if (!clubId) {
+      return res.status(400).json({ success: false, error: 'clubId is required' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const club = await tx.communityClub.findUnique({
+        where: { id: clubId },
+        select: { id: true, ownerId: true, memberCount: true }
+      });
+      if (!club) {
+        return null;
+      }
+
+      const existingMembership = await tx.clubMembership.findUnique({
+        where: { clubId_userId: { clubId, userId } }
+      });
+
+      if (!existingMembership) {
+        await tx.clubMembership.create({
+          data: { clubId, userId }
+        });
+        await tx.communityClub.update({
+          where: { id: clubId },
+          data: { memberCount: { increment: 1 } }
+        });
+      }
+
+      return tx.communityClub.findUnique({
+        where: { id: clubId },
+        include: {
+          owner: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              avatar: true
+            }
+          },
+          memberships: {
+            where: { userId },
+            select: {
+              id: true,
+              userId: true,
+              joinedAt: true
+            }
+          }
+        }
+      });
+    });
+
+    if (!result) {
+      return res.status(404).json({ success: false, error: 'Club not found' });
+    }
+
+    const normalized = normalizeClubPayload(result as unknown as ClubWithRelations, userId);
+    const io = getAppIo(req);
+    io?.emit?.('community:club_updated', {
+      clubId,
+      memberCount: normalized.memberCount,
+      member_count: normalized.memberCount,
+      joined: true,
+      userId
+    });
+
+    return res.json({ success: true, club: normalized, joined: true });
+  } catch (error: any) {
+    if (isMissingPrismaTableError(error)) {
+      return res.status(503).json({ success: false, error: 'Community clubs are not available in this environment yet' });
+    }
+    console.error('joinClub error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to join club' });
+  }
 };
 
-export const leaveClub = (_req: AuthRequest, res: Response) => {
-  return res.json({ success: true });
+export const leaveClub = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = String(req.user?.id || '').trim();
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const settings = await resolveCommunitySettings();
+    if (!settings.enableClubs) {
+      return res.status(403).json({ success: false, error: 'Community clubs are currently disabled' });
+    }
+
+    const clubId = String(req.body?.clubId || req.body?.club_id || '').trim();
+    if (!clubId) {
+      return res.status(400).json({ success: false, error: 'clubId is required' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const club = await tx.communityClub.findUnique({
+        where: { id: clubId },
+        select: { id: true, memberCount: true }
+      });
+      if (!club) {
+        return null;
+      }
+
+      const existingMembership = await tx.clubMembership.findUnique({
+        where: { clubId_userId: { clubId, userId } }
+      });
+
+      if (existingMembership) {
+        await tx.clubMembership.delete({
+          where: { clubId_userId: { clubId, userId } }
+        });
+        await tx.communityClub.update({
+          where: { id: clubId },
+          data: { memberCount: { decrement: club.memberCount > 0 ? 1 : 0 } }
+        });
+      }
+
+      return tx.communityClub.findUnique({
+        where: { id: clubId },
+        include: {
+          owner: {
+            select: {
+              id: true,
+              name: true,
+              username: true,
+              avatar: true
+            }
+          },
+          memberships: {
+            where: { userId },
+            select: {
+              id: true,
+              userId: true,
+              joinedAt: true
+            }
+          }
+        }
+      });
+    });
+
+    if (!result) {
+      return res.status(404).json({ success: false, error: 'Club not found' });
+    }
+
+    const normalized = normalizeClubPayload(result as unknown as ClubWithRelations, userId);
+    const io = getAppIo(req);
+    io?.emit?.('community:club_updated', {
+      clubId,
+      memberCount: normalized.memberCount,
+      member_count: normalized.memberCount,
+      joined: false,
+      userId
+    });
+
+    return res.json({ success: true, club: normalized, joined: false });
+  } catch (error: any) {
+    if (isMissingPrismaTableError(error)) {
+      return res.status(503).json({ success: false, error: 'Community clubs are not available in this environment yet' });
+    }
+    console.error('leaveClub error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to leave club' });
+  }
+};
+
+export const deleteClub = async (req: AuthRequest, res: Response) => {
+  try {
+    const clubId = String(req.params?.clubId || req.body?.clubId || req.body?.club_id || '').trim();
+    if (!clubId) {
+      return res.status(400).json({ success: false, error: 'clubId is required' });
+    }
+
+    const club = await prisma.communityClub.findUnique({
+      where: { id: clubId },
+      select: { id: true, name: true }
+    });
+    if (!club) {
+      return res.status(404).json({ success: false, error: 'Club not found' });
+    }
+
+    await prisma.communityClub.delete({ where: { id: clubId } });
+    const io = getAppIo(req);
+    io?.emit?.('community:club_deleted', { clubId, id: clubId });
+    return res.json({ success: true, id: clubId, name: club.name });
+  } catch (error: any) {
+    if (isMissingPrismaTableError(error)) {
+      return res.status(503).json({ success: false, error: 'Community clubs are not available in this environment yet' });
+    }
+    console.error('deleteClub error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to delete club' });
+  }
 };
 
 export const getEvents = async (req: AuthRequest, res: Response) => {

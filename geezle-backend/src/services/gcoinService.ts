@@ -19,10 +19,35 @@ function genRecipientId() {
   return s;
 }
 
+async function resolveRevenueAccountUserId(db: any): Promise<string | null> {
+  const preferred = await db.user.findUnique({
+    where: { id: 'admin-user' },
+    select: { id: true }
+  });
+  if (preferred?.id) return String(preferred.id);
+
+  const admin = await db.user.findFirst({
+    where: {
+      role: {
+        in: ['ADMIN', 'MODERATOR']
+      }
+    },
+    select: { id: true }
+  });
+  return admin?.id ? String(admin.id) : null;
+}
+
 export class GcoinService {
   async ensureWalletForUser(userId: string) {
     let w = await prisma.gcoinWallet.findUnique({ where: { userId } });
     if (!w) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true }
+      });
+      if (!user?.id) {
+        throw new Error('USER_NOT_FOUND');
+      }
       w = await prisma.gcoinWallet.create({ data: { userId, recipientId: genRecipientId() } });
     }
     return w;
@@ -68,8 +93,10 @@ export class GcoinService {
       }
     }
 
+    const revenueAccountUserId = await resolveRevenueAccountUserId(prisma);
+    const effectiveFee = revenueAccountUserId ? fee : 0;
     const net = amount; // amount that recipient should receive
-    const totalDeduct = amount + fee; // total amount to remove from sender
+    const totalDeduct = amount + effectiveFee; // total amount to remove from sender
 
     // Transactional update
     const tx = await prisma.$transaction(async (prismaTx) => {
@@ -78,14 +105,18 @@ export class GcoinService {
       // credit recipient with net amount (amount)
       await prismaTx.gcoinWallet.update({ where: { userId: recipient.userId }, data: { balance: { increment: net }, lifetimeEarned: { increment: net } } as any });
       // credit admin fee to admin wallet
-      const adminUserId = 'admin-user';
-      // Use upsert to atomically create or increment the admin wallet balance
-      const adminUpsert = await prismaTx.gcoinWallet.upsert({
-        where: { userId: adminUserId },
-        update: { balance: { increment: fee } } as any,
-        create: { userId: adminUserId, recipientId: `GC-${Date.now().toString().slice(-8)}`, balance: fee || 0, lifetimeEarned: fee || 0 } as any
-      });
-      
+      if (effectiveFee > 0 && revenueAccountUserId) {
+        await prismaTx.gcoinWallet.upsert({
+          where: { userId: revenueAccountUserId },
+          update: { balance: { increment: effectiveFee }, lifetimeEarned: { increment: effectiveFee } } as any,
+          create: {
+            userId: revenueAccountUserId,
+            recipientId: `GC-${Date.now().toString().slice(-8)}`,
+            balance: effectiveFee,
+            lifetimeEarned: effectiveFee
+          } as any
+        });
+      }
 
       // create GcoinTransaction record
       const gtx = await prismaTx.gcoinTransaction.create({ data: {
@@ -98,7 +129,7 @@ export class GcoinService {
         status: 'completed',
         fromUserId: fromUserId,
         toUserId: recipient.userId,
-        feeAmount: fee,
+        feeAmount: effectiveFee,
         netAmount: net,
         createdAt: new Date()
       } });
@@ -116,12 +147,12 @@ export class GcoinService {
       } });
 
       // also record fee as separate transaction for admin revenue tracking
-      if (fee > 0) {
+      if (effectiveFee > 0 && revenueAccountUserId) {
         await prismaTx.transaction.create({ data: {
           walletId: null,
-          userId: adminUserId,
+          userId: revenueAccountUserId,
           type: 'GCOIN_FEE',
-          amount: Number(fee),
+          amount: Number(effectiveFee),
           currency: 'GCOIN',
           status: 'COMPLETED',
           description: `Gcoin transfer fee from ${fromUserId}`,

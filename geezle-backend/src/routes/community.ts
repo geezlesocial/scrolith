@@ -1,4 +1,5 @@
 import express from 'express';
+import { idempotency } from '../middleware/idempotency';
 import {
   getThreads,
   getThreadById,
@@ -46,6 +47,7 @@ import {
   getClubs,
   joinClub,
   leaveClub,
+  deleteClub,
   getEvents,
   createEvent,
   updateEvent,
@@ -101,8 +103,11 @@ import {
   deleteBusinessPage,
   getRecommendedBusinessPages,
   getBusinessPageBySlug,
+  getBusinessPagePackages,
+  getBusinessPageStorefront,
   createBusinessPagePost,
   getBusinessPageFeed,
+  updateBusinessPagePackages,
   getPageMentions,
   adminListBusinessPages,
   adminUpdateBusinessPage,
@@ -146,6 +151,7 @@ import communityGcoinRoutes from './community/gcoin';
 import adminCommunityGcoinRoutes from './admin/community/gcoin';
 
 const router = express.Router();
+const SOCIAL_WRITE_IDEMPOTENCY_TTL_MS = 2 * 60 * 1000;
 
 // Public routes
 router.get('/threads', getThreads);
@@ -158,7 +164,7 @@ router.get('/tags', getCommunityTags);
 router.get('/analytics', authMiddleware, adminMiddleware, getCommunityAnalytics);
 router.get('/channels', authMiddleware, adminMiddleware, getChannels);
 router.get('/channels/:channelId/messages', authMiddleware, adminMiddleware, getChannelMessages);
-router.get('/clubs', authMiddleware, adminMiddleware, getClubs);
+router.get('/clubs', authMiddleware, getClubs);
 router.get('/events', authMiddleware, getEvents);
 router.get('/stats', authMiddleware, getCommunityStats);
 router.get('/contributors', authMiddleware, getTopContributors);
@@ -173,8 +179,8 @@ router.get('/mentions/users', authMiddleware, getUserMentions);
 
 // Protected routes (require auth)
 router.post('/threads', authMiddleware, createThread);
-router.post('/comments', authMiddleware, postComment);
-router.post('/like', authMiddleware, toggleLike);
+router.post('/comments', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), postComment);
+router.post('/like', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), toggleLike);
 router.post('/repost', authMiddleware, toggleRepost);
 router.post('/moderation/check', authMiddleware, moderateContent);
 router.post('/settings', authMiddleware, adminMiddleware, updateCommunitySettings);
@@ -184,8 +190,9 @@ router.post('/channels/:channelId/delete', authMiddleware, adminMiddleware, dele
 router.post('/channels/:channelId/join', authMiddleware, adminMiddleware, joinChannel);
 router.post('/channels/:channelId/leave', authMiddleware, adminMiddleware, leaveChannel);
 router.post('/channels/:channelId/messages', authMiddleware, adminMiddleware, postChannelMessage);
-router.post('/clubs/join', authMiddleware, adminMiddleware, joinClub);
-router.post('/clubs/leave', authMiddleware, adminMiddleware, leaveClub);
+router.post('/clubs/join', authMiddleware, joinClub);
+router.post('/clubs/leave', authMiddleware, leaveClub);
+router.post('/clubs/:clubId/delete', authMiddleware, adminMiddleware, deleteClub);
 router.post('/events/register', authMiddleware, registerEvent);
 router.post('/events/unregister', authMiddleware, unregisterEvent);
 router.post('/events', authMiddleware, adminMiddleware, createEvent);
@@ -199,12 +206,12 @@ router.get('/posts/:id/comments', getPostComments); // Public: get post comments
 router.post('/posts', authMiddleware, createPost); // Auth: create post
 router.put('/posts/:id', authMiddleware, updatePost); // Auth: update post (owner/admin/moderator)
 router.delete('/posts/:id', authMiddleware, deletePost); // Auth: delete post (owner/admin/moderator)
-router.post('/posts/:id/reactions', authMiddleware, createPostReaction);
-router.delete('/posts/:id/reactions', authMiddleware, deletePostReaction);
-router.post('/posts/:id/comments', authMiddleware, createPostComment);
+router.post('/posts/:id/reactions', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), createPostReaction);
+router.delete('/posts/:id/reactions', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), deletePostReaction);
+router.post('/posts/:id/comments', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), createPostComment);
 router.put('/comments/:id', authMiddleware, updatePostComment);
 router.delete('/comments/:id', authMiddleware, deletePostComment);
-router.post('/comments/:id/like', authMiddleware, togglePostCommentLike);
+router.post('/comments/:id/like', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), togglePostCommentLike);
 
 // Gcoin routes (community-scoped)
 router.use('/gcoin', authMiddleware, communityGcoinRoutes);
@@ -231,6 +238,9 @@ router.get('/business-pages/me', authMiddleware, getMyBusinessPages);
 router.post('/business-pages', authMiddleware, createBusinessPage);
 router.put('/business-pages/:id', authMiddleware, updateBusinessPage);
 router.delete('/business-pages/:id', authMiddleware, deleteBusinessPage);
+router.get('/business-pages/:id/packages', getBusinessPagePackages);
+router.get('/business-pages/:id/storefront', getBusinessPageStorefront);
+router.put('/business-pages/:id/packages', authMiddleware, updateBusinessPagePackages);
 router.post('/business-pages/:id/posts', authMiddleware, createBusinessPagePost);
 router.get('/business-pages/:slug/feed', getBusinessPageFeed);
 router.get('/business-pages/:slug', getBusinessPageBySlug);

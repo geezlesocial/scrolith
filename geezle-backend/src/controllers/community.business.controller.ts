@@ -3,6 +3,12 @@ import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { addFileUsage, removeUsage, syncFileUsages } from '../utils/fileUsage';
 import jwt from 'jsonwebtoken';
+import { extractLocationMutation, toLocationResponse } from '../services/location/location.service';
+import { getStorefrontSettings, isBusinessPageStorefrontEnabled } from '../services/storefront.service';
+import {
+  normalizeStoredContentOfferTags,
+  resolveSubmittedContentOfferTags
+} from '../services/contentOfferTagging.service';
 
 const PAGE_STATUS_ALIASES: Record<string, string> = {
   active: 'active',
@@ -149,6 +155,181 @@ const cleanOptionalPhone = (value: unknown) => {
   const text = String(value ?? '').trim();
   if (!text) return null;
   return text.replace(/\s+/g, ' ').slice(0, 60);
+};
+
+const BUSINESS_PAGE_PACKAGES_SCOPE_PREFIX = 'community.business_page.packages.';
+const MAX_BUSINESS_PACKAGES = 20;
+const MAX_PACKAGE_FEATURES = 12;
+const MAX_PACKAGE_ADDONS = 10;
+
+type BusinessPagePackageAddon = {
+  id: string;
+  name: string;
+  price: number;
+  description: string | null;
+};
+
+type BusinessPageServicePackage = {
+  id: string;
+  title: string;
+  summary: string | null;
+  price: number;
+  currency: string;
+  billing: 'fixed' | 'hourly' | 'subscription';
+  turnaroundDays: number | null;
+  revisions: number | null;
+  ctaLabel: string | null;
+  active: boolean;
+  sortOrder: number;
+  features: string[];
+  addons: BusinessPagePackageAddon[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+const packageSettingScope = (pageId: string) => `${BUSINESS_PAGE_PACKAGES_SCOPE_PREFIX}${pageId}`;
+
+const normalizeCurrencyCode = (value: unknown) => {
+  const cleaned = String(value || '').trim().toUpperCase();
+  if (/^[A-Z]{3}$/.test(cleaned)) return cleaned;
+  return 'USD';
+};
+
+const normalizePackageBilling = (value: unknown): 'fixed' | 'hourly' | 'subscription' => {
+  const cleaned = String(value || '').trim().toLowerCase();
+  if (cleaned === 'hourly') return 'hourly';
+  if (cleaned === 'subscription') return 'subscription';
+  return 'fixed';
+};
+
+const normalizePackageFeatures = (value: unknown) => {
+  const source = Array.isArray(value)
+    ? value
+    : String(value || '')
+        .split(/\r?\n|,/)
+        .map((entry) => entry.trim());
+  return Array.from(
+    new Set(
+      source
+        .map((entry) => cleanText(entry, 120))
+        .filter((entry): entry is string => Boolean(entry))
+    )
+  ).slice(0, MAX_PACKAGE_FEATURES);
+};
+
+const normalizePackageAddons = (value: unknown) => {
+  if (!Array.isArray(value)) return [] as BusinessPagePackageAddon[];
+  const nowTag = Date.now();
+  return value
+    .slice(0, MAX_PACKAGE_ADDONS)
+    .map((entry, index) => {
+      const payload = (entry || {}) as Record<string, any>;
+      const name = cleanText(payload.name, 120);
+      if (!name) return null;
+      const rawPrice = Number(payload.price);
+      const price = Number.isFinite(rawPrice) ? Math.max(0, Number(rawPrice.toFixed(2))) : 0;
+      const addonId = cleanText(payload.id, 80) || `addon_${nowTag}_${index}`;
+      return {
+        id: addonId,
+        name,
+        price,
+        description: cleanText(payload.description, 220)
+      } as BusinessPagePackageAddon;
+    })
+    .filter((entry): entry is BusinessPagePackageAddon => Boolean(entry));
+};
+
+const normalizeBusinessPagePackages = (
+  value: unknown,
+  previous: BusinessPageServicePackage[] = []
+) => {
+  const source = Array.isArray(value) ? value : [];
+  const previousMap = new Map(previous.map((item) => [item.id, item]));
+  const nowIso = new Date().toISOString();
+  const nowTag = Date.now();
+
+  return source
+    .slice(0, MAX_BUSINESS_PACKAGES)
+    .map((entry, index) => {
+      const payload = (entry || {}) as Record<string, any>;
+      const title = cleanText(payload.title, 140);
+      if (!title) return null;
+
+      const existingId = cleanText(payload.id, 120);
+      const previousEntry = existingId ? previousMap.get(existingId) : null;
+      const id = existingId || previousEntry?.id || `pkg_${nowTag}_${index}`;
+      const rawPrice = Number(payload.price);
+      const price = Number.isFinite(rawPrice) ? Math.max(0, Number(rawPrice.toFixed(2))) : 0;
+      const rawTurnaround = Number(payload.turnaroundDays);
+      const rawRevisions = Number(payload.revisions);
+
+      return {
+        id,
+        title,
+        summary: cleanText(payload.summary, 320),
+        price,
+        currency: normalizeCurrencyCode(payload.currency),
+        billing: normalizePackageBilling(payload.billing),
+        turnaroundDays: Number.isFinite(rawTurnaround) ? Math.max(0, Math.floor(rawTurnaround)) : null,
+        revisions: Number.isFinite(rawRevisions) ? Math.max(0, Math.floor(rawRevisions)) : null,
+        ctaLabel: cleanText(payload.ctaLabel, 60),
+        active: payload.active !== false,
+        sortOrder: index,
+        features: normalizePackageFeatures(payload.features),
+        addons: normalizePackageAddons(payload.addons),
+        createdAt: previousEntry?.createdAt || String(payload.createdAt || nowIso),
+        updatedAt: nowIso
+      } as BusinessPageServicePackage;
+    })
+    .filter((entry): entry is BusinessPageServicePackage => Boolean(entry))
+    .sort((left, right) => left.sortOrder - right.sortOrder);
+};
+
+const summarizeBusinessPagePackages = (packages: BusinessPageServicePackage[]) => {
+  const active = packages.filter((item) => item.active);
+  const priced = active
+    .map((item) => Number(item.price))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const priceFrom = priced.length ? Math.min(...priced) : null;
+  return {
+    total: packages.length,
+    active: active.length,
+    priceFrom: priceFrom !== null ? Number(priceFrom.toFixed(2)) : null,
+    currency: active[0]?.currency || null
+  };
+};
+
+const readBusinessPagePackages = async (pageId: string) => {
+  const scope = packageSettingScope(pageId);
+  const row = await prisma.appSetting.findUnique({ where: { scope } });
+  const data = row?.data as any;
+  const source = Array.isArray(data?.packages) ? data.packages : Array.isArray(data) ? data : [];
+  return normalizeBusinessPagePackages(source);
+};
+
+const saveBusinessPagePackages = async (
+  pageId: string,
+  packages: BusinessPageServicePackage[],
+  actorId: string
+) => {
+  const scope = packageSettingScope(pageId);
+  const nowIso = new Date().toISOString();
+  const payload = {
+    pageId,
+    packages,
+    summary: summarizeBusinessPagePackages(packages),
+    updatedBy: actorId,
+    updatedAt: nowIso,
+    version: 1
+  };
+
+  await prisma.appSetting.upsert({
+    where: { scope },
+    create: { scope, data: payload },
+    update: { data: payload }
+  });
+
+  return payload;
 };
 
 
@@ -456,6 +637,20 @@ const serializeBusinessPage = async (
   orgSize: page.orgSize,
   orgType: page.orgType,
   location: page.location,
+  ...toLocationResponse({
+    location: page.location || '',
+    formattedAddress: page.formattedAddress || page.location || null,
+    country: page.country || null,
+    countryCode: page.countryCode || null,
+    state: page.state || null,
+    city: page.city || null,
+    region: page.region || null,
+    postalCode: page.postalCode || null,
+    latitude: page.latitude ?? null,
+    longitude: page.longitude ?? null,
+    placeId: page.placeId || null,
+    locationSource: page.locationSource || null
+  }),
   logoFileId: page.logoFileId,
   coverFileId: page.coverFileId,
   logo: await resolvePageMedia(page.logoFileId, req),
@@ -510,6 +705,8 @@ const buildPageUpdateData = (
   if (isCreate || payload.orgSize !== undefined) data.orgSize = cleanText(payload.orgSize, 80);
   if (isCreate || payload.orgType !== undefined) data.orgType = cleanText(payload.orgType, 80);
   if (isCreate || payload.location !== undefined) data.location = cleanText(payload.location, 140);
+  const locationInput = extractLocationMutation(payload || {}, { locationMaxLength: 140 });
+  if (locationInput.hasChanges) Object.assign(data, locationInput.data);
 
   if (isCreate || payload.logoFileId !== undefined) data.logoFileId = cleanText(payload.logoFileId, 120);
   if (isCreate || payload.coverFileId !== undefined) data.coverFileId = cleanText(payload.coverFileId, 120);
@@ -762,6 +959,182 @@ export const getBusinessPageBySlug = async (req: Request, res: Response) => {
   }
 };
 
+export const getBusinessPagePackages = async (req: Request, res: Response) => {
+  try {
+    const pageId = String(req.params.id || '').trim();
+    if (!pageId) return res.status(400).json({ success: false, error: 'Page ID is required' });
+
+    const page = await prisma.communityBusinessPage.findUnique({
+      where: { id: pageId },
+      select: { id: true, ownerId: true, status: true }
+    });
+    if (!page) return res.status(404).json({ success: false, error: 'Page not found' });
+
+    const viewer = await resolveOptionalUserFromRequest(req);
+    const viewerRole = String(viewer?.role || '').toLowerCase();
+    const isAdmin = viewerRole.includes('admin');
+    const canManage = Boolean(viewer?.id && (viewer.id === page.ownerId || isAdmin));
+    const status = normalizeStatus(page.status, 'active');
+    if (!PUBLIC_PAGE_STATUSES.has(status) && !canManage) {
+      return res.status(404).json({ success: false, error: 'Page not found' });
+    }
+
+    const packages = await readBusinessPagePackages(page.id);
+    const visiblePackages = canManage ? packages : packages.filter((item) => item.active);
+    return res.json({
+      success: true,
+      data: {
+        pageId: page.id,
+        packages: visiblePackages,
+        summary: summarizeBusinessPagePackages(visiblePackages)
+      }
+    });
+  } catch (error: any) {
+    console.error('Get business page packages error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load page packages' });
+  }
+};
+
+export const getBusinessPageStorefront = async (req: Request, res: Response) => {
+  try {
+    const pageId = String(req.params.id || '').trim();
+    if (!pageId) return res.status(400).json({ success: false, error: 'Page ID is required' });
+
+    const page = await prisma.communityBusinessPage.findUnique({
+      where: { id: pageId },
+      include: {
+        _count: { select: { followers: true, posts: true } }
+      }
+    });
+    if (!page) return res.status(404).json({ success: false, error: 'Page not found' });
+
+    const viewer = await resolveOptionalUserFromRequest(req);
+    const viewerRole = String(viewer?.role || '').toLowerCase();
+    const isAdmin = viewerRole.includes('admin');
+    const canManage = Boolean(viewer?.id && (viewer.id === page.ownerId || isAdmin));
+    const status = normalizeStatus(page.status, 'active');
+    if (!PUBLIC_PAGE_STATUSES.has(status) && !canManage) {
+      return res.status(404).json({ success: false, error: 'Page not found' });
+    }
+
+    const storefrontSettings = await getStorefrontSettings();
+    const enabled = isBusinessPageStorefrontEnabled(storefrontSettings);
+    const packages = enabled ? await readBusinessPagePackages(page.id) : [];
+    const visiblePackages = canManage ? packages : packages.filter((entry) => entry.active);
+    const activePackages = visiblePackages.filter((entry) => entry.active);
+    const featuredSource = activePackages.length ? activePackages : visiblePackages;
+    const featuredPackages = featuredSource.slice(0, storefrontSettings.maxFeaturedItems);
+    const catalogPackages = visiblePackages.slice(0, storefrontSettings.maxCatalogItems);
+    const packageSummary = summarizeBusinessPagePackages(visiblePackages);
+    const merchantSummary =
+      enabled && storefrontSettings.modules.merchantSummary
+        ? {
+            title: page.name,
+            subtitle: page.tagline || page.description || '',
+            location: page.location || null,
+            category: page.category || page.industry || null,
+            currency: packageSummary.currency,
+            priceFrom: packageSummary.priceFrom,
+            price_from: packageSummary.priceFrom,
+            serviceCount: visiblePackages.length,
+            service_count: visiblePackages.length,
+            featuredCount: featuredPackages.length,
+            featured_count: featuredPackages.length,
+            followerCount: Number(page._count?.followers || 0),
+            follower_count: Number(page._count?.followers || 0),
+            postCount: Number(page._count?.posts || 0),
+            post_count: Number(page._count?.posts || 0)
+          }
+        : null;
+
+    return res.json({
+      success: true,
+      data: {
+        pageId: page.id,
+        page_id: page.id,
+        enabled,
+        canManage,
+        can_manage: canManage,
+        settings: storefrontSettings,
+        merchantSummary,
+        merchant_summary: merchantSummary,
+        featuredPackages: enabled ? featuredPackages : [],
+        featured_packages: enabled ? featuredPackages : [],
+        packages: enabled ? catalogPackages : [],
+        summary: enabled ? packageSummary : summarizeBusinessPagePackages([])
+      }
+    });
+  } catch (error: any) {
+    console.error('Get business page storefront error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load storefront' });
+  }
+};
+
+export const updateBusinessPagePackages = async (req: Request, res: Response) => {
+  try {
+    const userId = String(req.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const config = await getBusinessConfig();
+    if (!config.businessPagesEnabled) {
+      return res.status(403).json({ success: false, error: 'Business pages are currently disabled' });
+    }
+
+    const pageId = String(req.params.id || '').trim();
+    if (!pageId) return res.status(400).json({ success: false, error: 'Page ID is required' });
+
+    const page = await prisma.communityBusinessPage.findUnique({
+      where: { id: pageId },
+      select: { id: true, ownerId: true, status: true }
+    });
+    if (!page) return res.status(404).json({ success: false, error: 'Page not found' });
+
+    const role = String(req.user?.role || '').toLowerCase();
+    const isAdmin = role.includes('admin');
+    if (page.ownerId !== userId && !isAdmin) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+
+    const normalizedStatus = normalizeStatus(page.status, 'active');
+    if (!isAdmin && (normalizedStatus === 'banned' || normalizedStatus === 'deleted')) {
+      return res.status(403).json({ success: false, error: 'This page is locked and cannot be updated' });
+    }
+
+    if (!Array.isArray(req.body?.packages)) {
+      return res.status(400).json({ success: false, error: 'packages must be an array' });
+    }
+
+    const previousPackages = await readBusinessPagePackages(page.id);
+    const nextPackages = normalizeBusinessPagePackages(req.body.packages, previousPackages);
+    const payload = await saveBusinessPagePackages(page.id, nextPackages, userId);
+
+    const io = getIo(req);
+    try {
+      io?.emit('community:business_page_packages_updated', {
+        pageId: page.id,
+        packages: payload.packages,
+        summary: payload.summary
+      });
+      io?.emit('community:business_page_updated', {
+        pageId: page.id,
+        packageSummary: payload.summary
+      });
+    } catch {}
+
+    return res.json({
+      success: true,
+      data: {
+        pageId: page.id,
+        packages: payload.packages,
+        summary: payload.summary
+      }
+    });
+  } catch (error: any) {
+    console.error('Update business page packages error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to update page packages' });
+  }
+};
+
 export const getRecommendedBusinessPages = async (req: Request, res: Response) => {
   try {
     const config = await getBusinessConfig();
@@ -837,12 +1210,21 @@ export const createBusinessPagePost = async (req: Request, res: Response) => {
     const isAdmin = role.includes('admin');
     if (page.ownerId !== userId && !isAdmin) return res.status(403).json({ success: false, error: 'Forbidden' });
 
-    const { content, attachments, attachmentFileIds, visibility = 'public', title } = req.body || {};
+    const { content, attachments, attachmentFileIds, visibility = 'public', title, offerTags } = req.body || {};
     const attachmentIds = await resolveValidatedAttachmentIds(
       attachmentFileIds !== undefined ? attachmentFileIds : attachments,
       { userId, role: req.user?.role }
     );
     const normalizedContent = String(content || '').trim();
+    const normalizedOfferTags = await resolveSubmittedContentOfferTags(
+      offerTags ?? req.body?.offer_tags,
+      {
+        actorUserId: userId,
+        actorRole: req.user?.role,
+        contentType: 'post',
+        businessPageId: pageId
+      }
+    );
     if (!normalizedContent && !attachmentIds.length) {
       return res.status(400).json({ success: false, error: 'Add text or at least one attachment' });
     }
@@ -854,7 +1236,8 @@ export const createBusinessPagePost = async (req: Request, res: Response) => {
         content: normalizedContent,
         title: cleanText(title, 180),
         visibility,
-        attachments: attachmentIds
+        attachments: attachmentIds,
+        offerTags: normalizedOfferTags.length ? normalizedOfferTags : null
       },
       include: {
         author: {
@@ -922,6 +1305,7 @@ export const createBusinessPagePost = async (req: Request, res: Response) => {
       content: post.content,
       attachmentFileIds: post.attachments || [],
       attachments: await resolvePostAttachments(post.attachments || [], req),
+      offerTags: normalizeStoredContentOfferTags((post as any).offerTags),
       tags: post.tags || [],
       mentions: post.mentions || [],
       topic: post.topic || null,

@@ -21,6 +21,16 @@ const memoryUsers: any[] = [];
 const normalizeRole = (role: string | undefined) =>
   (role || 'guest').toString().toLowerCase();
 
+const normalizeKycStatus = (value: unknown) => {
+  const normalized = String(value || '')
+    .trim()
+    .toUpperCase();
+  if (['PENDING', 'VERIFIED', 'REJECTED', 'UNDER_REVIEW'].includes(normalized)) {
+    return normalized;
+  }
+  return null;
+};
+
 const toResponseUser = (user: any) => {
   const override = statusOverrides.get(user.id);
   const isActive = user?.isActive ?? user?.is_active ?? true;
@@ -39,6 +49,8 @@ const toResponseUser = (user: any) => {
     ...user,
     role: normalizeRole(user?.role),
     isActive,
+    isVerified: Boolean(user?.isVerified),
+    kycStatus: user?.kycStatus ? String(user.kycStatus).toLowerCase() : 'pending',
     status,
     flags,
     createdAt: user?.createdAt ? new Date(user.createdAt).toISOString() : user?.createdAt,
@@ -106,6 +118,10 @@ router.get('/', async (req, res) => {
           name: true,
           role: true,
           avatar: true,
+          kycStatus: true,
+          isVerified: true,
+          freelancerPlanActive: true,
+          employerPlanActive: true,
           isActive: true,
           createdAt: true,
           updatedAt: true
@@ -126,7 +142,7 @@ router.get('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   const userId = req.params.id;
-  const { name, email, role, avatar, status, isActive } = req.body || {};
+  const { name, email, role, avatar, status, isActive, isVerified, kycStatus } = req.body || {};
   const prismaClient = getPrisma();
 
   try {
@@ -135,6 +151,17 @@ router.put('/:id', async (req, res) => {
     if (email !== undefined) updates.email = email;
     if (avatar !== undefined) updates.avatar = avatar;
     if (role) updates.role = role.toString().toUpperCase();
+    if (isVerified !== undefined) updates.isVerified = Boolean(isVerified);
+
+    const normalizedKycStatus = normalizeKycStatus(kycStatus);
+    if (normalizedKycStatus) {
+      updates.kycStatus = normalizedKycStatus;
+      updates.isVerified = normalizedKycStatus === 'VERIFIED';
+    } else if (isVerified === true) {
+      updates.kycStatus = 'VERIFIED';
+    } else if (isVerified === false) {
+      updates.kycStatus = 'PENDING';
+    }
 
     if (status !== undefined || isActive !== undefined) {
       const statusResult = applyStatusOverride(userId, status ?? (isActive ? 'active' : 'inactive'));
@@ -156,7 +183,13 @@ router.put('/:id', async (req, res) => {
         res.status(404).json({ success: false, error: 'User not found' });
         return;
       }
-      memoryUsers[idx] = { ...memoryUsers[idx], ...updates, updatedAt: new Date().toISOString() };
+      memoryUsers[idx] = {
+        ...memoryUsers[idx],
+        ...updates,
+        kycStatus: updates.kycStatus ?? memoryUsers[idx].kycStatus ?? 'PENDING',
+        isVerified: updates.isVerified ?? memoryUsers[idx].isVerified ?? false,
+        updatedAt: new Date().toISOString()
+      };
       updated = memoryUsers[idx];
     }
 

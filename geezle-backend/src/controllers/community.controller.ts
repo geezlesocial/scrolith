@@ -24,6 +24,19 @@ import {
   buildVideoIntegrityUpdate,
   isVideoMonetizationBlocked
 } from '../services/videoIntegrity.service';
+import { getPostDashTotal, getPostDashTotals } from '../services/gcoinDonationTotals.service';
+import {
+  ensureTopics,
+  getViewerFeedContext,
+  normalizeFeedSurfaceMode,
+  recordFeedIntentSignal,
+  resolveTopicByParam,
+  scoreCommunityPostForMode
+} from '../services/opportunityGraph.service';
+import {
+  normalizeStoredContentOfferTags,
+  resolveSubmittedContentOfferTags
+} from '../services/contentOfferTagging.service';
 
 // Safe helper to retrieve the `io` instance from `req.app` without broad `as any` casts
 const getAppIo = (req: Request) => {
@@ -113,6 +126,23 @@ const resolveAttachments = async (fileIds: string[]) => {
   if (!ids.length) return [];
   return mapAttachmentIds(ids, await buildAttachmentLookup(ids));
 };
+
+const serializePostOriginalPreview = (post: any) => {
+  if (!post) return null;
+  return {
+    id: post.id,
+    authorName:
+      post.businessPage?.name ||
+      post.author?.name ||
+      post.author?.username ||
+      'Unknown',
+    authorUsername: post.author?.username || null,
+    title: String(post.title || '').trim() || null,
+    content: String(post.content || '').trim() || null
+  };
+};
+
+const serializeContentOfferTags = (value: any) => normalizeStoredContentOfferTags(value);
 
 type HttpError = Error & { statusCode?: number };
 
@@ -604,6 +634,7 @@ const communityPostFeedSelect: any = {
   title: true,
   content: true,
   attachments: true,
+  offerTags: true,
   tags: true,
   mentions: true,
   topic: true,
@@ -621,6 +652,7 @@ const communityPostFeedSelect: any = {
   status: true,
   isPinned: true,
   isHighlighted: true,
+  isAIEnhanced: true,
   aiInsightEnabled: true,
   aiInsightGenerated: true,
   aiInsightText: true,
@@ -640,10 +672,17 @@ const communityPostFeedSelect: any = {
   originalPost: {
     select: {
       id: true,
+      title: true,
+      content: true,
       author: {
         select: {
           name: true,
           username: true
+        }
+      },
+      businessPage: {
+        select: {
+          name: true
         }
       }
     }
@@ -1552,7 +1591,25 @@ export const postRepost = async (req: Request, res: Response) => {
     const sessionHash = req.body?.sessionHash || req.header('X-Session-Hash') || undefined;
     const originalPost = await prisma.communityPost.findUnique({
       where: { id: postId },
-      select: { id: true, authorId: true, title: true, content: true, status: true, repostsEnabled: true }
+      select: {
+        id: true,
+        authorId: true,
+        title: true,
+        content: true,
+        status: true,
+        repostsEnabled: true,
+        author: {
+          select: {
+            name: true,
+            username: true
+          }
+        },
+        businessPage: {
+          select: {
+            name: true
+          }
+        }
+      }
     });
     if (!originalPost || originalPost.status === 'deleted') {
       return res.status(404).json({ error: 'Post not found' });
@@ -1588,13 +1645,123 @@ export const postRepost = async (req: Request, res: Response) => {
             visibility: req.body?.visibility || 'public',
             originalPostId: postId,
             status: 'active'
+          },
+          include: {
+            author: {
+              select: {
+                id: true,
+                name: true,
+                avatar: true,
+                role: true,
+                username: true,
+                isVerified: true,
+                kycStatus: true,
+                freelancerPlanActive: true,
+                employerPlanActive: true,
+                gcoinWallet: {
+                  select: {
+                    recipientId: true
+                  }
+                }
+              }
+            },
+            originalPost: {
+              select: {
+                id: true,
+                title: true,
+                content: true,
+                author: {
+                  select: {
+                    name: true,
+                    username: true
+                  }
+                },
+                businessPage: {
+                  select: {
+                    name: true
+                  }
+                }
+              }
+            }
           }
         });
         try { await syncFileUsages('community_post', wrapperPost.id, wrapperAttachmentIds, 'Community Post Media'); } catch (e) {}
+        const wrapperAuthor = buildPostAuthorPayload(wrapperPost.author as any, null);
+        const wrapperIdentity = resolvePostAuthorIdentity(
+          { authorId: wrapperPost.authorId, businessPageId: wrapperPost.businessPageId },
+          wrapperAuthor
+        );
         const wrapperPayload = {
-          ...wrapperPost,
+          id: wrapperPost.id,
+          authorId: wrapperIdentity.authorId,
+          authorUserId: wrapperIdentity.authorUserId,
+          authorName: wrapperAuthor.displayName,
+          authorUsername: wrapperAuthor.username,
+          authorAvatar: wrapperAuthor.avatarUrl,
+          authorRecipientId: wrapperPost.author?.gcoinWallet?.recipientId || null,
+          author: {
+            id: wrapperAuthor.id,
+            username: wrapperAuthor.username,
+            displayName: wrapperAuthor.displayName,
+            avatarUrl: wrapperAuthor.avatarUrl,
+            type: wrapperAuthor.type,
+            businessSlug: wrapperAuthor.businessSlug,
+            isVerified: wrapperAuthor.isVerified,
+            isPro: wrapperAuthor.isPro
+          },
+          viewer: {
+            isFollowingAuthor: false
+          },
+          title: wrapperPost.title,
+          content: wrapperPost.content,
           attachmentFileIds: wrapperAttachmentIds,
-          attachments: await resolveAttachments(wrapperAttachmentIds)
+          attachments: await resolveAttachments(wrapperAttachmentIds),
+          tags: wrapperPost.tags || [],
+          mentions: wrapperPost.mentions || [],
+          topic: wrapperPost.topic || null,
+          location: wrapperPost.location || null,
+          visibility: wrapperPost.visibility || 'public',
+          graphicWarning: Boolean(wrapperPost.graphicWarning),
+          commentPolicy: wrapperPost.commentPolicy || 'everyone',
+          repostsEnabled: wrapperPost.repostsEnabled !== false,
+          businessPage: null,
+          viewsCount: wrapperPost.viewsCount || 0,
+          likesCount: wrapperPost.likesCount || 0,
+          sharesCount: wrapperPost.sharesCount || 0,
+          repostsCount: wrapperPost.repostsCount || 0,
+          status: wrapperPost.status,
+          isPinned: wrapperPost.isPinned,
+          isHighlighted: wrapperPost.isHighlighted,
+          isAIEnhanced: Boolean(wrapperPost.isAIEnhanced),
+          dashGcoinTotal: 0,
+          aiInsightEnabled: Boolean(wrapperPost.aiInsightEnabled),
+          aiInsightGenerated: Boolean(wrapperPost.aiInsightGenerated),
+          aiInsightText: wrapperPost.aiInsightText || null,
+          aiScore: wrapperPost.aiScore ?? null,
+          videoIntegrityStatus: wrapperPost.videoIntegrityStatus || 'clear',
+          videoIntegrityMatchMethod: wrapperPost.videoIntegrityMatchMethod || null,
+          videoIntegrityMatchScore:
+            typeof wrapperPost.videoIntegrityMatchScore === 'number' ? wrapperPost.videoIntegrityMatchScore : null,
+          videoMonetizationBlocked: Boolean(wrapperPost.videoMonetizationBlocked),
+          offerTags: serializeContentOfferTags(wrapperPost.offerTags),
+          originalPostId: wrapperPost.originalPostId || null,
+          originalPost: serializePostOriginalPreview(wrapperPost.originalPost),
+          createdAt: wrapperPost.createdAt.toISOString(),
+          updatedAt: wrapperPost.updatedAt.toISOString(),
+          interactions: {
+            views: wrapperPost.viewsCount || 0,
+            likes: wrapperPost.likesCount || 0,
+            shares: wrapperPost.sharesCount || 0,
+            reposts: wrapperPost.repostsCount || 0,
+            comments: 0,
+            reactions: {},
+            dashGcoinTotal: 0
+          },
+          userState: {
+            liked: false,
+            reposted: false,
+            reaction: null
+          }
         };
         try { io?.emit('community:post_created', { post: wrapperPayload }); } catch (e) {}
         try { realtime.emitToPost(wrapperPost.id, 'community:post_created', { post: wrapperPayload }); } catch (e) {}
@@ -1758,7 +1925,7 @@ export const getPosts = async (req: Request, res: Response) => {
     const attachmentMap = await buildAttachmentLookup(
       posts.flatMap((post: any) => (Array.isArray(post.attachments) ? post.attachments : []))
     );
-    const [reactionRows, commentRows, userReactions] = await Promise.all([
+    const [reactionRows, commentRows, userReactions, dashTotals] = await Promise.all([
       prisma.communityPostReaction.groupBy({
         by: ['postId', 'type'],
         where: { postId: { in: postIds } },
@@ -1774,7 +1941,8 @@ export const getPosts = async (req: Request, res: Response) => {
             where: { postId: { in: postIds }, userId },
             select: { postId: true, type: true }
           })
-        : Promise.resolve([])
+        : Promise.resolve([]),
+      getPostDashTotals(postIds)
     ]);
 
     const reactionMap = buildReactionSummary(reactionRows);
@@ -1852,6 +2020,8 @@ export const getPosts = async (req: Request, res: Response) => {
         status: post.status,
         isPinned: post.isPinned,
         isHighlighted: post.isHighlighted,
+        isAIEnhanced: Boolean(post.isAIEnhanced),
+        dashGcoinTotal: dashTotals.get(post.id) || 0,
         aiInsightEnabled: Boolean(post.aiInsightEnabled),
         aiInsightGenerated: Boolean(post.aiInsightGenerated),
         aiInsightText: post.aiInsightText || null,
@@ -1861,13 +2031,9 @@ export const getPosts = async (req: Request, res: Response) => {
         videoIntegrityMatchScore:
           typeof post.videoIntegrityMatchScore === 'number' ? post.videoIntegrityMatchScore : null,
         videoMonetizationBlocked: Boolean(post.videoMonetizationBlocked),
+        offerTags: serializeContentOfferTags(post.offerTags),
         originalPostId: post.originalPostId || null,
-        originalPost: post.originalPost
-          ? {
-              id: post.originalPost.id,
-              authorName: post.originalPost.author?.name || post.originalPost.author?.username || 'Unknown'
-            }
-          : null,
+        originalPost: serializePostOriginalPreview(post.originalPost),
         createdAt: post.createdAt.toISOString(),
         updatedAt: post.updatedAt.toISOString(),
         interactions: {
@@ -1876,7 +2042,8 @@ export const getPosts = async (req: Request, res: Response) => {
           shares: post.sharesCount,
           reposts: post.repostsCount,
           comments: commentMap.get(post.id) || 0,
-          reactions: reactionMap.get(post.id) || {}
+          reactions: reactionMap.get(post.id) || {},
+          dashGcoinTotal: dashTotals.get(post.id) || 0
         },
         userState: {
           liked: likedPostIds.has(post.id),
@@ -1896,16 +2063,22 @@ export const getPosts = async (req: Request, res: Response) => {
 // Get community feed with cursor pagination + visibility scope
 export const getFeed = async (req: Request, res: Response) => {
   try {
-    const { limit = 20, cursor, scope = 'public', topic, region } = req.query as any;
+    const { limit = 20, cursor, scope = 'public', topic, topicId, topicSlug, region, mode } = req.query as any;
     const take = Math.max(1, Math.min(50, Number.parseInt(String(limit || '20'), 10) || 20));
     const viewer = await resolveOptionalUserFromRequest(req);
     const userId = viewer?.id;
+    const feedMode = normalizeFeedSurfaceMode(mode, scope === 'following' ? 'following' : 'for_you');
     const blockedAuthorIds = await getBlockedAuthorIdsForViewer(userId);
     const baseWhere: any = { status: 'active' };
+    let resolvedTopic = String(topic || '').trim();
+    if (!resolvedTopic && (topicId || topicSlug)) {
+      const topicRow = await resolveTopicByParam(topicId || topicSlug);
+      resolvedTopic = String(topicRow?.label || topicRow?.slug || '').trim();
+    }
     if (blockedAuthorIds.length) {
       baseWhere.authorId = { notIn: blockedAuthorIds };
     }
-    if (scope === 'following') {
+    if (scope === 'following' || feedMode === 'following') {
       if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
       const [followingUsers, followingPages] = await Promise.all([
         prisma.userFollow.findMany({ where: { followerId: userId }, select: { followeeId: true } }),
@@ -1920,14 +2093,14 @@ export const getFeed = async (req: Request, res: Response) => {
         ...(followeeIds.length ? [{ authorId: { in: followeeIds }, visibility: { in: ['public', 'friends', 'network'] } }] : []),
         ...(pageIds.length ? [{ businessPageId: { in: pageIds }, visibility: { in: ['public', 'friends', 'network'] } }] : [])
       ];
-    } else if (scope === 'discover') {
+    } else {
       baseWhere.visibility = 'public';
       const filters: any[] = [];
-      if (topic) {
+      if (resolvedTopic) {
         filters.push({
           OR: [
-            { topic: { equals: String(topic), mode: 'insensitive' } },
-            { tags: { has: String(topic) } }
+            { topic: { equals: String(resolvedTopic), mode: 'insensitive' } },
+            { tags: { has: String(resolvedTopic) } }
           ]
         });
       }
@@ -1935,17 +2108,6 @@ export const getFeed = async (req: Request, res: Response) => {
         filters.push({ location: { contains: String(region), mode: 'insensitive' } });
       }
       if (filters.length) baseWhere.AND = filters;
-    } else {
-      const visibility = scope === 'friends'
-        ? ['public', 'friends']
-        : scope === 'network'
-          ? ['public', 'network']
-          : ['public'];
-
-      baseWhere.OR = [
-        { visibility: { in: visibility } },
-        ...(userId ? [{ authorId: userId }] : [])
-      ];
     }
 
     if (cursor) {
@@ -1957,18 +2119,19 @@ export const getFeed = async (req: Request, res: Response) => {
       baseWhere.hiddenBy = { none: { userId } };
     }
 
+    const queryTake = feedMode === 'following' ? take : Math.min(Math.max(take * 4, take), 120);
     const posts = await prisma.communityPost.findMany({
       where: baseWhere,
       select: communityPostFeedSelect,
       orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
-      take
+      take: queryTake
     });
 
     const postIds = posts.map((p) => p.id);
     const attachmentMap = await buildAttachmentLookup(
       posts.flatMap((post: any) => (Array.isArray(post.attachments) ? post.attachments : []))
     );
-    const [reactionRows, commentRows, userReactions] = await Promise.all([
+    const [reactionRows, commentRows, userReactions, dashTotals, pipelineRows, viewerProfile, feedContext] = await Promise.all([
       prisma.communityPostReaction.groupBy({
         by: ['postId', 'type'],
         where: { postId: { in: postIds } },
@@ -1984,13 +2147,38 @@ export const getFeed = async (req: Request, res: Response) => {
             where: { postId: { in: postIds }, userId },
             select: { postId: true, type: true }
           })
-        : Promise.resolve([])
+        : Promise.resolve([]),
+      getPostDashTotals(postIds),
+      userId
+        ? prisma.savedPipelineItem.findMany({
+            where: { userId, entityType: 'POST', entityId: { in: postIds } },
+            select: { entityId: true }
+          })
+        : Promise.resolve([]),
+      userId
+        ? prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+              country: true,
+              profile: {
+                select: {
+                  location: true
+                }
+              }
+            }
+          })
+        : Promise.resolve(null),
+      getViewerFeedContext(userId)
     ]);
 
     const reactionMap = buildReactionSummary(reactionRows);
     const commentMap = buildCommentCounts(commentRows);
     const userReactionMap = new Map(userReactions.map((r) => [r.postId, r.type]));
     const { followingUserIds, followingPageIds } = await resolveFollowLookupForPosts(posts, userId);
+    const pipelineSavedIds = new Set(pipelineRows.map((row) => String(row.entityId)));
+    const viewerRegion = String(
+      viewerProfile?.profile?.location || viewerProfile?.country || region || ''
+    ).trim();
 
     const transformed = await Promise.all(posts.map(async (post) => {
       const author = buildPostAuthorPayload(post.author as any, post.businessPage as any);
@@ -2001,6 +2189,31 @@ export const getFeed = async (req: Request, res: Response) => {
       const isFollowingAuthor = author.type === 'business'
         ? followingPageIds.has(String(post.businessPageId || ''))
         : followingUserIds.has(post.authorId);
+      const ranking = scoreCommunityPostForMode({
+        post: {
+          id: post.id,
+          authorId: post.authorId,
+          businessPageId: post.businessPageId,
+          title: post.title,
+          content: post.content,
+          topic: post.topic,
+          tags: post.tags,
+          location: post.location,
+          isPinned: post.isPinned,
+          isHighlighted: post.isHighlighted,
+          viewsCount: post.viewsCount,
+          likesCount: post.likesCount,
+          sharesCount: post.sharesCount,
+          repostsCount: post.repostsCount,
+          createdAt: post.createdAt
+        },
+        mode: feedMode,
+        context: feedContext,
+        requestedTopic: resolvedTopic,
+        requestedRegion: region,
+        viewerRegion
+      });
+      const topicSummary = Array.from(new Set([String(post.topic || '').trim(), ...((post.tags || []).map((entry: string) => String(entry || '').trim()))].filter(Boolean)));
 
       return {
         id: post.id,
@@ -2029,6 +2242,7 @@ export const getFeed = async (req: Request, res: Response) => {
         tags: post.tags || [],
         mentions: post.mentions || [],
         topic: post.topic || null,
+        topicSummary,
         location: post.location || null,
         visibility: post.visibility || 'public',
         graphicWarning: Boolean(post.graphicWarning),
@@ -2048,6 +2262,8 @@ export const getFeed = async (req: Request, res: Response) => {
         status: post.status,
         isPinned: post.isPinned,
         isHighlighted: post.isHighlighted,
+        isAIEnhanced: Boolean(post.isAIEnhanced),
+        dashGcoinTotal: dashTotals.get(post.id) || 0,
         aiInsightEnabled: Boolean(post.aiInsightEnabled),
         aiInsightGenerated: Boolean(post.aiInsightGenerated),
         aiInsightText: post.aiInsightText || null,
@@ -2057,13 +2273,9 @@ export const getFeed = async (req: Request, res: Response) => {
         videoIntegrityMatchScore:
           typeof post.videoIntegrityMatchScore === 'number' ? post.videoIntegrityMatchScore : null,
         videoMonetizationBlocked: Boolean(post.videoMonetizationBlocked),
+        offerTags: serializeContentOfferTags(post.offerTags),
         originalPostId: post.originalPostId || null,
-        originalPost: post.originalPost
-          ? {
-              id: post.originalPost.id,
-              authorName: post.originalPost.author?.name || post.originalPost.author?.username || 'Unknown'
-            }
-          : null,
+        originalPost: serializePostOriginalPreview(post.originalPost),
         createdAt: post.createdAt.toISOString(),
         updatedAt: post.updatedAt.toISOString(),
         interactions: {
@@ -2072,21 +2284,81 @@ export const getFeed = async (req: Request, res: Response) => {
           shares: post.sharesCount,
           reposts: post.repostsCount,
           comments: commentMap.get(post.id) || 0,
-          reactions: reactionMap.get(post.id) || {}
+          reactions: reactionMap.get(post.id) || {},
+          dashGcoinTotal: dashTotals.get(post.id) || 0
         },
         userState: {
           liked: false,
           reposted: false,
           reaction: userReactionMap.get(post.id) || null
+        },
+        ranking: {
+          mode: feedMode,
+          score: ranking.score,
+          primaryReason: ranking.reasons[0] || 'Recommended from community activity.',
+          reasons: ranking.reasons
+        },
+        pipelineState: {
+          saved: pipelineSavedIds.has(String(post.id))
         }
       };
     }));
 
+    const items =
+      feedMode === 'following'
+        ? transformed
+        : [...transformed]
+            .sort((a: any, b: any) => {
+              const pinDelta = Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned));
+              if (pinDelta !== 0) return pinDelta;
+              const highlightDelta = Number(Boolean(b.isHighlighted)) - Number(Boolean(a.isHighlighted));
+              if (highlightDelta !== 0) return highlightDelta;
+              const scoreDelta = Number(b.ranking?.score || 0) - Number(a.ranking?.score || 0);
+              if (scoreDelta !== 0) return scoreDelta;
+              return new Date(String(b.createdAt || 0)).getTime() - new Date(String(a.createdAt || 0)).getTime();
+            })
+            .slice(0, take);
+
     const nextCursor = posts.length ? posts[posts.length - 1].createdAt.toISOString() : null;
-    return res.json({ success: true, data: { items: transformed, nextCursor } });
+    return res.json({ success: true, data: { items, nextCursor, mode: feedMode, scope } });
   } catch (error: any) {
     console.error('Get feed error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load feed' });
+  }
+};
+
+export const postFeedIntent = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const entityType = String(req.body?.entityType || 'POST').trim() || 'POST';
+    const entityId = String(req.body?.entityId || '').trim();
+    const signal = String(req.body?.signal || '').trim();
+    const surface = String(req.body?.surface || 'member_home').trim() || 'member_home';
+    const weight = Number(req.body?.weight);
+    const meta = req.body?.meta && typeof req.body.meta === 'object' ? req.body.meta : undefined;
+
+    if (!entityId || !signal) {
+      return res.status(400).json({ success: false, error: 'entityId and signal are required' });
+    }
+
+    await recordFeedIntentSignal({
+      userId,
+      entityType,
+      entityId,
+      signal,
+      surface,
+      weight: Number.isFinite(weight) ? weight : undefined,
+      meta
+    });
+
+    return res.json({ success: true, data: { recorded: true } });
+  } catch (error: any) {
+    console.error('Post feed intent error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to record feed intent' });
   }
 };
 
@@ -2130,10 +2402,17 @@ export const getPostById = async (req: Request, res: Response) => {
         originalPost: {
           select: {
             id: true,
+            title: true,
+            content: true,
             author: {
               select: {
                 name: true,
                 username: true
+              }
+            },
+            businessPage: {
+              select: {
+                name: true
               }
             }
           }
@@ -2166,7 +2445,7 @@ export const getPostById = async (req: Request, res: Response) => {
       isLiked = !!like;
     }
 
-    const [reactionRows, commentRows, userReaction] = await Promise.all([
+    const [reactionRows, commentRows, userReaction, dashGcoinTotal] = await Promise.all([
       prisma.communityPostReaction.groupBy({
         by: ['postId', 'type'],
         where: { postId: id },
@@ -2177,7 +2456,8 @@ export const getPostById = async (req: Request, res: Response) => {
         where: { postId: id, status: 'active' },
         _count: { _all: true }
       }),
-      userId ? prisma.communityPostReaction.findFirst({ where: { postId: id, userId } }) : Promise.resolve(null)
+      userId ? prisma.communityPostReaction.findFirst({ where: { postId: id, userId } }) : Promise.resolve(null),
+      getPostDashTotal(id)
     ]);
     const reactionMap = buildReactionSummary(reactionRows as any);
     const commentMap = buildCommentCounts(commentRows as any);
@@ -2255,6 +2535,8 @@ export const getPostById = async (req: Request, res: Response) => {
       status: post.status,
       isPinned: post.isPinned,
       isHighlighted: post.isHighlighted,
+      isAIEnhanced: Boolean(post.isAIEnhanced),
+      dashGcoinTotal,
       aiInsightEnabled: Boolean(post.aiInsightEnabled),
       aiInsightGenerated: Boolean(post.aiInsightGenerated),
       aiInsightText: post.aiInsightText || null,
@@ -2264,13 +2546,9 @@ export const getPostById = async (req: Request, res: Response) => {
       videoIntegrityMatchScore:
         typeof post.videoIntegrityMatchScore === 'number' ? post.videoIntegrityMatchScore : null,
       videoMonetizationBlocked: Boolean(post.videoMonetizationBlocked),
+      offerTags: serializeContentOfferTags(post.offerTags),
       originalPostId: post.originalPostId || null,
-      originalPost: post.originalPost
-        ? {
-            id: post.originalPost.id,
-            authorName: post.originalPost.author?.name || post.originalPost.author?.username || 'Unknown'
-          }
-        : null,
+      originalPost: serializePostOriginalPreview(post.originalPost),
       createdAt: post.createdAt.toISOString(),
       updatedAt: post.updatedAt.toISOString(),
       interactions: {
@@ -2279,7 +2557,8 @@ export const getPostById = async (req: Request, res: Response) => {
         shares: post.sharesCount,
         reposts: post.repostsCount,
         comments: commentMap.get(post.id) || 0,
-        reactions: reactionMap.get(post.id) || {}
+        reactions: reactionMap.get(post.id) || {},
+        dashGcoinTotal
       },
       userState: {
         liked: isLiked,
@@ -2518,6 +2797,7 @@ export const getCommunityPostsByTag = async (req: Request, res: Response) => {
           status: post.status,
           isPinned: post.isPinned,
           isHighlighted: post.isHighlighted,
+          isAIEnhanced: Boolean(post.isAIEnhanced),
           aiInsightEnabled: Boolean(post.aiInsightEnabled),
           aiInsightGenerated: Boolean(post.aiInsightGenerated),
           aiInsightText: post.aiInsightText || null,
@@ -2560,9 +2840,11 @@ export const createPost = async (req: Request, res: Response) => {
       graphicWarning,
       businessPageId,
       originalPostId,
+      offerTags,
       topic,
       location,
       commentPolicy,
+      isAIEnhanced,
       aiInsightEnabled
     } = req.body;
 
@@ -2608,6 +2890,16 @@ export const createPost = async (req: Request, res: Response) => {
       }
     }
 
+    const normalizedOfferTags = await resolveSubmittedContentOfferTags(
+      offerTags ?? req.body?.offer_tags,
+      {
+        actorUserId: userId,
+        actorRole: req.user?.role,
+        contentType: 'post',
+        businessPageId: resolvedBusinessPageId
+      }
+    );
+
     const normalizedAttachmentIds = await resolveValidatedAttachmentIds(
       [attachmentFileIds, attachments],
       { userId, role: req.user?.role }
@@ -2615,9 +2907,7 @@ export const createPost = async (req: Request, res: Response) => {
     const videoIntegrity = await assessVideoIntegrityByAttachments(normalizedAttachmentIds, userId);
 
     const postAiSettings = await resolvePostAiSettings();
-    const canControlInsight = req.user?.role === 'ADMIN' || req.user?.role === 'MODERATOR';
-    const explicitInsightPreference =
-      canControlInsight && typeof aiInsightEnabled === 'boolean' ? aiInsightEnabled : undefined;
+    const explicitInsightPreference = typeof aiInsightEnabled === 'boolean' ? aiInsightEnabled : undefined;
     const shouldEnableAiInsight = decidePostInsightEnabled({
       explicitEnabled: explicitInsightPreference,
       settings: postAiSettings
@@ -2633,6 +2923,7 @@ export const createPost = async (req: Request, res: Response) => {
         title: normalizedTitle || null,
         content: normalizedContent,
         attachments: normalizedAttachmentIds,
+        offerTags: normalizedOfferTags.length ? normalizedOfferTags : null,
         tags: normalizedTags,
         mentions: normalizedMentionUserIds,
         topic: topic || null,
@@ -2640,6 +2931,7 @@ export const createPost = async (req: Request, res: Response) => {
         visibility: visibility || 'public',
         graphicWarning: Boolean(graphicWarning),
         commentPolicy: normalizedPolicy || 'everyone',
+        isAIEnhanced: Boolean(isAIEnhanced),
         aiInsightEnabled: shouldEnableAiInsight,
         aiInsightGenerated: false,
         aiInsightText: null,
@@ -2674,6 +2966,24 @@ export const createPost = async (req: Request, res: Response) => {
             handle: true,
             slug: true,
             logoFileId: true
+          }
+        },
+        originalPost: {
+          select: {
+            id: true,
+            title: true,
+            content: true,
+            author: {
+              select: {
+                name: true,
+                username: true
+              }
+            },
+            businessPage: {
+              select: {
+                name: true
+              }
+            }
           }
         }
       }
@@ -2739,6 +3049,8 @@ export const createPost = async (req: Request, res: Response) => {
       status: post.status,
       isPinned: post.isPinned,
       isHighlighted: post.isHighlighted,
+      isAIEnhanced: Boolean(post.isAIEnhanced),
+      dashGcoinTotal: 0,
       aiInsightEnabled: Boolean(post.aiInsightEnabled),
       aiInsightGenerated: Boolean(post.aiInsightGenerated),
       aiInsightText: post.aiInsightText || null,
@@ -2748,14 +3060,17 @@ export const createPost = async (req: Request, res: Response) => {
       videoIntegrityMatchScore:
         typeof post.videoIntegrityMatchScore === 'number' ? post.videoIntegrityMatchScore : null,
       videoMonetizationBlocked: Boolean(post.videoMonetizationBlocked),
+      offerTags: serializeContentOfferTags(post.offerTags),
       originalPostId: post.originalPostId || null,
+      originalPost: serializePostOriginalPreview(post.originalPost),
       createdAt: post.createdAt.toISOString(),
       updatedAt: post.updatedAt.toISOString(),
       interactions: {
         views: 0,
         likes: 0,
         shares: 0,
-        reposts: 0
+        reposts: 0,
+        dashGcoinTotal: 0
       },
       userState: {
         liked: false,
@@ -2921,6 +3236,10 @@ export const createPost = async (req: Request, res: Response) => {
       console.warn('[community.createPost] notification fanout failed', notifyError);
     }
 
+    void ensureTopics([topic, ...normalizedTags], 'community_post').catch((topicError) => {
+      console.warn('[community.createPost] ensureTopics failed', topicError);
+    });
+
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Create post error:', error);
@@ -2952,8 +3271,10 @@ export const updatePost = async (req: Request, res: Response) => {
       location,
       commentPolicy,
       repostsEnabled,
+      offerTags,
       isPinned,
       isHighlighted,
+      isAIEnhanced,
       aiInsightEnabled,
       regenerateAiInsight
     } = req.body;
@@ -2984,6 +3305,7 @@ export const updatePost = async (req: Request, res: Response) => {
     }
     const nextContent =
       updateData.content !== undefined ? String(updateData.content || '') : String(post.content || '');
+    const aiRelevantContentChanged = updateData.title !== undefined || updateData.content !== undefined;
 
     if (tags !== undefined || updateData.content !== undefined) {
       const explicit = tags !== undefined
@@ -3031,6 +3353,18 @@ export const updatePost = async (req: Request, res: Response) => {
       }
       updateData.commentPolicy = normalizedPolicy;
     }
+    if (offerTags !== undefined || req.body?.offer_tags !== undefined) {
+      const normalizedOfferTags = await resolveSubmittedContentOfferTags(
+        offerTags ?? req.body?.offer_tags,
+        {
+          actorUserId: userId,
+          actorRole: req.user?.role,
+          contentType: 'post',
+          businessPageId: post.businessPageId
+        }
+      );
+      updateData.offerTags = normalizedOfferTags.length ? normalizedOfferTags : null;
+    }
     if (repostsEnabled !== undefined) {
       updateData.repostsEnabled = Boolean(repostsEnabled);
     }
@@ -3068,20 +3402,41 @@ export const updatePost = async (req: Request, res: Response) => {
       }
       updateData.isHighlighted = highlightValue;
     }
+    if (isAIEnhanced !== undefined) {
+      updateData.isAIEnhanced = Boolean(isAIEnhanced);
+    }
     if (status !== undefined && (req.user?.role === 'ADMIN' || req.user?.role === 'MODERATOR')) {
       updateData.status = status;
     }
 
     const isPrivileged = req.user?.role === 'ADMIN' || req.user?.role === 'MODERATOR';
     let shouldQueueAiInsight = false;
-    if (aiInsightEnabled !== undefined && isPrivileged) {
-      updateData.aiInsightEnabled = Boolean(aiInsightEnabled);
-      if (Boolean(aiInsightEnabled)) {
-        shouldQueueAiInsight = true;
+    if (aiInsightEnabled !== undefined) {
+      const nextAiInsightEnabled = Boolean(aiInsightEnabled);
+      updateData.aiInsightEnabled = nextAiInsightEnabled;
+      if (nextAiInsightEnabled) {
+        if (!post.aiInsightEnabled || aiRelevantContentChanged || !post.aiInsightGenerated) {
+          shouldQueueAiInsight = true;
+          updateData.aiInsightGenerated = false;
+          updateData.aiInsightText = null;
+          updateData.aiScore = null;
+        }
+      } else if (post.aiInsightEnabled || post.aiInsightGenerated || post.aiInsightText || post.aiScore !== null) {
+        updateData.aiInsightGenerated = false;
+        updateData.aiInsightText = null;
+        updateData.aiScore = null;
       }
+    } else if (aiRelevantContentChanged && post.aiInsightEnabled) {
+      shouldQueueAiInsight = true;
+      updateData.aiInsightGenerated = false;
+      updateData.aiInsightText = null;
+      updateData.aiScore = null;
     }
     if (Boolean(regenerateAiInsight) && isPrivileged) {
       shouldQueueAiInsight = true;
+      updateData.aiInsightGenerated = false;
+      updateData.aiInsightText = null;
+      updateData.aiScore = null;
     }
 
     const updated = await prisma.communityPost.update({
@@ -3114,6 +3469,24 @@ export const updatePost = async (req: Request, res: Response) => {
             slug: true,
             logoFileId: true
           }
+        },
+        originalPost: {
+          select: {
+            id: true,
+            title: true,
+            content: true,
+            author: {
+              select: {
+                name: true,
+                username: true
+              }
+            },
+            businessPage: {
+              select: {
+                name: true
+              }
+            }
+          }
         }
       }
     });
@@ -3128,6 +3501,7 @@ export const updatePost = async (req: Request, res: Response) => {
       { authorId: updated.authorId, businessPageId: updated.businessPageId },
       author
     );
+    const dashGcoinTotal = await getPostDashTotal(updated.id);
 
     const payload = {
       id: updated.id,
@@ -3176,6 +3550,8 @@ export const updatePost = async (req: Request, res: Response) => {
       status: updated.status,
       isPinned: updated.isPinned,
       isHighlighted: updated.isHighlighted,
+      isAIEnhanced: Boolean(updated.isAIEnhanced),
+      dashGcoinTotal,
       aiInsightEnabled: Boolean(updated.aiInsightEnabled),
       aiInsightGenerated: Boolean(updated.aiInsightGenerated),
       aiInsightText: updated.aiInsightText || null,
@@ -3185,14 +3561,17 @@ export const updatePost = async (req: Request, res: Response) => {
       videoIntegrityMatchScore:
         typeof updated.videoIntegrityMatchScore === 'number' ? updated.videoIntegrityMatchScore : null,
       videoMonetizationBlocked: Boolean(updated.videoMonetizationBlocked),
+      offerTags: serializeContentOfferTags(updated.offerTags),
       originalPostId: updated.originalPostId || null,
+      originalPost: serializePostOriginalPreview(updated.originalPost),
       createdAt: updated.createdAt.toISOString(),
       updatedAt: updated.updatedAt.toISOString(),
       interactions: {
         views: updated.viewsCount,
         likes: updated.likesCount,
         shares: updated.sharesCount,
-        reposts: updated.repostsCount
+        reposts: updated.repostsCount,
+        dashGcoinTotal
       },
       userState: {
         liked: false,
@@ -3273,6 +3652,16 @@ export const updatePost = async (req: Request, res: Response) => {
         }
       });
     }
+
+    void ensureTopics(
+      [
+        updateData.topic !== undefined ? updateData.topic : updated.topic,
+        ...(Array.isArray(updateData.tags) ? updateData.tags : Array.isArray(updated.tags) ? updated.tags : [])
+      ],
+      'community_post'
+    ).catch((topicError) => {
+      console.warn('[community.updatePost] ensureTopics failed', topicError);
+    });
 
     return res.json({ success: true, data: payload });
   } catch (error: any) {

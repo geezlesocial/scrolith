@@ -7,6 +7,7 @@ import { defaultAuthPagesConfig, normalizeAuthPagesConfig } from '../utils/authP
 
 type OAuthProviderKey = 'google' | 'facebook' | 'twitter' | 'linkedin';
 type OAuthMode = 'login' | 'signup';
+type ClientReturnTarget = 'web' | 'app';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
@@ -47,6 +48,9 @@ const sanitizeRedirect = (value?: string) => {
   return '';
 };
 
+const normalizeReturnTarget = (value?: string): ClientReturnTarget =>
+  String(value || '').trim().toLowerCase() === 'app' ? 'app' : 'web';
+
 const getBackendBaseUrl = (req: Request) => {
   const envBase = process.env.BACKEND_URL || process.env.API_BASE_URL;
   if (envBase) return String(envBase).replace(/\/$/, '');
@@ -58,6 +62,17 @@ const getBackendBaseUrl = (req: Request) => {
 const getFrontendBaseUrl = () => {
   const envBase = process.env.FRONTEND_URL || process.env.CLIENT_URL;
   return (envBase || 'http://localhost:3000').replace(/\/$/, '');
+};
+
+const getNativeAppCallbackUrl = () =>
+  String(process.env.MOBILE_APP_CALLBACK_URL || 'scrolith://auth/oauth/callback').trim();
+
+const buildClientCallbackUrl = (params: URLSearchParams, returnTarget: ClientReturnTarget) => {
+  if (returnTarget === 'app') {
+    const appCallback = getNativeAppCallbackUrl();
+    return `${appCallback}${appCallback.includes('?') ? '&' : '?'}${params.toString()}`;
+  }
+  return `${getFrontendBaseUrl()}/auth/oauth/callback?${params.toString()}`;
 };
 
 const getAuthPagesConfig = async () => {
@@ -93,12 +108,16 @@ const decodeState = (state: string) => {
   return (jwt as any).verify(state, JWT_SECRET) as Record<string, any>;
 };
 
-const sendOAuthError = (res: Response, message: string, redirect?: string) => {
-  const frontend = getFrontendBaseUrl();
+const sendOAuthError = (
+  res: Response,
+  message: string,
+  redirect?: string,
+  returnTarget: ClientReturnTarget = 'web'
+) => {
   const params = new URLSearchParams();
   params.set('error', encodeURIComponent(message));
   if (redirect) params.set('redirect', redirect);
-  res.redirect(`${frontend}/auth/oauth/callback?${params.toString()}`);
+  res.redirect(buildClientCallbackUrl(params, returnTarget));
 };
 
 const fetchJson = async (url: string, options: any) => {
@@ -128,6 +147,10 @@ export const startOAuth = async (req: Request, res: Response) => {
   const mode: OAuthMode = (req.query.mode as string) === 'signup' ? 'signup' : 'login';
   const requestedRole = normalizeRole(req.query.role as string);
   const redirect = sanitizeRedirect(req.query.redirect as string);
+  const returnTarget = normalizeReturnTarget(
+    (req.query.returnTarget as string) ||
+    ((req.query.native as string) === '1' ? 'app' : '')
+  );
 
   try {
     const { social, providerConfig } = await getProviderConfig(provider);
@@ -165,6 +188,7 @@ export const startOAuth = async (req: Request, res: Response) => {
       mode,
       role: requestedRole,
       redirect,
+      returnTarget,
       pkceVerifier: pkce?.verifier || null,
       nonce: crypto.randomBytes(8).toString('hex')
     });
@@ -214,8 +238,21 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
   const { code, state, error, error_description } = req.query as Record<string, string>;
 
   if (error) {
-    const redirect = sanitizeRedirect(req.query.redirect as string);
-    return sendOAuthError(res, error_description || error || 'OAuth failed', redirect || '/auth/login');
+    let returnTarget: ClientReturnTarget = 'web';
+    let redirect = sanitizeRedirect(req.query.redirect as string);
+    if (state) {
+      try {
+        const statePayload = decodeState(state);
+        returnTarget = normalizeReturnTarget(statePayload.returnTarget as string);
+        redirect = sanitizeRedirect((statePayload.redirect as string) || redirect);
+      } catch {}
+    }
+    return sendOAuthError(
+      res,
+      error_description || error || 'OAuth failed',
+      redirect || '/auth/login',
+      returnTarget
+    );
   }
 
   if (!code || !state) {
@@ -228,15 +265,16 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
   } catch (err) {
     return sendOAuthError(res, 'Invalid OAuth state', '/auth/login');
   }
+  const returnTarget = normalizeReturnTarget(statePayload.returnTarget as string);
 
   if (statePayload.provider !== provider) {
-    return sendOAuthError(res, 'OAuth provider mismatch', '/auth/login');
+    return sendOAuthError(res, 'OAuth provider mismatch', '/auth/login', returnTarget);
   }
 
   try {
     const { social, providerConfig } = await getProviderConfig(provider);
     if (!social?.enabled || !providerConfig?.enabled) {
-      return sendOAuthError(res, 'Provider disabled', '/auth/login');
+      return sendOAuthError(res, 'Provider disabled', '/auth/login', returnTarget);
     }
 
     const mode: OAuthMode = statePayload.mode === 'signup' ? 'signup' : 'login';
@@ -244,16 +282,16 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
     const requestedRole = normalizeRole(statePayload.role as string);
 
     if (mode === 'login' && social.login_enabled === false) {
-      return sendOAuthError(res, 'Login disabled for social auth', '/auth/login');
+      return sendOAuthError(res, 'Login disabled for social auth', '/auth/login', returnTarget);
     }
     if (mode === 'signup' && social.signup_enabled === false) {
-      return sendOAuthError(res, 'Signup disabled for social auth', '/auth/login');
+      return sendOAuthError(res, 'Signup disabled for social auth', '/auth/login', returnTarget);
     }
 
     if (mode === 'signup') {
       const allowedRoles = providerConfig.allow_roles || [];
       if (allowedRoles.length && !allowedRoles.includes(requestedRole)) {
-        return sendOAuthError(res, 'Role not allowed for this provider', '/auth/signup');
+        return sendOAuthError(res, 'Role not allowed for this provider', '/auth/signup', returnTarget);
       }
     }
 
@@ -464,14 +502,13 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
     });
 
     const finalRedirect = redirectPath || resolveDashboardPath(user.role);
-    const frontend = getFrontendBaseUrl();
     const params = new URLSearchParams();
     params.set('token', token);
     params.set('redirect', finalRedirect);
-    return res.redirect(`${frontend}/auth/oauth/callback?${params.toString()}`);
+    return res.redirect(buildClientCallbackUrl(params, returnTarget));
   } catch (err: any) {
     console.error('[oauth] callback error:', err?.message || err);
-    return sendOAuthError(res, err?.message || 'OAuth failed', '/auth/login');
+    return sendOAuthError(res, err?.message || 'OAuth failed', '/auth/login', returnTarget);
   }
 };
 

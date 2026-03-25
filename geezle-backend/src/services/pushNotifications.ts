@@ -1,6 +1,7 @@
 import admin from 'firebase-admin';
 import fs from 'fs';
 import prisma from '../utils/prismaClient';
+import { buildNotificationActionUrl, normalizeNotificationActionUrl } from './notificationActionUrl.service';
 
 export type PushNotificationPayload = {
   id?: string;
@@ -180,6 +181,10 @@ const buildPushMessage = (payload: PushNotificationPayload): PushMessage => {
   const title = payload.title || 'Notification';
   const body = payload.body || payload.message || '';
   const customData = payload.data || {};
+  const fallbackLink = buildNotificationActionUrl(payload.type || 'system', {
+    ...(payload.meta && typeof payload.meta === 'object' ? payload.meta : {}),
+    ...(customData && typeof customData === 'object' ? customData : {})
+  });
   const rawLink =
     payload.deepLink ||
     customData.deepLink ||
@@ -187,15 +192,17 @@ const buildPushMessage = (payload: PushNotificationPayload): PushMessage => {
     payload.actionUrl ||
     payload.action_url ||
     payload.meta?.deepLink ||
-    payload.meta?.deeplink;
-  const deepLink = normalizeDeepLink(rawLink);
+    payload.meta?.deeplink ||
+    fallbackLink;
+  const normalizedLink = normalizeNotificationActionUrl(rawLink) || rawLink;
+  const deepLink = normalizeDeepLink(normalizedLink);
   const entityId = customData.entityId || inferEntityId(payload.meta);
   const data = normalizeData({
     ...customData,
     notificationId: payload.id,
     type: payload.type || customData.type || 'system',
     deepLink,
-    link: rawLink,
+    link: normalizedLink,
     entityId
   });
   return { title, body, data };

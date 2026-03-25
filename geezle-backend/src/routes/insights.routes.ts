@@ -2,11 +2,13 @@ import express from 'express';
 import { authMiddleware } from '../middleware/auth.middleware';
 import {
   completeMyQuestController,
+  generateOpportunityBriefController,
   generateSkillGapController,
   getFeedModeController,
   getLeaderboardController,
   getMatchesController,
   getMyAchievementsController,
+  getOpportunityHubController,
   getMyPgsController,
   getMyQuestsController,
   getMySkillGapController,
@@ -28,6 +30,8 @@ router.post('/quests/:userQuestId/complete', completeMyQuestController);
 router.get('/leaderboard', getLeaderboardController);
 router.get('/matches/me', getMatchesController);
 router.get('/revenue/me', getRevenueController);
+router.get('/opportunity-hub/me', getOpportunityHubController);
+router.post('/opportunity-brief', generateOpportunityBriefController);
 router.get('/post/:postId/prediction', getPostPredictionController);
 router.post('/skill-gap/generate', generateSkillGapController);
 router.get('/skill-gap/me', getMySkillGapController);

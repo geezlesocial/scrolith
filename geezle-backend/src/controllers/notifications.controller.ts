@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import { isPushEnabled, sendPushToUser } from '../services/pushNotifications';
+import { buildNotificationActionUrl, normalizeNotificationActionUrl } from '../services/notificationActionUrl.service';
 
 const ensureAuthId = (req: Request) => req.user?.id as string | undefined;
 const getObject = (value: unknown) =>
@@ -8,7 +9,12 @@ const getObject = (value: unknown) =>
 
 const toApiNotification = (notification: any) => {
   const meta = getObject(notification.meta);
-  const actionUrl = meta.action_url || meta.actionUrl || meta.link || null;
+  const actionUrl =
+    normalizeNotificationActionUrl(meta.action_url || meta.actionUrl || meta.link) ||
+    buildNotificationActionUrl(notification.type, {
+      ...meta,
+      actorId: notification.actorId || meta.actorId || null
+    });
   const actorId = notification.actorId || meta.actorId || null;
   const actorName = meta.actorName || null;
   const actorAvatar = meta.actorAvatar || null;

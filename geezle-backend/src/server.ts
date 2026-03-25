@@ -25,10 +25,13 @@ import devRoutes from './routes/dev.routes';
 import oauthDevRoutes from './routes/oauth.dev.routes';
 import userRoutes from './routes/user';
 import profileRoutes from './routes/profile.routes';
+import locationRoutes from './routes/location.routes';
 import settingsRoutes from './routes/settings.routes';
 import commerceRoutes from './routes/commerce';
 import searchRoutes from './routes/search';
 import feedRoutes from './routes/feed';
+import topicsRoutes from './routes/topics.routes';
+import pipelineRoutes from './routes/pipeline.routes';
 import aiRoutes from './routes/ai';
 import gigRoutes from './routes/gigs';
 import jobsRoutes from './routes/jobs.routes';
@@ -98,6 +101,7 @@ import {
   isVoiceBlockedForUser,
   MAX_MESSENGER_VOICE_PARTICIPANTS
 } from './services/messengerVoice.service';
+import { appendLiveDiagnosticsEvent } from './services/liveDiagnostics.service';
 // Restart trigger comment (no-op) to force ts-node-dev reload when modified during debugging
 
 
@@ -276,6 +280,7 @@ const releaseSocketRequest = (socket: any) => {
 // Create a community-specific namespace so frontend and backend can subscribe to community events
 const communityNs = io.of('/community');
 const presenceCounts = new Map<string, number>();
+const communityUserSockets = new Map<string, Set<string>>();
 const MESSAGE_TYPING_EVENT_DEBOUNCE_MS = Math.max(
   250,
   Number(process.env.MESSAGE_TYPING_EVENT_DEBOUNCE_MS || 600)
@@ -400,6 +405,38 @@ const emitPresenceUpdate = (userId: string, isOnline: boolean, lastSeenAt?: Date
   }
 };
 
+const registerCommunityUserSocket = (userId: string, socketId: string) => {
+  const normalizedUserId = String(userId || '').trim();
+  const normalizedSocketId = String(socketId || '').trim();
+  if (!normalizedUserId || !normalizedSocketId) return;
+  const sockets = communityUserSockets.get(normalizedUserId) || new Set<string>();
+  sockets.add(normalizedSocketId);
+  communityUserSockets.set(normalizedUserId, sockets);
+};
+
+const unregisterCommunityUserSocket = (userId: string, socketId: string) => {
+  const normalizedUserId = String(userId || '').trim();
+  const normalizedSocketId = String(socketId || '').trim();
+  if (!normalizedUserId || !normalizedSocketId) return;
+  const sockets = communityUserSockets.get(normalizedUserId);
+  if (!sockets) return;
+  sockets.delete(normalizedSocketId);
+  if (!sockets.size) {
+    communityUserSockets.delete(normalizedUserId);
+  }
+};
+
+const emitToCommunityUserSockets = (userId: string, event: string, payload: Record<string, any>) => {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) return 0;
+  const socketIds = Array.from(communityUserSockets.get(normalizedUserId) || []);
+  if (!socketIds.length) return 0;
+  socketIds.forEach((socketId) => {
+    communityNs.to(socketId).emit(event, payload);
+  });
+  return socketIds.length;
+};
+
 const markPresenceOnline = async (userId: string) => {
   if (!userId) return;
   const count = (presenceCounts.get(userId) || 0) + 1;
@@ -488,6 +525,29 @@ const resolveSocketUserId = (socket: any) => String(socket?.data?.user?.id || ''
 const resolveSocketRole = (socket: any) => String(socket?.data?.user?.role || '').trim().toLowerCase();
 const isAdminRoleValue = (role: string) =>
   role.includes('admin') || role.includes('moderator') || role.includes('superadmin');
+
+const authenticateSocketFromHandshake = async (socket: any) => {
+  const hs = socket.handshake as any;
+  const tokenRaw = (hs.auth && hs.auth.token) || (hs.query && hs.query.token) || '';
+  const token = tokenRaw && tokenRaw.toString().startsWith('Bearer ')
+    ? tokenRaw.toString().slice('Bearer '.length)
+    : tokenRaw;
+  if (!token) return null;
+
+  const secret = process.env.JWT_SECRET || 'dev_jwt_secret';
+  const decoded = jwt.verify(token, secret) as any;
+  if (!decoded || !decoded.id) return null;
+
+  const user = await prisma.user.findUnique({
+    where: { id: decoded.id },
+    select: { id: true, email: true, role: true, isActive: true }
+  });
+  if (!user || !user.isActive) return null;
+
+  (socket as any).data = (socket as any).data || {};
+  (socket as any).data.user = { id: user.id, role: user.role, email: user.email };
+  return (socket as any).data.user;
+};
 const toVoiceSocketError = (error: any, fallbackMessage: string) => {
   if (isMessengerVoiceSchemaMissingError(error)) {
     return {
@@ -828,7 +888,17 @@ const markExpiredRingingCallsAsMissed = async () => {
   }
 };
 
-communityNs.on('connection', async (socket) => {
+communityNs.use(async (socket, next) => {
+  try {
+    await authenticateSocketFromHandshake(socket);
+    return next();
+  } catch (error) {
+    console.warn('communityNs JWT verify failed:', (error as any)?.message ?? String(error));
+    return next(new Error('unauthorized'));
+  }
+});
+
+communityNs.on('connection', (socket) => {
   console.log('Client connected to /community namespace', { id: socket.id, handshake: socket.handshake.query });
   traceMessages('socket.connected', {
     socketId: socket.id,
@@ -844,34 +914,10 @@ communityNs.on('connection', async (socket) => {
     socket.join(requested);
     if (isAdmin) socket.join('community:admin');
   };
-  // Attempt to apply JWT auth for namespace sockets (mirrors io.use middleware)
-  try {
-    const hs = socket.handshake as any;
-    const tokenRaw = (hs.auth && hs.auth.token) || (hs.query && hs.query.token) || '';
-    const token = tokenRaw && tokenRaw.toString().startsWith('Bearer ') ? tokenRaw.toString().slice('Bearer '.length) : tokenRaw;
-    if (token) {
-      const secret = process.env.JWT_SECRET || 'dev_jwt_secret';
-      try {
-        const decoded = jwt.verify(token, secret) as any;
-        if (decoded && decoded.id) {
-          const user = await prisma.user.findUnique({
-            where: { id: decoded.id },
-            select: { id: true, email: true, role: true, isActive: true }
-          });
-          if (user && user.isActive) {
-            (socket as any).data = (socket as any).data || {};
-            (socket as any).data.user = { id: user.id, role: user.role, email: user.email };
-            (socket as any).data.presenceUserId = user.id;
-            await markPresenceOnline(user.id);
-            (socket as any).data.presenceMarked = true;
-          }
-        }
-      } catch (e) {
-        console.warn('communityNs JWT verify failed:', (e as any)?.message ?? String(e));
-      }
-    }
-  } catch (e) {
-    console.error('communityNs auth setup error:', e);
+
+  const identity = String((socket as any).data?.user?.id || '').trim();
+  if (identity) {
+    registerCommunityUserSocket(identity, socket.id);
   }
 
   // Auto-join stable per-user rooms to avoid race conditions when clients emit join events
@@ -889,6 +935,11 @@ communityNs.on('connection', async (socket) => {
         auto: true,
         rooms: ['community:global', 'community:ads', `community:user:${requested}`, `wallet:${requested}`, requested]
       });
+      if (identity && !(socket as any).data?.presenceMarked) {
+        (socket as any).data.presenceUserId = identity;
+        (socket as any).data.presenceMarked = true;
+        void markPresenceOnline(identity);
+      }
     }
   } catch (e) {
     console.warn('communityNs auto-join failed:', e);
@@ -906,6 +957,16 @@ communityNs.on('connection', async (socket) => {
       role: (socket as any).data?.user?.role || null,
       trace: payload || {}
     });
+    const sessionId = String(payload?.sessionId || '').trim();
+    if (String(payload?.channel || '').trim().toLowerCase() === 'live' && sessionId) {
+      void appendLiveDiagnosticsEvent(sessionId, {
+        ...(payload || {}),
+        source: 'client',
+        socketId: socket.id,
+        userId: (socket as any).data?.user?.id || null,
+        role: (socket as any).data?.user?.role || null
+      }).catch(() => null);
+    }
   });
   socket.on('messages:typing', (payload: any) => {
     const handleMessagesTyping = async () => {
@@ -1154,10 +1215,33 @@ communityNs.on('connection', async (socket) => {
 
         const updatePayload = {
           sessionId,
+          userId,
+          socketId: socket.id,
+          role: isHost ? 'host' : 'viewer',
+          status: 'joined',
           viewerCount: Number(updated.viewerCount || 0),
           peakViewerCount: Number(updated.peakViewerCount || 0),
           emittedAt: new Date().toISOString()
         };
+        traceMessages('live.join', {
+          socketId: socket.id,
+          sessionId,
+          userId,
+          role: updatePayload.role,
+          viewerCount: updatePayload.viewerCount,
+          peakViewerCount: updatePayload.peakViewerCount
+        });
+        void appendLiveDiagnosticsEvent(sessionId, {
+          source: 'backend',
+          stage: 'socket:join',
+          severity: 'info',
+          userId,
+          socketId: socket.id,
+          role: updatePayload.role,
+          retryCount: payload?.retryCount,
+          message: 'Socket joined livestream session.'
+        }).catch(() => null);
+        communityNs.to(`live:session:${sessionId}`).emit('live:participant_joined', updatePayload);
         communityNs.to(`live:session:${sessionId}`).emit('live:viewer_count_updated', updatePayload);
         if (ack) ack({ success: true, data: { room: `live:session:${sessionId}`, ...updatePayload } });
       } catch (error: any) {
@@ -1207,6 +1291,14 @@ communityNs.on('connection', async (socket) => {
           viewerCount: Number(activeViewerCount || 0),
           emittedAt: new Date().toISOString()
         };
+        void appendLiveDiagnosticsEvent(sessionId, {
+          source: 'backend',
+          stage: 'socket:leave',
+          severity: 'info',
+          userId,
+          socketId: socket.id,
+          message: 'Socket left livestream session.'
+        }).catch(() => null);
         communityNs.to(`live:session:${sessionId}`).emit('live:participant_left', updatePayload);
         communityNs.to(`live:session:${sessionId}`).emit('live:viewer_count_updated', updatePayload);
         if (ack) ack({ success: true, data: updatePayload });
@@ -1224,20 +1316,71 @@ communityNs.on('connection', async (socket) => {
         const fromUserId = resolveSocketUserId(socket);
         const sessionId = String(payload?.sessionId || '').trim();
         const toUserId = String(payload?.toUserId || '').trim();
+        const toSocketId = String(payload?.toSocketId || '').trim();
         const signal = payload?.signal;
-        if (!fromUserId || !sessionId || !toUserId || !signal) {
-          if (ack) ack({ success: false, error: 'sessionId, toUserId and signal are required.' });
+        if (!fromUserId || !sessionId || (!toUserId && !toSocketId) || !signal) {
+          if (ack) ack({ success: false, error: 'sessionId, signal, and a target user/socket are required.' });
           return;
         }
         const relayPayload = {
+          signalId: createHash('sha256')
+            .update(`${sessionId}:${fromUserId}:${toUserId || toSocketId}:${Date.now()}:${Math.random()}`)
+            .digest('hex')
+            .slice(0, 20),
           sessionId,
           fromUserId,
-          toUserId,
+          fromSocketId: socket.id,
+          toUserId: toUserId || null,
+          toSocketId: toSocketId || null,
           signal,
           emittedAt: new Date().toISOString()
         };
-        communityNs.to(`community:user:${toUserId}`).emit('live:signal', relayPayload);
-        if (ack) ack({ success: true });
+        let directDeliveries = 0;
+        if (toSocketId) {
+          communityNs.to(toSocketId).emit('live:signal', relayPayload);
+          directDeliveries = 1;
+        } else if (toUserId) {
+          directDeliveries = emitToCommunityUserSockets(toUserId, 'live:signal', relayPayload);
+          if (!directDeliveries) {
+            communityNs.to(`community:user:${toUserId}`).emit('live:signal', relayPayload);
+          }
+        }
+        traceMessages('live.signal', {
+          socketId: socket.id,
+          sessionId,
+          fromUserId,
+          toUserId,
+          toSocketId,
+          signalKind: String(signal?.kind || '').trim().toLowerCase(),
+          directDeliveries
+        });
+        void appendLiveDiagnosticsEvent(sessionId, {
+          source: 'backend',
+          stage: directDeliveries ? 'signal:relay' : 'signal:fallback',
+          severity: directDeliveries ? 'info' : 'warn',
+          userId: fromUserId,
+          socketId: socket.id,
+          signalKind: String(signal?.kind || '').trim().toLowerCase() || null,
+          reason: directDeliveries ? null : 'room_fallback',
+          message: directDeliveries
+            ? 'Signal relayed to target socket.'
+            : 'Signal fell back to user room delivery.',
+          details: {
+            directDeliveries,
+            toUserId: toUserId || null,
+            toSocketId: toSocketId || null
+          }
+        }).catch(() => null);
+        if (ack) {
+          ack({
+            success: true,
+            data: {
+              deliveredTo: directDeliveries
+                ? [`direct-sockets:${directDeliveries}`]
+                : [`community:user:${toUserId}`]
+            }
+          });
+        }
       } catch (error: any) {
         console.error('live:signal error', error);
         if (ack) ack({ success: false, error: error?.message || 'Failed to relay signal.' });
@@ -2038,12 +2181,31 @@ communityNs.on('connection', async (socket) => {
     void handleSignal();
   });
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', (reason) => {
     traceMessages('socket.disconnected', {
       socketId: socket.id,
       userId: (socket as any).data?.presenceUserId || (socket as any).data?.user?.id || null
     });
+    const joinedRooms = Array.from(socket.rooms.values()).filter((room) => room.startsWith('live:session:'));
+    const disconnectedUserId =
+      (socket as any).data?.presenceUserId || (socket as any).data?.user?.id || null;
+    joinedRooms.forEach((room) => {
+      const sessionId = room.replace('live:session:', '').trim();
+      if (!sessionId) return;
+      void appendLiveDiagnosticsEvent(sessionId, {
+        source: 'server',
+        stage: 'socket:disconnect',
+        severity: 'warn',
+        userId: disconnectedUserId,
+        socketId: socket.id,
+        reason: String(reason || '').trim() || 'disconnect',
+        message: 'Socket disconnected while attached to livestream session.'
+      }).catch(() => null);
+    });
     const presenceUserId = (socket as any).data?.presenceUserId || (socket as any).data?.user?.id;
+    if (presenceUserId) {
+      unregisterCommunityUserSocket(presenceUserId, socket.id);
+    }
     if (presenceUserId) {
       void markPresenceOffline(presenceUserId);
     }
@@ -2057,23 +2219,7 @@ setInterval(() => {
 // Socket auth: verify JWT if provided, attach user to socket.data.user
 io.use(async (socket, next) => {
   try {
-    const hs = socket.handshake as any;
-    const tokenRaw = (hs.auth && hs.auth.token) || (hs.query && hs.query.token) || '';
-    const token = tokenRaw && tokenRaw.toString().startsWith('Bearer ') ? tokenRaw.toString().slice('Bearer '.length) : tokenRaw;
-    if (!token) return next(); // allow unauthenticated sockets for public use
-    const secret = process.env.JWT_SECRET || 'dev_jwt_secret';
-    let decoded: any = null;
-    try {
-      decoded = jwt.verify(token, secret) as any;
-    } catch (e) {
-      console.warn('Socket JWT verification failed:', (e as any)?.message ?? String(e));
-      return next(new Error('unauthorized'));
-    }
-    if (!decoded || !decoded.id) return next(new Error('unauthorized'));
-    const user = await prisma.user.findUnique({ where: { id: decoded.id }, select: { id: true, email: true, role: true, isActive: true } });
-    if (!user || !user.isActive) return next(new Error('unauthorized'));
-    (socket as any).data = (socket as any).data || {};
-    (socket as any).data.user = { id: user.id, role: user.role, email: user.email };
+    await authenticateSocketFromHandshake(socket);
     return next();
   } catch (err) {
     console.error('Socket auth error:', err);
@@ -2474,10 +2620,13 @@ app.use('/api/dev', devRoutes);
 app.use('/api/oauth', oauthDevRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/location', locationRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/marketing', marketingPublicRoutes);
 app.use('/api/commerce', commerceRoutes);
 app.use('/api/feed', feedRoutes);
+app.use('/api/topics', topicsRoutes);
+app.use('/api/pipeline', pipelineRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/gigs', gigRoutes);

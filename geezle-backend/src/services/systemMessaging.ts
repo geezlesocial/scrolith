@@ -3,6 +3,13 @@ import realtime from '../utils/realtime';
 import { sendSystemEmail } from './email.service';
 import { sendPushToUser } from './pushNotifications';
 import {
+  absolutizeContextUrls,
+  buildNotificationActionUrl,
+  extractActionUrlCandidate,
+  normalizeNotificationActionUrl,
+  toAbsoluteFrontendUrl
+} from './notificationActionUrl.service';
+import {
   SystemMessagesConfig,
   defaultSystemMessagesConfig,
   normalizeSystemMessagesConfig
@@ -87,21 +94,23 @@ const buildContext = (
   user: UserIdentity | null,
   actionUrl?: string
 ): SystemMessageContext => {
+  const normalizedBase = absolutizeContextUrls(base || {});
   const platform = {
     name: process.env.PLATFORM_NAME || 'Scrolith',
-    url: process.env.PLATFORM_URL || 'https://Scrolith.com'
+    url: toAbsoluteFrontendUrl('/') || 'https://scrolith.com'
   };
+  const absoluteActionUrl = toAbsoluteFrontendUrl(actionUrl);
   return {
-    ...(base || {}),
-    platform: { ...platform, ...(base?.platform || {}) },
+    ...normalizedBase,
+    platform: { ...platform, ...(normalizedBase?.platform || {}) },
     user: {
       id: user?.id,
       name: user?.name || user?.email || 'Scrolith User',
       email: user?.email
     },
     notification: {
-      ...(base?.notification || {}),
-      link: base?.notification?.link || actionUrl
+      ...(normalizedBase?.notification || {}),
+      link: normalizedBase?.notification?.link || absoluteActionUrl
     }
   };
 };
@@ -116,20 +125,35 @@ export const sendSystemMessage = async (input: SendSystemMessageInput): Promise<
   const user = await resolveUserIdentity(input.userId, input.user);
   const targetUserId = input.userId || user?.id || null;
   const settings = await resolveUserSettings(targetUserId);
-  const context = buildContext(input.context, user, input.actionUrl);
   const isMessageNotification =
     input.templateKey === 'new_message' || String(input.typeOverride || '').trim().toLowerCase() === 'message';
-  const contextualPreview = String(context?.message?.preview || '').trim();
-  const contextualTitle = String(context?.sender?.name || '').trim();
+  const rawContext = input.context && typeof input.context === 'object' ? input.context : undefined;
+  const contextualPreview = String(rawContext?.message?.preview || '').trim();
+  const contextualTitle = String(rawContext?.sender?.name || '').trim();
   const fallbackTitle = isMessageNotification
     ? `New message${contextualTitle ? ` from ${contextualTitle}` : ''}`
     : template.label;
   const fallbackMessage = isMessageNotification ? contextualPreview || 'You received a new message.' : '';
-  const actionUrl = input.actionUrl || context?.notification?.link;
+  const actionUrl =
+    normalizeNotificationActionUrl(
+      input.actionUrl ||
+        extractActionUrlCandidate(input.context) ||
+        buildNotificationActionUrl(input.typeOverride || input.templateKey, {
+          ...(rawContext || {}),
+          ...(input.meta && typeof input.meta === 'object' ? input.meta : {})
+        })
+    ) || undefined;
   const notificationMeta = {
     ...(input.meta && typeof input.meta === 'object' ? input.meta : {}),
-    ...(actionUrl ? { actionUrl } : {})
+    ...(actionUrl
+      ? {
+          actionUrl,
+          action_url: actionUrl,
+          link: actionUrl
+        }
+      : {})
   };
+  const context = buildContext(input.context, user, actionUrl);
 
   const emailAllowed =
     input.templateKey === 'password_reset' || settings?.emailNotifications !== false;

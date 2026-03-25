@@ -1,5 +1,6 @@
 import realtime from './realtime';
 import { sendPushToAdmins, sendPushToUser } from '../services/pushNotifications';
+import { buildNotificationActionUrl, normalizeNotificationActionUrl } from '../services/notificationActionUrl.service';
 
 const buildId = () => `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const nowIso = () => new Date().toISOString();
@@ -17,15 +18,24 @@ export type NotificationPayload = {
   createdAt?: string;
 };
 
-const normalizePayload = (payload: NotificationPayload) => ({
-  id: payload.id || buildId(),
-  type: payload.type || 'system',
-  title: payload.title || 'Notification',
-  body: payload.body || payload.message || '',
-  link: payload.link || payload.actionUrl || payload.action_url,
-  meta: payload.meta || undefined,
-  createdAt: payload.createdAt || nowIso()
-});
+const normalizePayload = (payload: NotificationPayload) => {
+  const type = payload.type || 'system';
+  const actionUrl =
+    normalizeNotificationActionUrl(payload.actionUrl || payload.action_url || payload.link) ||
+    buildNotificationActionUrl(type, payload.meta);
+
+  return {
+    id: payload.id || buildId(),
+    type,
+    title: payload.title || 'Notification',
+    body: payload.body || payload.message || '',
+    actionUrl,
+    action_url: actionUrl,
+    link: actionUrl,
+    meta: payload.meta || undefined,
+    createdAt: payload.createdAt || nowIso()
+  };
+};
 
 export const notifyUser = (userId: string | undefined | null, payload: NotificationPayload) => {
   if (!userId) return;

@@ -1,4 +1,5 @@
 import express from 'express';
+import { idempotency } from '../middleware/idempotency';
 import {
   listConversations,
   getConversation,
@@ -18,6 +19,7 @@ import { getVoiceRuntimeConfig, listVoiceCalls, postVoiceNoteMessage } from '../
 import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = express.Router();
+const SOCIAL_WRITE_IDEMPOTENCY_TTL_MS = 2 * 60 * 1000;
 
 router.get('/conversations', authMiddleware, listConversations);
 router.get('/voice/config', authMiddleware, getVoiceRuntimeConfig);
@@ -31,7 +33,7 @@ router.post('/conversations/:id/unread', authMiddleware, markConversationUnread)
 router.patch('/conversations/:id/preferences', authMiddleware, updateConversationPreferences);
 router.post('/conversations/:id/report-block', authMiddleware, reportBlockConversation);
 router.delete('/conversations/:id', authMiddleware, deleteConversationForUser);
-router.post('/conversations/:id/messages/:messageId/reactions', authMiddleware, toggleReaction);
+router.post('/conversations/:id/messages/:messageId/reactions', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), toggleReaction);
 router.patch('/conversations/:id/messages/:messageId', authMiddleware, editMessage);
 router.post('/conversations/:id/messages/:messageId/copy', authMiddleware, copyMessage);
 router.delete('/conversations/:id/messages/:messageId', authMiddleware, deleteMessage);

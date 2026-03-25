@@ -118,7 +118,7 @@ const searchPosts = async (q: string, limit: number) => {
       title: post.title || snippet || 'Post',
       subtitle: snippet,
       description: snippet,
-      url: `/community/posts/${post.id}`,
+      url: `/post/${post.id}`,
       createdAt: post.createdAt
     };
   });
@@ -445,7 +445,7 @@ const resolveRecommendations = async (req: Request, res: Response) => {
             type: 'post',
             title: post.title || snippet || 'New post from your network',
             snippet,
-            url: `/community/posts/${post.id}`,
+            url: `/post/${post.id}`,
             relevance: 0.95
           });
         });

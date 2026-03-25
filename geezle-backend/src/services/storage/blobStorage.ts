@@ -88,9 +88,28 @@ export async function deleteBlobByName(blobName?: string | null) {
   });
 }
 
+export async function blobExistsByName(blobName: string) {
+  const container = getContainerClient();
+  const normalized = normalizeBlobName(blobName);
+  return container.getBlobClient(normalized).exists();
+}
+
+export async function getBlobPropertiesByName(blobName: string) {
+  const container = getContainerClient();
+  const normalized = normalizeBlobName(blobName);
+  return container.getBlobClient(normalized).getProperties();
+}
+
 export async function downloadBlobByName(blobName: string) {
   const container = getContainerClient();
   const normalized = normalizeBlobName(blobName);
   const blobClient = container.getBlobClient(normalized);
   return blobClient.download();
+}
+
+export async function downloadBlobBufferByName(blobName: string) {
+  const container = getContainerClient();
+  const normalized = normalizeBlobName(blobName);
+  const blobClient = container.getBlobClient(normalized);
+  return blobClient.downloadToBuffer();
 }

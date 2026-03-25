@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { createEngagementNotification } from '../services/engagementNotifications.service';
+import { recordFeedIntentSignal } from '../services/opportunityGraph.service';
 
 const ok = (res: Response, message: string, data?: any) => res.json({ success: true, message, data: data ?? {} });
 const fail = (res: Response, status: number, message: string, error?: any) =>
@@ -59,6 +60,19 @@ const resolveAuthorTarget = (post: { authorId: string; businessPageId?: string |
   return { targetType: 'user' as const, targetId: post.authorId, authorUserId: post.authorId };
 };
 
+const buildPostIntentMeta = (post: Awaited<ReturnType<typeof getActivePostOrFail>>) => ({
+  topics: Array.from(
+    new Set(
+      [post?.topic, ...(Array.isArray(post?.tags) ? post.tags : [])]
+        .map((entry) => normalizeId(entry))
+        .filter(Boolean)
+    )
+  ),
+  authorId: normalizeId(post?.authorId),
+  businessPageId: normalizeId(post?.businessPageId),
+  visibility: normalizeId(post?.visibility)
+});
+
 export const savePost = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
@@ -75,6 +89,15 @@ export const savePost = async (req: Request, res: Response) => {
       update: {},
       create: { userId, entityType: 'POST', entityId: post.id }
     });
+
+    await recordFeedIntentSignal({
+      userId,
+      entityType: 'POST',
+      entityId: post.id,
+      signal: 'SAVE',
+      surface: 'post_options',
+      meta: buildPostIntentMeta(post)
+    }).catch(() => null);
 
     return ok(res, 'Post saved', { saved: true, favoriteId: favorite.id });
   } catch (error: any) {
@@ -144,6 +167,16 @@ export const markInterested = async (req: Request, res: Response) => {
       create: { postId: post.id, userId, signal: 'INTERESTED' }
     });
 
+    await recordFeedIntentSignal({
+      userId,
+      entityType: 'POST',
+      entityId: post.id,
+      signal: 'INTERESTED',
+      surface: 'post_options',
+      weight: 1.25,
+      meta: buildPostIntentMeta(post)
+    }).catch(() => null);
+
     return ok(res, 'Thanks for your feedback', { signal: row.signal });
   } catch (error: any) {
     console.error('[posts.markInterested] error:', error);
@@ -171,6 +204,16 @@ export const markNotInterested = async (req: Request, res: Response) => {
       update: {},
       create: { postId: post.id, userId }
     });
+
+    await recordFeedIntentSignal({
+      userId,
+      entityType: 'POST',
+      entityId: post.id,
+      signal: 'NOT_INTERESTED',
+      surface: 'post_options',
+      weight: 1.5,
+      meta: buildPostIntentMeta(post)
+    }).catch(() => null);
 
     return ok(res, 'We will show you fewer posts like this', { signal: row.signal, hidden: true });
   } catch (error: any) {
@@ -257,6 +300,15 @@ export const followAuthor = async (req: Request, res: Response) => {
       };
       try { realtime.emitToUser(userId, 'community:follow_updated', payload); } catch {}
       try { realtime.emitToUser(target.targetId, 'community:follow_updated', payload); } catch {}
+      await recordFeedIntentSignal({
+        userId,
+        entityType: 'USER',
+        entityId: target.targetId,
+        signal: 'FOLLOW_AUTHOR',
+        surface: 'post_options',
+        weight: 1.5,
+        meta: buildPostIntentMeta(post)
+      }).catch(() => null);
       return ok(res, 'Following author', { isFollowing: true, targetType: 'user', targetId: target.targetId });
     }
 
@@ -264,6 +316,15 @@ export const followAuthor = async (req: Request, res: Response) => {
     if (!existing) {
       await prisma.communityBusinessPageFollower.create({ data: { userId, pageId: target.targetId } });
     }
+    await recordFeedIntentSignal({
+      userId,
+      entityType: 'PAGE',
+      entityId: target.targetId,
+      signal: 'FOLLOW_AUTHOR',
+      surface: 'post_options',
+      weight: 1.5,
+      meta: buildPostIntentMeta(post)
+    }).catch(() => null);
     return ok(res, 'Following page', { isFollowing: true, targetType: 'page', targetId: target.targetId });
   } catch (error: any) {
     console.error('[posts.followAuthor] error:', error);
@@ -394,6 +455,58 @@ export const whyThisPost = async (req: Request, res: Response) => {
     } else {
       const follow = await prisma.communityBusinessPageFollower.findFirst({ where: { userId, pageId: target.targetId }, select: { id: true } });
       if (follow) reasons.push({ id: 'follow_page', label: 'You follow this page.' });
+    }
+
+    const topicLabels = Array.from(new Set([post.topic, ...(Array.isArray(post.tags) ? post.tags : [])].map((entry) => normalizeId(entry)).filter(Boolean)));
+    if (topicLabels.length) {
+      const followedTopics = await prisma.topicFollow.findMany({
+        where: { userId },
+        select: { id: true, topic: { select: { label: true, slug: true } } },
+        take: 100
+      }).catch(() => []);
+
+      const matchingFollowedTopics = followedTopics.filter((row: any) => {
+        const label = normalizeId(row.topic?.label).toLowerCase();
+        const slug = normalizeId(row.topic?.slug).toLowerCase();
+        return topicLabels.some((entry) => {
+          const normalized = entry.toLowerCase();
+          return normalized === label || normalized === slug;
+        });
+      });
+
+      if (matchingFollowedTopics.length) {
+        const labels = matchingFollowedTopics.map((row: any) => row.topic?.label).filter(Boolean).slice(0, 2);
+        reasons.push({
+          id: 'followed_topics',
+          label: labels.length
+            ? `This post matches topics you follow: ${labels.join(', ')}.`
+            : 'This post matches topics you follow.'
+        });
+      }
+
+      const signalRows = await prisma.feedIntentSignal.findMany({
+        where: {
+          userId,
+          signal: { in: ['INTERESTED', 'SAVE', 'FOLLOW_AUTHOR'] },
+          createdAt: { gte: new Date(Date.now() - 1000 * 60 * 60 * 24 * 45) }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 80,
+        select: { meta: true }
+      }).catch(() => []);
+
+      const interestedTopics = new Set<string>();
+      signalRows.forEach((row: any) => {
+        const topics = Array.isArray(row?.meta?.topics) ? row.meta.topics : [];
+        topics.forEach((entry: unknown) => {
+          const normalized = normalizeId(entry).toLowerCase();
+          if (normalized) interestedTopics.add(normalized);
+        });
+      });
+
+      if (topicLabels.some((entry) => interestedTopics.has(entry.toLowerCase()))) {
+        reasons.push({ id: 'recent_interest', label: 'This post matches topics you recently saved or explored.' });
+      }
     }
 
     // Trending heuristic

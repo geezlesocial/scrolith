@@ -44,18 +44,12 @@ describe('Idempotency middleware', () => {
         create: jest.fn().mockImplementation(async ({ data }: any) => ({ id: 'ad-1', ...data }))
       },
       adPayment: {
-        findFirst: jest.fn().mockImplementation(async () => {
-          try { console.log('[mockPrisma] findFirst called, createdPayment=', createdPayment); } catch (e) {}
-          return createdPayment;
-        }),
+        findFirst: jest.fn().mockImplementation(async () => createdPayment),
         create: jest.fn().mockImplementation(async ({ data }: any) => {
-          try { console.log('[mockPrisma] create called with', data); } catch (e) {}
           createdPayment = { id: 'pay-1', ...data };
           return createdPayment;
-        })
-        ,
+        }),
         findMany: jest.fn().mockImplementation(async ({ where }: any) => {
-          try { console.log('[mockPrisma] findMany called, createdPayment=', createdPayment); } catch (e) {}
           if (!createdPayment) return [];
           if (!where || where.adId === createdPayment.adId) return [createdPayment];
           return [];
@@ -76,22 +70,21 @@ describe('Idempotency middleware', () => {
       }));
     });
 
-    // Now import the routes with prisma mocked
-    const adsRouter = (await import('../routes/community')).default;
-    const { authMiddleware } = await import('../middleware/auth.middleware');
+    // Import the focused ads router instead of the full community router.
+    const adsRouter = (await import('../routes/community/ads')).default;
 
     const app = express();
     app.use(bodyParser.json());
-    // mount auth middleware to populate req.user (dev bypass)
-    app.use(authMiddleware);
-    // mount the community routes under /api/community similar to server
-    app.use('/api/community', adsRouter);
+    app.use((req: any, _res, next) => {
+      req.user = { id: 'dev-user-id-123', role: 'FREELANCER', isActive: true };
+      next();
+    });
+    app.use('/api/community/ads', adsRouter);
 
     const agent = request(app);
     const key = 'idem-ad-pay-456';
 
-    // create an ad first (using the router's draft endpoint under /ads)
-    // The draft route requires auth; auth middleware will call prisma.user.upsert which we've mocked
+    // create an ad first (using the focused ads router under /ads)
     const draftRes = await agent.post('/api/community/ads/draft').set('x-dev-role', 'freelancer').send({ title: 'x', placement: 'home' });
     expect(draftRes.status).toBe(200);
 

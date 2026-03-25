@@ -1,0 +1,5 @@
+ALTER TABLE "CommunityPost"
+ADD COLUMN IF NOT EXISTS "offerTags" JSONB;
+
+ALTER TABLE "ScrollVideo"
+ADD COLUMN IF NOT EXISTS "offerTags" JSONB;
