@@ -102,6 +102,15 @@ import {
   MAX_MESSENGER_VOICE_PARTICIPANTS
 } from './services/messengerVoice.service';
 import { appendLiveDiagnosticsEvent } from './services/liveDiagnostics.service';
+import {
+  recordPresenceLease,
+  recordRealtimeEventDelivery,
+  recordRealtimeIncident,
+  recordRealtimeSocketConnected,
+  recordRealtimeSocketDisconnected,
+  touchRealtimeSocketRooms,
+  releasePresenceLease
+} from './services/realtimeOps.service';
 // Restart trigger comment (no-op) to force ts-node-dev reload when modified during debugging
 
 
@@ -385,20 +394,23 @@ const shouldEmitTypingEvent = (conversationId: string, userId: string, isTyping:
 
 const emitPresenceUpdate = (userId: string, isOnline: boolean, lastSeenAt?: Date) => {
   try {
-    communityNs.to('community:global').emit('presence:update', {
+    const payload = {
       userId,
       isOnline,
       lastSeenAt: lastSeenAt ? lastSeenAt.toISOString() : undefined
+    };
+    const rooms = ['community:global', 'community:admin', `community:user:${userId}`];
+    rooms.forEach((room) => {
+      communityNs.to(room).emit('presence:update', payload);
+      communityNs.to(room).emit('presence:updated', payload);
     });
-    communityNs.to('community:admin').emit('presence:update', {
-      userId,
-      isOnline,
-      lastSeenAt: lastSeenAt ? lastSeenAt.toISOString() : undefined
-    });
-    communityNs.to(`community:user:${userId}`).emit('presence:update', {
-      userId,
-      isOnline,
-      lastSeenAt: lastSeenAt ? lastSeenAt.toISOString() : undefined
+    void recordRealtimeEventDelivery({
+      namespace: 'community',
+      roomKey: 'presence:broadcast',
+      eventName: 'presence:updated',
+      targetCount: rooms.length,
+      payload,
+      triggeredBy: 'runtime'
     });
   } catch (e) {
     console.warn('Failed to emit presence update', e);
@@ -906,6 +918,23 @@ communityNs.on('connection', (socket) => {
     role: (socket as any).data?.user?.role || null
   });
   const normalizeRole = (value: any) => String(value || '').toLowerCase();
+  const syncRealtimeRooms = () => {
+    const rooms = Array.from(socket.rooms.values()).filter((room) => room !== socket.id);
+    void touchRealtimeSocketRooms(socket.id, rooms);
+    const presenceUserId = String((socket as any).data?.presenceUserId || '').trim();
+    if (presenceUserId) {
+      void recordPresenceLease({
+        socketId: socket.id,
+        userId: presenceUserId,
+        namespace: 'community',
+        rooms,
+        metadata: {
+          role: (socket as any).data?.user?.role || null,
+          transport: socket.conn?.transport?.name || null
+        }
+      });
+    }
+  };
   const joinCommunityRooms = (requested: string, isAdmin: boolean) => {
     socket.join(`community:user:${requested}`);
     socket.join('community:global');
@@ -944,6 +973,30 @@ communityNs.on('connection', (socket) => {
   } catch (e) {
     console.warn('communityNs auto-join failed:', e);
   }
+
+  void recordRealtimeSocketConnected({
+    socketId: socket.id,
+    namespace: 'community',
+    userId: (socket as any).data?.user?.id || null,
+    role: (socket as any).data?.user?.role || null,
+    transport: socket.conn?.transport?.name || null,
+    authSource: 'jwt',
+    isAuthenticated: Boolean((socket as any).data?.user?.id),
+    rooms: Array.from(socket.rooms.values()).filter((room) => room !== socket.id),
+    handshakeQuery: socket.handshake.query,
+    metadata: {
+      address: socket.handshake.address || null,
+      userAgent: String(socket.handshake.headers?.['user-agent'] || '')
+    }
+  });
+  syncRealtimeRooms();
+  communityNs.to('community:admin').emit('realtime:session_changed', {
+    action: 'connected',
+    namespace: 'community',
+    socketId: socket.id,
+    userId: (socket as any).data?.user?.id || null,
+    role: (socket as any).data?.user?.role || null
+  });
 
   releaseSocketRequest(socket);
 
@@ -1000,6 +1053,18 @@ communityNs.on('connection', (socket) => {
         targets.forEach((targetUserId) => {
           communityNs.to(`community:user:${targetUserId}`).emit('messages:typing', typingPayload);
         });
+        void recordRealtimeEventDelivery({
+          namespace: 'community',
+          roomKey: `conversation:${conversationId}`,
+          eventName: 'messages:typing',
+          targetCount: targets.length,
+          payload: {
+            ...typingPayload,
+            targets
+          },
+          triggeredBy: 'runtime',
+          persist: false
+        });
         traceMessages('socket.messages_typing', {
           socketId: socket.id,
           userId,
@@ -1036,6 +1101,7 @@ communityNs.on('connection', (socket) => {
           (socket as any).data.presenceMarked = true;
           void markPresenceOnline(identity);
         }
+        syncRealtimeRooms();
       } catch (e) {
         console.error('community:join error (community ns):', e);
       }
@@ -1056,6 +1122,7 @@ communityNs.on('connection', (socket) => {
           socket.join(requested);
           socket.emit('joined', { room: `wallet:${requested}` });
           console.log(`Socket ${socket.id} joined wallet:${requested}`);
+          syncRealtimeRooms();
         } else {
           socket.emit('error', { code: 'FORBIDDEN', message: 'Not authorized to join wallet room' });
         }
@@ -1088,6 +1155,7 @@ communityNs.on('connection', (socket) => {
           socket.join(`post:${postId}`);
           socket.emit('joined', { room: `post:${postId}` });
           console.log(`Socket ${socket.id} joined post:${postId}`);
+          syncRealtimeRooms();
         } else {
           socket.emit('error', { code: 'FORBIDDEN', message: 'Not authorized to join post room' });
         }
@@ -1119,6 +1187,7 @@ communityNs.on('connection', (socket) => {
           socket.join(`ad:${adId}`);
           socket.emit('joined', { room: `ad:${adId}` });
           console.log(`Socket ${socket.id} joined ad:${adId}`);
+          syncRealtimeRooms();
         } else {
           socket.emit('error', { code: 'FORBIDDEN', message: 'Not authorized to join ad room' });
         }
@@ -2208,7 +2277,18 @@ communityNs.on('connection', (socket) => {
     }
     if (presenceUserId) {
       void markPresenceOffline(presenceUserId);
+      void releasePresenceLease(socket.id, {
+        reason: String(reason || '').trim() || 'disconnect'
+      });
     }
+    void recordRealtimeSocketDisconnected(socket.id, String(reason || '').trim() || 'disconnect');
+    communityNs.to('community:admin').emit('realtime:session_changed', {
+      action: 'disconnected',
+      namespace: 'community',
+      socketId: socket.id,
+      userId: presenceUserId || null,
+      reason: String(reason || '').trim() || 'disconnect'
+    });
   });
 });
 
@@ -2240,6 +2320,30 @@ io.engine.on('connection_error', (err) => {
     message: err.message,
     context: err.context,
     timestamp: new Date().toISOString()
+  });
+  void recordRealtimeIncident({
+    code: String(err.code || 'SOCKET_IO_CONNECTION_ERROR'),
+    severity: 'ERROR',
+    source: 'socket.io',
+    message: String(err.message || 'Socket.io connection error'),
+    details: err.context || null
+  }).then((incident) => {
+    io.emit('realtime:incident_opened', {
+      action: 'opened',
+      incidentId: incident.id,
+      code: incident.code,
+      severity: incident.severity,
+      source: incident.source
+    });
+    communityNs.to('community:admin').emit('realtime:incident_opened', {
+      action: 'opened',
+      incidentId: incident.id,
+      code: incident.code,
+      severity: incident.severity,
+      source: incident.source
+    });
+  }).catch((error) => {
+    console.warn('Failed to persist realtime incident', error);
   });
 });
 
@@ -2761,6 +2865,10 @@ io.on('connection', (socket) => {
   try {
     console.log(`Socket connected: ${socket.id} - Transport: ${socket.conn.transport.name}`);
     console.log(`Total connections: ${io.engine.clientsCount}`);
+    const syncRootRealtimeRooms = () => {
+      const rooms = Array.from(socket.rooms.values()).filter((room) => room !== socket.id);
+      void touchRealtimeSocketRooms(socket.id, rooms);
+    };
 
     socket.emit('connected', { 
       id: socket.id,
@@ -2775,6 +2883,36 @@ io.on('connection', (socket) => {
     });
 
     releaseSocketRequest(socket);
+
+    void recordRealtimeSocketConnected({
+      socketId: socket.id,
+      namespace: 'root',
+      userId: (socket as any).data?.user?.id || null,
+      role: (socket as any).data?.user?.role || null,
+      transport: socket.conn.transport.name,
+      authSource: (socket as any).data?.user?.id ? 'jwt' : 'guest',
+      isAuthenticated: Boolean((socket as any).data?.user?.id),
+      rooms: Array.from(socket.rooms.values()).filter((room) => room !== socket.id),
+      handshakeQuery: socket.handshake.query,
+      metadata: {
+        address: socket.handshake.address || null,
+        userAgent: String(socket.handshake.headers?.['user-agent'] || '')
+      }
+    });
+    io.emit('realtime:session_changed', {
+      action: 'connected',
+      namespace: 'root',
+      socketId: socket.id,
+      userId: (socket as any).data?.user?.id || null,
+      role: (socket as any).data?.user?.role || null
+    });
+    communityNs.to('community:admin').emit('realtime:session_changed', {
+      action: 'connected',
+      namespace: 'root',
+      socketId: socket.id,
+      userId: (socket as any).data?.user?.id || null,
+      role: (socket as any).data?.user?.role || null
+    });
 
     const heartbeatInterval = setInterval(() => {
       if (socket.connected) {
@@ -2806,6 +2944,7 @@ io.on('connection', (socket) => {
         socket.join('community:ads');
         if (isAdmin) socket.join('community:admin');
         socket.emit('joined', { rooms: ['community:global', 'community:ads', `community:user:${requested}`] });
+        syncRootRealtimeRooms();
       } catch (e) {
         console.error('community:join error (root ns):', e);
       }
@@ -2815,6 +2954,7 @@ io.on('connection', (socket) => {
       try {
         socket.join(roomId);
         console.log(`User ${socket.id} joined room ${roomId}`);
+        syncRootRealtimeRooms();
       } catch (error) {
         console.error(`Error joining room ${roomId}:`, error);
       }
@@ -2834,6 +2974,7 @@ io.on('connection', (socket) => {
             socket.join(requested); // legacy user room
             socket.emit('joined', { room: `wallet:${requested}` });
             console.log(`Socket ${socket.id} joined wallet:${requested}`);
+            syncRootRealtimeRooms();
           } else {
             socket.emit('error', { code: 'FORBIDDEN', message: 'Not authorized to join wallet room' });
           }
@@ -2866,6 +3007,7 @@ io.on('connection', (socket) => {
             socket.join(`post:${postId}`);
             socket.emit('joined', { room: `post:${postId}` });
             console.log(`Socket ${socket.id} joined post:${postId}`);
+            syncRootRealtimeRooms();
           } else {
             socket.emit('error', { code: 'FORBIDDEN', message: 'Not authorized to join post room' });
           }
@@ -2896,6 +3038,7 @@ io.on('connection', (socket) => {
             socket.join(`ad:${adId}`);
             socket.emit('joined', { room: `ad:${adId}` });
             console.log(`Socket ${socket.id} joined ad:${adId}`);
+            syncRootRealtimeRooms();
           } else {
             socket.emit('error', { code: 'FORBIDDEN', message: 'Not authorized to join ad room' });
           }
@@ -2912,6 +3055,7 @@ io.on('connection', (socket) => {
         socket.leave(roomId);
         socket.emit('left', { room: roomId });
         console.log(`Socket ${socket.id} left room ${roomId}`);
+        syncRootRealtimeRooms();
       } catch (e) {
         console.error('leave-room error:', e);
       }
@@ -2922,6 +3066,15 @@ io.on('connection', (socket) => {
         console.log(`Message from ${socket.id}:`, data);
         if (data.roomId) {
           io.to(data.roomId).emit('message', data);
+          void recordRealtimeEventDelivery({
+            namespace: 'root',
+            roomKey: String(data.roomId || '').trim() || null,
+            eventName: 'message',
+            targetCount: 1,
+            payload: data,
+            triggeredBy: 'runtime',
+            persist: false
+          });
         }
       } catch (error) {
         console.error('Error handling message:', error);
@@ -2959,10 +3112,35 @@ io.on('connection', (socket) => {
         remainingConnections: io.engine.clientsCount
       });
       console.log(`Remaining connections: ${io.engine.clientsCount}`);
+      void recordRealtimeSocketDisconnected(socket.id, String(reason || '').trim() || 'disconnect');
+      io.emit('realtime:session_changed', {
+        action: 'disconnected',
+        namespace: 'root',
+        socketId: socket.id,
+        userId: (socket as any).data?.user?.id || null,
+        reason: String(reason || '').trim() || 'disconnect'
+      });
+      communityNs.to('community:admin').emit('realtime:session_changed', {
+        action: 'disconnected',
+        namespace: 'root',
+        socketId: socket.id,
+        userId: (socket as any).data?.user?.id || null,
+        reason: String(reason || '').trim() || 'disconnect'
+      });
     });
 
     socket.on('error', (error) => {
       console.error(`Socket error for ${socket.id}:`, error);
+      void recordRealtimeIncident({
+        code: 'SOCKET_RUNTIME_ERROR',
+        severity: 'ERROR',
+        source: 'socket',
+        message: String((error as any)?.message || error || 'Socket runtime error'),
+        details: {
+          socketId: socket.id,
+          namespace: 'root'
+        }
+      }).catch(() => null);
     });
   } catch (error) {
     console.error('Connection handler error:', error);

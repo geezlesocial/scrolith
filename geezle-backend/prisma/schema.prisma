@@ -4140,6 +4140,119 @@ model ReleaseRollout {
   @@index([createdByStaffId, createdAt])
 }
 
+model SocketSession {
+  id               String    @id @default(cuid())
+  socketId         String    @unique
+  namespace        String
+  userId           String?
+  role             String?
+  transport        String?
+  authSource       String?
+  isAuthenticated  Boolean   @default(false)
+  rooms            String[]
+  handshakeQuery   Json?
+  metadata         Json?
+  connectedAt      DateTime  @default(now())
+  disconnectedAt   DateTime?
+  disconnectReason String?
+  lastSeenAt       DateTime  @default(now())
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([namespace, connectedAt])
+  @@index([userId, connectedAt])
+  @@index([isAuthenticated, connectedAt])
+  @@index([disconnectedAt, connectedAt])
+}
+
+model PresenceLease {
+  id         String    @id @default(cuid())
+  socketId   String    @unique
+  userId     String
+  namespace  String
+  status     String    @default("ACTIVE")
+  rooms      String[]
+  metadata   Json?
+  acquiredAt DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  expiresAt  DateTime?
+  releasedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([userId, status, lastSeenAt])
+  @@index([namespace, status, lastSeenAt])
+  @@index([releasedAt])
+}
+
+model EventDelivery {
+  id                 String    @id @default(cuid())
+  namespace          String
+  roomKey            String?
+  eventName          String
+  status             String    @default("SENT")
+  targetCount        Int       @default(0)
+  triggeredBy        String    @default("system")
+  triggeredByStaffId String?
+  deliveryKey        String?
+  payload            Json?
+  metadata           Json?
+  occurredAt         DateTime  @default(now())
+  replayedAt         DateTime?
+  createdAt          DateTime  @default(now())
+
+  replayJobs DeliveryReplayJob[]
+
+  @@index([namespace, occurredAt])
+  @@index([eventName, occurredAt])
+  @@index([roomKey, occurredAt])
+  @@index([status, occurredAt])
+  @@index([triggeredByStaffId, occurredAt])
+}
+
+model RealtimeIncident {
+  id                String    @id @default(cuid())
+  code              String
+  severity          String    @default("ERROR")
+  status            String    @default("OPEN")
+  source            String    @default("socket")
+  message           String
+  notes             String?
+  details           Json?
+  occurrences       Int       @default(1)
+  firstSeenAt       DateTime  @default(now())
+  lastSeenAt        DateTime  @default(now())
+  resolvedAt        DateTime?
+  resolvedByStaffId String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([status, lastSeenAt])
+  @@index([source, status, lastSeenAt])
+  @@index([severity, status, lastSeenAt])
+  @@index([resolvedByStaffId, resolvedAt])
+}
+
+model DeliveryReplayJob {
+  id               String    @id @default(cuid())
+  deliveryId       String
+  namespace        String
+  roomKey          String?
+  eventName        String
+  status           String    @default("COMPLETED")
+  payload          Json?
+  result           Json?
+  createdByStaffId String?
+  createdAt        DateTime  @default(now())
+  completedAt      DateTime?
+
+  delivery EventDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@index([deliveryId, createdAt])
+  @@index([status, createdAt])
+  @@index([createdByStaffId, createdAt])
+}
+
 model ContentPolicy {
   id               String   @id @default(cuid())
   key              String   @unique
