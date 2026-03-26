@@ -1168,6 +1168,86 @@ export const AdminService = {
     return adminPost<any>('/config/releases', payload);
   },
 
+  getRealtimeOpsSummary: async (): Promise<any> => {
+    return adminGet<any>('/realtime/summary');
+  },
+
+  getRealtimeRuntime: async (): Promise<any> => {
+    return adminGet<any>('/realtime/runtime');
+  },
+
+  getRealtimeSocketSessions: async (params?: {
+    namespace?: string;
+    query?: string;
+    activeOnly?: boolean;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/realtime/socket-sessions', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  getRealtimePresenceLeases: async (params?: {
+    namespace?: string;
+    query?: string;
+    activeOnly?: boolean;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/realtime/presence', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  getRealtimeDeliveries: async (params?: {
+    namespace?: string;
+    eventName?: string;
+    status?: string;
+    query?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/realtime/deliveries', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  replayRealtimeDelivery: async (deliveryId: string): Promise<any> => {
+    return adminPost<any>(`/realtime/deliveries/${encodeURIComponent(deliveryId)}/replay`, {});
+  },
+
+  getRealtimeIncidents: async (params?: {
+    status?: string;
+    severity?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/realtime/incidents', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createRealtimeIncident: async (payload: {
+    code: string;
+    severity?: string;
+    source?: string;
+    message: string;
+    details?: any;
+  }): Promise<any> => {
+    return adminPost<any>('/realtime/incidents', payload);
+  },
+
+  resolveRealtimeIncident: async (
+    incidentId: string,
+    payload?: {
+      notes?: string | null;
+      status?: string;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/realtime/incidents/${encodeURIComponent(incidentId)}/resolve`, payload || {});
+  },
+
+  getRealtimeReplayJobs: async (params?: {
+    status?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/realtime/replays', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
   getMonetizationSettings: async (): Promise<any> => {
     return adminGet<any>('/monetization/settings');
   },

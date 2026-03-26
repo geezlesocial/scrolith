@@ -123,6 +123,11 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'config:snapshot_created', fn: forward('config:snapshot_created') }
       ,{ ev: 'config:rollback_completed', fn: forward('config:rollback_completed') }
       ,{ ev: 'config:release_logged', fn: forward('config:release_logged') }
+      ,{ ev: 'realtime:session_changed', fn: forward('realtime:session_changed') }
+      ,{ ev: 'realtime:incident_opened', fn: forward('realtime:incident_opened') }
+      ,{ ev: 'realtime:incident_resolved', fn: forward('realtime:incident_resolved') }
+      ,{ ev: 'delivery:replayed', fn: forward('delivery:replayed') }
+      ,{ ev: 'presence:updated', fn: forward('presence:updated') }
       ,{ ev: 'moderation:policy_updated', fn: forward('moderation:policy_updated') }
       ,{ ev: 'moderation:appeal_updated', fn: forward('moderation:appeal_updated') }
       ,{ ev: 'trust:profile_updated', fn: forward('trust:profile_updated') }
