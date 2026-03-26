@@ -1,6 +1,35 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import { serializeGig } from './gigs.controller';
+import { STANDARD_LISTING_CATEGORIES } from '../config/listingCategories';
+import { ensureStandardListingCategoriesSeeded } from '../services/defaultCategorySeed.service';
+
+const formatStandardCategoryFallback = (type: 'gig' | 'job') =>
+  STANDARD_LISTING_CATEGORIES.map((category, index) => ({
+    id: `${type}-standard-${index + 1}`,
+    name: category.name,
+    slug: category.name
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)+/g, ''),
+    type,
+    status: 'active',
+    count: 0,
+    sortOrder: index + 1,
+    subcategories: category.subcategories.map((subcategory, subIndex) => ({
+      id: `${type}-standard-${index + 1}-sub-${subIndex + 1}`,
+      name: subcategory,
+      slug: `${category.name}-${subcategory}`
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)+/g, ''),
+      status: 'active',
+      sortOrder: subIndex + 1
+    })),
+    description: category.description || undefined
+  }));
 
 export const getGigs = async (req: Request, res: Response) => {
   try {
@@ -67,9 +96,10 @@ export const getGigById = async (req: Request, res: Response) => {
 export const getCategories = async (req: Request, res: Response) => {
   try {
     const { type } = req.query;
+    await ensureStandardListingCategoriesSeeded();
     
     // Build where clause based on type filter
-    let whereClause: any = { isActive: true };
+    let whereClause: any = { isActive: true, parentId: null };
     
     if (type === 'gig') {
       whereClause.type = { in: ['GIG', 'BOTH'] };
@@ -93,7 +123,14 @@ export const getCategories = async (req: Request, res: Response) => {
       id: cat.id,
       name: cat.name,
       slug: cat.slug,
-      type: cat.type === 'JOB' ? 'job' : 'gig',
+      type:
+        type === 'job'
+          ? 'job'
+          : type === 'gig'
+          ? 'gig'
+          : cat.type === 'JOB'
+          ? 'job'
+          : 'gig',
       status: cat.isActive ? 'active' : 'hidden',
       count: 0, // TODO: Calculate actual count
       sortOrder: cat.order || 0,
@@ -115,56 +152,11 @@ export const getCategories = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('Get categories error:', error);
-    // Return mock data as fallback
-    const mockCategories = [
-      {
-        id: '1',
-        name: 'Graphics & Design',
-        slug: 'graphics-design',
-        type: 'gig',
-        status: 'active',
-        count: 24,
-        sortOrder: 1,
-        subcategories: []
-      },
-      {
-        id: '2',
-        name: 'Programming & Tech',
-        slug: 'programming-tech',
-        type: 'gig',
-        status: 'active',
-        count: 42,
-        sortOrder: 2,
-        subcategories: []
-      },
-      {
-        id: '3',
-        name: 'Software Development',
-        slug: 'software-development',
-        type: 'job',
-        status: 'active',
-        count: 15,
-        sortOrder: 1,
-        subcategories: []
-      },
-      {
-        id: '4',
-        name: 'Marketing & Sales',
-        slug: 'marketing-sales',
-        type: 'job',
-        status: 'active',
-        count: 8,
-        sortOrder: 2,
-        subcategories: []
-      }
-    ];
-    
-    let filtered = mockCategories;
-    if (req.query.type === 'gig') {
-      filtered = mockCategories.filter(cat => cat.type === 'gig');
-    } else if (req.query.type === 'job') {
-      filtered = mockCategories.filter(cat => cat.type === 'job');
-    }
+    const gigFallback = formatStandardCategoryFallback('gig');
+    const jobFallback = formatStandardCategoryFallback('job');
+    let filtered = [...gigFallback, ...jobFallback];
+    if (req.query.type === 'gig') filtered = gigFallback;
+    else if (req.query.type === 'job') filtered = jobFallback;
     
     res.json({ 
       success: true,

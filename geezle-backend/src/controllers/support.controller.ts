@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import { verifyRecaptcha } from '../utils/recaptcha';
 import { notifyAdmins, notifyUser } from '../utils/notify';
+import { ensureDefaultSupportTicketCategories } from '../services/defaultCategorySeed.service';
 
 const isAdmin = (role?: string) => (role || '').toString().toLowerCase().includes('admin');
 
@@ -45,9 +46,7 @@ const mapTicket = (ticket: any) => ({
 
 export const getCategories = async (_req: Request, res: Response) => {
   try {
-    const categories = await prisma.supportTicketCategory.findMany({
-      orderBy: { name: 'asc' }
-    });
+    const categories = await ensureDefaultSupportTicketCategories();
     return res.json({ success: true, data: categories.map(mapCategory) });
   } catch (error: any) {
     console.error('Get support categories error:', error);

@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { Gig, Job, ListingCategory, Plan, ApiResponse } from '../../types/index';
 import prisma from '../../utils/prismaClient';
+import { ensureStandardListingCategoriesSeeded } from '../defaultCategorySeed.service';
 
 export class GigsJobsAdminService {
   
@@ -246,8 +247,10 @@ export class GigsJobsAdminService {
   async getGigCategories(): Promise<ApiResponse<ListingCategory[]>> {
     try {
       console.log('Fetching gig categories from database...');
+      await ensureStandardListingCategoriesSeeded();
       const categories = await prisma.category.findMany({
         where: { 
+          parentId: null,
           type: { in: ['GIG', 'BOTH'] }, 
           isActive: true 
         },
@@ -311,8 +314,10 @@ export class GigsJobsAdminService {
   async getJobCategories(): Promise<ApiResponse<ListingCategory[]>> {
     try {
       console.log('Fetching job categories from database...');
+      await ensureStandardListingCategoriesSeeded();
       const categories = await prisma.category.findMany({
         where: { 
+          parentId: null,
           type: { in: ['JOB', 'BOTH'] }, 
           isActive: true 
         },

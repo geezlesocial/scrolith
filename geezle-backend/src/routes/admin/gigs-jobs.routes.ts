@@ -4,6 +4,10 @@ import prisma from '../../utils/prismaClient';
 import { listPlans, savePlan, togglePlanActive } from '../../services/planStore';
 import { notifyFollowersAboutPublication } from '../../services/followPublicationNotifications.service';
 import { STANDARD_LISTING_CATEGORIES } from '../../config/listingCategories';
+import {
+  ensureStandardListingCategoriesSeeded,
+  syncStandardListingCategories
+} from '../../services/defaultCategorySeed.service';
 
 const router = express.Router();
 
@@ -1333,6 +1337,7 @@ router.delete('/jobs/:id', async (req: Request, res: Response) => {
 // Categories (compatible endpoints)
 router.get('/categories/gigs', async (_req: Request, res: Response) => {
   try {
+    await ensureStandardListingCategoriesSeeded();
     const categories = await prisma.category.findMany({
       where: { isActive: true, parentId: null, type: { in: ['GIG', 'BOTH'] } },
       orderBy: { order: 'asc' },
@@ -1352,6 +1357,7 @@ router.get('/categories/gigs', async (_req: Request, res: Response) => {
 
 router.get('/categories/jobs', async (_req: Request, res: Response) => {
   try {
+    await ensureStandardListingCategoriesSeeded();
     const categories = await prisma.category.findMany({
       where: { isActive: true, parentId: null, type: { in: ['JOB', 'BOTH'] } },
       orderBy: { order: 'asc' },
@@ -1377,117 +1383,7 @@ router.get('/categories', async (req: Request, res: Response) => {
 
 router.post('/categories/sync-standard', async (_req: Request, res: Response) => {
   try {
-    const summary = await prisma.$transaction(async (tx) => {
-      const result = {
-        categoriesCreated: 0,
-        categoriesUpdated: 0,
-        subcategoriesCreated: 0,
-        subcategoriesUpdated: 0
-      };
-
-      for (let catIndex = 0; catIndex < STANDARD_LISTING_CATEGORIES.length; catIndex += 1) {
-        const item = STANDARD_LISTING_CATEGORIES[catIndex];
-        const name = String(item.name || '').trim();
-        if (!name) continue;
-
-        const baseSlug = slugify(name);
-        const existing = await tx.category.findFirst({
-          where: {
-            parentId: null,
-            OR: [{ slug: baseSlug }, { name: { equals: name, mode: 'insensitive' } }]
-          },
-          include: { children: true }
-        });
-
-        const parentSlug = existing
-          ? await resolveUniqueCategorySlug(tx, baseSlug, { excludeId: existing.id, fallbackPrefix: 'category' })
-          : await resolveUniqueCategorySlug(tx, baseSlug, { fallbackPrefix: 'category' });
-
-        const parent = existing
-          ? await tx.category.update({
-              where: { id: existing.id },
-              data: {
-                name,
-                slug: parentSlug,
-                description: item.description || existing.description || null,
-                icon: existing.icon || toLabelLogo(name, catIndex),
-                isActive: true,
-                type: 'BOTH',
-                order: catIndex + 1
-              }
-            })
-          : await tx.category.create({
-              data: {
-                name,
-                slug: parentSlug,
-                description: item.description || null,
-                icon: toLabelLogo(name, catIndex),
-                isActive: true,
-                type: 'BOTH',
-                order: catIndex + 1
-              }
-            });
-
-        if (existing) result.categoriesUpdated += 1;
-        else result.categoriesCreated += 1;
-
-        const existingChildrenRaw = await tx.category.findMany({
-          where: { parentId: parent.id },
-          select: { id: true, name: true, slug: true }
-        });
-        const existingChildren: AnyRecord[] = Array.isArray(existingChildrenRaw) ? existingChildrenRaw : [];
-        const childrenByName = new Map<string, AnyRecord>(
-          existingChildren.map((child: AnyRecord) => [String(child.name).toLowerCase(), child])
-        );
-
-        const seen = new Set<string>();
-        for (let subIndex = 0; subIndex < item.subcategories.length; subIndex += 1) {
-          const subName = String(item.subcategories[subIndex] || '').trim();
-          if (!subName) continue;
-          const normalizedName = subName.toLowerCase();
-          if (seen.has(normalizedName)) continue;
-          seen.add(normalizedName);
-
-          const existingChild = childrenByName.get(normalizedName);
-          const subSlugCandidate = `${parentSlug}-${slugify(subName) || `sub-${subIndex + 1}`}`;
-          const resolvedSubSlug = await resolveUniqueCategorySlug(tx, subSlugCandidate, {
-            excludeId: existingChild?.id,
-            fallbackPrefix: parentSlug
-          });
-
-          if (existingChild) {
-            await tx.category.update({
-              where: { id: existingChild.id },
-              data: {
-                name: subName,
-                slug: resolvedSubSlug,
-                parentId: parent.id,
-                type: 'BOTH',
-                icon: toLabelLogo(subName, catIndex + subIndex + 1),
-                isActive: true,
-                order: subIndex + 1
-              }
-            });
-            result.subcategoriesUpdated += 1;
-          } else {
-            await tx.category.create({
-              data: {
-                name: subName,
-                slug: resolvedSubSlug,
-                parentId: parent.id,
-                type: 'BOTH',
-                icon: toLabelLogo(subName, catIndex + subIndex + 1),
-                isActive: true,
-                order: subIndex + 1
-              }
-            });
-            result.subcategoriesCreated += 1;
-          }
-        }
-      }
-
-      return result;
-    });
+    const summary = await syncStandardListingCategories();
 
     return res.json({
       success: true,

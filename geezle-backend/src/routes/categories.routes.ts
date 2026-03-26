@@ -1,5 +1,6 @@
 import express from 'express';
 import prisma from '../utils/prismaClient';
+import { ensureStandardListingCategoriesSeeded } from '../services/defaultCategorySeed.service';
 
 const router = express.Router();
 
@@ -18,6 +19,7 @@ const formatCategories = (categories: any[]) =>
 // Get gig categories
 router.get('/gigs', async (req, res) => {
   try {
+    await ensureStandardListingCategoriesSeeded();
     const categories = await prisma.category.findMany({
       where: { isActive: true, parentId: null, type: { in: ['GIG', 'BOTH'] } },
       orderBy: { order: 'asc' },
@@ -46,6 +48,7 @@ router.get('/gigs', async (req, res) => {
 // Get job categories
 router.get('/jobs', async (req, res) => {
   try {
+    await ensureStandardListingCategoriesSeeded();
     const categories = await prisma.category.findMany({
       where: { isActive: true, parentId: null, type: { in: ['JOB', 'BOTH'] } },
       orderBy: { order: 'asc' },

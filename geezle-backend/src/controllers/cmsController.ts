@@ -11,6 +11,7 @@ import { sanitizePublicVerificationSettings } from '../utils/verificationSetting
 import { sanitizePublicTrustScoreSettings } from '../utils/trustScoreSettings';
 import { sanitizePublicStorefrontSettings } from '../utils/storefrontSettings';
 import { sanitizePublicContentOfferSettings } from '../utils/contentOfferSettings';
+import { ensureDefaultBlogCategories, ensureDefaultPageCategories } from '../services/defaultCategorySeed.service';
 
 const emitCmsEvent = (req: Request, event: string, payload?: any) => {
   const io = req.app.get('io');
@@ -156,6 +157,16 @@ const saveAppSetting = async (scope: string, data: any) => {
     update: { data }
   });
   return saved.data;
+};
+
+const getSeededPageCategories = async () => {
+  const categories = await ensureDefaultPageCategories();
+  return Array.isArray(categories) ? categories : [];
+};
+
+const getSeededBlogCategories = async () => {
+  const categories = await ensureDefaultBlogCategories();
+  return Array.isArray(categories) ? categories : [];
 };
 
 const slugify = (value: string) =>
@@ -2255,8 +2266,7 @@ export const deletePage = async (req: Request, res: Response) => {
 // --- CMS Page Categories ---
 export const getPageCategories = async (_req: Request, res: Response) => {
   try {
-    const data = await getAppSetting(CMS_PAGE_CATEGORIES_SCOPE, { categories: [] });
-    const categories = Array.isArray((data as any)?.categories) ? (data as any).categories : [];
+    const categories = await getSeededPageCategories();
     res.json(categories);
   } catch (error) {
     console.error('âŒ Error getting CMS categories:', error);
@@ -2268,8 +2278,7 @@ export const savePageCategory = async (req: Request, res: Response) => {
   try {
     const incoming = req.body || {};
     const now = new Date().toISOString();
-    const data = await getAppSetting(CMS_PAGE_CATEGORIES_SCOPE, { categories: [] });
-    const categories = Array.isArray((data as any)?.categories) ? (data as any).categories : [];
+    const categories = await getSeededPageCategories();
 
     const baseSlug = slugify(incoming.slug || incoming.name || '');
     let slug = baseSlug || `cat-${Date.now()}`;
@@ -2316,8 +2325,7 @@ export const savePageCategory = async (req: Request, res: Response) => {
 export const deletePageCategory = async (req: Request, res: Response) => {
   try {
     const id = String(req.params?.id || '');
-    const data = await getAppSetting(CMS_PAGE_CATEGORIES_SCOPE, { categories: [] });
-    const categories = Array.isArray((data as any)?.categories) ? (data as any).categories : [];
+    const categories = await getSeededPageCategories();
     const updatedCategories = categories.filter((c: any) => String(c.id) !== id);
     await saveAppSetting(CMS_PAGE_CATEGORIES_SCOPE, { categories: updatedCategories });
     emitCmsEvent(req, 'cms:categories_updated', updatedCategories);
@@ -2334,8 +2342,7 @@ export const getBlogPosts = async (_req: Request, res: Response) => {
   try {
     const data = await getAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: [] });
     const posts = Array.isArray((data as any)?.posts) ? (data as any).posts : [];
-    const categoriesData = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
-    const categories = Array.isArray((categoriesData as any)?.categories) ? (categoriesData as any).categories : [];
+    const categories = await getSeededBlogCategories();
     const filtered = posts.filter((post: any) => isBlogPostPublic(post));
     const normalized = filtered.map((post: any) => normalizeBlogPost(post, categories, post?.updated_at || post?.updatedAt));
     normalized.sort((a: any, b: any) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
@@ -2351,8 +2358,7 @@ export const getBlogPostBySlug = async (req: Request, res: Response) => {
     const slug = String(req.params?.slug || '').trim().toLowerCase();
     const data = await getAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: [] });
     const posts = Array.isArray((data as any)?.posts) ? (data as any).posts : [];
-    const categoriesData = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
-    const categories = Array.isArray((categoriesData as any)?.categories) ? (categoriesData as any).categories : [];
+    const categories = await getSeededBlogCategories();
     const post = posts.find((p: any) => String(p.slug || '').toLowerCase() === slug);
     if (!post || !isBlogPostPublic(post)) return res.status(404).json({ error: 'Post not found' });
     return res.json(normalizeBlogPost(post, categories, post?.updated_at || post?.updatedAt));
@@ -2366,8 +2372,7 @@ export const getBlogPostsAdmin = async (_req: Request, res: Response) => {
   try {
     const data = await getAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: [] });
     const posts = Array.isArray((data as any)?.posts) ? (data as any).posts : [];
-    const categoriesData = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
-    const categories = Array.isArray((categoriesData as any)?.categories) ? (categoriesData as any).categories : [];
+    const categories = await getSeededBlogCategories();
     const normalized = posts.map((post: any) => normalizeBlogPost(post, categories, post?.updated_at || post?.updatedAt));
     normalized.sort((a: any, b: any) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
     res.json(normalized);
@@ -2382,8 +2387,7 @@ export const getBlogPostByIdAdmin = async (req: Request, res: Response) => {
     const id = String(req.params?.id || '').trim();
     const data = await getAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: [] });
     const posts = Array.isArray((data as any)?.posts) ? (data as any).posts : [];
-    const categoriesData = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
-    const categories = Array.isArray((categoriesData as any)?.categories) ? (categoriesData as any).categories : [];
+    const categories = await getSeededBlogCategories();
     const post = posts.find((p: any) => String(p.id || '') === id);
     if (!post) return res.status(404).json({ error: 'Post not found' });
     return res.json(normalizeBlogPost(post, categories, post?.updated_at || post?.updatedAt));
@@ -2399,8 +2403,7 @@ export const saveBlogPost = async (req: Request, res: Response) => {
     const now = new Date().toISOString();
     const data = await getAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: [] });
     const posts = Array.isArray((data as any)?.posts) ? (data as any).posts : [];
-    const categoriesData = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
-    const categories = Array.isArray((categoriesData as any)?.categories) ? (categoriesData as any).categories : [];
+    const categories = await getSeededBlogCategories();
 
     const id = String(incoming.id || req.params?.id || `post-${Date.now()}`);
     const baseSlug = slugify(incoming.slug || incoming.title || '');
@@ -2445,8 +2448,7 @@ export const deleteBlogPost = async (req: Request, res: Response) => {
     const updatedPosts = posts.filter((p: any) => String(p.id) !== id);
     await saveAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: updatedPosts });
 
-    const categoriesData = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
-    const categories = Array.isArray((categoriesData as any)?.categories) ? (categoriesData as any).categories : [];
+    const categories = await getSeededBlogCategories();
     const updatedCategories = computeCategoryCounts(updatedPosts, categories);
     await saveAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: updatedCategories });
 
@@ -2462,12 +2464,8 @@ export const deleteBlogPost = async (req: Request, res: Response) => {
 // --- BLOG CATEGORIES ---
 export const getBlogCategories = async (_req: Request, res: Response) => {
   try {
-    const data = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
-    const categories = Array.isArray((data as any)?.categories) ? (data as any).categories : [];
-    const postsData = await getAppSetting(CMS_BLOG_POSTS_SCOPE, { posts: [] });
-    const posts = Array.isArray((postsData as any)?.posts) ? (postsData as any).posts : [];
-    const normalized = computeCategoryCounts(posts, categories);
-    res.json(normalized);
+    const categories = await getSeededBlogCategories();
+    res.json(categories);
   } catch (error) {
     console.error('âŒ Error getting blog categories:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -2478,8 +2476,7 @@ export const saveBlogCategory = async (req: Request, res: Response) => {
   try {
     const incoming = req.body || {};
     const now = new Date().toISOString();
-    const data = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
-    const categories = Array.isArray((data as any)?.categories) ? (data as any).categories : [];
+    const categories = await getSeededBlogCategories();
 
     const baseSlug = slugify(incoming.slug || incoming.name || '');
     let slug = baseSlug || `cat-${Date.now()}`;
@@ -2527,8 +2524,7 @@ export const saveBlogCategory = async (req: Request, res: Response) => {
 export const deleteBlogCategory = async (req: Request, res: Response) => {
   try {
     const id = String(req.params?.id || '');
-    const data = await getAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: [] });
-    const categories = Array.isArray((data as any)?.categories) ? (data as any).categories : [];
+    const categories = await getSeededBlogCategories();
     const updatedCategories = categories.filter((c: any) => String(c.id) !== id);
     await saveAppSetting(CMS_BLOG_CATEGORIES_SCOPE, { categories: updatedCategories });
     emitCmsEvent(req, 'cms:blog_categories_updated', updatedCategories);
