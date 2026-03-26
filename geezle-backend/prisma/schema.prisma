@@ -4059,6 +4059,88 @@ model FeatureFlagAuditLog {
   @@index([staffId, createdAt])
 }
 
+model ContentPolicy {
+  id               String   @id @default(cuid())
+  key              String   @unique
+  label            String
+  description      String?
+  contentType      String
+  severity         String   @default("MEDIUM")
+  action           String   @default("REVIEW")
+  thresholds       Json?
+  metadata         Json?
+  isSystemPolicy   Boolean  @default(false)
+  isActive         Boolean  @default(true)
+  createdByStaffId String?
+  updatedByStaffId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([contentType, isActive])
+  @@index([severity, isActive])
+}
+
+model ModerationAppeal {
+  id                String    @id @default(cuid())
+  caseId            String
+  targetUserId      String?
+  submittedByUserId String?
+  status            String    @default("OPEN")
+  reason            String
+  resolutionNotes   String?
+  resolvedByStaffId String?
+  resolvedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([caseId, status, createdAt])
+  @@index([targetUserId, createdAt])
+  @@index([submittedByUserId, createdAt])
+}
+
+model TrustProfile {
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  score                Int       @default(100)
+  riskLevel            String    @default("LOW")
+  kycStatusSnapshot    String?
+  isVerifiedSnapshot   Boolean   @default(false)
+  activeViolationCount Int       @default(0)
+  moderationCaseCount  Int       @default(0)
+  resolvedCaseCount    Int       @default(0)
+  fraudScoreSnapshot   Int       @default(0)
+  signalCount          Int       @default(0)
+  lastComputedAt       DateTime?
+  metadata             Json?
+  updatedByStaffId     String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([riskLevel, score])
+  @@index([lastComputedAt])
+}
+
+model RiskSignal {
+  id                String    @id @default(cuid())
+  userId            String
+  signalType        String
+  severity          String    @default("MEDIUM")
+  source            String    @default("manual")
+  status            String    @default("ACTIVE")
+  reason            String
+  metadata          Json?
+  expiresAt         DateTime?
+  createdByStaffId  String?
+  resolvedByStaffId String?
+  resolvedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([userId, status, createdAt])
+  @@index([signalType, severity, status])
+  @@index([expiresAt])
+}
+
 model ModerationAuditLog {
   id         String   @id @default(cuid())
   staffId    String

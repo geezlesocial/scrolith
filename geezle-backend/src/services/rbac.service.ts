@@ -67,6 +67,11 @@ export const DEFAULT_PERMISSION_SEEDS: PermissionSeed[] = [
   { key: 'feature_flags.write', label: 'Create and update feature flags', groupName: 'Staff & RBAC' },
   { key: 'feature_flags.kill_switch', label: 'Toggle feature flag kill switches', groupName: 'Staff & RBAC' },
   { key: 'feature_flags.audit.read', label: 'Read feature flag audit and exposure logs', groupName: 'Staff & RBAC' },
+  { key: 'moderation.policies.read', label: 'Read moderation policies', groupName: 'Moderation & Trust' },
+  { key: 'moderation.policies.write', label: 'Create and update moderation policies', groupName: 'Moderation & Trust' },
+  { key: 'moderation.appeals.manage', label: 'Manage moderation appeals', groupName: 'Moderation & Trust' },
+  { key: 'trust.read', label: 'Read trust center', groupName: 'Moderation & Trust' },
+  { key: 'trust.write', label: 'Create trust signals and recompute trust profiles', groupName: 'Moderation & Trust' },
   { key: 'staff.read', label: 'Read staff members', groupName: 'Staff & RBAC' },
   { key: 'staff.create', label: 'Create staff members', groupName: 'Staff & RBAC' },
   { key: 'staff.update', label: 'Update staff members', groupName: 'Staff & RBAC' },
@@ -99,7 +104,10 @@ const DEFAULT_ROLE_SEEDS: RoleSeed[] = [
       'chat.warn_user',
       'chat.audit.read',
       'chat.records.read',
-      'chat.records.export'
+      'chat.records.export',
+      'moderation.policies.read',
+      'moderation.appeals.manage',
+      'trust.read'
     ]
   },
   {
