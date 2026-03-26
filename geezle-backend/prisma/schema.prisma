@@ -3962,6 +3962,103 @@ model PermissionDecisionLog {
   @@index([resourceType, resourceId, createdAt])
 }
 
+model FeatureFlag {
+  id               String   @id @default(cuid())
+  key              String   @unique
+  label            String
+  description      String?
+  category         String   @default("platform")
+  defaultValue     Boolean  @default(false)
+  isActive         Boolean  @default(true)
+  killSwitch       Boolean  @default(false)
+  createdByStaffId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  audiences FeatureAudience[]
+  rules     FeatureRule[]
+  exposures FeatureExposure[]
+  auditLogs FeatureFlagAuditLog[]
+
+  @@index([category, isActive])
+  @@index([killSwitch])
+}
+
+model FeatureAudience {
+  id            String   @id @default(cuid())
+  flagId        String
+  key           String
+  label         String
+  roleScope     String[]
+  countryScope  String[]
+  platformScope String[]
+  appVersions   String[]
+  metadata      Json?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  flag  FeatureFlag   @relation(fields: [flagId], references: [id], onDelete: Cascade)
+  rules FeatureRule[]
+
+  @@unique([flagId, key])
+  @@index([flagId, isActive])
+}
+
+model FeatureRule {
+  id               String    @id @default(cuid())
+  flagId           String
+  audienceId       String?
+  rolloutPercent   Int       @default(0)
+  value            Boolean   @default(false)
+  startAt          DateTime?
+  endAt            DateTime?
+  priority         Int       @default(100)
+  isActive         Boolean   @default(true)
+  conditions       Json?
+  createdByStaffId String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  flag     FeatureFlag      @relation(fields: [flagId], references: [id], onDelete: Cascade)
+  audience FeatureAudience? @relation(fields: [audienceId], references: [id], onDelete: SetNull)
+
+  @@index([flagId, isActive, priority])
+  @@index([audienceId])
+}
+
+model FeatureExposure {
+  id         String   @id @default(cuid())
+  flagId     String
+  userId     String?
+  sessionKey String?
+  variant    String?
+  value      Boolean
+  context    Json?
+  exposedAt  DateTime @default(now())
+
+  flag FeatureFlag @relation(fields: [flagId], references: [id], onDelete: Cascade)
+
+  @@index([flagId, exposedAt])
+  @@index([userId, exposedAt])
+  @@index([sessionKey, exposedAt])
+}
+
+model FeatureFlagAuditLog {
+  id          String   @id @default(cuid())
+  flagId      String
+  staffId     String?
+  action      String
+  beforeState Json?
+  afterState  Json?
+  createdAt   DateTime @default(now())
+
+  flag FeatureFlag @relation(fields: [flagId], references: [id], onDelete: Cascade)
+
+  @@index([flagId, createdAt])
+  @@index([staffId, createdAt])
+}
+
 model ModerationAuditLog {
   id         String   @id @default(cuid())
   staffId    String
