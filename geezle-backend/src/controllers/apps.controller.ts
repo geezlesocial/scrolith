@@ -269,12 +269,12 @@ const emitAdminEvent = (req: Request, event: string, payload: Record<string, any
   }
 };
 
-const readAppDistributionConfig = async () => {
+export const readAppDistributionConfig = async () => {
   const record = await prisma.appSetting.findUnique({ where: { scope: APP_DISTRIBUTION_SCOPE } });
   return normalizeConfig(record?.data);
 };
 
-const saveAppDistributionConfig = async (payload: any) => {
+export const saveAppDistributionConfig = async (payload: any) => {
   const normalized = normalizeConfig(payload);
   await prisma.appSetting.upsert({
     where: { scope: APP_DISTRIBUTION_SCOPE },

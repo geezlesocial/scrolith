@@ -33,7 +33,7 @@ import {
   normalizeContentOfferSettings
 } from '../utils/contentOfferSettings';
 
-const DEFAULT_SYSTEM = {
+export const DEFAULT_SYSTEM = {
   maintenanceMode: false,
   registrationsEnabled: true,
   kycEnforced: false,
@@ -77,7 +77,7 @@ export const deepMergeReplaceArrays = (existing: any, incoming: any): any => {
   return out;
 };
 
-const hydrateSystemSettings = (raw: any) => {
+export const hydrateSystemSettings = (raw: any) => {
   const merged = deepMergeReplaceArrays(DEFAULT_SYSTEM, raw || {});
   const normalizedOptimization = normalizeRuntimeOptimizationConfig(merged?.optimization);
   merged.optimization = serializeRuntimeOptimizationConfig(normalizedOptimization);

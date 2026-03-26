@@ -4059,6 +4059,87 @@ model FeatureFlagAuditLog {
   @@index([staffId, createdAt])
 }
 
+model ConfigSnapshot {
+  id               String   @id @default(cuid())
+  scope            String
+  key              String   @default("default")
+  label            String?
+  payload          Json
+  version          Int
+  source           String   @default("admin")
+  reason           String?
+  metadata         Json?
+  createdByStaffId String?
+  createdAt        DateTime @default(now())
+
+  beforeChanges ConfigChange[] @relation("ConfigChangeBeforeSnapshot")
+  afterChanges  ConfigChange[] @relation("ConfigChangeAfterSnapshot")
+  beforeRuns    RollbackRun[]  @relation("RollbackBeforeSnapshot")
+  afterRuns     RollbackRun[]  @relation("RollbackAfterSnapshot")
+
+  @@unique([scope, key, version])
+  @@index([scope, key, createdAt])
+  @@index([createdByStaffId, createdAt])
+}
+
+model ConfigChange {
+  id               String   @id @default(cuid())
+  scope            String
+  key              String   @default("default")
+  action           String
+  beforeSnapshotId String?
+  afterSnapshotId  String?
+  reason           String?
+  metadata         Json?
+  createdByStaffId String?
+  createdAt        DateTime @default(now())
+
+  beforeSnapshot ConfigSnapshot? @relation("ConfigChangeBeforeSnapshot", fields: [beforeSnapshotId], references: [id], onDelete: SetNull)
+  afterSnapshot  ConfigSnapshot? @relation("ConfigChangeAfterSnapshot", fields: [afterSnapshotId], references: [id], onDelete: SetNull)
+
+  @@index([scope, key, createdAt])
+  @@index([action, createdAt])
+  @@index([createdByStaffId, createdAt])
+}
+
+model RollbackRun {
+  id               String    @id @default(cuid())
+  scope            String
+  key              String    @default("default")
+  targetVersion    Int
+  status           String    @default("COMPLETED")
+  beforeSnapshotId String?
+  afterSnapshotId  String?
+  notes            String?
+  metadata         Json?
+  createdByStaffId String?
+  createdAt        DateTime  @default(now())
+  completedAt      DateTime?
+
+  beforeSnapshot ConfigSnapshot? @relation("RollbackBeforeSnapshot", fields: [beforeSnapshotId], references: [id], onDelete: SetNull)
+  afterSnapshot  ConfigSnapshot? @relation("RollbackAfterSnapshot", fields: [afterSnapshotId], references: [id], onDelete: SetNull)
+
+  @@index([scope, key, createdAt])
+  @@index([status, createdAt])
+  @@index([createdByStaffId, createdAt])
+}
+
+model ReleaseRollout {
+  id               String   @id @default(cuid())
+  scope            String
+  key              String?
+  releaseKey       String
+  label            String
+  notes            String?
+  metadata         Json?
+  createdByStaffId String?
+  createdAt        DateTime @default(now())
+
+  @@index([scope, createdAt])
+  @@index([releaseKey, createdAt])
+  @@index([createdByStaffId, createdAt])
+}
+
 model ContentPolicy {
   id               String   @id @default(cuid())
   key              String   @unique
