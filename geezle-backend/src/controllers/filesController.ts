@@ -1244,20 +1244,18 @@ const applyFileResponseHeaders = (
   }
 };
 
-const sendDefaultLogoFallback = (res: Response) => {
-  const svg = [
-    '<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Scrolith logo fallback">',
-    '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#2563eb"/><stop offset="100%" stop-color="#1d4ed8"/></linearGradient></defs>',
-    '<rect width="256" height="256" rx="48" fill="#0f172a"/>',
-    '<rect x="28" y="28" width="200" height="200" rx="40" fill="url(#g)" opacity="0.22"/>',
-    '<path d="M86 72h38c29 0 46 15 46 38 0 13-6 23-17 31l23 43h-31l-19-35h-14v35H86V72zm26 56h12c14 0 21-6 21-17 0-10-7-16-20-16h-13v33z" fill="#e2e8f0"/>',
-    '</svg>'
-  ].join('');
-  applyFileResponseHeaders(res, {
-    contentType: 'image/svg+xml; charset=utf-8',
-    cacheControl: 'public, max-age=300'
-  });
-  res.status(200).send(svg);
+const BRAND_LOGO_FALLBACK_URL = 'https://scrolith.com/logo.png';
+const BRAND_FAVICON_FALLBACK_URL = 'https://scrolith.com/favicon.png';
+
+const redirectToBrandAssetFallback = (res: Response, assetName?: string | null) => {
+  const normalized = String(assetName || '').trim().toLowerCase();
+  const fallbackUrl =
+    normalized.includes('favicon') || normalized.includes('apple-touch-icon')
+      ? BRAND_FAVICON_FALLBACK_URL
+      : BRAND_LOGO_FALLBACK_URL;
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.redirect(302, fallbackUrl);
 };
 
 export const listFiles = async (req: Request, res: Response) => {
@@ -1625,7 +1623,7 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
 
     if (!legacyMatch) {
       if (isLikelyBrandAsset) {
-        sendDefaultLogoFallback(res);
+        redirectToBrandAssetFallback(res, baseName);
         return;
       }
       res.status(404).end();
@@ -1682,7 +1680,7 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
       }
 
       if (isLikelyBrandAsset) {
-        sendDefaultLogoFallback(res);
+        redirectToBrandAssetFallback(res, baseName);
         return;
       }
       res.status(404).end();
@@ -1712,7 +1710,7 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
     }
 
     if (isLikelyBrandAsset) {
-      sendDefaultLogoFallback(res);
+      redirectToBrandAssetFallback(res, baseName);
       return;
     }
     res.status(404).end();
