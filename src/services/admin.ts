@@ -384,6 +384,101 @@ export const AdminService = {
     return data || { permissions: [], groups: [] };
   },
 
+  getPolicySummary: async (): Promise<any> => {
+    return adminGet<any>('/policies/summary');
+  },
+
+  getPolicyCatalog: async (): Promise<any> => {
+    return adminGet<any>('/policies/catalog');
+  },
+
+  getPolicyRules: async (params?: {
+    namespaceKey?: string;
+    resourceKey?: string;
+    permissionKey?: string;
+    query?: string;
+    activeOnly?: boolean;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/policies/rules', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createPolicyRule: async (payload: {
+    namespaceKey: string;
+    resourceKey?: string | null;
+    key: string;
+    label: string;
+    description?: string | null;
+    permissionKey: string;
+    effect?: 'ALLOW' | 'DENY';
+    conditions?: any;
+    priority?: number;
+    isActive?: boolean;
+    isSystemRule?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/policies/rules', payload);
+  },
+
+  updatePolicyRule: async (
+    id: string,
+    payload: {
+      namespaceKey: string;
+      resourceKey?: string | null;
+      key: string;
+      label: string;
+      description?: string | null;
+      permissionKey: string;
+      effect?: 'ALLOW' | 'DENY';
+      conditions?: any;
+      priority?: number;
+      isActive?: boolean;
+      isSystemRule?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/policies/rules/${encodeURIComponent(id)}`, payload);
+  },
+
+  deactivatePolicyRule: async (id: string): Promise<any> => {
+    return adminDelete<any>(`/policies/rules/${encodeURIComponent(id)}`);
+  },
+
+  getUserPermissionOverrides: async (identifier: string): Promise<any> => {
+    return adminGet<any>('/policies/overrides', { identifier });
+  },
+
+  createUserPermissionOverride: async (payload: {
+    identifier: string;
+    permissionKey: string;
+    resourceType?: string | null;
+    resourceId?: string | null;
+    effect?: 'ALLOW' | 'DENY';
+    reason?: string | null;
+    expiresAt?: string | null;
+    isActive?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/policies/overrides', payload);
+  },
+
+  updateUserPermissionOverride: async (
+    id: string,
+    payload: {
+      identifier?: string;
+      permissionKey?: string;
+      resourceType?: string | null;
+      resourceId?: string | null;
+      effect?: 'ALLOW' | 'DENY';
+      reason?: string | null;
+      expiresAt?: string | null;
+      isActive?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/policies/overrides/${encodeURIComponent(id)}`, payload);
+  },
+
+  deactivateUserPermissionOverride: async (id: string): Promise<any> => {
+    return adminDelete<any>(`/policies/overrides/${encodeURIComponent(id)}`);
+  },
+
   createRbacRole: async (payload: {
     name: string;
     description?: string;
