@@ -123,6 +123,10 @@ const clampLimit = (value: unknown, fallback = 50) => {
   return Math.max(1, Math.min(100, Math.round(parsed)));
 };
 const isExpired = (value?: Date | null) => Boolean(value && value.getTime() <= Date.now());
+const isMissingTableError = (error: unknown, modelName?: string) => {
+  const prismaError = error as { code?: string; meta?: { modelName?: string } } | null;
+  return prismaError?.code === 'P2021' && (!modelName || prismaError?.meta?.modelName === modelName);
+};
 
 const mapContentPolicy = (policy: any) => ({
   id: policy.id,
@@ -249,6 +253,60 @@ const fetchUsersMap = async (userIds: string[]): Promise<Map<string, any>> => {
   return new Map<string, any>(users.map((user) => [user.id, user]));
 };
 
+const safeModerationCaseFindMany = async (args: any) => {
+  try {
+    return await prisma.moderationCase.findMany(args);
+  } catch (error) {
+    if (isMissingTableError(error, 'ModerationCase')) return [];
+    throw error;
+  }
+};
+
+const safeModerationCaseCount = async (args: any) => {
+  try {
+    return await prisma.moderationCase.count(args);
+  } catch (error) {
+    if (isMissingTableError(error, 'ModerationCase')) return 0;
+    throw error;
+  }
+};
+
+const safeModerationCaseFindUnique = async (args: any) => {
+  try {
+    return await prisma.moderationCase.findUnique(args);
+  } catch (error) {
+    if (isMissingTableError(error, 'ModerationCase')) return null;
+    throw error;
+  }
+};
+
+const safeModerationCaseUpdate = async (args: any) => {
+  try {
+    return await prisma.moderationCase.update(args);
+  } catch (error) {
+    if (isMissingTableError(error, 'ModerationCase')) return null;
+    throw error;
+  }
+};
+
+const safeModerationActionCreate = async (args: any) => {
+  try {
+    return await prisma.moderationAction.create(args);
+  } catch (error) {
+    if (isMissingTableError(error, 'ModerationAction')) return null;
+    throw error;
+  }
+};
+
+const safeAccountViolationFindMany = async (args: any) => {
+  try {
+    return await prisma.accountViolation.findMany(args);
+  } catch (error) {
+    if (isMissingTableError(error, 'AccountViolation')) return [];
+    throw error;
+  }
+};
+
 const resolveUserByIdentifier = async (identifier: string) => {
   const cleaned = cleanString(identifier);
   if (!cleaned) return null;
@@ -295,7 +353,7 @@ const computeRiskLevel = (input: {
 };
 
 const computeTrustPayload = async (userId: string) => {
-  const [user, wallet, cases, violations, signals] = await prisma.$transaction([
+  const [user, wallet, cases, violations, signals] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -316,11 +374,11 @@ const computeTrustPayload = async (userId: string) => {
         balance: true
       }
     }),
-    prisma.moderationCase.findMany({
+    safeModerationCaseFindMany({
       where: { authorId: userId },
       select: { id: true, status: true, score: true, contentType: true, createdAt: true }
     }),
-    prisma.accountViolation.findMany({
+    safeAccountViolationFindMany({
       where: { userId },
       select: { id: true, type: true, severity: true, resolvedAt: true, createdAt: true }
     }),
@@ -420,8 +478,8 @@ const seedTrustProfilesFromExistingSignals = async () => {
   const existingProfiles = await prisma.trustProfile.count();
   if (existingProfiles > 0) return;
 
-  const [cases, wallets, violations] = await prisma.$transaction([
-    prisma.moderationCase.findMany({
+  const [cases, wallets, violations] = await Promise.all([
+    safeModerationCaseFindMany({
       where: { authorId: { not: null } },
       orderBy: [{ updatedAt: 'desc' }],
       take: 20,
@@ -433,7 +491,7 @@ const seedTrustProfilesFromExistingSignals = async () => {
       take: 20,
       select: { userId: true }
     }),
-    prisma.accountViolation.findMany({
+    safeAccountViolationFindMany({
       where: { resolvedAt: null },
       orderBy: [{ createdAt: 'desc' }],
       take: 20,
@@ -463,10 +521,10 @@ export const getModerationTrustSummary = async () => {
   await seedTrustProfilesFromExistingSignals();
 
   const [policies, activePolicies, openCases, appeals, openAppeals, trustProfiles, activeSignals] =
-    await prisma.$transaction([
+    await Promise.all([
       prisma.contentPolicy.count(),
       prisma.contentPolicy.count({ where: { isActive: true } }),
-      prisma.moderationCase.count({
+      safeModerationCaseCount({
         where: {
           status: { in: OPEN_CASE_STATUSES }
         }
@@ -560,7 +618,7 @@ export const saveContentPolicy = async (input: SaveContentPolicyInput, staffId?:
 
 export const listModerationCases = async (filters: ModerationCaseFilters = {}) => {
   const query = cleanString(filters.query);
-  const rows = await prisma.moderationCase.findMany({
+  const rows = await safeModerationCaseFindMany({
     where: {
       ...(cleanString(filters.status) ? { status: cleanString(filters.status) } : {}),
       ...(cleanString(filters.contentType) ? { contentType: cleanString(filters.contentType) } : {}),
@@ -620,7 +678,7 @@ export const listModerationAppeals = async (filters: ModerationAppealFilters = {
   );
   const caseIds = Array.from(new Set(appeals.map((appeal) => appeal.caseId).filter(Boolean)));
   const cases = caseIds.length
-    ? await prisma.moderationCase.findMany({
+    ? await safeModerationCaseFindMany({
         where: { id: { in: caseIds } },
         include: {
           author: {
@@ -657,16 +715,16 @@ export const resolveModerationAppeal = async (
     }
   });
 
-  const moderationCase = await prisma.moderationCase.findUnique({ where: { id: appeal.caseId } });
+  const moderationCase = await safeModerationCaseFindUnique({ where: { id: appeal.caseId } });
   if (moderationCase?.id) {
     const caseStatus = nextStatus === 'APPROVED' ? 'open' : moderationCase.status;
     if (caseStatus !== moderationCase.status) {
-      await prisma.moderationCase.update({
+      await safeModerationCaseUpdate({
         where: { id: moderationCase.id },
         data: { status: caseStatus }
       });
     }
-    await prisma.moderationAction.create({
+    await safeModerationActionCreate({
       data: {
         caseId: moderationCase.id,
         actorUserId: actorUserId || null,
@@ -782,13 +840,13 @@ export const getTrustProfileDetails = async (userId: string) => {
     profile = await recomputeTrustProfile(userId, null);
   }
 
-  const [signals, cases, violations, wallet] = await prisma.$transaction([
+  const [signals, cases, violations, wallet] = await Promise.all([
     prisma.riskSignal.findMany({
       where: { userId },
       orderBy: [{ createdAt: 'desc' }],
       take: 25
     }),
-    prisma.moderationCase.findMany({
+    safeModerationCaseFindMany({
       where: { authorId: userId },
       include: {
         actions: { orderBy: { createdAt: 'desc' }, take: 5 },
@@ -802,7 +860,7 @@ export const getTrustProfileDetails = async (userId: string) => {
       orderBy: [{ updatedAt: 'desc' }],
       take: 25
     }),
-    prisma.accountViolation.findMany({
+    safeAccountViolationFindMany({
       where: { userId },
       orderBy: [{ createdAt: 'desc' }],
       take: 25
