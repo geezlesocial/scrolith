@@ -107,6 +107,9 @@ const RESOLVED_CASE_STATUSES = ['resolved', 'closed', 'dismissed', 'rejected', '
 const OPEN_APPEAL_STATUSES = ['open', 'pending', 'under_review'];
 
 let contentPoliciesSeeded = false;
+let moderationCaseTableState: 'unknown' | 'available' | 'missing' = 'unknown';
+let moderationActionTableState: 'unknown' | 'available' | 'missing' = 'unknown';
+let accountViolationTableState: 'unknown' | 'available' | 'missing' = 'unknown';
 
 const cleanString = (value: unknown) => String(value || '').trim();
 const optionalString = (value: unknown) => {
@@ -254,55 +257,91 @@ const fetchUsersMap = async (userIds: string[]): Promise<Map<string, any>> => {
 };
 
 const safeModerationCaseFindMany = async (args: any) => {
+  if (moderationCaseTableState === 'missing') return [];
   try {
-    return await prisma.moderationCase.findMany(args);
+    const rows = await prisma.moderationCase.findMany(args);
+    moderationCaseTableState = 'available';
+    return rows;
   } catch (error) {
-    if (isMissingTableError(error, 'ModerationCase')) return [];
+    if (isMissingTableError(error, 'ModerationCase')) {
+      moderationCaseTableState = 'missing';
+      return [];
+    }
     throw error;
   }
 };
 
 const safeModerationCaseCount = async (args: any) => {
+  if (moderationCaseTableState === 'missing') return 0;
   try {
-    return await prisma.moderationCase.count(args);
+    const count = await prisma.moderationCase.count(args);
+    moderationCaseTableState = 'available';
+    return count;
   } catch (error) {
-    if (isMissingTableError(error, 'ModerationCase')) return 0;
+    if (isMissingTableError(error, 'ModerationCase')) {
+      moderationCaseTableState = 'missing';
+      return 0;
+    }
     throw error;
   }
 };
 
 const safeModerationCaseFindUnique = async (args: any) => {
+  if (moderationCaseTableState === 'missing') return null;
   try {
-    return await prisma.moderationCase.findUnique(args);
+    const row = await prisma.moderationCase.findUnique(args);
+    moderationCaseTableState = 'available';
+    return row;
   } catch (error) {
-    if (isMissingTableError(error, 'ModerationCase')) return null;
+    if (isMissingTableError(error, 'ModerationCase')) {
+      moderationCaseTableState = 'missing';
+      return null;
+    }
     throw error;
   }
 };
 
 const safeModerationCaseUpdate = async (args: any) => {
+  if (moderationCaseTableState === 'missing') return null;
   try {
-    return await prisma.moderationCase.update(args);
+    const row = await prisma.moderationCase.update(args);
+    moderationCaseTableState = 'available';
+    return row;
   } catch (error) {
-    if (isMissingTableError(error, 'ModerationCase')) return null;
+    if (isMissingTableError(error, 'ModerationCase')) {
+      moderationCaseTableState = 'missing';
+      return null;
+    }
     throw error;
   }
 };
 
 const safeModerationActionCreate = async (args: any) => {
+  if (moderationActionTableState === 'missing') return null;
   try {
-    return await prisma.moderationAction.create(args);
+    const row = await prisma.moderationAction.create(args);
+    moderationActionTableState = 'available';
+    return row;
   } catch (error) {
-    if (isMissingTableError(error, 'ModerationAction')) return null;
+    if (isMissingTableError(error, 'ModerationAction')) {
+      moderationActionTableState = 'missing';
+      return null;
+    }
     throw error;
   }
 };
 
 const safeAccountViolationFindMany = async (args: any) => {
+  if (accountViolationTableState === 'missing') return [];
   try {
-    return await prisma.accountViolation.findMany(args);
+    const rows = await prisma.accountViolation.findMany(args);
+    accountViolationTableState = 'available';
+    return rows;
   } catch (error) {
-    if (isMissingTableError(error, 'AccountViolation')) return [];
+    if (isMissingTableError(error, 'AccountViolation')) {
+      accountViolationTableState = 'missing';
+      return [];
+    }
     throw error;
   }
 };
