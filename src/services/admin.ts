@@ -630,6 +630,97 @@ export const AdminService = {
     return adminPost<any>('/feature-control/resolve', payload);
   },
 
+  getDiscoverySummary: async (): Promise<any> => {
+    return adminGet<any>('/discovery/summary');
+  },
+
+  getDiscoverySearchRules: async (params?: {
+    scope?: string;
+    targetType?: string;
+    query?: string;
+    activeOnly?: boolean;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/discovery/search-rules', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createDiscoverySearchRule: async (payload: {
+    key: string;
+    label: string;
+    description?: string | null;
+    scope?: string;
+    targetType?: string;
+    targetId?: string | null;
+    queryPattern?: string | null;
+    action?: string;
+    value?: number;
+    priority?: number;
+    metadata?: any;
+    isActive?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/discovery/search-rules', payload);
+  },
+
+  updateDiscoverySearchRule: async (
+    id: string,
+    payload: {
+      key: string;
+      label: string;
+      description?: string | null;
+      scope?: string;
+      targetType?: string;
+      targetId?: string | null;
+      queryPattern?: string | null;
+      action?: string;
+      value?: number;
+      priority?: number;
+      metadata?: any;
+      isActive?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/discovery/search-rules/${encodeURIComponent(id)}`, payload);
+  },
+
+  deactivateDiscoverySearchRule: async (id: string): Promise<any> => {
+    return adminDelete<any>(`/discovery/search-rules/${encodeURIComponent(id)}`);
+  },
+
+  getDiscoveryFeedRecipes: async (params?: { activeOnly?: boolean }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/discovery/feed-recipes', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createDiscoveryFeedRecipe: async (payload: {
+    key: string;
+    label: string;
+    description?: string | null;
+    mode: string;
+    weights?: any;
+    queryTakeMultiplier?: number;
+    queryTakeCap?: number;
+    isActive?: boolean;
+    isSystemRecipe?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/discovery/feed-recipes', payload);
+  },
+
+  updateDiscoveryFeedRecipe: async (
+    id: string,
+    payload: {
+      key: string;
+      label: string;
+      description?: string | null;
+      mode: string;
+      weights?: any;
+      queryTakeMultiplier?: number;
+      queryTakeCap?: number;
+      isActive?: boolean;
+      isSystemRecipe?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/discovery/feed-recipes/${encodeURIComponent(id)}`, payload);
+  },
+
   getModerationTrustSummary: async (): Promise<any> => {
     return adminGet<any>('/moderation-policies/summary');
   },

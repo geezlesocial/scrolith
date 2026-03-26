@@ -1,6 +1,6 @@
 import React, { Suspense, useMemo, useState, useEffect, useRef } from 'react';
 import {
-    Home, ShoppingBag, DollarSign, CreditCard, LayoutTemplate, BookOpen, Megaphone, Users, HardDrive, Shield, ShieldAlert, FileText, LifeBuoy, Settings, Menu, X, Bell, LogOut, User, MessageSquare, Brain, PieChart, Clock, MessageCircle, Navigation, BarChart2, Globe, ExternalLink, RotateCcw, Sparkles, Bot, Smartphone, Activity
+    Home, ShoppingBag, DollarSign, CreditCard, LayoutTemplate, BookOpen, Megaphone, Users, HardDrive, Shield, ShieldAlert, FileText, LifeBuoy, Settings, Menu, X, Bell, LogOut, User, MessageSquare, Brain, PieChart, Clock, MessageCircle, Navigation, BarChart2, Globe, ExternalLink, RotateCcw, Sparkles, Bot, Smartphone, Activity, Compass
 } from 'lucide-react';
 import { useNotification } from "../context/NotificationContext";
 import { useUser } from "../context/UserContext";
@@ -26,6 +26,7 @@ const StaffManagementTab = React.lazy(() => import('./admin/StaffManagement'));
 const RoleManagementTab = React.lazy(() => import('./admin/RoleManagement'));
 const PolicyCenterTab = React.lazy(() => import('./admin/PolicyCenter'));
 const FeatureControlCenterTab = React.lazy(() => import('./admin/FeatureControlCenter'));
+const DiscoveryStudioTab = React.lazy(() => import('./admin/DiscoveryStudio'));
 const ModerationTrustCenterTab = React.lazy(() => import('./admin/ModerationTrustCenter'));
 const ConfigRollbackTab = React.lazy(() => import('./admin/ConfigRollback'));
 const RealtimeOpsCenterTab = React.lazy(() => import('./admin/RealtimeOpsCenter'));
@@ -59,7 +60,7 @@ const AdminLivePlatform = React.lazy(() => import('../pages/AdminLivePlatform'))
 const ScrollAdminPanel = React.lazy(() => import('../features/scroll/ScrollAdminPanel'));
 
 // Define valid tab types
-type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'scroll' | 'live' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'policy-center' | 'feature-control' | 'moderation-trust' | 'config-rollback' | 'realtime-ops' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps' | 'developer-platform' | 'system-backup';
+type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'scroll' | 'live' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'policy-center' | 'feature-control' | 'discovery-studio' | 'moderation-trust' | 'config-rollback' | 'realtime-ops' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps' | 'developer-platform' | 'system-backup';
 
 // Define navigation item interface
 interface NavItem {
@@ -124,7 +125,7 @@ const AdminDashboard: React.FC = () => {
     const isValidTab = (tab: string): tab is Tab => {
         const validTabs: Tab[] = [
             'overview', 'analytics', 'listings', 'engagement', 'finance', 'gateways', 'cms', 
-            'homepage', 'mobile-homepage', 'blog', 'scroll', 'live', 'marketing', 'users', 'monetization', 'files', 'staff', 'role-management', 'policy-center', 'feature-control', 'moderation-trust', 'config-rollback', 'realtime-ops', 'moderator-console', 'message-records', 'kyc',
+            'homepage', 'mobile-homepage', 'blog', 'scroll', 'live', 'marketing', 'users', 'monetization', 'files', 'staff', 'role-management', 'policy-center', 'feature-control', 'discovery-studio', 'moderation-trust', 'config-rollback', 'realtime-ops', 'moderator-console', 'message-records', 'kyc',
             'support', 'system', 'profile', 'messages', 'ai', 'atm', 'insights-growth', 'community', 'recommendations', 'navigation', 'reviews', 'languages', 'forms', 'google-settings', 'scrolitha', 'apps', 'developer-platform', 'system-backup'
         ];
         return validTabs.includes(tab as Tab);
@@ -297,6 +298,7 @@ const AdminDashboard: React.FC = () => {
             title: 'Community', 
             items: [
                 { id: 'community', label: 'Community & Forum', icon: MessageCircle },
+                { id: 'discovery-studio', label: 'Discovery Studio', icon: Compass },
                 { id: 'recommendations', label: 'Recommendations', icon: Sparkles },
                 { id: 'reviews', label: 'Reviews', icon: FileText }
             ] 
@@ -389,6 +391,7 @@ const AdminDashboard: React.FC = () => {
             case 'role-management': return <RoleManagementTab />;
             case 'policy-center': return <PolicyCenterTab />;
             case 'feature-control': return <FeatureControlCenterTab />;
+            case 'discovery-studio': return <DiscoveryStudioTab />;
             case 'moderation-trust': return <ModerationTrustCenterTab />;
             case 'config-rollback': return <ConfigRollbackTab />;
             case 'realtime-ops': return <RealtimeOpsCenterTab />;
@@ -416,6 +419,7 @@ const AdminDashboard: React.FC = () => {
         if (tab === 'system-backup') return 'System Backup';
         if (tab === 'policy-center') return 'Policy Center';
         if (tab === 'feature-control') return 'Feature Control';
+        if (tab === 'discovery-studio') return 'Discovery Studio';
         if (tab === 'moderation-trust') return 'Moderation & Trust';
         if (tab === 'config-rollback') return 'Config & Rollback';
         if (tab === 'realtime-ops') return 'Realtime Ops';
