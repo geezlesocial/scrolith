@@ -34,14 +34,75 @@ const CMS_FREELANCER_SCOPE = 'cms_freelancer_page';
 const CMS_BLOG_POSTS_SCOPE = 'cms_blog_posts';
 const CMS_BLOG_CATEGORIES_SCOPE = 'cms_blog_categories';
 const CMS_BLOG_SETTINGS_SCOPE = 'cms_blog_settings';
-const BRAND_ASSET_URL = 'https://scrolith.com/icon-192.png';
+const BRAND_LOGO_URL = 'https://scrolith.com/logo.png';
+const BRAND_FAVICON_URL = 'https://scrolith.com/favicon.png';
+const LOCAL_BRAND_ASSET_HOSTS = new Set([
+  'scrolith.com',
+  'www.scrolith.com',
+  'api.scrolith.com',
+  'scrolith-backend.27tv1l1jo8dv.us-south.codeengine.appdomain.cloud'
+]);
+
+const getCanonicalBrandAssetUrl = (value: unknown, assetType: 'logo' | 'favicon' = 'logo') => {
+  const fallbackUrl = assetType === 'favicon' ? BRAND_FAVICON_URL : BRAND_LOGO_URL;
+  const raw = String(value || '').trim();
+  if (!raw) return fallbackUrl;
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    const normalized = raw.toLowerCase();
+    if (normalized.includes('favicon') || normalized.includes('apple-touch-icon')) return BRAND_FAVICON_URL;
+    if (normalized.includes('scrolith_logo')) return BRAND_LOGO_URL;
+    return raw;
+  }
+
+  const hostname = url.hostname.toLowerCase();
+  const pathname = url.pathname.toLowerCase();
+  const basename = pathname.split('/').filter(Boolean).pop() || '';
+  const isBrandUpload =
+    pathname.startsWith('/uploads/') &&
+    LOCAL_BRAND_ASSET_HOSTS.has(hostname) &&
+    (
+      basename.includes('scrolith_logo') ||
+      basename.includes('favicon') ||
+      basename.includes('apple-touch-icon')
+    );
+
+  if (!isBrandUpload) return raw;
+  if (basename.includes('favicon') || basename.includes('apple-touch-icon')) return BRAND_FAVICON_URL;
+  return BRAND_LOGO_URL;
+};
+
+const normalizeHeaderBranding = <T extends Record<string, any>>(header: T): T => ({
+  ...header,
+  logoUrl: getCanonicalBrandAssetUrl(header?.logoUrl ?? header?.logo_url, 'logo'),
+  logo_url: getCanonicalBrandAssetUrl(header?.logoUrl ?? header?.logo_url, 'logo'),
+  faviconUrl: getCanonicalBrandAssetUrl(header?.faviconUrl ?? header?.favicon_url, 'favicon'),
+  favicon_url: getCanonicalBrandAssetUrl(header?.faviconUrl ?? header?.favicon_url, 'favicon')
+});
+
+const normalizeFooterBranding = <T extends Record<string, any>>(footer: T): T => ({
+  ...footer,
+  logoUrl: getCanonicalBrandAssetUrl(footer?.logoUrl ?? footer?.logo_url, 'logo'),
+  logo_url: getCanonicalBrandAssetUrl(footer?.logoUrl ?? footer?.logo_url, 'logo')
+});
+
+const normalizeAuthPagesBranding = <T extends Record<string, any>>(config: T): T => ({
+  ...config,
+  branding: {
+    ...(config?.branding || {}),
+    logo_url: getCanonicalBrandAssetUrl(config?.branding?.logo_url ?? config?.branding?.logoUrl, 'logo')
+  }
+});
 
 const PLATFORM_SETTINGS_FILE = path.resolve(__dirname, '../../data/platform-system-settings.json');
 const PUBLIC_PLATFORM_DEFAULTS = {
   siteName: 'Scrolith Marketplace',
   tagline: 'AI-Powered Social Freelance Marketplace with Secure Escrow & Monetization',
-  logoUrl: BRAND_ASSET_URL,
-  faviconUrl: BRAND_ASSET_URL,
+  logoUrl: BRAND_LOGO_URL,
+  faviconUrl: BRAND_FAVICON_URL,
   adminEmail: 'admin@Scrolith.com',
   supportEmail: 'support@Scrolith.com',
   gigExperience: {
@@ -503,8 +564,8 @@ let cmsData = {
       { id: 'dashboard', label: 'Dashboard', url: '/freelancer/dashboard', icon: 'dashboard', visibility: ['FREELANCER', 'EMPLOYER', 'ADMIN'] },
       { id: 'settings', label: 'Settings', url: '/settings', icon: 'settings', visibility: ['FREELANCER', 'EMPLOYER', 'ADMIN'] }
     ],
-    logoUrl: BRAND_ASSET_URL,
-    faviconUrl: BRAND_ASSET_URL,
+    logoUrl: BRAND_LOGO_URL,
+    faviconUrl: BRAND_FAVICON_URL,
     searchEnabled: true,
     searchMode: 'keyword',
     createdAt: new Date(),
@@ -512,7 +573,7 @@ let cmsData = {
   },
   footer: {
     id: 'default-footer',
-    logoUrl: BRAND_ASSET_URL,
+    logoUrl: BRAND_LOGO_URL,
     description: 'Connect with top freelancers and find your next project.',
     socialLabelTitle: '',
     copyright: 'Â© 2024 Scrolith. All rights reserved.',
@@ -797,14 +858,14 @@ export const getHeaderConfig = async (req: Request, res: Response) => {
 
     // Transform to match frontend types (snake_case)
     const headerAny = headerRaw as any;
-    const transformed = {
+    const transformed = normalizeHeaderBranding({
       id: (headerAny['id'] as string) || 'default-header',
       home_url: (headerAny['homeUrl'] as string) || (headerAny['home_url'] as string) || '/',
       variant: (headerAny['variant'] as string) || 'light',
       search_enabled: (headerAny['searchEnabled'] as boolean) ?? (headerAny['search_enabled'] as boolean) ?? true,
       search_mode: (headerAny['searchMode'] as string) || (headerAny['search_mode'] as string) || 'keyword',
-      logo_url: (headerAny['logoUrl'] as string) || (headerAny['logo_url'] as string) || BRAND_ASSET_URL,
-      favicon_url: (headerAny['faviconUrl'] as string) || (headerAny['favicon_url'] as string) || BRAND_ASSET_URL,
+      logo_url: (headerAny['logoUrl'] as string) || (headerAny['logo_url'] as string) || BRAND_LOGO_URL,
+      favicon_url: (headerAny['faviconUrl'] as string) || (headerAny['favicon_url'] as string) || BRAND_FAVICON_URL,
       navigation: Array.isArray(headerAny['navigation']) ? (headerAny['navigation'] as unknown[]) : [],
       actions: (headerAny['actions'] as Record<string, unknown>) || {
         notifications: true,
@@ -820,7 +881,7 @@ export const getHeaderConfig = async (req: Request, res: Response) => {
       guest_explore_dropdown: headerAny['guestExploreDropdown'] || headerAny['guest_explore_dropdown'] || headerAny['guestExplore'] || headerAny['guest_explore'] || null,
       guest_ctas: headerAny['guestCtas'] || headerAny['guest_ctas'] || headerAny['guestActions'] || headerAny['guest_actions'] || [],
       role_switch: headerAny['roleSwitch'] || headerAny['role_switch'] || headerAny['switchRole'] || null
-    };
+    });
 
     console.log('âœ… Header config served from database:', {
       hasLogo: !!transformed.logo_url,
@@ -834,14 +895,14 @@ export const getHeaderConfig = async (req: Request, res: Response) => {
     // Fallback to mock data
     const header = cmsData.header;
     const headerAny = header as any;
-    const transformed = {
+    const transformed = normalizeHeaderBranding({
       id: header.id || 'default-header',
       home_url: (headerAny.homeUrl as string) || (headerAny.home_url as string) || '/',
       variant: header.variant || 'light',
       search_enabled: (headerAny.searchEnabled as boolean) ?? (headerAny.search_enabled as boolean) ?? true,
       search_mode: (headerAny.searchMode as string) || (headerAny.search_mode as string) || 'keyword',
-      logo_url: (headerAny.logoUrl as string) || (headerAny.logo_url as string) || BRAND_ASSET_URL,
-      favicon_url: (headerAny.faviconUrl as string) || (headerAny.favicon_url as string) || BRAND_ASSET_URL,
+      logo_url: (headerAny.logoUrl as string) || (headerAny.logo_url as string) || BRAND_LOGO_URL,
+      favicon_url: (headerAny.faviconUrl as string) || (headerAny.favicon_url as string) || BRAND_FAVICON_URL,
       navigation: Array.isArray(headerAny.navigation) ? headerAny.navigation : [],
       actions: (headerAny.actions as Record<string, unknown>) || {},
       profile_menu: Array.isArray(headerAny.profileMenu) ? headerAny.profileMenu : Array.isArray(headerAny.profile_menu) ? headerAny.profile_menu : [],
@@ -850,7 +911,7 @@ export const getHeaderConfig = async (req: Request, res: Response) => {
       guest_explore_dropdown: headerAny.guestExploreDropdown || headerAny.guest_explore_dropdown || headerAny.guestExplore || headerAny.guest_explore || null,
       guest_ctas: headerAny.guestCtas || headerAny.guest_ctas || headerAny.guestActions || headerAny.guest_actions || [],
       role_switch: headerAny.roleSwitch || headerAny.role_switch || headerAny.switchRole || null
-    };
+    });
     res.json(transformed);
   }
 };
@@ -862,12 +923,12 @@ export const getFooterConfig = async (req: Request, res: Response) => {
     const data = config.data as any;
 
     // Return footer config from database, or fallback to mock
-    const footer = data?.footer || cmsData.footer;
+    const footer = normalizeFooterBranding((data?.footer || cmsData.footer) as Record<string, any>);
     res.json(footer);
   } catch (error) {
     console.error('Error getting footer config, using fallback:', error);
     // Fallback to mock data if database fails
-    res.json(cmsData.footer);
+    res.json(normalizeFooterBranding(cmsData.footer as Record<string, any>));
   }
 };
 
@@ -1190,7 +1251,7 @@ export const saveHeaderConfig = async (req: Request, res: Response) => {
       /* ignore logging errors */
     }
 
-    const normalized = {
+    const normalized = normalizeHeaderBranding({
       ...headerDefaults,
       // Map snake_case to camelCase for internal storage
       logoUrl: config.logo_url || config.logoUrl || headerDefaults.logoUrl,
@@ -1216,7 +1277,7 @@ export const saveHeaderConfig = async (req: Request, res: Response) => {
       actions: config.actions || headerDefaults.actions,
       variant: config.variant || headerDefaults.variant,
       updatedAt: new Date()
-    };
+    });
 
     // Log normalized navigation before saving
     try {
@@ -1278,7 +1339,7 @@ export const saveFooterConfig = async (req: Request, res: Response) => {
     const userId = req.user?.id;
 
     // Normalize incoming data
-    const normalized = {
+    const normalized = normalizeFooterBranding({
       ...cmsData.footer,
       id: config.id || cmsData.footer.id,
       logoUrl: config.logo_url || config.logoUrl || cmsData.footer.logoUrl,
@@ -1294,7 +1355,7 @@ export const saveFooterConfig = async (req: Request, res: Response) => {
       columns: Array.isArray(config.columns) ? config.columns : cmsData.footer.columns,
       socials: Array.isArray(config.socials) ? config.socials : cmsData.footer.socials,
       contact: config.contact || cmsData.footer.contact
-    };
+    });
 
     // Save to database
     await saveCMSConfig(CmsTarget.FOOTER, { footer: normalized }, userId);
@@ -1962,12 +2023,12 @@ export const getHomepage = async (req: Request, res: Response) => {
     const footerData = footerConfigRef.data as any;
 
     // Use data from DB, fallback to defaults
-    const header = data?.header || cmsData.header;
+    const header = normalizeHeaderBranding((data?.header || cmsData.header) as Record<string, any>);
     const heroSearch = data?.heroSearch || cmsData.heroSearch;
     const homeSlides = data?.homeSlides || cmsData.homeSlides;
     const homepageSections = data?.homepageSections || cmsData.homepageSections;
     const trendingRaw = data?.trending || cmsData.trending;
-    const footer = footerData?.footer || cmsData.footer;
+    const footer = normalizeFooterBranding((footerData?.footer || cmsData.footer) as Record<string, any>);
 
     // Get active sections - transform to match frontend types (snake_case)
     const activeSections = homepageSections
@@ -2057,8 +2118,8 @@ export const getHomepage = async (req: Request, res: Response) => {
         opportunities: []
       },
       heroSearch: cmsData.heroSearch || {},
-      header: cmsData.header || {},
-      footer: cmsData.footer || {},
+      header: normalizeHeaderBranding((cmsData.header || {}) as Record<string, any>),
+      footer: normalizeFooterBranding((cmsData.footer || {}) as Record<string, any>),
       published: false,
       publishedAt: null,
       timestamp: new Date().toISOString(),
@@ -2567,7 +2628,7 @@ export const getAuthPagesConfig = async (_req: Request, res: Response) => {
   try {
     const data = await getAppSetting(CMS_AUTH_PAGES_SCOPE, defaultAuthPagesConfig);
     const normalized = normalizeAuthPagesConfig(data || {});
-    const sanitized = sanitizeAuthPagesConfig(normalized);
+    const sanitized = sanitizeAuthPagesConfig(normalizeAuthPagesBranding(normalized));
     res.json(sanitized);
   } catch (error) {
     console.error('âŒ Error getting auth pages config:', error);
@@ -2579,9 +2640,9 @@ export const saveAuthPagesConfig = async (req: Request, res: Response) => {
   try {
     const payload = req.body || {};
     const existing = await getAppSetting(CMS_AUTH_PAGES_SCOPE, defaultAuthPagesConfig);
-    const normalized = normalizeAuthPagesConfig(payload, existing || {});
+    const normalized = normalizeAuthPagesBranding(normalizeAuthPagesConfig(payload, existing || {}));
     const saved = await saveAppSetting(CMS_AUTH_PAGES_SCOPE, normalized);
-    const sanitized = sanitizeAuthPagesConfig(saved);
+    const sanitized = sanitizeAuthPagesConfig(normalizeAuthPagesBranding(saved));
     emitCmsEvent(req, 'cms:auth_pages_updated', sanitized);
     res.json({ success: true, data: sanitized });
   } catch (error) {
