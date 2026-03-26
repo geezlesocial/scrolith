@@ -479,6 +479,157 @@ export const AdminService = {
     return adminDelete<any>(`/policies/overrides/${encodeURIComponent(id)}`);
   },
 
+  getFeatureControlSummary: async (): Promise<any> => {
+    return adminGet<any>('/feature-control/summary');
+  },
+
+  getFeatureFlags: async (params?: {
+    query?: string;
+    category?: string;
+    activeOnly?: boolean;
+    killSwitch?: boolean;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/feature-control/flags', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createFeatureFlag: async (payload: {
+    key: string;
+    label: string;
+    description?: string | null;
+    category?: string | null;
+    defaultValue?: boolean;
+    isActive?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/feature-control/flags', payload);
+  },
+
+  updateFeatureFlag: async (
+    id: string,
+    payload: {
+      key: string;
+      label: string;
+      description?: string | null;
+      category?: string | null;
+      defaultValue?: boolean;
+      isActive?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/feature-control/flags/${encodeURIComponent(id)}`, payload);
+  },
+
+  toggleFeatureKillSwitch: async (id: string, enabled: boolean): Promise<any> => {
+    return adminPost<any>(`/feature-control/flags/${encodeURIComponent(id)}/kill-switch`, { enabled });
+  },
+
+  getFeatureAudiences: async (flagId: string): Promise<any[]> => {
+    const data = await adminGet<any[]>(`/feature-control/flags/${encodeURIComponent(flagId)}/audiences`);
+    return Array.isArray(data) ? data : [];
+  },
+
+  createFeatureAudience: async (
+    flagId: string,
+    payload: {
+      key: string;
+      label: string;
+      roleScope?: string[] | string;
+      countryScope?: string[] | string;
+      platformScope?: string[] | string;
+      appVersions?: string[] | string;
+      metadata?: any;
+      isActive?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPost<any>(`/feature-control/flags/${encodeURIComponent(flagId)}/audiences`, payload);
+  },
+
+  updateFeatureAudience: async (
+    id: string,
+    payload: {
+      flagId: string;
+      key: string;
+      label: string;
+      roleScope?: string[] | string;
+      countryScope?: string[] | string;
+      platformScope?: string[] | string;
+      appVersions?: string[] | string;
+      metadata?: any;
+      isActive?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/feature-control/audiences/${encodeURIComponent(id)}`, payload);
+  },
+
+  getFeatureRules: async (flagId: string): Promise<any[]> => {
+    const data = await adminGet<any[]>(`/feature-control/flags/${encodeURIComponent(flagId)}/rules`);
+    return Array.isArray(data) ? data : [];
+  },
+
+  createFeatureRule: async (
+    flagId: string,
+    payload: {
+      audienceId?: string | null;
+      rolloutPercent?: number;
+      value?: boolean;
+      startAt?: string | null;
+      endAt?: string | null;
+      priority?: number;
+      isActive?: boolean;
+      conditions?: any;
+    }
+  ): Promise<any> => {
+    return adminPost<any>(`/feature-control/flags/${encodeURIComponent(flagId)}/rules`, payload);
+  },
+
+  updateFeatureRule: async (
+    id: string,
+    payload: {
+      flagId: string;
+      audienceId?: string | null;
+      rolloutPercent?: number;
+      value?: boolean;
+      startAt?: string | null;
+      endAt?: string | null;
+      priority?: number;
+      isActive?: boolean;
+      conditions?: any;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/feature-control/rules/${encodeURIComponent(id)}`, payload);
+  },
+
+  deactivateFeatureRule: async (id: string): Promise<any> => {
+    return adminDelete<any>(`/feature-control/rules/${encodeURIComponent(id)}`);
+  },
+
+  getFeatureFlagAudit: async (params?: { flagId?: string; limit?: number }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/feature-control/audit', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  getFeatureExposures: async (params?: {
+    flagId?: string;
+    userId?: string;
+    sessionKey?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/feature-control/exposures', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  resolveFeatureFlag: async (payload: {
+    key: string;
+    userId?: string | null;
+    sessionKey?: string | null;
+    role?: string | null;
+    country?: string | null;
+    platform?: string | null;
+    appVersion?: string | null;
+    metadata?: any;
+  }): Promise<any> => {
+    return adminPost<any>('/feature-control/resolve', payload);
+  },
+
   createRbacRole: async (payload: {
     name: string;
     description?: string;

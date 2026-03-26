@@ -25,6 +25,7 @@ const UploadedFilesTab = React.lazy(() => import('./admin/UploadedFiles'));
 const StaffManagementTab = React.lazy(() => import('./admin/StaffManagement'));
 const RoleManagementTab = React.lazy(() => import('./admin/RoleManagement'));
 const PolicyCenterTab = React.lazy(() => import('./admin/PolicyCenter'));
+const FeatureControlCenterTab = React.lazy(() => import('./admin/FeatureControlCenter'));
 const ModeratorConsole = React.lazy(() => import('./admin/ModeratorConsole'));
 const MessageRecords = React.lazy(() => import('./admin/MessageRecords'));
 const KYCTab = React.lazy(() => import('./admin/KYCVerification'));
@@ -55,7 +56,7 @@ const AdminLivePlatform = React.lazy(() => import('../pages/AdminLivePlatform'))
 const ScrollAdminPanel = React.lazy(() => import('../features/scroll/ScrollAdminPanel'));
 
 // Define valid tab types
-type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'scroll' | 'live' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'policy-center' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps' | 'developer-platform' | 'system-backup';
+type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'scroll' | 'live' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'policy-center' | 'feature-control' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps' | 'developer-platform' | 'system-backup';
 
 // Define navigation item interface
 interface NavItem {
@@ -120,7 +121,7 @@ const AdminDashboard: React.FC = () => {
     const isValidTab = (tab: string): tab is Tab => {
         const validTabs: Tab[] = [
             'overview', 'analytics', 'listings', 'engagement', 'finance', 'gateways', 'cms', 
-            'homepage', 'mobile-homepage', 'blog', 'scroll', 'live', 'marketing', 'users', 'monetization', 'files', 'staff', 'role-management', 'policy-center', 'moderator-console', 'message-records', 'kyc', 
+            'homepage', 'mobile-homepage', 'blog', 'scroll', 'live', 'marketing', 'users', 'monetization', 'files', 'staff', 'role-management', 'policy-center', 'feature-control', 'moderator-console', 'message-records', 'kyc', 
             'support', 'system', 'profile', 'messages', 'ai', 'atm', 'insights-growth', 'community', 'recommendations', 'navigation', 'reviews', 'languages', 'forms', 'google-settings', 'scrolitha', 'apps', 'developer-platform', 'system-backup'
         ];
         return validTabs.includes(tab as Tab);
@@ -315,6 +316,7 @@ const AdminDashboard: React.FC = () => {
                 { id: 'staff', label: 'Staff & Permissions', icon: Shield },
                 { id: 'role-management', label: 'Role Management', icon: Shield },
                 { id: 'policy-center', label: 'Policy Center', icon: Shield },
+                { id: 'feature-control', label: 'Feature Control', icon: Shield },
                 { id: 'moderator-console', label: 'Moderator Console', icon: MessageSquare },
                 { id: 'message-records', label: 'Message Records', icon: FileText }
             ] 
@@ -380,6 +382,7 @@ const AdminDashboard: React.FC = () => {
             case 'staff': return <StaffManagementTab />;
             case 'role-management': return <RoleManagementTab />;
             case 'policy-center': return <PolicyCenterTab />;
+            case 'feature-control': return <FeatureControlCenterTab />;
             case 'moderator-console': return <ModeratorConsole />;
             case 'message-records': return <MessageRecords />;
             case 'kyc': return <KYCTab />;
@@ -403,6 +406,7 @@ const AdminDashboard: React.FC = () => {
         if (tab === 'developer-platform') return 'Developer Platform';
         if (tab === 'system-backup') return 'System Backup';
         if (tab === 'policy-center') return 'Policy Center';
+        if (tab === 'feature-control') return 'Feature Control';
         return tab.replace(/([A-Z])/g, ' $1').trim().replace(/\b\w/g, l => l.toUpperCase());
     };
 
