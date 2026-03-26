@@ -630,6 +630,134 @@ export const AdminService = {
     return adminPost<any>('/feature-control/resolve', payload);
   },
 
+  getModerationTrustSummary: async (): Promise<any> => {
+    return adminGet<any>('/moderation-policies/summary');
+  },
+
+  getContentPolicies: async (params?: {
+    contentType?: string;
+    query?: string;
+    activeOnly?: boolean;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/moderation-policies', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createContentPolicy: async (payload: {
+    key: string;
+    label: string;
+    description?: string | null;
+    contentType: string;
+    severity?: string;
+    action?: string;
+    thresholds?: any;
+    metadata?: any;
+    isActive?: boolean;
+    isSystemPolicy?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/moderation-policies', payload);
+  },
+
+  updateContentPolicy: async (
+    id: string,
+    payload: {
+      key: string;
+      label: string;
+      description?: string | null;
+      contentType: string;
+      severity?: string;
+      action?: string;
+      thresholds?: any;
+      metadata?: any;
+      isActive?: boolean;
+      isSystemPolicy?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/moderation-policies/${encodeURIComponent(id)}`, payload);
+  },
+
+  getModerationCases: async (params?: {
+    status?: string;
+    contentType?: string;
+    query?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/moderation-policies/cases', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  getModerationAppeals: async (params?: {
+    status?: string;
+    query?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/moderation-policies/appeals', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  resolveModerationAppeal: async (
+    id: string,
+    payload: { status: 'APPROVED' | 'RESOLVED' | 'REJECTED'; resolutionNotes?: string | null }
+  ): Promise<any> => {
+    return adminPost<any>(`/moderation-policies/appeals/${encodeURIComponent(id)}/resolve`, payload);
+  },
+
+  getTrustProfiles: async (params?: {
+    riskLevel?: string;
+    query?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/trust/users', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  getTrustProfileDetails: async (userId: string): Promise<any> => {
+    return adminGet<any>(`/trust/users/${encodeURIComponent(userId)}`);
+  },
+
+  recomputeTrustProfile: async (userId: string): Promise<any> => {
+    return adminPost<any>(`/trust/users/${encodeURIComponent(userId)}/recompute`, {});
+  },
+
+  getRiskSignals: async (params?: {
+    status?: string;
+    severity?: string;
+    query?: string;
+    userId?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/trust/signals', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createRiskSignal: async (payload: {
+    identifier: string;
+    signalType: string;
+    severity?: string;
+    source?: string;
+    status?: string;
+    reason: string;
+    metadata?: any;
+    expiresAt?: string | null;
+  }): Promise<any> => {
+    return adminPost<any>('/trust/signals', payload);
+  },
+
+  updateRiskSignal: async (
+    id: string,
+    payload: {
+      signalType?: string;
+      severity?: string;
+      source?: string;
+      status?: string;
+      reason?: string;
+      metadata?: any;
+      expiresAt?: string | null;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/trust/signals/${encodeURIComponent(id)}`, payload);
+  },
+
   createRbacRole: async (payload: {
     name: string;
     description?: string;
