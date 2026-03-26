@@ -71,8 +71,7 @@ const getCanonicalBrandAssetUrl = (value: unknown, assetType: 'logo' | 'favicon'
     );
 
   if (!isBrandUpload) return raw;
-  if (basename.includes('favicon') || basename.includes('apple-touch-icon')) return BRAND_FAVICON_URL;
-  return BRAND_LOGO_URL;
+  return assetType === 'favicon' ? BRAND_FAVICON_URL : BRAND_LOGO_URL;
 };
 
 const normalizeHeaderBranding = <T extends Record<string, any>>(header: T): T => ({
