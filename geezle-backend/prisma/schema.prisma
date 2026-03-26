@@ -1631,6 +1631,52 @@ model RecoFeedbackLog {
   @@map("reco_feedback_log")
 }
 
+model SearchRankingRule {
+  id               String   @id @default(cuid())
+  key              String   @unique
+  label            String
+  description      String?
+  scope            String   @default("all")
+  targetType       String   @default("all") @map("target_type")
+  targetId         String?  @map("target_id")
+  queryPattern     String?  @map("query_pattern")
+  action           String
+  value            Float?   @default(1)
+  priority         Int      @default(100)
+  metadata         Json?
+  isActive         Boolean  @default(true) @map("is_active")
+  createdByStaffId String?  @map("created_by_staff_id")
+  updatedByStaffId String?  @map("updated_by_staff_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@index([scope, isActive, priority])
+  @@index([targetType, targetId])
+  @@index([queryPattern])
+  @@map("search_ranking_rule")
+}
+
+model FeedRecipe {
+  id                  String   @id @default(cuid())
+  key                 String   @unique
+  label               String
+  description         String?
+  mode                String
+  weights             Json
+  queryTakeMultiplier Int      @default(4) @map("query_take_multiplier")
+  queryTakeCap        Int      @default(120) @map("query_take_cap")
+  isSystemRecipe      Boolean  @default(false) @map("is_system_recipe")
+  isActive            Boolean  @default(true) @map("is_active")
+  createdByStaffId    String?  @map("created_by_staff_id")
+  updatedByStaffId    String?  @map("updated_by_staff_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@unique([mode])
+  @@index([isActive, mode])
+  @@map("feed_recipe")
+}
+
 model ScrolithaConversation {
   id              String   @id @default(cuid())
   userId          String   @map("user_id")

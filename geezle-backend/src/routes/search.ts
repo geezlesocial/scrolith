@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
+import { applySearchRankingRules } from '../services/discovery.service';
 import { normalizeUploadsPath, resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
 
 const router = express.Router();
@@ -259,11 +260,18 @@ const interleaveSearchGroups = (
 };
 
 const resolveUnifiedSearch = async (req: Request, q: string, perType: number, limit: number) => {
-  const [people, pages, jobs, gigs] = await Promise.all([
+  const [rawPeople, rawPages, rawJobs, rawGigs] = await Promise.all([
     searchPeople(q, perType, req),
     searchPages(q, perType, req),
     searchJobs(q, perType),
     searchGigs(q, perType, req)
+  ]);
+
+  const [people, pages, jobs, gigs] = await Promise.all([
+    applySearchRankingRules(rawPeople, { scope: 'unified', query: q }) as Promise<SearchEntry[]>,
+    applySearchRankingRules(rawPages, { scope: 'unified', query: q }) as Promise<SearchEntry[]>,
+    applySearchRankingRules(rawJobs, { scope: 'unified', query: q }) as Promise<SearchEntry[]>,
+    applySearchRankingRules(rawGigs, { scope: 'unified', query: q }) as Promise<SearchEntry[]>
   ]);
 
   const groups: Record<SearchBucketKey, SearchEntry[]> = { people, pages, jobs, gigs };
@@ -322,27 +330,27 @@ router.get('/', async (req: Request, res: Response) => {
     }
 
     if (type === 'posts' || type === 'post') {
-      const data = await searchPosts(q, limit);
+      const data = await applySearchRankingRules(await searchPosts(q, limit), { scope: 'search', query: q });
       return res.json({ success: true, data });
     }
 
     if (type === 'people' || type === 'users' || type === 'user') {
-      const data = await searchPeople(q, limit, req);
+      const data = await applySearchRankingRules(await searchPeople(q, limit, req), { scope: 'search', query: q });
       return res.json({ success: true, data });
     }
 
     if (type === 'pages' || type === 'page') {
-      const data = await searchPages(q, limit, req);
+      const data = await applySearchRankingRules(await searchPages(q, limit, req), { scope: 'search', query: q });
       return res.json({ success: true, data });
     }
 
     if (type === 'jobs' || type === 'job') {
-      const data = await searchJobs(q, limit);
+      const data = await applySearchRankingRules(await searchJobs(q, limit), { scope: 'search', query: q });
       return res.json({ success: true, data });
     }
 
     if (type === 'gigs' || type === 'gig') {
-      const data = await searchGigs(q, limit, req);
+      const data = await applySearchRankingRules(await searchGigs(q, limit, req), { scope: 'search', query: q });
       return res.json({ success: true, data });
     }
 

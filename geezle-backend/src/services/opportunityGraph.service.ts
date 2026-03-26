@@ -3,6 +3,22 @@ import prisma from '../utils/prismaClient';
 export const FEED_SURFACE_MODES = ['for_you', 'following', 'hire', 'sell', 'learn', 'local'] as const;
 export type FeedSurfaceMode = (typeof FEED_SURFACE_MODES)[number];
 
+export type FeedRecipeWeights = {
+  freshnessBaseHours?: number;
+  highlightBoost?: number;
+  followedTopicBoost?: number;
+  interestedTopicBoost?: number;
+  requestedTopicBoost?: number;
+  regionalBoost?: number;
+  hireIntentBoost?: number;
+  sellIntentBoost?: number;
+  learnIntentBoost?: number;
+  localContextBoost?: number;
+  shareWeight?: number;
+  repostWeight?: number;
+  viewWeight?: number;
+};
+
 type IntentSignalInput = {
   userId: string;
   entityType: string;
@@ -22,6 +38,22 @@ type ViewerFeedContext = {
 const HIRE_KEYWORDS = ['hire', 'hiring', 'recruit', 'job', 'apply', 'looking for', 'talent', 'contract', 'freelancer needed'];
 const SELL_KEYWORDS = ['service', 'offer', 'available', 'package', 'quote', 'book', 'for hire', 'portfolio', 'client work'];
 const LEARN_KEYWORDS = ['guide', 'tutorial', 'tips', 'how to', 'lesson', 'case study', 'breakdown', 'insight', 'explained'];
+
+const DEFAULT_FEED_RECIPE_WEIGHTS: Required<FeedRecipeWeights> = {
+  freshnessBaseHours: 42,
+  highlightBoost: 18,
+  followedTopicBoost: 28,
+  interestedTopicBoost: 18,
+  requestedTopicBoost: 24,
+  regionalBoost: 26,
+  hireIntentBoost: 34,
+  sellIntentBoost: 34,
+  learnIntentBoost: 34,
+  localContextBoost: 12,
+  shareWeight: 2,
+  repostWeight: 2,
+  viewWeight: 0.08
+};
 
 const normalizeText = (value: unknown) => String(value || '').trim();
 
@@ -248,8 +280,13 @@ export const scoreCommunityPostForMode = (input: {
   requestedTopic?: string | null;
   requestedRegion?: string | null;
   viewerRegion?: string | null;
+  recipe?: { weights?: FeedRecipeWeights | null } | null;
 }) => {
   const { post, mode, context } = input;
+  const recipeWeights: Required<FeedRecipeWeights> = {
+    ...DEFAULT_FEED_RECIPE_WEIGHTS,
+    ...((input.recipe?.weights || {}) as FeedRecipeWeights)
+  };
   const topicLabels = dedupeTopicLabels([post.topic, ...(Array.isArray(post.tags) ? post.tags : [])]).map((entry) => entry.toLowerCase());
   const topicSet = new Set(topicLabels);
   const requestedTopic = normalizeTopicLabel(input.requestedTopic).toLowerCase();
@@ -261,11 +298,11 @@ export const scoreCommunityPostForMode = (input: {
   const ageHours = Math.max(0, ageMs / (1000 * 60 * 60));
   const engagementScore =
     Number(post.likesCount || 0) +
-    Number(post.sharesCount || 0) * 2 +
-    Number(post.repostsCount || 0) * 2 +
-    Number(post.viewsCount || 0) * 0.08;
+    Number(post.sharesCount || 0) * recipeWeights.shareWeight +
+    Number(post.repostsCount || 0) * recipeWeights.repostWeight +
+    Number(post.viewsCount || 0) * recipeWeights.viewWeight;
 
-  let score = Math.max(0, 42 - ageHours) + engagementScore;
+  let score = Math.max(0, recipeWeights.freshnessBaseHours - ageHours) + engagementScore;
   const reasons: string[] = [];
 
   if (post.isPinned) {
@@ -273,47 +310,47 @@ export const scoreCommunityPostForMode = (input: {
     reasons.push('Pinned post');
   }
   if (post.isHighlighted) {
-    score += 18;
+    score += recipeWeights.highlightBoost;
     reasons.push('Highlighted post');
   }
 
   const followedTopicMatch = topicLabels.find((topic) => context.followedTopics.has(topic));
   if (followedTopicMatch) {
-    score += 28;
+    score += recipeWeights.followedTopicBoost;
     reasons.push(`Matches a topic you follow: ${followedTopicMatch}`);
   }
 
   const interestedTopicMatch = topicLabels.find((topic) => context.interestedTopics.has(topic));
   if (interestedTopicMatch) {
-    score += 18;
+    score += recipeWeights.interestedTopicBoost;
     reasons.push(`Similar to topics you engaged with recently: ${interestedTopicMatch}`);
   }
 
   if (requestedTopic && topicSet.has(requestedTopic)) {
-    score += 24;
+    score += recipeWeights.requestedTopicBoost;
     reasons.push(`Matches the selected topic: ${requestedTopic}`);
   }
 
   const location = normalizeText(post.location).toLowerCase();
   if ((requestedRegion && location.includes(requestedRegion)) || (viewerRegion && location.includes(viewerRegion))) {
-    score += 26;
+    score += recipeWeights.regionalBoost;
     reasons.push('Relevant to your location');
   }
 
   if (mode === 'hire' && matchesKeywordSet(corpus, HIRE_KEYWORDS)) {
-    score += 34;
+    score += recipeWeights.hireIntentBoost;
     reasons.push('Strong hiring intent');
   }
   if (mode === 'sell' && (matchesKeywordSet(corpus, SELL_KEYWORDS) || Boolean(post.businessPageId))) {
-    score += 34;
+    score += recipeWeights.sellIntentBoost;
     reasons.push('Strong service or selling intent');
   }
   if (mode === 'learn' && matchesKeywordSet(corpus, LEARN_KEYWORDS)) {
-    score += 34;
+    score += recipeWeights.learnIntentBoost;
     reasons.push('Strong learning value');
   }
   if (mode === 'local' && location) {
-    score += 12;
+    score += recipeWeights.localContextBoost;
     reasons.push('Has local context');
   }
 

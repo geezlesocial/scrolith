@@ -33,6 +33,7 @@ import {
   resolveTopicByParam,
   scoreCommunityPostForMode
 } from '../services/opportunityGraph.service';
+import { getActiveFeedRecipe } from '../services/discovery.service';
 import {
   normalizeStoredContentOfferTags,
   resolveSubmittedContentOfferTags
@@ -2068,6 +2069,7 @@ export const getFeed = async (req: Request, res: Response) => {
     const viewer = await resolveOptionalUserFromRequest(req);
     const userId = viewer?.id;
     const feedMode = normalizeFeedSurfaceMode(mode, scope === 'following' ? 'following' : 'for_you');
+    const feedRecipe = await getActiveFeedRecipe(feedMode);
     const blockedAuthorIds = await getBlockedAuthorIdsForViewer(userId);
     const baseWhere: any = { status: 'active' };
     let resolvedTopic = String(topic || '').trim();
@@ -2119,7 +2121,15 @@ export const getFeed = async (req: Request, res: Response) => {
       baseWhere.hiddenBy = { none: { userId } };
     }
 
-    const queryTake = feedMode === 'following' ? take : Math.min(Math.max(take * 4, take), 120);
+    const queryTakeMultiplier = Math.max(
+      1,
+      Math.min(8, Number(feedRecipe?.queryTakeMultiplier || (feedMode === 'following' ? 1 : 4)) || 1)
+    );
+    const queryTakeCap = Math.max(
+      take,
+      Math.min(200, Number(feedRecipe?.queryTakeCap || (feedMode === 'following' ? 50 : 120)) || 120)
+    );
+    const queryTake = Math.min(Math.max(take * queryTakeMultiplier, take), queryTakeCap);
     const posts = await prisma.communityPost.findMany({
       where: baseWhere,
       select: communityPostFeedSelect,
@@ -2211,7 +2221,8 @@ export const getFeed = async (req: Request, res: Response) => {
         context: feedContext,
         requestedTopic: resolvedTopic,
         requestedRegion: region,
-        viewerRegion
+        viewerRegion,
+        recipe: feedRecipe
       });
       const topicSummary = Array.from(new Set([String(post.topic || '').trim(), ...((post.tags || []).map((entry: string) => String(entry || '').trim()))].filter(Boolean)));
 
@@ -2294,6 +2305,7 @@ export const getFeed = async (req: Request, res: Response) => {
         },
         ranking: {
           mode: feedMode,
+          recipeKey: feedRecipe?.key || null,
           score: ranking.score,
           primaryReason: ranking.reasons[0] || 'Recommended from community activity.',
           reasons: ranking.reasons
