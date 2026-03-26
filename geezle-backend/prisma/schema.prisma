@@ -1677,6 +1677,150 @@ model FeedRecipe {
   @@map("feed_recipe")
 }
 
+model NotificationTemplate {
+  id                   String   @id @default(cuid())
+  key                  String   @unique
+  label                String
+  description          String?
+  type                 String   @default("system")
+  category             String   @default("journey")
+  titleTemplate        String
+  bodyTemplate         String
+  pushTitleTemplate    String?
+  pushBodyTemplate     String?
+  emailSubjectTemplate String?
+  emailTextTemplate    String?
+  actionUrlTemplate    String?
+  defaultMeta          Json?
+  inAppEnabled         Boolean  @default(true)
+  pushEnabled          Boolean  @default(false)
+  emailEnabled         Boolean  @default(false)
+  isSystemTemplate     Boolean  @default(false)
+  isActive             Boolean  @default(true)
+  createdByStaffId     String?
+  updatedByStaffId     String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  steps JourneyStep[]
+
+  @@index([category, isActive])
+  @@index([type, isActive])
+}
+
+model JourneyFlow {
+  id               String   @id @default(cuid())
+  key              String   @unique
+  label            String
+  description      String?
+  triggerType      String   @default("MANUAL")
+  audienceType     String   @default("USER")
+  audienceConfig   Json?
+  metadata         Json?
+  isSystemFlow     Boolean  @default(false)
+  isActive         Boolean  @default(true)
+  createdByStaffId String?
+  updatedByStaffId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  steps JourneyStep[]
+  runs  JourneyRun[]
+
+  @@index([triggerType, isActive])
+  @@index([audienceType, isActive])
+}
+
+model JourneyStep {
+  id              String   @id @default(cuid())
+  flowId          String
+  templateId      String
+  key             String
+  label           String
+  description     String?
+  channel         String   @default("IN_APP")
+  delayMinutes    Int      @default(0)
+  orderIndex      Int      @default(0)
+  actionUrl       String?
+  conditionConfig Json?
+  metadata        Json?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  flow     JourneyFlow          @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  template NotificationTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  stepRuns JourneyStepRun[]
+
+  @@unique([flowId, key])
+  @@index([flowId, isActive, orderIndex])
+  @@index([templateId, isActive])
+}
+
+model JourneyRun {
+  id                 String    @id @default(cuid())
+  flowId             String
+  targetUserId       String
+  initiatedByStaffId String?
+  triggerSource      String    @default("admin")
+  status             String    @default("PENDING")
+  context            Json?
+  results            Json?
+  lastError          String?
+  startedAt          DateTime  @default(now())
+  completedAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  flow     JourneyFlow      @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  stepRuns JourneyStepRun[]
+
+  @@index([flowId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@index([status, createdAt])
+}
+
+model JourneyStepRun {
+  id           String    @id @default(cuid())
+  runId        String
+  stepId       String
+  targetUserId String
+  channel      String
+  status       String    @default("PENDING")
+  scheduledFor DateTime
+  executedAt   DateTime?
+  attemptCount Int       @default(0)
+  result       Json?
+  errorMessage String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  run  JourneyRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  step JourneyStep @relation(fields: [stepId], references: [id], onDelete: Cascade)
+
+  @@index([status, scheduledFor])
+  @@index([runId, scheduledFor])
+  @@index([targetUserId, scheduledFor])
+}
+
+model QuietHourRule {
+  id          String   @id @default(cuid())
+  userId      String
+  label       String?
+  channel     String   @default("PUSH")
+  timezone    String?
+  daysOfWeek  String[] @default([])
+  startMinute Int
+  endMinute   Int
+  metadata    Json?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, isActive])
+  @@index([channel, isActive])
+}
+
 model ScrolithaConversation {
   id              String   @id @default(cuid())
   userId          String   @map("user_id")
