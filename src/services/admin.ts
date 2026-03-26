@@ -1106,6 +1106,68 @@ export const AdminService = {
     return AdminService.savePlatformSettings(settings);
   },
 
+  getConfigRollbackSummary: async (): Promise<any> => {
+    return adminGet<any>('/config/summary');
+  },
+
+  getConfigScopes: async (): Promise<any[]> => {
+    const data = await adminGet<any[]>('/config/scopes');
+    return Array.isArray(data) ? data : [];
+  },
+
+  getCurrentConfigPayload: async (scope: string): Promise<any> => {
+    return adminGet<any>('/config/current', { scope });
+  },
+
+  getConfigSnapshots: async (params?: { scope?: string; limit?: number }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/config/snapshots', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createConfigSnapshot: async (payload: {
+    scope: string;
+    reason?: string | null;
+    label?: string | null;
+    source?: string | null;
+    metadata?: any;
+  }): Promise<any> => {
+    return adminPost<any>('/config/snapshots', payload);
+  },
+
+  getConfigChanges: async (params?: { scope?: string; limit?: number }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/config/changes', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  getConfigRollbacks: async (params?: { scope?: string; limit?: number }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/config/rollbacks', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  rollbackConfigScope: async (payload: {
+    scope: string;
+    targetVersion: number;
+    notes?: string | null;
+    metadata?: any;
+  }): Promise<any> => {
+    return adminPost<any>('/config/rollback', payload);
+  },
+
+  getConfigReleaseRollouts: async (params?: { limit?: number }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/config/releases', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createConfigReleaseRollout: async (payload: {
+    scope: string;
+    releaseKey: string;
+    label: string;
+    notes?: string | null;
+    metadata?: any;
+  }): Promise<any> => {
+    return adminPost<any>('/config/releases', payload);
+  },
+
   getMonetizationSettings: async (): Promise<any> => {
     return adminGet<any>('/monetization/settings');
   },

@@ -120,6 +120,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'apps:config_updated', fn: forward('apps:config_updated') }
       ,{ ev: 'feature_flags:updated', fn: forward('feature_flags:updated') }
       ,{ ev: 'feature_flags:kill_switch_toggled', fn: forward('feature_flags:kill_switch_toggled') }
+      ,{ ev: 'config:snapshot_created', fn: forward('config:snapshot_created') }
+      ,{ ev: 'config:rollback_completed', fn: forward('config:rollback_completed') }
+      ,{ ev: 'config:release_logged', fn: forward('config:release_logged') }
       ,{ ev: 'moderation:policy_updated', fn: forward('moderation:policy_updated') }
       ,{ ev: 'moderation:appeal_updated', fn: forward('moderation:appeal_updated') }
       ,{ ev: 'trust:profile_updated', fn: forward('trust:profile_updated') }
