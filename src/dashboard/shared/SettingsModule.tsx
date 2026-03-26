@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useUser } from '../../context/UserContext';
 import { UserService } from '../../services/user';
+import { NotificationService, type QuietHourRule } from '../../services/notifications';
 import { useNotification } from '../../context/NotificationContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import { UserSettings } from '../../types';
@@ -206,6 +207,16 @@ const SettingsModule = () => {
     const [settings, setSettings] = useState<UserSettings | null>(null);
     const [loading, setLoading] = useState(true);
     const [savingSettings, setSavingSettings] = useState(false);
+    const [quietHours, setQuietHours] = useState<QuietHourRule[]>([]);
+    const [savingQuietHours, setSavingQuietHours] = useState(false);
+    const [quietHourForm, setQuietHourForm] = useState({
+        label: '',
+        channel: 'PUSH' as 'ALL' | 'IN_APP' | 'PUSH' | 'EMAIL',
+        timezone: '',
+        startTime: '22:00',
+        endTime: '07:00',
+        daysOfWeek: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'] as string[]
+    });
     
     // Security State
     const [currentPassword, setCurrentPassword] = useState('');
@@ -279,6 +290,30 @@ const SettingsModule = () => {
     }, [user, showNotification]);
 
     useEffect(() => {
+        if (!user) return;
+        let mounted = true;
+        const loadQuietHours = async () => {
+            try {
+                const rows = await NotificationService.getQuietHours();
+                if (!mounted) return;
+                setQuietHours(Array.isArray(rows) ? rows : []);
+                setQuietHourForm((current) => ({
+                    ...current,
+                    timezone: current.timezone || user.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+                }));
+            } catch (error: any) {
+                if (mounted) {
+                    showNotification('alert', 'Quiet Hours Load Failed', error?.message || 'Unable to load quiet hours.');
+                }
+            }
+        };
+        void loadQuietHours();
+        return () => {
+            mounted = false;
+        };
+    }, [user?.id]);
+
+    useEffect(() => {
         setEmail(user?.email || '');
     }, [user?.email]);
 
@@ -341,6 +376,55 @@ const SettingsModule = () => {
             setSettings(settings);
         } finally {
             setSavingSettings(false);
+        }
+    };
+
+    const toggleQuietHourDay = (day: string) => {
+        setQuietHourForm((current) => {
+            const exists = current.daysOfWeek.includes(day);
+            return {
+                ...current,
+                daysOfWeek: exists
+                    ? current.daysOfWeek.filter((entry) => entry !== day)
+                    : current.daysOfWeek.concat(day)
+            };
+        });
+    };
+
+    const handleCreateQuietHour = async () => {
+        try {
+            setSavingQuietHours(true);
+            const created = await NotificationService.createQuietHour({
+                label: quietHourForm.label || null,
+                channel: quietHourForm.channel,
+                timezone: quietHourForm.timezone || null,
+                daysOfWeek: quietHourForm.daysOfWeek,
+                startTime: quietHourForm.startTime,
+                endTime: quietHourForm.endTime
+            });
+            setQuietHours((current) => [created, ...current]);
+            setQuietHourForm((current) => ({
+                ...current,
+                label: ''
+            }));
+            showNotification('success', 'Quiet Hours Updated', 'Your quiet-hour rule was added.');
+        } catch (error: any) {
+            showNotification('alert', 'Quiet Hours Failed', error?.message || 'Failed to save quiet-hour rule.');
+        } finally {
+            setSavingQuietHours(false);
+        }
+    };
+
+    const handleDeleteQuietHour = async (id: string) => {
+        try {
+            setSavingQuietHours(true);
+            await NotificationService.deleteQuietHour(id);
+            setQuietHours((current) => current.filter((rule) => rule.id !== id));
+            showNotification('success', 'Quiet Hours Updated', 'The quiet-hour rule was removed.');
+        } catch (error: any) {
+            showNotification('alert', 'Quiet Hours Failed', error?.message || 'Failed to remove quiet-hour rule.');
+        } finally {
+            setSavingQuietHours(false);
         }
     };
 
@@ -668,6 +752,105 @@ const SettingsModule = () => {
                                             <input type="checkbox" checked={settings.marketingEmails} onChange={() => handleToggle('marketingEmails')} className="sr-only peer" disabled={savingSettings} />
                                             <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                                         </label>
+                                    </div>
+
+                                    <div className="rounded-xl border border-gray-200 p-4">
+                                        <div className="flex items-start gap-4">
+                                            <div className="p-2 bg-slate-50 rounded-lg text-slate-700"><Moon className="w-5 h-5" /></div>
+                                            <div className="flex-1 space-y-4">
+                                                <div>
+                                                    <p className="font-medium text-gray-900">Quiet Hours</p>
+                                                    <p className="text-xs text-gray-500">Pause push, email, or all journey-driven notifications during selected hours.</p>
+                                                </div>
+                                                <div className="grid gap-2 md:grid-cols-2">
+                                                    <input
+                                                        value={quietHourForm.label}
+                                                        onChange={(event) => setQuietHourForm((current) => ({ ...current, label: event.target.value }))}
+                                                        placeholder="Rule label"
+                                                        className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                                                    />
+                                                    <select
+                                                        value={quietHourForm.channel}
+                                                        onChange={(event) => setQuietHourForm((current) => ({ ...current, channel: event.target.value as any }))}
+                                                        className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                                                    >
+                                                        <option value="PUSH">Push</option>
+                                                        <option value="EMAIL">Email</option>
+                                                        <option value="IN_APP">In-app</option>
+                                                        <option value="ALL">All channels</option>
+                                                    </select>
+                                                    <input
+                                                        value={quietHourForm.timezone}
+                                                        onChange={(event) => setQuietHourForm((current) => ({ ...current, timezone: event.target.value }))}
+                                                        placeholder="Timezone"
+                                                        className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                                                    />
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <input
+                                                            type="time"
+                                                            value={quietHourForm.startTime}
+                                                            onChange={(event) => setQuietHourForm((current) => ({ ...current, startTime: event.target.value }))}
+                                                            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                                                        />
+                                                        <input
+                                                            type="time"
+                                                            value={quietHourForm.endTime}
+                                                            onChange={(event) => setQuietHourForm((current) => ({ ...current, endTime: event.target.value }))}
+                                                            className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'].map((day) => (
+                                                        <button
+                                                            key={day}
+                                                            type="button"
+                                                            onClick={() => toggleQuietHourDay(day)}
+                                                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                                                quietHourForm.daysOfWeek.includes(day)
+                                                                    ? 'bg-indigo-600 text-white'
+                                                                    : 'bg-gray-100 text-gray-600'
+                                                            }`}
+                                                        >
+                                                            {day.slice(0, 3)}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleCreateQuietHour}
+                                                        disabled={savingQuietHours}
+                                                        className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
+                                                    >
+                                                        {savingQuietHours ? 'Saving...' : 'Add Quiet Hour'}
+                                                    </button>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    {quietHours.map((rule) => (
+                                                        <div key={rule.id} className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm">
+                                                            <div>
+                                                                <div className="font-medium text-gray-900">{rule.label || 'Quiet Hour Rule'}</div>
+                                                                <div className="text-xs text-gray-500">
+                                                                    {rule.channel} · {(rule.daysOfWeek || []).length ? rule.daysOfWeek.join(', ') : 'All days'}
+                                                                    {' · '}
+                                                                    {rule.startMinute !== undefined ? `${String(Math.floor(rule.startMinute / 60)).padStart(2, '0')}:${String(rule.startMinute % 60).padStart(2, '0')}` : '--:--'}
+                                                                    {' to '}
+                                                                    {rule.endMinute !== undefined ? `${String(Math.floor(rule.endMinute / 60)).padStart(2, '0')}:${String(rule.endMinute % 60).padStart(2, '0')}` : '--:--'}
+                                                                </div>
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleDeleteQuietHour(rule.id)}
+                                                                className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                                                            >
+                                                                Remove
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

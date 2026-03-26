@@ -721,6 +721,138 @@ export const AdminService = {
     return adminPut<any>(`/discovery/feed-recipes/${encodeURIComponent(id)}`, payload);
   },
 
+  getJourneySummary: async (): Promise<any> => {
+    return adminGet<any>('/journeys/summary');
+  },
+
+  getNotificationTemplates: async (params?: {
+    query?: string;
+    category?: string;
+    activeOnly?: boolean;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/journeys/templates', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createNotificationTemplate: async (payload: {
+    key: string;
+    label: string;
+    description?: string | null;
+    type?: string;
+    category?: string;
+    titleTemplate: string;
+    bodyTemplate: string;
+    pushTitleTemplate?: string | null;
+    pushBodyTemplate?: string | null;
+    emailSubjectTemplate?: string | null;
+    emailTextTemplate?: string | null;
+    actionUrlTemplate?: string | null;
+    defaultMeta?: any;
+    inAppEnabled?: boolean;
+    pushEnabled?: boolean;
+    emailEnabled?: boolean;
+    isSystemTemplate?: boolean;
+    isActive?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/journeys/templates', payload);
+  },
+
+  updateNotificationTemplate: async (
+    id: string,
+    payload: {
+      key: string;
+      label: string;
+      description?: string | null;
+      type?: string;
+      category?: string;
+      titleTemplate: string;
+      bodyTemplate: string;
+      pushTitleTemplate?: string | null;
+      pushBodyTemplate?: string | null;
+      emailSubjectTemplate?: string | null;
+      emailTextTemplate?: string | null;
+      actionUrlTemplate?: string | null;
+      defaultMeta?: any;
+      inAppEnabled?: boolean;
+      pushEnabled?: boolean;
+      emailEnabled?: boolean;
+      isSystemTemplate?: boolean;
+      isActive?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/journeys/templates/${encodeURIComponent(id)}`, payload);
+  },
+
+  deactivateNotificationTemplate: async (id: string): Promise<any> => {
+    return adminDelete<any>(`/journeys/templates/${encodeURIComponent(id)}`);
+  },
+
+  getJourneyFlows: async (params?: {
+    query?: string;
+    activeOnly?: boolean;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/journeys/flows', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createJourneyFlow: async (payload: {
+    key: string;
+    label: string;
+    description?: string | null;
+    triggerType?: string;
+    audienceType?: string;
+    audienceConfig?: any;
+    metadata?: any;
+    isSystemFlow?: boolean;
+    isActive?: boolean;
+    steps: any[];
+  }): Promise<any> => {
+    return adminPost<any>('/journeys/flows', payload);
+  },
+
+  updateJourneyFlow: async (
+    id: string,
+    payload: {
+      key: string;
+      label: string;
+      description?: string | null;
+      triggerType?: string;
+      audienceType?: string;
+      audienceConfig?: any;
+      metadata?: any;
+      isSystemFlow?: boolean;
+      isActive?: boolean;
+      steps: any[];
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/journeys/flows/${encodeURIComponent(id)}`, payload);
+  },
+
+  deactivateJourneyFlow: async (id: string): Promise<any> => {
+    return adminDelete<any>(`/journeys/flows/${encodeURIComponent(id)}`);
+  },
+
+  getJourneyRuns: async (params?: {
+    status?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/journeys/runs', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  triggerJourneyRun: async (payload: {
+    flowId?: string;
+    flowKey?: string;
+    identifier: string;
+    context?: any;
+  }): Promise<any> => {
+    return adminPost<any>('/journeys/runs', payload);
+  },
+
+  getJourneyQuietHours: async (identifier: string): Promise<any> => {
+    return adminGet<any>('/journeys/quiet-hours', { identifier });
+  },
+
   getModerationTrustSummary: async (): Promise<any> => {
     return adminGet<any>('/moderation-policies/summary');
   },

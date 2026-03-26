@@ -122,6 +122,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'feature_flags:kill_switch_toggled', fn: forward('feature_flags:kill_switch_toggled') }
       ,{ ev: 'search:rules_updated', fn: forward('search:rules_updated') }
       ,{ ev: 'feed:recipe_updated', fn: forward('feed:recipe_updated') }
+      ,{ ev: 'journeys:updated', fn: forward('journeys:updated') }
+      ,{ ev: 'notifications:preferences_updated', fn: forward('notifications:preferences_updated') }
       ,{ ev: 'config:snapshot_created', fn: forward('config:snapshot_created') }
       ,{ ev: 'config:rollback_completed', fn: forward('config:rollback_completed') }
       ,{ ev: 'config:release_logged', fn: forward('config:release_logged') }
