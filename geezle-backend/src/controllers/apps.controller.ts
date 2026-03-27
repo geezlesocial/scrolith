@@ -3,7 +3,10 @@ import { randomUUID } from 'crypto';
 import * as jwt from 'jsonwebtoken';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
-import { isPushEnabled, sendPushToUser } from '../services/pushNotifications';
+import {
+  getPushRuntimeStatus,
+  sendPushToUsers
+} from '../services/pushNotifications';
 
 const APP_DISTRIBUTION_SCOPE = 'app_distribution';
 const APP_CAMPAIGNS_SCOPE = 'app_distribution_campaigns';
@@ -43,6 +46,9 @@ type CampaignRecord = {
   lastPushEligibleUsers: number;
   lastPushSkippedUsers: number;
   lastPushDisabled: boolean;
+  lastPushAttemptedTokens: number;
+  lastPushCredentialSource: string | null;
+  lastPushErrorSummary: string | null;
   lastSentAt: string | null;
 };
 
@@ -314,8 +320,25 @@ const normalizeCampaignRecord = (raw: any): CampaignRecord => {
     lastPushEligibleUsers: asNumber(raw?.lastPushEligibleUsers, 0, 0),
     lastPushSkippedUsers: asNumber(raw?.lastPushSkippedUsers, 0, 0),
     lastPushDisabled: asBoolean(raw?.lastPushDisabled, false),
+    lastPushAttemptedTokens: asNumber(raw?.lastPushAttemptedTokens, 0, 0),
+    lastPushCredentialSource: asString(raw?.lastPushCredentialSource) || null,
+    lastPushErrorSummary: asString(raw?.lastPushErrorSummary) || null,
     lastSentAt: asString(raw?.lastSentAt) || null
   };
+};
+
+const summarizePushErrors = (errors: Array<{ code?: string; message?: string }>) => {
+  if (!Array.isArray(errors) || errors.length === 0) return null;
+  const counts = new Map<string, number>();
+  errors.forEach((error) => {
+    const key = asString(error?.code) || asString(error?.message) || 'push_send_failed';
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([key, count]) => `${key} (${count})`)
+    .join(', ');
 };
 
 const buildCampaignFallbackPath = (
@@ -605,6 +628,7 @@ export const getAdminAppDistributionAnalytics = async (req: Request, res: Respon
     const since = new Date();
     since.setHours(0, 0, 0, 0);
     since.setDate(since.getDate() - (rangeDays - 1));
+    const pushRuntime = getPushRuntimeStatus();
 
     const [logs, tokens, campaigns] = await Promise.all([
       prisma.authAuditLog.findMany({
@@ -725,6 +749,7 @@ export const getAdminAppDistributionAnalytics = async (req: Request, res: Respon
           activePushUsers: uniqueTokenUsers.size,
           totalDeviceTokens: tokens.length
         },
+        pushRuntime,
         campaignStats,
         byCountry: Array.from(byCountry.entries())
           .map(([country, count]) => ({ country, count }))
@@ -963,11 +988,17 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
       });
     }
 
-    const pushEnabled = deliveryPush ? isPushEnabled() : false;
+    const pushRuntime = deliveryPush ? getPushRuntimeStatus() : null;
+    const pushEnabled = deliveryPush ? Boolean(pushRuntime?.enabled) : false;
     if (deliveryPush && !deliveryInApp && !pushEnabled) {
       return res.status(503).json({
         success: false,
-        error: 'Push delivery is unavailable. Configure Firebase credentials first.',
+        error:
+          pushRuntime?.error ||
+          'Push delivery is unavailable. Configure Firebase credentials first.',
+        data: {
+          pushRuntime
+        },
         timestamp: nowIso()
       });
     }
@@ -1026,9 +1057,12 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
 
     let pushSent = 0;
     let pushFailed = 0;
+    let pushAttemptedTokens = 0;
+    let pushErrorSummary: string | null = null;
     if (deliveryPush && pushEnabled && pushRecipientIds.length) {
-      for (const userId of pushRecipientIds) {
-        const result = await sendPushToUser(userId, {
+      const result = await sendPushToUsers(
+        pushRecipientIds,
+        {
           id: campaignId,
           type: 'app_campaign',
           title,
@@ -1042,12 +1076,18 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
             actionUrl: resolvedActionUrl,
             action_url: resolvedActionUrl
           }
-        });
-        pushSent += Number(result.sent || 0);
-        pushFailed += Number(result.failed || 0);
-      }
+        },
+        {
+          targetPlatform
+        }
+      );
+      pushSent += Number(result.sent || 0);
+      pushFailed += Number(result.failed || 0);
+      pushAttemptedTokens += Number(result.eligibleTokens || result.attempted || 0);
+      pushErrorSummary = summarizePushErrors(result.errors);
     } else if (deliveryPush && !pushEnabled && pushRecipientIds.length) {
       pushFailed += pushRecipientIds.length;
+      pushErrorSummary = pushRuntime?.error || 'Push delivery disabled on backend';
     }
 
     const now = nowIso();
@@ -1078,6 +1118,9 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
       lastPushEligibleUsers: pushRecipientIds.length,
       lastPushSkippedUsers: pushSkippedUsers,
       lastPushDisabled: deliveryPush && !pushEnabled,
+      lastPushAttemptedTokens: pushAttemptedTokens,
+      lastPushCredentialSource: pushRuntime?.credentialSource || null,
+      lastPushErrorSummary: pushErrorSummary,
       lastSentAt: now
     });
 
@@ -1093,8 +1136,10 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
       pushEligibleUsers: pushRecipientIds.length,
       pushSkippedUsers,
       pushEnabled,
+      pushAttemptedTokens,
       pushSent,
-      pushFailed
+      pushFailed,
+      pushRuntime
     });
     emitAdminEvent(req, 'apps:metrics_updated', {
       campaignId
@@ -1109,8 +1154,11 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
         pushEligibleUsers: pushRecipientIds.length,
         pushSkippedUsers,
         pushEnabled,
+        pushAttemptedTokens,
         pushSent,
-        pushFailed
+        pushFailed,
+        pushErrorSummary,
+        pushRuntime
       },
       timestamp: nowIso()
     });

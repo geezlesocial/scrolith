@@ -15,10 +15,24 @@ export const registerDevice = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'platform and token are required', timestamp: nowIso() });
     }
 
-    const record = await prisma.deviceToken.upsert({
-      where: { token },
-      update: { userId, platform, deviceId, lastSeenAt: new Date() },
-      create: { userId, platform, token, deviceId: deviceId || null, lastSeenAt: new Date() }
+    const now = new Date();
+    const record = await prisma.$transaction(async (tx) => {
+      if (deviceId) {
+        await tx.deviceToken.deleteMany({
+          where: {
+            userId,
+            platform,
+            deviceId,
+            token: { not: token }
+          }
+        });
+      }
+
+      return tx.deviceToken.upsert({
+        where: { token },
+        update: { userId, platform, deviceId, lastSeenAt: now },
+        create: { userId, platform, token, deviceId: deviceId || null, lastSeenAt: now }
+      });
     });
 
     console.log('[push] device token registered', {

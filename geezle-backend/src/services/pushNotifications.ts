@@ -1,5 +1,6 @@
 import admin from 'firebase-admin';
 import fs from 'fs';
+import path from 'path';
 import prisma from '../utils/prismaClient';
 import { buildNotificationActionUrl, normalizeNotificationActionUrl } from './notificationActionUrl.service';
 
@@ -23,6 +24,49 @@ type PushMessage = {
   data: Record<string, string>;
 };
 
+type PushCredentialSource =
+  | 'env_json'
+  | 'env_b64'
+  | 'env_path'
+  | 'default_path'
+  | 'application_default'
+  | null;
+
+type ResolvedServiceAccount = {
+  serviceAccount: admin.ServiceAccount | null;
+  source: PushCredentialSource;
+  sourcePath?: string | null;
+};
+
+type DeviceTokenRow = {
+  userId: string;
+  token: string;
+  platform: string;
+};
+
+export type PushSendOptions = {
+  targetPlatform?: 'all' | 'android' | 'desktop';
+};
+
+export type PushSendResult = {
+  attempted: number;
+  sent: number;
+  failed: number;
+  eligibleUsers?: number;
+  eligibleTokens?: number;
+  errors: Array<{ token?: string; code?: string; message?: string }>;
+};
+
+export type PushRuntimeStatus = {
+  enabled: boolean;
+  initialized: boolean;
+  credentialSource: PushCredentialSource;
+  credentialPath?: string | null;
+  projectId?: string | null;
+  clientEmail?: string | null;
+  error?: string | null;
+};
+
 const INVALID_TOKEN_CODES = new Set([
   'messaging/invalid-registration-token',
   'messaging/registration-token-not-registered',
@@ -33,90 +77,161 @@ let firebaseApp: admin.app.App | null = null;
 let initAttempted = false;
 let initErrorLogged = false;
 let initSuccessLogged = false;
+let firebaseInitError: string | null = null;
+let firebaseCredentialSource: PushCredentialSource = null;
+let firebaseCredentialPath: string | null = null;
+let firebaseProjectId: string | null = null;
+let firebaseClientEmail: string | null = null;
 
-export type PushSendResult = {
-  attempted: number;
-  sent: number;
-  failed: number;
-  errors: Array<{ token?: string; code?: string; message?: string }>;
+const parseServiceAccount = (input: string): admin.ServiceAccount | null => {
+  try {
+    const parsed = JSON.parse(input);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const serviceAccount = parsed as admin.ServiceAccount & Record<string, any>;
+    if (typeof serviceAccount.private_key === 'string') {
+      serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+    }
+    return serviceAccount;
+  } catch {
+    return null;
+  }
 };
 
-const readServiceAccount = (): admin.ServiceAccount | null => {
+const defaultServiceAccountPaths = () => {
+  const cwd = process.cwd();
+  return [
+    path.resolve(cwd, 'secrets', 'fcm-service-account.json'),
+    path.resolve(cwd, 'fcm-service-account.json'),
+    path.resolve(cwd, 'secrets', 'firebase-adminsdk.json')
+  ];
+};
+
+const readServiceAccount = (): ResolvedServiceAccount => {
   const rawJson = process.env.FCM_SERVICE_ACCOUNT_JSON;
   const rawB64 = process.env.FCM_SERVICE_ACCOUNT_B64;
   const rawPath = process.env.FCM_SERVICE_ACCOUNT_PATH || process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
-  const parseJson = (input: string): admin.ServiceAccount | null => {
-    try {
-      return JSON.parse(input);
-    } catch {
-      return null;
-    }
-  };
-
   if (rawJson) {
-    const parsed = parseJson(rawJson);
-    if (parsed) return parsed;
+    const parsed = parseServiceAccount(rawJson);
+    if (parsed) {
+      return { serviceAccount: parsed, source: 'env_json' };
+    }
   }
 
   if (rawB64) {
     try {
       const decoded = Buffer.from(rawB64, 'base64').toString('utf8');
-      const parsed = parseJson(decoded);
-      if (parsed) return parsed;
+      const parsed = parseServiceAccount(decoded);
+      if (parsed) {
+        return { serviceAccount: parsed, source: 'env_b64' };
+      }
     } catch {
       // ignore
     }
   }
 
-  if (rawPath) {
+  const pathCandidates = [
+    ...(rawPath ? [rawPath] : []),
+    ...defaultServiceAccountPaths()
+  ];
+  for (const candidate of pathCandidates) {
+    const resolved = path.resolve(candidate);
+    if (!fs.existsSync(resolved)) continue;
     try {
-      const rawFile = fs.readFileSync(rawPath, 'utf8');
-      const parsed = parseJson(rawFile);
-      if (parsed) return parsed;
+      const rawFile = fs.readFileSync(resolved, 'utf8');
+      const parsed = parseServiceAccount(rawFile);
+      if (parsed) {
+        return {
+          serviceAccount: parsed,
+          source: rawPath && path.resolve(rawPath) === resolved ? 'env_path' : 'default_path',
+          sourcePath: resolved
+        };
+      }
     } catch {
       // ignore
     }
   }
 
-  return null;
+  return {
+    serviceAccount: null,
+    source: rawPath ? 'env_path' : null,
+    sourcePath: rawPath ? path.resolve(rawPath) : null
+  };
+};
+
+const setCredentialMetadata = (
+  source: PushCredentialSource,
+  serviceAccount?: admin.ServiceAccount | null,
+  credentialPath?: string | null
+) => {
+  firebaseCredentialSource = source;
+  firebaseCredentialPath = credentialPath || null;
+  firebaseProjectId =
+    serviceAccount?.projectId ||
+    (serviceAccount as any)?.project_id ||
+    process.env.FIREBASE_PROJECT_ID ||
+    null;
+  firebaseClientEmail =
+    serviceAccount?.clientEmail ||
+    (serviceAccount as any)?.client_email ||
+    null;
 };
 
 const getFirebaseApp = (): admin.app.App | null => {
   if (firebaseApp) return firebaseApp;
+  if (admin.apps.length > 0) {
+    firebaseApp = admin.app();
+    return firebaseApp;
+  }
   if (initAttempted) return null;
   initAttempted = true;
 
   try {
-    const serviceAccount = readServiceAccount();
+    const { serviceAccount, source, sourcePath } = readServiceAccount();
     if (serviceAccount) {
+      setCredentialMetadata(source, serviceAccount, sourcePath);
       firebaseApp = admin.initializeApp({
         credential: admin.credential.cert(serviceAccount)
       });
+      firebaseInitError = null;
       if (!initSuccessLogged) {
         initSuccessLogged = true;
-        console.log('[push] Firebase Admin initialized');
+        console.log('[push] Firebase Admin initialized', {
+          source,
+          projectId: firebaseProjectId,
+          credentialPath: firebaseCredentialPath
+        });
       }
       return firebaseApp;
     }
 
     if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      firebaseCredentialSource = 'application_default';
+      firebaseCredentialPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
       firebaseApp = admin.initializeApp({
         credential: admin.credential.applicationDefault()
       });
+      firebaseInitError = null;
       if (!initSuccessLogged) {
         initSuccessLogged = true;
-        console.log('[push] Firebase Admin initialized');
+        console.log('[push] Firebase Admin initialized', {
+          source: firebaseCredentialSource,
+          credentialPath: firebaseCredentialPath
+        });
       }
       return firebaseApp;
     }
   } catch (error) {
+    firebaseInitError = (error as any)?.message || 'Firebase initialization failed';
     if (!initErrorLogged) {
       initErrorLogged = true;
       console.warn('[push] Failed to initialize Firebase Admin:', error);
     }
   }
 
+  if (!firebaseInitError) {
+    firebaseInitError = 'Missing Firebase credentials';
+  }
   if (!initErrorLogged) {
     initErrorLogged = true;
     console.warn('[push] Push notifications disabled: missing Firebase credentials.');
@@ -125,6 +240,19 @@ const getFirebaseApp = (): admin.app.App | null => {
 };
 
 export const isPushEnabled = () => Boolean(getFirebaseApp());
+
+export const getPushRuntimeStatus = (): PushRuntimeStatus => {
+  const app = getFirebaseApp();
+  return {
+    enabled: Boolean(app),
+    initialized: initAttempted,
+    credentialSource: firebaseCredentialSource,
+    credentialPath: firebaseCredentialPath,
+    projectId: firebaseProjectId,
+    clientEmail: firebaseClientEmail,
+    error: app ? null : firebaseInitError
+  };
+};
 
 const normalizeData = (data?: Record<string, any>) => {
   const normalized: Record<string, string> = {};
@@ -170,11 +298,15 @@ const normalizeDeepLink = (raw?: string) => {
   if (!raw) return undefined;
   const trimmed = String(raw).trim();
   if (!trimmed) return undefined;
-  if (trimmed.startsWith('Scrolith://') || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+  if (
+    trimmed.startsWith('Scrolith://') ||
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://')
+  ) {
     return trimmed;
   }
-  const path = trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
-  return `Scrolith://${path}`;
+  const pathValue = trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
+  return `Scrolith://${pathValue}`;
 };
 
 const buildPushMessage = (payload: PushNotificationPayload): PushMessage => {
@@ -216,10 +348,52 @@ const chunk = <T,>(items: T[], size: number) => {
   return result;
 };
 
-const sendToTokens = async (tokens: string[], payload: PushNotificationPayload): Promise<PushSendResult> => {
+const matchesPushTargetPlatform = (
+  tokenPlatformInput: unknown,
+  targetPlatform: 'all' | 'android' | 'desktop'
+) => {
+  const tokenPlatform = String(tokenPlatformInput || '').trim().toLowerCase();
+  if (!tokenPlatform) return false;
+  if (targetPlatform === 'all') return true;
+  if (targetPlatform === 'android') {
+    return tokenPlatform === 'android' || tokenPlatform === 'ios';
+  }
+  return tokenPlatform === 'web' || tokenPlatform === 'desktop' || tokenPlatform === 'browser';
+};
+
+const uniqueTokens = (tokens: Array<{ token: string }>) =>
+  Array.from(new Set(tokens.map((token) => token.token).filter(Boolean)));
+
+const loadEligibleDeviceTokens = async (
+  userIds: string[],
+  targetPlatform: 'all' | 'android' | 'desktop'
+): Promise<DeviceTokenRow[]> => {
+  if (!userIds.length) return [];
+  const rows = await prisma.deviceToken.findMany({
+    where: { userId: { in: Array.from(new Set(userIds)) } },
+    select: { userId: true, token: true, platform: true }
+  });
+  return rows
+    .map((row) => ({
+      userId: row.userId,
+      token: row.token,
+      platform: String(row.platform || '').toLowerCase()
+    }))
+    .filter((row) => matchesPushTargetPlatform(row.platform, targetPlatform));
+};
+
+const sendToTokens = async (
+  tokens: string[],
+  payload: PushNotificationPayload
+): Promise<PushSendResult> => {
   const app = getFirebaseApp();
   if (!app || tokens.length === 0) {
-    return { attempted: tokens.length, sent: 0, failed: tokens.length, errors: app ? [] : [{ message: 'FCM not initialized' }] };
+    return {
+      attempted: tokens.length,
+      sent: 0,
+      failed: tokens.length,
+      errors: app ? [] : [{ message: firebaseInitError || 'FCM not initialized' }]
+    };
   }
 
   const message = buildPushMessage(payload);
@@ -250,8 +424,8 @@ const sendToTokens = async (tokens: string[], payload: PushNotificationPayload):
       });
 
       const invalidTokens = batch.filter((token, idx) => {
-        const res = response.responses[idx];
-        const code = res?.error?.code || '';
+        const responseItem = response.responses[idx];
+        const code = responseItem?.error?.code || '';
         return code && INVALID_TOKEN_CODES.has(code);
       });
 
@@ -264,38 +438,68 @@ const sendToTokens = async (tokens: string[], payload: PushNotificationPayload):
       console.warn('[push] send failed:', error);
     }
   }
+
   summary.attempted = tokens.length;
   return summary;
 };
 
-const uniqueTokens = (tokens: Array<{ token: string }>) =>
-  Array.from(new Set(tokens.map((t) => t.token).filter(Boolean)));
-
-export const sendPushToUser = async (userId: string, payload: PushNotificationPayload): Promise<PushSendResult> => {
+export const sendPushToUsers = async (
+  userIds: string[],
+  payload: PushNotificationPayload,
+  options: PushSendOptions = {}
+): Promise<PushSendResult> => {
   try {
-    const tokens = await prisma.deviceToken.findMany({
-      where: { userId },
-      select: { token: true }
-    });
-    const unique = uniqueTokens(tokens);
-    return await sendToTokens(unique, payload);
+    const targetPlatform = options.targetPlatform || 'all';
+    const eligibleDeviceTokens = await loadEligibleDeviceTokens(userIds, targetPlatform);
+    const eligibleUsers = new Set(eligibleDeviceTokens.map((row) => row.userId));
+    const tokens = uniqueTokens(eligibleDeviceTokens);
+    const summary = await sendToTokens(tokens, payload);
+    summary.eligibleUsers = eligibleUsers.size;
+    summary.eligibleTokens = tokens.length;
+    return summary;
   } catch (error) {
-    console.warn('[push] Failed to send push to user', userId, error);
-    return { attempted: 0, sent: 0, failed: 0, errors: [{ message: (error as any)?.message || 'Push send failed' }] };
+    console.warn('[push] Failed to send push to users', userIds.length, error);
+    return {
+      attempted: 0,
+      sent: 0,
+      failed: 0,
+      errors: [{ message: (error as any)?.message || 'Push send failed' }]
+    };
   }
 };
 
-export const sendPushToAdmins = async (payload: PushNotificationPayload): Promise<PushSendResult> => {
+export const sendPushToUser = async (
+  userId: string,
+  payload: PushNotificationPayload,
+  options: PushSendOptions = {}
+): Promise<PushSendResult> => {
+  return sendPushToUsers([userId], payload, options);
+};
+
+export const sendPushToAdmins = async (
+  payload: PushNotificationPayload,
+  options: PushSendOptions = {}
+): Promise<PushSendResult> => {
   try {
-    const tokens = await prisma.deviceToken.findMany({
+    const admins = await prisma.deviceToken.findMany({
       where: { user: { role: { in: ['ADMIN', 'MODERATOR'] }, isActive: true } },
-      select: { token: true }
+      select: { userId: true }
     });
-    const unique = uniqueTokens(tokens);
-    return await sendToTokens(unique, payload);
+    const adminIds: string[] = Array.from(
+      new Set(
+        admins
+          .map((row) => String(row.userId || '').trim())
+          .filter(Boolean)
+      )
+    );
+    return await sendPushToUsers(adminIds, payload, options);
   } catch (error) {
     console.warn('[push] Failed to send push to admins', error);
-    return { attempted: 0, sent: 0, failed: 0, errors: [{ message: (error as any)?.message || 'Push send failed' }] };
+    return {
+      attempted: 0,
+      sent: 0,
+      failed: 0,
+      errors: [{ message: (error as any)?.message || 'Push send failed' }]
+    };
   }
 };
-

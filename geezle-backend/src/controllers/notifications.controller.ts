@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
-import { isPushEnabled, sendPushToUser } from '../services/pushNotifications';
+import { getPushRuntimeStatus, isPushEnabled, sendPushToUser } from '../services/pushNotifications';
 import { buildNotificationActionUrl, normalizeNotificationActionUrl } from '../services/notificationActionUrl.service';
 
 const ensureAuthId = (req: Request) => req.user?.id as string | undefined;
@@ -182,7 +182,13 @@ export const testPushNotification = async (req: Request, res: Response) => {
     }
 
     if (!isPushEnabled()) {
-      return res.status(503).json({ success: false, error: 'FCM not initialized' });
+      return res.status(503).json({
+        success: false,
+        error: 'FCM not initialized',
+        data: {
+          pushRuntime: getPushRuntimeStatus()
+        }
+      });
     }
 
     const result = await sendPushToUser(String(toUserId), {
