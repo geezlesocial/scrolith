@@ -9,6 +9,7 @@ import { extractPathFromUrl } from './deeplinks';
 let initialized = false;
 let listenersAttached = false;
 const TOKEN_KEY = 'push_device_token';
+const DEVICE_ID_KEY = 'push_device_id';
 const REGISTER_RETRIES = 4;
 const REGISTER_RETRY_DELAY_MS = 1200;
 const MAX_NATIVE_REGISTER_RETRIES = 5;
@@ -36,6 +37,28 @@ const readToken = async () => {
   }
 };
 
+const buildDeviceId = () => {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch {}
+  return `device-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+};
+
+const getOrCreateDeviceId = async () => {
+  if (!Capacitor.isNativePlatform()) return null;
+  try {
+    const existing = await Preferences.get({ key: DEVICE_ID_KEY });
+    if (existing.value) return existing.value;
+    const created = buildDeviceId();
+    await Preferences.set({ key: DEVICE_ID_KEY, value: created });
+    return created;
+  } catch {
+    return buildDeviceId();
+  }
+};
+
 const clearToken = async () => {
   if (!Capacitor.isNativePlatform()) return;
   try {
@@ -48,9 +71,11 @@ const registerTokenWithBackend = async (token: string) => {
   try {
     const authToken = await tokenStore.get();
     if (!authToken) return false;
+    const deviceId = await getOrCreateDeviceId();
     await api.post('/notifications/device/register', {
       platform: Capacitor.getPlatform(),
-      token
+      token,
+      deviceId
     }, {
       headers: {
         Authorization: `Bearer ${authToken}`
