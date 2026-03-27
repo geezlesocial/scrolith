@@ -145,8 +145,28 @@ export const AIService = {
     return data;
   },
 
+  answerQuestionWithScrolitha: async (payload: {
+    question: string;
+    context?: string;
+    audience?: string;
+    format?: string;
+  }) => {
+    const data = unwrap(await publicApi.post('/ai/scrolitha-answer', payload));
+    return data;
+  },
+
   generateGuide: async (payload: { topic: string; audience?: string; depth?: string; format?: string }) => {
     const data = unwrap(await publicApi.post('/ai/guide', payload));
+    return data;
+  },
+
+  generateGuideWithScrolitha: async (payload: {
+    topic: string;
+    audience?: string;
+    depth?: string;
+    format?: string;
+  }) => {
+    const data = unwrap(await publicApi.post('/ai/scrolitha-guide', payload));
     return data;
   },
 
