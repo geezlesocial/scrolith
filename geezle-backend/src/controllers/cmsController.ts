@@ -12,6 +12,12 @@ import { sanitizePublicTrustScoreSettings } from '../utils/trustScoreSettings';
 import { sanitizePublicStorefrontSettings } from '../utils/storefrontSettings';
 import { sanitizePublicContentOfferSettings } from '../utils/contentOfferSettings';
 import { ensureDefaultBlogCategories, ensureDefaultPageCategories } from '../services/defaultCategorySeed.service';
+import {
+  DEFAULT_POLICY_PAGE_SLUGS,
+  ensureDefaultStaticPages,
+  findStaticPageBySlug,
+  resolveDefaultStaticPageSlug
+} from '../services/defaultStaticPageSeed.service';
 
 const emitCmsEvent = (req: Request, event: string, payload?: any) => {
   const io = req.app.get('io');
@@ -604,9 +610,9 @@ let cmsData = {
         id: 'col-3',
         title: 'Company',
         links: [
-          { id: 'link-7', label: 'About Us', url: '/about', type: 'internal', visibility: ['GUEST'] },
-          { id: 'link-8', label: 'Contact', url: '/contact', type: 'internal', visibility: ['GUEST'] },
-          { id: 'link-9', label: 'Careers', url: '/careers', type: 'internal', visibility: ['GUEST'] }
+          { id: 'link-7', label: 'About Us', url: '/p/about', type: 'internal', visibility: ['GUEST'] },
+          { id: 'link-8', label: 'Privacy Policy', url: '/p/privacy', type: 'internal', visibility: ['GUEST'] },
+          { id: 'link-9', label: 'Terms of Service', url: '/p/terms', type: 'internal', visibility: ['GUEST'] }
         ]
       }
     ],
@@ -948,12 +954,10 @@ export const getActivityConfig = async (req: Request, res: Response) => {
   }
 };
 
-const POLICY_SLUGS = new Set(['terms', 'terms-of-service', 'privacy', 'privacy-policy']);
-
 const broadcastPolicyUpdate = async (page: any) => {
-  const slug = String(page?.slug || '').toLowerCase();
+  const slug = resolveDefaultStaticPageSlug(String(page?.slug || ''));
   const status = String(page?.status || '').toUpperCase();
-  if (!POLICY_SLUGS.has(slug)) return;
+  if (!DEFAULT_POLICY_PAGE_SLUGS.has(slug)) return;
   if (!['PUBLISHED', 'ACTIVE'].includes(status)) return;
 
   const policyType = slug.includes('privacy') ? 'Privacy Policy' : 'Terms of Service';
@@ -2224,8 +2228,7 @@ export const saveAffiliateContent = async (req: Request, res: Response) => {
 // --- CMS Pages (Static Pages) ---
 export const getPages = async (_req: Request, res: Response) => {
   try {
-    const data = await getAppSetting(CMS_PAGES_SCOPE, { pages: [] });
-    const pages = Array.isArray((data as any)?.pages) ? (data as any).pages : [];
+    const pages = await ensureDefaultStaticPages();
     res.json(pages);
   } catch (error) {
     console.error('âŒ Error getting CMS pages:', error);
@@ -2236,9 +2239,7 @@ export const getPages = async (_req: Request, res: Response) => {
 export const getPageBySlug = async (req: Request, res: Response) => {
   try {
     const slug = String(req.params?.slug || '').trim().toLowerCase();
-    const data = await getAppSetting(CMS_PAGES_SCOPE, { pages: [] });
-    const pages = Array.isArray((data as any)?.pages) ? (data as any).pages : [];
-    const page = pages.find((p: any) => String(p.slug || '').toLowerCase() === slug);
+    const page = await findStaticPageBySlug(slug);
     if (!page) return res.status(404).json({ error: 'Page not found' });
     return res.json(page);
   } catch (error) {
