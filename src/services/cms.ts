@@ -20,7 +20,8 @@ if (import.meta.env.PROD && !_hasBackendEnv) {
 }
 const getCmsApiUrl = () => getApiBaseUrl();
 const getCmsBackendOrigin = () => getBackendOrigin();
-const BRAND_ASSET_URL = 'https://scrolith.com/icon-192.png';
+const BRAND_LOGO_URL = 'https://scrolith.com/logo.png';
+const BRAND_FAVICON_URL = 'https://scrolith.com/favicon.png';
 
 const devLog = (...args: any[]) => {
     if (!import.meta.env.PROD) console.log(...args);
@@ -56,7 +57,7 @@ const fallbackData = {
         {
             id: 'page-privacy',
             title: 'Privacy Policy',
-            slug: 'privacy-policy',
+            slug: 'privacy',
             content: '<h1>Privacy Policy</h1><p>Your privacy is important to us. This policy explains how we collect, use, and protect your information.</p>',
             status: 'PUBLISHED',
             categoryId: 'cat-legal',
@@ -76,7 +77,7 @@ const fallbackData = {
         {
             id: 'page-terms',
             title: 'Terms of Service',
-            slug: 'terms-of-service',
+            slug: 'terms',
             content: '<h1>Terms of Service</h1><p>By using Scrolith, you agree to these terms and conditions.</p>',
             status: 'PUBLISHED',
             categoryId: 'cat-legal',
@@ -88,6 +89,26 @@ const fallbackData = {
                 metaTitle: 'Terms of Service - Scrolith',
                 metaDescription: 'Terms and conditions for using Scrolith Marketplace.',
                 metaKeywords: ['terms', 'service', 'agreement']
+            },
+            images: [],
+            videos: [],
+            blocks: []
+        },
+        {
+            id: 'page-refund-policy',
+            title: 'Refund Policy',
+            slug: 'refund-policy',
+            content: '<h1>Refund Policy</h1><p>Read how Scrolith handles eligible refunds, disputes, and payment support requests.</p>',
+            status: 'PUBLISHED',
+            categoryId: 'cat-legal',
+            category_id: 'cat-legal',
+            updatedAt: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            visibility: 'public',
+            seo: {
+                metaTitle: 'Refund Policy - Scrolith',
+                metaDescription: 'Read the Scrolith refund rules for supported transactions and dispute flows.',
+                metaKeywords: ['refund', 'refund policy', 'dispute', 'payment support']
             },
             images: [],
             videos: [],
@@ -143,17 +164,18 @@ const fallbackData = {
         siteName: 'Scrolith Marketplace',
         siteDescription: 'Connect with top freelancers and find your next project',
         siteTagline: 'AI-Powered Social Freelance Marketplace with Secure Escrow & Monetization',
-        logoUrl: BRAND_ASSET_URL,
-        faviconUrl: BRAND_ASSET_URL,
+        logoUrl: BRAND_LOGO_URL,
+        faviconUrl: BRAND_FAVICON_URL,
         adminEmail: 'admin@Scrolith.com',
         supportEmail: 'support@Scrolith.com',
         footerAboutTitle: 'About Scrolith',
         footerAboutText: 'Connecting talent with opportunity worldwide.',
         footerCopyright: '© 2024 Scrolith Inc. All rights reserved.',
         footerLinks: [
-            { label: 'About Us', url: '/about', type: 'internal' },
-            { label: 'Privacy Policy', url: '/privacy-policy', type: 'internal' },
-            { label: 'Terms of Service', url: '/terms-of-service', type: 'internal' }
+            { label: 'About Us', url: '/p/about', type: 'internal' },
+            { label: 'Privacy Policy', url: '/p/privacy', type: 'internal' },
+            { label: 'Terms of Service', url: '/p/terms', type: 'internal' },
+            { label: 'Refund Policy', url: '/p/refund-policy', type: 'internal' }
         ],
         socialLinks: [
             { platform: 'twitter', url: 'https://twitter.com/Scrolith' },
