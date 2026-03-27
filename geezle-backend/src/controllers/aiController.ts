@@ -139,6 +139,145 @@ const buildGuidePrompt = (payload: any) => {
   return `You are Scrolith Guides, a professional business strategist.\nAudience: ${audience}.\nDepth: ${depth}.\nOutput format: ${format}.\n${buildKnowledgeBlock(audience)}\nTopic: ${topic}\nCreate a structured guide with headings, key steps, and best practices.`;
 };
 
+const cleanInlineText = (value: unknown) =>
+  String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const titleize = (value: string) =>
+  cleanInlineText(value)
+    .toLowerCase()
+    .replace(/\b\w/g, (entry) => entry.toUpperCase());
+
+const formatBulletSection = (title: string, items: string[]) =>
+  `${title}:\n${items.map((item) => `- ${item}`).join('\n')}`;
+
+const buildScrolithaFallbackAnswer = (payload: any) => {
+  const bundle = getScrolithaKnowledgeBundle();
+  const question = cleanInlineText(payload?.question || 'Clarify the business objective.');
+  const context = cleanInlineText(payload?.context);
+  const audience = cleanInlineText(payload?.audience || 'business professional');
+  const source = `${question} ${context}`.toLowerCase();
+
+  let recommendedApproach = [
+    'Define the objective, owner, timeline, and measurable success criteria before execution starts.',
+    'Break the work into milestones, deliverables, and approval checkpoints so expectations stay aligned.',
+    'Keep communication, files, and decisions inside one managed workflow to reduce delivery risk.'
+  ];
+
+  let nextSteps = [
+    'Write a concise brief that captures scope, constraints, success metrics, and deadlines.',
+    'Assign the primary decision-maker and document the review cadence for the workstream.',
+    'Launch with a smaller validated phase first, then expand once quality and timing are proven.'
+  ];
+
+  let platformAdvantage = bundle.coreServices.slice(0, 3);
+
+  if (/(hire|hiring|candidate|talent|job post|recruit)/.test(source)) {
+    recommendedApproach = [
+      'Translate the role into business outcomes, ownership boundaries, budget range, and timeline.',
+      'Shortlist talent against proven portfolio evidence, communication quality, and delivery fit.',
+      'Use milestones, escrow, and structured review points so the hiring workflow stays accountable.'
+    ];
+    nextSteps = [
+      'Finalize the role brief and include must-have versus nice-to-have requirements.',
+      'Open the job or talent search with a clear shortlist rubric and response deadline.',
+      'Prepare the first milestone, success criteria, and stakeholder approval path before kickoff.'
+    ];
+    platformAdvantage = bundle.employerCapabilities.slice(0, 3);
+  } else if (/(freelancer|gig|proposal|portfolio|client pitch|positioning)/.test(source)) {
+    recommendedApproach = [
+      'Lead with your niche, strongest proof of work, and the specific outcomes you help clients achieve.',
+      'Package services into clear deliverables, pricing logic, and revision or milestone boundaries.',
+      'Use concise client-facing language that builds trust, relevance, and confidence to engage.'
+    ];
+    nextSteps = [
+      'Rewrite your summary into a role-specific value proposition with measurable outcomes.',
+      'Add portfolio proof, testimonials, and case results that match the work you want to win.',
+      'Prepare a reusable proposal structure for discovery, scope, delivery plan, and CTA.'
+    ];
+    platformAdvantage = bundle.freelancerCapabilities.slice(0, 3);
+  } else if (/(growth|marketing|seo|content|audience|community)/.test(source)) {
+    recommendedApproach = [
+      'Start with one measurable growth objective and select the acquisition or retention lever that matters most.',
+      'Build a repeatable content, conversion, or community loop instead of isolated one-off campaigns.',
+      'Review performance weekly and iterate on message, offer, distribution, and funnel quality.'
+    ];
+    nextSteps = [
+      'Set the primary KPI and baseline the current performance before changes go live.',
+      'Create a 30-day execution plan covering content, distribution, and reporting ownership.',
+      'Use controlled experiments and keep the highest-performing message or offer variants.'
+    ];
+    platformAdvantage = bundle.growthAndMonetization.slice(0, 3);
+  }
+
+  return [
+    'Scrolitha Summary',
+    `Your request: ${question}`,
+    context ? `Context: ${context}` : '',
+    '',
+    formatBulletSection('Recommended approach', recommendedApproach),
+    '',
+    formatBulletSection('Immediate next steps', nextSteps),
+    '',
+    formatBulletSection('Scrolith advantage', platformAdvantage),
+    '',
+    `Audience fit: This guidance is tailored for ${audience}.`
+  ]
+    .filter(Boolean)
+    .join('\n');
+};
+
+const buildScrolithaFallbackGuide = (payload: any) => {
+  const bundle = getScrolithaKnowledgeBundle();
+  const topic = cleanInlineText(payload?.topic || 'Operational planning');
+  const audience = cleanInlineText(payload?.audience || 'founders and operators');
+  const depth = cleanInlineText(payload?.depth || 'in-depth');
+  const format = cleanInlineText(payload?.format || 'outline');
+  const normalizedTopic = titleize(topic || 'Operational planning');
+
+  return [
+    normalizedTopic,
+    `Audience: ${audience}`,
+    `Depth: ${depth}`,
+    `Format: ${format}`,
+    '',
+    `Scrolitha Overview: This guide provides a practical execution plan for ${topic}.`,
+    '',
+    formatBulletSection('1. Objective', [
+      `Define what success looks like for ${topic}, including owners, timeline, budget, and measurable outcomes.`,
+      'Document the decision criteria that will determine whether the initiative should scale, pause, or change direction.'
+    ]),
+    '',
+    formatBulletSection('2. Preparation', [
+      'Gather the inputs, stakeholders, dependencies, and operating constraints before kickoff.',
+      'Turn the scope into milestones, deliverables, review checkpoints, and approval owners.'
+    ]),
+    '',
+    formatBulletSection('3. Execution plan', [
+      'Start with the highest-impact workstream first and sequence the remaining work around dependencies.',
+      'Track delivery rhythm through weekly reviews, risks, blockers, and next-step ownership.'
+    ]),
+    '',
+    formatBulletSection('4. Metrics and signals', [
+      'Select leading indicators that show whether execution quality is improving before final outcomes land.',
+      'Review conversion, retention, delivery quality, or margin signals depending on the operating goal.'
+    ]),
+    '',
+    formatBulletSection('5. Risks and controls', [
+      'Control scope creep, unclear ownership, weak approvals, and fragmented communication early.',
+      ...bundle.trustAndSafety.slice(0, 2)
+    ]),
+    '',
+    formatBulletSection('6. Recommended Scrolith workflows', [
+      ...bundle.coreServices.slice(0, 2),
+      ...bundle.communicationAndCollaboration.slice(0, 1)
+    ]),
+    '',
+    'Final recommendation: launch with a validated first phase, review outcomes quickly, and only scale once the execution pattern is reliable.'
+  ].join('\n');
+};
+
 export const getAIConfig = async (_req: Request, res: Response) => {
   try {
     const aiConfig = await getSystemAiConfig();
@@ -196,7 +335,14 @@ export const answerQuestion = async (req: Request, res: Response) => {
       // Optional fallback to legacy providers when explicitly enabled.
       const runtime = await resolveScrolithaLlmRuntime('user');
       if (!runtime.allowGeminiFallback) {
-        throw scrolithaError;
+        return res.json({
+          success: true,
+          data: {
+            provider: 'scrolitha',
+            model: SCROLITHA_MODEL_LABEL,
+            answer: buildScrolithaFallbackAnswer(req.body || {})
+          }
+        });
       }
 
       const aiConfig = await getSystemAiConfig();
@@ -234,7 +380,19 @@ export const answerQuestion = async (req: Request, res: Response) => {
 export const answerQuestionWithScrolitha = async (req: Request, res: Response) => {
   try {
     const prompt = buildQaPrompt(req.body || {});
-    const result = await askScrolithaOllama(prompt);
+    let result;
+    try {
+      result = await askScrolithaOllama(prompt);
+    } catch {
+      return res.json({
+        success: true,
+        data: {
+          provider: 'scrolitha',
+          model: SCROLITHA_MODEL_LABEL,
+          answer: buildScrolithaFallbackAnswer(req.body || {})
+        }
+      });
+    }
     return res.json({
       success: true,
       data: {
@@ -271,7 +429,14 @@ export const generateGuide = async (req: Request, res: Response) => {
       // Optional fallback to legacy providers when explicitly enabled.
       const runtime = await resolveScrolithaLlmRuntime('user');
       if (!runtime.allowGeminiFallback) {
-        throw scrolithaError;
+        return res.json({
+          success: true,
+          data: {
+            provider: 'scrolitha',
+            model: SCROLITHA_MODEL_LABEL,
+            guide: buildScrolithaFallbackGuide(req.body || {})
+          }
+        });
       }
 
       const aiConfig = await getSystemAiConfig();
@@ -307,7 +472,19 @@ export const generateGuide = async (req: Request, res: Response) => {
 export const generateGuideWithScrolitha = async (req: Request, res: Response) => {
   try {
     const prompt = buildGuidePrompt(req.body || {});
-    const result = await askScrolithaOllama(prompt);
+    let result;
+    try {
+      result = await askScrolithaOllama(prompt);
+    } catch {
+      return res.json({
+        success: true,
+        data: {
+          provider: 'scrolitha',
+          model: SCROLITHA_MODEL_LABEL,
+          guide: buildScrolithaFallbackGuide(req.body || {})
+        }
+      });
+    }
     return res.json({
       success: true,
       data: {
