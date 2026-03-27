@@ -101,7 +101,7 @@ export type HomepageSectionType =
   | 'guest_trending_preview'
   | 'guest_community_preview'
   | 'guest_final_cta';
-export type ContentBlockType = 'text' | 'heading' | 'image' | 'video' | 'quote' | 'code';
+export type ContentBlockType = 'text' | 'heading' | 'image' | 'video' | 'quote' | 'code' | 'callout' | 'cta' | 'ad';
 export type MediaType = 'image' | 'video' | 'document';
 export type FileCategory = 'portfolio' | 'document' | 'verification' | 'chat';
 export type NotificationType = 'info' | 'success' | 'warning' | 'alert' | 'error';
