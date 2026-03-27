@@ -231,6 +231,27 @@ export const answerQuestion = async (req: Request, res: Response) => {
   }
 };
 
+export const answerQuestionWithScrolitha = async (req: Request, res: Response) => {
+  try {
+    const prompt = buildQaPrompt(req.body || {});
+    const result = await askScrolithaOllama(prompt);
+    return res.json({
+      success: true,
+      data: {
+        provider: result.provider,
+        model: brandModelLabel(result.provider, result.model),
+        answer: result.text
+      }
+    });
+  } catch (error: any) {
+    console.error('Scrolitha-only answer error:', error);
+    const msg = String(error?.message || 'Scrolitha request failed');
+    const lower = msg.toLowerCase();
+    const status = lower.includes('not configured') ? 503 : 500;
+    return res.status(status).json({ success: false, error: msg });
+  }
+};
+
 export const generateGuide = async (req: Request, res: Response) => {
   try {
     const prompt = buildGuidePrompt(req.body || {});
@@ -277,6 +298,27 @@ export const generateGuide = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('AI guide error:', error);
     const msg = String(error?.message || 'AI request failed');
+    const lower = msg.toLowerCase();
+    const status = lower.includes('not configured') ? 503 : 500;
+    return res.status(status).json({ success: false, error: msg });
+  }
+};
+
+export const generateGuideWithScrolitha = async (req: Request, res: Response) => {
+  try {
+    const prompt = buildGuidePrompt(req.body || {});
+    const result = await askScrolithaOllama(prompt);
+    return res.json({
+      success: true,
+      data: {
+        provider: result.provider,
+        model: brandModelLabel(result.provider, result.model),
+        guide: result.text
+      }
+    });
+  } catch (error: any) {
+    console.error('Scrolitha-only guide error:', error);
+    const msg = String(error?.message || 'Scrolitha request failed');
     const lower = msg.toLowerCase();
     const status = lower.includes('not configured') ? 503 : 500;
     return res.status(status).json({ success: false, error: msg });
