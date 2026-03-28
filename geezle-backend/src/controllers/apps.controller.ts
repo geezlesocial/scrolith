@@ -7,6 +7,7 @@ import {
   getPushRuntimeStatus,
   sendPushToUsers
 } from '../services/pushNotifications';
+import { buildNotificationActionUrl } from '../services/notificationActionUrl.service';
 
 const APP_DISTRIBUTION_SCOPE = 'app_distribution';
 const APP_CAMPAIGNS_SCOPE = 'app_distribution_campaigns';
@@ -345,10 +346,10 @@ const buildCampaignFallbackPath = (
   campaignId: string,
   targetPlatform: 'all' | 'android' | 'desktop'
 ) => {
-  if (targetPlatform === 'desktop') {
-    return `/dashboard?tab=notifications&campaignId=${encodeURIComponent(campaignId)}`;
+  if (targetPlatform === 'android') {
+    return `/dashboard?tab=messages&campaignId=${encodeURIComponent(campaignId)}`;
   }
-  return `/m/notifications?campaignId=${encodeURIComponent(campaignId)}`;
+  return `/dashboard?tab=messages&campaignId=${encodeURIComponent(campaignId)}`;
 };
 
 const readCampaigns = async () => {
@@ -391,11 +392,15 @@ const resolveCampaignRecipients = async (payload: {
 
   const users = await prisma.user.findMany({
     where,
-    select: { id: true }
+    select: { id: true, role: true }
   });
-  const baseIds = users.map((user) => user.id);
+  const baseRecipients = users.map((user) => ({
+    id: user.id,
+    role: asString(user.role)
+  }));
+  const baseIds = baseRecipients.map((user) => user.id);
   if (!baseIds.length) return [];
-  if (payload.targetPlatform === 'all') return baseIds;
+  if (payload.targetPlatform === 'all') return baseRecipients;
 
   const tokens = await prisma.deviceToken.findMany({
     where: { userId: { in: baseIds } },
@@ -409,12 +414,12 @@ const resolveCampaignRecipients = async (payload: {
   });
 
   if (payload.targetPlatform === 'android') {
-    return baseIds.filter((id) => platformMap.get(id)?.has('android'));
+    return baseRecipients.filter((recipient) => platformMap.get(recipient.id)?.has('android'));
   }
 
   // Desktop/web fallback bucket.
-  return baseIds.filter((id) => {
-    const platforms = platformMap.get(id);
+  return baseRecipients.filter((recipient) => {
+    const platforms = platformMap.get(recipient.id);
     if (!platforms || platforms.size === 0) return false;
     return !platforms.has('android') || platforms.has('web') || platforms.has('desktop');
   });
@@ -980,7 +985,8 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
       targetPlatform,
       explicitUserIds
     });
-    if (!recipients.length) {
+    const recipientIds = recipients.map((recipient) => recipient.id);
+    if (!recipientIds.length) {
       return res.status(400).json({
         success: false,
         error: 'No recipients matched the selected audience',
@@ -1003,17 +1009,25 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
       });
     }
     const pushRecipientIds = deliveryPush
-      ? await resolvePushRecipientUserIds(recipients, targetPlatform)
+      ? await resolvePushRecipientUserIds(recipientIds, targetPlatform)
       : [];
     const pushSkippedUsers = deliveryPush
-      ? Math.max(0, recipients.length - pushRecipientIds.length)
+      ? Math.max(0, recipientIds.length - pushRecipientIds.length)
       : 0;
 
     let notificationsCreated = 0;
     if (deliveryInApp) {
-      const created = await prisma.notification.createMany({
-        data: recipients.map((userId) => ({
-          userId,
+      const notificationRows = recipients.map((recipient) => {
+        const recipientActionUrl =
+          actionUrl ||
+          buildNotificationActionUrl('app_campaign', {
+            campaignId,
+            recipientRole: recipient.role
+          }) ||
+          fallbackPath;
+
+        return {
+          userId: recipient.id,
           actorId: req.user?.id || null,
           type: 'app_campaign',
           title,
@@ -1024,30 +1038,34 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
             campaignName: name,
             mediaType,
             mediaUrl,
-            actionUrl: resolvedActionUrl,
-            action_url: resolvedActionUrl,
+            actionUrl: recipientActionUrl,
+            action_url: recipientActionUrl,
             targetPlatform,
             targetRole
           } as any
-        }))
+        };
+      });
+      const created = await prisma.notification.createMany({
+        data: notificationRows
       });
       notificationsCreated = created.count;
 
-      recipients.forEach((userId) => {
-        realtime.emitToUser(userId, 'notifications:new', {
-          id: `campaign:${campaignId}:${userId}`,
+      notificationRows.forEach((row) => {
+        const rowMeta = (row.meta as any) || {};
+        realtime.emitToUser(row.userId, 'notifications:new', {
+          id: `campaign:${campaignId}:${row.userId}`,
           type: 'app_campaign',
           title,
           body,
           message: body,
-          actionUrl: resolvedActionUrl,
+          actionUrl: rowMeta.actionUrl,
           meta: {
             campaignId,
             campaignName: name,
             mediaType,
             mediaUrl,
-            actionUrl: resolvedActionUrl,
-            action_url: resolvedActionUrl
+            actionUrl: rowMeta.actionUrl,
+            action_url: rowMeta.action_url
           },
           createdAt: nowIso(),
           isRead: false
@@ -1110,7 +1128,7 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
       updatedAt: now,
       createdById: existing?.createdById || req.user?.id || null,
       createdByEmail: existing?.createdByEmail || req.user?.email || null,
-      totalRecipients: Number(existing?.totalRecipients || 0) + recipients.length,
+      totalRecipients: Number(existing?.totalRecipients || 0) + recipientIds.length,
       totalPushSent: Number(existing?.totalPushSent || 0) + pushSent,
       totalPushFailed: Number(existing?.totalPushFailed || 0) + pushFailed,
       totalNotificationsCreated:
@@ -1132,7 +1150,7 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
 
     emitAdminEvent(req, 'apps:campaign_sent', {
       campaignId,
-      recipients: recipients.length,
+      recipients: recipientIds.length,
       pushEligibleUsers: pushRecipientIds.length,
       pushSkippedUsers,
       pushEnabled,
@@ -1149,7 +1167,7 @@ export const sendAdminAppCampaign = async (req: Request, res: Response) => {
       success: true,
       data: {
         campaign: updatedCampaign,
-        recipients: recipients.length,
+        recipients: recipientIds.length,
         notificationsCreated,
         pushEligibleUsers: pushRecipientIds.length,
         pushSkippedUsers,
