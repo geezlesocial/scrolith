@@ -2473,6 +2473,19 @@ model File {
   @@map("files")
 }
 
+model ManagedUploadObject {
+  id          String   @id @default(cuid())
+  objectKey   String   @unique @map("object_key")
+  contentType String   @map("content_type")
+  sizeBytes   BigInt   @default(0) @map("size_bytes")
+  data        Bytes
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([createdAt])
+  @@map("managed_upload_objects")
+}
+
 // Tracks where uploaded files are used (SSOT usage references)
 model FileUsage {
   id        String   @id @default(cuid())

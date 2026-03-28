@@ -27,6 +27,22 @@ import {
   isAzureBlobConfigured,
   uploadBufferToBlob
 } from '../services/storage/blobStorage';
+import {
+  createFirebaseStorageReadStream,
+  deleteFirebaseStorageByName,
+  downloadFirebaseStorageBufferByName,
+  firebaseStorageExistsByName,
+  getFirebaseStorageMetadataByName,
+  isFirebaseStorageConfigured,
+  uploadBufferToFirebaseStorage
+} from '../services/storage/firebaseStorage';
+import {
+  databaseStorageExistsByName,
+  deleteDatabaseStorageByName,
+  downloadDatabaseStorageBufferByName,
+  getDatabaseStorageMetadataByName,
+  uploadBufferToDatabaseStorage
+} from '../services/storage/databaseStorage';
 
 const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
 const TEMP_UPLOAD_DIR = path.join(UPLOAD_DIR, '.tmp');
@@ -49,7 +65,9 @@ const safeFilename = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, '_');
 const DISK_ID_PREFIX = 'disk:';
 const DEFAULT_VISIBILITY: FileVisibility = 'PUBLIC';
 const DEFAULT_STORAGE_PROVIDER = 'local';
+const DATABASE_STORAGE_PROVIDER = 'database_storage';
 const AZURE_BLOB_STORAGE_PROVIDER = 'azure_blob';
+const FIREBASE_STORAGE_PROVIDER = 'firebase_storage';
 const DEFAULT_VIDEO_THUMBNAIL_FILENAME = '__video_fallback_thumbnail.svg';
 const UPLOAD_THUMBNAILS_DIR = path.join(UPLOAD_DIR, 'thumbnails');
 
@@ -58,13 +76,29 @@ const resolveUploadDriver = () =>
     .trim()
     .toLowerCase();
 
+const shouldUseDatabaseStorage = () => {
+  const driver = resolveUploadDriver();
+  return ['database_storage', 'database', 'db', 'postgres', 'postgresql'].includes(driver);
+};
+
 const shouldUseAzureBlobStorage = () => {
   const driver = resolveUploadDriver();
   return ['azure_blob', 'azure', 'blob'].includes(driver) && isAzureBlobConfigured();
 };
 
+const shouldUseFirebaseStorage = () => {
+  const driver = resolveUploadDriver();
+  return ['firebase_storage', 'firebase', 'gcs', 'google_cloud_storage'].includes(driver) && isFirebaseStorageConfigured();
+};
+
 const resolveStorageProvider = () =>
-  shouldUseAzureBlobStorage() ? AZURE_BLOB_STORAGE_PROVIDER : DEFAULT_STORAGE_PROVIDER;
+  shouldUseDatabaseStorage()
+    ? DATABASE_STORAGE_PROVIDER
+    : shouldUseFirebaseStorage()
+      ? FIREBASE_STORAGE_PROVIDER
+      : shouldUseAzureBlobStorage()
+        ? AZURE_BLOB_STORAGE_PROVIDER
+        : DEFAULT_STORAGE_PROVIDER;
 
 const ALLOWED_IMAGE_MIME_TYPES = new Set([
   'image/jpeg',
@@ -329,6 +363,17 @@ const writeBufferToTempFile = (buffer: Buffer, originalName?: string) => {
   const tempPath = path.join(TEMP_UPLOAD_DIR, tempName);
   fs.writeFileSync(tempPath, buffer);
   return tempPath;
+};
+
+const getUploadedFileBuffer = (file: Express.Multer.File) => {
+  if (file.buffer && Buffer.isBuffer(file.buffer)) {
+    return file.buffer;
+  }
+  const filePath = file.path || path.join(UPLOAD_DIR, file.filename || '');
+  if (filePath && fs.existsSync(filePath)) {
+    return fs.readFileSync(filePath);
+  }
+  return null;
 };
 
 const execFileAsync = (command: string, args: string[], timeout = 8000) =>
@@ -734,6 +779,27 @@ const loadStoredFileBuffer = async (file: {
   filename?: string | null;
 }) => {
   const storedProvider = String(file.storageProvider || DEFAULT_STORAGE_PROVIDER).toLowerCase();
+  if (storedProvider === DATABASE_STORAGE_PROVIDER) {
+    if (file.storageKey) {
+      try {
+        return await downloadDatabaseStorageBufferByName(file.storageKey);
+      } catch {
+        // Fall back to local storage during incremental migrations from disk.
+      }
+    }
+  }
+
+  if (storedProvider === FIREBASE_STORAGE_PROVIDER) {
+    if (file.storageKey) {
+      try {
+        return await downloadFirebaseStorageBufferByName(file.storageKey);
+      } catch {
+        // Fall back to local storage so older restored records remain readable
+        // while managed-storage migrations are in progress.
+      }
+    }
+  }
+
   if (storedProvider === AZURE_BLOB_STORAGE_PROVIDER) {
     if (file.storageKey) {
       try {
@@ -750,7 +816,33 @@ const loadStoredFileBuffer = async (file: {
   }
 
   const localPath = resolveLocalStoredFilePath(file);
-  if (!localPath || !fs.existsSync(localPath)) return null;
+  if (!localPath || !fs.existsSync(localPath)) {
+    const fallbackCandidates = Array.from(
+      new Set(
+        [
+          file.storageKey,
+          stripUploadsPrefix(file.storageKey),
+          stripUploadsPrefix(file.url),
+          file.filename
+        ]
+          .map((value) => String(value || '').trim())
+          .filter(Boolean)
+      )
+    );
+
+    for (const objectName of fallbackCandidates) {
+      try {
+        return await downloadDatabaseStorageBufferByName(objectName);
+      } catch (error: any) {
+        if (String(error?.code || '') === 'NOT_FOUND') continue;
+        console.warn('Failed to load managed upload object while resolving stored file buffer:', {
+          objectName,
+          error
+        });
+      }
+    }
+    return null;
+  }
   return fs.readFileSync(localPath);
 };
 
@@ -1057,6 +1149,149 @@ const buildMediaMetadataForAzure = async (
   return metadata;
 };
 
+const buildMediaMetadataForFirebaseStorage = async (
+  file: Express.Multer.File,
+  storageKey: string,
+  baseUrl: string
+): Promise<MediaMetadata> => {
+  const mimeType = String(file.mimetype || '').toLowerCase();
+  const metadata: MediaMetadata = {
+    width: null,
+    height: null,
+    duration: null,
+    thumbnailRelativePath: null,
+    thumbnailUrl: null
+  };
+
+  if (!file.buffer || !Buffer.isBuffer(file.buffer)) {
+    return metadata;
+  }
+
+  if (mimeType.startsWith('image/')) {
+    const parsed = parseImageDimensionsFromBuffer(file.buffer, mimeType);
+    metadata.width = parsed.width ?? null;
+    metadata.height = parsed.height ?? null;
+    return metadata;
+  }
+
+  if (!mimeType.startsWith('video/')) {
+    return metadata;
+  }
+
+  const tempInput = writeBufferToTempFile(file.buffer, file.originalname);
+  try {
+    const extracted = await extractMediaMetadata(tempInput, mimeType);
+    metadata.width = extracted.width;
+    metadata.height = extracted.height;
+    metadata.duration = extracted.duration;
+
+    const generated = await createVideoThumbnail(tempInput, storageKey, baseUrl);
+    if (generated.thumbnailRelativePath) {
+      const localThumbnailPath = path.join(UPLOAD_DIR, generated.thumbnailRelativePath);
+      if (fs.existsSync(localThumbnailPath)) {
+        const thumbnailBuffer = fs.readFileSync(localThumbnailPath);
+        const thumbnailMimeType = getMimeTypeFromFilename(localThumbnailPath);
+        const thumbnailStorageKey = `thumbnails/${path.basename(generated.thumbnailRelativePath)}`;
+        metadata.thumbnailRelativePath = thumbnailStorageKey;
+        await uploadBufferToFirebaseStorage({
+          buffer: thumbnailBuffer,
+          contentType: thumbnailMimeType,
+          fileName: thumbnailStorageKey
+        });
+        metadata.thumbnailUrl = buildUploadsUrl(thumbnailStorageKey, baseUrl);
+        safeUnlink(localThumbnailPath);
+      } else {
+        metadata.thumbnailUrl = generated.thumbnailUrl;
+      }
+    } else {
+      metadata.thumbnailUrl = generated.thumbnailUrl;
+    }
+  } finally {
+    safeUnlink(tempInput);
+  }
+
+  if (!metadata.thumbnailUrl) {
+    metadata.thumbnailUrl = buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME, baseUrl);
+  }
+
+  return metadata;
+};
+
+const buildMediaMetadataForDatabaseStorage = async (
+  file: Express.Multer.File,
+  storageKey: string,
+  baseUrl: string
+): Promise<MediaMetadata> => {
+  const mimeType = String(file.mimetype || '').toLowerCase();
+  const metadata: MediaMetadata = {
+    width: null,
+    height: null,
+    duration: null,
+    thumbnailRelativePath: null,
+    thumbnailUrl: null
+  };
+
+  const sourceBuffer = getUploadedFileBuffer(file);
+  if (!sourceBuffer) {
+    return metadata;
+  }
+
+  if (mimeType.startsWith('image/')) {
+    const parsed = parseImageDimensionsFromBuffer(sourceBuffer, mimeType);
+    metadata.width = parsed.width ?? null;
+    metadata.height = parsed.height ?? null;
+    return metadata;
+  }
+
+  if (!mimeType.startsWith('video/')) {
+    return metadata;
+  }
+
+  const tempInput = file.path && fs.existsSync(file.path)
+    ? file.path
+    : writeBufferToTempFile(sourceBuffer, file.originalname || file.filename);
+  const shouldDeleteTempInput = tempInput !== file.path;
+
+  try {
+    const extracted = await extractMediaMetadata(tempInput, mimeType);
+    metadata.width = extracted.width;
+    metadata.height = extracted.height;
+    metadata.duration = extracted.duration;
+
+    const generated = await createVideoThumbnail(tempInput, storageKey, baseUrl);
+    if (generated.thumbnailRelativePath) {
+      const localThumbnailPath = path.join(UPLOAD_DIR, generated.thumbnailRelativePath);
+      if (fs.existsSync(localThumbnailPath)) {
+        const thumbnailBuffer = fs.readFileSync(localThumbnailPath);
+        const thumbnailMimeType = getMimeTypeFromFilename(localThumbnailPath);
+        const thumbnailStorageKey = `thumbnails/${path.basename(generated.thumbnailRelativePath)}`;
+        metadata.thumbnailRelativePath = thumbnailStorageKey;
+        await uploadBufferToDatabaseStorage({
+          buffer: thumbnailBuffer,
+          contentType: thumbnailMimeType,
+          fileName: thumbnailStorageKey
+        });
+        metadata.thumbnailUrl = buildUploadsUrl(thumbnailStorageKey, baseUrl);
+        safeUnlink(localThumbnailPath);
+      } else {
+        metadata.thumbnailUrl = generated.thumbnailUrl;
+      }
+    } else {
+      metadata.thumbnailUrl = generated.thumbnailUrl;
+    }
+  } finally {
+    if (shouldDeleteTempInput) {
+      safeUnlink(tempInput);
+    }
+  }
+
+  if (!metadata.thumbnailUrl) {
+    metadata.thumbnailUrl = buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME, baseUrl);
+  }
+
+  return metadata;
+};
+
 const normalizeRecord = (record: any) => {
   const createdAt = record?.created_at || record?.createdAt || record?.uploadedAt || new Date().toISOString();
   const mimeType = record?.mime_type || record?.mimeType || record?.type || '';
@@ -1143,13 +1378,17 @@ const buildDiskRecord = (entry: { relativePath: string; fullPath: string; stats:
   });
 };
 
-const toClientFile = (record: any) => {
+const toClientFile = (record: any, baseUrl?: string) => {
   const createdAt = record?.created_at || record?.createdAt || record?.uploadedAt || new Date().toISOString();
   const mimeType = record?.mime_type || record?.mimeType || record?.type || '';
-  const url = record?.url || '';
+  const isPersistedFile = Boolean(record?.id) && !String(record?.id || '').startsWith(DISK_ID_PREFIX);
+  const url = isPersistedFile ? buildFileContentUrl(String(record.id), baseUrl) : record?.url || '';
   const storageKey = record?.storage_key || record?.storageKey || '';
   const isVideo = String(mimeType || '').toLowerCase().startsWith('video/');
-  const thumbnailUrl = record?.thumbnail_url || record?.thumbnailUrl || (isVideo ? buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME) : null);
+  const thumbnailUrl =
+    record?.thumbnail_url ||
+    record?.thumbnailUrl ||
+    (isVideo ? buildUploadsUrl(DEFAULT_VIDEO_THUMBNAIL_FILENAME, baseUrl) : null);
   const mediaType = mimeType.startsWith('image/')
     ? 'image'
     : mimeType.startsWith('video/')
@@ -1184,8 +1423,8 @@ const toClientFile = (record: any) => {
   };
 };
 
-const toMediaItem = (record: any) => {
-  const clientFile = toClientFile(record);
+const toMediaItem = (record: any, baseUrl?: string) => {
+  const clientFile = toClientFile(record, baseUrl);
   return {
     id: clientFile.id,
     name: clientFile.name,
@@ -1246,6 +1485,28 @@ const applyFileResponseHeaders = (
 
 const BRAND_LOGO_FALLBACK_URL = 'https://scrolith.com/logo.png';
 const BRAND_FAVICON_FALLBACK_URL = 'https://scrolith.com/favicon.png';
+const BRAND_ASSET_FALLBACK_NAMES = new Set([
+  'logo.png',
+  'logo.svg',
+  'favicon.ico',
+  'favicon.png',
+  'favicon.svg',
+  'apple-touch-icon.png'
+]);
+
+const isBrandAssetRequest = (assetName?: string | null) => {
+  const normalized = path
+    .basename(String(assetName || '').split('?')[0].split('#')[0].trim())
+    .toLowerCase();
+  if (!normalized) return false;
+  if (BRAND_ASSET_FALLBACK_NAMES.has(normalized)) return true;
+  return (
+    normalized.includes('scrolith') &&
+    (normalized.includes('logo') ||
+      normalized.includes('favicon') ||
+      normalized.includes('apple-touch-icon'))
+  );
+};
 
 const redirectToBrandAssetFallback = (res: Response, assetName?: string | null) => {
   const normalized = String(assetName || '').trim().toLowerCase();
@@ -1256,6 +1517,98 @@ const redirectToBrandAssetFallback = (res: Response, assetName?: string | null) 
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.setHeader('Cache-Control', 'public, max-age=300');
   res.redirect(302, fallbackUrl);
+};
+
+const tryServeManagedStorageUploadAsset = async (relativePath: string, res: Response) => {
+  const normalizedPath = normalizeSlashes(relativePath).replace(/^\/+/, '');
+  if (!normalizedPath) return false;
+
+  try {
+    const metadata = await getDatabaseStorageMetadataByName(normalizedPath);
+    const buffer = await downloadDatabaseStorageBufferByName(normalizedPath);
+    applyFileResponseHeaders(res, {
+      contentType: String(metadata?.contentType || '').trim() || getMimeTypeFromFilename(normalizedPath),
+      contentLength: buffer.length,
+      cacheControl: 'public, max-age=86400'
+    });
+    res.end(buffer);
+    return true;
+  } catch (error: any) {
+    if (String(error?.code || '') !== 'NOT_FOUND') {
+      console.warn('Failed to serve legacy database storage upload asset:', {
+        relativePath: normalizedPath,
+        error
+      });
+    }
+  }
+
+  if (isFirebaseStorageConfigured()) {
+    try {
+      const exists = await firebaseStorageExistsByName(normalizedPath);
+      if (exists) {
+        const metadata = await getFirebaseStorageMetadataByName(normalizedPath).catch(() => null);
+        applyFileResponseHeaders(res, {
+          contentType: String(metadata?.contentType || '').trim() || getMimeTypeFromFilename(normalizedPath),
+          contentLength: Number(metadata?.size || 0) || undefined,
+          cacheControl: 'public, max-age=86400'
+        });
+        const stream = createFirebaseStorageReadStream(normalizedPath);
+        stream.on('error', (streamError) => {
+          console.error('Firebase storage stream error (legacy upload):', streamError);
+          if (!res.headersSent) {
+            res.status(500).end();
+          } else {
+            res.end();
+          }
+        });
+        stream.pipe(res);
+        return true;
+      }
+    } catch (error) {
+      console.warn('Failed to serve legacy Firebase storage upload asset:', {
+        relativePath: normalizedPath,
+        error
+      });
+    }
+  }
+
+  if (isAzureBlobConfigured()) {
+    try {
+      const blobResponse = await downloadBlobByName(normalizedPath);
+      const contentType =
+        blobResponse.contentType ||
+        getMimeTypeFromFilename(normalizedPath);
+      applyFileResponseHeaders(res, {
+        contentType,
+        contentLength: blobResponse.contentLength,
+        cacheControl: 'public, max-age=86400'
+      });
+      const stream = blobResponse.readableStreamBody;
+      if (!stream) return false;
+      stream.on('error', (streamError) => {
+        console.error('Azure blob stream error (direct legacy upload):', streamError);
+        if (!res.headersSent) {
+          res.status(500).end();
+        } else {
+          res.end();
+        }
+      });
+      stream.pipe(res);
+      return true;
+    } catch (error: any) {
+      const statusCode = Number(error?.statusCode || 0);
+      const errorCode = String(error?.code || '');
+      if (statusCode === 404 || errorCode === 'BlobNotFound') {
+        return false;
+      }
+      console.warn('Failed to serve direct Azure legacy upload asset:', {
+        relativePath: normalizedPath,
+        error
+      });
+    }
+  }
+
+  return false;
 };
 
 export const listFiles = async (req: Request, res: Response) => {
@@ -1339,13 +1692,7 @@ export const listFiles = async (req: Request, res: Response) => {
     const normalized = dbFiles.map((file) =>
       normalizeRecord((() => {
         const storageProvider = (file.storageProvider || DEFAULT_STORAGE_PROVIDER).toString().toLowerCase();
-        const isAzure = storageProvider === AZURE_BLOB_STORAGE_PROVIDER;
-        const resolvedUrl =
-          isAzure
-            ? buildFileContentUrl(file.id, baseUrl)
-            : file.storageKey
-              ? buildUploadsUrl(file.storageKey, baseUrl)
-              : file.url;
+        const resolvedUrl = buildFileContentUrl(file.id, baseUrl);
         const resolvedThumb =
           file.thumbnailUrl ||
           (String(file.mimeType || '').startsWith('video/')
@@ -1373,21 +1720,25 @@ export const listFiles = async (req: Request, res: Response) => {
       })())
     );
 
-    const seenUrls = new Set(normalized.map((file) => normalizeUploadsUrl(file.url || '')));
+    const seenStorageKeys = new Set(
+      normalized
+        .map((file) => String(file.storage_key || file.storageKey || '').trim())
+        .filter(Boolean)
+    );
 
     if (isAdmin && includeDiskFallback) {
       const diskEntries = listUploadFiles(UPLOAD_DIR);
       for (const entry of diskEntries) {
         const record = buildDiskRecord(entry, baseUrl);
-        const normalizedUrl = normalizeUploadsUrl(record.url);
-        if (normalizedUrl && !seenUrls.has(normalizedUrl)) {
+        const storageKey = String(record.storage_key || record.storageKey || entry.relativePath).trim();
+        if (storageKey && !seenStorageKeys.has(storageKey)) {
           normalized.push(record);
-          seenUrls.add(normalizedUrl);
+          seenStorageKeys.add(storageKey);
         }
       }
     }
 
-    res.json({ success: true, data: normalized.map(toClientFile) });
+    res.json({ success: true, data: normalized.map((file) => toClientFile(file, baseUrl)) });
   } catch (error) {
     console.error('Failed to list files:', error);
     res.status(500).json({ success: false, error: 'Failed to list files' });
@@ -1504,6 +1855,87 @@ export const serveFileContent = async (req: Request, res: Response) => {
 
     const storedProvider = String(file.storageProvider || DEFAULT_STORAGE_PROVIDER).toLowerCase();
 
+    if (storedProvider === DATABASE_STORAGE_PROVIDER) {
+      if (!file.storageKey) {
+        res.status(404).json({ success: false, error: 'File storage key missing' });
+        return;
+      }
+
+      try {
+        const metadata = await getDatabaseStorageMetadataByName(file.storageKey);
+        const buffer = await downloadDatabaseStorageBufferByName(file.storageKey);
+        applyFileResponseHeaders(res, {
+          contentType:
+            String(metadata?.contentType || '').trim() ||
+            file.mimeType ||
+            'application/octet-stream',
+          contentLength: buffer.length,
+          cacheControl
+        });
+        res.end(buffer);
+        return;
+      } catch (error: any) {
+        if (String(error?.code || '') === 'NOT_FOUND') {
+          res.status(404).json({ success: false, error: 'File not found in storage' });
+          return;
+        }
+        console.error('Failed to read database-backed file:', error);
+        res.status(500).json({ success: false, error: 'Failed to read file from storage' });
+        return;
+      }
+    }
+
+    if (storedProvider === FIREBASE_STORAGE_PROVIDER) {
+      if (!file.storageKey) {
+        res.status(404).json({ success: false, error: 'File storage key missing' });
+        return;
+      }
+
+      try {
+        const metadata = await getFirebaseStorageMetadataByName(file.storageKey);
+        const contentType =
+          String(metadata?.contentType || '').trim() ||
+          file.mimeType ||
+          'application/octet-stream';
+        const contentLength = Number(metadata?.size || 0) || undefined;
+        applyFileResponseHeaders(res, {
+          contentType,
+          contentLength,
+          cacheControl
+        });
+
+        const stream = createFirebaseStorageReadStream(file.storageKey);
+        stream.on('error', (streamError: any) => {
+          const code = Number(streamError?.code || 0);
+          if (code === 404 || String(streamError?.code || '').toLowerCase() === 'notfound') {
+            if (!res.headersSent) {
+              res.status(404).json({ success: false, error: 'File not found in storage' });
+            } else {
+              res.end();
+            }
+            return;
+          }
+          console.error('Firebase storage stream error:', streamError);
+          if (!res.headersSent) {
+            res.status(500).end();
+          } else {
+            res.end();
+          }
+        });
+        stream.pipe(res);
+        return;
+      } catch (error: any) {
+        const code = Number(error?.code || 0);
+        if (code === 404) {
+          res.status(404).json({ success: false, error: 'File not found in storage' });
+          return;
+        }
+        console.error('Failed to stream Firebase storage object:', error);
+        res.status(500).json({ success: false, error: 'Failed to read file from storage' });
+        return;
+      }
+    }
+
     if (storedProvider === AZURE_BLOB_STORAGE_PROVIDER) {
       if (!file.storageKey) {
         res.status(404).json({ success: false, error: 'File storage key missing' });
@@ -1559,6 +1991,43 @@ export const serveFileContent = async (req: Request, res: Response) => {
     }
 
     if (!fs.existsSync(localPath)) {
+      const fallbackCandidates = Array.from(
+        new Set(
+          [
+            file.storageKey,
+            storageKeyPath,
+            stripUploadsPrefix(file.url),
+            file.filename
+          ]
+            .map((value) => String(value || '').trim())
+            .filter(Boolean)
+        )
+      );
+
+      for (const objectName of fallbackCandidates) {
+        try {
+          const metadata = await getDatabaseStorageMetadataByName(objectName);
+          const buffer = await downloadDatabaseStorageBufferByName(objectName);
+          applyFileResponseHeaders(res, {
+            contentType:
+              String(metadata?.contentType || '').trim() ||
+              file.mimeType ||
+              getMimeTypeFromFilename(file.filename || objectName),
+            contentLength: buffer.length,
+            cacheControl
+          });
+          res.end(buffer);
+          return;
+        } catch (error: any) {
+          if (String(error?.code || '') === 'NOT_FOUND') continue;
+          console.warn('Failed to recover missing local file from managed upload storage:', {
+            fileId: file.id,
+            objectName,
+            error
+          });
+        }
+      }
+
       res.status(404).json({ success: false, error: 'File not found' });
       return;
     }
@@ -1596,8 +2065,12 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
       return;
     }
 
+    if (await tryServeManagedStorageUploadAsset(relativePath, res)) {
+      return;
+    }
+
     const baseName = path.basename(relativePath);
-    const isLikelyBrandAsset = /(logo|favicon)/i.test(baseName);
+    const isLikelyBrandAsset = isBrandAssetRequest(baseName);
     const legacyMatch = await prisma.file.findFirst({
       where: {
         OR: [
@@ -1631,6 +2104,101 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
     }
 
     const storageProvider = String(legacyMatch.storageProvider || DEFAULT_STORAGE_PROVIDER).toLowerCase();
+    if (storageProvider === DATABASE_STORAGE_PROVIDER) {
+      const objectCandidates = Array.from(
+        new Set(
+          [
+            legacyMatch.storageKey,
+            relativePath,
+            baseName
+          ].filter(Boolean)
+        )
+      ) as string[];
+
+      for (const objectName of objectCandidates) {
+        try {
+          const metadata = await getDatabaseStorageMetadataByName(objectName);
+          const buffer = await downloadDatabaseStorageBufferByName(objectName);
+          applyFileResponseHeaders(res, {
+            contentType:
+              String(metadata?.contentType || '').trim() ||
+              legacyMatch.mimeType ||
+              getMimeTypeFromFilename(legacyMatch.filename || baseName),
+            contentLength: buffer.length,
+            cacheControl: 'public, max-age=86400'
+          });
+          res.end(buffer);
+          return;
+        } catch (error: any) {
+          if (String(error?.code || '') === 'NOT_FOUND') continue;
+          console.warn('Failed to stream database legacy upload record:', {
+            objectName,
+            error
+          });
+        }
+      }
+
+      if (isLikelyBrandAsset) {
+        redirectToBrandAssetFallback(res, baseName);
+        return;
+      }
+      res.status(404).end();
+      return;
+    }
+
+    if (storageProvider === FIREBASE_STORAGE_PROVIDER) {
+      const objectCandidates = Array.from(
+        new Set(
+          [
+            legacyMatch.storageKey,
+            relativePath,
+            baseName
+          ].filter(Boolean)
+        )
+      ) as string[];
+
+      for (const objectName of objectCandidates) {
+        try {
+          const exists = await firebaseStorageExistsByName(objectName);
+          if (!exists) continue;
+
+          const metadata = await getFirebaseStorageMetadataByName(objectName).catch(() => null);
+          applyFileResponseHeaders(res, {
+            contentType:
+              String(metadata?.contentType || '').trim() ||
+              legacyMatch.mimeType ||
+              getMimeTypeFromFilename(legacyMatch.filename || baseName),
+            contentLength: Number(metadata?.size || 0) || undefined,
+            cacheControl: 'public, max-age=86400'
+          });
+
+          const stream = createFirebaseStorageReadStream(objectName);
+          stream.on('error', (streamError) => {
+            console.error('Firebase storage stream error (legacy upload record):', streamError);
+            if (!res.headersSent) {
+              res.status(500).end();
+            } else {
+              res.end();
+            }
+          });
+          stream.pipe(res);
+          return;
+        } catch (error) {
+          console.warn('Failed to stream Firebase legacy upload record:', {
+            objectName,
+            error
+          });
+        }
+      }
+
+      if (isLikelyBrandAsset) {
+        redirectToBrandAssetFallback(res, baseName);
+        return;
+      }
+      res.status(404).end();
+      return;
+    }
+
     if (storageProvider === AZURE_BLOB_STORAGE_PROVIDER) {
       const blobCandidates = Array.from(
         new Set(
@@ -1740,7 +2308,43 @@ const persistUploadedFile = async (params: {
   let filename = file.filename || safeFilename(file.originalname || `upload-${Date.now()}`);
   let mediaMetadata: MediaMetadata;
 
-  if (storageProvider === AZURE_BLOB_STORAGE_PROVIDER) {
+  if (storageProvider === DATABASE_STORAGE_PROVIDER) {
+    const sourceBuffer = getUploadedFileBuffer(file);
+    if (!sourceBuffer) {
+      throw new Error('Database storage upload could not read the uploaded file buffer');
+    }
+    storageKey = buildStorageKeyForUpload(file.originalname || file.filename || 'upload.bin');
+    filename = storageKey;
+    await uploadBufferToDatabaseStorage({
+      buffer: sourceBuffer,
+      contentType: normalizedMimeType,
+      fileName: storageKey
+    });
+    url = buildFileContentUrl(fileId, baseUrl);
+    mediaMetadata = await buildMediaMetadataForDatabaseStorage(
+      { ...file, mimetype: normalizedMimeType },
+      storageKey,
+      baseUrl
+    );
+    safeUnlink(file.path);
+  } else if (storageProvider === FIREBASE_STORAGE_PROVIDER) {
+    if (!file.buffer || !Buffer.isBuffer(file.buffer)) {
+      throw new Error('Firebase Storage upload requires multer memoryStorage (file.buffer is missing)');
+    }
+    storageKey = buildStorageKeyForUpload(file.originalname || file.filename || 'upload.bin');
+    filename = storageKey;
+    await uploadBufferToFirebaseStorage({
+      buffer: file.buffer,
+      contentType: normalizedMimeType,
+      fileName: storageKey
+    });
+    url = buildFileContentUrl(fileId, baseUrl);
+    mediaMetadata = await buildMediaMetadataForFirebaseStorage(
+      { ...file, mimetype: normalizedMimeType },
+      storageKey,
+      baseUrl
+    );
+  } else if (storageProvider === AZURE_BLOB_STORAGE_PROVIDER) {
     if (!file.buffer || !Buffer.isBuffer(file.buffer)) {
       throw new Error('Azure Blob upload requires multer memoryStorage (file.buffer is missing)');
     }
@@ -1759,7 +2363,7 @@ const persistUploadedFile = async (params: {
     const filePath = file.path || path.join(UPLOAD_DIR, fallbackFilename);
     storageKey = getRelativeUploadPath(filePath);
     filename = fallbackFilename;
-    url = buildUploadsUrl(storageKey, baseUrl);
+    url = buildFileContentUrl(fileId, baseUrl);
     mediaMetadata = await buildMediaMetadata(
       { ...file, filename: fallbackFilename, path: filePath, mimetype: normalizedMimeType },
       storageKey,
@@ -1867,7 +2471,14 @@ export const uploadFile = async (req: Request, res: Response) => {
           '.png';
         const faviconName = `favicon${ext}`;
         try {
-          if (resolveStorageProvider() === AZURE_BLOB_STORAGE_PROVIDER && req.file.buffer) {
+          if (resolveStorageProvider() === FIREBASE_STORAGE_PROVIDER && req.file.buffer) {
+            await uploadBufferToFirebaseStorage({
+              buffer: req.file.buffer,
+              contentType: req.file.mimetype || getMimeTypeFromFilename(faviconName),
+              fileName: faviconName
+            });
+            console.log('Created favicon copy in Firebase Storage:', faviconName);
+          } else if (resolveStorageProvider() === AZURE_BLOB_STORAGE_PROVIDER && req.file.buffer) {
             await uploadBufferToBlob({
               buffer: req.file.buffer,
               contentType: req.file.mimetype || getMimeTypeFromFilename(faviconName),
@@ -1892,7 +2503,7 @@ export const uploadFile = async (req: Request, res: Response) => {
       console.warn('Error while handling favicon copy flag:', e);
     }
 
-    res.json({ success: true, data: toClientFile(responseRecord) });
+    res.json({ success: true, data: toClientFile(responseRecord, getBaseFileUrl(req)) });
   } catch (error) {
     safeUnlink(req.file?.path);
     console.error('Failed to upload file:', error);
@@ -1934,7 +2545,47 @@ export const deleteFile = async (req: Request, res: Response) => {
     await prisma.file.delete({ where: { id } });
 
     const storageProvider = (existing.storageProvider || DEFAULT_STORAGE_PROVIDER).toString().toLowerCase();
-    if (storageProvider === AZURE_BLOB_STORAGE_PROVIDER) {
+    if (storageProvider === DATABASE_STORAGE_PROVIDER) {
+      try {
+        await deleteDatabaseStorageByName(existing.storageKey);
+      } catch (storageError) {
+        console.warn('Failed to delete database storage object:', storageError);
+      }
+
+      if (existing.thumbnailUrl) {
+        try {
+          const thumbnailStorageKey = stripUploadsPrefix(existing.thumbnailUrl);
+          if (
+            thumbnailStorageKey &&
+            thumbnailStorageKey !== DEFAULT_VIDEO_THUMBNAIL_FILENAME
+          ) {
+            await deleteDatabaseStorageByName(thumbnailStorageKey);
+          }
+        } catch (thumbError) {
+          console.warn('Failed to delete database thumbnail object:', thumbError);
+        }
+      }
+    } else if (storageProvider === FIREBASE_STORAGE_PROVIDER) {
+      try {
+        await deleteFirebaseStorageByName(existing.storageKey);
+      } catch (storageError) {
+        console.warn('Failed to delete Firebase storage object:', storageError);
+      }
+
+      if (existing.thumbnailUrl) {
+        try {
+          const thumbnailStorageKey = stripUploadsPrefix(existing.thumbnailUrl);
+          if (
+            thumbnailStorageKey &&
+            thumbnailStorageKey !== DEFAULT_VIDEO_THUMBNAIL_FILENAME
+          ) {
+            await deleteFirebaseStorageByName(thumbnailStorageKey);
+          }
+        } catch (thumbError) {
+          console.warn('Failed to delete Firebase thumbnail object:', thumbError);
+        }
+      }
+    } else if (storageProvider === AZURE_BLOB_STORAGE_PROVIDER) {
       try {
         await deleteBlobByName(existing.storageKey);
       } catch (blobError) {
@@ -1994,7 +2645,7 @@ export const uploadMedia = async (req: Request, res: Response) => {
       ownerRole
     });
 
-    res.json(toMediaItem(responseRecord));
+    res.json(toMediaItem(responseRecord, getBaseFileUrl(req)));
   } catch (error) {
     safeUnlink(req.file?.path);
     console.error('Failed to upload media:', error);

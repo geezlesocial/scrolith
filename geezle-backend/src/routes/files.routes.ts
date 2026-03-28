@@ -15,7 +15,7 @@ const resolveUploadDriver = () =>
 
 const isMemoryUploadDriver = () => {
   const driver = resolveUploadDriver();
-  return ['azure_blob', 'azure', 'blob'].includes(driver);
+  return ['azure_blob', 'azure', 'blob', 'firebase_storage', 'firebase', 'gcs', 'google_cloud_storage'].includes(driver);
 };
 
 const diskStorage = multer.diskStorage({
