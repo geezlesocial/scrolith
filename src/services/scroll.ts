@@ -25,6 +25,8 @@ export interface ScrollVideo {
     avatar?: string | null;
     username?: string | null;
     isVerified?: boolean;
+    email?: string | null;
+    role?: string | null;
   };
   title?: string | null;
   description?: string | null;
@@ -65,8 +67,49 @@ export interface ScrollVideo {
     liked?: boolean;
     impressed?: boolean;
   };
+  canEdit?: boolean;
+  canDelete?: boolean;
+  reportCount?: number;
+  pendingReportCount?: number;
+  activePostingRestriction?: ScrollPostingRestriction | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ScrollPostingRestriction {
+  id: string;
+  userId: string;
+  reason: string;
+  note?: string | null;
+  startsAt: string;
+  endsAt: string;
+  createdByAdminId?: string | null;
+  liftedAt?: string | null;
+  liftedByAdminId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScrollReport {
+  id: string;
+  scrollId: string;
+  reportedById: string;
+  reason: string;
+  status: string;
+  reviewNote?: string | null;
+  reviewedAt?: string | null;
+  reviewedById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  scroll?: ScrollVideo | null;
+  reporter?: {
+    id: string;
+    name?: string | null;
+    email?: string | null;
+    username?: string | null;
+    avatar?: string | null;
+    role?: string | null;
+  } | null;
 }
 
 export interface ScrollComment {
@@ -101,6 +144,8 @@ export interface ScrollConfig {
   defaultVisibility: ScrollVisibility | string;
   impressionThresholdSeconds: number;
   allowedFilterPresets: string[];
+  headlinePreviewCharacters: number;
+  descriptionPreviewCharacters: number;
   updatedById?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -240,7 +285,37 @@ class ScrollService {
     if (params?.status) query.set('status', String(params.status));
     if (typeof params?.limit !== 'undefined') query.set('limit', String(params.limit));
     const response = await api.get(`/admin/scroll/reports${query.toString() ? `?${query.toString()}` : ''}`);
-    return extractData<any[]>(response);
+    return extractData<ScrollReport[]>(response);
+  }
+
+  static async reviewAdminReport(id: string, payload: { action: 'resolve' | 'dismiss' | 'remove'; note?: string }) {
+    const response = await api.post(`/admin/scroll/reports/${encodeURIComponent(id)}/review`, payload);
+    return extractData<ScrollReport>(response);
+  }
+
+  static async sendAdminMessage(id: string, payload: { message: string }) {
+    const response = await api.post(`/admin/scroll/${encodeURIComponent(id)}/message`, payload);
+    return extractData<{ scrollId: string; conversationId: string; messageId: string }>(response);
+  }
+
+  static async sendAdminWarning(id: string, payload: { message: string }) {
+    const response = await api.post(`/admin/scroll/${encodeURIComponent(id)}/warning`, payload);
+    return extractData<{ scrollId: string; conversationId: string; messageId: string }>(response);
+  }
+
+  static async restrictOwnerPosting(
+    userId: string,
+    payload: { reason: string; note?: string | null; durationHours?: number; endsAt?: string }
+  ) {
+    const response = await api.post(`/admin/scroll/users/${encodeURIComponent(userId)}/restrictions`, payload);
+    return extractData<ScrollPostingRestriction>(response);
+  }
+
+  static async liftOwnerPostingRestriction(userId: string, restrictionId: string) {
+    const response = await api.post(
+      `/admin/scroll/users/${encodeURIComponent(userId)}/restrictions/${encodeURIComponent(restrictionId)}/lift`
+    );
+    return extractData<ScrollPostingRestriction>(response);
   }
 }
 

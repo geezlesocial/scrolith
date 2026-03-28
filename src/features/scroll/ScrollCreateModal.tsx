@@ -16,8 +16,10 @@ type ScrollCreateModalProps = {
   open: boolean;
   onClose: () => void;
   onCreated: (scroll: ScrollVideo) => void;
+  onUpdated?: (scroll: ScrollVideo) => void;
   config?: ScrollConfig | null;
   sourceVideo?: PendingPostVideoScrollSource | null;
+  editScroll?: ScrollVideo | null;
 };
 
 const SCROLL_DESCRIPTION_REWRITE_ACTIONS: Array<{ mode: ScrolithaRewriteMode; label: string }> = [
@@ -52,7 +54,15 @@ const getScrollPreviewFilterStyle = (preset: string, strengthValue: number): Rea
   return { filter: 'none' };
 };
 
-const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, onCreated, config, sourceVideo }) => {
+const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
+  open,
+  onClose,
+  onCreated,
+  onUpdated,
+  config,
+  sourceVideo,
+  editScroll
+}) => {
   const { showNotification } = useNotification();
   const { user } = useUser();
   const deviceVideoInputRef = useRef<HTMLInputElement | null>(null);
@@ -93,18 +103,33 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
     [filterPreset, filterStrength]
   );
 
+  const isEditing = Boolean(editScroll?.id);
+
   useEffect(() => {
     if (!open) return;
-    setTitle(String(sourceVideo?.title || '').trim());
-    setDescription(String(sourceVideo?.description || '').trim());
-    setLocation(String(sourceVideo?.location || '').trim());
-    setVisibility((config?.defaultVisibility as any) || 'public');
-    setGraphicWarning(false);
-    setIsAIEnhanced(false);
-    setFilterPreset('none');
-    setFilterStrength(60);
+    setTitle(String(editScroll?.title || sourceVideo?.title || '').trim());
+    setDescription(String(editScroll?.description || sourceVideo?.description || '').trim());
+    setLocation(String(editScroll?.location || sourceVideo?.location || '').trim());
+    setVisibility((editScroll?.visibility as any) || (config?.defaultVisibility as any) || 'public');
+    setGraphicWarning(Boolean(editScroll?.graphicWarning));
+    setIsAIEnhanced(Boolean(editScroll?.isAIEnhanced));
+    setFilterPreset(String(editScroll?.filterPreset || 'none').trim() || 'none');
+    setFilterStrength(
+      Number.isFinite(Number(editScroll?.filterStrength))
+        ? Number(editScroll?.filterStrength)
+        : 60
+    );
     setVideoFile(null);
-    setOfferTags([]);
+    setOfferTags(
+      Array.isArray(editScroll?.offerTags)
+        ? editScroll.offerTags
+            .map((tag) => ({
+              offerType: tag?.offerType,
+              offerId: tag?.offerId
+            }))
+            .filter((tag) => Boolean(tag.offerType) && Boolean(tag.offerId))
+        : []
+    );
     setUploading(false);
     setProgress(0);
     setLocationSuggestions([]);
@@ -116,6 +141,14 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
   }, [
     config?.defaultVisibility,
     open,
+    editScroll?.description,
+    editScroll?.filterPreset,
+    editScroll?.filterStrength,
+    editScroll?.graphicWarning,
+    editScroll?.isAIEnhanced,
+    editScroll?.location,
+    editScroll?.title,
+    editScroll?.visibility,
     sourceVideo?.description,
     sourceVideo?.location,
     sourceVideo?.title
@@ -269,8 +302,8 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
   };
 
   const handleSubmit = async () => {
-    if (!videoFile && !sourceVideo?.fileId) {
-      showNotification('error', 'Scroll', 'Please choose a video file.');
+    if (!videoFile && !sourceVideo?.fileId && !editScroll?.media?.id) {
+      showNotification('error', 'Scroll', isEditing ? 'Scroll video is missing.' : 'Please choose a video file.');
       return;
     }
     if (config?.aiLabelRequired && !isAIEnhanced) {
@@ -290,10 +323,15 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
         fileId = String(uploaded?.id || '').trim();
       }
       if (!fileId) {
+        if (isEditing) {
+          fileId = String(editScroll?.media?.id || '').trim();
+        }
+      }
+      if (!fileId && !isEditing) {
         throw new Error('Scroll source video is missing.');
       }
-      const created = await ScrollService.create({
-        fileId,
+      const payload = {
+        ...(fileId ? { fileId } : {}),
         title: title.trim() || undefined,
         description: description.trim() || undefined,
         location: location.trim() || undefined,
@@ -303,9 +341,16 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
         filterPreset,
         filterStrength,
         offerTags
-      });
-      onCreated(created);
-      showNotification('success', 'Scroll', 'Scroll video published.');
+      };
+      if (isEditing && editScroll?.id) {
+        const updated = await ScrollService.update(editScroll.id, payload);
+        onUpdated?.(updated);
+        showNotification('success', 'Scroll', 'Scroll video updated.');
+      } else {
+        const created = await ScrollService.create(payload as any);
+        onCreated(created);
+        showNotification('success', 'Scroll', 'Scroll video published.');
+      }
       resetAndClose();
     } catch (error: any) {
       const message =
@@ -320,8 +365,14 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
     }
   };
 
-  const previewUrl = videoPreviewUrl || String(sourceVideo?.mediaUrl || '').trim();
-  const previewTitle = videoFile?.name || sourceVideo?.title || sourceVideo?.description || 'Selected video';
+  const previewUrl = videoPreviewUrl || String(editScroll?.media?.url || sourceVideo?.mediaUrl || '').trim();
+  const previewTitle =
+    videoFile?.name ||
+    editScroll?.title ||
+    editScroll?.description ||
+    sourceVideo?.title ||
+    sourceVideo?.description ||
+    'Selected video';
 
   return (
     <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
@@ -329,7 +380,7 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
         <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
           <div className="flex items-center gap-2">
             <Film className="h-5 w-5 text-cyan-300" />
-            <h2 className="text-lg font-semibold">Create Scroll</h2>
+            <h2 className="text-lg font-semibold">{isEditing ? 'Edit Scroll' : 'Create Scroll'}</h2>
           </div>
           <button type="button" onClick={resetAndClose} className="rounded-full p-2 hover:bg-white/10">
             <X className="h-4 w-4" />
@@ -420,11 +471,18 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
                           Featured from post
                         </span>
                       ) : null}
+                      {editScroll?.id && !videoFile ? (
+                        <span className="rounded-full border border-violet-400/20 bg-violet-400/10 px-2.5 py-1 text-violet-100">
+                          Editing live Scroll
+                        </span>
+                      ) : null}
                     </div>
                     <p className="text-xs leading-5 text-white/60">
                       {videoFile
-                        ? 'This is the exact local video preview that will be uploaded when you publish the Scroll.'
-                        : 'This is the existing post video that will be featured in Scroll when you publish.'}
+                        ? `This ${isEditing ? 'replacement' : 'local'} video preview will be uploaded when you ${isEditing ? 'save' : 'publish'} the Scroll.`
+                        : editScroll?.id
+                          ? 'This is the current live Scroll video. You can update the metadata without replacing the video.'
+                          : 'This is the existing post video that will be featured in Scroll when you publish.'}
                     </p>
                   </div>
                 </div>
@@ -651,7 +709,7 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
             className="inline-flex items-center gap-2 rounded-xl bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
-            Publish Scroll
+            {isEditing ? 'Save Changes' : 'Publish Scroll'}
           </button>
         </div>
       </div>

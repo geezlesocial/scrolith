@@ -1,5 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Volume2, VolumeX, MessageCircle, Repeat2, Send, Coins, Flag, Maximize2, Sparkles } from 'lucide-react';
+import {
+  AlertTriangle,
+  Volume2,
+  VolumeX,
+  MessageCircle,
+  Repeat2,
+  Send,
+  Coins,
+  Flag,
+  Maximize2,
+  Sparkles,
+  Pencil,
+  Trash2
+} from 'lucide-react';
 import type { ScrollEngagementType, ScrollVideo } from '../../services/scroll';
 import ExpandablePreviewText from '../../components/common/ExpandablePreviewText';
 import ContentOfferTags from '../../components/commerce/ContentOfferTags';
@@ -7,7 +20,6 @@ import ReactionBar from '../../community/components/ReactionBar';
 import { ReactionsService } from '../../services/reactions';
 import { useUser } from '../../context/UserContext';
 import { resolveInlineMedia } from '../../utils/inlineMedia';
-import { CARD_TEXT_PREVIEW_LIMIT } from '../../utils/textPreview';
 import GraphicWarningGate from '../../components/media/GraphicWarningGate';
 import OverlayActionRailButton from '../../components/media/OverlayActionRailButton';
 
@@ -24,6 +36,10 @@ type ScrollCardProps = {
   onDash: (scroll: ScrollVideo) => Promise<void> | void;
   onSend: (scroll: ScrollVideo) => Promise<void> | void;
   onReport: (scroll: ScrollVideo) => Promise<void> | void;
+  onEdit: (scroll: ScrollVideo) => Promise<void> | void;
+  onDelete: (scroll: ScrollVideo) => Promise<void> | void;
+  headlinePreviewLimit?: number;
+  descriptionPreviewLimit?: number;
 };
 
 const authorInitial = (name?: string | null) => String(name || 'S').trim().charAt(0).toUpperCase() || 'S';
@@ -46,7 +62,11 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   onRepost,
   onDash,
   onSend,
-  onReport
+  onReport,
+  onEdit,
+  onDelete,
+  headlinePreviewLimit = 72,
+  descriptionPreviewLimit = 120
 }) => {
   const { user } = useUser();
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -191,7 +211,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const authorName = scroll.author?.name || 'Community member';
   const description = String(scroll.description || '').trim();
   const title = String(scroll.title || '').trim();
-  const topLine = title || description || 'Scroll video';
+  const headlineLine = title || description || 'Scroll video';
+  const secondaryLine = title && description ? description : '';
   const dashGcoinTotal = Number(scroll.dashGcoinTotal ?? scroll.metrics?.dashGcoinTotal ?? 0);
   const tagCount = Array.isArray(scroll.tags) ? scroll.tags.length : 0;
   const mediaFilterStyle = useMemo(() => {
@@ -342,6 +363,26 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         </div>
 
         <div className="pointer-events-auto flex items-center gap-2">
+          {scroll.canEdit ? (
+            <button
+              type="button"
+              onClick={() => onEdit(scroll)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
+              aria-label="Edit scroll"
+            >
+              <Pencil className="h-4.5 w-4.5" />
+            </button>
+          ) : null}
+          {scroll.canDelete ? (
+            <button
+              type="button"
+              onClick={() => onDelete(scroll)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-rose-950/65 text-rose-100 hover:bg-rose-900/80 transition"
+              aria-label="Delete scroll"
+            >
+              <Trash2 className="h-4.5 w-4.5" />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={handleExpand}
@@ -403,15 +444,15 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
           </div>
           <div className="rounded-[24px] border border-white/10 bg-black/34 px-3.5 py-3 text-white shadow-[0_18px_48px_-28px_rgba(15,23,42,0.95)] backdrop-blur-md">
             <ExpandablePreviewText
-              text={topLine}
-              limit={CARD_TEXT_PREVIEW_LIMIT}
+              text={headlineLine}
+              limit={headlinePreviewLimit}
               textClassName="text-[15px] font-semibold leading-snug text-white sm:text-base"
               buttonClassName="text-white"
             />
-            {description && title ? (
+            {secondaryLine ? (
               <ExpandablePreviewText
-                text={description}
-                limit={CARD_TEXT_PREVIEW_LIMIT}
+                text={secondaryLine}
+                limit={descriptionPreviewLimit}
                 className="mt-1.5"
                 textClassName="text-sm leading-relaxed text-white/85"
                 buttonClassName="text-white"

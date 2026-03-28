@@ -104,6 +104,7 @@ const ScrollFeed: React.FC = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [config, setConfig] = useState<ScrollConfig | null>(null);
   const [sourceVideo, setSourceVideo] = useState<PendingPostVideoScrollSource | null>(null);
+  const [editingScroll, setEditingScroll] = useState<ScrollVideo | null>(null);
   const [reportBusyId, setReportBusyId] = useState<string | null>(null);
   const [activeActionScroll, setActiveActionScroll] = useState<ScrollVideo | null>(null);
   const [commentOpen, setCommentOpen] = useState(false);
@@ -377,6 +378,12 @@ const ScrollFeed: React.FC = () => {
       if (!scroll?.id) return;
       setItems((prev) => [scroll, ...prev.filter((entry) => entry.id !== scroll.id)]);
     };
+    const onUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail;
+      const scroll = detail?.scroll;
+      if (!scroll?.id) return;
+      patchScrollState(scroll.id, scroll);
+    };
     const onEngagement = (event: Event) => {
       const detail = (event as CustomEvent<any>).detail;
       if (!detail?.scrollId || !detail?.metrics) return;
@@ -410,6 +417,7 @@ const ScrollFeed: React.FC = () => {
       void loadLiveSessions();
     };
     window.addEventListener('scroll:new', onNew);
+    window.addEventListener('scroll:updated', onUpdated);
     window.addEventListener('scroll:engagement_update', onEngagement);
     window.addEventListener('scroll:impression_update', onEngagement);
     window.addEventListener('reactions:updated', onReactionUpdated as EventListener);
@@ -420,6 +428,7 @@ const ScrollFeed: React.FC = () => {
     window.addEventListener('live:viewer_count_updated', onLiveChanged as EventListener);
     return () => {
       window.removeEventListener('scroll:new', onNew);
+      window.removeEventListener('scroll:updated', onUpdated);
       window.removeEventListener('scroll:engagement_update', onEngagement);
       window.removeEventListener('scroll:impression_update', onEngagement);
       window.removeEventListener('reactions:updated', onReactionUpdated as EventListener);
@@ -522,6 +531,30 @@ const ScrollFeed: React.FC = () => {
     [showNotification]
   );
 
+  const handleEdit = useCallback((scroll: ScrollVideo) => {
+    setSourceVideo(null);
+    setEditingScroll(scroll);
+    setCreateOpen(true);
+  }, []);
+
+  const handleDelete = useCallback(
+    async (scroll: ScrollVideo) => {
+      if (!window.confirm('Delete this Scroll video? This cannot be undone.')) return;
+      try {
+        await ScrollService.remove(scroll.id);
+        setItems((prev) => prev.filter((entry) => entry.id !== scroll.id));
+        showNotification('success', 'Scroll', 'Scroll video deleted.');
+      } catch (error: any) {
+        const message = error?.response?.data?.error || error?.message || 'Failed to delete Scroll video.';
+        showNotification('error', 'Scroll', message);
+      }
+    },
+    [showNotification]
+  );
+
+  const headlinePreviewLimit = Math.max(40, Number(config?.headlinePreviewCharacters || 72));
+  const descriptionPreviewLimit = Math.max(60, Number(config?.descriptionPreviewCharacters || 120));
+
   const repostScroll = useCallback(
     async (withComment?: string) => {
       if (!activeActionScroll?.id || actionBusy) return;
@@ -573,6 +606,7 @@ const ScrollFeed: React.FC = () => {
             type="button"
             onClick={() => {
               setSourceVideo(null);
+              setEditingScroll(null);
               setCreateOpen(true);
             }}
             className="inline-flex items-center gap-2 rounded-full bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200 transition"
@@ -628,6 +662,7 @@ const ScrollFeed: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setSourceVideo(null);
+                  setEditingScroll(null);
                   setCreateOpen(true);
                 }}
                 className="mt-4 inline-flex items-center gap-2 rounded-full bg-cyan-300 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200 transition"
@@ -660,6 +695,10 @@ const ScrollFeed: React.FC = () => {
                   onDash={handleDash}
                   onSend={handleSend}
                   onReport={handleReport}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                  headlinePreviewLimit={headlinePreviewLimit}
+                  descriptionPreviewLimit={descriptionPreviewLimit}
                 />
               </div>
             ))}
@@ -801,14 +840,21 @@ const ScrollFeed: React.FC = () => {
         onClose={() => {
           setCreateOpen(false);
           setSourceVideo(null);
+          setEditingScroll(null);
           clearPendingPostVideoScrollSource();
         }}
+        editScroll={editingScroll}
         sourceVideo={sourceVideo}
         onCreated={(scroll) => {
           setItems((prev) => [scroll, ...prev.filter((entry) => entry.id !== scroll.id)]);
           setActiveIndex(0);
           setSourceVideo(null);
+          setEditingScroll(null);
           clearPendingPostVideoScrollSource();
+        }}
+        onUpdated={(scroll) => {
+          setItems((prev) => prev.map((entry) => (entry.id === scroll.id ? scroll : entry)));
+          setEditingScroll(null);
         }}
         config={config}
       />
