@@ -305,6 +305,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const secondaryLine = title && description ? description : '';
   const dashGcoinTotal = Number(scroll.dashGcoinTotal ?? scroll.metrics?.dashGcoinTotal ?? 0);
   const tagCount = Array.isArray(scroll.tags) ? scroll.tags.length : 0;
+  const hasOwnerActions = Boolean(scroll.canEdit || scroll.canDelete);
   const overlayControlsVisible = !touchOverlayMode || controlsVisible || ownerMenuOpen;
   const mediaFilterStyle = useMemo(() => {
     const strength = Math.max(0, Math.min(100, Number(scroll.filterStrength ?? 60))) / 100;
@@ -487,63 +488,65 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
           >
             {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
           </button>
-          <div ref={ownerMenuRef} className="relative">
-            <button
-              type="button"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                revealControls();
-                setOwnerMenuOpen((current) => !current);
-              }}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
-              aria-label="Open scroll actions"
-              aria-expanded={ownerMenuOpen}
-            >
-              <MoreHorizontal className="h-5 w-5" />
-            </button>
-            {ownerMenuOpen ? (
-              <div className="absolute right-0 top-12 min-w-[180px] overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 p-1.5 text-sm text-white shadow-[0_24px_64px_-24px_rgba(15,23,42,0.95)] backdrop-blur-xl">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOwnerMenuOpen(false);
-                    void handleExpand();
-                  }}
-                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-white/90 transition hover:bg-white/10"
-                >
-                  <Maximize2 className="h-4 w-4" />
-                  View fullscreen
-                </button>
-                {scroll.canEdit ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOwnerMenuOpen(false);
-                      void onEdit(scroll);
-                    }}
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-white/90 transition hover:bg-white/10"
-                  >
-                    <Pencil className="h-4 w-4" />
-                    Edit scroll
-                  </button>
-                ) : null}
-                {scroll.canDelete ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOwnerMenuOpen(false);
-                      void onDelete(scroll);
-                    }}
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-rose-200 transition hover:bg-rose-500/15"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Delete scroll
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              revealControls();
+              void handleExpand();
+            }}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
+            aria-label="View fullscreen"
+          >
+            <Maximize2 className="h-5 w-5" />
+          </button>
+          {hasOwnerActions ? (
+            <div ref={ownerMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  revealControls();
+                  setOwnerMenuOpen((current) => !current);
+                }}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
+                aria-label="Open scroll owner actions"
+                aria-expanded={ownerMenuOpen}
+              >
+                <MoreHorizontal className="h-5 w-5" />
+              </button>
+              {ownerMenuOpen ? (
+                <div className="absolute right-0 top-12 min-w-[180px] overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 p-1.5 text-sm text-white shadow-[0_24px_64px_-24px_rgba(15,23,42,0.95)] backdrop-blur-xl">
+                  {scroll.canEdit ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOwnerMenuOpen(false);
+                        void onEdit(scroll);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-white/90 transition hover:bg-white/10"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      Edit scroll
+                    </button>
+                  ) : null}
+                  {scroll.canDelete ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOwnerMenuOpen(false);
+                        void onDelete(scroll);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-rose-200 transition hover:bg-rose-500/15"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete scroll
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -596,8 +599,10 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
 
       <div
         className={`pointer-events-none absolute inset-x-4 bottom-5 z-20 transition-all duration-300 ${
-          touchOverlayMode && !overlayControlsVisible ? 'pr-0' : 'pr-[76px] sm:pr-[88px]'
-        }`}
+          touchOverlayMode && !overlayControlsVisible
+            ? 'translate-y-6 opacity-0'
+            : 'translate-y-0 opacity-100'
+        } ${touchOverlayMode && !overlayControlsVisible ? 'pr-0 pointer-events-none' : 'pr-[76px] sm:pr-[88px]'}`}
       >
         <div className="w-full max-w-[min(44rem,100%)] space-y-2">
           <div className="pointer-events-auto inline-flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-[11px] font-semibold text-white/85 shadow-[0_12px_36px_-24px_rgba(15,23,42,0.9)] backdrop-blur-md">
