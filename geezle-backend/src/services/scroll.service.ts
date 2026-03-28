@@ -9,6 +9,8 @@ export type ScrollConfig = {
   monetizationEnabled: boolean;
   defaultVisibility: string;
   impressionThresholdSeconds: number;
+  headlinePreviewCharacters: number;
+  descriptionPreviewCharacters: number;
   allowedFilterPresets: string[];
   updatedById?: string | null;
   createdAt: Date;
@@ -21,7 +23,8 @@ const SCROLL_TABLE_NAMES = [
   'ScrollVideo',
   'ScrollTag',
   'ScrollEngagement',
-  'ScrollReport'
+  'ScrollReport',
+  'ScrollPostingRestriction'
 ];
 
 const DEFAULT_CONFIG: Omit<ScrollConfig, 'createdAt' | 'updatedAt'> = {
@@ -33,6 +36,8 @@ const DEFAULT_CONFIG: Omit<ScrollConfig, 'createdAt' | 'updatedAt'> = {
   monetizationEnabled: true,
   defaultVisibility: 'public',
   impressionThresholdSeconds: 2,
+  headlinePreviewCharacters: 72,
+  descriptionPreviewCharacters: 120,
   allowedFilterPresets: ['none', 'vibrant', 'cinematic', 'bw', 'sepia', 'warm'],
   updatedById: null
 };
@@ -106,6 +111,19 @@ export const sanitizeScrollConfigInput = (input: any) => {
       toInt(payload.impressionThresholdSeconds ?? payload.impressionThreshold, DEFAULT_CONFIG.impressionThresholdSeconds),
       1,
       15
+    ),
+    headlinePreviewCharacters: clamp(
+      toInt(payload.headlinePreviewCharacters ?? payload.headlinePreviewLimit, DEFAULT_CONFIG.headlinePreviewCharacters),
+      40,
+      220
+    ),
+    descriptionPreviewCharacters: clamp(
+      toInt(
+        payload.descriptionPreviewCharacters ?? payload.descriptionPreviewLimit,
+        DEFAULT_CONFIG.descriptionPreviewCharacters
+      ),
+      60,
+      480
     ),
     allowedFilterPresets: toStringArray(payload.allowedFilterPresets ?? payload.filters)
   };

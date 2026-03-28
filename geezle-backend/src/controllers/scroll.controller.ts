@@ -17,6 +17,7 @@ import {
   normalizeStoredContentOfferTags,
   resolveSubmittedContentOfferTags
 } from '../services/contentOfferTagging.service';
+import { dispatchMessageReceiptNotifications } from '../services/messageNotifications';
 
 const SCROLL_VISIBILITIES = new Set(['public', 'network', 'followers', 'private']);
 const SCROLL_FILTER_PRESETS = new Set(['none', 'vibrant', 'cinematic', 'bw', 'sepia', 'warm']);
@@ -157,6 +158,258 @@ const emitScrollEvent = (req: Request, event: string, payload: any) => {
   }
 };
 
+const emitNotificationEvent = (userId: string, payload: any) => {
+  const targetUserId = String(userId || '').trim();
+  if (!targetUserId) return;
+  try {
+    realtime.emitToUser(targetUserId, 'notifications:new', payload);
+  } catch {}
+};
+
+const buildRestrictionPayload = (restriction: any) => {
+  if (!restriction?.id) return null;
+  return {
+    id: restriction.id,
+    userId: restriction.userId,
+    reason: restriction.reason || '',
+    note: restriction.note || '',
+    startsAt: restriction.startsAt,
+    endsAt: restriction.endsAt,
+    createdByAdminId: restriction.createdByAdminId || null,
+    liftedAt: restriction.liftedAt || null,
+    liftedByAdminId: restriction.liftedByAdminId || null,
+    createdAt: restriction.createdAt,
+    updatedAt: restriction.updatedAt
+  };
+};
+
+const loadActiveScrollPostingRestrictions = async (userIds: string[]) => {
+  const ids = Array.from(new Set((userIds || []).map((value) => String(value || '').trim()).filter(Boolean)));
+  const map = new Map<string, any>();
+  if (!ids.length) return map;
+  const now = new Date();
+  const rows = await (prisma as any).scrollPostingRestriction.findMany({
+    where: {
+      userId: { in: ids },
+      liftedAt: null,
+      endsAt: { gt: now }
+    },
+    orderBy: [{ endsAt: 'desc' }, { createdAt: 'desc' }]
+  });
+  (rows || []).forEach((row: any) => {
+    const userId = String(row?.userId || '').trim();
+    if (!userId || map.has(userId)) return;
+    map.set(userId, row);
+  });
+  return map;
+};
+
+const getActiveScrollPostingRestriction = async (userId?: string | null) => {
+  const targetUserId = String(userId || '').trim();
+  if (!targetUserId) return null;
+  return (prisma as any).scrollPostingRestriction.findFirst({
+    where: {
+      userId: targetUserId,
+      liftedAt: null,
+      endsAt: { gt: new Date() }
+    },
+    orderBy: [{ endsAt: 'desc' }, { createdAt: 'desc' }]
+  });
+};
+
+const createRuntimeNotification = async (input: {
+  userId: string;
+  actorId?: string | null;
+  type: string;
+  title: string;
+  body: string;
+  actionUrl?: string | null;
+  meta?: Record<string, any> | null;
+}) => {
+  const userId = String(input.userId || '').trim();
+  if (!userId) return null;
+  const created = await prisma.notification.create({
+    data: {
+      userId,
+      actorId: input.actorId || null,
+      type: input.type,
+      title: input.title,
+      body: input.body,
+      meta: {
+        ...(input.meta || {}),
+        actionUrl: input.actionUrl || null
+      }
+    }
+  });
+  emitNotificationEvent(userId, {
+    id: created.id,
+    type: created.type,
+    title: created.title,
+    body: created.body,
+    actionUrl: input.actionUrl || null,
+    createdAt: created.createdAt.toISOString(),
+    meta: created.meta
+  });
+  return created;
+};
+
+const getOrCreateDirectConversation = async (leftUserId: string, rightUserId: string) => {
+  const userAId = String(leftUserId || '').trim();
+  const userBId = String(rightUserId || '').trim();
+  if (!userAId || !userBId) {
+    throw new Error('Conversation participants are required.');
+  }
+  const existing = await prisma.conversation.findFirst({
+    where: {
+      type: 'DIRECT',
+      participants: {
+        some: {
+          userId: userAId
+        }
+      },
+      AND: [
+        {
+          participants: {
+            some: {
+              userId: userBId
+            }
+          }
+        }
+      ]
+    },
+    include: {
+      participants: {
+        select: {
+          userId: true
+        }
+      }
+    }
+  });
+  if (existing?.id) return existing;
+  return prisma.conversation.create({
+    data: {
+      type: 'DIRECT',
+      participants: {
+        create: [
+          { userId: userAId, label: 'other' },
+          { userId: userBId, label: 'other' }
+        ]
+      }
+    },
+    include: {
+      participants: {
+        select: {
+          userId: true
+        }
+      }
+    }
+  });
+};
+
+const createAdminConversationMessage = async (
+  req: Request,
+  input: {
+    senderId: string;
+    targetUserId: string;
+    scrollId: string;
+    text: string;
+    kind: 'message' | 'warning';
+  }
+) => {
+  const senderId = String(input.senderId || '').trim();
+  const targetUserId = String(input.targetUserId || '').trim();
+  const scrollId = String(input.scrollId || '').trim();
+  const text = String(input.text || '').trim();
+  if (!senderId || !targetUserId || !scrollId || !text) {
+    throw new Error('Message context is incomplete.');
+  }
+
+  const conversation = await getOrCreateDirectConversation(senderId, targetUserId);
+  const message = await prisma.directMessage.create({
+    data: {
+      conversationId: conversation.id,
+      senderId,
+      text,
+      isSystem: input.kind === 'warning',
+      metadata: {
+        category: input.kind === 'warning' ? 'scroll_warning' : 'scroll_admin_message',
+        scrollId,
+        adminGenerated: true
+      }
+    },
+    select: {
+      id: true,
+      conversationId: true,
+      senderId: true,
+      text: true,
+      createdAt: true,
+      messageType: true
+    }
+  });
+
+  const lastMessageText = text.length > 220 ? `${text.slice(0, 217)}...` : text;
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: {
+      lastMessageText,
+      lastMessageAt: message.createdAt,
+      lastMessageSenderId: senderId
+    }
+  });
+
+  const payload = {
+    id: message.id,
+    messageId: message.id,
+    conversationId: conversation.id,
+    conversation_id: conversation.id,
+    senderId,
+    sender_id: senderId,
+    receiverId: targetUserId,
+    receiver_id: targetUserId,
+    text: message.text,
+    messageType: String(message.messageType || 'text').toLowerCase(),
+    message_type: String(message.messageType || 'text').toLowerCase(),
+    timestamp: message.createdAt.toISOString(),
+    createdAt: message.createdAt.toISOString(),
+    metadata: {
+      category: input.kind === 'warning' ? 'scroll_warning' : 'scroll_admin_message',
+      scrollId
+    },
+    attachments: [],
+    is_deleted: false,
+    isDeleted: false
+  };
+
+  try {
+    realtime.emitToUser(targetUserId, 'messages:new', payload);
+    realtime.emitToUser(senderId, 'messages:sent', payload);
+    realtime.emitToUser(targetUserId, 'messages:conversation_updated', {
+      conversationId: conversation.id,
+      last_message: lastMessageText,
+      lastMessage: lastMessageText,
+      last_message_at: message.createdAt.toISOString(),
+      lastMessageAt: message.createdAt.toISOString()
+    });
+  } catch {}
+
+  void dispatchMessageReceiptNotifications({
+    receiverIds: [targetUserId],
+    senderId,
+    conversationId: conversation.id,
+    messageId: message.id,
+    preview: message.text,
+    fallbackPreview: input.kind === 'warning' ? 'You received a Scroll warning.' : 'You received a new admin message.',
+    messageType: 'text'
+  }).catch((notifyError) => {
+    console.warn('Failed to send scroll admin message notifications', notifyError);
+  });
+
+  return {
+    conversationId: conversation.id,
+    messageId: message.id
+  };
+};
+
 const resolveScrollMedia = async (fileId: string, req: Request) => {
   const file = await prisma.file.findUnique({
     where: { id: fileId },
@@ -272,23 +525,42 @@ const scrollCommentListSelect: any = {
   updatedAt: true
 };
 
-const fetchScrollPayload = async (req: Request, scroll: any, viewerId?: string | null) => {
-  const rows = await fetchScrollPayloadList(req, [scroll], viewerId);
+const fetchScrollPayload = async (
+  req: Request,
+  scroll: any,
+  viewerId?: string | null,
+  options?: { includeAdminFields?: boolean }
+) => {
+  const rows = await fetchScrollPayloadList(req, [scroll], viewerId, options);
   return rows[0] || null;
 };
 
-const fetchScrollPayloadList = async (req: Request, rows: any[], viewerId?: string | null) => {
+const fetchScrollPayloadList = async (
+  req: Request,
+  rows: any[],
+  viewerId?: string | null,
+  options?: { includeAdminFields?: boolean }
+) => {
   const prismaAny = prisma as any;
   const scrolls = Array.isArray(rows) ? rows : [];
   if (!scrolls.length) return [];
+  const includeAdminFields = options?.includeAdminFields === true;
   const authorIds = Array.from(new Set(scrolls.map((scroll) => String(scroll?.authorId || '').trim()).filter(Boolean)));
   const fileIds = Array.from(new Set(scrolls.map((scroll) => String(scroll?.fileId || '').trim()).filter(Boolean)));
   const scrollIds = Array.from(new Set(scrolls.map((scroll) => String(scroll?.id || '').trim()).filter(Boolean)));
-  const [authors, mediaMap, tags, viewerLikes, dashTotals] = await Promise.all([
+  const [authors, mediaMap, tags, viewerLikes, dashTotals, reportRows, activeRestrictionMap] = await Promise.all([
     authorIds.length
       ? prisma.user.findMany({
           where: { id: { in: authorIds } },
-          select: { id: true, name: true, avatar: true, username: true, isVerified: true }
+          select: {
+            id: true,
+            name: true,
+            avatar: true,
+            username: true,
+            isVerified: true,
+            email: true,
+            role: true
+          }
         })
       : Promise.resolve([]),
     buildScrollMediaMap(fileIds, req),
@@ -311,7 +583,14 @@ const fetchScrollPayloadList = async (req: Request, rows: any[], viewerId?: stri
           select: { scrollId: true, type: true }
         })
       : Promise.resolve([]),
-    getScrollDashTotals(scrollIds)
+    getScrollDashTotals(scrollIds),
+    includeAdminFields && scrollIds.length
+      ? prismaAny.scrollReport.findMany({
+          where: { scrollId: { in: scrollIds } },
+          select: { scrollId: true, status: true }
+        })
+      : Promise.resolve([]),
+    includeAdminFields ? loadActiveScrollPostingRestrictions(authorIds) : Promise.resolve(new Map<string, any>())
   ]);
   const authorMap = new Map<string, any>((authors as any[]).map((author: any) => [String(author.id), author]));
   const tagsMap = new Map<string, any[]>();
@@ -329,10 +608,23 @@ const fetchScrollPayloadList = async (req: Request, rows: any[], viewerId?: stri
     if (!viewerStateMap.has(scrollId)) viewerStateMap.set(scrollId, new Set<string>());
     viewerStateMap.get(scrollId)!.add(type);
   });
+  const reportSummaryMap = new Map<string, { total: number; pending: number }>();
+  (reportRows || []).forEach((row: any) => {
+    const scrollId = String(row?.scrollId || '').trim();
+    if (!scrollId) return;
+    const current = reportSummaryMap.get(scrollId) || { total: 0, pending: 0 };
+    current.total += 1;
+    if (String(row?.status || '').trim().toLowerCase() === 'pending') {
+      current.pending += 1;
+    }
+    reportSummaryMap.set(scrollId, current);
+  });
 
   return scrolls.map((scroll: any) => {
     const author = authorMap.get(String(scroll.authorId)) || null;
     const viewerState = viewerStateMap.get(String(scroll.id)) || new Set<string>();
+    const reportSummary = reportSummaryMap.get(String(scroll.id)) || { total: 0, pending: 0 };
+    const activePostingRestriction = activeRestrictionMap.get(String(scroll.authorId)) || null;
     return {
       id: scroll.id,
       authorId: scroll.authorId,
@@ -341,7 +633,13 @@ const fetchScrollPayloadList = async (req: Request, rows: any[], viewerId?: stri
         name: author?.name || 'Community member',
         avatar: resolveDirectMediaUrl(author?.avatar, getBaseFileUrl(req)) || author?.avatar || null,
         username: author?.username || null,
-        isVerified: Boolean(author?.isVerified)
+        isVerified: Boolean(author?.isVerified),
+        ...(includeAdminFields
+          ? {
+              email: author?.email || null,
+              role: author?.role || null
+            }
+          : {})
       },
       title: scroll.title || null,
       description: scroll.description || null,
@@ -379,6 +677,21 @@ const fetchScrollPayloadList = async (req: Request, rows: any[], viewerId?: stri
         liked: viewerState.has('like'),
         impressed: viewerState.has('impression')
       },
+      canEdit:
+        Boolean(viewerId) &&
+        String(scroll.authorId || '').trim() === String(viewerId || '').trim() &&
+        String(scroll.status || '').trim().toLowerCase() === 'active',
+      canDelete:
+        Boolean(viewerId) &&
+        String(scroll.authorId || '').trim() === String(viewerId || '').trim() &&
+        String(scroll.status || '').trim().toLowerCase() === 'active',
+      ...(includeAdminFields
+        ? {
+            reportCount: reportSummary.total,
+            pendingReportCount: reportSummary.pending,
+            activePostingRestriction: buildRestrictionPayload(activePostingRestriction)
+          }
+        : {}),
       createdAt: scroll.createdAt,
       updatedAt: scroll.updatedAt
     };
@@ -549,6 +862,21 @@ export const createScroll = async (req: Request, res: Response) => {
     if (config.enabled === false) {
       return res.status(403).json({ success: false, error: 'Scroll is disabled by admin.' });
     }
+    const admin = isAdminRequest(req);
+    if (!admin) {
+      const activeRestriction = await getActiveScrollPostingRestriction(userId);
+      if (activeRestriction?.id) {
+        const endsAt = new Date(activeRestriction.endsAt);
+        return res.status(403).json({
+          success: false,
+          error: `Your ability to publish Scroll posts is restricted until ${endsAt.toISOString()}.`,
+          code: 'SCROLL_POSTING_RESTRICTED',
+          data: {
+            restriction: buildRestrictionPayload(activeRestriction)
+          }
+        });
+      }
+    }
 
     const fileId = String(req.body?.fileId || '').trim();
     if (!fileId) return res.status(400).json({ success: false, error: 'fileId is required.' });
@@ -558,7 +886,6 @@ export const createScroll = async (req: Request, res: Response) => {
     if (!String(media.mimeType || '').startsWith('video/')) {
       return res.status(400).json({ success: false, error: 'Scroll only supports video uploads.' });
     }
-    const admin = isAdminRequest(req);
     if (!admin && String(media.ownerId || '') !== userId) {
       return res.status(403).json({ success: false, error: 'You can only use your own uploaded files.' });
     }
@@ -759,6 +1086,7 @@ export const updateScroll = async (req: Request, res: Response) => {
     }
 
     const payload = await fetchScrollPayload(req, updated, userId);
+    emitScrollEvent(req, 'scroll:updated', { scroll: payload });
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     if (isScrollSchemaMissingError(error)) {
@@ -1316,7 +1644,7 @@ export const getScrollAdminVideos = async (req: Request, res: Response) => {
       orderBy: [{ createdAt: 'desc' }],
       take: limit
     });
-    const payload = await fetchScrollPayloadList(req, rows, null);
+    const payload = await fetchScrollPayloadList(req, rows, null, { includeAdminFields: true });
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     if (isScrollSchemaMissingError(error)) {
@@ -1387,19 +1715,36 @@ export const getScrollAdminReports = async (req: Request, res: Response) => {
     });
 
     const scrollIds = Array.from(new Set(rows.map((row: any) => String(row.scrollId || '')).filter(Boolean)));
+    const reporterIds = Array.from(new Set(rows.map((row: any) => String(row.reportedById || '')).filter(Boolean)));
     const videos = scrollIds.length
       ? await prismaAny.scrollVideo.findMany({
           where: { id: { in: scrollIds } },
-          select: { id: true, title: true, authorId: true, status: true, createdAt: true }
+          select: scrollVideoListSelect
         })
       : [];
-    const map = new Map((videos || []).map((video: any) => [video.id, video]));
+    const payloadVideos = await fetchScrollPayloadList(req, videos, null, { includeAdminFields: true });
+    const map = new Map((payloadVideos || []).map((video: any) => [video.id, video]));
+    const reporters = reporterIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: reporterIds } },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            username: true,
+            avatar: true,
+            role: true
+          }
+        })
+      : [];
+    const reporterMap = new Map((reporters || []).map((reporter: any) => [reporter.id, reporter]));
 
     return res.json({
       success: true,
       data: rows.map((row: any) => ({
         ...row,
-        scroll: map.get(row.scrollId) || null
+        scroll: map.get(row.scrollId) || null,
+        reporter: reporterMap.get(row.reportedById) || null
       }))
     });
   } catch (error: any) {
@@ -1411,5 +1756,369 @@ export const getScrollAdminReports = async (req: Request, res: Response) => {
       });
     }
     return res.status(500).json({ success: false, error: error?.message || 'Failed to load reports.' });
+  }
+};
+
+export const reviewScrollReportAdmin = async (req: Request, res: Response) => {
+  try {
+    const reportId = String(req.params.id || '').trim();
+    const actorId = String((req as any)?.user?.id || '').trim() || null;
+    const action = String(req.body?.action || req.body?.status || '').trim().toLowerCase();
+    const note = String(req.body?.note || req.body?.reviewNote || '').trim();
+    if (!reportId) {
+      return res.status(400).json({ success: false, error: 'Report id is required.' });
+    }
+    if (!['resolve', 'resolved', 'dismiss', 'dismissed', 'remove'].includes(action)) {
+      return res.status(400).json({ success: false, error: 'Unsupported review action.' });
+    }
+
+    const prismaAny = prisma as any;
+    const existing = await prismaAny.scrollReport.findUnique({ where: { id: reportId } });
+    if (!existing?.id) {
+      return res.status(404).json({ success: false, error: 'Report not found.' });
+    }
+
+    const nextStatus = action === 'dismiss' || action === 'dismissed' ? 'dismissed' : 'resolved';
+    const reviewedAt = new Date();
+    const updatedReport = await prismaAny.scrollReport.update({
+      where: { id: reportId },
+      data: {
+        status: nextStatus,
+        reviewedAt,
+        reviewedById: actorId,
+        reviewNote: note || (action === 'remove' ? 'Video removed by admin after report review.' : null)
+      }
+    });
+
+    let scrollPayload: any = null;
+    if (action === 'remove') {
+      const updatedScroll = await prismaAny.scrollVideo.update({
+        where: { id: existing.scrollId },
+        data: { status: 'removed' },
+        select: scrollVideoListSelect
+      });
+      scrollPayload = await fetchScrollPayload(req, updatedScroll, null, { includeAdminFields: true });
+      emitScrollEvent(req, 'scroll:removed', {
+        scrollId: existing.scrollId,
+        reason: note || 'Removed after report review.'
+      });
+      try {
+        await prisma.accountViolation.create({
+          data: {
+            userId: updatedScroll.authorId,
+            type: 'scroll_removed',
+            severity: 'moderate',
+            reason: note || 'Scroll removed after admin review.',
+            metadata: {
+              scrollId: updatedScroll.id,
+              reportId,
+              reviewedById: actorId
+            }
+          }
+        });
+      } catch {}
+      await createRuntimeNotification({
+        userId: updatedScroll.authorId,
+        actorId,
+        type: 'scroll_removed',
+        title: 'Scroll removed',
+        body: note || 'One of your Scroll videos was removed after admin review.',
+        actionUrl: '/support',
+        meta: {
+          scrollId: updatedScroll.id,
+          reportId
+        }
+      });
+    } else {
+      const currentScroll = await prismaAny.scrollVideo.findUnique({
+        where: { id: existing.scrollId },
+        select: scrollVideoListSelect
+      });
+      if (currentScroll?.id) {
+        scrollPayload = await fetchScrollPayload(req, currentScroll, null, { includeAdminFields: true });
+      }
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        ...updatedReport,
+        scroll: scrollPayload
+      }
+    });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll module tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to review report.' });
+  }
+};
+
+export const sendScrollOwnerMessageAdmin = async (req: Request, res: Response) => {
+  try {
+    const scrollId = String(req.params.id || '').trim();
+    const actorId = String((req as any)?.user?.id || '').trim();
+    const text = String(req.body?.message || req.body?.text || '').trim();
+    if (!actorId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    if (!scrollId || !text) {
+      return res.status(400).json({ success: false, error: 'Scroll id and message are required.' });
+    }
+
+    const prismaAny = prisma as any;
+    const scroll = await prismaAny.scrollVideo.findUnique({
+      where: { id: scrollId },
+      select: { id: true, title: true, authorId: true }
+    });
+    if (!scroll?.id) {
+      return res.status(404).json({ success: false, error: 'Scroll video not found.' });
+    }
+
+    const delivery = await createAdminConversationMessage(req, {
+      senderId: actorId,
+      targetUserId: scroll.authorId,
+      scrollId,
+      text,
+      kind: 'message'
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        scrollId,
+        ...delivery
+      }
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to send admin message.' });
+  }
+};
+
+export const sendScrollOwnerWarningAdmin = async (req: Request, res: Response) => {
+  try {
+    const scrollId = String(req.params.id || '').trim();
+    const actorId = String((req as any)?.user?.id || '').trim();
+    const text = String(req.body?.message || req.body?.text || req.body?.reason || '').trim();
+    if (!actorId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    if (!scrollId || !text) {
+      return res.status(400).json({ success: false, error: 'Scroll id and warning message are required.' });
+    }
+
+    const prismaAny = prisma as any;
+    const scroll = await prismaAny.scrollVideo.findUnique({
+      where: { id: scrollId },
+      select: { id: true, title: true, authorId: true }
+    });
+    if (!scroll?.id) {
+      return res.status(404).json({ success: false, error: 'Scroll video not found.' });
+    }
+
+    const warningText = `Scrolith admin warning about your Scroll${scroll.title ? ` "${scroll.title}"` : ''}: ${text}`;
+    const delivery = await createAdminConversationMessage(req, {
+      senderId: actorId,
+      targetUserId: scroll.authorId,
+      scrollId,
+      text: warningText,
+      kind: 'warning'
+    });
+
+    try {
+      await prisma.accountViolation.create({
+        data: {
+          userId: scroll.authorId,
+          type: 'scroll_warning',
+          severity: 'warning',
+          reason: text,
+          metadata: {
+            scrollId,
+            conversationId: delivery.conversationId,
+            messageId: delivery.messageId,
+            warnedById: actorId
+          }
+        }
+      });
+    } catch {}
+
+    await createRuntimeNotification({
+      userId: scroll.authorId,
+      actorId,
+      type: 'scroll_warning',
+      title: 'Scroll warning',
+      body: text,
+      actionUrl: `/messages/${encodeURIComponent(delivery.conversationId)}`,
+      meta: {
+        scrollId,
+        conversationId: delivery.conversationId,
+        messageId: delivery.messageId
+      }
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        scrollId,
+        ...delivery
+      }
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to send warning.' });
+  }
+};
+
+export const restrictScrollOwnerAdmin = async (req: Request, res: Response) => {
+  try {
+    const userId = String(req.params.userId || '').trim();
+    const actorId = String((req as any)?.user?.id || '').trim();
+    const reason = String(req.body?.reason || '').trim();
+    const note = String(req.body?.note || '').trim() || null;
+    const durationHours = Math.max(1, Math.min(24 * 365, toInt(req.body?.durationHours, 72)));
+    if (!actorId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    if (!userId || !reason) {
+      return res.status(400).json({ success: false, error: 'User and reason are required.' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true }
+    });
+    if (!user?.id) {
+      return res.status(404).json({ success: false, error: 'User not found.' });
+    }
+
+    const prismaAny = prisma as any;
+    const now = new Date();
+    const endsAt = req.body?.endsAt ? new Date(req.body.endsAt) : new Date(now.getTime() + durationHours * 60 * 60 * 1000);
+    if (!(endsAt instanceof Date) || Number.isNaN(endsAt.getTime()) || endsAt <= now) {
+      return res.status(400).json({ success: false, error: 'Restriction end time must be in the future.' });
+    }
+
+    await prismaAny.scrollPostingRestriction.updateMany({
+      where: {
+        userId,
+        liftedAt: null,
+        endsAt: { gt: now }
+      },
+      data: {
+        liftedAt: now,
+        liftedByAdminId: actorId
+      }
+    });
+
+    const restriction = await prismaAny.scrollPostingRestriction.create({
+      data: {
+        userId,
+        reason,
+        note,
+        startsAt: now,
+        endsAt,
+        createdByAdminId: actorId
+      }
+    });
+
+    try {
+      await prisma.accountViolation.create({
+        data: {
+          userId,
+          type: 'scroll_post_restriction',
+          severity: 'moderate',
+          reason,
+          metadata: {
+            restrictionId: restriction.id,
+            endsAt: endsAt.toISOString(),
+            note,
+            imposedById: actorId
+          }
+        }
+      });
+    } catch {}
+
+    await createRuntimeNotification({
+      userId,
+      actorId,
+      type: 'scroll_post_restriction',
+      title: 'Scroll posting restricted',
+      body: `Your ability to publish Scroll videos is restricted until ${endsAt.toISOString()}.`,
+      actionUrl: '/scroll',
+      meta: {
+        restrictionId: restriction.id,
+        reason,
+        endsAt: endsAt.toISOString()
+      }
+    });
+
+    return res.json({
+      success: true,
+      data: buildRestrictionPayload(restriction)
+    });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll module tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to restrict posting.' });
+  }
+};
+
+export const liftScrollOwnerRestrictionAdmin = async (req: Request, res: Response) => {
+  try {
+    const userId = String(req.params.userId || '').trim();
+    const restrictionId = String(req.params.restrictionId || '').trim();
+    const actorId = String((req as any)?.user?.id || '').trim();
+    if (!actorId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    if (!userId || !restrictionId) {
+      return res.status(400).json({ success: false, error: 'User and restriction id are required.' });
+    }
+
+    const prismaAny = prisma as any;
+    const existing = await prismaAny.scrollPostingRestriction.findUnique({
+      where: { id: restrictionId }
+    });
+    if (!existing?.id || String(existing.userId) !== userId) {
+      return res.status(404).json({ success: false, error: 'Restriction not found.' });
+    }
+
+    const updated =
+      existing.liftedAt
+        ? existing
+        : await prismaAny.scrollPostingRestriction.update({
+            where: { id: restrictionId },
+            data: {
+              liftedAt: new Date(),
+              liftedByAdminId: actorId
+            }
+          });
+
+    await createRuntimeNotification({
+      userId,
+      actorId,
+      type: 'scroll_post_restriction_lifted',
+      title: 'Scroll posting restored',
+      body: 'Your Scroll posting access has been restored.',
+      actionUrl: '/scroll',
+      meta: {
+        restrictionId,
+        liftedAt: updated.liftedAt ? new Date(updated.liftedAt).toISOString() : null
+      }
+    });
+
+    return res.json({
+      success: true,
+      data: buildRestrictionPayload(updated)
+    });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll module tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to lift restriction.' });
   }
 };

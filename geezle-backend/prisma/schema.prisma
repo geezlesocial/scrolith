@@ -3496,6 +3496,24 @@ model ScrollReport {
   @@index([status, createdAt])
 }
 
+model ScrollPostingRestriction {
+  id              String   @id @default(cuid())
+  userId          String
+  reason          String
+  note            String?
+  startsAt        DateTime @default(now())
+  endsAt          DateTime
+  createdByAdminId String?
+  liftedAt        DateTime?
+  liftedByAdminId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, endsAt])
+  @@index([userId, liftedAt, endsAt])
+  @@index([createdByAdminId, createdAt])
+}
+
 model ScrollConfig {
   id                         String   @id @default("default")
   enabled                    Boolean  @default(true)
@@ -3505,6 +3523,8 @@ model ScrollConfig {
   monetizationEnabled        Boolean  @default(true)
   defaultVisibility          String   @default("public")
   impressionThresholdSeconds Int      @default(2)
+  headlinePreviewCharacters  Int      @default(72)
+  descriptionPreviewCharacters Int    @default(120)
   allowedFilterPresets       String[] @default(["none", "vibrant", "cinematic", "bw", "sepia", "warm"])
   updatedById                String?
   createdAt                  DateTime @default(now())
