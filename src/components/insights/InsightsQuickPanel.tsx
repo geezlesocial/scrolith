@@ -4,10 +4,12 @@ import { useSocket } from '../../context/SocketContext';
 import { useUser } from '../../context/UserContext';
 import {
   InsightsService,
+  type CareerDailyActionState,
   type FeedMode,
   type OpportunityBriefResult,
   type OpportunityHubData,
   type ProfessionalScore,
+  type UserStreak,
   type UserQuest
 } from '../../services/insights';
 
@@ -64,6 +66,13 @@ const formatMetric = (value: number) => compactNumberFormatter.format(Number.isF
 
 const formatWholeNumber = (value: number) => wholeNumberFormatter.format(Number.isFinite(value) ? value : 0);
 
+const DEFAULT_CAREER_DAILY_ACTIONS: CareerDailyActionState[] = [
+  { type: 'post', label: 'Post', completed: false },
+  { type: 'reply', label: 'Reply', completed: false },
+  { type: 'apply', label: 'Apply', completed: false },
+  { type: 'learn', label: 'Learn', completed: false }
+];
+
 const INSIGHTS_CACHE_VERSION = 'v1';
 const INSIGHTS_CACHE_TTL_MS = 15 * 60 * 1000;
 
@@ -79,7 +88,7 @@ export default function InsightsQuickPanel({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [pgs, setPgs] = useState<ProfessionalScore | null>(null);
-  const [streak, setStreak] = useState<any>(null);
+  const [streak, setStreak] = useState<UserStreak | null>(null);
   const [achievements, setAchievements] = useState<any[]>([]);
   const [quests, setQuests] = useState<UserQuest[]>([]);
   const [matches, setMatches] = useState<any[]>([]);
@@ -252,6 +261,7 @@ export default function InsightsQuickPanel({
       'insights:pgs_updated',
       'insights:achievement_unlocked',
       'insights:streak_updated',
+      'insights:career_daily_updated',
       'insights:quests_assigned',
       'insights:quests_progress',
       'insights:quests_completed',
@@ -330,6 +340,12 @@ export default function InsightsQuickPanel({
     }
     return 'Recommended opportunity';
   };
+
+  const careerDaily = streak?.careerDaily || null;
+  const careerDailyActions =
+    Array.isArray(careerDaily?.actions) && careerDaily.actions.length
+      ? careerDaily.actions
+      : DEFAULT_CAREER_DAILY_ACTIONS;
 
   const resolveMatchReason = (match: any) =>
     Array.isArray(match?.reasons) && match.reasons.length > 0 ? String(match.reasons[0]) : 'Aligned with your current professional graph.';
@@ -471,6 +487,47 @@ export default function InsightsQuickPanel({
               <span>Achievements: {achievements.length}</span>
               <span>Best streak: {Number(streak?.bestStreakDays || 0)}d</span>
             </div>
+          </div>
+
+          <div className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Career streak today</p>
+                <p className="mt-1 text-xs text-slate-500">Complete each action once per day: post, reply, apply, and learn.</p>
+              </div>
+              <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
+                {Number(careerDaily?.completedCount || 0)}/{Number(careerDaily?.goalCount || careerDailyActions.length || 4)}
+              </span>
+            </div>
+            <div className={`mt-3 grid gap-2 ${compact || isDesktopRail ? 'grid-cols-2' : 'sm:grid-cols-4'}`.trim()}>
+              {careerDailyActions.map((action) => (
+                <div
+                  key={action.type}
+                  className={`rounded-xl border px-3 py-2 text-xs transition ${
+                    action.completed
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      : 'border-slate-200 bg-slate-50 text-slate-600'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold">{action.label}</span>
+                    <span
+                      className={`inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1 text-[10px] font-semibold ${
+                        action.completed ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'
+                      }`}
+                    >
+                      {action.completed ? 'OK' : '--'}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-[11px]">{action.completed ? 'Completed today' : 'Pending today'}</div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-[11px] text-slate-500">
+              {careerDaily?.allCompleted
+                ? 'All four career actions are complete for today.'
+                : 'Your streak counts once per day, and this checklist helps you stay consistent across all four actions.'}
+            </p>
           </div>
 
           {hub ? (

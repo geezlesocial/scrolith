@@ -29,6 +29,34 @@ export type ProfessionalScore = {
   updatedAt: string;
 };
 
+export type CareerDailyActionState = {
+  type: 'post' | 'reply' | 'apply' | 'learn' | string;
+  label: string;
+  completed: boolean;
+  completedAt?: string | null;
+  sourceType?: string | null;
+  sourceId?: string | null;
+};
+
+export type CareerDailySummary = {
+  userId: string;
+  actionDate: string;
+  goalCount: number;
+  completedCount: number;
+  allCompleted: boolean;
+  actions: CareerDailyActionState[];
+};
+
+export type UserStreak = {
+  userId: string;
+  currentStreakDays: number;
+  bestStreakDays: number;
+  lastActiveDate?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  careerDaily?: CareerDailySummary | null;
+};
+
 export type OpportunityHubData = {
   identity: {
     userId: string;
@@ -212,9 +240,9 @@ class InsightsService {
     return Array.isArray(data) ? data : [];
   }
 
-  static async getMyStreak(): Promise<any> {
+  static async getMyStreak(): Promise<UserStreak | null> {
     const response = await api.get('/insights/streak/me');
-    return extractData<any>(response);
+    return extractData<UserStreak | null>(response);
   }
 
   static async getMyQuests(): Promise<UserQuest[]> {

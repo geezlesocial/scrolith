@@ -1,5 +1,6 @@
 // src/services/ai/ai.service.ts
 import apiClient from '../api';
+import { tokenStore } from '../tokenStore';
 import { getApiBaseUrl } from '../../utils/apiBase';
 import type { AITagInput, AIProjectBriefInput, AIProjectBriefResponse, AIReplyInput, AISkillMatchInput } from './ai.types';
 
@@ -25,8 +26,14 @@ const fetchJsonWithTimeout = async (endpoint: string, init?: RequestInit, timeou
   const controller = new AbortController();
   const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const token = await tokenStore.get();
+    const headers = new Headers(init?.headers || {});
+    if (token && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`);
+    }
     const res = await fetch(`${getPublicApiUrl()}${endpoint}`, {
       ...(init || {}),
+      headers,
       signal: controller.signal
     });
     if (!res.ok) {
