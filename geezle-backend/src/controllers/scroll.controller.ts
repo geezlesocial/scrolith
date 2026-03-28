@@ -39,20 +39,31 @@ const getBaseFileUrl = (req?: Request) => resolveFileBaseUrl(req);
 const buildFileContentUrl = (fileId: string, baseUrl: string) =>
   `${baseUrl}/api/files/content/${encodeURIComponent(fileId)}`;
 
+const absolutizeMediaUrl = (value: string | null | undefined, baseUrl: string) => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith('/')) return `${baseUrl}${raw}`;
+  return `${baseUrl}/${raw.replace(/^\/+/, '')}`;
+};
+
 const resolveStoredFileUrl = (
   file: { id?: string; url?: string | null; storageKey?: string | null; storageProvider?: string | null },
   baseUrl: string
 ) => {
   const provider = String(file.storageProvider || '').trim().toLowerCase();
   const directUrl = resolveDirectMediaUrl(file.url, baseUrl);
-  if (provider === 'azure_blob') {
+  if (['database_storage', 'firebase_storage', 'azure_blob'].includes(provider)) {
     if (file.id) return buildFileContentUrl(file.id, baseUrl);
-    return directUrl || file.url || null;
+    return absolutizeMediaUrl(directUrl || file.url || null, baseUrl);
+  }
+  if (directUrl) {
+    return absolutizeMediaUrl(directUrl, baseUrl);
   }
   if (file.storageKey) {
     return `${baseUrl}/uploads/${String(file.storageKey).replace(/^\/+/, '')}`;
   }
-  return directUrl || file.url || null;
+  return absolutizeMediaUrl(file.url || null, baseUrl);
 };
 
 const toInt = (value: any, fallback: number) => {
@@ -172,7 +183,7 @@ const resolveScrollMedia = async (fileId: string, req: Request) => {
     mimeType: file.mimeType,
     duration: file.duration ?? null,
     url: resolveStoredFileUrl(file, baseUrl),
-    thumbnailUrl: file.thumbnailUrl || null,
+    thumbnailUrl: absolutizeMediaUrl(resolveDirectMediaUrl(file.thumbnailUrl, baseUrl) || file.thumbnailUrl || null, baseUrl),
     width: file.width ?? null,
     height: file.height ?? null
   };
@@ -208,7 +219,7 @@ const buildScrollMediaMap = async (fileIds: string[], req: Request) => {
         mimeType: file.mimeType,
         duration: file.duration ?? null,
         url: resolveStoredFileUrl(file, baseUrl),
-        thumbnailUrl: file.thumbnailUrl || null,
+        thumbnailUrl: absolutizeMediaUrl(resolveDirectMediaUrl(file.thumbnailUrl, baseUrl) || file.thumbnailUrl || null, baseUrl),
         width: file.width ?? null,
         height: file.height ?? null
       }

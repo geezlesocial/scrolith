@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../../../services/scrolitha/scrolitha.audit';
 import { ScrolithaService } from '../inference/scrolitha.service';
+import { enhancePostDraftWithAi, isValidPostEnhanceMode } from '../../../services/postAi.service';
 
 const asText = (value: unknown, fallback = '') => String(value ?? fallback).trim();
 
@@ -28,8 +29,28 @@ export const scrolithaRewriteController = async (req: Request, res: Response) =>
     const actor = resolveActorFromRequest(req);
     const text = asText(req.body?.text);
     const tone = asText(req.body?.tone, 'professional');
+    const mode = asText(req.body?.mode).toLowerCase();
     if (!text) {
       return res.status(400).json({ success: false, data: null, message: 'text is required' });
+    }
+
+    if (mode && isValidPostEnhanceMode(mode)) {
+      const result = await enhancePostDraftWithAi({
+        text,
+        mode,
+        scope: actor.scope
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          rewrittenText: result.enhancedText,
+          provider: 'scrolitha',
+          model: asScrolithaModelLabel(result.model),
+          mode: result.mode
+        },
+        message: 'Rewrite completed'
+      });
     }
 
     const result = await ScrolithaService.generate({

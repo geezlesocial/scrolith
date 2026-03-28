@@ -4,10 +4,14 @@ import path from 'path';
 import { compareHashes, Jimp } from 'jimp';
 import prisma from '../utils/prismaClient';
 import { downloadBlobByName, extractBlobNameFromUrl } from './storage/blobStorage';
+import { downloadDatabaseStorageBufferByName } from './storage/databaseStorage';
+import { downloadFirebaseStorageBufferByName } from './storage/firebaseStorage';
 
 const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
 const DEFAULT_STORAGE_PROVIDER = 'local';
+const DATABASE_STORAGE_PROVIDER = 'database_storage';
 const AZURE_BLOB_STORAGE_PROVIDER = 'azure_blob';
+const FIREBASE_STORAGE_PROVIDER = 'firebase_storage';
 const DEFAULT_VIDEO_THUMBNAIL_FILENAME = '__video_fallback_thumbnail.svg';
 const VIDEO_USAGE_TYPES = ['community_post', 'scroll_video'] as const;
 const VIDEO_PERCEPTUAL_HASH_VERSION = 1;
@@ -89,6 +93,8 @@ const streamToBuffer = async (stream: NodeJS.ReadableStream) =>
     stream.once('end', () => resolve(Buffer.concat(chunks)));
   });
 
+const bufferToSha256 = (buffer: Buffer) => createHash('sha256').update(buffer).digest('hex');
+
 const resolveLocalUploadPath = (value: string) => {
   const normalized = stripUploadsPrefix(String(value || '').replace(/^https?:\/\/[^/]+/i, ''));
   const localPath = path.resolve(UPLOAD_DIR, normalized);
@@ -101,6 +107,26 @@ const resolveLocalUploadPath = (value: string) => {
 
 const computeFileSha256 = async (file: FileLike) => {
   const provider = String(file.storageProvider || DEFAULT_STORAGE_PROVIDER).trim().toLowerCase();
+  if (provider === DATABASE_STORAGE_PROVIDER) {
+    if (!file.storageKey) throw new Error('Video storage key missing for database-backed file.');
+    try {
+      const buffer = await downloadDatabaseStorageBufferByName(String(file.storageKey));
+      return bufferToSha256(buffer);
+    } catch {
+      // Fall back to local storage during incremental migrations from disk.
+    }
+  }
+
+  if (provider === FIREBASE_STORAGE_PROVIDER) {
+    if (!file.storageKey) throw new Error('Video storage key missing for Firebase storage file.');
+    try {
+      const buffer = await downloadFirebaseStorageBufferByName(String(file.storageKey));
+      return bufferToSha256(buffer);
+    } catch {
+      // Fall back to local storage during incremental migrations from disk.
+    }
+  }
+
   if (provider === AZURE_BLOB_STORAGE_PROVIDER) {
     if (!file.storageKey) throw new Error('Video storage key missing for Azure blob file.');
     const blobResponse = await downloadBlobByName(String(file.storageKey));
@@ -290,11 +316,50 @@ const resolveAzureBlobNameFromThumbnailUrl = (value?: string | null) => {
   }
 };
 
+const resolveManagedObjectNameFromThumbnailUrl = (value?: string | null) => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const withoutOrigin = raw.replace(/^https?:\/\/[^/]+/i, '');
+  if (withoutOrigin.toLowerCase().includes('/api/files/content/')) return null;
+  const objectKey = stripUploadsPrefix(withoutOrigin);
+  return objectKey || null;
+};
+
 const loadThumbnailBuffer = async (file: FileLike) => {
   const thumbnailUrl = String(file.thumbnailUrl || '').trim();
   if (!thumbnailUrl || isFallbackThumbnailUrl(thumbnailUrl)) return null;
 
   const provider = String(file.storageProvider || DEFAULT_STORAGE_PROVIDER).trim().toLowerCase();
+  if (provider === DATABASE_STORAGE_PROVIDER) {
+    const objectName = resolveManagedObjectNameFromThumbnailUrl(thumbnailUrl);
+    if (objectName) {
+      try {
+        return await downloadDatabaseStorageBufferByName(objectName);
+      } catch (error) {
+        console.error('Failed to load video thumbnail from database storage', {
+          fileId: file.id,
+          thumbnailUrl,
+          error
+        });
+      }
+    }
+  }
+
+  if (provider === FIREBASE_STORAGE_PROVIDER) {
+    const objectName = resolveManagedObjectNameFromThumbnailUrl(thumbnailUrl);
+    if (objectName) {
+      try {
+        return await downloadFirebaseStorageBufferByName(objectName);
+      } catch (error) {
+        console.error('Failed to load video thumbnail from Firebase storage', {
+          fileId: file.id,
+          thumbnailUrl,
+          error
+        });
+      }
+    }
+  }
+
   if (provider === AZURE_BLOB_STORAGE_PROVIDER) {
     const blobName = resolveAzureBlobNameFromThumbnailUrl(thumbnailUrl);
     if (!blobName) return null;
