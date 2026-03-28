@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { LifeBuoy, Plus, Send } from 'lucide-react';
+import { LifeBuoy, Paperclip, Plus, Send } from 'lucide-react';
 import { SupportService } from '../../services/support';
 import { SupportTicket, TicketCategory } from '../../types';
 import { useUser } from '../../context/UserContext';
@@ -256,12 +256,46 @@ const SupportCenter = () => {
               <div className="p-6 text-sm text-gray-500">Select a ticket to view conversation.</div>
             ) : (
               <div className="p-6 space-y-4">
-                <div className="text-sm text-gray-700">{selected.message}</div>
+                <div className="text-sm text-gray-700">
+                  <div>{selected.message}</div>
+                  {selected.attachments?.length ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {selected.attachments.map((attachment) => (
+                        <a
+                          key={attachment}
+                          href={attachment}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
+                        >
+                          <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                          Attachment
+                        </a>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
                 <div className="space-y-3">
                   {selected.replies.map((r) => (
                     <div key={r.id} className="bg-gray-50 border rounded-xl p-3 text-sm">
                       <div className="text-xs text-gray-500 mb-1">{r.sender_name}</div>
                       <div className="text-gray-800">{r.message}</div>
+                      {r.attachments?.length ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {r.attachments.map((attachment) => (
+                            <a
+                              key={attachment}
+                              href={attachment}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
+                            >
+                              <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                              Attachment
+                            </a>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                 </div>

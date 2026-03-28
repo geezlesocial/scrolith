@@ -150,16 +150,21 @@ const renderPageModule = (block: PageModuleBlock) => {
   );
 };
 
-const StaticPage = () => {
+type StaticPageProps = {
+  slugOverride?: string;
+  canonicalPathOverride?: string;
+};
+
+const StaticPage: React.FC<StaticPageProps> = ({ slugOverride, canonicalPathOverride }) => {
   const { slug } = useParams<{ slug: string }>();
   const [page, setPage] = useState<StaticPageType | null>(null);
   const [loading, setLoading] = useState(true);
   const { socket } = useSocket();
-  const slugRef = useRef<string | undefined>(slug);
+  const slugRef = useRef<string | undefined>(slugOverride || slug);
 
   useEffect(() => {
-    slugRef.current = slug;
-  }, [slug]);
+    slugRef.current = slugOverride || slug;
+  }, [slug, slugOverride]);
 
   const loadPage = async () => {
     if (!slugRef.current) return;
@@ -178,7 +183,7 @@ const StaticPage = () => {
   useEffect(() => {
     loadPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug]);
+  }, [slug, slugOverride]);
 
   useEffect(() => {
     if (!socket) return;
@@ -222,7 +227,9 @@ const StaticPage = () => {
   const seoTitle = getSeoField(page, 'meta_title', 'metaTitle');
   const seoDescription = getSeoField(page, 'meta_description', 'metaDescription');
   const seoKeywords = getSeoField(page, 'meta_keywords', 'metaKeywords');
-  const canonicalUrl = page?.slug ? `https://scrolith.com/p/${page.slug}` : '';
+  const canonicalUrl = page?.slug
+    ? `https://scrolith.com${canonicalPathOverride || `/p/${page.slug}`}`
+    : '';
   const pageLabel = inferPageLabel(page?.slug);
   const updatedSource = (page as any)?.updatedAt || (page as any)?.updated_at || '';
   const updatedLabel = updatedSource

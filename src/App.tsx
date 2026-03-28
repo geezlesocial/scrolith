@@ -70,6 +70,7 @@ const JobDetail = React.lazy(() => import('./main/JobDetail'));
 const Blog = React.lazy(() => import('./pages/Blog'));
 const BlogPost = React.lazy(() => import('./pages/BlogPost'));
 const StaticPage = React.lazy(() => import('./pages/StaticPage'));
+const ContactPage = React.lazy(() => import('./pages/ContactPage'));
 const AnswersPage = React.lazy(() => import('./pages/AnswersPage'));
 const GuidesPage = React.lazy(() => import('./pages/GuidesPage'));
 const HirePage = React.lazy(() => import('./pages/HirePage'));
@@ -730,10 +731,19 @@ const AppContent = () => {
               <Route path="/guides" element={<GuidesPage />} />
               <Route path="/hire" element={<HirePage />} />
               <Route path="/freelancer" element={<FreelancerPage />} />
+              <Route path="/careers" element={<StaticPage slugOverride="careers" canonicalPathOverride="/careers" />} />
               <Route path="/p/:slug" element={<StaticPage />} />
               
               {/* Support Page */}
               <Route path="/support" element={<Support />} />
+              <Route
+                path="/contact"
+                element={
+                  <ProtectedRoute>
+                    <ContactPage />
+                  </ProtectedRoute>
+                }
+              />
               
               {/* Affiliate Program */}
               <Route path="/affiliate-program" element={<AffiliateProgram />} />

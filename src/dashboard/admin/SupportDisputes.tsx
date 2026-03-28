@@ -281,6 +281,22 @@ const SupportDisputes = () => {
 
                             <div className="bg-white p-4 rounded-lg border border-gray-200 text-sm text-gray-700">
                                 <p className="whitespace-pre-wrap">{selectedTicket.message}</p>
+                                {selectedTicket.attachments?.length ? (
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        {selectedTicket.attachments.map((attachment) => (
+                                            <a
+                                                key={attachment}
+                                                href={attachment}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
+                                            >
+                                                <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                                                Attachment
+                                            </a>
+                                        ))}
+                                    </div>
+                                ) : null}
                             </div>
                         </div>
 
@@ -297,6 +313,26 @@ const SupportDisputes = () => {
                                             <span>{new Date(reply.timestamp).toLocaleString()}</span>
                                         </div>
                                         <p className="text-sm whitespace-pre-wrap">{reply.message}</p>
+                                        {reply.attachments?.length ? (
+                                            <div className="mt-3 flex flex-wrap gap-2">
+                                                {reply.attachments.map((attachment: string) => (
+                                                    <a
+                                                        key={attachment}
+                                                        href={attachment}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-medium ${
+                                                            reply.sender === 'admin'
+                                                                ? 'bg-white/15 text-white hover:bg-white/20'
+                                                                : 'border border-gray-200 bg-white text-blue-700 hover:bg-blue-50'
+                                                        }`}
+                                                    >
+                                                        <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                                                        Attachment
+                                                    </a>
+                                                ))}
+                                            </div>
+                                        ) : null}
                                     </div>
                                 </div>
                             ))}
