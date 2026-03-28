@@ -53,6 +53,7 @@ import RepostModal from '../../community/components/RepostModal';
 import PostShareModal from '../../community/components/PostShareModal';
 import MentionText from '../../community/components/MentionText';
 import MentionHashtagTextarea from '../../community/components/MentionHashtagTextarea';
+import FollowButton from '../../community/components/FollowButton';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from '../../community/followState';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../community/storyStyles';
 import ScrollCreateModal from '../../features/scroll/ScrollCreateModal';
@@ -82,6 +83,8 @@ import { stashPendingPostVideoScrollViewerSource } from '../../utils/postVideoSc
 import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../../constants/defaultAudienceOptions';
 import { normalizeContentOfferTags, type OfferTagSelection } from '../../utils/contentOffers';
 import { buildPublicAppUrl } from '../../utils/siteUrl';
+
+const STORY_CONTROL_HIDE_DELAY_MS = 20000;
 
 type MemberHomeContent = {
   title?: string;
@@ -899,6 +902,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [storyRepostOpen, setStoryRepostOpen] = useState(false);
   const [storySendOpen, setStorySendOpen] = useState(false);
   const [storyDashOpen, setStoryDashOpen] = useState(false);
+  const [storyTouchOverlayMode, setStoryTouchOverlayMode] = useState(false);
+  const [storyOverlayVisible, setStoryOverlayVisible] = useState(true);
   const [storyCameraOpen, setStoryCameraOpen] = useState(false);
   const [storyCameraStream, setStoryCameraStream] = useState<MediaStream | null>(null);
   const storyVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -958,8 +963,27 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const postMediaTapTimersRef = useRef<Record<string, number>>({});
   const postMediaLastTapAtRef = useRef<Record<string, number>>({});
   const storyGestureStartRef = useRef<{ x: number; y: number } | null>(null);
+  const storyOverlayHideTimerRef = useRef<number | null>(null);
   const storyLastTapAtRef = useRef(0);
   const [selfProfileCover, setSelfProfileCover] = useState('');
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(hover: none), (pointer: coarse)');
+    const sync = () => setStoryTouchOverlayMode(query.matches);
+    sync();
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', sync);
+      return () => query.removeEventListener('change', sync);
+    }
+    query.addListener(sync);
+    return () => query.removeListener(sync);
+  }, []);
+
+  const revealStoryOverlay = useCallback(() => {
+    if (!storyTouchOverlayMode) return;
+    setStoryOverlayVisible(true);
+  }, [storyTouchOverlayMode]);
 
   const findPrimaryVideoAttachment = useCallback((post: any) => {
     const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
@@ -3056,6 +3080,34 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const activeStoryIndex = activeStory?.id ? stories.findIndex((story) => story.id === activeStory.id) : -1;
   const hasPrevStory = activeStoryIndex > 0;
   const hasNextStory = activeStoryIndex >= 0 && activeStoryIndex < stories.length - 1;
+  const storyOverlayShouldShow = !storyTouchOverlayMode || storyOverlayVisible;
+  const activeStoryAuthorId = String(
+    activeStory?.authorId || activeStory?.author?.id || activeStory?.userId || activeStory?.user?.id || activeStory?.user_id || ''
+  ).trim();
+  const activeStoryInitialIsFollowing = activeStoryAuthorId
+    ? (followStateMap[activeStoryAuthorId] ?? activeStory?.viewer?.isFollowingAuthor)
+    : undefined;
+
+  useEffect(() => {
+    setStoryOverlayVisible(!storyTouchOverlayMode);
+  }, [activeStory?.id, storyTouchOverlayMode]);
+
+  useEffect(() => {
+    if (storyOverlayHideTimerRef.current) {
+      window.clearTimeout(storyOverlayHideTimerRef.current);
+      storyOverlayHideTimerRef.current = null;
+    }
+    if (!activeStory?.id || !storyTouchOverlayMode || !storyOverlayVisible) return;
+    storyOverlayHideTimerRef.current = window.setTimeout(() => {
+      setStoryOverlayVisible(false);
+    }, STORY_CONTROL_HIDE_DELAY_MS);
+    return () => {
+      if (storyOverlayHideTimerRef.current) {
+        window.clearTimeout(storyOverlayHideTimerRef.current);
+        storyOverlayHideTimerRef.current = null;
+      }
+    };
+  }, [activeStory?.id, storyOverlayVisible, storyTouchOverlayMode]);
 
   const goToStoryByOffset = useCallback(
     (offset: number) => {
@@ -3076,13 +3128,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       storyGestureStartRef.current = null;
       return;
     }
+    revealStoryOverlay();
     const touch = event.changedTouches?.[0];
     if (!touch) {
       storyGestureStartRef.current = null;
       return;
     }
     storyGestureStartRef.current = { x: touch.clientX, y: touch.clientY };
-  }, []);
+  }, [revealStoryOverlay]);
 
   const onStoryGestureEnd = useCallback(
     (event: React.TouchEvent<HTMLElement>) => {
@@ -6632,68 +6685,94 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
       {activeStory && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-6">
-          <div className="w-full max-w-xl max-h-[94dvh] overflow-y-auto rounded-2xl bg-white p-4 sm:p-5 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                {(() => {
-                  const authorName = resolveStoryAuthorName(activeStory, 'Community member');
-                  const authorAvatar = resolveStoryAuthorAvatar(activeStory);
-                  const authorInitial = resolveStoryAuthorInitial(activeStory);
-                  return (
-                    <>
-                      <div className="inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-700 text-xs font-semibold text-white">
-                        {authorAvatar ? (
-                          <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
-                        ) : (
-                          <span>{authorInitial}</span>
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">{authorName}</p>
-                        <p className="text-xs text-slate-500">{activeStory.createdAt ? new Date(activeStory.createdAt).toLocaleString() : ''}</p>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-              <div className="flex items-center gap-2">
-                {resolveStoryMediaUrl(activeStory) ? (
-                  <button
-                    type="button"
-                    onClick={() => void downloadStoryMedia(activeStory)}
-                    className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      <Download className="h-3.5 w-3.5" />
-                      Download
-                    </span>
-                  </button>
-                ) : null}
-                {canManageStory(activeStory) && (
-                  <>
+          <div
+            className="w-full max-w-xl max-h-[94dvh] overflow-y-auto rounded-2xl bg-white p-4 sm:p-5 shadow-2xl"
+            onPointerDownCapture={(event) => {
+              if (event.pointerType === 'touch') revealStoryOverlay();
+            }}
+          >
+            <div
+              className={`overflow-hidden transition-all duration-300 ease-out ${
+                storyOverlayShouldShow ? 'max-h-40 opacity-100' : 'pointer-events-none max-h-0 opacity-0'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-start gap-2">
+                  {(() => {
+                    const authorName = resolveStoryAuthorName(activeStory, 'Community member');
+                    const authorAvatar = resolveStoryAuthorAvatar(activeStory);
+                    const authorInitial = resolveStoryAuthorInitial(activeStory);
+                    return (
+                      <>
+                        <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-700 text-xs font-semibold text-white">
+                          {authorAvatar ? (
+                            <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
+                          ) : (
+                            <span>{authorInitial}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-slate-900">{authorName}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <FollowButton
+                              targetUserId={activeStoryAuthorId || undefined}
+                              currentUserId={user?.id}
+                              initialIsFollowing={activeStoryInitialIsFollowing}
+                              onRequireLogin={() => {
+                                if (confirm('Log in to follow users?')) window.location.href = '/auth/login';
+                              }}
+                              className="h-7 px-3 text-[11px]"
+                            />
+                            <p className="text-xs text-slate-500">
+                              {activeStory.createdAt ? new Date(activeStory.createdAt).toLocaleString() : ''}
+                            </p>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  {resolveStoryMediaUrl(activeStory) ? (
                     <button
                       type="button"
-                      onClick={() => openStoryEditor(activeStory)}
+                      onClick={() => void downloadStoryMedia(activeStory)}
                       className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
                     >
-                      Edit
+                      <span className="inline-flex items-center gap-1">
+                        <Download className="h-3.5 w-3.5" />
+                        Download
+                      </span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleStoryDelete(activeStory)}
-                      className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-600"
-                    >
-                      Delete
-                    </button>
-                  </>
-                )}
-                <button onClick={() => setActiveStory(null)} className="text-slate-500 hover:text-slate-700" type="button">
-                  Close
-                </button>
+                  ) : null}
+                  {canManageStory(activeStory) && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => openStoryEditor(activeStory)}
+                        className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleStoryDelete(activeStory)}
+                        className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-600"
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                  <button onClick={() => setActiveStory(null)} className="text-slate-500 hover:text-slate-700" type="button">
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
             <div
-              className="relative mt-4 overflow-hidden rounded-2xl bg-slate-100 aspect-[9/16] sm:aspect-[9/14]"
+              className={`relative overflow-hidden rounded-2xl bg-slate-100 aspect-[9/16] sm:aspect-[9/14] transition-[margin] duration-300 ${
+                storyOverlayShouldShow ? 'mt-4' : 'mt-0'
+              }`}
               style={{ touchAction: 'pan-y' }}
               onTouchStart={onStoryGestureStart}
               onTouchEnd={onStoryGestureEnd}
@@ -6705,6 +6784,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   storyGestureStartRef.current = null;
                   return;
                 }
+                revealStoryOverlay();
                 storyGestureStartRef.current = { x: event.clientX, y: event.clientY };
               }}
               onPointerUp={(event) => {
@@ -6767,7 +6847,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 return <div className="flex h-full w-full items-center justify-center text-sm text-slate-500">No media</div>;
               })()}
               <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/70 via-black/15 to-black/45" />
-              <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-30 flex items-center justify-between px-2">
+              <div
+                className={`pointer-events-none absolute inset-y-0 left-0 right-0 z-30 flex items-center justify-between px-2 transition-opacity duration-300 ${
+                  storyOverlayShouldShow ? 'opacity-100' : 'opacity-0'
+                }`}
+              >
                 <button
                   type="button"
                   className={`pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white transition ${
@@ -6791,7 +6875,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   <ChevronRight className="h-5 w-5" />
                 </button>
               </div>
-              <div className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-80px)] text-white">
+              <div
+                className={`pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-80px)] text-white transition-all duration-300 ${
+                  storyOverlayShouldShow ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
+                }`}
+              >
                 <div className="rounded-xl bg-black/40 px-3 py-2 text-[11px] font-semibold backdrop-blur-sm">
                   <div className="flex items-center gap-2">
                     <span>{formatCompactMetric(activeStory.likesCount ?? activeStory._count?.likes ?? 0)} likes</span>
@@ -6800,7 +6888,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   </div>
                 </div>
               </div>
-              <div className="absolute right-2.5 top-[58%] z-30 flex -translate-y-1/2 flex-col items-center gap-1.5 pointer-events-auto">
+              <div
+                className={`absolute right-2.5 top-[58%] z-30 flex -translate-y-1/2 flex-col items-center gap-1.5 transition-all duration-300 ${
+                  storyOverlayShouldShow ? 'pointer-events-auto translate-x-0 opacity-100' : 'pointer-events-none translate-x-4 opacity-0'
+                }`}
+              >
                 <ReactionBar
                   targetType="STORY"
                   targetId={activeStory.id}
@@ -6836,25 +6928,31 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 />
               </div>
             </div>
-            <div className="mt-3 flex items-center gap-2 text-[11px] text-slate-500">
-              <span>{normalizeStoryVisibility(activeStory.visibility)}</span>
-              <span>{activeStory.createdAt ? new Date(activeStory.createdAt).toLocaleString() : ''}</span>
+            <div
+              className={`overflow-hidden transition-all duration-300 ease-out ${
+                storyOverlayShouldShow ? 'mt-3 max-h-40 opacity-100' : 'pointer-events-none max-h-0 opacity-0'
+              }`}
+            >
+              <div className="flex items-center gap-2 text-[11px] text-slate-500">
+                <span>{normalizeStoryVisibility(activeStory.visibility)}</span>
+                <span>{activeStory.createdAt ? new Date(activeStory.createdAt).toLocaleString() : ''}</span>
+              </div>
+              {(() => {
+                const text = resolveStoryContent(activeStory);
+                const mediaUrl = resolveStoryMediaUrl(activeStory);
+                if (text && mediaUrl) {
+                  return (
+                    <ExpandablePreviewText
+                      text={text}
+                      className="mt-3"
+                      textClassName="text-sm text-slate-700"
+                      buttonClassName="text-slate-900"
+                    />
+                  );
+                }
+                return null;
+              })()}
             </div>
-            {(() => {
-              const text = resolveStoryContent(activeStory);
-              const mediaUrl = resolveStoryMediaUrl(activeStory);
-              if (text && mediaUrl) {
-                return (
-                  <ExpandablePreviewText
-                    text={text}
-                    className="mt-3"
-                    textClassName="text-sm text-slate-700"
-                    buttonClassName="text-slate-900"
-                  />
-                );
-              }
-              return null;
-            })()}
           </div>
         </div>
       )}
