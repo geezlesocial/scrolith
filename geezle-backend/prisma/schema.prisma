@@ -2336,12 +2336,15 @@ model SupportTicket {
 }
 
 model SupportTicketReply {
-  id          String   @id @default(cuid())
-  ticketId    String
-  userId      String?
-  message     String   @db.Text
-  isFromAdmin Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  id           String   @id @default(cuid())
+  ticketId     String
+  userId       String?
+  senderName   String?
+  message      String   @db.Text
+  attachments  String[] @default([])
+  isFromAdmin  Boolean  @default(false)
+  internalNote Boolean  @default(false)
+  createdAt    DateTime @default(now())
 
   ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 

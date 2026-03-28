@@ -8,6 +8,8 @@ const INFO_EMAIL = 'info@scrolith.com';
 const CONTACT_EMAIL = 'contact@scrolith.com';
 const INVESTOR_EMAIL = 'investors@scrith.com';
 const SUPPORT_URL = 'https://scrolith.com/support';
+const CONTACT_URL = 'https://scrolith.com/contact';
+const CAREERS_URL = 'https://scrolith.com/careers';
 const COMPANY_NAME = 'Scrolith';
 const COMPANY_ADDRESS = 'Manila, Philippines';
 
@@ -50,6 +52,41 @@ const aboutPageContent = [
   '<section><h2>Support, Partnerships, and Investor Contact</h2><p>For general support, account assistance, and service issues, contact <a href="mailto:support@scrolith.com">support@scrolith.com</a> or use the support page at <a href="' + SUPPORT_URL + '">' + SUPPORT_URL + '</a>.</p><p>For general inquiries, contact <a href="mailto:' + INFO_EMAIL + '">' + INFO_EMAIL + '</a>. For public or business contact, use <a href="mailto:' + CONTACT_EMAIL + '">' + CONTACT_EMAIL + '</a>. For investor-related communication, use <a href="mailto:' + INVESTOR_EMAIL + '">' + INVESTOR_EMAIL + '</a>.</p></section>',
   `<section><h2>Our Location</h2><p>${COMPANY_NAME}<br/>${COMPANY_ADDRESS}</p></section>`,
   `<section><h2>Contact</h2><p>If you need help understanding our services, legal terms, privacy commitments, or refund rules, please contact us at <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.</p></section>`
+].join('');
+
+const contactPageContent = [
+  `<p>Use this page to contact ${COMPANY_NAME} directly about partnerships, investment, advertising, business opportunities, strategic advice, press, recruiting, and other high-priority inquiries that should reach the Scrolith team directly.</p>`,
+  `<p>If your request is about an account issue, order, payout, technical bug, compliance review, or platform support workflow, please use our support center at <a href="${SUPPORT_URL}">${SUPPORT_URL}</a> so the case can be tracked properly.</p>`,
+  renderSummary([
+    'Signed-in users can submit secure contact messages with attachments directly to the Scrolith admin team.',
+    'Messages are routed into the internal admin inbox and can be answered in-platform with notifications and email updates.',
+    `Primary contact channels: ${SUPPORT_EMAIL}, ${INFO_EMAIL}, ${CONTACT_EMAIL}, and ${INVESTOR_EMAIL}.`
+  ]),
+  '<section><h2>When to Use This Page</h2><p>Use the Contact page for business development, strategic introductions, partnerships, advertising requests, investor outreach, media requests, enterprise opportunities, recruiting communication, and high-level operational conversations that are not best handled through the standard support desk.</p></section>',
+  '<section><h2>What to Include</h2><p>For the fastest review, include a clear subject line, the reason for your message, relevant company or project context, your preferred contact channel, any deadlines, and supporting documents where appropriate. Attachments can be used for media kits, decks, proposals, partnership notes, or briefing documents.</p></section>',
+  '<section><h2>Routing and Response Handling</h2><p>Messages submitted here are stored within the platform, surfaced to the internal admin team, and may also be routed to the relevant Scrolith contact mailbox depending on the selected reason. Replies are sent through the user support/message workflow so you can track the conversation inside your account.</p><p>For platform reliability, legal, and audit purposes, replies may also generate account notifications and email updates.</p></section>',
+  '<section><h2>Support and Escalation</h2><p>If your request concerns billing, payments, files, jobs, gigs, disputes, technical errors, or account access, use the support center instead of the business contact flow. This ensures operational tickets are triaged through the correct workflow and response SLA.</p></section>',
+  `<section><h2>Company Contact Details</h2><p>${COMPANY_NAME}<br/>${COMPANY_ADDRESS}</p><p>Support: <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a><br/>General inquiries: <a href="mailto:${INFO_EMAIL}">${INFO_EMAIL}</a><br/>Business contact: <a href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a><br/>Investor contact: <a href="mailto:${INVESTOR_EMAIL}">${INVESTOR_EMAIL}</a></p></section>`,
+  `[scrolith_cta title="Need account or payment help?" body="Use the Scrolith support desk for account-specific requests, disputes, payouts, technical issues, and operational ticket handling." cta_text="Open Support" cta_url="${SUPPORT_URL}"]`
+].join('');
+
+const careersPageContent = [
+  `<p>${COMPANY_NAME} is building an integrated platform for work, talent, payments, messaging, community, AI assistance, and platform operations. We are hiring people who can operate with strong product judgment, technical rigor, and a bias toward reliable execution.</p>`,
+  `<p>This page explains how we think about hiring, what kinds of people thrive here, and how to contact us about opportunities. It is designed to remain editable through the live CMS so the team can evolve hiring content without changing product routes.</p>`,
+  renderSummary([
+    `${COMPANY_NAME} is based in ${COMPANY_ADDRESS} and operates around distributed product, engineering, operations, and growth workflows.`,
+    'We value execution quality, product ownership, speed with rigor, and systems thinking.',
+    `Candidates can contact the team directly through <a href="${CONTACT_URL}?reason=Careers%20%26%20Opportunities">${CONTACT_URL}</a>.`
+  ]),
+  '<section><h2>Why Join Scrolith</h2><p>We are building across multiple hard product surfaces at once: marketplace operations, trust and safety, financial workflows, realtime collaboration, creator tools, AI assistance, and control-plane infrastructure. This creates unusual opportunities for people who want meaningful scope, technical depth, and visible impact.</p><p>We care about product quality, operational resilience, thoughtful governance, and enterprise-ready execution. Team members are expected to think beyond feature delivery and consider platform integrity, user trust, and long-term maintainability.</p></section>',
+  '<section><h2>Who Thrives Here</h2><p>We look for people who communicate clearly, own outcomes, and can move between ambiguity and execution without losing rigor. Strong candidates typically show product judgment, strong writing, technical or operational depth, attention to detail, and the ability to improve systems rather than only completing isolated tasks.</p></section>',
+  '<section><h2>Typical Hiring Areas</h2><h3>Engineering and infrastructure</h3><p>Backend engineering, frontend product engineering, mobile engineering, realtime systems, platform reliability, and developer tooling.</p><h3>Operations and governance</h3><p>Trust and safety, moderation workflows, compliance operations, support systems, payments operations, and platform quality.</p><h3>Growth and commercial</h3><p>Marketplace growth, enterprise partnerships, business development, content strategy, product marketing, and ecosystem expansion.</p><h3>Design and user experience</h3><p>Product design, content systems, operational UX, and conversion-focused growth surfaces.</p></section>',
+  '<section><h2>How We Evaluate Candidates</h2><p>We care about practical capability more than buzzwords. Depending on the role, evaluation may include portfolio or case review, structured interviews, scoped technical or operating exercises, role-relevant writing samples, product reasoning, and collaborative problem solving.</p><p>We do not optimize for theatrical interview performance. We optimize for people who can actually help build and run the platform well.</p></section>',
+  '<section><h2>Working Style</h2><p>We value direct communication, accountable execution, useful documentation, clear ownership, and thoughtful escalation. We expect people to move quickly, but not recklessly; to challenge weak assumptions; and to improve systems in ways that reduce future operational drag.</p></section>',
+  '<section><h2>Candidate Expectations</h2><p>If you contact us about an opportunity, include the role or function you are interested in, a concise overview of your background, links to relevant work where possible, and why your experience is relevant to the Scrolith platform. Generic messages receive slower review than role-specific, evidence-based outreach.</p></section>',
+  '<section><h2>Equal Opportunity and Fairness</h2><p>We aim to evaluate candidates fairly and professionally. Hiring decisions are based on role relevance, demonstrated capability, communication quality, and the needs of the platform and team. We may update hiring practices over time as the organization grows.</p></section>',
+  `<section><h2>Contact the Team</h2><p>For career-related outreach, use <a href="${CONTACT_URL}?reason=Careers%20%26%20Opportunities">${CONTACT_URL}</a> or email <a href="mailto:${INFO_EMAIL}">${INFO_EMAIL}</a>. For general company contact, use <a href="mailto:${CONTACT_EMAIL}">${CONTACT_EMAIL}</a>.</p></section>`,
+  `[scrolith_cta title="Interested in building with Scrolith?" body="Send an introduction with your background, function, and relevant work samples. The contact page routes career outreach into the live admin workflow." cta_text="Contact Scrolith" cta_url="${CONTACT_URL}?reason=Careers%20%26%20Opportunities"]`
 ].join('');
 
 const termsPageContent = [
@@ -127,6 +164,20 @@ const refundPolicyContent = [
 
 const DEFAULT_STATIC_PAGE_SEEDS: PageSeed[] = [
   {
+    id: 'static-page-contact',
+    title: 'Contact Scrolith',
+    slug: 'contact',
+    aliases: ['contact-us'],
+    categorySlug: 'public-marketing-pages',
+    content: contactPageContent,
+    seo: {
+      meta_title: 'Contact Scrolith',
+      meta_description:
+        'Contact Scrolith about partnerships, investment, advertising, recruiting, enterprise opportunities, and business communication.',
+      meta_keywords: ['contact scrolith', 'partnerships', 'investment', 'business contact', 'advertising']
+    }
+  },
+  {
     id: 'static-page-about',
     title: 'About Scrolith',
     slug: 'about',
@@ -152,6 +203,20 @@ const DEFAULT_STATIC_PAGE_SEEDS: PageSeed[] = [
       meta_description:
         'Read the Terms of Service governing access to Scrolith, including accounts, payments, content, and platform use.',
       meta_keywords: ['terms of service', 'Scrolith terms', 'platform agreement', 'user terms']
+    }
+  },
+  {
+    id: 'static-page-careers',
+    title: 'Careers at Scrolith',
+    slug: 'careers',
+    aliases: ['join-scrolith', 'jobs-at-scrolith'],
+    categorySlug: 'public-marketing-pages',
+    content: careersPageContent,
+    seo: {
+      meta_title: 'Careers at Scrolith',
+      meta_description:
+        'Explore careers at Scrolith, how we hire, the kind of work we are building, and how to contact the team about opportunities.',
+      meta_keywords: ['scrolith careers', 'jobs at scrolith', 'work at scrolith', 'startup careers', 'platform jobs']
     }
   },
   {

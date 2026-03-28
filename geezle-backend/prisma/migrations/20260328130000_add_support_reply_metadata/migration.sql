@@ -1,0 +1,4 @@
+ALTER TABLE "SupportTicketReply"
+ADD COLUMN "senderName" TEXT,
+ADD COLUMN "attachments" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+ADD COLUMN "internalNote" BOOLEAN NOT NULL DEFAULT false;
