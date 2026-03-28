@@ -73,6 +73,8 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
     const employerMap: Record<string, string> = {
       jobs: 'my-jobs',
       job: 'my-jobs',
+      order: 'orders',
+      orders: 'orders',
       proposals: 'proposals-offers',
       proposal: 'proposals-offers',
       offers: 'proposals-offers'
@@ -308,6 +310,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           items: [
             { tab: 'my-jobs', label: 'My Jobs', icon: BriefcaseBusiness, description: 'Open roles, pipeline depth, and response rates' },
             { tab: 'my-ads', label: 'My Ads', icon: Megaphone, description: 'Promotion campaigns for hiring visibility' },
+            { tab: 'orders', label: 'Orders', icon: ShoppingBag, description: 'Purchased services, delivery progress, and order status' },
             { tab: 'proposals-offers', label: 'Proposals & Offers', icon: FileText, description: 'Applicant review, shortlist, and offers' },
             { tab: 'contracts', label: 'Contracts', icon: ClipboardList, description: 'Active engagements, milestones, and escrow' }
           ]

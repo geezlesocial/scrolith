@@ -17,6 +17,55 @@ const isInternalHost = (hostname: string) => {
   );
 };
 
+const rewriteLegacyInternalUrl = (urlValue: string) => {
+  const raw = coerceString(urlValue);
+  if (!raw) return raw;
+
+  let relative = raw;
+  if (isAppDeepLink(raw)) {
+    const normalized = raw.replace(/^scrolith:\/\//i, '/');
+    relative = normalized.startsWith('/') ? normalized : `/${normalized}`;
+  } else if (isAbsoluteHttpUrl(raw)) {
+    try {
+      const parsed = new URL(raw);
+      if (!isInternalHost(parsed.hostname)) return raw;
+      relative = `${parsed.pathname}${parsed.search}${parsed.hash}` || '/';
+    } catch {
+      return raw;
+    }
+  } else if (!raw.startsWith('/')) {
+    relative = `/${raw.replace(/^\/+/, '')}`;
+  }
+
+  try {
+    const parsed = new URL(relative.startsWith('/') ? `http://local${relative}` : relative);
+    let nextPath = parsed.pathname || '/';
+    const search = new URLSearchParams(parsed.search);
+
+    if (/^\/community\/posts\/[^/]+\/?$/i.test(nextPath)) {
+      return rewriteLegacyCommunityPostUrl(`${parsed.pathname}${parsed.search}${parsed.hash}`);
+    }
+
+    if (/^\/settings\/profile\/?$/i.test(nextPath)) {
+      nextPath = '/profile/edit';
+    } else if (/^\/feed\/?$/i.test(nextPath)) {
+      nextPath = '/community';
+    } else if (/^\/jobs\/?$/i.test(nextPath) && !search.get('tab')) {
+      nextPath = '/browse-jobs';
+    } else if (/^\/dashboard\/?$/i.test(nextPath) && coerceString(search.get('tab')).toLowerCase() === 'notifications') {
+      search.set('tab', 'messages');
+    }
+
+    const nextQuery = search.toString();
+    return `${nextPath}${nextQuery ? `?${nextQuery}` : ''}${parsed.hash || ''}` || '/';
+  } catch {
+    return relative
+      .replace(/^\/settings\/profile\/?$/i, '/profile/edit')
+      .replace(/^\/feed\/?$/i, '/community')
+      .replace(/^\/jobs\/?$/i, '/browse-jobs');
+  }
+};
+
 export const getRawNotificationActionUrl = (notification: any): string | undefined => {
   if (!notification) return undefined;
   const metadata = (notification?.metadata && typeof notification.metadata === 'object' ? notification.metadata : {}) as Record<
@@ -42,25 +91,25 @@ const normalizeInternalUrl = (urlValue: string): string | undefined => {
   const raw = coerceString(urlValue);
   if (!raw) return undefined;
 
-  if (raw.startsWith('/')) return raw;
+  if (raw.startsWith('/')) return rewriteLegacyInternalUrl(raw);
 
   if (isAppDeepLink(raw)) {
     const normalized = raw.replace(/^scrolith:\/\//i, '/');
-    return normalized.startsWith('/') ? normalized : `/${normalized}`;
+    return rewriteLegacyInternalUrl(normalized.startsWith('/') ? normalized : `/${normalized}`);
   }
 
   if (isAbsoluteHttpUrl(raw)) {
     try {
       const parsed = new URL(raw);
       if (!isInternalHost(parsed.hostname)) return undefined;
-      return `${parsed.pathname}${parsed.search}${parsed.hash}` || '/';
+      return rewriteLegacyInternalUrl(`${parsed.pathname}${parsed.search}${parsed.hash}` || '/');
     } catch {
       return undefined;
     }
   }
 
   // Best-effort: treat as relative path missing leading slash
-  return `/${raw.replace(/^\/+/, '')}`;
+  return rewriteLegacyInternalUrl(`/${raw.replace(/^\/+/, '')}`);
 };
 
 const rewriteLegacyCommunityPostUrl = (urlValue: string): string => {
@@ -166,7 +215,7 @@ export const getNotificationActionUrl = (notification: any): string | undefined 
         return `/m/notifications?campaignId=${encodeURIComponent(campaignId)}`;
       }
     }
-    return `/dashboard?tab=notifications&campaignId=${encodeURIComponent(campaignId)}`;
+    return `/dashboard?tab=messages&campaignId=${encodeURIComponent(campaignId)}`;
   }
 
   return undefined;

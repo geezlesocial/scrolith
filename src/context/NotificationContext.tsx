@@ -303,12 +303,13 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const onOrdersUpdated = (payload: any) => {
       const orderId = payload?.orderId || payload?.order_id || '';
       const status = payload?.status || payload?.newStatus || payload?.state || 'updated';
+      const query = orderId ? `?tab=orders&order_id=${encodeURIComponent(String(orderId))}` : '?tab=orders';
       addNotification({
         id: orderId ? `local-order-${orderId}-${status}` : undefined,
         type: 'info',
         title: 'Order update',
         message: orderId ? `Order ${orderId} is ${status}.` : 'An order was updated.',
-        actionUrl: isAdmin ? `${basePath}?tab=overview` : `${basePath}?tab=orders`,
+        actionUrl: isAdmin ? `${basePath}?tab=overview` : `${basePath}${query}`,
         toast: true,
         persist: true,
         localOnly: true

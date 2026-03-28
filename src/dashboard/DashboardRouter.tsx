@@ -92,6 +92,8 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
       jobs: 'my-jobs',
       job: 'my-jobs',
       'my-jobs': 'my-jobs',
+      order: 'orders',
+      orders: 'orders',
       proposals: 'proposals-offers',
       proposal: 'proposals-offers',
       offers: 'proposals-offers',
@@ -177,7 +179,7 @@ export const DashboardRouter: React.FC = () => {
         case 'my-ads':
           return <MyAds />;
         case 'orders':
-          return <Orders />;
+          return <Orders viewerRole="freelancer" />;
         case 'contracts':
           return <FreelancerContracts />;
         case 'my-proposals':
@@ -227,6 +229,8 @@ export const DashboardRouter: React.FC = () => {
           return <ProposalsOffers />;
         case 'contracts':
           return <EmployerContracts />;
+        case 'orders':
+          return <Orders viewerRole="employer" />;
         case 'wallet':
           return <WalletModule />;
         case 'membership':
