@@ -16,6 +16,7 @@ import FilePickerModal from './FilePickerModal';
 import { UploadedFile } from '../../types';
 import { FileService } from '../../services/files';
 import MediaPreviewModal from '../../components/media/MediaPreviewModal';
+import { resolveAssetUrl } from '../../utils/assetUrl';
 
 type Props = {
   role: 'freelancer' | 'employer';
@@ -44,6 +45,7 @@ export default function UploadedFilesManager({ role }: Props) {
   const [type, setType] = useState<'all' | 'image' | 'video' | 'document'>('all');
   const [preview, setPreview] = useState<UploadedFile | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [brokenPreviews, setBrokenPreviews] = useState<Record<string, boolean>>({});
 
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -60,6 +62,7 @@ export default function UploadedFilesManager({ role }: Props) {
         page: 1
       });
       setFiles(res.files || []);
+      setBrokenPreviews({});
     } catch (err: any) {
       setError(err?.message || 'Failed to load files');
       setFiles([]);
@@ -201,7 +204,11 @@ export default function UploadedFilesManager({ role }: Props) {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {filtered.map((f) => (
+          {filtered.map((f) => {
+            const assetUrl = resolveAssetUrl(f.url);
+            const thumbnailUrl = resolveAssetUrl(f.thumbnailUrl || f.thumbnail_url || '');
+            const previewBroken = Boolean(brokenPreviews[f.id]);
+            return (
             <div key={f.id} className="bg-white border border-gray-200 rounded-2xl p-3 hover:shadow-sm transition">
               <button onClick={() => setPreview(f)} className="w-full text-left" type="button">
                 <div className="flex items-center justify-between mb-2 text-xs text-gray-500">
@@ -215,10 +222,26 @@ export default function UploadedFilesManager({ role }: Props) {
                 </div>
 
                 {f.type === 'image' ? (
-                  <img src={f.url} alt={f.name} className="w-full h-28 object-cover rounded-xl mb-2" />
+                  !previewBroken ? (
+                    <img
+                      src={assetUrl}
+                      alt={f.name}
+                      className="w-full h-28 object-cover rounded-xl mb-2"
+                      onError={() => setBrokenPreviews((current) => ({ ...current, [f.id]: true }))}
+                    />
+                  ) : (
+                    <div className="w-full h-28 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-center mb-2 text-amber-700 text-xs font-semibold">
+                      Preview unavailable
+                    </div>
+                  )
                 ) : f.type === 'video' ? (
-                  f.thumbnailUrl || f.thumbnail_url ? (
-                    <img src={f.thumbnailUrl || f.thumbnail_url || ''} alt={f.name} className="w-full h-28 object-cover rounded-xl mb-2" />
+                  !previewBroken && (f.thumbnailUrl || f.thumbnail_url) ? (
+                    <img
+                      src={thumbnailUrl}
+                      alt={f.name}
+                      className="w-full h-28 object-cover rounded-xl mb-2"
+                      onError={() => setBrokenPreviews((current) => ({ ...current, [f.id]: true }))}
+                    />
                   ) : (
                     <div className="w-full h-28 bg-gray-100 rounded-xl flex items-center justify-center mb-2 text-gray-400">
                       <FileVideo className="w-10 h-10" />
@@ -231,7 +254,7 @@ export default function UploadedFilesManager({ role }: Props) {
                 )}
 
                 <div className="text-sm font-bold text-gray-900 truncate">{f.name}</div>
-                <div className="text-[11px] text-gray-500 mt-1 truncate">{f.url}</div>
+                <div className="text-[11px] text-gray-500 mt-1 truncate">{assetUrl}</div>
               </button>
 
               {(() => {
@@ -252,7 +275,7 @@ export default function UploadedFilesManager({ role }: Props) {
 
               <div className="mt-3 flex gap-2">
                 <button
-                  onClick={() => copyUrl(f.url)}
+                  onClick={() => copyUrl(assetUrl)}
                   className="flex-1 px-3 py-2 rounded-xl border text-xs font-bold text-gray-700 hover:bg-gray-50 inline-flex items-center justify-center"
                   type="button"
                 >
@@ -260,7 +283,7 @@ export default function UploadedFilesManager({ role }: Props) {
                 </button>
 
                 <a
-                  href={f.url}
+                  href={assetUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="px-3 py-2 rounded-xl border text-xs font-bold text-gray-700 hover:bg-gray-50 inline-flex items-center justify-center"
@@ -279,7 +302,8 @@ export default function UploadedFilesManager({ role }: Props) {
                 </button>
               </div>
             </div>
-          ))}
+          );
+          })}
         </div>
       )}
 
