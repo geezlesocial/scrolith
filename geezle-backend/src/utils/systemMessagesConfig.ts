@@ -23,7 +23,7 @@ export type SystemMessagesConfig = {
   updated_at: string;
 };
 
-const platformVars = ['platform.name', 'platform.url'];
+const platformVars = ['platform.name', 'platform.url', 'platform.supportUrl'];
 
 export const SYSTEM_MESSAGE_VARIABLES: Record<string, string[]> = {
   password_reset: ['user.name', 'user.email', 'reset.link', 'reset.expiresMinutes', ...platformVars],
@@ -332,6 +332,37 @@ export const normalizeSystemMessagesConfig = (input: any, existing?: SystemMessa
 export const sanitizeSystemMessagesConfig = (config: SystemMessagesConfig) => config;
 
 const VARIABLE_REGEX = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;
+const HTML_LINK_REGEX = /\b(?:href|src|action)\s*=\s*(["'])(.*?)\1/gi;
+const TEXT_LINK_REGEX = /(?:^|[\s(])((?:https?:\/\/|mailto:|tel:|scrolith:\/\/|\/)[^\s<>"']*)/gim;
+
+const normalizeUrlCandidate = (value: string) =>
+  String(value || '')
+    .trim()
+    .replace(/[),.;]+$/g, '');
+
+const isAllowedTemplateUrl = (value: string) => {
+  const normalized = normalizeUrlCandidate(value);
+  if (!normalized) return true;
+  if (normalized.includes('{{')) return true;
+  if (normalized.startsWith('#')) return true;
+  if (normalized.startsWith('/')) return !normalized.startsWith('//');
+  if (/^(https?:\/\/|mailto:|tel:|scrolith:\/\/)/i.test(normalized)) return true;
+  return false;
+};
+
+const extractTemplateLinkValues = (value: string, mode: 'html' | 'text') => {
+  const links = new Set<string>();
+  const regex = mode === 'html' ? HTML_LINK_REGEX : TEXT_LINK_REGEX;
+  regex.lastIndex = 0;
+
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(value)) !== null) {
+    const candidate = normalizeUrlCandidate(mode === 'html' ? match[2] || '' : match[1] || '');
+    if (candidate) links.add(candidate);
+  }
+
+  return Array.from(links);
+};
 
 export const extractTemplateVariables = (value?: string) => {
   if (!value) return [];
@@ -363,6 +394,18 @@ export const validateSystemMessagesConfig = (config: SystemMessagesConfig) => {
           errors.push(`Template "${key}" uses unknown variable "${variable}" in ${channel.label}`);
         }
       });
+    });
+
+    extractTemplateLinkValues(template.email.html || '', 'html').forEach((link) => {
+      if (!isAllowedTemplateUrl(link)) {
+        errors.push(`Template "${key}" uses an invalid URL "${link}" in email.html`);
+      }
+    });
+
+    extractTemplateLinkValues(template.email.text || '', 'text').forEach((link) => {
+      if (!isAllowedTemplateUrl(link)) {
+        errors.push(`Template "${key}" uses an invalid URL "${link}" in email.text`);
+      }
     });
   });
   return errors;

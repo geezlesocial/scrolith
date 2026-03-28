@@ -166,7 +166,7 @@ const DEFAULT_NOTIFICATION_TEMPLATES: JourneyTemplateSeed[] = [
     emailSubjectTemplate: 'Complete your profile on {{platform.name}}',
     emailTextTemplate:
       'Add your headline, skills, and portfolio to improve trust and ranking across {{platform.name}}.',
-    actionUrlTemplate: '/settings/profile',
+    actionUrlTemplate: '/profile/edit',
     inAppEnabled: true,
     pushEnabled: true,
     emailEnabled: true,
@@ -185,7 +185,7 @@ const DEFAULT_NOTIFICATION_TEMPLATES: JourneyTemplateSeed[] = [
     pushBodyTemplate: '{{statusMessage}}',
     emailSubjectTemplate: 'Application update on {{platform.name}}',
     emailTextTemplate: '{{statusMessage}}',
-    actionUrlTemplate: '/jobs',
+    actionUrlTemplate: '/dashboard?tab=proposals',
     inAppEnabled: true,
     pushEnabled: true,
     emailEnabled: false,
@@ -223,7 +223,7 @@ const DEFAULT_NOTIFICATION_TEMPLATES: JourneyTemplateSeed[] = [
     pushBodyTemplate: 'Open {{platform.name}} to see new gigs, jobs, and recommendations.',
     emailSubjectTemplate: 'Come back to {{platform.name}}',
     emailTextTemplate: 'New gigs, jobs, and community conversations are ready for you on {{platform.name}}.',
-    actionUrlTemplate: '/feed',
+    actionUrlTemplate: '/community',
     inAppEnabled: true,
     pushEnabled: true,
     emailEnabled: true,
@@ -359,6 +359,96 @@ const interpolateTemplate = (template: string | null | undefined, context: Recor
     if (value === undefined || value === null) return '';
     return String(value);
   });
+};
+
+const escapeHtml = (value: string) =>
+  String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const renderJourneyEmailBody = (value: string) => {
+  const blocks = String(value || '')
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+  if (!blocks.length) {
+    return '<p style="margin:0;font-size:15px;line-height:1.7;color:#334155;">Open Scrolith to continue.</p>';
+  }
+
+  return blocks
+    .map((block) => {
+      const withBreaks = escapeHtml(block).replace(/\n/g, '<br />');
+      return `<p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#334155;">${withBreaks}</p>`;
+    })
+    .join('');
+};
+
+const renderJourneyEmailHtml = (input: {
+  title: string;
+  bodyText: string;
+  actionUrl?: string;
+  actionLabel?: string;
+  platformName: string;
+  supportUrl?: string;
+}) => {
+  const ctaUrl = input.actionUrl ? escapeHtml(input.actionUrl) : '';
+  const supportUrl = input.supportUrl ? escapeHtml(input.supportUrl) : '';
+  const ctaLabel = escapeHtml(input.actionLabel || 'Open in Scrolith');
+  const title = escapeHtml(input.title || input.platformName);
+  const platformName = escapeHtml(input.platformName || 'Scrolith');
+  const bodyHtml = renderJourneyEmailBody(input.bodyText);
+  const ctaBlock = ctaUrl
+    ? `
+      <div style="margin:28px 0 24px;">
+        <a href="${ctaUrl}" style="display:inline-block;background:#2f6fed;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:999px;font-size:14px;font-weight:700;">
+          ${ctaLabel}
+        </a>
+      </div>
+      <p style="margin:0 0 8px;font-size:12px;line-height:1.6;color:#64748b;">If the button does not work, open this link:</p>
+      <p style="margin:0;font-size:12px;line-height:1.7;color:#2563eb;word-break:break-word;">${ctaUrl}</p>
+    `
+    : '';
+  const supportBlock = supportUrl
+    ? `<p style="margin:24px 0 0;font-size:12px;line-height:1.6;color:#64748b;">Need help? Visit <a href="${supportUrl}" style="color:#2563eb;text-decoration:none;">Scrolith Support</a>.</p>`
+    : '';
+
+  return `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>${title}</title>
+      </head>
+      <body style="margin:0;background:#f8fafc;font-family:Inter,Segoe UI,Arial,sans-serif;color:#0f172a;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:24px 0;">
+          <tr>
+            <td align="center">
+              <table role="presentation" width="620" cellpadding="0" cellspacing="0" style="width:620px;max-width:620px;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 18px 48px rgba(15,23,42,0.08);">
+                <tr>
+                  <td style="padding:28px 32px;background:linear-gradient(135deg,#0f172a,#1e293b);color:#ffffff;">
+                    <div style="font-size:14px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;opacity:0.72;">${platformName}</div>
+                    <div style="margin-top:10px;font-size:26px;line-height:1.25;font-weight:800;">${title}</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:32px;">
+                    ${bodyHtml}
+                    ${ctaBlock}
+                    ${supportBlock}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+  `.trim();
 };
 
 const emitJourneyEvent = (event: string, payload: Record<string, any>) => {
@@ -543,11 +633,13 @@ const buildJourneyContext = (input: {
 }) => {
   const platformName = process.env.PLATFORM_NAME || 'Scrolith';
   const platformUrl = toAbsoluteFrontendUrl('/') || 'https://scrolith.com';
+  const platformSupportUrl = toAbsoluteFrontendUrl('/support') || 'https://scrolith.com/support';
   return {
     ...(input.runContext || {}),
     platform: {
       name: platformName,
       url: platformUrl,
+      supportUrl: platformSupportUrl,
       ...(input.runContext?.platform || {})
     },
     user: {
@@ -731,6 +823,11 @@ const deliverStepRun = async (stepRun: any) => {
   const emailSubject =
     interpolateTemplate(template.emailSubjectTemplate || template.titleTemplate, context) || baseTitle;
   const emailText = interpolateTemplate(template.emailTextTemplate || template.bodyTemplate, context) || baseBody;
+  const absoluteActionUrl = toAbsoluteFrontendUrl(actionUrl);
+  const emailTextWithLink =
+    absoluteActionUrl && !emailText.includes(absoluteActionUrl)
+      ? `${emailText}\n\nOpen in Scrolith: ${absoluteActionUrl}`
+      : emailText;
   const meta = {
     ...(cleanObject(template.defaultMeta) || {}),
     ...(runContext?.meta && cleanObject(runContext.meta) ? runContext.meta : {}),
@@ -804,8 +901,15 @@ const deliverStepRun = async (stepRun: any) => {
       const emailResult = await sendSystemEmail({
         to: user.email,
         subject: emailSubject,
-        text: emailText,
-        html: `<p>${emailText}</p>`
+        text: emailTextWithLink,
+        html: renderJourneyEmailHtml({
+          title: emailSubject,
+          bodyText: emailText,
+          actionUrl: absoluteActionUrl,
+          actionLabel: 'Open in Scrolith',
+          platformName: context.platform?.name || 'Scrolith',
+          supportUrl: context.platform?.supportUrl
+        })
       });
       result.emailSent = Boolean(emailResult.success);
       if (!result.emailSent) result.skipped.push('email_failed');

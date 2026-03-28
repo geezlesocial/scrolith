@@ -7,6 +7,7 @@ import { Role as PrismaRole, KYCStatus as PrismaKYCStatus } from '@prisma/client
 import { resolveUserProStatus } from '../utils/proStatus';
 import { verifyRecaptcha } from '../utils/recaptcha';
 import { sendSystemMessage } from '../services/systemMessaging';
+import { toAbsoluteFrontendUrl } from '../services/notificationActionUrl.service';
 import prisma from '../utils/prismaClient';
 
 const minimalLoginSelect = {
@@ -179,8 +180,6 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 const PASSWORD_RESET_TTL_MINUTES = Number(process.env.PASSWORD_RESET_TTL_MINUTES || 30);
-const FRONTEND_URL = (process.env.FRONTEND_URL || process.env.APP_URL || 'https://Scrolith.com').replace(/\/$/, '');
-
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
 type ClientMeta = { ip?: string; userAgent?: string };
@@ -463,7 +462,9 @@ export const forgotPassword = async (req: Request, res: Response) => {
         }
       });
 
-      const resetLink = `${FRONTEND_URL}/auth/reset-password?token=${rawToken}`;
+      const resetLink =
+        toAbsoluteFrontendUrl(`/auth/reset-password?token=${encodeURIComponent(rawToken)}`) ||
+        `https://scrolith.com/auth/reset-password?token=${encodeURIComponent(rawToken)}`;
 
       await sendSystemMessage({
         templateKey: 'password_reset',

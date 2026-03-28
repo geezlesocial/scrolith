@@ -442,23 +442,24 @@ export const updateContractStatus = async (req: Request, res: Response) => {
     });
 
     try {
-      const contractLink = `/dashboard?tab=contracts&contract=${contract.id}&contract_id=${contract.id}`;
+      const clientLink = `/client/dashboard?tab=contracts&contract=${contract.id}&contract_id=${contract.id}`;
+      const freelancerLink = `/freelancer/dashboard?tab=contracts&contract=${contract.id}&contract_id=${contract.id}`;
       void sendSystemMessage({
         templateKey: "contract_update",
         userId: contract.clientId,
         context: {
-          contract: { title: contract.title, status: statusEnum, link: contractLink }
+          contract: { title: contract.title, status: statusEnum, link: clientLink }
         },
-        actionUrl: contractLink,
+        actionUrl: clientLink,
         typeOverride: "contract"
       });
       void sendSystemMessage({
         templateKey: "contract_update",
         userId: contract.freelancerId,
         context: {
-          contract: { title: contract.title, status: statusEnum, link: contractLink }
+          contract: { title: contract.title, status: statusEnum, link: freelancerLink }
         },
-        actionUrl: contractLink,
+        actionUrl: freelancerLink,
         typeOverride: "contract"
       });
     } catch (notifyError) {

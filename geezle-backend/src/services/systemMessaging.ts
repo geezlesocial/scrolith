@@ -19,7 +19,7 @@ type UserIdentity = { id: string; name?: string | null; email?: string | null };
 
 type SystemMessageContext = Record<string, any> & {
   user?: { id?: string; name?: string; email?: string };
-  platform?: { name?: string; url?: string };
+  platform?: { name?: string; url?: string; supportUrl?: string };
 };
 
 export type SendSystemMessageInput = {
@@ -53,6 +53,26 @@ const interpolateTemplate = (template?: string, context?: Record<string, any>) =
     const value = path.split('.').reduce((acc: any, key: string) => (acc ? acc[key] : undefined), ctx);
     if (value === undefined || value === null) return '';
     return String(value);
+  });
+};
+
+const EMAIL_ATTR_URL_REGEX = /\b(href|src|action)\s*=\s*(["'])(.*?)\2/gi;
+const EMAIL_TEXT_RELATIVE_URL_REGEX = /(^|[\s(>])((\/[a-zA-Z0-9][^\s<>"')]*))/gm;
+
+const absolutizeEmailHtmlLinks = (value?: string) => {
+  if (!value) return '';
+  return value.replace(EMAIL_ATTR_URL_REGEX, (match, attr, quote, urlValue) => {
+    const absolute = toAbsoluteFrontendUrl(urlValue);
+    if (!absolute || absolute === urlValue) return match;
+    return `${attr}=${quote}${absolute}${quote}`;
+  });
+};
+
+const absolutizeEmailTextLinks = (value?: string) => {
+  if (!value) return '';
+  return value.replace(EMAIL_TEXT_RELATIVE_URL_REGEX, (_match, prefix, urlValue) => {
+    const absolute = toAbsoluteFrontendUrl(urlValue);
+    return `${prefix || ''}${absolute || urlValue}`;
   });
 };
 
@@ -97,7 +117,8 @@ const buildContext = (
   const normalizedBase = absolutizeContextUrls(base || {});
   const platform = {
     name: process.env.PLATFORM_NAME || 'Scrolith',
-    url: toAbsoluteFrontendUrl('/') || 'https://scrolith.com'
+    url: toAbsoluteFrontendUrl('/') || 'https://scrolith.com',
+    supportUrl: toAbsoluteFrontendUrl('/support') || 'https://scrolith.com/support'
   };
   const absoluteActionUrl = toAbsoluteFrontendUrl(actionUrl);
   return {
@@ -167,8 +188,8 @@ export const sendSystemMessage = async (input: SendSystemMessageInput): Promise<
     const to = input.email || user?.email;
     if (to) {
       const subject = interpolateTemplate(template.email.subject, context);
-      const html = interpolateTemplate(template.email.html, context);
-      const text = interpolateTemplate(template.email.text, context);
+      const html = absolutizeEmailHtmlLinks(interpolateTemplate(template.email.html, context));
+      const text = absolutizeEmailTextLinks(interpolateTemplate(template.email.text, context));
       const result = await sendSystemEmail({ to, subject, html, text });
       emailSent = result.success;
     }

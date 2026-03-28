@@ -17,12 +17,30 @@ type NotificationPayload = Record<string, any> | undefined;
 const DEFAULT_FRONTEND_ORIGIN = 'https://scrolith.com';
 
 const normalizeId = (value: unknown) => String(value || '').trim();
+const normalizeRole = (value: unknown) => String(value || '').trim().toLowerCase();
 
 const isHttpUrl = (value: string) => /^https?:\/\//i.test(value);
 const isAppDeepLink = (value: string) => /^scrolith:\/\//i.test(value);
 const hasCustomScheme = (value: string) => /^[a-z][a-z0-9+.-]*:/i.test(value);
 
-const getFrontendOrigin = () => {
+const isFreelancerRole = (value: unknown) => {
+  const role = normalizeRole(value);
+  return role.includes('freelancer') || role.includes('seller');
+};
+
+const isEmployerRole = (value: unknown) => {
+  const role = normalizeRole(value);
+  return role.includes('client') || role.includes('employer') || role.includes('buyer');
+};
+
+const getDashboardBase = (role?: unknown) => {
+  if (isFreelancerRole(role)) return '/freelancer/dashboard';
+  if (isEmployerRole(role)) return '/client/dashboard';
+  if (normalizeRole(role).includes('admin')) return '/admin/dashboard';
+  return '/dashboard';
+};
+
+export const getFrontendOrigin = () => {
   const raw =
     normalizeId(process.env.FRONTEND_URL) ||
     normalizeId(process.env.PLATFORM_URL) ||
@@ -57,6 +75,40 @@ const isInternalFrontendHost = (hostname: string) => {
   );
 };
 
+const rewriteLegacyInternalPath = (value: string) => {
+  const raw = normalizeId(value);
+  if (!raw) return raw;
+
+  try {
+    const parsed = new URL(raw.startsWith('/') ? `https://local${raw}` : raw);
+    const pathname = parsed.pathname || '/';
+    const search = new URLSearchParams(parsed.search);
+    let nextPath = pathname;
+
+    if (/^\/community\/posts\/[^/]+\/?$/i.test(pathname)) {
+      return rewriteLegacyCommunityPostUrl(`${pathname}${parsed.search}${parsed.hash}` || '/');
+    }
+
+    if (/^\/settings\/profile\/?$/i.test(pathname)) {
+      nextPath = '/profile/edit';
+    } else if (/^\/feed\/?$/i.test(pathname)) {
+      nextPath = '/community';
+    } else if (/^\/jobs\/?$/i.test(pathname) && !search.get('tab')) {
+      nextPath = '/browse-jobs';
+    } else if (/^\/dashboard\/?$/i.test(pathname) && normalizeId(search.get('tab')).toLowerCase() === 'notifications') {
+      search.set('tab', 'messages');
+    }
+
+    const nextQuery = search.toString();
+    return `${nextPath}${nextQuery ? `?${nextQuery}` : ''}${parsed.hash || ''}` || '/';
+  } catch {
+    return raw
+      .replace(/^\/settings\/profile\/?$/i, '/profile/edit')
+      .replace(/^\/feed\/?$/i, '/community')
+      .replace(/^\/jobs\/?$/i, '/browse-jobs');
+  }
+};
+
 const rewriteLegacyCommunityPostUrl = (value: string) => {
   const raw = normalizeId(value);
   if (!raw) return raw;
@@ -88,14 +140,14 @@ export const normalizeNotificationActionUrl = (value: unknown): string | undefin
 
   if (isAppDeepLink(raw)) {
     const path = raw.replace(/^scrolith:\/\//i, '/');
-    return rewriteLegacyCommunityPostUrl(path.startsWith('/') ? path : `/${path}`);
+    return rewriteLegacyInternalPath(path.startsWith('/') ? path : `/${path}`);
   }
 
   if (isHttpUrl(raw)) {
     try {
       const parsed = new URL(raw);
       if (!isInternalFrontendHost(parsed.hostname)) return raw;
-      return rewriteLegacyCommunityPostUrl(`${parsed.pathname}${parsed.search}${parsed.hash}` || '/');
+      return rewriteLegacyInternalPath(`${parsed.pathname}${parsed.search}${parsed.hash}` || '/');
     } catch {
       return undefined;
     }
@@ -106,7 +158,7 @@ export const normalizeNotificationActionUrl = (value: unknown): string | undefin
   }
 
   const relative = raw.startsWith('/') ? raw : `/${raw.replace(/^\/+/, '')}`;
-  return rewriteLegacyCommunityPostUrl(relative);
+  return rewriteLegacyInternalPath(relative);
 };
 
 export const toAbsoluteFrontendUrl = (value: unknown): string | undefined => {
@@ -198,6 +250,14 @@ export const buildNotificationActionUrl = (
   const campaignId = normalizeId(data.campaignId || data.campaign_id);
   const entityType = normalizeId(data.entityType || data.entity_type).toLowerCase();
   const normalizedType = normalizeId(type).toLowerCase();
+  const recipientRole =
+    normalizeRole(
+      data.recipientRole ||
+        data.viewerRole ||
+        data.userRole ||
+        data.role ||
+        data.dashboardRole
+    ) || undefined;
 
   const explicit =
     normalizeNotificationActionUrl(data.action_url) ||
@@ -236,11 +296,11 @@ export const buildNotificationActionUrl = (
   }
 
   if (type === 'job_application_created') {
-    return `/client/dashboard${toQuery({ tab: 'proposals', job: jobId, proposal: proposalId })}`;
+    return `${getDashboardBase('employer')}${toQuery({ tab: 'proposals', job: jobId, proposal: proposalId })}`;
   }
 
   if (type === 'proposal_opened') {
-    return `/freelancer/dashboard${toQuery({ tab: 'proposals', proposal: proposalId })}`;
+    return `${getDashboardBase('freelancer')}${toQuery({ tab: 'proposals', proposal: proposalId })}`;
   }
 
   if (type === 'proposal_reply') {
@@ -248,11 +308,15 @@ export const buildNotificationActionUrl = (
   }
 
   if (type === 'proposal_top_applicant') {
-    return `/freelancer/dashboard${toQuery({ tab: 'proposals', proposal: proposalId })}`;
+    return `${getDashboardBase('freelancer')}${toQuery({ tab: 'proposals', proposal: proposalId })}`;
   }
 
   if (type === 'proposal_interview_scheduled') {
-    return `/freelancer/dashboard${toQuery({ tab: 'proposals', proposal: proposalId, interview: proposalId })}`;
+    return `${getDashboardBase('freelancer')}${toQuery({
+      tab: 'proposals',
+      proposal: proposalId,
+      interview: proposalId
+    })}`;
   }
 
   if (conversationId || normalizedType === 'message' || normalizedType === 'new_message') {
@@ -261,11 +325,15 @@ export const buildNotificationActionUrl = (
   }
 
   if (orderId || entityType === 'order' || normalizedType === 'order') {
-    return `/dashboard${toQuery({ tab: 'orders', order_id: orderId })}`;
+    return `${getDashboardBase(recipientRole)}${toQuery({ tab: 'orders', order_id: orderId })}`;
   }
 
   if (contractId || entityType === 'contract' || normalizedType === 'contract') {
-    return `/dashboard${toQuery({ tab: 'contracts', contract: contractId, contract_id: contractId })}`;
+    return `${getDashboardBase(recipientRole)}${toQuery({
+      tab: 'contracts',
+      contract: contractId,
+      contract_id: contractId
+    })}`;
   }
 
   if (
@@ -275,7 +343,7 @@ export const buildNotificationActionUrl = (
     normalizedType.includes('wallet') ||
     normalizedType.includes('stripe_payout')
   ) {
-    return `/dashboard${toQuery({ tab: 'wallet', withdrawal: withdrawalId })}`;
+    return `${getDashboardBase(recipientRole)}${toQuery({ tab: 'wallet', withdrawal: withdrawalId })}`;
   }
 
   if (ticketId || entityType === 'support_ticket' || normalizedType.includes('support')) {
@@ -287,7 +355,7 @@ export const buildNotificationActionUrl = (
     entityType === 'monetization_profile' ||
     normalizedType.includes('monetization')
   ) {
-    return '/dashboard?tab=community&section=earnings';
+    return `${getDashboardBase(recipientRole)}?tab=community&section=earnings`;
   }
 
   if (adId || normalizedType.includes('community_ad') || normalizedType === 'my_ads') {
@@ -295,7 +363,7 @@ export const buildNotificationActionUrl = (
   }
 
   if (normalizedType === 'app_campaign' && campaignId) {
-    return `/dashboard${toQuery({ tab: 'notifications', campaignId })}`;
+    return `${getDashboardBase(recipientRole)}${toQuery({ tab: 'messages', campaignId })}`;
   }
 
   if (appId || entityType === 'developer_app' || normalizedType.includes('developer') || normalizedType.startsWith('app_')) {
@@ -303,7 +371,7 @@ export const buildNotificationActionUrl = (
   }
 
   if (normalizedType.includes('kyc') || entityType === 'kyc') {
-    return '/dashboard?tab=kyc';
+    return `${getDashboardBase(recipientRole)}?tab=kyc`;
   }
 
   return '/community';

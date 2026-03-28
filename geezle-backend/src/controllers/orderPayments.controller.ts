@@ -22,6 +22,12 @@ const serializePayload = (p: unknown) => {
   }
 };
 
+const buildClientOrderLink = (orderId: string) =>
+  `/client/dashboard?tab=orders&order_id=${encodeURIComponent(orderId)}`;
+
+const buildFreelancerOrderLink = (orderId: string) =>
+  `/freelancer/dashboard?tab=orders&order_id=${encodeURIComponent(orderId)}`;
+
 const getOrCreateSettings = async () => {
   let settings = await prisma.settings.findFirst({ orderBy: { updatedAt: 'desc' } });
   if (!settings) {
@@ -425,25 +431,26 @@ export const purchaseGig = async (req: Request, res: Response) => {
       });
 
       try {
-        const orderLink = `/dashboard?tab=orders&order_id=${result.order.id}`;
+        const clientOrderLink = buildClientOrderLink(result.order.id);
+        const freelancerOrderLink = buildFreelancerOrderLink(result.order.id);
         void sendSystemMessage({
           templateKey: 'order_update',
           userId: user.id,
           context: {
-            order: { id: result.order.id, status: 'PAID', total: baseAmount, link: orderLink },
+            order: { id: result.order.id, status: 'PAID', total: baseAmount, link: clientOrderLink },
             currency
           },
-          actionUrl: orderLink,
+          actionUrl: clientOrderLink,
           typeOverride: 'order'
         });
         void sendSystemMessage({
           templateKey: 'order_update',
           userId: gig.userId,
           context: {
-            order: { id: result.order.id, status: 'PAID', total: baseAmount, link: orderLink },
+            order: { id: result.order.id, status: 'PAID', total: baseAmount, link: freelancerOrderLink },
             currency
           },
-          actionUrl: orderLink,
+          actionUrl: freelancerOrderLink,
           typeOverride: 'order'
         });
       } catch (notifyError) {
@@ -527,25 +534,26 @@ export const purchaseGig = async (req: Request, res: Response) => {
     });
 
     try {
-      const orderLink = `/dashboard?tab=orders&order_id=${order.id}`;
+      const clientOrderLink = buildClientOrderLink(order.id);
+      const freelancerOrderLink = buildFreelancerOrderLink(order.id);
       void sendSystemMessage({
         templateKey: 'order_update',
         userId: user.id,
         context: {
-          order: { id: order.id, status: 'PENDING', total: baseAmount, link: orderLink },
+          order: { id: order.id, status: 'PENDING', total: baseAmount, link: clientOrderLink },
           currency
         },
-        actionUrl: orderLink,
+        actionUrl: clientOrderLink,
         typeOverride: 'order'
       });
       void sendSystemMessage({
         templateKey: 'order_update',
         userId: gig.userId,
         context: {
-          order: { id: order.id, status: 'PENDING', total: baseAmount, link: orderLink },
+          order: { id: order.id, status: 'PENDING', total: baseAmount, link: freelancerOrderLink },
           currency
         },
-        actionUrl: orderLink,
+        actionUrl: freelancerOrderLink,
         typeOverride: 'order'
       });
     } catch (notifyError) {

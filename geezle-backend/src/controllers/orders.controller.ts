@@ -32,6 +32,12 @@ const mapUiStatusToDb = (status?: string) => {
 
 const ensureUser = (req: Request) => req.user as { id: string; role?: string } | undefined;
 
+const buildClientOrderLink = (orderId: string) =>
+  `/client/dashboard?tab=orders&order_id=${encodeURIComponent(orderId)}`;
+
+const buildFreelancerOrderLink = (orderId: string) =>
+  `/freelancer/dashboard?tab=orders&order_id=${encodeURIComponent(orderId)}`;
+
 export const listOrders = async (req: Request, res: Response) => {
   try {
     const user = ensureUser(req);
@@ -68,7 +74,8 @@ export const listOrders = async (req: Request, res: Response) => {
         take: limit,
         include: {
           gig: { select: { id: true, title: true } },
-          client: { select: { id: true, name: true, email: true } }
+          client: { select: { id: true, name: true, email: true } },
+          freelancer: { select: { id: true, name: true, email: true } }
         }
       })
     ]);
@@ -82,6 +89,8 @@ export const listOrders = async (req: Request, res: Response) => {
           gig_title: order.gig?.title || '',
           buyer_id: order.clientId,
           buyer_name: order.client?.name || order.client?.email || '',
+          seller_id: order.freelancerId,
+          seller_name: order.freelancer?.name || order.freelancer?.email || '',
           status: mapDbStatusToUi(order.status),
           amount: order.amount,
           requirements: order.requirements || '',
@@ -115,7 +124,8 @@ export const getOrder = async (req: Request, res: Response) => {
       where: { id: req.params.id },
       include: {
         gig: { select: { id: true, title: true } },
-        client: { select: { id: true, name: true, email: true } }
+        client: { select: { id: true, name: true, email: true } },
+        freelancer: { select: { id: true, name: true, email: true } }
       }
     });
 
@@ -136,6 +146,8 @@ export const getOrder = async (req: Request, res: Response) => {
         gig_title: order.gig?.title || '',
         buyer_id: order.clientId,
         buyer_name: order.client?.name || order.client?.email || '',
+        seller_id: order.freelancerId,
+        seller_name: order.freelancer?.name || order.freelancer?.email || '',
         status: mapDbStatusToUi(order.status),
         amount: order.amount,
         requirements: order.requirements || '',
@@ -167,23 +179,24 @@ export const deliverOrder = async (req: Request, res: Response) => {
     });
 
     try {
-      const orderLink = `/dashboard?tab=orders&order_id=${order.id}`;
+      const clientOrderLink = buildClientOrderLink(order.id);
+      const freelancerOrderLink = buildFreelancerOrderLink(order.id);
       void sendSystemMessage({
         templateKey: 'order_update',
         userId: order.clientId,
         context: {
-          order: { id: order.id, status: 'UNDER_REVIEW', total: order.amount, link: orderLink }
+          order: { id: order.id, status: 'UNDER_REVIEW', total: order.amount, link: clientOrderLink }
         },
-        actionUrl: orderLink,
+        actionUrl: clientOrderLink,
         typeOverride: 'order'
       });
       void sendSystemMessage({
         templateKey: 'order_update',
         userId: order.freelancerId,
         context: {
-          order: { id: order.id, status: 'UNDER_REVIEW', total: order.amount, link: orderLink }
+          order: { id: order.id, status: 'UNDER_REVIEW', total: order.amount, link: freelancerOrderLink }
         },
-        actionUrl: orderLink,
+        actionUrl: freelancerOrderLink,
         typeOverride: 'order'
       });
     } catch (notifyError) {
@@ -228,23 +241,24 @@ export const proposeRevision = async (req: Request, res: Response) => {
     });
 
     try {
-      const orderLink = `/dashboard?tab=orders&order_id=${order.id}`;
+      const clientOrderLink = buildClientOrderLink(order.id);
+      const freelancerOrderLink = buildFreelancerOrderLink(order.id);
       void sendSystemMessage({
         templateKey: 'order_update',
         userId: order.clientId,
         context: {
-          order: { id: order.id, status: 'DISPUTED', total: order.amount, link: orderLink }
+          order: { id: order.id, status: 'DISPUTED', total: order.amount, link: clientOrderLink }
         },
-        actionUrl: orderLink,
+        actionUrl: clientOrderLink,
         typeOverride: 'order'
       });
       void sendSystemMessage({
         templateKey: 'order_update',
         userId: order.freelancerId,
         context: {
-          order: { id: order.id, status: 'DISPUTED', total: order.amount, link: orderLink }
+          order: { id: order.id, status: 'DISPUTED', total: order.amount, link: freelancerOrderLink }
         },
-        actionUrl: orderLink,
+        actionUrl: freelancerOrderLink,
         typeOverride: 'order'
       });
     } catch (notifyError) {
