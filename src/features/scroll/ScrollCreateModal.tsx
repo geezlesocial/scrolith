@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Camera, Loader2, X, UploadCloud, Sparkles, Film } from 'lucide-react';
+import { AlertTriangle, Camera, Loader2, LocateFixed, MapPin, X, UploadCloud, Sparkles, Film } from 'lucide-react';
 import { FileService } from '../../services/files';
 import { ScrollService, type ScrollConfig, type ScrollVideo } from '../../services/scroll';
 import { useNotification } from '../../context/NotificationContext';
@@ -7,6 +7,10 @@ import { useUser } from '../../context/UserContext';
 import OfferTagSelector from '../../components/commerce/OfferTagSelector';
 import type { OfferTagSelection } from '../../utils/contentOffers';
 import type { PendingPostVideoScrollSource } from '../../utils/postVideoScrollBridge';
+import { LocationService } from '../../services/location';
+import { getCurrentDeviceCoordinates } from '../../utils/deviceLocation';
+import { ScrolithaService, type ScrolithaRewriteMode } from '../../services/scrolitha';
+import type { LocationSuggestion } from '../../types';
 
 type ScrollCreateModalProps = {
   open: boolean;
@@ -15,6 +19,14 @@ type ScrollCreateModalProps = {
   config?: ScrollConfig | null;
   sourceVideo?: PendingPostVideoScrollSource | null;
 };
+
+const SCROLL_DESCRIPTION_REWRITE_ACTIONS: Array<{ mode: ScrolithaRewriteMode; label: string }> = [
+  { mode: 'grammar', label: 'Improve Grammar' },
+  { mode: 'rephrase', label: 'Rephrase' },
+  { mode: 'professional', label: 'Make Professional' },
+  { mode: 'shorten', label: 'Shorten' },
+  { mode: 'expand', label: 'Expand' }
+];
 
 const getScrollPreviewFilterStyle = (preset: string, strengthValue: number): React.CSSProperties => {
   const strength = Math.max(0, Math.min(100, Number(strengthValue || 60))) / 100;
@@ -58,6 +70,12 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
   const [offerTags, setOfferTags] = useState<OfferTagSelection[]>([]);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
+  const [locationSearching, setLocationSearching] = useState(false);
+  const [locationResolving, setLocationResolving] = useState(false);
+  const [locationError, setLocationError] = useState('');
+  const [aiRewriting, setAiRewriting] = useState<ScrolithaRewriteMode | null>(null);
+  const suppressLocationSearchRef = useRef(false);
 
   const allowedFilters = useMemo(() => {
     const fromConfig = Array.isArray(config?.allowedFilterPresets)
@@ -89,6 +107,12 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
     setOfferTags([]);
     setUploading(false);
     setProgress(0);
+    setLocationSuggestions([]);
+    setLocationSearching(false);
+    setLocationResolving(false);
+    setLocationError('');
+    setAiRewriting(null);
+    suppressLocationSearchRef.current = false;
   }, [
     config?.defaultVisibility,
     open,
@@ -113,6 +137,113 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
     event.currentTarget.value = '';
   };
 
+  useEffect(() => {
+    if (!open) return;
+    const query = location.trim();
+    if (suppressLocationSearchRef.current) {
+      suppressLocationSearchRef.current = false;
+      setLocationSuggestions([]);
+      setLocationSearching(false);
+      return;
+    }
+    if (query.length < 2) {
+      setLocationSuggestions([]);
+      setLocationSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setLocationSearching(true);
+      try {
+        const results = await LocationService.search(query, 5);
+        if (!cancelled) {
+          setLocationSuggestions(results);
+          setLocationError('');
+        }
+      } catch (error: any) {
+        if (!cancelled) {
+          setLocationSuggestions([]);
+          setLocationError(error?.message || 'Unable to search locations right now.');
+        }
+      } finally {
+        if (!cancelled) {
+          setLocationSearching(false);
+        }
+      }
+    }, 220);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [location, open]);
+
+  const applyLocationSuggestion = (suggestion: LocationSuggestion) => {
+    suppressLocationSearchRef.current = true;
+    setLocation(String(suggestion.formattedAddress || suggestion.location || suggestion.label || '').trim());
+    setLocationSuggestions([]);
+    setLocationError('');
+  };
+
+  const handleUseCurrentLocation = async () => {
+    try {
+      setLocationResolving(true);
+      const coordinates = await getCurrentDeviceCoordinates();
+      const resolved = await LocationService.reverse(coordinates.latitude, coordinates.longitude);
+      suppressLocationSearchRef.current = true;
+      setLocation(
+        String(
+          resolved?.formattedAddress ||
+            resolved?.location ||
+            `${coordinates.latitude.toFixed(5)}, ${coordinates.longitude.toFixed(5)}`
+        ).trim()
+      );
+      setLocationSuggestions([]);
+      setLocationError('');
+      showNotification('success', 'Location', 'Current location added to your scroll.');
+    } catch (error: any) {
+      const message = error?.message || 'Unable to capture your current location.';
+      setLocationError(message);
+      showNotification('error', 'Location', message);
+    } finally {
+      setLocationResolving(false);
+    }
+  };
+
+  const handleDescriptionRewrite = async (mode: ScrolithaRewriteMode) => {
+    const text = description.trim();
+    if (!text) {
+      showNotification('info', 'Scrolitha', 'Add a description first so Scrolitha can improve it.');
+      return;
+    }
+
+    try {
+      setAiRewriting(mode);
+      const result = await ScrolithaService.rewrite({
+        text,
+        mode,
+        scope: 'scroll_description'
+      });
+      const rewrittenText = String(result?.rewrittenText || '').trim();
+      if (!rewrittenText) {
+        throw new Error('Scrolitha returned an empty description.');
+      }
+      setDescription(rewrittenText);
+      setIsAIEnhanced(true);
+      showNotification('success', 'Scrolitha', `${SCROLL_DESCRIPTION_REWRITE_ACTIONS.find((entry) => entry.mode === mode)?.label || 'Rewrite'} applied.`);
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Scrolitha could not improve the description right now.';
+      showNotification('error', 'Scrolitha', message);
+    } finally {
+      setAiRewriting(null);
+    }
+  };
+
   if (!open) return null;
 
   const resetAndClose = () => {
@@ -128,6 +259,12 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
     setOfferTags([]);
     setUploading(false);
     setProgress(0);
+    setLocationSuggestions([]);
+    setLocationSearching(false);
+    setLocationResolving(false);
+    setLocationError('');
+    setAiRewriting(null);
+    suppressLocationSearchRef.current = false;
     onClose();
   };
 
@@ -309,12 +446,58 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
             </label>
             <label className="block">
               <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-white/70">Location</span>
-              <input
-                value={location}
-                onChange={(event) => setLocation(event.target.value)}
-                placeholder="Location (optional)"
-                className="w-full rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm outline-none focus:border-cyan-300"
-              />
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      value={location}
+                      onChange={(event) => setLocation(event.target.value)}
+                      onBlur={() => window.setTimeout(() => setLocationSuggestions([]), 120)}
+                      placeholder="Type a city, address, or place"
+                      className="w-full rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm outline-none focus:border-cyan-300"
+                    />
+                    {locationSearching ? (
+                      <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-white/60">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      </div>
+                    ) : null}
+                    {locationSuggestions.length > 0 ? (
+                      <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-2xl border border-white/15 bg-slate-950 shadow-2xl">
+                        {locationSuggestions.map((suggestion) => (
+                          <button
+                            key={suggestion.id}
+                            type="button"
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              applyLocationSuggestion(suggestion);
+                            }}
+                            className="flex w-full items-start gap-2 border-b border-white/10 px-3 py-2 text-left text-sm text-white/85 hover:bg-white/5 last:border-b-0"
+                          >
+                            <MapPin className="mt-0.5 h-4 w-4 flex-shrink-0 text-cyan-300" />
+                            <span className="min-w-0">
+                              <span className="block truncate">{suggestion.label}</span>
+                              {suggestion.subtitle ? (
+                                <span className="block truncate text-xs text-white/50">{suggestion.subtitle}</span>
+                              ) : null}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleUseCurrentLocation}
+                    disabled={locationResolving || uploading}
+                    className="inline-flex min-w-[148px] items-center justify-center gap-2 rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-3 py-2 text-sm font-semibold text-cyan-100 hover:bg-cyan-400/15 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {locationResolving ? <Loader2 className="h-4 w-4 animate-spin" /> : <LocateFixed className="h-4 w-4" />}
+                    Use current
+                  </button>
+                </div>
+                <div className="text-xs text-white/50">Type your location or auto-capture where you are posting from.</div>
+                {locationError ? <div className="text-xs text-amber-300">{locationError}</div> : null}
+              </div>
             </label>
           </div>
 
@@ -327,6 +510,34 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({ open, onClose, on
               placeholder="Describe your scroll video"
               className="w-full rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm outline-none focus:border-cyan-300"
             />
+            <div className="mt-3 rounded-2xl border border-cyan-300/15 bg-cyan-400/5 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-cyan-100">Improve with Scrolitha</div>
+                  <div className="text-xs text-white/50">Polish your description before publishing without leaving Scroll.</div>
+                </div>
+                {aiRewriting ? (
+                  <div className="inline-flex items-center gap-2 text-xs text-cyan-100">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Scrolitha is improving...
+                  </div>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {SCROLL_DESCRIPTION_REWRITE_ACTIONS.map((action) => (
+                  <button
+                    key={action.mode}
+                    type="button"
+                    onClick={() => handleDescriptionRewrite(action.mode)}
+                    disabled={uploading || aiRewriting !== null}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/85 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Sparkles className="h-3.5 w-3.5 text-cyan-300" />
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </label>
 
           <OfferTagSelector

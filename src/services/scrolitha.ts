@@ -39,6 +39,8 @@ export type ScrolithaSuggestedAction = {
   };
 };
 
+export type ScrolithaRewriteMode = 'grammar' | 'rephrase' | 'professional' | 'shorten' | 'expand';
+
 export type ScrolithaChatResponse = {
   conversationId: string | null;
   reply: string;
@@ -99,7 +101,13 @@ export class ScrolithaService {
     return extractData<any>(response);
   }
 
-  static async rewrite(payload: { text: string; tone?: string; goal?: string; scope?: string }): Promise<any> {
+  static async rewrite(payload: {
+    text: string;
+    tone?: string;
+    goal?: string;
+    scope?: string;
+    mode?: ScrolithaRewriteMode;
+  }): Promise<any> {
     const response = await api.post('/scrolitha/rewrite', payload, { timeout: SCROLITHA_EXECUTE_TIMEOUT_MS });
     return extractData<any>(response);
   }
