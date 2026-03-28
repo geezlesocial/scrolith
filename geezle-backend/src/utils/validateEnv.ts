@@ -37,7 +37,7 @@ const OPTIONAL_KEYS: EnvKey[] = [
   { key: 'BREVO_SMTP_PASSWORD', description: 'Brevo SMTP password alias (same as SMTP key)' },
   { key: 'GOOGLE_API_KEY', description: 'Google / Vertex AI key' },
   { key: 'OPENAI_API_KEY', description: 'OpenAI API key' },
-  { key: 'SCROLITHA_PROVIDER', description: 'Scrolitha provider: ollama | disabled' },
+  { key: 'SCROLITHA_PROVIDER', description: 'Scrolitha provider: core | ollama | disabled' },
   { key: 'SCROLITHA_OLLAMA_HOST', description: 'Ollama base URL (e.g. http://127.0.0.1:11434)' },
   { key: 'SCROLITHA_OLLAMA_MODEL', description: 'Ollama model name (e.g. llama3.1)' },
   { key: 'SCROLITHA_MAX_TOKENS', description: 'Scrolitha max tokens (num_predict)' },
@@ -97,7 +97,7 @@ export function validateEnv() {
 
   const storage = (process.env.UPLOAD_DRIVER || process.env.STORAGE_DRIVER || 'local').toLowerCase();
 
-  const scrolithaProvider = String(process.env.SCROLITHA_PROVIDER || 'ollama').trim().toLowerCase();
+  const scrolithaProvider = String(process.env.SCROLITHA_PROVIDER || 'core').trim().toLowerCase();
   if (scrolithaProvider === 'ollama') {
     const keys = ['SCROLITHA_OLLAMA_HOST', 'SCROLITHA_OLLAMA_MODEL'];
     const missing = keys.filter((k) => !process.env[k] || process.env[k]!.trim() === '');

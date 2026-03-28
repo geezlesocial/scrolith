@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../services/scrolitha/scrolitha.audit';
-import { getScrolithaOllamaHealth } from '../services/scrolitha/scrolitha.ollama';
+import { getScrolithaRuntimeHealth } from '../services/scrolitha/scrolitha.ollama';
 import { clearPostInsights, regeneratePostInsightsBatch } from '../services/postAi.service';
 import {
   createScrolithaSkill,
@@ -52,7 +52,7 @@ export const getAdminScrolithaConfigController = async (req: Request, res: Respo
 export const getAdminScrolithaHealthController = async (req: Request, res: Response) => {
   try {
     const scope = String(req.query.scope || 'admin').trim().toLowerCase();
-    const data = await getScrolithaOllamaHealth(scope === 'user' ? 'user' : 'admin');
+    const data = await getScrolithaRuntimeHealth(scope === 'user' ? 'user' : 'admin');
     const branded = data && typeof data === 'object' ? { ...data, model: asScrolithaModelLabel((data as any).model) } : data;
     return res.json({ success: true, data: branded, message: 'Scrolitha LLM health loaded' });
   } catch (error: any) {
@@ -67,17 +67,21 @@ export const getAdminScrolithaHealthController = async (req: Request, res: Respo
 export const getAdminScrolithaModelsController = async (req: Request, res: Response) => {
   try {
     const scope = String(req.query.scope || 'admin').trim().toLowerCase();
-    const health = await getScrolithaOllamaHealth(scope === 'user' ? 'user' : 'admin');
+    const health = await getScrolithaRuntimeHealth(scope === 'user' ? 'user' : 'admin');
     return res.json({
       success: true,
       data: {
-        provider: health?.provider || 'ollama',
+        provider: health?.provider || 'scrolitha',
+        runtime: (health as any)?.runtime || 'core',
         enabled: Boolean(health?.enabled),
         host: health?.host || null,
         model: asScrolithaModelLabel(health?.model),
         models: Array.isArray((health as any)?.models) ? (health as any).models : [],
         modelPresent: Boolean((health as any)?.modelPresent),
         autoPulled: Boolean((health as any)?.autoPulled),
+        status: (health as any)?.status || null,
+        note: (health as any)?.note || null,
+        warning: (health as any)?.warning || null,
         error: (health as any)?.error || null
       },
       message: 'Scrolitha model list loaded'

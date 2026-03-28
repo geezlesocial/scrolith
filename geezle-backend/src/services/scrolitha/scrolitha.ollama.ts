@@ -7,8 +7,11 @@ export type OllamaChatMessage = {
 };
 
 export type ScrolithaLlmRuntime = {
-  provider: 'ollama' | 'disabled';
+  provider: 'core' | 'ollama' | 'disabled';
   enabled: boolean;
+  runtimeConfigured: boolean;
+  acceleratorActive: boolean;
+  status: 'operational' | 'accelerated' | 'degraded' | 'disabled';
   host: string;
   model: string;
   maxTokens: number;
@@ -146,8 +149,18 @@ const mergeRuntime = (base: ScrolithaLlmRuntime, override: Record<string, any>):
   const model = pickString(override.ollamaModel, override.model, base.model);
 
   return {
-    provider: provider === 'disabled' ? 'disabled' : base.provider,
+    provider:
+      provider === 'disabled'
+        ? 'disabled'
+        : provider === 'ollama'
+          ? 'ollama'
+          : provider === 'core' || provider === 'scrolitha'
+            ? 'core'
+            : base.provider,
     enabled,
+    runtimeConfigured: base.runtimeConfigured,
+    acceleratorActive: base.acceleratorActive,
+    status: base.status,
     host: normalizeHost(host),
     model: String(model || '').trim(),
     maxTokens: Math.max(32, Math.min(8192, Math.floor(asNumber(override.maxTokens, base.maxTokens)))),
@@ -164,15 +177,18 @@ const mergeRuntime = (base: ScrolithaLlmRuntime, override: Record<string, any>):
 };
 
 export const resolveScrolithaLlmRuntime = async (scope: ScrolithaScope): Promise<ScrolithaLlmRuntime> => {
-  const envProvider = String(process.env.SCROLITHA_PROVIDER || 'ollama').trim().toLowerCase();
+  const envProvider = String(process.env.SCROLITHA_PROVIDER || 'core').trim().toLowerCase();
   const envHost = normalizeHost(String(process.env.SCROLITHA_OLLAMA_HOST || '').trim());
   const envModel = String(process.env.SCROLITHA_OLLAMA_MODEL || '').trim();
 
   const base: ScrolithaLlmRuntime = {
-    provider: envProvider === 'disabled' ? 'disabled' : 'ollama',
+    provider: envProvider === 'disabled' ? 'disabled' : envProvider === 'ollama' ? 'ollama' : 'core',
     enabled: true,
+    runtimeConfigured: false,
+    acceleratorActive: false,
+    status: 'operational',
     host: envHost,
-    model: envModel || 'llama3.1',
+    model: envProvider === 'ollama' ? envModel || 'llama3.1' : envModel || 'scrolitha-core',
     maxTokens: Math.max(32, Math.min(8192, Math.floor(asNumber(process.env.SCROLITHA_MAX_TOKENS, 1024)))),
     temperature: Math.max(0, Math.min(2, asNumber(process.env.SCROLITHA_TEMPERATURE, 0.7))),
     topP: Math.max(0, Math.min(1, asNumber(process.env.SCROLITHA_TOP_P, 0.9))),
@@ -193,9 +209,12 @@ export const resolveScrolithaLlmRuntime = async (scope: ScrolithaScope): Promise
 
   const hostConfigured = Boolean(runtime.host);
   const modelConfigured = Boolean(runtime.model);
-  const enabled = runtime.provider === 'ollama' && runtime.enabled && hostConfigured && modelConfigured;
+  const runtimeConfigured = runtime.provider === 'ollama' && runtime.enabled && hostConfigured && modelConfigured;
+  const enabled = runtime.provider !== 'disabled' && runtime.enabled;
+  const acceleratorActive = runtime.provider === 'ollama' && runtimeConfigured;
+  const status = !enabled ? 'disabled' : acceleratorActive ? 'accelerated' : 'operational';
 
-  return { ...runtime, enabled };
+  return { ...runtime, enabled, runtimeConfigured, acceleratorActive, status };
 };
 
 const withTimeout = async <T>(fn: (signal: AbortSignal) => Promise<T>, timeoutMs: number) => {
@@ -294,16 +313,50 @@ export const ollamaListModels = async (host: string, timeoutMs = 8000): Promise<
     .sort((a: string, b: string) => a.localeCompare(b));
 };
 
-export const getScrolithaOllamaHealth = async (scope: ScrolithaScope) => {
+export const getScrolithaRuntimeHealth = async (scope: ScrolithaScope) => {
   const runtime = await resolveScrolithaLlmRuntime(scope);
   if (!runtime.enabled) {
     return {
       ok: false,
-      provider: runtime.provider,
+      provider: 'scrolitha',
+      runtime: runtime.provider,
       enabled: false,
+      status: 'disabled',
       host: runtime.host || null,
       model: runtime.model || null,
-      error: 'Ollama runtime is not configured/enabled'
+      error: 'Scrolitha is disabled by configuration.'
+    };
+  }
+
+  if (runtime.provider === 'core') {
+    return {
+      ok: true,
+      provider: 'scrolitha',
+      runtime: 'core',
+      enabled: true,
+      status: 'operational',
+      host: null,
+      model: runtime.model || 'scrolitha-core',
+      models: [],
+      modelPresent: true,
+      autoPulled: false,
+      note: 'Scrolitha Core is active. Ollama is optional and can be enabled as an accelerator.'
+    };
+  }
+
+  if (!runtime.runtimeConfigured) {
+    return {
+      ok: true,
+      provider: 'scrolitha',
+      runtime: 'ollama',
+      enabled: true,
+      status: 'degraded',
+      host: runtime.host || null,
+      model: runtime.model || 'llama3.1',
+      models: [],
+      modelPresent: false,
+      autoPulled: false,
+      warning: 'Ollama accelerator is not configured. Scrolitha Core remains active and will serve requests.'
     };
   }
 
@@ -320,23 +373,36 @@ export const getScrolithaOllamaHealth = async (scope: ScrolithaScope) => {
     }
 
     return {
-      ok: modelPresent,
-      provider: runtime.provider,
+      ok: true,
+      provider: 'scrolitha',
+      runtime: 'ollama',
       enabled: true,
+      status: modelPresent ? 'accelerated' : 'degraded',
       host: runtime.host,
       model: runtime.model,
       models,
       modelPresent,
-      autoPulled
+      autoPulled,
+      ...(modelPresent
+        ? {
+            note: 'Scrolitha is running with the Ollama accelerator.'
+          }
+        : {
+            warning: 'Ollama is reachable, but the selected model is not ready yet. Scrolitha Core remains active.'
+          })
     };
   } catch (error: any) {
     return {
-      ok: false,
-      provider: runtime.provider,
+      ok: true,
+      provider: 'scrolitha',
+      runtime: 'ollama',
       enabled: true,
+      status: 'degraded',
       host: runtime.host,
       model: runtime.model,
-      error: String(error?.message || 'Health check failed')
+      warning: `Ollama health check failed. Scrolitha Core remains active. ${String(
+        error?.message || 'Health check failed'
+      )}`
     };
   }
 };

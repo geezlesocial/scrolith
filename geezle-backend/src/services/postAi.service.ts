@@ -108,6 +108,48 @@ const safePreview = (value: unknown, max = 250) => {
   return text.length <= max ? text : `${text.slice(0, max - 1)}...`;
 };
 
+const ensureSentence = (value: string) => {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+};
+
+const fallbackEnhanceText = (text: string, mode: PostEnhanceMode) => {
+  const normalized = String(text || '').replace(/\r\n/g, '\n').trim();
+  if (!normalized) return '';
+
+  if (mode === 'shorten') {
+    const condensed = normalized
+      .split(/\n+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .join(' ');
+    return ensureSentence(condensed.length > 240 ? `${condensed.slice(0, 237).trim()}...` : condensed);
+  }
+
+  if (mode === 'expand') {
+    return `${ensureSentence(normalized)}\n\nKey outcome: make the value, timeline, and next step clear for the reader.`;
+  }
+
+  if (mode === 'professional') {
+    return ensureSentence(normalized).replace(/\bi'm\b/gi, 'I am');
+  }
+
+  return ensureSentence(normalized);
+};
+
+const fallbackInsightText = (text: string, tone: string, maxLength: number) => {
+  const preview = safePreview(text, Math.max(80, maxLength - 32));
+  const lead =
+    String(tone || '').toLowerCase() === 'professional'
+      ? 'Professional insight:'
+      : String(tone || '').toLowerCase() === 'friendly'
+        ? 'Friendly insight:'
+        : 'Insight:';
+  const value = ensureSentence(`${lead} ${preview}`);
+  return value.length > maxLength ? `${value.slice(0, maxLength - 3).trim()}...` : value;
+};
+
 const runOllamaText = async (input: {
   scope: ScrolithaScope;
   systemPrompt: string;
@@ -115,8 +157,11 @@ const runOllamaText = async (input: {
   maxTokens?: number;
 }) => {
   const runtime = await resolveScrolithaLlmRuntime(input.scope);
-  if (!runtime.enabled) {
-    throw new Error('Scrolitha (Ollama) is not configured');
+  if (!runtime.enabled || runtime.provider === 'disabled') {
+    throw new Error('Scrolitha is disabled');
+  }
+  if (runtime.provider !== 'ollama' || !runtime.runtimeConfigured) {
+    throw new Error('Scrolitha Ollama accelerator is not configured');
   }
 
   const result = await ollamaChat({
@@ -184,12 +229,20 @@ export const enhancePostDraftWithAi = async (input: {
       : 'Return only the improved text, without commentary.'
   ].join('\n');
 
-  const response = await runOllamaText({
-    scope,
-    systemPrompt,
-    userPrompt: text,
-    maxTokens: 420
-  });
+  let response;
+  try {
+    response = await runOllamaText({
+      scope,
+      systemPrompt,
+      userPrompt: text,
+      maxTokens: 420
+    });
+  } catch {
+    response = {
+      text: fallbackEnhanceText(text, mode),
+      model: 'scrolitha-core'
+    };
+  }
 
   return {
     enhancedText: response.text,
@@ -227,12 +280,20 @@ export const generatePostInsightText = async (input: {
       : 'Output only the insight sentence(s).'
   ].join('\n');
 
-  const response = await runOllamaText({
-    scope,
-    systemPrompt,
-    userPrompt: text,
-    maxTokens: 260
-  });
+  let response;
+  try {
+    response = await runOllamaText({
+      scope,
+      systemPrompt,
+      userPrompt: text,
+      maxTokens: 260
+    });
+  } catch {
+    response = {
+      text: fallbackInsightText(text, tone, maxLength),
+      model: 'scrolitha-core'
+    };
+  }
 
   let insight = response.text.replace(/\s+/g, ' ').trim();
   if (insight.length > maxLength) {

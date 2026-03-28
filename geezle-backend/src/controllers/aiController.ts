@@ -52,8 +52,11 @@ const getSafety = (aiConfig: any) => ({
 
 const askScrolithaOllama = async (prompt: string, options?: { system?: string }) => {
   const runtime = await resolveScrolithaLlmRuntime('user');
-  if (!runtime.enabled) {
-    throw new Error('Scrolitha (Ollama) is not configured');
+  if (!runtime.enabled || runtime.provider === 'disabled') {
+    throw new Error('Scrolitha is disabled');
+  }
+  if (runtime.provider !== 'ollama' || !runtime.runtimeConfigured) {
+    throw new Error('Scrolitha Ollama accelerator is not configured');
   }
 
   const messages = options?.system
@@ -278,6 +281,28 @@ const buildScrolithaFallbackGuide = (payload: any) => {
   ].join('\n');
 };
 
+const buildScrolithaSupportFallbackReply = (payload: { message?: unknown; role?: unknown }) => {
+  const message = cleanInlineText(payload.message || 'I need support using Scrolith.');
+  const role = cleanInlineText(payload.role || 'Guest');
+  const bundle = getScrolithaKnowledgeBundle();
+
+  return [
+    `Scrolitha Support Summary`,
+    `Role: ${role}`,
+    `Request: ${message}`,
+    '',
+    formatBulletSection('Recommended next steps', [
+      'Clarify the exact page, feature, or workflow where the issue started.',
+      'Keep actions, screenshots, and recent error details ready so support can reproduce the problem quickly.',
+      'Use the Scrolith support center if you need account-specific help, order assistance, or policy review.'
+    ]),
+    '',
+    formatBulletSection('What Scrolith can help with', bundle.coreServices.slice(0, 3)),
+    '',
+    'If the issue involves account data or a protected workflow, sign in and contact support so the team can review the case securely.'
+  ].join('\n');
+};
+
 export const getAIConfig = async (_req: Request, res: Response) => {
   try {
     const aiConfig = await getSystemAiConfig();
@@ -286,7 +311,9 @@ export const getAIConfig = async (_req: Request, res: Response) => {
       providers: {
         scrolitha: {
           enabled: Boolean(runtime.enabled),
-          provider: 'ollama',
+          provider: 'scrolitha',
+          runtime: runtime.provider,
+          status: runtime.status,
           model: SCROLITHA_MODEL_LABEL
         },
         google: {
@@ -305,7 +332,10 @@ export const getAIConfig = async (_req: Request, res: Response) => {
       },
       scrolitha: {
         enabled: Boolean(runtime.enabled),
-        provider: runtime.provider,
+        provider: 'scrolitha',
+        runtime: runtime.provider,
+        status: runtime.status,
+        acceleratorActive: Boolean(runtime.acceleratorActive),
         model: SCROLITHA_MODEL_LABEL,
         allowGeminiFallback: Boolean(runtime.allowGeminiFallback)
       }
@@ -530,16 +560,28 @@ export const supportChat = async (req: Request, res: Response) => {
       ? `Conversation so far:\n${contextLines}\n\nUser: ${message}\nAgent:`
       : `User: ${message}\nAgent:`;
 
-    const result = await askScrolithaOllama(prompt, { system });
-    return res.json({
-      success: true,
-      data: {
-        provider: result.provider,
-        model: brandModelLabel(result.provider, result.model),
-        reply: result.text
-      },
-      message: 'Support reply ready'
-    });
+    try {
+      const result = await askScrolithaOllama(prompt, { system });
+      return res.json({
+        success: true,
+        data: {
+          provider: result.provider,
+          model: brandModelLabel(result.provider, result.model),
+          reply: result.text
+        },
+        message: 'Support reply ready'
+      });
+    } catch {
+      return res.json({
+        success: true,
+        data: {
+          provider: 'scrolitha',
+          model: SCROLITHA_MODEL_LABEL,
+          reply: buildScrolithaSupportFallbackReply({ message, role: userRole })
+        },
+        message: 'Support reply ready'
+      });
+    }
   } catch (error: any) {
     const msg = String(error?.message || 'AI request failed');
     const lower = msg.toLowerCase();

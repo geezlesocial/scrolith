@@ -1,5 +1,6 @@
 import prisma from '../../utils/prismaClient';
 import { incrementMinuteCounter, scrolithaCache } from './scrolitha.cache';
+import { getScrolithaKnowledgeBundle } from './scrolitha.knowledge';
 import type { ScrolithaActor, ScrolithaScope, ScrolithaToolDefinition } from './scrolitha.types';
 
 const CONFIG_CACHE_PREFIX = 'scrolitha:config:';
@@ -17,6 +18,52 @@ const DEFAULT_PROMPT_BLOCKLIST = [
   'environment variable'
 ];
 
+const buildDefaultMetadata = (scope: ScrolithaScope) => {
+  const knowledge = getScrolithaKnowledgeBundle();
+  const llm = {
+    enabled: true,
+    provider: 'core',
+    host: '',
+    ollamaHost: '',
+    model: scope === 'admin' ? 'scrolitha-admin-core' : 'scrolitha-core',
+    ollamaModel: 'llama3.1',
+    maxTokens: scope === 'admin' ? 1536 : 1024,
+    temperature: 0.35,
+    topP: 0.9,
+    timeoutMs: 45000,
+    enableStreaming: false,
+    allowGeminiFallback: false
+  };
+
+  const learning = { enabled: true };
+
+  const postAi = {
+    assistantEnabled: true,
+    insightEnabled: true,
+    randomPercentage: 15,
+    manualOnly: false,
+    maxInsightLength: 220,
+    insightSafeMode: false,
+    insightTone: 'professional',
+    rankingBoostEnabled: false,
+    regenerateBatchLimit: 40
+  };
+
+  if (scope === 'admin') {
+    return {
+      llm,
+      learning,
+      knowledge,
+      postAi
+    };
+  }
+
+  return {
+    llm,
+    learning
+  };
+};
+
 const DEFAULT_CONFIG = {
   user: {
     scope: 'user',
@@ -28,7 +75,7 @@ const DEFAULT_CONFIG = {
     promptBlocklist: DEFAULT_PROMPT_BLOCKLIST,
     userRateLimitPerMinute: 30,
     adminActionCapPerMinute: 10,
-    metadata: {}
+    metadata: buildDefaultMetadata('user')
   },
   admin: {
     scope: 'admin',
@@ -40,7 +87,7 @@ const DEFAULT_CONFIG = {
     promptBlocklist: DEFAULT_PROMPT_BLOCKLIST,
     userRateLimitPerMinute: 30,
     adminActionCapPerMinute: 10,
-    metadata: {}
+    metadata: buildDefaultMetadata('admin')
   }
 } as const;
 
@@ -98,10 +145,14 @@ const normalizeConfigRecord = (record: any, scope: ScrolithaScope) => {
     adminActionCapPerMinute: Number.isFinite(Number(record?.adminActionCapPerMinute))
       ? Math.max(1, Math.min(100, Math.floor(Number(record.adminActionCapPerMinute))))
       : fallback.adminActionCapPerMinute,
-    metadata:
-      record?.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata)
-        ? record.metadata
-        : {},
+    metadata: (() => {
+      const defaults = isPlainObject(fallback.metadata) ? (fallback.metadata as Record<string, any>) : {};
+      const source =
+        record?.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata)
+          ? (record.metadata as Record<string, any>)
+          : {};
+      return mergeMetadataObjects(defaults, source);
+    })(),
     createdAt: record?.createdAt,
     updatedAt: record?.updatedAt
   };

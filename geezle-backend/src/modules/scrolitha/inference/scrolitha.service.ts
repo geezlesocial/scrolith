@@ -58,7 +58,7 @@ export const ScrolithaService = {
     let provider = runtime.provider;
     let model = runtime.model || 'heuristic';
 
-    if (runtime.enabled && runtime.provider === 'ollama' && runtime.host && runtime.model) {
+    if (runtime.enabled && runtime.provider === 'ollama' && runtime.runtimeConfigured && runtime.host && runtime.model) {
       try {
         const response = await ollamaChat({
           host: runtime.host,
@@ -87,8 +87,8 @@ export const ScrolithaService = {
     }
 
     if (!text) {
-      provider = 'disabled';
-      model = 'heuristic-fallback';
+      provider = runtime.enabled ? 'core' : 'disabled';
+      model = runtime.enabled ? 'scrolitha-core' : 'heuristic-fallback';
       text = `Draft suggestion:\n${prompt}\n\nRefine this copy for clarity, outcomes, and professional tone before publishing.`;
     }
 
@@ -130,4 +130,3 @@ export const ScrolithaService = {
     return { score, riskLevel };
   }
 };
-
