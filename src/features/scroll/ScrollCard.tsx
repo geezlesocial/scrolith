@@ -8,15 +8,17 @@ import {
   Send,
   Coins,
   Flag,
-  Maximize2,
   Sparkles,
   Pencil,
-  Trash2
+  Trash2,
+  MoreHorizontal,
+  Maximize2
 } from 'lucide-react';
 import type { ScrollEngagementType, ScrollVideo } from '../../services/scroll';
 import ExpandablePreviewText from '../../components/common/ExpandablePreviewText';
 import ContentOfferTags from '../../components/commerce/ContentOfferTags';
 import ReactionBar from '../../community/components/ReactionBar';
+import FollowButton from '../../community/components/FollowButton';
 import { ReactionsService } from '../../services/reactions';
 import { useUser } from '../../context/UserContext';
 import { resolveInlineMedia } from '../../utils/inlineMedia';
@@ -50,6 +52,8 @@ const formatGcoin = (value: number) => {
   return `${safe}`;
 };
 
+const TOUCH_CONTROL_HIDE_DELAY_MS = 20000;
+
 const ScrollCard: React.FC<ScrollCardProps> = ({
   scroll,
   isActive,
@@ -74,7 +78,12 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const marksRef = useRef<Record<string, boolean>>({});
   const mediaGestureStartRef = useRef<{ x: number; y: number } | null>(null);
   const mediaLastTapAtRef = useRef(0);
+  const controlsHideTimerRef = useRef<number | null>(null);
+  const ownerMenuRef = useRef<HTMLDivElement | null>(null);
   const [graphicRevealed, setGraphicRevealed] = useState(false);
+  const [touchOverlayMode, setTouchOverlayMode] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [ownerMenuOpen, setOwnerMenuOpen] = useState(false);
 
   useEffect(() => {
     marksRef.current = {};
@@ -83,6 +92,87 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   useEffect(() => {
     setGraphicRevealed(false);
   }, [scroll.id]);
+
+  const clearControlsHideTimer = useCallback(() => {
+    if (controlsHideTimerRef.current !== null) {
+      window.clearTimeout(controlsHideTimerRef.current);
+      controlsHideTimerRef.current = null;
+    }
+  }, []);
+
+  const revealControls = useCallback(() => {
+    if (!touchOverlayMode) return;
+    setControlsVisible(true);
+  }, [touchOverlayMode]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const mediaQuery = window.matchMedia('(hover: none), (pointer: coarse)');
+    const syncTouchOverlayMode = () => {
+      const nextTouchOverlayMode = Boolean(mediaQuery.matches);
+      setTouchOverlayMode(nextTouchOverlayMode);
+      setControlsVisible(!nextTouchOverlayMode);
+      setOwnerMenuOpen(false);
+    };
+
+    syncTouchOverlayMode();
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', syncTouchOverlayMode);
+    } else if (typeof mediaQuery.addListener === 'function') {
+      mediaQuery.addListener(syncTouchOverlayMode);
+    }
+
+    return () => {
+      if (typeof mediaQuery.removeEventListener === 'function') {
+        mediaQuery.removeEventListener('change', syncTouchOverlayMode);
+      } else if (typeof mediaQuery.removeListener === 'function') {
+        mediaQuery.removeListener(syncTouchOverlayMode);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    setOwnerMenuOpen(false);
+    setControlsVisible(!touchOverlayMode);
+  }, [scroll.id, touchOverlayMode]);
+
+  useEffect(() => {
+    clearControlsHideTimer();
+    if (!touchOverlayMode || !controlsVisible || ownerMenuOpen) return;
+
+    controlsHideTimerRef.current = window.setTimeout(() => {
+      setControlsVisible(false);
+    }, TOUCH_CONTROL_HIDE_DELAY_MS);
+
+    return clearControlsHideTimer;
+  }, [clearControlsHideTimer, controlsVisible, ownerMenuOpen, touchOverlayMode]);
+
+  useEffect(() => clearControlsHideTimer, [clearControlsHideTimer]);
+
+  useEffect(() => {
+    if (!ownerMenuOpen) return;
+
+    const handlePointerDownOutside = (event: MouseEvent | TouchEvent) => {
+      if (ownerMenuRef.current?.contains(event.target as Node)) return;
+      setOwnerMenuOpen(false);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOwnerMenuOpen(false);
+    };
+
+    document.addEventListener('mousedown', handlePointerDownOutside);
+    document.addEventListener('touchstart', handlePointerDownOutside);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDownOutside);
+      document.removeEventListener('touchstart', handlePointerDownOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [ownerMenuOpen]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -215,6 +305,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const secondaryLine = title && description ? description : '';
   const dashGcoinTotal = Number(scroll.dashGcoinTotal ?? scroll.metrics?.dashGcoinTotal ?? 0);
   const tagCount = Array.isArray(scroll.tags) ? scroll.tags.length : 0;
+  const overlayControlsVisible = !touchOverlayMode || controlsVisible || ownerMenuOpen;
   const mediaFilterStyle = useMemo(() => {
     const strength = Math.max(0, Math.min(100, Number(scroll.filterStrength ?? 60))) / 100;
     const preset = String(scroll.filterPreset || 'none').toLowerCase();
@@ -252,6 +343,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
       className="relative h-screen w-full snap-start bg-black text-white overflow-hidden"
       aria-label={`Scroll by ${authorName}`}
       onTouchStart={(event) => {
+        revealControls();
         const target = event.target as HTMLElement | null;
         if (target?.closest('button, a, input, textarea, select, label')) {
           mediaGestureStartRef.current = null;
@@ -335,8 +427,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
 
       <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/80 via-black/20 to-black/40" />
 
-      <div className="pointer-events-none absolute left-4 right-4 top-4 z-30 flex items-center justify-between">
-        <div className="pointer-events-auto flex items-center gap-3">
+      <div className="pointer-events-none absolute left-4 right-4 top-4 z-30 flex items-start justify-between gap-3">
+        <div className="pointer-events-auto flex items-start gap-3">
           <div className="h-10 w-10 rounded-full bg-white/15 ring-2 ring-white/70 overflow-hidden flex items-center justify-center text-sm font-semibold">
             {scroll.author?.avatar ? (
               <img src={scroll.author.avatar} alt={authorName} className="h-full w-full object-cover" />
@@ -344,70 +436,127 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               <span>{authorInitial(authorName)}</span>
             )}
           </div>
-          <div>
-            <p className="text-sm font-semibold leading-tight">{authorName}</p>
-            <p className="text-xs text-white/80">{scroll.author?.username ? `@${scroll.author.username}` : 'Scrolith'}</p>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold leading-tight">{authorName}</p>
+            <div className="mt-0.5 flex flex-wrap items-center gap-2">
+              <p className="truncate text-xs text-white/80">{scroll.author?.username ? `@${scroll.author.username}` : 'Scrolith'}</p>
+              {scroll.isAIEnhanced ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] font-semibold text-cyan-100 ring-1 ring-cyan-300/40">
+                  <Sparkles className="h-3 w-3" />
+                  AI
+                </span>
+              ) : null}
+              {scroll.graphicWarning ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-semibold text-amber-100 ring-1 ring-amber-300/40">
+                  <AlertTriangle className="h-3 w-3" />
+                  Graphic warning
+                </span>
+              ) : null}
+            </div>
+            <div
+              className={`mt-2 transition-all duration-300 ${
+                touchOverlayMode
+                  ? overlayControlsVisible
+                    ? 'max-h-10 opacity-100'
+                    : 'max-h-0 overflow-hidden opacity-0 pointer-events-none'
+                  : ''
+              }`}
+            >
+              <FollowButton
+                targetUserId={scroll.author?.id}
+                currentUserId={user?.id}
+                className="h-7 border-white/15 bg-white/10 px-2.5 text-[11px] text-white shadow-sm backdrop-blur-sm hover:bg-white/20 hover:text-white"
+              />
+            </div>
           </div>
-          {scroll.isAIEnhanced ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] font-semibold text-cyan-100 ring-1 ring-cyan-300/40">
-              <Sparkles className="h-3 w-3" />
-              AI
-            </span>
-          ) : null}
-          {scroll.graphicWarning ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-semibold text-amber-100 ring-1 ring-amber-300/40">
-              <AlertTriangle className="h-3 w-3" />
-              Graphic warning
-            </span>
-          ) : null}
         </div>
 
-        <div className="pointer-events-auto flex items-center gap-2">
-          {scroll.canEdit ? (
-            <button
-              type="button"
-              onClick={() => onEdit(scroll)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
-              aria-label="Edit scroll"
-            >
-              <Pencil className="h-4.5 w-4.5" />
-            </button>
-          ) : null}
-          {scroll.canDelete ? (
-            <button
-              type="button"
-              onClick={() => onDelete(scroll)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-rose-950/65 text-rose-100 hover:bg-rose-900/80 transition"
-              aria-label="Delete scroll"
-            >
-              <Trash2 className="h-4.5 w-4.5" />
-            </button>
-          ) : null}
+        <div
+          className={`pointer-events-auto flex items-center gap-2 transition-all duration-300 ${
+            overlayControlsVisible ? 'translate-y-0 opacity-100' : '-translate-y-2 opacity-0 pointer-events-none'
+          }`}
+        >
           <button
             type="button"
-            onClick={handleExpand}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
-            aria-label="Expand video"
-          >
-            <Maximize2 className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            onClick={onToggleMute}
+            onClick={() => {
+              revealControls();
+              onToggleMute();
+            }}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
             aria-label={muted ? 'Unmute' : 'Mute'}
           >
             {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
           </button>
+          <div ref={ownerMenuRef} className="relative">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                revealControls();
+                setOwnerMenuOpen((current) => !current);
+              }}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
+              aria-label="Open scroll actions"
+              aria-expanded={ownerMenuOpen}
+            >
+              <MoreHorizontal className="h-5 w-5" />
+            </button>
+            {ownerMenuOpen ? (
+              <div className="absolute right-0 top-12 min-w-[180px] overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 p-1.5 text-sm text-white shadow-[0_24px_64px_-24px_rgba(15,23,42,0.95)] backdrop-blur-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOwnerMenuOpen(false);
+                    void handleExpand();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-white/90 transition hover:bg-white/10"
+                >
+                  <Maximize2 className="h-4 w-4" />
+                  View fullscreen
+                </button>
+                {scroll.canEdit ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOwnerMenuOpen(false);
+                      void onEdit(scroll);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-white/90 transition hover:bg-white/10"
+                  >
+                    <Pencil className="h-4 w-4" />
+                    Edit scroll
+                  </button>
+                ) : null}
+                {scroll.canDelete ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOwnerMenuOpen(false);
+                      void onDelete(scroll);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-rose-200 transition hover:bg-rose-500/15"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete scroll
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      <div className="absolute right-2.5 top-1/2 z-30 pointer-events-auto flex -translate-y-1/2 flex-col items-center gap-1.5 sm:right-3">
+      <div
+        className={`absolute right-2.5 top-1/2 z-30 pointer-events-auto flex -translate-y-1/2 flex-col items-center gap-1.5 transition-all duration-300 sm:right-3 ${
+          overlayControlsVisible ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0 pointer-events-none'
+        }`}
+      >
         <ReactionBar
           targetType="SCROLL"
           targetId={scroll.id}
           layout="rail"
-          className="w-[68px]"
+          className="w-[60px] sm:w-[68px]"
           compact
           railVariant="launcher"
           railLauncherLabel="Reaction"
@@ -415,34 +564,50 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         {rightActions.map((action) => (
           <OverlayActionRailButton
             key={action.key}
-            onClick={action.onClick}
+            onClick={() => {
+              revealControls();
+              void action.onClick();
+            }}
             icon={action.icon}
             label={action.label}
+            className="min-h-[42px] min-w-[58px] rounded-[18px] sm:min-h-[46px] sm:min-w-[64px] sm:rounded-2xl"
           />
         ))}
         <OverlayActionRailButton
-          onClick={() => onShareToStory(scroll)}
+          onClick={() => {
+            revealControls();
+            void onShareToStory(scroll);
+          }}
           icon={Sparkles}
           label="Story"
+          className="min-h-[42px] min-w-[58px] rounded-[18px] sm:min-h-[46px] sm:min-w-[64px] sm:rounded-2xl"
         />
         <OverlayActionRailButton
-          onClick={() => onReport(scroll)}
+          onClick={() => {
+            revealControls();
+            void onReport(scroll);
+          }}
           icon={Flag}
           label="Report"
           danger
+          className="min-h-[42px] min-w-[58px] rounded-[18px] sm:min-h-[46px] sm:min-w-[64px] sm:rounded-2xl"
         />
       </div>
 
-      <div className="pointer-events-none absolute inset-x-4 bottom-5 z-20 pr-[76px] sm:pr-[88px]">
+      <div
+        className={`pointer-events-none absolute inset-x-4 bottom-5 z-20 transition-all duration-300 ${
+          touchOverlayMode && !overlayControlsVisible ? 'pr-0' : 'pr-[76px] sm:pr-[88px]'
+        }`}
+      >
         <div className="w-full max-w-[min(44rem,100%)] space-y-2">
-          <div className="inline-flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-[11px] font-semibold text-white/85 shadow-[0_12px_36px_-24px_rgba(15,23,42,0.9)] backdrop-blur-md">
+          <div className="pointer-events-auto inline-flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-[11px] font-semibold text-white/85 shadow-[0_12px_36px_-24px_rgba(15,23,42,0.9)] backdrop-blur-md">
             <span>{Number(scroll.metrics.likes || 0)} likes</span>
             <span>{Number(scroll.metrics.comments || 0)} comments</span>
             <span>{Number(scroll.metrics.reposts || 0)} reposts</span>
             <span>{Number(scroll.metrics.sends || 0)} sends</span>
             <span>{formatGcoin(dashGcoinTotal)} GC dashed</span>
           </div>
-          <div className="rounded-[24px] border border-white/10 bg-black/34 px-3.5 py-3 text-white shadow-[0_18px_48px_-28px_rgba(15,23,42,0.95)] backdrop-blur-md">
+          <div className="pointer-events-auto rounded-[24px] border border-white/10 bg-black/34 px-3.5 py-3 text-white shadow-[0_18px_48px_-28px_rgba(15,23,42,0.95)] backdrop-blur-md">
             <ExpandablePreviewText
               text={headlineLine}
               limit={headlinePreviewLimit}
