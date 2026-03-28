@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../../../services/scrolitha/scrolitha.audit';
+import { buildEmptyCareerStreakSummary, getCareerStreakSummary } from '../services/careerStreak.service';
 import {
   completeUserQuest,
   generateOpportunityBriefMatches,
@@ -28,6 +29,7 @@ const INSIGHTS_SCHEMA_TOKENS = [
   'questcatalog',
   'userquest',
   'questcompletionlog',
+  'careerdailyaction',
   'professionalscore',
   'insightevent',
   'weeklyleaderboard',
@@ -81,7 +83,8 @@ const fallbackStreak = (userId: string) => ({
   bestStreakDays: 0,
   lastActiveDate: null,
   createdAt: null,
-  updatedAt: null
+  updatedAt: null,
+  careerDaily: buildEmptyCareerStreakSummary(userId)
 });
 
 const fallbackRevenue = () => ({
@@ -139,10 +142,14 @@ export const getMyStreakController = async (req: Request, res: Response) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
-    const data = await getUserStreak(userId);
+    const [streak, careerDaily] = await Promise.all([getUserStreak(userId), getCareerStreakSummary(userId)]);
+    const data = {
+      ...streak,
+      careerDaily
+    };
     return res.json({ success: true, data, message: 'Streak loaded' });
   } catch (error) {
-    if (isInsightsSchemaUnavailable(error, ['userstreak'])) {
+    if (isInsightsSchemaUnavailable(error, ['userstreak', 'careerdailyaction'])) {
       const userId = getUserId(req);
       return res.json({ success: true, data: fallbackStreak(userId || ''), message: 'Streak loaded' });
     }

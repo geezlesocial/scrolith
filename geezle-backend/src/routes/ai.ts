@@ -9,7 +9,7 @@ import {
   postInsight,
   supportChat
 } from '../controllers/aiController';
-import { authMiddleware } from '../middleware/auth.middleware';
+import { authMiddleware, optionalAuthMiddleware } from '../middleware/auth.middleware';
 
 const router = express.Router();
 
@@ -19,11 +19,11 @@ router.get('/health', (_req, res) => {
 });
 
 router.get('/config', getAIConfig);
-router.post('/answer', answerQuestion);
-router.post('/guide', generateGuide);
-router.post('/scrolitha-answer', answerQuestionWithScrolitha);
-router.post('/scrolitha-guide', generateGuideWithScrolitha);
-router.post('/support-chat', supportChat);
+router.post('/answer', optionalAuthMiddleware, answerQuestion);
+router.post('/guide', optionalAuthMiddleware, generateGuide);
+router.post('/scrolitha-answer', optionalAuthMiddleware, answerQuestionWithScrolitha);
+router.post('/scrolitha-guide', optionalAuthMiddleware, generateGuideWithScrolitha);
+router.post('/support-chat', optionalAuthMiddleware, supportChat);
 router.post('/post-enhance', authMiddleware, postEnhance);
 router.post('/post-insight', authMiddleware, postInsight);
 

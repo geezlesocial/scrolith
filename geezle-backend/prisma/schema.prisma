@@ -175,6 +175,7 @@ model User {
   insightEvents             InsightEvent[]
   insightAchievements       UserAchievement[]
   insightStreak             UserStreak?
+  careerDailyActions        CareerDailyAction[]
   opportunityMatches        OpportunityMatch[]
   postPredictionsAuthored   PostPrediction[]      @relation("PostPredictionAuthor")
   aiCopilotLogs             AICopilotLog[]
@@ -888,6 +889,24 @@ model UserStreak {
 
   @@index([currentStreakDays])
   @@index([updatedAt])
+}
+
+model CareerDailyAction {
+  id         String   @id @default(cuid())
+  userId     String
+  actionType String
+  actionDate DateTime
+  sourceType String?
+  sourceId   String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, actionType, actionDate])
+  @@index([userId, actionDate])
+  @@index([actionType, actionDate])
 }
 
 model OpportunityMatch {
@@ -3497,17 +3516,17 @@ model ScrollReport {
 }
 
 model ScrollPostingRestriction {
-  id              String   @id @default(cuid())
-  userId          String
-  reason          String
-  note            String?
-  startsAt        DateTime @default(now())
-  endsAt          DateTime
+  id               String    @id @default(cuid())
+  userId           String
+  reason           String
+  note             String?
+  startsAt         DateTime  @default(now())
+  endsAt           DateTime
   createdByAdminId String?
-  liftedAt        DateTime?
-  liftedByAdminId String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  liftedAt         DateTime?
+  liftedByAdminId  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([userId, endsAt])
   @@index([userId, liftedAt, endsAt])
@@ -3515,20 +3534,20 @@ model ScrollPostingRestriction {
 }
 
 model ScrollConfig {
-  id                         String   @id @default("default")
-  enabled                    Boolean  @default(true)
-  maxDurationSeconds         Int      @default(90)
-  aiLabelRequired            Boolean  @default(false)
-  autoModeration             Boolean  @default(false)
-  monetizationEnabled        Boolean  @default(true)
-  defaultVisibility          String   @default("public")
-  impressionThresholdSeconds Int      @default(2)
-  headlinePreviewCharacters  Int      @default(72)
-  descriptionPreviewCharacters Int    @default(120)
-  allowedFilterPresets       String[] @default(["none", "vibrant", "cinematic", "bw", "sepia", "warm"])
-  updatedById                String?
-  createdAt                  DateTime @default(now())
-  updatedAt                  DateTime @updatedAt
+  id                           String   @id @default("default")
+  enabled                      Boolean  @default(true)
+  maxDurationSeconds           Int      @default(90)
+  aiLabelRequired              Boolean  @default(false)
+  autoModeration               Boolean  @default(false)
+  monetizationEnabled          Boolean  @default(true)
+  defaultVisibility            String   @default("public")
+  impressionThresholdSeconds   Int      @default(2)
+  headlinePreviewCharacters    Int      @default(72)
+  descriptionPreviewCharacters Int      @default(120)
+  allowedFilterPresets         String[] @default(["none", "vibrant", "cinematic", "bw", "sepia", "warm"])
+  updatedById                  String?
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
 }
 
 model LiveSession {

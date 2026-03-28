@@ -30,6 +30,7 @@ export const emitInsightsEvent = (
     | 'insights:pgs_updated'
     | 'insights:achievement_unlocked'
     | 'insights:streak_updated'
+    | 'insights:career_daily_updated'
     | 'insights:quests_assigned'
     | 'insights:quests_progress'
     | 'insights:quests_completed'
