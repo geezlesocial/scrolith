@@ -24,6 +24,7 @@ import { CommunityService } from '../../../services/community';
 import { FileService } from '../../../services/files';
 import { ScrollService, type ScrollConfig, type ScrollVideo } from '../../../services/scroll';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../../community/storyStyles';
+import FollowButton from '../../../community/components/FollowButton';
 import { UploadedFile } from '../../../types';
 import ScrollCreateModal from '../../../features/scroll/ScrollCreateModal';
 import ExpandablePreviewText from '../../../components/common/ExpandablePreviewText';
@@ -45,6 +46,7 @@ type StoryKind = 'text' | 'image' | 'video';
 type StoryVisibility = 'public' | 'private';
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const STORY_CONTROL_HIDE_DELAY_MS = 20000;
 
 const normalizeVisibility = (value: any): StoryVisibility => {
   const raw = String(value || '').trim().toLowerCase();
@@ -1630,11 +1632,15 @@ function StoryViewer({
   storyBusy: boolean;
   autoplayEnabled: boolean;
 }) {
+  const navigate = useNavigate();
   const { showNotification } = useNotification();
   const [actionsOpen, setActionsOpen] = useState(false);
   const [muted, setMuted] = useState(true);
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
+  const [touchOverlayMode, setTouchOverlayMode] = useState(false);
+  const [overlayVisible, setOverlayVisible] = useState(true);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const overlayHideTimerRef = useRef<number | null>(null);
   const lastTapAtRef = useRef(0);
 
   const name = resolveStoryAuthorName(story, 'Story');
@@ -1644,13 +1650,56 @@ function StoryViewer({
   const content = resolveStoryContent(story);
   const canManage = canManageStory(story, viewer);
   const style = getStoryTextStyle(story);
+  const ownerId = resolveStoryOwnerId(story);
+  const initialIsFollowing =
+    typeof story?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(story.viewer.isFollowingAuthor) : undefined;
   const activeIndex = story?.id ? stories.findIndex((entry) => String(entry?.id) === String(story.id)) : -1;
   const hasPrev = activeIndex > 0;
   const hasNext = activeIndex >= 0 && activeIndex < stories.length - 1;
+  const overlayShouldShow = !touchOverlayMode || overlayVisible;
 
   useEffect(() => {
     setImageLoadFailed(false);
   }, [story?.id, media.url]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(hover: none), (pointer: coarse)');
+    const sync = () => setTouchOverlayMode(query.matches);
+    sync();
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', sync);
+      return () => query.removeEventListener('change', sync);
+    }
+    query.addListener(sync);
+    return () => query.removeListener(sync);
+  }, []);
+
+  useEffect(() => {
+    setOverlayVisible(!touchOverlayMode);
+  }, [story?.id, touchOverlayMode]);
+
+  useEffect(() => {
+    if (overlayHideTimerRef.current) {
+      window.clearTimeout(overlayHideTimerRef.current);
+      overlayHideTimerRef.current = null;
+    }
+    if (!story?.id || !touchOverlayMode || !overlayVisible) return;
+    overlayHideTimerRef.current = window.setTimeout(() => {
+      setOverlayVisible(false);
+    }, STORY_CONTROL_HIDE_DELAY_MS);
+    return () => {
+      if (overlayHideTimerRef.current) {
+        window.clearTimeout(overlayHideTimerRef.current);
+        overlayHideTimerRef.current = null;
+      }
+    };
+  }, [story?.id, overlayVisible, touchOverlayMode]);
+
+  const revealOverlay = () => {
+    if (!touchOverlayMode) return;
+    setOverlayVisible(true);
+  };
 
   const goToOffset = (offset: number) => {
     if (activeIndex < 0) return;
@@ -1681,67 +1730,93 @@ function StoryViewer({
   };
 
   return (
-    <div className="fixed inset-0 z-[950] bg-black">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="h-9 w-9 overflow-hidden rounded-full border border-white/20 bg-white/10">
-            {avatar ? (
-              <img src={avatar} alt={name} className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center text-xs font-semibold">
-                {(name[0] || 'S').toUpperCase()}
+    <div
+      className="fixed inset-0 z-[950] bg-black"
+      onPointerDownCapture={(event) => {
+        if (event.pointerType === 'touch') revealOverlay();
+      }}
+    >
+      <div
+        className={`overflow-hidden transition-all duration-300 ease-out ${
+          overlayShouldShow ? 'max-h-40 opacity-100' : 'pointer-events-none max-h-0 opacity-0'
+        }`}
+      >
+        <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="h-9 w-9 overflow-hidden rounded-full border border-white/20 bg-white/10">
+              {avatar ? (
+                <img src={avatar} alt={name} className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-xs font-semibold">
+                  {(name[0] || 'S').toUpperCase()}
+                </div>
+              )}
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold">{name}</div>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                {ownerId && String(ownerId) !== String(viewer?.id || '') ? (
+                  <FollowButton
+                    targetUserId={ownerId}
+                    currentUserId={viewer?.id}
+                    initialIsFollowing={initialIsFollowing}
+                    onRequireLogin={() => navigate('/auth/login')}
+                    className="h-7 border-white/30 bg-white/10 px-3 text-[11px] text-white hover:border-white/50 hover:bg-white/15"
+                  />
+                ) : null}
+                <div className="truncate text-[11px] text-white/70">
+                  {type === 'text' ? 'Text story' : type === 'video' ? 'Video story' : 'Photo story'}
+                </div>
               </div>
-            )}
-          </div>
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">{name}</div>
-            <div className="truncate text-[11px] text-white/70">
-              {type === 'text' ? 'Text story' : type === 'video' ? 'Video story' : 'Photo story'}
             </div>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          {media.url ? (
+          <div className="flex items-center gap-2">
+            {media.url ? (
+              <button
+                type="button"
+                onClick={() => void handleDownload()}
+                className="rounded-full border border-white/20 bg-white/10 p-2"
+                aria-label="Download story"
+              >
+                <Download className="h-5 w-5" />
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={() => void handleDownload()}
+              onClick={() => setMuted((prev) => !prev)}
               className="rounded-full border border-white/20 bg-white/10 p-2"
-              aria-label="Download story"
+              aria-label={muted ? 'Unmute story' : 'Mute story'}
             >
-              <Download className="h-5 w-5" />
+              {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => setMuted((prev) => !prev)}
-            className="rounded-full border border-white/20 bg-white/10 p-2"
-            aria-label={muted ? 'Unmute story' : 'Mute story'}
-          >
-            {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
-          </button>
-          {canManage ? (
+            {canManage ? (
+              <button
+                type="button"
+                onClick={() => setActionsOpen(true)}
+                className="rounded-full border border-white/20 bg-white/10 p-2"
+                aria-label="Story actions"
+              >
+                <MoreVertical className="h-5 w-5" />
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={() => setActionsOpen(true)}
+              onClick={onClose}
               className="rounded-full border border-white/20 bg-white/10 p-2"
-              aria-label="Story actions"
+              aria-label="Close story"
             >
-              <MoreVertical className="h-5 w-5" />
+              <X className="h-5 w-5" />
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-white/20 bg-white/10 p-2"
-            aria-label="Close story"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          </div>
         </div>
       </div>
 
-      <div className="relative flex h-[calc(100%-56px)] items-center justify-center px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+      <div
+        className={`relative flex items-center justify-center px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] transition-[height] duration-300 ${
+          overlayShouldShow ? 'h-[calc(100%-56px)]' : 'h-full'
+        }`}
+      >
         <div
           className="relative h-full w-full max-w-md overflow-hidden rounded-3xl bg-slate-900"
           style={{ touchAction: 'pan-y' }}
@@ -1751,6 +1826,7 @@ function StoryViewer({
               touchStartRef.current = null;
               return;
             }
+            revealOverlay();
             const touch = event.changedTouches?.[0];
             if (!touch) {
               touchStartRef.current = null;
@@ -1797,6 +1873,7 @@ function StoryViewer({
               touchStartRef.current = null;
               return;
             }
+            revealOverlay();
             touchStartRef.current = { x: event.clientX, y: event.clientY };
           }}
           onPointerUp={(event) => {
@@ -1860,7 +1937,11 @@ function StoryViewer({
           )}
           <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/70 via-black/10 to-black/45" />
 
-          <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-30 flex items-center justify-between px-2">
+          <div
+            className={`pointer-events-none absolute inset-y-0 left-0 right-0 z-30 flex items-center justify-between px-2 transition-opacity duration-300 ${
+              overlayShouldShow ? 'opacity-100' : 'opacity-0'
+            }`}
+          >
             <button
               type="button"
               className={`pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white transition ${
@@ -1885,7 +1966,11 @@ function StoryViewer({
             </button>
           </div>
 
-          <div className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-80px)] text-white">
+          <div
+            className={`pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-80px)] text-white transition-all duration-300 ${
+              overlayShouldShow ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
+            }`}
+          >
             <div className="rounded-xl bg-black/40 px-3 py-2 text-[11px] font-semibold backdrop-blur-sm">
               <div className="flex items-center gap-2">
                 <span>{formatCompactCount(story?.likesCount ?? story?._count?.likes ?? 0)} likes</span>
@@ -1895,7 +1980,11 @@ function StoryViewer({
             </div>
           </div>
 
-          <div className="absolute right-2.5 top-[58%] z-30 flex -translate-y-1/2 flex-col items-center gap-1.5 pointer-events-auto">
+          <div
+            className={`absolute right-2.5 top-[58%] z-30 flex -translate-y-1/2 flex-col items-center gap-1.5 transition-all duration-300 ${
+              overlayShouldShow ? 'pointer-events-auto translate-x-0 opacity-100' : 'pointer-events-none translate-x-4 opacity-0'
+            }`}
+          >
             <ReactionBar
               targetType="STORY"
               targetId={String(story?.id || '')}
