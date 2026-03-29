@@ -176,42 +176,46 @@ model User {
   insightAchievements       UserAchievement[]
   insightStreak             UserStreak?
   careerDailyActions        CareerDailyAction[]
-  friendStreakPairsLow      FriendStreak[]        @relation("FriendStreakUserLow")
-  friendStreakPairsHigh     FriendStreak[]        @relation("FriendStreakUserHigh")
-  friendStreakInvitesSent   FriendStreak[]        @relation("FriendStreakInitiatedBy")
+  friendStreakPairsLow      FriendStreak[]          @relation("FriendStreakUserLow")
+  friendStreakPairsHigh     FriendStreak[]          @relation("FriendStreakUserHigh")
+  friendStreakInvitesSent   FriendStreak[]          @relation("FriendStreakInitiatedBy")
+  creatorChallengesCreated  CreatorChallenge[]      @relation("CreatorChallengeCreatedBy")
+  creatorChallengesUpdated  CreatorChallenge[]      @relation("CreatorChallengeUpdatedBy")
+  creatorChallengeEntries   CreatorChallengeEntry[]
+  creatorChallengeVotes     CreatorChallengeVote[]
   opportunityMatches        OpportunityMatch[]
-  postPredictionsAuthored   PostPrediction[]      @relation("PostPredictionAuthor")
+  postPredictionsAuthored   PostPrediction[]        @relation("PostPredictionAuthor")
   aiCopilotLogs             AICopilotLog[]
   skillGapReports           SkillGapReport[]
   feedModePreference        FeedModePreference?
   topicFollows              TopicFollow[]
   feedIntentSignals         FeedIntentSignal[]
   savedPipelineItems        SavedPipelineItem[]
-  questCatalogsCreated      QuestCatalog[]        @relation("QuestCatalogCreatedBy")
-  questCatalogsUpdated      QuestCatalog[]        @relation("QuestCatalogUpdatedBy")
-  userQuests                UserQuest[]           @relation("UserQuestUser")
-  questCompletionLogs       QuestCompletionLog[]  @relation("QuestCompletionUser")
-  portfolioProofsOwned      PortfolioProof[]      @relation("PortfolioProofOwner")
-  portfolioProofsVerified   PortfolioProof[]      @relation("PortfolioProofVerifiedBy")
-  proofAttestationsAsClient ProofAttestation[]    @relation("ProofAttestationClient")
-  proofAttestationsAsActor  ProofAttestation[]    @relation("ProofAttestationActor")
-  proofAuditActions         ProofAuditLog[]       @relation("ProofAuditActor")
-  projectPodsOwned          ProjectPod[]          @relation("ProjectPodOwner")
-  podMemberships            PodMember[]           @relation("PodMemberUser")
-  podInvitationsSent        PodMember[]           @relation("PodMemberInvitedBy")
-  podMilestonesCreated      PodMilestone[]        @relation("PodMilestoneCreatedBy")
-  podMilestonesAssigned     PodMilestone[]        @relation("PodMilestoneAssignedTo")
-  podActivities             PodActivity[]         @relation("PodActivityActor")
-  questionsAuthored         Question[]            @relation("QuestionAuthor")
-  answersAuthored           Answer[]              @relation("AnswerAuthor")
-  votes                     Vote[]                @relation("VoteUser")
-  bountiesSponsored         Bounty[]              @relation("BountySponsor")
-  channelSubscriptions      ChannelSubscription[] @relation("ChannelSubscriptionUser")
-  officeHoursHosted         EventOfficeHour[]     @relation("OfficeHourHost")
-  analyticsDaily            UserAnalyticsDaily[]  @relation("UserAnalyticsDailyUser")
-  moderationCasesAuthored   ModerationCase[]      @relation("ModerationCaseAuthor")
-  moderationCasesCreated    ModerationCase[]      @relation("ModerationCaseCreatedBy")
-  moderationActions         ModerationAction[]    @relation("ModerationActionActor")
+  questCatalogsCreated      QuestCatalog[]          @relation("QuestCatalogCreatedBy")
+  questCatalogsUpdated      QuestCatalog[]          @relation("QuestCatalogUpdatedBy")
+  userQuests                UserQuest[]             @relation("UserQuestUser")
+  questCompletionLogs       QuestCompletionLog[]    @relation("QuestCompletionUser")
+  portfolioProofsOwned      PortfolioProof[]        @relation("PortfolioProofOwner")
+  portfolioProofsVerified   PortfolioProof[]        @relation("PortfolioProofVerifiedBy")
+  proofAttestationsAsClient ProofAttestation[]      @relation("ProofAttestationClient")
+  proofAttestationsAsActor  ProofAttestation[]      @relation("ProofAttestationActor")
+  proofAuditActions         ProofAuditLog[]         @relation("ProofAuditActor")
+  projectPodsOwned          ProjectPod[]            @relation("ProjectPodOwner")
+  podMemberships            PodMember[]             @relation("PodMemberUser")
+  podInvitationsSent        PodMember[]             @relation("PodMemberInvitedBy")
+  podMilestonesCreated      PodMilestone[]          @relation("PodMilestoneCreatedBy")
+  podMilestonesAssigned     PodMilestone[]          @relation("PodMilestoneAssignedTo")
+  podActivities             PodActivity[]           @relation("PodActivityActor")
+  questionsAuthored         Question[]              @relation("QuestionAuthor")
+  answersAuthored           Answer[]                @relation("AnswerAuthor")
+  votes                     Vote[]                  @relation("VoteUser")
+  bountiesSponsored         Bounty[]                @relation("BountySponsor")
+  channelSubscriptions      ChannelSubscription[]   @relation("ChannelSubscriptionUser")
+  officeHoursHosted         EventOfficeHour[]       @relation("OfficeHourHost")
+  analyticsDaily            UserAnalyticsDaily[]    @relation("UserAnalyticsDailyUser")
+  moderationCasesAuthored   ModerationCase[]        @relation("ModerationCaseAuthor")
+  moderationCasesCreated    ModerationCase[]        @relation("ModerationCaseCreatedBy")
+  moderationActions         ModerationAction[]      @relation("ModerationActionActor")
 
   // Developer platform (https://scrolith.com/developer)
   developerProfile   DeveloperUser?
@@ -934,6 +938,88 @@ model FriendStreak {
   @@index([userLowId, status])
   @@index([userHighId, status])
   @@index([initiatedByUserId, status])
+}
+
+model CreatorChallenge {
+  id                String    @id @default(cuid())
+  key               String
+  weekKey           String
+  title             String
+  description       String?
+  category          String    @default("creator")
+  contentTypes      String[]  @default([])
+  rules             Json?
+  reward            Json?
+  entryLimitPerUser Int       @default(1)
+  maxWinners        Int       @default(3)
+  status            String    @default("active") // draft, active, finalized, archived
+  isActive          Boolean   @default(true)
+  startAt           DateTime
+  endAt             DateTime
+  winningEntryIds   Json?
+  createdById       String?
+  updatedById       String?
+  finalizedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  createdBy User?                   @relation("CreatorChallengeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy User?                   @relation("CreatorChallengeUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  entries   CreatorChallengeEntry[]
+  votes     CreatorChallengeVote[]
+
+  @@unique([weekKey, key])
+  @@index([weekKey, status])
+  @@index([isActive, status])
+  @@index([startAt, endAt])
+  @@index([createdById])
+  @@index([updatedById])
+}
+
+model CreatorChallengeEntry {
+  id                  String   @id @default(cuid())
+  challengeId         String
+  userId              String
+  contentType         String
+  contentId           String
+  titleSnapshot       String?
+  descriptionSnapshot String?
+  coverUrl            String?
+  destinationUrl      String?
+  status              String   @default("active") // active, winner, finalist, archived, disqualified
+  voteCount           Int      @default(0)
+  position            Int?
+  isWinner            Boolean  @default(false)
+  meta                Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  challenge CreatorChallenge       @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user      User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  votes     CreatorChallengeVote[]
+
+  @@unique([challengeId, userId])
+  @@unique([challengeId, contentType, contentId])
+  @@index([challengeId, voteCount])
+  @@index([challengeId, status, createdAt])
+  @@index([userId, createdAt])
+}
+
+model CreatorChallengeVote {
+  id          String   @id @default(cuid())
+  challengeId String
+  entryId     String
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  challenge CreatorChallenge      @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  entry     CreatorChallengeEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([challengeId, userId])
+  @@index([entryId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model OpportunityMatch {

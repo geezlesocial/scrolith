@@ -9,6 +9,7 @@ import {
   getLeaderboardController,
   getMatchesController,
   getMyAchievementsController,
+  getMyCreatorChallengesController,
   getOpportunityHubController,
   getMyPgsController,
   getMyQuestsController,
@@ -18,7 +19,9 @@ import {
   getPostPredictionController,
   getRevenueController,
   respondFriendStreakController,
-  setFeedModeController
+  setFeedModeController,
+  submitCreatorChallengeEntryController,
+  voteCreatorChallengeEntryController
 } from '../modules/insights/controllers/insights.controller';
 
 const router = express.Router();
@@ -31,6 +34,9 @@ router.get('/streak/me', getMyStreakController);
 router.post('/streak/friends/invite', inviteFriendStreakController);
 router.post('/streak/friends/:friendStreakId/respond', respondFriendStreakController);
 router.post('/streak/friends/:friendStreakId/end', endFriendStreakController);
+router.get('/challenges/me', getMyCreatorChallengesController);
+router.post('/challenges/:challengeId/entries', submitCreatorChallengeEntryController);
+router.post('/challenges/:challengeId/vote', voteCreatorChallengeEntryController);
 router.get('/quests/me', getMyQuestsController);
 router.post('/quests/:userQuestId/complete', completeMyQuestController);
 router.get('/leaderboard', getLeaderboardController);

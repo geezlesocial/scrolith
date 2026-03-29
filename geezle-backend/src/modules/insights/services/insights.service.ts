@@ -141,6 +141,27 @@ const DEFAULT_ACHIEVEMENTS = [
     description: 'Reach at least 80% profile completeness.',
     tier: 'bronze',
     rules: { profileCompleteness: 80 }
+  },
+  {
+    key: 'CHALLENGE_CREATOR',
+    title: 'Challenge Creator',
+    description: 'Submit your first weekly creator challenge entry.',
+    tier: 'bronze',
+    rules: { creatorChallengeEntries: 1 }
+  },
+  {
+    key: 'CROWD_FAVORITE',
+    title: 'Crowd Favorite',
+    description: 'Earn strong audience support on a creator challenge entry.',
+    tier: 'silver',
+    rules: { creatorChallengeVotes: 5 }
+  },
+  {
+    key: 'WEEKLY_SPOTLIGHT_WINNER',
+    title: 'Weekly Spotlight Winner',
+    description: 'Win a weekly creator challenge.',
+    tier: 'gold',
+    rules: { creatorChallengeWins: 1 }
   }
 ];
 
@@ -594,6 +615,76 @@ const unlockAchievementsIfNeeded = async (userId: string, metrics: UserMetricsSn
   }
 
   return unlocked;
+};
+
+export const grantAchievementByKeyIfMissing = async (input: {
+  userId?: string | null;
+  achievementKey?: string | null;
+  meta?: any;
+  app?: Application;
+}) => {
+  const userId = String(input.userId || '').trim();
+  const achievementKey = String(input.achievementKey || '').trim().toUpperCase();
+  if (!userId || !achievementKey) return null;
+
+  await ensureDefaultAchievements();
+
+  const achievement = await prisma.achievement.findUnique({
+    where: { key: achievementKey }
+  });
+  if (!achievement || achievement.isActive === false) return null;
+
+  const existing = await prisma.userAchievement.findFirst({
+    where: {
+      userId,
+      achievementId: achievement.id
+    }
+  });
+  if (existing) {
+    return {
+      created: false,
+      data: {
+        id: existing.id,
+        key: achievement.key,
+        title: achievement.title,
+        tier: achievement.tier,
+        earnedAt: existing.earnedAt
+      }
+    };
+  }
+
+  const row = await prisma.userAchievement.create({
+    data: {
+      userId,
+      achievementId: achievement.id,
+      meta: {
+        source: 'manual-grant',
+        unlockedAt: new Date().toISOString(),
+        ...(input.meta && typeof input.meta === 'object' ? input.meta : {})
+      }
+    }
+  });
+
+  const data = {
+    id: row.id,
+    key: achievement.key,
+    title: achievement.title,
+    tier: achievement.tier,
+    earnedAt: row.earnedAt
+  };
+
+  emitInsightsEvent(input.app, 'insights:achievement_unlocked', {
+    userId,
+    achievementKey: achievement.key,
+    title: achievement.title,
+    tier: achievement.tier,
+    earnedAt: row.earnedAt
+  });
+
+  return {
+    created: true,
+    data
+  };
 };
 
 const normalizeRoleToken = (value: unknown) => String(value || '').trim().toLowerCase();

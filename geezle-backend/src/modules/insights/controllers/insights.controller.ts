@@ -1,6 +1,12 @@
 import type { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../../../services/scrolitha/scrolitha.audit';
 import { buildEmptyCareerStreakSummary, getCareerStreakSummary } from '../services/careerStreak.service';
+import {
+  buildEmptyCreatorChallengeDashboard,
+  getCreatorChallengeDashboard,
+  submitCreatorChallengeEntry,
+  voteCreatorChallengeEntry
+} from '../services/creatorChallenge.service';
 import { buildEmptyDailyMissionSummary, getDailyMissionSummary } from '../services/dailyMission.service';
 import {
   buildEmptyFriendStreakDashboard,
@@ -39,6 +45,9 @@ const INSIGHTS_SCHEMA_TOKENS = [
   'questcompletionlog',
   'careerdailyaction',
   'friendstreak',
+  'creatorchallenge',
+  'creatorchallengeentry',
+  'creatorchallengevote',
   'professionalscore',
   'insightevent',
   'weeklyleaderboard',
@@ -261,6 +270,86 @@ export const getMyQuestsController = async (req: Request, res: Response) => {
       return res.json({ success: true, data: [], message: 'Quests loaded' });
     }
     return fail(res, 'Failed to load quests', error);
+  }
+};
+
+export const getMyCreatorChallengesController = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
+    const data = await getCreatorChallengeDashboard(userId);
+    return res.json({ success: true, data, message: 'Creator challenges loaded' });
+  } catch (error) {
+    if (isInsightsSchemaUnavailable(error, ['creatorchallenge', 'creatorchallengeentry', 'creatorchallengevote'])) {
+      return res.json({
+        success: true,
+        data: buildEmptyCreatorChallengeDashboard(getUserId(req) || ''),
+        message: 'Creator challenges loaded'
+      });
+    }
+    return fail(res, 'Failed to load creator challenges', error);
+  }
+};
+
+export const submitCreatorChallengeEntryController = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
+    const challengeId = String(req.params.challengeId || '').trim();
+    const contentType = String(req.body?.contentType || '').trim();
+    const contentId = String(req.body?.contentId || '').trim();
+    if (!challengeId || !contentType || !contentId) {
+      return fail(res, 'challengeId, contentType, and contentId are required', new Error('missing fields'), 400);
+    }
+    const data = await submitCreatorChallengeEntry({
+      userId,
+      challengeId,
+      contentType,
+      contentId,
+      app: req.app
+    });
+    return res.json({ success: true, data, message: 'Creator challenge entry submitted' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to submit creator challenge entry');
+    if (message.toLowerCase().includes('required') || message.toLowerCase().includes('eligible')) {
+      return fail(res, message, error, 400);
+    }
+    if (
+      message.toLowerCase().includes('already') ||
+      message.toLowerCase().includes('closed') ||
+      message.toLowerCase().includes('accepting')
+    ) {
+      return fail(res, message, error, 409);
+    }
+    if (message.toLowerCase().includes('not found')) return fail(res, message, error, 404);
+    return fail(res, 'Failed to submit creator challenge entry', error);
+  }
+};
+
+export const voteCreatorChallengeEntryController = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
+    const challengeId = String(req.params.challengeId || '').trim();
+    const entryId = String(req.body?.entryId || '').trim();
+    if (!challengeId || !entryId) {
+      return fail(res, 'challengeId and entryId are required', new Error('missing fields'), 400);
+    }
+    const data = await voteCreatorChallengeEntry({
+      userId,
+      challengeId,
+      entryId,
+      app: req.app
+    });
+    return res.json({ success: true, data, message: 'Creator challenge vote recorded' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to vote on creator challenge entry');
+    if (message.toLowerCase().includes('required') || message.toLowerCase().includes('cannot vote')) {
+      return fail(res, message, error, 400);
+    }
+    if (message.toLowerCase().includes('closed')) return fail(res, message, error, 409);
+    if (message.toLowerCase().includes('not found')) return fail(res, message, error, 404);
+    return fail(res, 'Failed to vote on creator challenge entry', error);
   }
 };
 

@@ -3,6 +3,13 @@ import prisma from '../../../utils/prismaClient';
 import { resolveActorFromRequest } from '../../../services/scrolitha/scrolitha.audit';
 import { DEFAULT_INSIGHTS_CONFIG, getInsightsConfig, updateInsightsConfig } from '../policies/insights.config';
 import {
+  createAdminCreatorChallenge,
+  finalizeAdminCreatorChallenge,
+  getAdminCreatorChallenges,
+  toggleAdminCreatorChallenge,
+  updateAdminCreatorChallenge
+} from '../services/creatorChallenge.service';
+import {
   buildWeeklyLeaderboard,
   createAdminQuestCatalog,
   getAdminQuestCatalog,
@@ -15,6 +22,9 @@ import {
 const INSIGHTS_SCHEMA_TOKENS = [
   'appsetting',
   'achievement',
+  'creatorchallenge',
+  'creatorchallengeentry',
+  'creatorchallengevote',
   'questcatalog',
   'weeklyleaderboard',
   'professionalscore',
@@ -116,6 +126,93 @@ export const getAdminAchievementsController = async (_req: Request, res: Respons
       return res.json({ success: true, data: [], message: 'Achievements loaded' });
     }
     return fail(res, 'Failed to load achievements', error);
+  }
+};
+
+export const getAdminCreatorChallengesController = async (req: Request, res: Response) => {
+  try {
+    const weekKey = String(req.query.weekKey || '').trim() || null;
+    const data = await getAdminCreatorChallenges(weekKey);
+    return res.json({ success: true, data, message: 'Creator challenges loaded' });
+  } catch (error) {
+    if (isInsightsSchemaUnavailable(error, ['creatorchallenge', 'creatorchallengeentry', 'creatorchallengevote'])) {
+      return res.json({ success: true, data: [], message: 'Creator challenges loaded' });
+    }
+    return fail(res, 'Failed to load creator challenges', error);
+  }
+};
+
+export const postAdminCreatorChallengeController = async (req: Request, res: Response) => {
+  try {
+    const actor = resolveActorFromRequest(req);
+    const data = await createAdminCreatorChallenge({
+      actorUserId: actor.id || null,
+      payload: req.body || {},
+      app: req.app
+    });
+    return res.status(201).json({ success: true, data, message: 'Creator challenge created' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to create creator challenge');
+    if (message.toLowerCase().includes('required') || message.toLowerCase().includes('valid')) {
+      return fail(res, message, error, 400);
+    }
+    return fail(res, 'Failed to create creator challenge', error);
+  }
+};
+
+export const putAdminCreatorChallengeController = async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ success: false, data: null, message: 'id is required' });
+    const actor = resolveActorFromRequest(req);
+    const data = await updateAdminCreatorChallenge({
+      id,
+      actorUserId: actor.id || null,
+      payload: req.body || {},
+      app: req.app
+    });
+    return res.json({ success: true, data, message: 'Creator challenge updated' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to update creator challenge');
+    if (message.toLowerCase().includes('not found')) return fail(res, message, error, 404);
+    if (message.toLowerCase().includes('required') || message.toLowerCase().includes('valid')) {
+      return fail(res, message, error, 400);
+    }
+    return fail(res, 'Failed to update creator challenge', error);
+  }
+};
+
+export const toggleAdminCreatorChallengeController = async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ success: false, data: null, message: 'id is required' });
+    const actor = resolveActorFromRequest(req);
+    const data = await toggleAdminCreatorChallenge({
+      id,
+      actorUserId: actor.id || null,
+      app: req.app
+    });
+    return res.json({ success: true, data, message: 'Creator challenge status toggled' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to toggle creator challenge');
+    if (message.toLowerCase().includes('not found')) return fail(res, message, error, 404);
+    return fail(res, 'Failed to toggle creator challenge', error);
+  }
+};
+
+export const finalizeAdminCreatorChallengeController = async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) return res.status(400).json({ success: false, data: null, message: 'id is required' });
+    const data = await finalizeAdminCreatorChallenge({
+      id,
+      app: req.app
+    });
+    return res.json({ success: true, data, message: 'Creator challenge finalized' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to finalize creator challenge');
+    if (message.toLowerCase().includes('not found')) return fail(res, message, error, 404);
+    return fail(res, 'Failed to finalize creator challenge', error);
   }
 };
 
