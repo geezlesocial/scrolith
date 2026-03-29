@@ -198,6 +198,16 @@ const extractGigsFromPayload = (payload: any): Gig[] => {
   return [];
 };
 
+const isIgnoredSurfaceTarget = (target: EventTarget | null) => {
+  const element = target as HTMLElement | null;
+  if (!element) return false;
+  return Boolean(
+    element.closest(
+      'a, button, input, textarea, select, label, video, audio, [data-inline-video-control="true"], [data-post-media-root="true"]'
+    )
+  );
+};
+
 const resolveProfileUrl = (
   author: { id?: string | null; username?: string | null; type?: string | null; businessSlug?: string | null },
   fallbackAuthorId?: string | null,
@@ -401,7 +411,8 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
         payload.kind === 'jobs'
           ? String(item?.clientName || 'Employer').trim() || 'Employer'
           : String(item?.freelancerName || 'Freelancer').trim() || 'Freelancer';
-      const targetAvatar = payload.kind === 'jobs' ? item?.clientAvatar : item?.freelancerAvatar;
+      const targetAvatarRaw = payload.kind === 'jobs' ? item?.clientAvatar : item?.freelancerAvatar;
+      const targetAvatar = resolvePostAttachmentMediaUrl(targetAvatarRaw);
 
       try {
         const conversationId = await MessagingService.createConversation([
@@ -827,7 +838,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
               const id = String(account?.id || p?.entityId || p?.id || p?.userId || '').trim();
               const name = String(account?.name || p?.name || 'Community member').trim();
               const username = String(account?.username || p?.username || '').trim();
-              const avatarUrl = account?.avatar || p?.avatar || null;
+              const avatarUrl = resolvePostAttachmentMediaUrl(account?.avatar || p?.avatar || null);
               if (!id || !name) return null;
               return { id, name, username, avatarUrl, targetType: 'user' as const };
             })
@@ -864,7 +875,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
               const id = String(account?.id || p?.entityId || p?.id || p?.pageId || '').trim();
               const name = String(account?.name || p?.name || 'Business page').trim();
               const username = String(account?.slug || account?.handle || account?.username || p?.slug || '').trim();
-              const avatarUrl = account?.avatar || p?.avatar || null;
+              const avatarUrl = resolvePostAttachmentMediaUrl(account?.avatar || p?.avatar || null);
               if (!id || !name) return null;
               return { id, name, username, avatarUrl, targetType: 'page' as const };
             })
@@ -1131,7 +1142,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
           const postId = String(post?.id || '');
           const author = post?.author || {};
           const authorName = author.displayName || post?.authorName || post?.authorUsername || 'Member';
-          const authorAvatar = author.avatarUrl || post?.authorAvatar || null;
+          const authorAvatar = resolvePostAttachmentMediaUrl(author.avatarUrl || post?.authorAvatar || null);
           const authorId = post?.authorUserId || post?.authorId;
           const createdAt = post?.createdAt;
           const isVerified = Boolean((author as any)?.isVerified || (post as any)?.authorIsVerified || (post as any)?.authorVerified);
@@ -1181,7 +1192,13 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
           return (
             <React.Fragment key={postId || `post_${idx}`}>
-              <article className="rounded-[30px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/70 p-4 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)]">
+              <article
+                className="cursor-pointer rounded-[30px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/70 p-4 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)]"
+                onClick={(event) => {
+                  if (isIgnoredSurfaceTarget(event.target)) return;
+                  openPostCard(post);
+                }}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
                     <Link
@@ -1189,15 +1206,18 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                       className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-100 via-white to-slate-50 shadow-sm"
                       aria-label={`View ${authorName} profile`}
                     >
-                      {authorAvatar ? (
-                        <img
-                          src={authorAvatar}
-                          alt={authorName}
-                          className="h-full w-full object-cover"
-                          loading="lazy"
-                          decoding="async"
-                        />
-                      ) : null}
+                        {authorAvatar ? (
+                          <img
+                            src={authorAvatar}
+                            alt={authorName}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                            decoding="async"
+                            onError={(event) => {
+                              (event.currentTarget as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                        ) : null}
                     </Link>
                     <div className="min-w-0 pt-0.5">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -1387,6 +1407,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                                 <div
                                   role="button"
                                   tabIndex={0}
+                                  data-post-media-root="true"
                                   onClick={(event) => {
                                     if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
                                     queueOpenPostFromMediaTap(post, file, mediaKey);

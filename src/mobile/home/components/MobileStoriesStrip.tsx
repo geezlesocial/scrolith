@@ -30,9 +30,9 @@ import ScrollCreateModal from '../../../features/scroll/ScrollCreateModal';
 import ExpandablePreviewText from '../../../components/common/ExpandablePreviewText';
 import StaticPreviewText from '../../../components/common/StaticPreviewText';
 import InlineAutoplayVideo from '../../../components/media/InlineAutoplayVideo';
-import { resolveAssetUrl } from '../../../utils/assetUrl';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../../../utils/inlineMedia';
 import { downloadToDevice } from '../../../utils/deviceDownload';
+import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
 import ReactionBar from '../../../community/components/ReactionBar';
 import OverlayActionRailButton from '../../../components/media/OverlayActionRailButton';
 import { usePerformanceProfile } from '../../../hooks/usePerformanceProfile';
@@ -88,7 +88,7 @@ const resolveStoryAuthorName = (story: any, fallback = 'Story') => {
 
 const resolveStoryAuthorAvatar = (story: any) => {
   const normalized = String(story?.authorAvatar || story?.author?.avatar || '').trim();
-  return normalized ? resolveAssetUrl(normalized) : '';
+  return normalized ? resolvePostAttachmentMediaUrl(normalized) : '';
 };
 
 const resolveStoryAuthorInitial = (story: any) => {
@@ -104,7 +104,13 @@ const formatCompactCount = (value: unknown) => {
   return String(Math.trunc(numeric));
 };
 
-const resolveScrollMediaUrl = (scroll: ScrollVideo) => resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' }).src;
+const resolveScrollMedia = (scroll: ScrollVideo) => {
+  const media = resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
+  return {
+    url: media.src || '',
+    poster: media.poster || undefined
+  };
+};
 
 const resolveScrollAuthorName = (scroll: ScrollVideo, fallback = 'Scrolith') => {
   const normalized = String(scroll?.author?.name || '').trim();
@@ -113,7 +119,7 @@ const resolveScrollAuthorName = (scroll: ScrollVideo, fallback = 'Scrolith') => 
 
 const resolveScrollAuthorAvatar = (scroll: ScrollVideo) => {
   const normalized = String(scroll?.author?.avatar || '').trim();
-  return normalized ? resolveAssetUrl(normalized) : '';
+  return normalized ? resolvePostAttachmentMediaUrl(normalized) : '';
 };
 
 const resolveScrollAuthorInitial = (scroll: ScrollVideo) => {
@@ -995,6 +1001,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                         if (id) CommunityService.viewStory(id).catch(() => {});
                       }}
                       className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
+                      style={{ touchAction: 'manipulation' }}
                       aria-label={`Open story by ${name}`}
                     >
                       {storyType === 'text' && storyText ? (
@@ -1024,8 +1031,8 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                           <InlineAutoplayVideo
                             src={media.url}
                             poster={media.thumbnailUrl}
-                            className="h-full w-full object-cover"
-                            containerClassName="h-full w-full"
+                            className="pointer-events-none h-full w-full object-cover"
+                            containerClassName="pointer-events-none h-full w-full"
                             controls={false}
                             loop
                             preload="metadata"
@@ -1036,7 +1043,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                           <img
                             src={media.url}
                             alt=""
-                            className="h-full w-full object-cover"
+                            className="pointer-events-none h-full w-full object-cover"
                             onError={() =>
                               setStoryPreviewMediaErrors((prev) =>
                                 prev[id] ? prev : { ...prev, [id]: true }
@@ -1045,20 +1052,20 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                           />
                         )
                       ) : avatar ? (
-                        <img src={avatar} alt={name} className="h-full w-full object-cover" />
+                        <img src={avatar} alt={name} className="pointer-events-none h-full w-full object-cover" />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-white">
                           {fallbackLetter}
                         </div>
                       )}
-                      <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
+                      <div className="pointer-events-none absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
                         {avatar ? (
                           <img src={avatar} alt={name} className="h-full w-full object-cover" />
                         ) : (
                           <span>{fallbackLetter}</span>
                         )}
                       </div>
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
                         <p className="line-clamp-1 text-[10px] font-semibold text-white">{name}</p>
                         {storyType !== 'text' ? (
                           <p className="line-clamp-1 text-[10px] text-white/80">
@@ -1116,7 +1123,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
               ) : (
                 scrolls.map((scroll) => {
                   const id = String(scroll?.id || '').trim();
-                  const mediaUrl = resolveScrollMediaUrl(scroll);
+                  const media = resolveScrollMedia(scroll);
                   const authorName = resolveScrollAuthorName(scroll, 'Scrolith');
                   const authorAvatar = resolveScrollAuthorAvatar(scroll);
                   const authorInitial = resolveScrollAuthorInitial(scroll);
@@ -1126,14 +1133,15 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                       type="button"
                       onClick={() => navigate(`/scroll?scroll=${encodeURIComponent(id)}`)}
                       className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
+                      style={{ touchAction: 'manipulation' }}
                       aria-label={`Open Scroll by ${authorName}`}
                     >
-                      {mediaUrl ? (
+                      {media.url ? (
                         <InlineAutoplayVideo
-                          src={mediaUrl}
-                          poster={scroll.media?.thumbnailUrl || undefined}
-                          className="h-full w-full object-cover"
-                          containerClassName="h-full w-full"
+                          src={media.url}
+                          poster={media.poster}
+                          className="pointer-events-none h-full w-full object-cover"
+                          containerClassName="pointer-events-none h-full w-full"
                           controls={false}
                           loop
                           preload="metadata"
@@ -1143,14 +1151,14 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-xs text-white/80">Scroll</div>
                       )}
-                      <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
+                      <div className="pointer-events-none absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
                         {authorAvatar ? (
                           <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
                         ) : (
                           <span>{authorInitial}</span>
                         )}
                       </div>
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
                         <p className="line-clamp-1 text-[10px] font-semibold text-white">{authorName}</p>
                         <p className="line-clamp-1 text-[10px] text-white/80">{scroll.title || scroll.description || 'Scroll'}</p>
                       </div>

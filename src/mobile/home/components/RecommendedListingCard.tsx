@@ -6,10 +6,10 @@ import {
   SparklesIcon as Sparkles,
   TagIcon as Tag
 } from '../../../components/icons/ShellIcons';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import VerifiedBadge from '../../../components/common/VerifiedBadge';
 import { resolveVerificationLevel } from '../../../utils/verification';
-import { resolveAssetUrl } from '../../../utils/assetUrl';
+import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
 
 type JobLike = {
   id: string;
@@ -89,29 +89,42 @@ const firstString = (values: unknown[]): string => {
   return '';
 };
 
-const pickFirstFromList = (values: unknown): string => {
-  if (!Array.isArray(values)) return '';
+const pickFirstMediaEntry = (values: unknown) => {
+  if (!Array.isArray(values)) return null;
   for (const value of values) {
+    if (!value) continue;
     if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'object') return value;
   }
-  return '';
+  return null;
 };
 
 const resolveListingImage = (row: any) => {
-  const raw = firstString([
-    row?.image,
-    row?.coverImage,
-    row?.cover,
-    row?.thumbnailUrl,
-    row?.thumbnail_url,
-    row?.previewImage,
-    row?.preview_image,
-    pickFirstFromList(row?.images),
-    pickFirstFromList(row?.media),
-    row?.clientAvatar,
-    row?.freelancerAvatar
-  ]);
-  return raw ? resolveAssetUrl(raw) : '';
+  const mediaCandidate =
+    pickFirstMediaEntry(row?.images) ||
+    pickFirstMediaEntry(row?.media) ||
+    row?.image ||
+    row?.coverImage ||
+    row?.cover ||
+    row?.thumbnailUrl ||
+    row?.thumbnail_url ||
+    row?.previewImage ||
+    row?.preview_image ||
+    row?.clientAvatar ||
+    row?.freelancerAvatar ||
+    null;
+  return mediaCandidate ? resolvePostAttachmentMediaUrl(mediaCandidate) : '';
+};
+
+const resolveListingAvatar = (value: unknown) => {
+  const normalized = resolvePostAttachmentMediaUrl(value);
+  return String(normalized || '').trim();
+};
+
+const isNestedInteractiveTarget = (target: EventTarget | null) => {
+  const element = target as HTMLElement | null;
+  if (!element) return false;
+  return Boolean(element.closest('a, button, input, textarea, select, label'));
 };
 
 export default function RecommendedListingCard({
@@ -127,6 +140,7 @@ export default function RecommendedListingCard({
   seeAllHref?: string;
   onContact?: (payload: { kind: 'jobs' | 'gigs'; item: JobLike | GigLike }) => void;
 }) {
+  const navigate = useNavigate();
   const icon = kind === 'jobs' ? <Briefcase className="h-4 w-4" /> : <Tag className="h-4 w-4" />;
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
 
@@ -182,8 +196,16 @@ export default function RecommendedListingCard({
             const href = `/jobs/${encodeURIComponent(id)}`;
             const canContact = Boolean(job.clientId) && Boolean(onContact);
             const { imageKey, imageUrl, canRenderImage } = getImageState(id, job);
+            const clientAvatar = resolveListingAvatar(job.clientAvatar);
             return (
-              <div key={id} className="rounded-2xl border border-slate-200 bg-white p-3">
+              <div
+                key={id}
+                className="cursor-pointer rounded-2xl border border-slate-200 bg-white p-3"
+                onClick={(event) => {
+                  if (isNestedInteractiveTarget(event.target)) return;
+                  navigate(href);
+                }}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <Link
@@ -208,7 +230,18 @@ export default function RecommendedListingCard({
                     </div>
                   </div>
                   <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
-                    {job.clientAvatar ? <img src={job.clientAvatar} alt="" className="h-full w-full object-cover" /> : null}
+                    {clientAvatar ? (
+                      <img
+                        src={clientAvatar}
+                        alt=""
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                        decoding="async"
+                        onError={(event) => {
+                          (event.currentTarget as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    ) : null}
                   </div>
                 </div>
                 <Link to={href} className="mt-3 block overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
@@ -274,8 +307,16 @@ export default function RecommendedListingCard({
           const href = `/gigs/${encodeURIComponent(id)}`;
           const canContact = Boolean(gig.freelancerId) && Boolean(onContact);
           const { imageKey, imageUrl, canRenderImage } = getImageState(id, gig);
+          const freelancerAvatar = resolveListingAvatar(gig.freelancerAvatar);
           return (
-            <div key={id} className="rounded-2xl border border-slate-200 bg-white p-3">
+            <div
+              key={id}
+              className="cursor-pointer rounded-2xl border border-slate-200 bg-white p-3"
+              onClick={(event) => {
+                if (isNestedInteractiveTarget(event.target)) return;
+                navigate(href);
+              }}
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <Link
@@ -315,7 +356,18 @@ export default function RecommendedListingCard({
                   ) : null}
                 </div>
                 <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
-                  {gig.freelancerAvatar ? <img src={gig.freelancerAvatar} alt="" className="h-full w-full object-cover" /> : null}
+                  {freelancerAvatar ? (
+                    <img
+                      src={freelancerAvatar}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                      onError={(event) => {
+                        (event.currentTarget as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  ) : null}
                 </div>
               </div>
               <Link to={href} className="mt-3 block overflow-hidden rounded-xl border border-slate-200 bg-slate-50">

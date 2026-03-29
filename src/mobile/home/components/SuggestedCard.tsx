@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { UserPlusIcon as UserPlus } from '../../../components/icons/ShellIcons';
+import { Link } from 'react-router-dom';
 import { CommunityService } from '../../../services/community';
+import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
 
 type SuggestedData =
   | { kind: 'tags'; title?: string; items: Array<{ slug: string; label: string; count?: number }> }
@@ -28,14 +30,14 @@ function Tags({ items }: { items: Array<{ slug: string; label: string; count?: n
   return (
     <div className="flex flex-wrap gap-2">
       {visible.map((tag) => (
-        <a
+        <Link
           key={tag.slug}
-          href={`/community/tags/${encodeURIComponent(tag.slug)}`}
+          to={`/community/tags/${encodeURIComponent(tag.slug)}`}
           className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
           title={typeof tag.count === 'number' ? `${tag.count} posts` : undefined}
         >
           #{tag.label}
-        </a>
+        </Link>
       ))}
       {!visible.length ? <div className="text-sm text-slate-500">No suggestions right now.</div> : null}
     </div>
@@ -53,20 +55,33 @@ function FollowList({
     <div className="space-y-3">
       {items.slice(0, 4).map((item) => (
         <div key={item.id} className="flex items-center justify-between gap-3">
-          <a
-            href={item.targetType === 'page' ? `/company/${encodeURIComponent(item.username || item.id)}` : `/u/${encodeURIComponent(item.username || item.id)}`}
+          <Link
+            to={
+              item.targetType === 'page'
+                ? `/company/${encodeURIComponent(item.username || item.id)}`
+                : `/u/${encodeURIComponent(item.username || item.id)}`
+            }
             className="flex min-w-0 items-center gap-3"
           >
             <div className="h-10 w-10 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
               {item.avatarUrl ? (
-                <img src={item.avatarUrl} alt={item.name} className="h-full w-full object-cover" />
+                <img
+                  src={resolvePostAttachmentMediaUrl(item.avatarUrl)}
+                  alt={item.name}
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                  decoding="async"
+                  onError={(event) => {
+                    (event.currentTarget as HTMLImageElement).style.display = 'none';
+                  }}
+                />
               ) : null}
             </div>
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold text-slate-900">{item.name}</div>
               {item.username ? <div className="truncate text-xs text-slate-500">@{item.username}</div> : null}
             </div>
-          </a>
+          </Link>
 
           <button
             type="button"
