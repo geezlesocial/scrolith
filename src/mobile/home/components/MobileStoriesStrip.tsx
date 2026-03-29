@@ -314,6 +314,9 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
       x: event.clientX,
       y: event.clientY
     };
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {}
   }, []);
 
   const cancelRailGesture = useCallback(() => {
@@ -326,10 +329,15 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
       const normalizedKey = String(key || '').trim();
       const start = railGestureStartRef.current;
       railGestureStartRef.current = null;
+      try {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      } catch {}
       if (!start || start.key !== normalizedKey) return;
       const deltaX = Math.abs(event.clientX - start.x);
       const deltaY = Math.abs(event.clientY - start.y);
-      if (Math.max(deltaX, deltaY) > 14) return;
+      if (Math.max(deltaX, deltaY) > 22) return;
       event.preventDefault();
       runRailAction(normalizedKey, action);
     },
@@ -1093,9 +1101,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                         })
                       }
                       onPointerCancel={cancelRailGesture}
-                      onPointerLeave={(event) => {
-                        if (event.pointerType === 'touch') cancelRailGesture();
-                      }}
+                      onLostPointerCapture={cancelRailGesture}
                       onClick={() => openStoryFromRail(story)}
                       className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
                       style={{ touchAction: 'manipulation' }}
@@ -1235,9 +1241,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                         })
                       }
                       onPointerCancel={cancelRailGesture}
-                      onPointerLeave={(event) => {
-                        if (event.pointerType === 'touch') cancelRailGesture();
-                      }}
+                      onLostPointerCapture={cancelRailGesture}
                       onClick={() => openScrollFromRail(id)}
                       className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
                       style={{ touchAction: 'manipulation' }}

@@ -359,6 +359,37 @@ const MobileHome = () => {
     Math.min(20, Number(layout.messagesPopup?.previewLimit ?? DEFAULT_LAYOUT.messagesPopup?.previewLimit ?? 6) || 6)
   );
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let disposed = false;
+    let timeoutId: number | null = null;
+    let idleId: number | null = null;
+    const preload = () => {
+      if (disposed) return;
+      void import('./screens/MobileNetworkScreen');
+      void import('./screens/MobilePostScreen');
+      void import('./screens/MobileNotificationsScreen');
+      void import('./screens/MobileJobsScreen');
+      void import('./screens/MobileBriefsScreen');
+      void import('./components/MobileHomeSheets');
+      void import('../../features/scroll/ScrollFeed');
+    };
+
+    if ('requestIdleCallback' in window) {
+      idleId = (window as any).requestIdleCallback(preload, { timeout: 1200 });
+    } else {
+      timeoutId = window.setTimeout(preload, 400);
+    }
+
+    return () => {
+      disposed = true;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      if (idleId !== null && 'cancelIdleCallback' in window) {
+        (window as any).cancelIdleCallback(idleId);
+      }
+    };
+  }, []);
+
   const previewConversations = useMemo(() => {
     const list = Array.isArray(messageConversations) ? messageConversations : [];
     const sorted = [...list].sort((a: any, b: any) => {

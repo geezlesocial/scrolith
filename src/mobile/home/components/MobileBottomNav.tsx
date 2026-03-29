@@ -108,9 +108,12 @@ export default function MobileBottomNav({
           return (
             <button
               key={item.key}
-              onPointerUp={(event) => {
-                if (event.pointerType !== 'touch') return;
+              onPointerDown={(event) => {
+                if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
                 event.preventDefault();
+                try {
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                } catch {}
                 triggerTabChange(item.key);
               }}
               onClick={() => triggerTabChange(item.key)}
@@ -121,6 +124,7 @@ export default function MobileBottomNav({
               ].join(' ')}
               aria-label={item.label}
               type="button"
+              style={{ WebkitTapHighlightColor: 'transparent' }}
             >
               <div className="relative">
                 {item.icon}
