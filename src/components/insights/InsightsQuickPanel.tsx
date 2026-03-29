@@ -706,7 +706,10 @@ export default function InsightsQuickPanel({
             </div>
           </div>
 
-          <div className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+          <div
+            data-insights-section="career-daily"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Career streak today</p>
@@ -747,7 +750,10 @@ export default function InsightsQuickPanel({
             </p>
           </div>
 
-          <div className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+          <div
+            data-insights-section="daily-missions"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Daily missions</p>
@@ -833,7 +839,10 @@ export default function InsightsQuickPanel({
             </p>
           </div>
 
-          <div className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+          <div
+            data-insights-section="badges-trophies"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Badges and trophies</p>
@@ -897,7 +906,10 @@ export default function InsightsQuickPanel({
             ) : null}
           </div>
 
-          <div className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+          <div
+            data-insights-section="weekly-challenges"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Weekly creator challenges</p>
@@ -1046,7 +1058,10 @@ export default function InsightsQuickPanel({
             )}
           </div>
 
-          <div className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+          <div
+            data-insights-section="shared-accountability"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Shared accountability</p>
@@ -1242,7 +1257,10 @@ export default function InsightsQuickPanel({
 
           {hub ? (
             <div className={`mt-3 grid gap-3 ${compact || isDesktopRail ? 'grid-cols-1' : 'xl:grid-cols-2'}`.trim()}>
-              <div className={`rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+              <div
+                data-insights-section="identity-trust"
+                className={`rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Identity and trust</p>
@@ -1290,7 +1308,10 @@ export default function InsightsQuickPanel({
                 </div>
               </div>
 
-              <div className={`rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+              <div
+                data-insights-section="delivery-packaging"
+                className={`rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+              >
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Delivery and packaging</p>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
                   <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
@@ -1344,7 +1365,10 @@ export default function InsightsQuickPanel({
             </div>
           ) : null}
 
-          <div className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+          <div
+            data-insights-section="brief-to-match"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Brief to match</p>
@@ -1507,7 +1531,7 @@ export default function InsightsQuickPanel({
             ) : null}
           </div>
 
-          <div className="mt-3">
+          <div data-insights-section="feed-mode" className="mt-3">
             <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Feed mode</label>
             <select
               value={feedMode}
@@ -1524,7 +1548,10 @@ export default function InsightsQuickPanel({
           </div>
 
           {Array.isArray(hub?.actions) && hub.actions.length ? (
-            <div className={`mt-3 rounded-xl border border-slate-200 bg-slate-50 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+            <div
+              data-insights-section="opportunity-actions"
+              className={`mt-3 rounded-xl border border-slate-200 bg-slate-50 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+            >
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Opportunity actions</p>
                 <span className="text-[11px] text-slate-400">{hub.actions.length} live</span>
@@ -1539,7 +1566,7 @@ export default function InsightsQuickPanel({
             </div>
           ) : null}
 
-          <div className="mt-3">
+          <div data-insights-section="opportunity-matches" className="mt-3">
             <div className="flex items-center justify-between gap-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Opportunity matches</p>
               <span className="text-[11px] text-slate-400">
@@ -1576,7 +1603,7 @@ export default function InsightsQuickPanel({
             )}
           </div>
 
-          <div className="mt-3 rounded-xl border border-slate-200 p-3">
+          <div data-insights-section="career-quests" className="mt-3 rounded-xl border border-slate-200 p-3">
             <div className="flex items-center justify-between gap-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Career quests</p>
               <span className="text-[11px] text-slate-400">{quests.length} active</span>
@@ -1626,7 +1653,7 @@ export default function InsightsQuickPanel({
             {questStatus ? <p className="mt-2 text-xs text-slate-500">{questStatus}</p> : null}
           </div>
 
-          <div className="mt-3 rounded-xl border border-slate-200 p-3">
+          <div data-insights-section="skill-gap" className="mt-3 rounded-xl border border-slate-200 p-3">
             <div className="flex items-center justify-between gap-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Skill gap</p>
               <button
