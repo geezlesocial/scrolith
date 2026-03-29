@@ -505,7 +505,7 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
       <div className="mx-auto mt-8 w-full max-w-2xl rounded-3xl border border-white/15 bg-slate-950 text-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
           <div className="flex items-center gap-2">
-            <Film className="h-5 w-5 text-cyan-300" />
+            <Clapperboard className="h-5 w-5 text-cyan-300" />
             <h2 className="text-lg font-semibold">{isEditing ? 'Edit Scroll' : 'Create Scroll'}</h2>
           </div>
           <button type="button" onClick={resetAndClose} className="rounded-full p-2 hover:bg-white/10">
