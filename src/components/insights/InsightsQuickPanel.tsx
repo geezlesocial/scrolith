@@ -3,8 +3,11 @@ import { Link } from 'react-router-dom';
 import { useSocket } from '../../context/SocketContext';
 import { useUser } from '../../context/UserContext';
 import {
+  type CreatorChallenge,
+  type CreatorChallengeDashboard,
   type DailyMissionSummary,
   type FriendStreakDashboard,
+  type InsightAchievement,
   InsightsService,
   type CareerDailyActionState,
   type FeedMode,
@@ -70,6 +73,31 @@ const formatMetric = (value: number) => compactNumberFormatter.format(Number.isF
 
 const formatWholeNumber = (value: number) => wholeNumberFormatter.format(Number.isFinite(value) ? value : 0);
 
+const tierClassName = (tier: string) => {
+  switch (String(tier || '').toLowerCase()) {
+    case 'platinum':
+      return 'border-cyan-200 bg-cyan-50 text-cyan-700';
+    case 'gold':
+      return 'border-amber-200 bg-amber-50 text-amber-700';
+    case 'silver':
+      return 'border-slate-300 bg-slate-100 text-slate-700';
+    default:
+      return 'border-orange-200 bg-orange-50 text-orange-700';
+  }
+};
+
+const formatRelativeDeadline = (isoValue?: string | null) => {
+  if (!isoValue) return 'No deadline';
+  const target = new Date(isoValue);
+  const diffMs = target.getTime() - Date.now();
+  if (!Number.isFinite(diffMs)) return 'No deadline';
+  if (diffMs <= 0) return 'Ended';
+  const hours = Math.floor(diffMs / 3600000);
+  if (hours < 24) return `${hours}h left`;
+  const days = Math.ceil(diffMs / 86400000);
+  return `${days}d left`;
+};
+
 const DEFAULT_CAREER_DAILY_ACTIONS: CareerDailyActionState[] = [
   { type: 'post', label: 'Post', completed: false },
   { type: 'reply', label: 'Reply', completed: false },
@@ -93,7 +121,8 @@ export default function InsightsQuickPanel({
   const [refreshing, setRefreshing] = useState(false);
   const [pgs, setPgs] = useState<ProfessionalScore | null>(null);
   const [streak, setStreak] = useState<UserStreak | null>(null);
-  const [achievements, setAchievements] = useState<any[]>([]);
+  const [achievements, setAchievements] = useState<InsightAchievement[]>([]);
+  const [creatorChallengeDashboard, setCreatorChallengeDashboard] = useState<CreatorChallengeDashboard | null>(null);
   const [quests, setQuests] = useState<UserQuest[]>([]);
   const [matches, setMatches] = useState<any[]>([]);
   const [hub, setHub] = useState<OpportunityHubData | null>(null);
@@ -111,6 +140,9 @@ export default function InsightsQuickPanel({
   const [friendStreakActionBusy, setFriendStreakActionBusy] = useState<string | null>(null);
   const [friendStreakStatus, setFriendStreakStatus] = useState<string | null>(null);
   const [selectedFriendCandidateId, setSelectedFriendCandidateId] = useState('');
+  const [challengeActionBusy, setChallengeActionBusy] = useState<string | null>(null);
+  const [challengeStatus, setChallengeStatus] = useState<string | null>(null);
+  const [selectedChallengeSubmissionMap, setSelectedChallengeSubmissionMap] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -126,6 +158,7 @@ export default function InsightsQuickPanel({
     Boolean(streak) ||
     Boolean(hub) ||
     Boolean(skillGap) ||
+    Boolean(creatorChallengeDashboard?.challenges?.length) ||
     achievements.length > 0 ||
     quests.length > 0 ||
     matches.length > 0;
@@ -139,7 +172,8 @@ export default function InsightsQuickPanel({
         ts?: number;
         pgs?: ProfessionalScore | null;
         streak?: any;
-        achievements?: any[];
+        achievements?: InsightAchievement[];
+        creatorChallenges?: CreatorChallengeDashboard | null;
         quests?: UserQuest[];
         hub?: OpportunityHubData | null;
         matches?: any[];
@@ -151,6 +185,7 @@ export default function InsightsQuickPanel({
       if (parsed?.pgs) setPgs(parsed.pgs);
       if (parsed?.streak) setStreak(parsed.streak);
       if (Array.isArray(parsed?.achievements)) setAchievements(parsed.achievements);
+      if (parsed?.creatorChallenges) setCreatorChallengeDashboard(parsed.creatorChallenges);
       if (Array.isArray(parsed?.quests)) setQuests(parsed.quests.slice(0, compact ? 2 : 4));
       if (parsed?.hub) setHub(parsed.hub);
       if (Array.isArray(parsed?.matches)) setMatches(parsed.matches.slice(0, compact ? 2 : 3));
@@ -177,6 +212,7 @@ export default function InsightsQuickPanel({
             InsightsService.getMyPgs(),
             InsightsService.getMyStreak(),
             InsightsService.getMyAchievements(),
+            InsightsService.getMyCreatorChallenges(),
             InsightsService.getMyQuests(),
             InsightsService.getOpportunityHub(),
             InsightsService.getMatches('all'),
@@ -187,10 +223,21 @@ export default function InsightsQuickPanel({
           'Insights request timed out. Please retry.'
         );
 
-        const [pgsResult, streakResult, achievementsResult, questsResult, hubResult, matchesResult, feedModeResult, skillGapResult] = results;
+        const [
+          pgsResult,
+          streakResult,
+          achievementsResult,
+          creatorChallengesResult,
+          questsResult,
+          hubResult,
+          matchesResult,
+          feedModeResult,
+          skillGapResult
+        ] = results;
         const pgsData = takeValue(pgsResult);
         const streakData = takeValue(streakResult);
         const achievementsData = takeValue(achievementsResult);
+        const creatorChallengesData = takeValue(creatorChallengesResult);
         const questsData = takeValue(questsResult);
         const hubData = takeValue(hubResult);
         const matchesData = takeValue(matchesResult);
@@ -200,6 +247,7 @@ export default function InsightsQuickPanel({
         if (pgsData) setPgs(pgsData);
         if (streakData) setStreak(streakData);
         if (Array.isArray(achievementsData)) setAchievements(achievementsData);
+        if (creatorChallengesData) setCreatorChallengeDashboard(creatorChallengesData);
         if (Array.isArray(questsData)) setQuests(questsData.slice(0, compact ? 2 : 4));
         if (hubData) setHub(hubData);
         const sourceMatches = Array.isArray(hubData?.matching?.matches)
@@ -218,6 +266,7 @@ export default function InsightsQuickPanel({
               pgs: pgsData || null,
               streak: streakData || null,
               achievements: Array.isArray(achievementsData) ? achievementsData : [],
+              creatorChallenges: creatorChallengesData || null,
               quests: Array.isArray(questsData) ? questsData : [],
               hub: hubData || null,
               matches: sourceMatches,
@@ -270,6 +319,7 @@ export default function InsightsQuickPanel({
       'insights:streak_updated',
       'insights:career_daily_updated',
       'insights:friend_streak_updated',
+      'insights:creator_challenge_updated',
       'insights:quests_assigned',
       'insights:quests_progress',
       'insights:quests_completed',
@@ -361,6 +411,11 @@ export default function InsightsQuickPanel({
   const incomingFriendInvites = Array.isArray(friendStreaks?.incomingInvites) ? friendStreaks.incomingInvites : [];
   const outgoingFriendInvites = Array.isArray(friendStreaks?.outgoingInvites) ? friendStreaks.outgoingInvites : [];
   const friendCandidates = Array.isArray(friendStreaks?.candidates) ? friendStreaks.candidates : [];
+  const creatorChallenges = Array.isArray(creatorChallengeDashboard?.challenges) ? creatorChallengeDashboard.challenges : [];
+  const earnedAchievements = achievements.filter((item) => item?.earned);
+  const earnedBadges = earnedAchievements.filter((item) => ['bronze', 'silver'].includes(String(item?.tier || '').toLowerCase()));
+  const earnedTrophies = earnedAchievements.filter((item) => ['gold', 'platinum'].includes(String(item?.tier || '').toLowerCase()));
+  const lockedAchievementPreview = achievements.filter((item) => !item?.earned).slice(0, compact ? 2 : 3);
 
   const mergeFriendStreakDashboard = useCallback(
     (dashboard: FriendStreakDashboard | null | undefined) => {
@@ -379,6 +434,26 @@ export default function InsightsQuickPanel({
     },
     [currentUserId]
   );
+
+  useEffect(() => {
+    if (!creatorChallenges.length) return;
+    setSelectedChallengeSubmissionMap((current) => {
+      const next = { ...current };
+      let changed = false;
+      creatorChallenges.forEach((challenge) => {
+        const challengeId = String(challenge?.id || '').trim();
+        if (!challengeId) return;
+        const options = Array.isArray(challenge.submissionOptions) ? challenge.submissionOptions : [];
+        const selected = String(next[challengeId] || '').trim();
+        const isValid = options.some((option) => `${option.contentType}:${option.contentId}` === selected);
+        if (!isValid) {
+          next[challengeId] = options.length ? `${options[0].contentType}:${options[0].contentId}` : '';
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
+  }, [creatorChallenges]);
 
   const resolveMatchReason = (match: any) =>
     Array.isArray(match?.reasons) && match.reasons.length > 0 ? String(match.reasons[0]) : 'Aligned with your current professional graph.';
@@ -519,6 +594,50 @@ export default function InsightsQuickPanel({
     }
   };
 
+  const submitChallengeEntry = async (challenge: CreatorChallenge) => {
+    const challengeId = String(challenge?.id || '').trim();
+    const selected = String(selectedChallengeSubmissionMap[challengeId] || '').trim();
+    if (!challengeId || !selected) {
+      setChallengeStatus('Choose a post or Scroll to submit first.');
+      return;
+    }
+    const [contentType, contentId] = selected.split(':');
+    if (!contentType || !contentId) {
+      setChallengeStatus('Choose a valid submission first.');
+      return;
+    }
+    setChallengeActionBusy(`submit:${challengeId}`);
+    setChallengeStatus(null);
+    try {
+      const updated = await InsightsService.submitCreatorChallengeEntry(challengeId, { contentType, contentId });
+      if (updated) setCreatorChallengeDashboard(updated);
+      setChallengeStatus('Challenge entry submitted.');
+      void refresh({ silent: true });
+    } catch (e: any) {
+      setChallengeStatus(e?.response?.data?.message || e?.message || 'Unable to submit the challenge entry.');
+    } finally {
+      setChallengeActionBusy(null);
+    }
+  };
+
+  const castChallengeVote = async (challenge: CreatorChallenge, entryId: string) => {
+    const challengeId = String(challenge?.id || '').trim();
+    const normalizedEntryId = String(entryId || '').trim();
+    if (!challengeId || !normalizedEntryId) return;
+    setChallengeActionBusy(`vote:${normalizedEntryId}`);
+    setChallengeStatus(null);
+    try {
+      const updated = await InsightsService.voteCreatorChallengeEntry(challengeId, normalizedEntryId);
+      if (updated) setCreatorChallengeDashboard(updated);
+      setChallengeStatus('Challenge vote recorded.');
+      void refresh({ silent: true });
+    } catch (e: any) {
+      setChallengeStatus(e?.response?.data?.message || e?.message || 'Unable to record the challenge vote.');
+    } finally {
+      setChallengeActionBusy(null);
+    }
+  };
+
   return (
     <section
       className={`rounded-3xl border border-white/70 bg-white p-4 shadow-sm ${isDesktopRail ? 'lg:p-5 xl:p-6' : ''} ${className}`.trim()}
@@ -582,7 +701,7 @@ export default function InsightsQuickPanel({
               />
             </div>
             <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-              <span>Achievements: {achievements.length}</span>
+              <span>Achievements: {earnedAchievements.length}/{achievements.length}</span>
               <span>Best streak: {Number(streak?.bestStreakDays || 0)}d</span>
             </div>
           </div>
@@ -712,6 +831,219 @@ export default function InsightsQuickPanel({
                 ? 'All daily missions are complete. Tomorrow rotates in a fresh mission mix.'
                 : 'Missions rotate by day and role so users get a clear reason to come back now without repeating the raw checklist.'}
             </p>
+          </div>
+
+          <div className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Badges and trophies</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Visible status earned through streak consistency, challenge wins, trust, and marketplace momentum.
+                </p>
+              </div>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                {earnedAchievements.length} earned
+              </span>
+            </div>
+
+            <div className={`mt-3 grid gap-3 ${compact || isDesktopRail ? 'grid-cols-1' : 'xl:grid-cols-2'}`}>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-slate-900">Badges</p>
+                  <span className="text-[11px] text-slate-500">{earnedBadges.length}</span>
+                </div>
+                {earnedBadges.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {earnedBadges.slice(0, compact ? 4 : 6).map((item) => (
+                      <div key={item.id} className={`rounded-xl border px-3 py-2 text-xs ${tierClassName(item.tier)}`}>
+                        <div className="font-semibold">{item.title}</div>
+                        <div className="mt-1 text-[11px] opacity-80">{String(item.tier || 'badge').toUpperCase()}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-xs text-slate-500">No badges earned yet. Finish streaks and submit challenge entries to start the cabinet.</p>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-slate-900">Trophies</p>
+                  <span className="text-[11px] text-slate-500">{earnedTrophies.length}</span>
+                </div>
+                {earnedTrophies.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {earnedTrophies.slice(0, compact ? 3 : 4).map((item) => (
+                      <div key={item.id} className={`rounded-xl border px-3 py-2 text-xs ${tierClassName(item.tier)}`}>
+                        <div className="font-semibold">{item.title}</div>
+                        <div className="mt-1 text-[11px] opacity-80">{String(item.tier || 'trophy').toUpperCase()}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-xs text-slate-500">No trophies yet. Weekly creator challenge wins and major milestones unlock them.</p>
+                )}
+              </div>
+            </div>
+
+            {lockedAchievementPreview.length ? (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {lockedAchievementPreview.map((item) => (
+                  <span key={item.id} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-500">
+                    Next: {item.title}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Weekly creator challenges</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Submit one strong piece of content, vote on standout work, and compete for weekly visible status.
+                </p>
+              </div>
+              <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
+                {Number(creatorChallengeDashboard?.activeCount || 0)} active
+              </span>
+            </div>
+
+            {challengeStatus ? <p className="mt-3 text-xs text-slate-500">{challengeStatus}</p> : null}
+
+            {creatorChallenges.length ? (
+              <div className="mt-3 space-y-3">
+                {creatorChallenges.map((challenge) => {
+                  const challengeId = String(challenge.id || '').trim();
+                  const selectedSubmission = String(selectedChallengeSubmissionMap[challengeId] || '').trim();
+                  return (
+                    <div key={challengeId} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                              {challenge.category || 'Creator'}
+                            </span>
+                            <span
+                              className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+                                challenge.status === 'finalized' ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'
+                              }`}
+                            >
+                              {challenge.status}
+                            </span>
+                            <span className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700">
+                              {formatRelativeDeadline(challenge.endAt)}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm font-semibold text-slate-900">{challenge.title}</p>
+                          <p className="mt-1 text-xs text-slate-600">{challenge.description}</p>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-right text-[11px] text-slate-500">
+                          <div>{challenge.stats.totalEntries} entries</div>
+                          <div className="mt-1">{challenge.stats.totalVotes} votes</div>
+                        </div>
+                      </div>
+
+                      {challenge.viewerEntry ? (
+                        <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-800">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="font-semibold">Your entry</p>
+                              <p className="mt-1 text-emerald-700">{challenge.viewerEntry.title}</p>
+                            </div>
+                            <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                              {challenge.viewerEntry.voteCount} votes
+                            </span>
+                          </div>
+                          <p className="mt-2 text-[11px] text-emerald-700">
+                            {challenge.viewerEntry.isWinner
+                              ? 'This entry is currently in the winner set.'
+                              : challenge.status === 'finalized'
+                                ? 'Voting is closed for this weekly challenge.'
+                                : 'You already submitted to this weekly challenge. You can still vote on another creator.'}
+                          </p>
+                        </div>
+                      ) : challenge.canSubmit ? (
+                        <div className={`mt-3 grid gap-2 ${compact || isDesktopRail ? 'grid-cols-1' : 'md:grid-cols-[1fr_auto]'}`}>
+                          <select
+                            value={selectedSubmission}
+                            onChange={(event) =>
+                              setSelectedChallengeSubmissionMap((current) => ({
+                                ...current,
+                                [challengeId]: event.target.value
+                              }))
+                            }
+                            disabled={!challenge.submissionOptions.length}
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:opacity-60"
+                          >
+                            {challenge.submissionOptions.length ? null : <option value="">No eligible public content available yet</option>}
+                            {challenge.submissionOptions.map((option) => (
+                              <option key={`${option.contentType}:${option.contentId}`} value={`${option.contentType}:${option.contentId}`}>
+                                {option.title} ({option.contentType === 'scroll_video' ? 'Scroll' : 'Post'})
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => void submitChallengeEntry(challenge)}
+                            disabled={!selectedSubmission || !challenge.submissionOptions.length || challengeActionBusy === `submit:${challengeId}`}
+                            className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                          >
+                            {challengeActionBusy === `submit:${challengeId}` ? 'Submitting...' : 'Submit'}
+                          </button>
+                        </div>
+                      ) : null}
+
+                      <div className="mt-3 grid gap-2">
+                        {challenge.topEntries.length ? (
+                          challenge.topEntries.map((entry) => (
+                            <div key={entry.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="line-clamp-1 text-sm font-semibold text-slate-900">{entry.title}</p>
+                                  <p className="mt-1 text-[11px] text-slate-500">
+                                    {entry.author.name}
+                                    {entry.author.username ? ` (@${entry.author.username})` : ''}
+                                    {' • '}
+                                    {entry.contentType === 'scroll_video' ? 'Scroll' : 'Post'}
+                                  </p>
+                                </div>
+                                <div className="flex shrink-0 items-center gap-2">
+                                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                                    {entry.voteCount} votes
+                                  </span>
+                                  {challenge.status === 'active' && entry.viewerCanVote ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void castChallengeVote(challenge, entry.id)}
+                                      disabled={challengeActionBusy === `vote:${entry.id}`}
+                                      className={`rounded-xl px-3 py-1.5 text-[11px] font-semibold ${
+                                        entry.viewerHasVoted
+                                          ? 'border border-indigo-200 bg-indigo-50 text-indigo-700'
+                                          : 'bg-slate-900 text-white'
+                                      } disabled:opacity-50`}
+                                    >
+                                      {challengeActionBusy === `vote:${entry.id}` ? 'Voting...' : entry.viewerHasVoted ? 'Voted' : 'Vote'}
+                                    </button>
+                                  ) : entry.isWinner ? (
+                                    <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">Winner</span>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-xs text-slate-500">No entries yet. Submit the first standout piece for this week.</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">Weekly creator challenges will appear here when the current week opens.</p>
+            )}
           </div>
 
           <div className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>

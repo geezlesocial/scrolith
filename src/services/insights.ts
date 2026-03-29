@@ -124,6 +124,88 @@ export type DailyMissionSummary = {
   missions: DailyMission[];
 };
 
+export type InsightAchievement = {
+  id: string;
+  key: string;
+  title: string;
+  description?: string | null;
+  tier: 'bronze' | 'silver' | 'gold' | 'platinum' | string;
+  earned: boolean;
+  earnedAt?: string | null;
+  rules?: Record<string, any>;
+};
+
+export type CreatorChallengeSubmissionOption = {
+  contentType: 'community_post' | 'scroll_video' | string;
+  contentId: string;
+  title: string;
+  description?: string | null;
+  coverUrl?: string | null;
+  destinationUrl?: string | null;
+  createdAt?: string | null;
+};
+
+export type CreatorChallengeEntry = {
+  id: string;
+  userId: string;
+  contentType: 'community_post' | 'scroll_video' | string;
+  contentId: string;
+  title: string;
+  description?: string | null;
+  coverUrl?: string | null;
+  destinationUrl?: string | null;
+  voteCount: number;
+  isWinner: boolean;
+  position?: number | null;
+  status: string;
+  createdAt?: string | null;
+  viewerCanVote: boolean;
+  viewerHasVoted: boolean;
+  author: {
+    id: string;
+    name: string;
+    username?: string | null;
+    avatarUrl?: string | null;
+    role?: string | null;
+  };
+};
+
+export type CreatorChallenge = {
+  id: string;
+  key: string;
+  weekKey: string;
+  title: string;
+  description?: string | null;
+  category?: string | null;
+  contentTypes: string[];
+  status: 'draft' | 'active' | 'finalized' | 'archived' | string;
+  isActive: boolean;
+  entryLimitPerUser: number;
+  maxWinners: number;
+  startAt?: string | null;
+  endAt?: string | null;
+  finalizedAt?: string | null;
+  reward?: Record<string, any>;
+  stats: {
+    totalEntries: number;
+    totalVotes: number;
+  };
+  viewerVoteEntryId?: string | null;
+  viewerEntry?: CreatorChallengeEntry | null;
+  canSubmit: boolean;
+  submissionOptions: CreatorChallengeSubmissionOption[];
+  topEntries: CreatorChallengeEntry[];
+  winners?: CreatorChallengeEntry[];
+};
+
+export type CreatorChallengeDashboard = {
+  userId: string;
+  weekKey: string;
+  activeCount: number;
+  totalWins: number;
+  challenges: CreatorChallenge[];
+};
+
 export type UserStreak = {
   userId: string;
   currentStreakDays: number;
@@ -313,10 +395,10 @@ class InsightsService {
     return extractData<ProfessionalScore | null>(response);
   }
 
-  static async getMyAchievements(): Promise<any[]> {
+  static async getMyAchievements(): Promise<InsightAchievement[]> {
     const response = await api.get('/insights/achievements/me');
     const data = extractData<any>(response);
-    return Array.isArray(data) ? data : [];
+    return Array.isArray(data) ? (data as InsightAchievement[]) : [];
   }
 
   static async getMyStreak(): Promise<UserStreak | null> {
@@ -351,6 +433,24 @@ class InsightsService {
       return { friendStreaks: data } as UserStreak;
     }
     return data as UserStreak | null;
+  }
+
+  static async getMyCreatorChallenges(): Promise<CreatorChallengeDashboard | null> {
+    const response = await api.get('/insights/challenges/me');
+    return extractData<CreatorChallengeDashboard | null>(response);
+  }
+
+  static async submitCreatorChallengeEntry(
+    challengeId: string,
+    payload: { contentType: string; contentId: string }
+  ): Promise<CreatorChallengeDashboard | null> {
+    const response = await api.post(`/insights/challenges/${encodeURIComponent(challengeId)}/entries`, payload);
+    return extractData<CreatorChallengeDashboard | null>(response);
+  }
+
+  static async voteCreatorChallengeEntry(challengeId: string, entryId: string): Promise<CreatorChallengeDashboard | null> {
+    const response = await api.post(`/insights/challenges/${encodeURIComponent(challengeId)}/vote`, { entryId });
+    return extractData<CreatorChallengeDashboard | null>(response);
   }
 
   static async getMyQuests(): Promise<UserQuest[]> {
@@ -455,6 +555,33 @@ class InsightsService {
 
   static async toggleAdminAchievement(id: string): Promise<any> {
     const response = await api.post(`/admin/insights/achievements/${encodeURIComponent(id)}/toggle`, {});
+    return extractData<any>(response);
+  }
+
+  static async getAdminCreatorChallenges(weekKey?: string): Promise<any[]> {
+    const query = weekKey ? `?weekKey=${encodeURIComponent(weekKey)}` : '';
+    const response = await api.get(`/admin/insights/challenges${query}`);
+    const data = extractData<any>(response);
+    return Array.isArray(data) ? data : [];
+  }
+
+  static async createAdminCreatorChallenge(payload: any): Promise<any> {
+    const response = await api.post('/admin/insights/challenges', payload);
+    return extractData<any>(response);
+  }
+
+  static async updateAdminCreatorChallenge(id: string, payload: any): Promise<any> {
+    const response = await api.put(`/admin/insights/challenges/${encodeURIComponent(id)}`, payload);
+    return extractData<any>(response);
+  }
+
+  static async toggleAdminCreatorChallenge(id: string): Promise<any> {
+    const response = await api.post(`/admin/insights/challenges/${encodeURIComponent(id)}/toggle`, {});
+    return extractData<any>(response);
+  }
+
+  static async finalizeAdminCreatorChallenge(id: string): Promise<any> {
+    const response = await api.post(`/admin/insights/challenges/${encodeURIComponent(id)}/finalize`, {});
     return extractData<any>(response);
   }
 
