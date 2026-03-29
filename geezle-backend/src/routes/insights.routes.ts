@@ -2,6 +2,7 @@ import express from 'express';
 import { authMiddleware } from '../middleware/auth.middleware';
 import {
   completeMyQuestController,
+  endFriendStreakController,
   generateOpportunityBriefController,
   generateSkillGapController,
   getFeedModeController,
@@ -13,8 +14,10 @@ import {
   getMyQuestsController,
   getMySkillGapController,
   getMyStreakController,
+  inviteFriendStreakController,
   getPostPredictionController,
   getRevenueController,
+  respondFriendStreakController,
   setFeedModeController
 } from '../modules/insights/controllers/insights.controller';
 
@@ -25,6 +28,9 @@ router.use(authMiddleware);
 router.get('/pgs/me', getMyPgsController);
 router.get('/achievements/me', getMyAchievementsController);
 router.get('/streak/me', getMyStreakController);
+router.post('/streak/friends/invite', inviteFriendStreakController);
+router.post('/streak/friends/:friendStreakId/respond', respondFriendStreakController);
+router.post('/streak/friends/:friendStreakId/end', endFriendStreakController);
 router.get('/quests/me', getMyQuestsController);
 router.post('/quests/:userQuestId/complete', completeMyQuestController);
 router.get('/leaderboard', getLeaderboardController);

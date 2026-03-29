@@ -31,6 +31,7 @@ export const emitInsightsEvent = (
     | 'insights:achievement_unlocked'
     | 'insights:streak_updated'
     | 'insights:career_daily_updated'
+    | 'insights:friend_streak_updated'
     | 'insights:quests_assigned'
     | 'insights:quests_progress'
     | 'insights:quests_completed'

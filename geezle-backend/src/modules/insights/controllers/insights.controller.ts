@@ -2,6 +2,13 @@ import type { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../../../services/scrolitha/scrolitha.audit';
 import { buildEmptyCareerStreakSummary, getCareerStreakSummary } from '../services/careerStreak.service';
 import {
+  buildEmptyFriendStreakDashboard,
+  createFriendStreakInvite,
+  endFriendStreak,
+  getFriendStreakDashboard,
+  respondToFriendStreakInvite
+} from '../services/friendStreak.service';
+import {
   completeUserQuest,
   generateOpportunityBriefMatches,
   generatePostPrediction,
@@ -30,6 +37,7 @@ const INSIGHTS_SCHEMA_TOKENS = [
   'userquest',
   'questcompletionlog',
   'careerdailyaction',
+  'friendstreak',
   'professionalscore',
   'insightevent',
   'weeklyleaderboard',
@@ -84,7 +92,8 @@ const fallbackStreak = (userId: string) => ({
   lastActiveDate: null,
   createdAt: null,
   updatedAt: null,
-  careerDaily: buildEmptyCareerStreakSummary(userId)
+  careerDaily: buildEmptyCareerStreakSummary(userId),
+  friendStreaks: buildEmptyFriendStreakDashboard(userId)
 });
 
 const fallbackRevenue = () => ({
@@ -142,18 +151,89 @@ export const getMyStreakController = async (req: Request, res: Response) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
-    const [streak, careerDaily] = await Promise.all([getUserStreak(userId), getCareerStreakSummary(userId)]);
+    const [streak, careerDaily, friendStreaks] = await Promise.all([
+      getUserStreak(userId),
+      getCareerStreakSummary(userId),
+      getFriendStreakDashboard(userId)
+    ]);
     const data = {
       ...streak,
-      careerDaily
+      careerDaily,
+      friendStreaks
     };
     return res.json({ success: true, data, message: 'Streak loaded' });
   } catch (error) {
-    if (isInsightsSchemaUnavailable(error, ['userstreak', 'careerdailyaction'])) {
+    if (isInsightsSchemaUnavailable(error, ['userstreak', 'careerdailyaction', 'friendstreak'])) {
       const userId = getUserId(req);
       return res.json({ success: true, data: fallbackStreak(userId || ''), message: 'Streak loaded' });
     }
     return fail(res, 'Failed to load streak', error);
+  }
+};
+
+export const inviteFriendStreakController = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
+    const partnerUserId = String(req.body?.partnerUserId || '').trim();
+    if (!partnerUserId) return fail(res, 'partnerUserId is required', new Error('partnerUserId is required'), 400);
+    const data = await createFriendStreakInvite({ userId, partnerUserId, app: req.app });
+    return res.json({ success: true, data, message: 'Friend streak invite processed' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to create friend streak invite');
+    if (message.toLowerCase().includes('required')) return fail(res, message, error, 400);
+    if (message.toLowerCase().includes('not found')) return fail(res, message, error, 404);
+    if (
+      message.toLowerCase().includes('already') ||
+      message.toLowerCase().includes('limit') ||
+      message.toLowerCase().includes('mutual')
+    ) {
+      return fail(res, message, error, 409);
+    }
+    return fail(res, 'Failed to create friend streak invite', error);
+  }
+};
+
+export const respondFriendStreakController = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
+    const friendStreakId = String(req.params.friendStreakId || '').trim();
+    const response = String(req.body?.response || '').trim();
+    if (!friendStreakId) return fail(res, 'friendStreakId is required', new Error('friendStreakId is required'), 400);
+    const data = await respondToFriendStreakInvite({ userId, friendStreakId, response, app: req.app });
+    return res.json({ success: true, data, message: 'Friend streak invite updated' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to update friend streak invite');
+    if (message.toLowerCase().includes('required') || message.toLowerCase().includes('must be')) {
+      return fail(res, message, error, 400);
+    }
+    if (message.toLowerCase().includes('not found')) return fail(res, message, error, 404);
+    if (
+      message.toLowerCase().includes('pending') ||
+      message.toLowerCase().includes('limit') ||
+      message.toLowerCase().includes('cannot respond')
+    ) {
+      return fail(res, message, error, 409);
+    }
+    return fail(res, 'Failed to update friend streak invite', error);
+  }
+};
+
+export const endFriendStreakController = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
+    const friendStreakId = String(req.params.friendStreakId || '').trim();
+    if (!friendStreakId) return fail(res, 'friendStreakId is required', new Error('friendStreakId is required'), 400);
+    const data = await endFriendStreak({ userId, friendStreakId, app: req.app });
+    return res.json({ success: true, data, message: 'Friend streak ended' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to end friend streak');
+    if (message.toLowerCase().includes('required')) return fail(res, message, error, 400);
+    if (message.toLowerCase().includes('not found')) return fail(res, message, error, 404);
+    if (message.toLowerCase().includes('already closed')) return fail(res, message, error, 409);
+    return fail(res, 'Failed to end friend streak', error);
   }
 };
 
