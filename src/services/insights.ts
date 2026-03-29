@@ -47,6 +47,57 @@ export type CareerDailySummary = {
   actions: CareerDailyActionState[];
 };
 
+export type FriendStreakUserSummary = {
+  id: string;
+  name: string;
+  username?: string | null;
+  avatarUrl?: string | null;
+  role?: string | null;
+  reason?: string | null;
+};
+
+export type FriendStreakInviteSummary = {
+  id: string;
+  status: 'PENDING' | string;
+  invitedAt: string;
+  initiatedByUserId: string;
+  partner: FriendStreakUserSummary;
+};
+
+export type FriendStreakActiveSummary = {
+  id: string;
+  status: 'ACTIVE' | string;
+  acceptedAt?: string | null;
+  initiatedByUserId: string;
+  partner: FriendStreakUserSummary;
+  sharedCurrentStreakDays: number;
+  today: {
+    actionDate: string;
+    goalCount: number;
+    viewerCompletedCount: number;
+    partnerCompletedCount: number;
+    viewerCompletedActions: string[];
+    partnerCompletedActions: string[];
+    viewerAllCompleted: boolean;
+    partnerAllCompleted: boolean;
+    bothCompleted: boolean;
+  };
+};
+
+export type FriendStreakDashboard = {
+  userId: string;
+  actionDate: string;
+  maxActive: number;
+  activeCount: number;
+  pendingIncomingCount: number;
+  pendingOutgoingCount: number;
+  canInvite: boolean;
+  active: FriendStreakActiveSummary[];
+  incomingInvites: FriendStreakInviteSummary[];
+  outgoingInvites: FriendStreakInviteSummary[];
+  candidates: FriendStreakUserSummary[];
+};
+
 export type UserStreak = {
   userId: string;
   currentStreakDays: number;
@@ -55,6 +106,7 @@ export type UserStreak = {
   createdAt?: string | null;
   updatedAt?: string | null;
   careerDaily?: CareerDailySummary | null;
+  friendStreaks?: FriendStreakDashboard | null;
 };
 
 export type OpportunityHubData = {
@@ -243,6 +295,35 @@ class InsightsService {
   static async getMyStreak(): Promise<UserStreak | null> {
     const response = await api.get('/insights/streak/me');
     return extractData<UserStreak | null>(response);
+  }
+
+  static async inviteFriendStreak(partnerUserId: string): Promise<UserStreak | null> {
+    const response = await api.post('/insights/streak/friends/invite', { partnerUserId });
+    const data = extractData<any>(response);
+    if (data && typeof data === 'object' && 'userId' in data) {
+      return { friendStreaks: data } as UserStreak;
+    }
+    return data as UserStreak | null;
+  }
+
+  static async respondFriendStreak(friendStreakId: string, responseValue: 'accept' | 'decline'): Promise<UserStreak | null> {
+    const response = await api.post(`/insights/streak/friends/${encodeURIComponent(friendStreakId)}/respond`, {
+      response: responseValue
+    });
+    const data = extractData<any>(response);
+    if (data && typeof data === 'object' && 'userId' in data) {
+      return { friendStreaks: data } as UserStreak;
+    }
+    return data as UserStreak | null;
+  }
+
+  static async endFriendStreak(friendStreakId: string): Promise<UserStreak | null> {
+    const response = await api.post(`/insights/streak/friends/${encodeURIComponent(friendStreakId)}/end`, {});
+    const data = extractData<any>(response);
+    if (data && typeof data === 'object' && 'userId' in data) {
+      return { friendStreaks: data } as UserStreak;
+    }
+    return data as UserStreak | null;
   }
 
   static async getMyQuests(): Promise<UserQuest[]> {

@@ -3,9 +3,12 @@ import { Link } from 'react-router-dom';
 import { useSocket } from '../../context/SocketContext';
 import { useUser } from '../../context/UserContext';
 import {
+  type FriendStreakDashboard,
   InsightsService,
   type CareerDailyActionState,
   type FeedMode,
+  type FriendStreakActiveSummary,
+  type FriendStreakInviteSummary,
   type OpportunityBriefResult,
   type OpportunityHubData,
   type ProfessionalScore,
@@ -104,6 +107,9 @@ export default function InsightsQuickPanel({
   const [briefPrompt, setBriefPrompt] = useState('');
   const [briefResult, setBriefResult] = useState<OpportunityBriefResult | null>(null);
   const [briefStatus, setBriefStatus] = useState<string | null>(null);
+  const [friendStreakActionBusy, setFriendStreakActionBusy] = useState<string | null>(null);
+  const [friendStreakStatus, setFriendStreakStatus] = useState<string | null>(null);
+  const [selectedFriendCandidateId, setSelectedFriendCandidateId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -262,6 +268,7 @@ export default function InsightsQuickPanel({
       'insights:achievement_unlocked',
       'insights:streak_updated',
       'insights:career_daily_updated',
+      'insights:friend_streak_updated',
       'insights:quests_assigned',
       'insights:quests_progress',
       'insights:quests_completed',
@@ -346,6 +353,28 @@ export default function InsightsQuickPanel({
     Array.isArray(careerDaily?.actions) && careerDaily.actions.length
       ? careerDaily.actions
       : DEFAULT_CAREER_DAILY_ACTIONS;
+  const friendStreaks = (streak?.friendStreaks || null) as FriendStreakDashboard | null;
+  const activeFriendStreaks = Array.isArray(friendStreaks?.active) ? friendStreaks.active : [];
+  const incomingFriendInvites = Array.isArray(friendStreaks?.incomingInvites) ? friendStreaks.incomingInvites : [];
+  const outgoingFriendInvites = Array.isArray(friendStreaks?.outgoingInvites) ? friendStreaks.outgoingInvites : [];
+  const friendCandidates = Array.isArray(friendStreaks?.candidates) ? friendStreaks.candidates : [];
+
+  const mergeFriendStreakDashboard = useCallback(
+    (dashboard: FriendStreakDashboard | null | undefined) => {
+      if (!dashboard) return;
+      setStreak((current) => ({
+        userId: current?.userId || currentUserId || dashboard.userId,
+        currentStreakDays: Number(current?.currentStreakDays || 0),
+        bestStreakDays: Number(current?.bestStreakDays || 0),
+        lastActiveDate: current?.lastActiveDate || null,
+        createdAt: current?.createdAt || null,
+        updatedAt: current?.updatedAt || null,
+        careerDaily: current?.careerDaily || null,
+        friendStreaks: dashboard
+      }));
+    },
+    [currentUserId]
+  );
 
   const resolveMatchReason = (match: any) =>
     Array.isArray(match?.reasons) && match.reasons.length > 0 ? String(match.reasons[0]) : 'Aligned with your current professional graph.';
@@ -418,6 +447,71 @@ export default function InsightsQuickPanel({
       setQuestStatus('Quest completion failed. Please try again.');
     } finally {
       setQuestBusyId(null);
+    }
+  };
+
+  useEffect(() => {
+    const hasSelectedCandidate = friendCandidates.some((candidate) => candidate.id === selectedFriendCandidateId);
+    if (!friendCandidates.length) {
+      if (selectedFriendCandidateId) setSelectedFriendCandidateId('');
+      return;
+    }
+    if (!hasSelectedCandidate) {
+      setSelectedFriendCandidateId(String(friendCandidates[0]?.id || '').trim());
+    }
+  }, [friendCandidates, selectedFriendCandidateId]);
+
+  const inviteFriendStreak = async () => {
+    const partnerUserId = String(selectedFriendCandidateId || '').trim();
+    if (!partnerUserId) {
+      setFriendStreakStatus('Choose a mutual follow to invite first.');
+      return;
+    }
+    setFriendStreakActionBusy(`invite:${partnerUserId}`);
+    setFriendStreakStatus(null);
+    try {
+      const updated = await InsightsService.inviteFriendStreak(partnerUserId);
+      if (updated?.friendStreaks) mergeFriendStreakDashboard(updated.friendStreaks);
+      setFriendStreakStatus('Accountability invite sent.');
+      void refresh({ silent: true });
+    } catch (e: any) {
+      setFriendStreakStatus(e?.response?.data?.message || e?.message || 'Unable to send the accountability invite.');
+    } finally {
+      setFriendStreakActionBusy(null);
+    }
+  };
+
+  const respondToFriendInvite = async (invite: FriendStreakInviteSummary, responseValue: 'accept' | 'decline') => {
+    const inviteId = String(invite?.id || '').trim();
+    if (!inviteId) return;
+    setFriendStreakActionBusy(`${responseValue}:${inviteId}`);
+    setFriendStreakStatus(null);
+    try {
+      const updated = await InsightsService.respondFriendStreak(inviteId, responseValue);
+      if (updated?.friendStreaks) mergeFriendStreakDashboard(updated.friendStreaks);
+      setFriendStreakStatus(responseValue === 'accept' ? 'Accountability streak activated.' : 'Invite declined.');
+      void refresh({ silent: true });
+    } catch (e: any) {
+      setFriendStreakStatus(e?.response?.data?.message || e?.message || 'Unable to update the invite.');
+    } finally {
+      setFriendStreakActionBusy(null);
+    }
+  };
+
+  const closeFriendStreak = async (item: FriendStreakActiveSummary | FriendStreakInviteSummary, mode: 'end' | 'cancel') => {
+    const streakId = String(item?.id || '').trim();
+    if (!streakId) return;
+    setFriendStreakActionBusy(`${mode}:${streakId}`);
+    setFriendStreakStatus(null);
+    try {
+      const updated = await InsightsService.endFriendStreak(streakId);
+      if (updated?.friendStreaks) mergeFriendStreakDashboard(updated.friendStreaks);
+      setFriendStreakStatus(mode === 'end' ? 'Shared accountability streak ended.' : 'Pending invite cancelled.');
+      void refresh({ silent: true });
+    } catch (e: any) {
+      setFriendStreakStatus(e?.response?.data?.message || e?.message || 'Unable to update the shared streak.');
+    } finally {
+      setFriendStreakActionBusy(null);
     }
   };
 
@@ -528,6 +622,200 @@ export default function InsightsQuickPanel({
                 ? 'All four career actions are complete for today.'
                 : 'Your streak counts once per day, and this checklist helps you stay consistent across all four actions.'}
             </p>
+          </div>
+
+          <div className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Shared accountability</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Invite a mutual follow to share the same daily four-action streak and keep each other accountable.
+                </p>
+              </div>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                {Number(friendStreaks?.activeCount || 0)}/{Number(friendStreaks?.maxActive || 3)} active
+              </span>
+            </div>
+
+            {friendStreakStatus ? <p className="mt-3 text-xs text-slate-500">{friendStreakStatus}</p> : null}
+
+            <div className={`mt-3 grid gap-3 ${compact || isDesktopRail ? 'grid-cols-1' : 'xl:grid-cols-[1.2fr_0.8fr]'}`}>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-900">Invite a mutual follow</p>
+                    <p className="mt-1 text-[11px] text-slate-500">One invite per pair, no duplicate streak records.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void inviteFriendStreak()}
+                    disabled={!selectedFriendCandidateId || Boolean(friendStreakActionBusy) || friendStreaks?.canInvite === false}
+                    className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                  >
+                    {friendStreakActionBusy?.startsWith('invite:') ? 'Inviting...' : 'Invite'}
+                  </button>
+                </div>
+                <select
+                  value={selectedFriendCandidateId}
+                  onChange={(event) => setSelectedFriendCandidateId(event.target.value)}
+                  disabled={!friendCandidates.length || friendStreaks?.canInvite === false}
+                  className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:opacity-60"
+                >
+                  {friendCandidates.length ? null : <option value="">No mutual follows available yet</option>}
+                  {friendCandidates.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.name}
+                      {candidate.username ? ` (@${candidate.username})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-2 text-[11px] text-slate-500">
+                  {friendStreaks?.canInvite === false
+                    ? 'You have reached the active accountability limit. End one shared streak before inviting another partner.'
+                    : friendCandidates.length
+                      ? 'Only mutual follows appear here to keep invites high-signal and spam-resistant.'
+                      : 'Follow each other first to unlock shared accountability streaks.'}
+                </p>
+
+                {outgoingFriendInvites.length ? (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Pending invites</p>
+                    {outgoingFriendInvites.map((invite) => (
+                      <div key={invite.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="line-clamp-1 text-sm font-semibold text-slate-900">{invite.partner.name}</p>
+                            <p className="text-[11px] text-slate-500">
+                              Waiting for {invite.partner.username ? `@${invite.partner.username}` : 'your partner'} to accept.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void closeFriendStreak(invite, 'cancel')}
+                            disabled={friendStreakActionBusy === `cancel:${invite.id}`}
+                            className="rounded-xl border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-600 disabled:opacity-50"
+                          >
+                            {friendStreakActionBusy === `cancel:${invite.id}` ? 'Cancelling...' : 'Cancel'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="space-y-3">
+                {incomingFriendInvites.length ? (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Incoming invites</p>
+                    <div className="mt-2 space-y-2">
+                      {incomingFriendInvites.map((invite) => (
+                        <div key={invite.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="line-clamp-1 text-sm font-semibold text-slate-900">{invite.partner.name}</p>
+                              <p className="text-[11px] text-slate-500">
+                                {invite.partner.username ? `@${invite.partner.username}` : 'Your mutual'} wants to share a daily streak.
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void respondToFriendInvite(invite, 'decline')}
+                                disabled={friendStreakActionBusy === `decline:${invite.id}`}
+                                className="rounded-xl border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-600 disabled:opacity-50"
+                              >
+                                Decline
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void respondToFriendInvite(invite, 'accept')}
+                                disabled={friendStreakActionBusy === `accept:${invite.id}`}
+                                className="rounded-xl bg-indigo-600 px-3 py-1.5 text-[11px] font-semibold text-white disabled:opacity-50"
+                              >
+                                {friendStreakActionBusy === `accept:${invite.id}` ? 'Accepting...' : 'Accept'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Active partners</p>
+                    <span className="text-[11px] text-slate-500">
+                      {Number(friendStreaks?.pendingIncomingCount || 0)} incoming / {Number(friendStreaks?.pendingOutgoingCount || 0)} outgoing
+                    </span>
+                  </div>
+                  {activeFriendStreaks.length ? (
+                    <div className="mt-2 space-y-2">
+                      {activeFriendStreaks.map((entry) => {
+                        const partnerInitial = String(entry.partner?.name || entry.partner?.username || '?').trim().charAt(0).toUpperCase() || '?';
+                        return (
+                          <div key={entry.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex min-w-0 items-center gap-3">
+                                <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-800 text-sm font-semibold text-white">
+                                  {entry.partner.avatarUrl ? (
+                                    <img src={entry.partner.avatarUrl} alt={entry.partner.name} className="h-full w-full object-cover" />
+                                  ) : (
+                                    <span>{partnerInitial}</span>
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="line-clamp-1 text-sm font-semibold text-slate-900">{entry.partner.name}</p>
+                                  <p className="text-[11px] text-slate-500">
+                                    {entry.partner.username ? `@${entry.partner.username}` : 'Mutual follow'} · Shared streak {entry.sharedCurrentStreakDays}d
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => void closeFriendStreak(entry, 'end')}
+                                disabled={friendStreakActionBusy === `end:${entry.id}`}
+                                className="rounded-xl border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-600 disabled:opacity-50"
+                              >
+                                {friendStreakActionBusy === `end:${entry.id}` ? 'Ending...' : 'End'}
+                              </button>
+                            </div>
+                            <div className={`mt-3 grid gap-2 ${compact || isDesktopRail ? 'grid-cols-1' : 'sm:grid-cols-2'}`}>
+                              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+                                <div className="font-semibold uppercase tracking-wide text-slate-500">You</div>
+                                <div className="mt-1 text-sm font-semibold text-slate-900">
+                                  {entry.today.viewerCompletedCount}/{entry.today.goalCount}
+                                </div>
+                                <div className="mt-1">{entry.today.viewerAllCompleted ? 'All four actions complete.' : 'Still in progress today.'}</div>
+                              </div>
+                              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+                                <div className="font-semibold uppercase tracking-wide text-slate-500">Partner</div>
+                                <div className="mt-1 text-sm font-semibold text-slate-900">
+                                  {entry.today.partnerCompletedCount}/{entry.today.goalCount}
+                                </div>
+                                <div className="mt-1">
+                                  {entry.today.partnerAllCompleted ? 'All four actions complete.' : 'Waiting on the remaining actions.'}
+                                </div>
+                              </div>
+                            </div>
+                            <p className="mt-2 text-[11px] text-slate-500">
+                              {entry.today.bothCompleted
+                                ? 'Both partners completed all four actions today.'
+                                : 'The shared streak advances when both partners complete all four actions on the same day.'}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-500">
+                      No shared streaks are active yet. Invite a mutual follow to start the accountability loop.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
 
           {hub ? (

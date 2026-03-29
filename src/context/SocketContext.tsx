@@ -153,6 +153,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'insights:achievement_unlocked', fn: forward('insights:achievement_unlocked') }
       ,{ ev: 'insights:streak_updated', fn: forward('insights:streak_updated') }
       ,{ ev: 'insights:career_daily_updated', fn: forward('insights:career_daily_updated') }
+      ,{ ev: 'insights:friend_streak_updated', fn: forward('insights:friend_streak_updated') }
       ,{ ev: 'insights:quests_assigned', fn: forward('insights:quests_assigned') }
       ,{ ev: 'insights:quests_progress', fn: forward('insights:quests_progress') }
       ,{ ev: 'insights:quests_completed', fn: forward('insights:quests_completed') }
