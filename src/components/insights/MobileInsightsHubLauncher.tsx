@@ -104,12 +104,20 @@ export default function MobileInsightsHubLauncher() {
   const [activeGroup, setActiveGroup] = useState<MobileInsightsGroupId>('growth');
 
   const sheetBodyRef = useRef<HTMLDivElement | null>(null);
+  const hasSummaryData =
+    Boolean(pgs) ||
+    Boolean(streak) ||
+    Boolean(hub) ||
+    Boolean(creatorChallengeDashboard) ||
+    achievements.length > 0 ||
+    quests.length > 0;
 
   const readCachedSummary = useCallback(() => {
-    if (!currentUserId) return;
+    let hydrated = false;
+    if (!currentUserId) return false;
     try {
       const raw = localStorage.getItem(insightsCacheKey);
-      if (!raw) return;
+      if (!raw) return false;
       const parsed = JSON.parse(raw) as {
         ts?: number;
         pgs?: ProfessionalScore | null;
@@ -120,7 +128,7 @@ export default function MobileInsightsHubLauncher() {
         hub?: OpportunityHubData | null;
       };
       const ts = Number(parsed?.ts || 0);
-      if (Date.now() - ts > INSIGHTS_CACHE_TTL_MS) return;
+      if (Date.now() - ts > INSIGHTS_CACHE_TTL_MS) return false;
       if (parsed?.pgs) setPgs(parsed.pgs);
       if (parsed?.streak) setStreak(parsed.streak);
       if (Array.isArray(parsed?.achievements)) setAchievements(parsed.achievements);
@@ -128,9 +136,11 @@ export default function MobileInsightsHubLauncher() {
       if (Array.isArray(parsed?.quests)) setQuests(parsed.quests);
       if (parsed?.hub) setHub(parsed.hub);
       setLoading(false);
+      hydrated = true;
     } catch {
       // Ignore cache parse errors.
     }
+    return hydrated;
   }, [currentUserId, insightsCacheKey]);
 
   const persistSummary = useCallback(
@@ -165,10 +175,11 @@ export default function MobileInsightsHubLauncher() {
     [insightsCacheKey]
   );
 
-  const refreshSummary = useCallback(async () => {
-    setError(null);
-    setRefreshing(true);
-    if (!pgs && !streak && !hub) setLoading(true);
+  const refreshSummary = useCallback(async (options?: { quiet?: boolean }) => {
+    const quiet = Boolean(options?.quiet);
+    if (!quiet) setError(null);
+    if (!quiet) setRefreshing(true);
+    if (!quiet && !hasSummaryData) setLoading(true);
     try {
       const results = await Promise.allSettled([
         withFastFail(InsightsService.getMyPgs(), 15000, 'Professional score request timed out.'),
@@ -180,19 +191,24 @@ export default function MobileInsightsHubLauncher() {
       ]);
 
       const [pgsResult, streakResult, achievementsResult, creatorChallengesResult, questsResult, hubResult] = results;
-      const nextPgs = takeValue(pgsResult);
-      const nextStreak = takeValue(streakResult);
-      const nextAchievements = takeValue(achievementsResult);
-      const nextCreatorChallenges = takeValue(creatorChallengesResult);
-      const nextQuests = takeValue(questsResult);
-      const nextHub = takeValue(hubResult);
+      const nextPgs = pgsResult.status === 'fulfilled' ? pgsResult.value || null : pgs;
+      const nextStreak = streakResult.status === 'fulfilled' ? streakResult.value || null : streak;
+      const nextAchievements =
+        achievementsResult.status === 'fulfilled' && Array.isArray(achievementsResult.value)
+          ? achievementsResult.value
+          : achievements;
+      const nextCreatorChallenges =
+        creatorChallengesResult.status === 'fulfilled' ? creatorChallengesResult.value || null : creatorChallengeDashboard;
+      const nextQuests =
+        questsResult.status === 'fulfilled' && Array.isArray(questsResult.value) ? questsResult.value : quests;
+      const nextHub = hubResult.status === 'fulfilled' ? hubResult.value || null : hub;
 
-      setPgs(nextPgs || null);
-      setStreak(nextStreak || null);
-      setAchievements(Array.isArray(nextAchievements) ? nextAchievements : []);
-      setCreatorChallengeDashboard(nextCreatorChallenges || null);
-      setQuests(Array.isArray(nextQuests) ? nextQuests : []);
-      setHub(nextHub || null);
+      if (pgsResult.status === 'fulfilled') setPgs(nextPgs || null);
+      if (streakResult.status === 'fulfilled') setStreak(nextStreak || null);
+      if (achievementsResult.status === 'fulfilled') setAchievements(Array.isArray(nextAchievements) ? nextAchievements : []);
+      if (creatorChallengesResult.status === 'fulfilled') setCreatorChallengeDashboard(nextCreatorChallenges || null);
+      if (questsResult.status === 'fulfilled') setQuests(Array.isArray(nextQuests) ? nextQuests : []);
+      if (hubResult.status === 'fulfilled') setHub(nextHub || null);
       if (results.some((result) => result.status === 'fulfilled')) {
         persistSummary({
           pgs: nextPgs || null,
@@ -206,16 +222,18 @@ export default function MobileInsightsHubLauncher() {
         throw new Error('Insights request timed out. Please retry.');
       }
     } catch (e: any) {
-      setError(e?.response?.data?.message || e?.message || 'Unable to refresh mobile insights.');
+      if (!hasSummaryData && !quiet) {
+        setError(e?.response?.data?.message || e?.message || 'Unable to refresh mobile insights.');
+      }
     } finally {
       setLoading(false);
-      setRefreshing(false);
+      if (!quiet) setRefreshing(false);
     }
-  }, [hub, persistSummary, pgs, streak]);
+  }, [achievements, creatorChallengeDashboard, hasSummaryData, hub, persistSummary, pgs, quests, streak]);
 
   useEffect(() => {
-    readCachedSummary();
-    void refreshSummary();
+    const hydrated = readCachedSummary();
+    void refreshSummary({ quiet: hydrated });
   }, [readCachedSummary, refreshSummary]);
 
   useEffect(() => {
@@ -328,17 +346,18 @@ export default function MobileInsightsHubLauncher() {
             onClick={() => void refreshSummary()}
             disabled={refreshing || loading}
             className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold uppercase text-slate-600 disabled:opacity-50"
+            aria-busy={refreshing}
           >
-            {refreshing ? 'Refreshing...' : 'Refresh'}
+            Refresh
           </button>
         </div>
 
-        <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+        <div className="mt-3 min-h-[112px] rounded-2xl border border-slate-200 bg-slate-50 p-3">
           <div className="flex items-end justify-between gap-3">
             <div className="text-2xl font-semibold tabular-nums text-slate-900">{pgs ? Number(pgs.score || 0).toFixed(0) : '--'}</div>
-            <div className="text-right text-xs uppercase tracking-wide text-slate-500">
-              <div>Streak {Number(streak?.currentStreakDays || 0)}d</div>
-              <div className="mt-1">{hub?.trust?.trustTier || 'Building'} tier</div>
+            <div className="max-w-[112px] text-right text-xs uppercase tracking-wide text-slate-500">
+              <div className="leading-4">Streak {Number(streak?.currentStreakDays || 0)}d</div>
+              <div className="mt-1 line-clamp-2 leading-4">{hub?.trust?.trustTier || 'Building'} tier</div>
             </div>
           </div>
           <div className="mt-2 h-2 rounded-full bg-slate-200">
@@ -355,13 +374,13 @@ export default function MobileInsightsHubLauncher() {
           </div>
         </div>
 
-        {error ? (
+        {error && !hasSummaryData ? (
           <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{error}</div>
         ) : null}
 
         <div className="mt-3 flex items-center justify-between gap-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Quick toggles</p>
-          <span className="text-[11px] text-slate-400">2 grouped controls</span>
+          <span className="shrink-0 text-[11px] text-slate-400">2 grouped controls</span>
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2">
           {groupCards.map((group) => (
@@ -369,15 +388,17 @@ export default function MobileInsightsHubLauncher() {
               key={group.id}
               type="button"
               onClick={() => openGroup(group.id)}
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50/50 active:scale-[0.99]"
+              className="min-h-[172px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50/50 active:scale-[0.99]"
             >
               <div className="flex items-start justify-between gap-2">
-                <span className="text-sm font-semibold text-slate-900">{group.label}</span>
+                <span className="line-clamp-2 text-sm font-semibold text-slate-900">{group.label}</span>
                 {group.value ? (
-                  <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-indigo-700">{group.value}</span>
+                  <span className="max-w-[84px] shrink-0 rounded-full bg-white px-2 py-0.5 text-right text-[10px] font-semibold leading-3 text-indigo-700">
+                    {group.value}
+                  </span>
                 ) : null}
               </div>
-              <p className="mt-2 text-[11px] leading-5 text-slate-500">{group.description}</p>
+              <p className="mt-2 line-clamp-4 text-[11px] leading-5 text-slate-500">{group.description}</p>
             </button>
           ))}
         </div>

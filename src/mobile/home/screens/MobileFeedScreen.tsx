@@ -8,8 +8,8 @@ export default function MobileFeedScreen() {
   const ctx = useOutletContext<any>();
   const layout = ctx?.mobileLayout ?? null;
   return (
-      <>
-      <div className="px-3 pt-3">
+    <>
+      <div className="px-3 pt-3 pb-3">
         <MobileInsightsHubLauncher />
       </div>
       <MobileStoriesStrip settings={layout} />
