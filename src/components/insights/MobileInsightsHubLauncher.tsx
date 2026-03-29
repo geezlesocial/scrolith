@@ -233,7 +233,27 @@ export default function MobileInsightsHubLauncher() {
 
   useEffect(() => {
     const hydrated = readCachedSummary();
-    void refreshSummary({ quiet: hydrated });
+    let cancelled = false;
+    let timer: number | null = null;
+    let idleHandle: number | null = null;
+    const runRefresh = () => {
+      if (cancelled) return;
+      void refreshSummary({ quiet: hydrated });
+    };
+
+    if (typeof (window as any).requestIdleCallback === 'function') {
+      idleHandle = (window as any).requestIdleCallback(runRefresh, { timeout: hydrated ? 1400 : 2200 });
+    } else {
+      timer = window.setTimeout(runRefresh, hydrated ? 900 : 1600);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+      if (idleHandle !== null && typeof (window as any).cancelIdleCallback === 'function') {
+        (window as any).cancelIdleCallback(idleHandle);
+      }
+    };
   }, [readCachedSummary, refreshSummary]);
 
   useEffect(() => {

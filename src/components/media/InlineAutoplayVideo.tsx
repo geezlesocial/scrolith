@@ -59,6 +59,53 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
     setVideoNode((current) => (current === node ? current : node));
   }, []);
 
+  const resumePlaybackFromInteraction = useCallback(() => {
+    const node = videoRef.current;
+    if (!node || !src || !active) return;
+
+    userPausedRef.current = false;
+    internalPauseUntilRef.current = 0;
+    node.muted = isMuted;
+    node.playsInline = true;
+
+    const playNow = () => {
+      const playAttempt = node.play();
+      if (playAttempt && typeof playAttempt.catch === 'function') {
+        playAttempt.catch(() => undefined);
+      }
+    };
+
+    if (!shouldLoadSource) {
+      setShouldLoadSource(true);
+      window.setTimeout(() => {
+        if (videoRef.current === node) {
+          try {
+            node.load();
+          } catch {}
+          playNow();
+        }
+      }, 0);
+      return;
+    }
+
+    if (node.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      playNow();
+      return;
+    }
+
+    const playWhenReady = () => {
+      node.removeEventListener('loadeddata', playWhenReady);
+      node.removeEventListener('canplay', playWhenReady);
+      playNow();
+    };
+
+    node.addEventListener('loadeddata', playWhenReady);
+    node.addEventListener('canplay', playWhenReady);
+    try {
+      node.load();
+    } catch {}
+  }, [active, isMuted, shouldLoadSource, src]);
+
   useEffect(() => {
     activeRef.current = active;
     autoplayEnabledRef.current = autoplayEnabled;
@@ -305,6 +352,15 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
             return;
           }
           lastTapAtRef.current = now;
+        }}
+        onPointerUp={(event) => {
+          if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
+          if (controls) return;
+          resumePlaybackFromInteraction();
+        }}
+        onClick={() => {
+          if (controls) return;
+          resumePlaybackFromInteraction();
         }}
       />
       {loadingLabel !== false && shouldLoadSource && isLoadingVideo ? (

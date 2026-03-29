@@ -30,7 +30,7 @@ import ScrollCreateModal from '../../../features/scroll/ScrollCreateModal';
 import ExpandablePreviewText from '../../../components/common/ExpandablePreviewText';
 import StaticPreviewText from '../../../components/common/StaticPreviewText';
 import InlineAutoplayVideo from '../../../components/media/InlineAutoplayVideo';
-import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../../../utils/inlineMedia';
+import { resolveInlineMedia } from '../../../utils/inlineMedia';
 import { downloadToDevice } from '../../../utils/deviceDownload';
 import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
 import ReactionBar from '../../../community/components/ReactionBar';
@@ -242,6 +242,8 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   const enabled = settings?.stories?.enabled !== false;
   const maxItems = clamp(Number(settings?.stories?.maxItems ?? 12) || 12, 4, 40);
   const maxScrollItems = clamp(Number(settings?.stories?.maxReels ?? settings?.stories?.maxItems ?? 12) || 12, 4, 40);
+  const lightweightRailMode = profile.lowBandwidth || profile.dataSaver;
+  const previewAutoplayEnabled = profile.autoplayEnabled && !lightweightRailMode;
 
   const [stories, setStories] = useState<any[]>([]);
   const [scrolls, setScrolls] = useState<ScrollVideo[]>([]);
@@ -256,6 +258,8 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   const [storiesReloadTick, setStoriesReloadTick] = useState(0);
   const [scrollReloadTick, setScrollReloadTick] = useState(0);
   const [liveReloadTick, setLiveReloadTick] = useState(0);
+  const [scrollRailPrimed, setScrollRailPrimed] = useState(false);
+  const [liveRailPrimed, setLiveRailPrimed] = useState(false);
   const [liveSessions, setLiveSessions] = useState<LiveSession[]>([]);
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
@@ -287,6 +291,21 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
     const list = Array.isArray(stories) ? stories : [];
     return list.filter(isStoryActive).slice(0, maxItems);
   }, [stories, maxItems]);
+
+  useEffect(() => {
+    if (storyRailTab === 'scroll') setScrollRailPrimed(true);
+    if (storyRailTab === 'live') setLiveRailPrimed(true);
+  }, [storyRailTab]);
+
+  useEffect(() => {
+    if (!enabled || lightweightRailMode) return;
+    const scrollTimer = window.setTimeout(() => setScrollRailPrimed(true), 1800);
+    const liveTimer = window.setTimeout(() => setLiveRailPrimed(true), 3200);
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(liveTimer);
+    };
+  }, [enabled, lightweightRailMode]);
 
   const resetDraft = () => {
     setComposerMode('create');
@@ -509,7 +528,10 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   };
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !scrollRailPrimed) {
+      setScrollsLoading(false);
+      return;
+    }
     let mounted = true;
     let hasCachedStories = false;
     try {
@@ -622,10 +644,10 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
     return () => {
       mounted = false;
     };
-  }, [enabled, maxScrollItems, scrollCacheKey, scrollReloadTick]);
+  }, [enabled, maxScrollItems, scrollCacheKey, scrollRailPrimed, scrollReloadTick]);
 
   useEffect(() => {
-    if (!enabled || !liveFeatureStatus.enabled) {
+    if (!enabled || !liveFeatureStatus.enabled || !liveRailPrimed) {
       setLiveSessions([]);
       setLiveError(null);
       setLiveLoading(false);
@@ -684,7 +706,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
     return () => {
       mounted = false;
     };
-  }, [enabled, liveCacheKey, liveFeatureStatus.enabled, liveReloadTick]);
+  }, [enabled, liveCacheKey, liveFeatureStatus.enabled, liveRailPrimed, liveReloadTick]);
 
   useEffect(() => {
     if (liveFeatureStatus.enabled || storyRailTab !== 'live') return;
@@ -1036,7 +1058,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                             controls={false}
                             loop
                             preload="metadata"
-                            autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                            autoplayEnabled={previewAutoplayEnabled}
                             showMuteToggle={false}
                           />
                         ) : (
@@ -1145,7 +1167,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                           controls={false}
                           loop
                           preload="metadata"
-                          autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                          autoplayEnabled={previewAutoplayEnabled}
                           showMuteToggle={false}
                         />
                       ) : (
@@ -1268,7 +1290,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
           onSend={() => handleStorySendAction(activeStory)}
           onLike={() => void likeStoryAndSync(activeStory)}
           storyBusy={Boolean(storyActionBusy[String(activeStory?.id || '')])}
-          autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+          autoplayEnabled={profile.autoplayEnabled}
         />
       ) : null}
 

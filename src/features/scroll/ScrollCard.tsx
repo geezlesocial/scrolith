@@ -91,6 +91,19 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const [touchOverlayMode, setTouchOverlayMode] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [ownerMenuOpen, setOwnerMenuOpen] = useState(false);
+  const media = resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
+  const mediaUrl = media.src;
+  const authorName = scroll.author?.name || 'Community member';
+  const description = String(scroll.description || '').trim();
+  const title = String(scroll.title || '').trim();
+  const headlineLine = title || description || 'Scroll video';
+  const secondaryLine = title && description ? description : '';
+  const dashGcoinTotal = Number(scroll.dashGcoinTotal ?? scroll.metrics?.dashGcoinTotal ?? 0);
+  const tagCount = Array.isArray(scroll.tags) ? scroll.tags.length : 0;
+  const sourceHeadline = String(scroll.sourceScroll?.title || scroll.sourceScroll?.description || '').trim();
+  const series = Array.isArray(scroll.series) ? scroll.series : [];
+  const hasOwnerActions = Boolean(scroll.canEdit || scroll.canDelete);
+  const overlayControlsVisible = !touchOverlayMode || controlsVisible || ownerMenuOpen;
 
   useEffect(() => {
     marksRef.current = {};
@@ -111,6 +124,37 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     if (!touchOverlayMode) return;
     setControlsVisible(true);
   }, [touchOverlayMode]);
+
+  const resumePlaybackFromGesture = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !mediaUrl || !isActive || !autoplayEnabled) return;
+    video.muted = muted;
+    video.playsInline = true;
+
+    const playNow = () => {
+      const playAttempt = video.play();
+      if (playAttempt && typeof playAttempt.catch === 'function') {
+        playAttempt.catch(() => undefined);
+      }
+    };
+
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      playNow();
+      return;
+    }
+
+    const playWhenReady = () => {
+      video.removeEventListener('loadeddata', playWhenReady);
+      video.removeEventListener('canplay', playWhenReady);
+      playNow();
+    };
+
+    video.addEventListener('loadeddata', playWhenReady);
+    video.addEventListener('canplay', playWhenReady);
+    try {
+      video.load();
+    } catch {}
+  }, [autoplayEnabled, isActive, mediaUrl, muted]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -303,19 +347,6 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     }
   }, [scroll?.id, user?.id]);
 
-  const media = resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
-  const mediaUrl = media.src;
-  const authorName = scroll.author?.name || 'Community member';
-  const description = String(scroll.description || '').trim();
-  const title = String(scroll.title || '').trim();
-  const headlineLine = title || description || 'Scroll video';
-  const secondaryLine = title && description ? description : '';
-  const dashGcoinTotal = Number(scroll.dashGcoinTotal ?? scroll.metrics?.dashGcoinTotal ?? 0);
-  const tagCount = Array.isArray(scroll.tags) ? scroll.tags.length : 0;
-  const sourceHeadline = String(scroll.sourceScroll?.title || scroll.sourceScroll?.description || '').trim();
-  const series = Array.isArray(scroll.series) ? scroll.series : [];
-  const hasOwnerActions = Boolean(scroll.canEdit || scroll.canDelete);
-  const overlayControlsVisible = !touchOverlayMode || controlsVisible || ownerMenuOpen;
   const mediaFilterStyle = useMemo(() => {
     const strength = Math.max(0, Math.min(100, Number(scroll.filterStrength ?? 60))) / 100;
     const preset = String(scroll.filterPreset || 'none').toLowerCase();
@@ -385,6 +416,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
           return;
         }
         mediaLastTapAtRef.current = now;
+        resumePlaybackFromGesture();
       }}
       onDoubleClick={(event) => {
         const target = event.target as HTMLElement | null;
@@ -426,6 +458,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               onTimeUpdate={handleTimeUpdate}
               poster={media.poster}
               onContextMenu={(event) => event.preventDefault()}
+              onClick={() => resumePlaybackFromGesture()}
             />
           </GraphicWarningGate>
         </div>

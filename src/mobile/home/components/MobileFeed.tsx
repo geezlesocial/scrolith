@@ -270,6 +270,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const [suggestedPages, setSuggestedPages] = useState<any[]>([]);
   const [recommendedJobs, setRecommendedJobs] = useState<Job[]>([]);
   const [recommendedGigs, setRecommendedGigs] = useState<Gig[]>([]);
+  const [secondaryFeedReady, setSecondaryFeedReady] = useState(false);
   const listingSlots = useMemo(() => {
     if (!showRecommendedGigsJobs || !user?.id || !posts.length) return 0;
     const baseSlots = Math.floor(posts.length / listingCardEveryPosts);
@@ -397,6 +398,36 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       connection.removeEventListener?.('change', syncState);
     };
   }, []);
+
+  useEffect(() => {
+    setSecondaryFeedReady(false);
+  }, [currentUserId]);
+
+  useEffect(() => {
+    if (loading || error || posts.length === 0) return;
+    let cancelled = false;
+    let timeoutId: number | null = null;
+    let idleHandle: number | null = null;
+    const readyDelay = constrainedForFeed ? 2600 : 1200;
+    const markReady = () => {
+      if (cancelled) return;
+      setSecondaryFeedReady(true);
+    };
+
+    if (!constrainedForFeed && typeof (window as any).requestIdleCallback === 'function') {
+      idleHandle = (window as any).requestIdleCallback(markReady, { timeout: readyDelay });
+    } else {
+      timeoutId = window.setTimeout(markReady, readyDelay);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      if (idleHandle !== null && typeof (window as any).cancelIdleCallback === 'function') {
+        (window as any).cancelIdleCallback(idleHandle);
+      }
+    };
+  }, [constrainedForFeed, error, loading, posts.length]);
 
   const handleListingContact = useCallback(
     async (payload: { kind: 'jobs' | 'gigs'; item: any }) => {
@@ -703,6 +734,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
   useEffect(() => {
     if (feedSettings.showPromoted === false) return;
+    if (!secondaryFeedReady) return;
     if (loading || error) return;
     let cancelled = false;
     const delayMs = constrainedForFeed ? 1800 : 900;
@@ -721,7 +753,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [feedSettings.showPromoted, loading, error, constrainedForFeed]);
+  }, [feedSettings.showPromoted, secondaryFeedReady, loading, error, constrainedForFeed]);
 
   useEffect(() => {
     if (!showRecommendedGigsJobs || !user?.id) {
@@ -729,24 +761,23 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       setRecommendedGigs([]);
       return;
     }
+    if (!secondaryFeedReady) return;
     if (loading || error) return;
     let cancelled = false;
-    const requestLimit = Math.max(4, Math.min(24, listingPoolLimit));
+    const requestLimit = constrainedForFeed ? Math.max(3, Math.min(8, listingPoolLimit)) : Math.max(4, Math.min(14, listingPoolLimit));
     const timer = window.setTimeout(() => {
-      const jobRequests: Array<Promise<any>> = [
-        jobsApi.getJobs({ status: 'active', limit: requestLimit, featuredOnly: true }),
-        jobsApi.getJobs({ status: 'active', limit: requestLimit, recommended: true }),
-        jobsApi.getJobs({ status: 'active', limit: requestLimit })
-      ];
-      const gigRequests: Array<Promise<any>> = [
-        gigsApi.getGigs({ status: 'active', limit: requestLimit, featuredOnly: true }),
-        gigsApi.getGigs({ status: 'active', limit: requestLimit, recommended: true }),
-        gigsApi.getGigs({ status: 'active', limit: requestLimit })
-      ];
-      if (!constrainedForFeed) {
-        jobRequests.push(jobsApi.getJobs({ status: 'active', limit: requestLimit, random: true }));
-        gigRequests.push(gigsApi.getGigs({ status: 'active', limit: requestLimit, random: true }));
-      }
+      const jobRequests: Array<Promise<any>> = constrainedForFeed
+        ? [jobsApi.getJobs({ status: 'active', limit: requestLimit, recommended: true })]
+        : [
+            jobsApi.getJobs({ status: 'active', limit: requestLimit, featuredOnly: true }),
+            jobsApi.getJobs({ status: 'active', limit: requestLimit, recommended: true })
+          ];
+      const gigRequests: Array<Promise<any>> = constrainedForFeed
+        ? [gigsApi.getGigs({ status: 'active', limit: requestLimit, recommended: true })]
+        : [
+            gigsApi.getGigs({ status: 'active', limit: requestLimit, featuredOnly: true }),
+            gigsApi.getGigs({ status: 'active', limit: requestLimit, recommended: true })
+          ];
 
       Promise.all([
         Promise.allSettled(jobRequests),
@@ -783,10 +814,11 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [showRecommendedGigsJobs, user?.id, loading, error, listingPoolLimit, constrainedForFeed]);
+  }, [showRecommendedGigsJobs, user?.id, secondaryFeedReady, loading, error, listingPoolLimit, constrainedForFeed]);
 
   useEffect(() => {
     if (feedSettings.showTrendingTags === false) return;
+    if (!secondaryFeedReady) return;
     if (loading || error) return;
     let cancelled = false;
     const delayMs = constrainedForFeed ? 2200 : 1400;
@@ -810,7 +842,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [feedSettings.showTrendingTags, loading, error, constrainedForFeed]);
+  }, [feedSettings.showTrendingTags, secondaryFeedReady, loading, error, constrainedForFeed]);
 
   useEffect(() => {
     if (feedSettings.showSuggestedPeople === false) return;
@@ -819,6 +851,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       setSuggestedPeople([]);
       return;
     }
+    if (!secondaryFeedReady) return;
     if (loading || error) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
@@ -854,7 +887,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [feedSettings.showSuggestedPeople, user?.id, loading, error, constrainedForFeed]);
+  }, [feedSettings.showSuggestedPeople, user?.id, secondaryFeedReady, loading, error, constrainedForFeed]);
 
   useEffect(() => {
     if (feedSettings.showSuggestedPages === false) return;
@@ -863,6 +896,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       setSuggestedPages([]);
       return;
     }
+    if (!secondaryFeedReady) return;
     if (loading || error) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
@@ -891,7 +925,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [feedSettings.showSuggestedPages, user?.id, loading, error, constrainedForFeed]);
+  }, [feedSettings.showSuggestedPages, user?.id, secondaryFeedReady, loading, error, constrainedForFeed]);
 
   useEffect(() => {
     if (isConnected) return;
@@ -1020,7 +1054,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       .map((p) => String(p?.id || '').trim())
       .filter(Boolean)
       .filter((id) => !viewTrackedRef.current.has(id))
-      .slice(0, 4);
+      .slice(0, constrainedForFeed ? 2 : 4);
 
     if (!pending.length) return;
 
@@ -1342,13 +1376,13 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                   {showHashtags && tags.length ? (
                     <div className="flex flex-wrap gap-2">
                       {tags.slice(0, 8).map((tag: string) => (
-                        <a
+                        <Link
                           key={`${postId}_tag_${tag}`}
-                          href={`/community/tags/${encodeURIComponent(tag)}`}
+                          to={`/community/tags/${encodeURIComponent(tag)}`}
                           className="max-w-full break-all rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm"
                         >
                           #{tag}
-                        </a>
+                        </Link>
                       ))}
                     </div>
                   ) : null}
