@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlignCenterIcon as AlignCenter,
   AlignLeftIcon as AlignLeft,
@@ -286,11 +286,79 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   const [storyActionBusy, setStoryActionBusy] = useState<Record<string, boolean>>({});
   const storyDeviceInputRef = useRef<HTMLInputElement | null>(null);
   const storyCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const railGestureStartRef = useRef<{ key: string; x: number; y: number } | null>(null);
+  const recentRailActionRef = useRef<{ key: string; at: number } | null>(null);
 
   const visibleStories = useMemo(() => {
     const list = Array.isArray(stories) ? stories : [];
     return list.filter(isStoryActive).slice(0, maxItems);
   }, [stories, maxItems]);
+
+  const runRailAction = useCallback((key: string, action: () => void) => {
+    const normalizedKey = String(key || '').trim();
+    if (!normalizedKey) {
+      action();
+      return;
+    }
+    const now = Date.now();
+    const previous = recentRailActionRef.current;
+    if (previous?.key === normalizedKey && now - previous.at < 450) return;
+    recentRailActionRef.current = { key: normalizedKey, at: now };
+    action();
+  }, []);
+
+  const beginRailGesture = useCallback((key: string, event: React.PointerEvent<HTMLElement>) => {
+    if (event.pointerType !== 'touch') return;
+    railGestureStartRef.current = {
+      key: String(key || '').trim(),
+      x: event.clientX,
+      y: event.clientY
+    };
+  }, []);
+
+  const cancelRailGesture = useCallback(() => {
+    railGestureStartRef.current = null;
+  }, []);
+
+  const commitRailGesture = useCallback(
+    (key: string, event: React.PointerEvent<HTMLElement>, action: () => void) => {
+      if (event.pointerType !== 'touch') return;
+      const normalizedKey = String(key || '').trim();
+      const start = railGestureStartRef.current;
+      railGestureStartRef.current = null;
+      if (!start || start.key !== normalizedKey) return;
+      const deltaX = Math.abs(event.clientX - start.x);
+      const deltaY = Math.abs(event.clientY - start.y);
+      if (Math.max(deltaX, deltaY) > 14) return;
+      event.preventDefault();
+      runRailAction(normalizedKey, action);
+    },
+    [runRailAction]
+  );
+
+  const openStoryFromRail = useCallback(
+    (story: any) => {
+      const storyId = String(story?.id || '').trim();
+      runRailAction(`story:${storyId || 'unknown'}`, () => {
+        setActiveStory(story);
+        if (storyId) {
+          CommunityService.viewStory(storyId).catch(() => {});
+        }
+      });
+    },
+    [runRailAction]
+  );
+
+  const openScrollFromRail = useCallback(
+    (scrollId: string) => {
+      const normalizedId = String(scrollId || '').trim();
+      if (!normalizedId) return;
+      runRailAction(`scroll:${normalizedId}`, () => {
+        navigate(`/scroll?scroll=${encodeURIComponent(normalizedId)}`);
+      });
+    },
+    [navigate, runRailAction]
+  );
 
   useEffect(() => {
     if (storyRailTab === 'scroll') setScrollRailPrimed(true);
@@ -528,8 +596,8 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   };
 
   useEffect(() => {
-    if (!enabled || !scrollRailPrimed) {
-      setScrollsLoading(false);
+    if (!enabled) {
+      setLoading(false);
       return;
     }
     let mounted = true;
@@ -1018,10 +1086,17 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                     <button
                       key={id}
                       type="button"
-                      onClick={() => {
-                        setActiveStory(story);
-                        if (id) CommunityService.viewStory(id).catch(() => {});
+                      onPointerDown={(event) => beginRailGesture(`story:${id}`, event)}
+                      onPointerUp={(event) =>
+                        commitRailGesture(`story:${id}`, event, () => {
+                          openStoryFromRail(story);
+                        })
+                      }
+                      onPointerCancel={cancelRailGesture}
+                      onPointerLeave={(event) => {
+                        if (event.pointerType === 'touch') cancelRailGesture();
                       }}
+                      onClick={() => openStoryFromRail(story)}
                       className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
                       style={{ touchAction: 'manipulation' }}
                       aria-label={`Open story by ${name}`}
@@ -1153,7 +1228,17 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                     <button
                       key={id}
                       type="button"
-                      onClick={() => navigate(`/scroll?scroll=${encodeURIComponent(id)}`)}
+                      onPointerDown={(event) => beginRailGesture(`scroll:${id}`, event)}
+                      onPointerUp={(event) =>
+                        commitRailGesture(`scroll:${id}`, event, () => {
+                          openScrollFromRail(id);
+                        })
+                      }
+                      onPointerCancel={cancelRailGesture}
+                      onPointerLeave={(event) => {
+                        if (event.pointerType === 'touch') cancelRailGesture();
+                      }}
+                      onClick={() => openScrollFromRail(id)}
                       className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
                       style={{ touchAction: 'manipulation' }}
                       aria-label={`Open Scroll by ${authorName}`}

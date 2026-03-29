@@ -303,6 +303,15 @@ const MobileHome = () => {
   const headerQuickMenuEnabled = layout.header?.quickMenuEnabled !== false;
 
   const onTabChange = (tab: MobileTabKey) => {
+    if (tab === activeTab) {
+      window.dispatchEvent(
+        new CustomEvent('mobile-home:tab-reselected', {
+          detail: { tab }
+        })
+      );
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
     if (tab === 'messages') {
       navigate('/messages');
       return;

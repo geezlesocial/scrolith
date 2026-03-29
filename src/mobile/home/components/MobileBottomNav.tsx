@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useRef } from 'react';
 import {
   BellIcon as Bell,
   BriefcaseIcon as Briefcase,
@@ -37,6 +37,18 @@ export default function MobileBottomNav({
   };
 
   const badges = settings?.badges ?? {};
+  const recentTouchActionRef = useRef<{ key: MobileTabKey; at: number } | null>(null);
+
+  const triggerTabChange = useCallback(
+    (key: MobileTabKey) => {
+      const now = Date.now();
+      const previous = recentTouchActionRef.current;
+      if (previous?.key === key && now - previous.at < 450) return;
+      recentTouchActionRef.current = { key, at: now };
+      onChange(key);
+    },
+    [onChange]
+  );
 
   const items: Array<{
     key: MobileTabKey;
@@ -86,7 +98,7 @@ export default function MobileBottomNav({
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 backdrop-blur"
+      className="pointer-events-auto fixed bottom-0 left-0 right-0 z-[140] border-t border-slate-200 bg-white/95 backdrop-blur"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       <div className="mx-auto flex max-w-md items-center justify-around px-2 py-2">
@@ -96,9 +108,14 @@ export default function MobileBottomNav({
           return (
             <button
               key={item.key}
-              onClick={() => onChange(item.key)}
+              onPointerUp={(event) => {
+                if (event.pointerType !== 'touch') return;
+                event.preventDefault();
+                triggerTabChange(item.key);
+              }}
+              onClick={() => triggerTabChange(item.key)}
               className={[
-                'relative flex flex-col items-center justify-center rounded-xl px-3 py-2 text-[11px] font-semibold',
+                'relative flex flex-col items-center justify-center rounded-xl px-3 py-2 text-[11px] font-semibold touch-manipulation',
                 isActive ? 'text-slate-900' : 'text-slate-500',
                 primary ? 'bg-slate-900 text-white' : 'hover:bg-slate-50'
               ].join(' ')}

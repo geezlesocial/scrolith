@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { BriefcaseIcon as Briefcase, SearchIcon as Search } from '../../../components/icons/ShellIcons';
 import { jobsApi, Job } from '../../../services/jobs';
 
@@ -68,10 +69,10 @@ export default function MobileJobsScreen() {
       ) : jobs.length ? (
         <div className="space-y-3">
           {jobs.map((job) => (
-            <a
+            <Link
               key={job.id}
-              href={`/jobs/${encodeURIComponent(job.id)}`}
-              className="block rounded-3xl border border-slate-200 bg-white p-4 shadow-sm hover:bg-slate-50"
+              to={`/jobs/${encodeURIComponent(job.id)}`}
+              className="block rounded-3xl border border-slate-200 bg-white p-4 shadow-sm hover:bg-slate-50 touch-manipulation"
             >
               <div className="text-sm font-semibold text-slate-900 line-clamp-2">{job.title}</div>
               <div className="mt-1 text-sm text-slate-600 line-clamp-2">{job.description}</div>
@@ -86,7 +87,7 @@ export default function MobileJobsScreen() {
                   <span className="rounded-full bg-slate-900 px-3 py-1 font-semibold text-white">{formatBudget(job.budget)}</span>
                 ) : null}
               </div>
-            </a>
+            </Link>
           ))}
         </div>
       ) : (
