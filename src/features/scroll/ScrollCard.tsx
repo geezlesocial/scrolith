@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  Clapperboard,
+  Link2,
+  ListVideo,
   Volume2,
   VolumeX,
   MessageCircle,
@@ -40,6 +43,8 @@ type ScrollCardProps = {
   onReport: (scroll: ScrollVideo) => Promise<void> | void;
   onEdit: (scroll: ScrollVideo) => Promise<void> | void;
   onDelete: (scroll: ScrollVideo) => Promise<void> | void;
+  onRemix: (scroll: ScrollVideo, mode?: 'remix' | 'duet') => Promise<void> | void;
+  onOpenSeries: (seriesId: string, scrollId?: string) => Promise<void> | void;
   headlinePreviewLimit?: number;
   descriptionPreviewLimit?: number;
 };
@@ -69,6 +74,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   onReport,
   onEdit,
   onDelete,
+  onRemix,
+  onOpenSeries,
   headlinePreviewLimit = 72,
   descriptionPreviewLimit = 120
 }) => {
@@ -305,6 +312,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const secondaryLine = title && description ? description : '';
   const dashGcoinTotal = Number(scroll.dashGcoinTotal ?? scroll.metrics?.dashGcoinTotal ?? 0);
   const tagCount = Array.isArray(scroll.tags) ? scroll.tags.length : 0;
+  const sourceHeadline = String(scroll.sourceScroll?.title || scroll.sourceScroll?.description || '').trim();
+  const series = Array.isArray(scroll.series) ? scroll.series : [];
   const hasOwnerActions = Boolean(scroll.canEdit || scroll.canDelete);
   const overlayControlsVisible = !touchOverlayMode || controlsVisible || ownerMenuOpen;
   const mediaFilterStyle = useMemo(() => {
@@ -612,6 +621,27 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
             <span>{Number(scroll.metrics.sends || 0)} sends</span>
             <span>{formatGcoin(dashGcoinTotal)} GC dashed</span>
           </div>
+          {scroll.sourceScroll ? (
+            <div className="pointer-events-auto rounded-[22px] border border-fuchsia-300/20 bg-fuchsia-400/10 px-3.5 py-3 text-white shadow-[0_18px_48px_-28px_rgba(15,23,42,0.95)] backdrop-blur-md">
+              <div className="flex items-start gap-3">
+                <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-fuchsia-300/25 bg-fuchsia-500/15 text-fuchsia-100">
+                  <Link2 className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-fuchsia-100/90">
+                    {scroll.responseMode === 'duet' ? 'Duet response' : 'Remix response'}
+                  </div>
+                  <div className="mt-1 text-sm font-semibold text-white">
+                    {scroll.sourceScroll.unavailable ? 'Original Scroll unavailable' : sourceHeadline || 'Original Scroll'}
+                  </div>
+                  <div className="mt-1 text-xs text-white/70">
+                    {scroll.sourceScroll.author?.name || 'Community member'}
+                    {scroll.sourceScroll.author?.username ? ` · @${scroll.sourceScroll.author.username}` : ''}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
           <div className="pointer-events-auto rounded-[24px] border border-white/10 bg-black/34 px-3.5 py-3 text-white shadow-[0_18px_48px_-28px_rgba(15,23,42,0.95)] backdrop-blur-md">
             <ExpandablePreviewText
               text={headlineLine}
@@ -642,6 +672,47 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               <span className="inline-flex items-center rounded-full border border-white/10 bg-white/8 px-2.5 py-1">
                 {new Date(scroll.createdAt).toLocaleString()}
               </span>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  revealControls();
+                  void onRemix(scroll, 'remix');
+                }}
+                className="inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1.5 text-xs font-semibold text-cyan-50 hover:bg-cyan-400/15"
+              >
+                <Link2 className="h-3.5 w-3.5" />
+                Remix
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  revealControls();
+                  void onRemix(scroll, 'duet');
+                }}
+                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/85 hover:bg-white/10"
+              >
+                <Clapperboard className="h-3.5 w-3.5" />
+                Duet
+              </button>
+              {series.map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => {
+                    revealControls();
+                    void onOpenSeries(entry.id, scroll.id);
+                  }}
+                  className="inline-flex items-center gap-2 rounded-full border border-fuchsia-300/20 bg-fuchsia-400/10 px-3 py-1.5 text-xs font-semibold text-fuchsia-50 hover:bg-fuchsia-400/15"
+                >
+                  <ListVideo className="h-3.5 w-3.5" />
+                  {entry.title}
+                  <span className="text-[10px] text-fuchsia-100/80">
+                    {Math.max(1, Number(entry.position || 1))}/{Math.max(1, Number(entry.itemCount || 1))}
+                  </span>
+                </button>
+              ))}
             </div>
           </div>
           <div className="pointer-events-auto">

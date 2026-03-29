@@ -1,7 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Camera, Loader2, LocateFixed, MapPin, X, UploadCloud, Sparkles, Film } from 'lucide-react';
+import {
+  AlertTriangle,
+  Camera,
+  Clapperboard,
+  Link2,
+  Loader2,
+  LocateFixed,
+  MapPin,
+  Plus,
+  Sparkles,
+  UploadCloud,
+  X
+} from 'lucide-react';
 import { FileService } from '../../services/files';
-import { ScrollService, type ScrollConfig, type ScrollVideo } from '../../services/scroll';
+import { ScrollService, type ScrollConfig, type ScrollSeriesDetail, type ScrollVideo } from '../../services/scroll';
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
 import OfferTagSelector from '../../components/commerce/OfferTagSelector';
@@ -20,6 +32,7 @@ type ScrollCreateModalProps = {
   config?: ScrollConfig | null;
   sourceVideo?: PendingPostVideoScrollSource | null;
   editScroll?: ScrollVideo | null;
+  remixSource?: ScrollVideo | null;
 };
 
 const SCROLL_DESCRIPTION_REWRITE_ACTIONS: Array<{ mode: ScrolithaRewriteMode; label: string }> = [
@@ -61,7 +74,8 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
   onUpdated,
   config,
   sourceVideo,
-  editScroll
+  editScroll,
+  remixSource
 }) => {
   const { showNotification } = useNotification();
   const { user } = useUser();
@@ -78,6 +92,15 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState('');
   const [offerTags, setOfferTags] = useState<OfferTagSelection[]>([]);
+  const [responseMode, setResponseMode] = useState<'remix' | 'duet'>('remix');
+  const [sourceRemoved, setSourceRemoved] = useState(false);
+  const [mySeries, setMySeries] = useState<ScrollSeriesDetail[]>([]);
+  const [selectedSeriesIds, setSelectedSeriesIds] = useState<string[]>([]);
+  const [seriesLoading, setSeriesLoading] = useState(false);
+  const [seriesError, setSeriesError] = useState('');
+  const [newSeriesTitle, setNewSeriesTitle] = useState('');
+  const [newSeriesDescription, setNewSeriesDescription] = useState('');
+  const [creatingSeries, setCreatingSeries] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
@@ -104,6 +127,8 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
   );
 
   const isEditing = Boolean(editScroll?.id);
+  const linkedSourceScroll = sourceRemoved ? null : (editScroll?.sourceScroll || remixSource || null);
+  const linkedSourceUnavailable = Boolean((linkedSourceScroll as any)?.unavailable);
 
   useEffect(() => {
     if (!open) return;
@@ -130,6 +155,25 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
             .filter((tag) => Boolean(tag.offerType) && Boolean(tag.offerId))
         : []
     );
+    setResponseMode((String(editScroll?.responseMode || '').trim().toLowerCase() === 'duet' ? 'duet' : 'remix'));
+    setSourceRemoved(false);
+    setMySeries([]);
+    setSelectedSeriesIds(
+      Array.isArray(editScroll?.series)
+        ? Array.from(
+            new Set(
+              editScroll.series
+                .map((series) => String(series?.id || '').trim())
+                .filter(Boolean)
+            )
+          )
+        : []
+    );
+    setSeriesLoading(false);
+    setSeriesError('');
+    setNewSeriesTitle('');
+    setNewSeriesDescription('');
+    setCreatingSeries(false);
     setUploading(false);
     setProgress(0);
     setLocationSuggestions([]);
@@ -147,12 +191,39 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
     editScroll?.graphicWarning,
     editScroll?.isAIEnhanced,
     editScroll?.location,
+    editScroll?.responseMode,
+    editScroll?.series,
     editScroll?.title,
     editScroll?.visibility,
     sourceVideo?.description,
     sourceVideo?.location,
     sourceVideo?.title
   ]);
+
+  useEffect(() => {
+    if (!open || !user?.id) return;
+    let cancelled = false;
+    const loadSeries = async () => {
+      try {
+        setSeriesLoading(true);
+        const rows = await ScrollService.getMySeries();
+        if (cancelled) return;
+        setMySeries(Array.isArray(rows) ? rows : []);
+        setSeriesError('');
+      } catch (error: any) {
+        if (cancelled) return;
+        setSeriesError(error?.response?.data?.error || error?.message || 'Unable to load your series right now.');
+      } finally {
+        if (!cancelled) {
+          setSeriesLoading(false);
+        }
+      }
+    };
+    void loadSeries();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, user?.id]);
 
   useEffect(() => {
     if (!videoFile) {
@@ -217,6 +288,43 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
     setLocation(String(suggestion.formattedAddress || suggestion.location || suggestion.label || '').trim());
     setLocationSuggestions([]);
     setLocationError('');
+  };
+
+  const toggleSeriesSelection = (seriesId: string) => {
+    const normalizedId = String(seriesId || '').trim();
+    if (!normalizedId) return;
+    setSelectedSeriesIds((current) =>
+      current.includes(normalizedId)
+        ? current.filter((value) => value !== normalizedId)
+        : [...current, normalizedId]
+    );
+  };
+
+  const handleCreateSeries = async () => {
+    const title = newSeriesTitle.trim();
+    if (!title) {
+      showNotification('info', 'Series', 'Add a series title first.');
+      return;
+    }
+    try {
+      setCreatingSeries(true);
+      const created = await ScrollService.createSeries({
+        title,
+        description: newSeriesDescription.trim() || undefined
+      });
+      setMySeries((current) => [created, ...current.filter((entry) => entry.id !== created.id)]);
+      setSelectedSeriesIds((current) => Array.from(new Set([...current, created.id])));
+      setNewSeriesTitle('');
+      setNewSeriesDescription('');
+      setSeriesError('');
+      showNotification('success', 'Series', 'Series created and selected.');
+    } catch (error: any) {
+      const message = error?.response?.data?.error || error?.message || 'Unable to create series right now.';
+      setSeriesError(message);
+      showNotification('error', 'Series', message);
+    } finally {
+      setCreatingSeries(false);
+    }
   };
 
   const handleUseCurrentLocation = async () => {
@@ -290,6 +398,15 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
     setFilterStrength(60);
     setVideoFile(null);
     setOfferTags([]);
+    setResponseMode('remix');
+    setSourceRemoved(false);
+    setMySeries([]);
+    setSelectedSeriesIds([]);
+    setSeriesLoading(false);
+    setSeriesError('');
+    setNewSeriesTitle('');
+    setNewSeriesDescription('');
+    setCreatingSeries(false);
     setUploading(false);
     setProgress(0);
     setLocationSuggestions([]);
@@ -330,8 +447,17 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
       if (!fileId && !isEditing) {
         throw new Error('Scroll source video is missing.');
       }
+      const sourceScrollId =
+        linkedSourceScroll && !sourceRemoved
+          ? String(linkedSourceScroll.id || '').trim() || undefined
+          : isEditing
+            ? null
+            : undefined;
       const payload = {
         ...(fileId ? { fileId } : {}),
+        ...(typeof sourceScrollId !== 'undefined' ? { sourceScrollId } : {}),
+        ...(sourceScrollId ? { responseMode } : { responseMode: null }),
+        seriesIds: selectedSeriesIds,
         title: title.trim() || undefined,
         description: description.trim() || undefined,
         location: location.trim() || undefined,
@@ -492,6 +618,73 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
             </div>
           </div>
 
+          {linkedSourceScroll ? (
+            <div className="rounded-2xl border border-fuchsia-300/15 bg-fuchsia-400/5 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-fuchsia-300/20 bg-fuchsia-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-fuchsia-100">
+                    <Link2 className="h-3.5 w-3.5" />
+                    Responding to Scroll
+                  </div>
+                  <div className="mt-3 text-sm font-semibold text-white">
+                    {linkedSourceUnavailable ? 'Original Scroll unavailable' : linkedSourceScroll.title || linkedSourceScroll.description || 'Original Scroll'}
+                  </div>
+                  <div className="mt-1 text-xs text-white/60">
+                    {linkedSourceScroll.author?.name || 'Community member'}
+                    {linkedSourceScroll.author?.username ? ` · @${linkedSourceScroll.author.username}` : ''}
+                  </div>
+                  {linkedSourceUnavailable ? (
+                    <div className="mt-2 text-xs text-amber-200">
+                      The original Scroll can no longer be previewed, but the response link will remain until you remove it.
+                    </div>
+                  ) : null}
+                </div>
+                {linkedSourceScroll.media?.thumbnailUrl || linkedSourceScroll.media?.url ? (
+                  <div className="hidden h-20 w-14 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-black/30 sm:block">
+                    <img
+                      src={linkedSourceScroll.media?.thumbnailUrl || linkedSourceScroll.media?.url || ''}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                ) : null}
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setResponseMode('remix')}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    responseMode === 'remix'
+                      ? 'bg-cyan-300 text-slate-950'
+                      : 'border border-white/15 bg-white/5 text-white/75 hover:bg-white/10'
+                  }`}
+                >
+                  Remix response
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResponseMode('duet')}
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    responseMode === 'duet'
+                      ? 'bg-cyan-300 text-slate-950'
+                      : 'border border-white/15 bg-white/5 text-white/75 hover:bg-white/10'
+                  }`}
+                >
+                  Duet response
+                </button>
+                {isEditing && editScroll?.sourceScrollId ? (
+                  <button
+                    type="button"
+                    onClick={() => setSourceRemoved((current) => !current)}
+                    className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/75 hover:bg-white/10"
+                  >
+                    {sourceRemoved ? 'Keep source link' : 'Remove source link'}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
           <div className="grid gap-3 md:grid-cols-2">
             <label className="block">
               <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-white/70">Title</span>
@@ -597,6 +790,89 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
               </div>
             </div>
           </label>
+
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <Clapperboard className="h-4 w-4 text-cyan-300" />
+                  Series / playlists
+                </div>
+                <div className="mt-1 text-xs text-white/50">
+                  Add this Scroll to one or more creator playlists so viewers can binge related content.
+                </div>
+              </div>
+              {seriesLoading ? (
+                <div className="inline-flex items-center gap-2 text-xs text-white/60">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Loading
+                </div>
+              ) : null}
+            </div>
+
+            {mySeries.length ? (
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {mySeries.map((series) => {
+                  const selected = selectedSeriesIds.includes(series.id);
+                  return (
+                    <button
+                      key={series.id}
+                      type="button"
+                      onClick={() => toggleSeriesSelection(series.id)}
+                      className={`rounded-2xl border px-3 py-3 text-left transition ${
+                        selected
+                          ? 'border-cyan-300/40 bg-cyan-400/10'
+                          : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="truncate text-sm font-semibold text-white">{series.title}</div>
+                        <div className="text-[11px] text-white/55">{series.itemCount} item{series.itemCount === 1 ? '' : 's'}</div>
+                      </div>
+                      {series.description ? (
+                        <div className="mt-1 line-clamp-2 text-xs text-white/55">{series.description}</div>
+                      ) : (
+                        <div className="mt-1 text-xs text-white/35">No description</div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-3 text-xs text-white/45">No playlists yet. Create one below and attach this Scroll immediately.</div>
+            )}
+
+            <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-3">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white">
+                <Plus className="h-4 w-4 text-cyan-300" />
+                New playlist
+              </div>
+              <div className="grid gap-2 md:grid-cols-[minmax(0,220px),1fr,auto]">
+                <input
+                  value={newSeriesTitle}
+                  onChange={(event) => setNewSeriesTitle(event.target.value)}
+                  placeholder="Series title"
+                  className="w-full rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm outline-none focus:border-cyan-300"
+                />
+                <input
+                  value={newSeriesDescription}
+                  onChange={(event) => setNewSeriesDescription(event.target.value)}
+                  placeholder="Optional description"
+                  className="w-full rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm outline-none focus:border-cyan-300"
+                />
+                <button
+                  type="button"
+                  onClick={handleCreateSeries}
+                  disabled={creatingSeries}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-300/30 bg-cyan-400/10 px-4 py-2 text-sm font-semibold text-cyan-100 hover:bg-cyan-400/15 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {creatingSeries ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  Create
+                </button>
+              </div>
+              {seriesError ? <div className="mt-2 text-xs text-amber-300">{seriesError}</div> : null}
+            </div>
+          </div>
 
           <OfferTagSelector
             mode="user"

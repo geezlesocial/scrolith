@@ -19,6 +19,8 @@ export type ScrollEngagementType =
 export interface ScrollVideo {
   id: string;
   authorId: string;
+  sourceScrollId?: string | null;
+  responseMode?: 'remix' | 'duet' | string | null;
   author: {
     id: string;
     name: string;
@@ -46,6 +48,24 @@ export interface ScrollVideo {
     height?: number | null;
     duration?: number | null;
   } | null;
+  sourceScroll?: {
+    id: string;
+    unavailable?: boolean;
+    authorId?: string;
+    author?: {
+      id: string;
+      name: string;
+      avatar?: string | null;
+      username?: string | null;
+      isVerified?: boolean;
+    };
+    title?: string | null;
+    description?: string | null;
+    media?: ScrollVideo['media'];
+    createdAt?: string;
+    responseMode?: 'remix' | 'duet' | string | null;
+  } | null;
+  series?: ScrollSeriesSummary[];
   offerTags?: ContentOfferTag[];
   tags: Array<{ id: string; taggedUserId?: string | null; taggedPageId?: string | null }>;
   status: string;
@@ -72,6 +92,46 @@ export interface ScrollVideo {
   reportCount?: number;
   pendingReportCount?: number;
   activePostingRestriction?: ScrollPostingRestriction | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScrollSeriesSummary {
+  id: string;
+  creatorUserId: string;
+  title: string;
+  description?: string | null;
+  visibility: ScrollVisibility | string;
+  status: string;
+  position: number;
+  itemCount: number;
+  canEdit?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScrollSeriesDetail {
+  id: string;
+  creatorUserId: string;
+  title: string;
+  description?: string | null;
+  visibility: ScrollVisibility | string;
+  status: string;
+  itemCount: number;
+  canEdit?: boolean;
+  creator: {
+    id: string;
+    name: string;
+    avatar?: string | null;
+    username?: string | null;
+    isVerified?: boolean;
+  };
+  items: Array<{
+    id: string;
+    position: number;
+    createdAt: string;
+    scroll: ScrollVideo;
+  }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -169,6 +229,9 @@ class ScrollService {
 
   static async create(payload: {
     fileId: string;
+    sourceScrollId?: string;
+    responseMode?: 'remix' | 'duet' | string;
+    seriesIds?: string[];
     title?: string;
     description?: string;
     location?: string;
@@ -188,6 +251,9 @@ class ScrollService {
     id: string,
     payload: Partial<{
       fileId: string;
+      sourceScrollId: string | null;
+      responseMode: 'remix' | 'duet' | string | null;
+      seriesIds: string[];
       title: string;
       description: string;
       location: string;
@@ -316,6 +382,43 @@ class ScrollService {
       `/admin/scroll/users/${encodeURIComponent(userId)}/restrictions/${encodeURIComponent(restrictionId)}/lift`
     );
     return extractData<ScrollPostingRestriction>(response);
+  }
+
+  static async getMySeries() {
+    const response = await api.get('/scroll/series/mine');
+    return extractData<ScrollSeriesDetail[]>(response);
+  }
+
+  static async getSeries(id: string) {
+    const response = await api.get(`/scroll/series/${encodeURIComponent(id)}`);
+    return extractData<ScrollSeriesDetail>(response);
+  }
+
+  static async createSeries(payload: {
+    title: string;
+    description?: string;
+    visibility?: ScrollVisibility | string;
+  }) {
+    const response = await api.post('/scroll/series', payload);
+    return extractData<ScrollSeriesDetail>(response);
+  }
+
+  static async updateSeries(
+    id: string,
+    payload: Partial<{
+      title: string;
+      description: string | null;
+      visibility: ScrollVisibility | string;
+      status: 'active' | 'archived' | string;
+    }>
+  ) {
+    const response = await api.put(`/scroll/series/${encodeURIComponent(id)}`, payload);
+    return extractData<ScrollSeriesDetail>(response);
+  }
+
+  static async deleteSeries(id: string) {
+    const response = await api.delete(`/scroll/series/${encodeURIComponent(id)}`);
+    return extractData<any>(response);
   }
 }
 

@@ -4,7 +4,14 @@ import { ArrowLeft, ArrowRight, Loader2, PlusCircle, Radio, Volume2, VolumeX, X 
 import ScrollCard from './ScrollCard';
 import ScrollCreateModal from './ScrollCreateModal';
 import ScrollCommentsSheet from './ScrollCommentsSheet';
-import { ScrollService, type ScrollConfig, type ScrollVideo, type ScrollEngagementType } from '../../services/scroll';
+import ScrollSeriesModal from './ScrollSeriesModal';
+import {
+  ScrollService,
+  type ScrollConfig,
+  type ScrollSeriesDetail,
+  type ScrollVideo,
+  type ScrollEngagementType
+} from '../../services/scroll';
 import { useNotification } from '../../context/NotificationContext';
 import { useLiveFeature } from '../../context/LiveFeatureContext';
 import { CommunityService } from '../../services/community';
@@ -105,6 +112,7 @@ const ScrollFeed: React.FC = () => {
   const [config, setConfig] = useState<ScrollConfig | null>(null);
   const [sourceVideo, setSourceVideo] = useState<PendingPostVideoScrollSource | null>(null);
   const [editingScroll, setEditingScroll] = useState<ScrollVideo | null>(null);
+  const [remixSource, setRemixSource] = useState<ScrollVideo | null>(null);
   const [reportBusyId, setReportBusyId] = useState<string | null>(null);
   const [activeActionScroll, setActiveActionScroll] = useState<ScrollVideo | null>(null);
   const [commentOpen, setCommentOpen] = useState(false);
@@ -116,6 +124,11 @@ const ScrollFeed: React.FC = () => {
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
   const [liveDiscoveryOpen, setLiveDiscoveryOpen] = useState(false);
+  const [seriesModalOpen, setSeriesModalOpen] = useState(false);
+  const [seriesDetail, setSeriesDetail] = useState<ScrollSeriesDetail | null>(null);
+  const [seriesLoading, setSeriesLoading] = useState(false);
+  const [seriesError, setSeriesError] = useState<string | null>(null);
+  const [seriesActiveScrollId, setSeriesActiveScrollId] = useState<string | null>(null);
   const showLiveDiscovery = liveFeatureStatus.enabled && liveFeatureStatus.experienceConfig?.showFeaturedRailInScrollFeed !== false;
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -161,6 +174,18 @@ const ScrollFeed: React.FC = () => {
     },
     []
   );
+
+  const mergeScrollItems = useCallback((incoming: ScrollVideo[]) => {
+    setItems((prev) => {
+      const nextMap = new Map<string, ScrollVideo>();
+      prev.forEach((item) => nextMap.set(item.id, item));
+      (incoming || []).forEach((item) => {
+        if (!item?.id) return;
+        nextMap.set(item.id, item);
+      });
+      return Array.from(nextMap.values());
+    });
+  }, []);
 
   const loadLiveSessions = useCallback(async () => {
     if (!showLiveDiscovery) {
@@ -253,6 +278,7 @@ const ScrollFeed: React.FC = () => {
     if (params.get('create') !== 'post-video') return;
     const pendingSource = readPendingPostVideoScrollSource();
     setSourceVideo(pendingSource);
+    setRemixSource(null);
     setCreateOpen(true);
     params.delete('create');
     navigate(
@@ -533,9 +559,61 @@ const ScrollFeed: React.FC = () => {
 
   const handleEdit = useCallback((scroll: ScrollVideo) => {
     setSourceVideo(null);
+    setRemixSource(null);
     setEditingScroll(scroll);
     setCreateOpen(true);
   }, []);
+
+  const handleRemix = useCallback(
+    async (scroll: ScrollVideo, mode: 'remix' | 'duet' = 'remix') => {
+      if (!ensureAuth(`Log in to create a ${mode} response?`)) return;
+      setSourceVideo(null);
+      setEditingScroll(null);
+      setRemixSource({
+        ...scroll,
+        responseMode: mode
+      });
+      setCreateOpen(true);
+    },
+    [ensureAuth]
+  );
+
+  const handleOpenSeries = useCallback(
+    async (seriesId: string, scrollId?: string) => {
+      const targetSeriesId = String(seriesId || '').trim();
+      if (!targetSeriesId) return;
+      try {
+        setSeriesModalOpen(true);
+        setSeriesLoading(true);
+        setSeriesError(null);
+        setSeriesActiveScrollId(String(scrollId || '').trim() || null);
+        const detail = await ScrollService.getSeries(targetSeriesId);
+        setSeriesDetail(detail);
+        mergeScrollItems(detail?.items?.map((entry) => entry.scroll).filter(Boolean) || []);
+      } catch (error: any) {
+        const message = error?.response?.data?.error || error?.message || 'Failed to load series.';
+        setSeriesError(message);
+      } finally {
+        setSeriesLoading(false);
+      }
+    },
+    [mergeScrollItems]
+  );
+
+  const handleSelectSeriesScroll = useCallback(
+    (scrollId: string) => {
+      const targetScrollId = String(scrollId || '').trim();
+      if (!targetScrollId) return;
+      const nextIndex = items.findIndex((entry) => entry.id === targetScrollId);
+      if (nextIndex >= 0) {
+        setActiveIndex(nextIndex);
+        itemRefs.current[nextIndex]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      setSeriesActiveScrollId(targetScrollId);
+      setSeriesModalOpen(false);
+    },
+    [items]
+  );
 
   const handleDelete = useCallback(
     async (scroll: ScrollVideo) => {
@@ -607,6 +685,7 @@ const ScrollFeed: React.FC = () => {
             onClick={() => {
               setSourceVideo(null);
               setEditingScroll(null);
+              setRemixSource(null);
               setCreateOpen(true);
             }}
             className="inline-flex items-center gap-2 rounded-full bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200 transition"
@@ -660,11 +739,12 @@ const ScrollFeed: React.FC = () => {
             <p className="mt-2 text-sm text-white/70">Create the first one and start your vertical feed.</p>
               <button
                 type="button"
-                onClick={() => {
-                  setSourceVideo(null);
-                  setEditingScroll(null);
-                  setCreateOpen(true);
-                }}
+                  onClick={() => {
+                    setSourceVideo(null);
+                    setEditingScroll(null);
+                    setRemixSource(null);
+                    setCreateOpen(true);
+                  }}
                 className="mt-4 inline-flex items-center gap-2 rounded-full bg-cyan-300 px-5 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200 transition"
               >
               <PlusCircle className="h-4 w-4" />
@@ -697,6 +777,8 @@ const ScrollFeed: React.FC = () => {
                   onReport={handleReport}
                   onEdit={handleEdit}
                   onDelete={handleDelete}
+                  onRemix={handleRemix}
+                  onOpenSeries={handleOpenSeries}
                   headlinePreviewLimit={headlinePreviewLimit}
                   descriptionPreviewLimit={descriptionPreviewLimit}
                 />
@@ -841,22 +923,36 @@ const ScrollFeed: React.FC = () => {
           setCreateOpen(false);
           setSourceVideo(null);
           setEditingScroll(null);
+          setRemixSource(null);
           clearPendingPostVideoScrollSource();
         }}
         editScroll={editingScroll}
+        remixSource={remixSource}
         sourceVideo={sourceVideo}
         onCreated={(scroll) => {
           setItems((prev) => [scroll, ...prev.filter((entry) => entry.id !== scroll.id)]);
           setActiveIndex(0);
           setSourceVideo(null);
           setEditingScroll(null);
+          setRemixSource(null);
           clearPendingPostVideoScrollSource();
         }}
         onUpdated={(scroll) => {
           setItems((prev) => prev.map((entry) => (entry.id === scroll.id ? scroll : entry)));
           setEditingScroll(null);
+          setRemixSource(null);
         }}
         config={config}
+      />
+
+      <ScrollSeriesModal
+        open={seriesModalOpen}
+        loading={seriesLoading}
+        series={seriesDetail}
+        error={seriesError}
+        activeScrollId={seriesActiveScrollId}
+        onClose={() => setSeriesModalOpen(false)}
+        onSelectScroll={handleSelectSeriesScroll}
       />
     </div>
   );
