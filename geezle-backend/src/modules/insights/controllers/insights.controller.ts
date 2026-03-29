@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../../../services/scrolitha/scrolitha.audit';
 import { buildEmptyCareerStreakSummary, getCareerStreakSummary } from '../services/careerStreak.service';
+import { buildEmptyDailyMissionSummary, getDailyMissionSummary } from '../services/dailyMission.service';
 import {
   buildEmptyFriendStreakDashboard,
   createFriendStreakInvite,
@@ -85,7 +86,7 @@ const fallbackPgs = (userId: string) => ({
   updatedAt: new Date().toISOString()
 });
 
-const fallbackStreak = (userId: string) => ({
+const fallbackStreak = (userId: string, roleInput: unknown = 'USER') => ({
   userId,
   currentStreakDays: 0,
   bestStreakDays: 0,
@@ -93,7 +94,8 @@ const fallbackStreak = (userId: string) => ({
   createdAt: null,
   updatedAt: null,
   careerDaily: buildEmptyCareerStreakSummary(userId),
-  friendStreaks: buildEmptyFriendStreakDashboard(userId)
+  friendStreaks: buildEmptyFriendStreakDashboard(userId),
+  dailyMissions: buildEmptyDailyMissionSummary(userId, roleInput)
 });
 
 const fallbackRevenue = () => ({
@@ -156,16 +158,27 @@ export const getMyStreakController = async (req: Request, res: Response) => {
       getCareerStreakSummary(userId),
       getFriendStreakDashboard(userId)
     ]);
+    const dailyMissions = await getDailyMissionSummary({
+      userId,
+      role: (req as any)?.user?.role,
+      careerDaily,
+      friendStreaks
+    });
     const data = {
       ...streak,
       careerDaily,
-      friendStreaks
+      friendStreaks,
+      dailyMissions
     };
     return res.json({ success: true, data, message: 'Streak loaded' });
   } catch (error) {
     if (isInsightsSchemaUnavailable(error, ['userstreak', 'careerdailyaction', 'friendstreak'])) {
       const userId = getUserId(req);
-      return res.json({ success: true, data: fallbackStreak(userId || ''), message: 'Streak loaded' });
+      return res.json({
+        success: true,
+        data: fallbackStreak(userId || '', (req as any)?.user?.role),
+        message: 'Streak loaded'
+      });
     }
     return fail(res, 'Failed to load streak', error);
   }
