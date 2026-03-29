@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   BellIcon as Bell,
   BriefcaseIcon as Briefcase,
@@ -38,6 +38,11 @@ export default function MobileBottomNav({
 
   const badges = settings?.badges ?? {};
   const recentTouchActionRef = useRef<{ key: MobileTabKey; at: number } | null>(null);
+  const [optimisticActiveTab, setOptimisticActiveTab] = useState<MobileTabKey>(activeTab);
+
+  useEffect(() => {
+    setOptimisticActiveTab(activeTab);
+  }, [activeTab]);
 
   const triggerTabChange = useCallback(
     (key: MobileTabKey) => {
@@ -45,6 +50,7 @@ export default function MobileBottomNav({
       const previous = recentTouchActionRef.current;
       if (previous?.key === key && now - previous.at < 450) return;
       recentTouchActionRef.current = { key, at: now };
+      setOptimisticActiveTab(key);
       onChange(key);
     },
     [onChange]
@@ -103,17 +109,14 @@ export default function MobileBottomNav({
     >
       <div className="mx-auto flex max-w-md items-center justify-around px-2 py-2">
         {visible.map((item) => {
-          const isActive = activeTab === item.key;
+          const isActive = optimisticActiveTab === item.key;
           const primary = item.isPrimary;
           return (
             <button
               key={item.key}
-              onPointerDown={(event) => {
-                if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
-                event.preventDefault();
-                try {
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                } catch {}
+              onTouchStart={() => triggerTabChange(item.key)}
+              onMouseDown={(event) => {
+                if (event.button !== 0) return;
                 triggerTabChange(item.key);
               }}
               onClick={() => triggerTabChange(item.key)}

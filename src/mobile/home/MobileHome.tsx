@@ -361,11 +361,9 @@ const MobileHome = () => {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    let disposed = false;
-    let timeoutId: number | null = null;
-    let idleId: number | null = null;
+    let cancelled = false;
     const preload = () => {
-      if (disposed) return;
+      if (cancelled) return;
       void import('./screens/MobileNetworkScreen');
       void import('./screens/MobilePostScreen');
       void import('./screens/MobileNotificationsScreen');
@@ -375,18 +373,13 @@ const MobileHome = () => {
       void import('../../features/scroll/ScrollFeed');
     };
 
-    if ('requestIdleCallback' in window) {
-      idleId = (window as any).requestIdleCallback(preload, { timeout: 1200 });
-    } else {
-      timeoutId = window.setTimeout(preload, 400);
-    }
+    const frame = window.requestAnimationFrame(() => {
+      window.setTimeout(preload, 120);
+    });
 
     return () => {
-      disposed = true;
-      if (timeoutId !== null) window.clearTimeout(timeoutId);
-      if (idleId !== null && 'cancelIdleCallback' in window) {
-        (window as any).cancelIdleCallback(idleId);
-      }
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
     };
   }, []);
 
