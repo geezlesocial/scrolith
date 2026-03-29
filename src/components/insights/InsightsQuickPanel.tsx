@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useSocket } from '../../context/SocketContext';
 import { useUser } from '../../context/UserContext';
 import {
+  type DailyMissionSummary,
   type FriendStreakDashboard,
   InsightsService,
   type CareerDailyActionState,
@@ -76,7 +77,7 @@ const DEFAULT_CAREER_DAILY_ACTIONS: CareerDailyActionState[] = [
   { type: 'learn', label: 'Learn', completed: false }
 ];
 
-const INSIGHTS_CACHE_VERSION = 'v1';
+const INSIGHTS_CACHE_VERSION = 'v2';
 const INSIGHTS_CACHE_TTL_MS = 15 * 60 * 1000;
 
 export default function InsightsQuickPanel({
@@ -353,6 +354,8 @@ export default function InsightsQuickPanel({
     Array.isArray(careerDaily?.actions) && careerDaily.actions.length
       ? careerDaily.actions
       : DEFAULT_CAREER_DAILY_ACTIONS;
+  const dailyMissions = (streak?.dailyMissions || null) as DailyMissionSummary | null;
+  const missionCards = Array.isArray(dailyMissions?.missions) ? dailyMissions.missions : [];
   const friendStreaks = (streak?.friendStreaks || null) as FriendStreakDashboard | null;
   const activeFriendStreaks = Array.isArray(friendStreaks?.active) ? friendStreaks.active : [];
   const incomingFriendInvites = Array.isArray(friendStreaks?.incomingInvites) ? friendStreaks.incomingInvites : [];
@@ -370,7 +373,8 @@ export default function InsightsQuickPanel({
         createdAt: current?.createdAt || null,
         updatedAt: current?.updatedAt || null,
         careerDaily: current?.careerDaily || null,
-        friendStreaks: dashboard
+        friendStreaks: dashboard,
+        dailyMissions: current?.dailyMissions || null
       }));
     },
     [currentUserId]
@@ -621,6 +625,92 @@ export default function InsightsQuickPanel({
               {careerDaily?.allCompleted
                 ? 'All four career actions are complete for today.'
                 : 'Your streak counts once per day, and this checklist helps you stay consistent across all four actions.'}
+            </p>
+          </div>
+
+          <div className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Daily missions</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Rotated, higher-level goals built on top of today&apos;s checklist so the loop stays focused without duplicating tasks.
+                </p>
+              </div>
+              <span
+                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                  dailyMissions?.allCompleted ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                }`}
+              >
+                {Number(dailyMissions?.completedCount || 0)}/{Number(dailyMissions?.totalCount || missionCards.length || 3)}
+              </span>
+            </div>
+
+            <div className={`mt-3 grid gap-3 ${compact || isDesktopRail ? 'grid-cols-1' : 'xl:grid-cols-3'}`}>
+              {missionCards.map((mission) => (
+                <div
+                  key={mission.key}
+                  className={`rounded-xl border p-3 transition ${
+                    mission.completed ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <span
+                        className={`inline-flex rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+                          mission.completed ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {mission.badge || 'Daily'}
+                      </span>
+                      <p className="mt-2 text-sm font-semibold text-slate-900">{mission.title}</p>
+                      <p className="mt-1 text-xs text-slate-600">{mission.description}</p>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                        mission.completed ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-slate-700'
+                      }`}
+                    >
+                      {mission.progressLabel}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 h-2 rounded-full bg-white/80">
+                    <div
+                      className={`h-2 rounded-full transition-[width] duration-300 ease-out ${
+                        mission.completed ? 'bg-emerald-500' : 'bg-indigo-500'
+                      }`}
+                      style={{ width: `${clampPercent((Number(mission.progress || 0) / Math.max(Number(mission.target || 1), 1)) * 100)}%` }}
+                    />
+                  </div>
+
+                  {mission.helperText ? <p className="mt-2 text-[11px] text-slate-500">{mission.helperText}</p> : null}
+
+                  {Array.isArray(mission.remainingActionLabels) && mission.remainingActionLabels.length ? (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {mission.remainingActionLabels.map((label) => (
+                        <span key={`${mission.key}:${label}`} className="rounded-full bg-white px-2 py-1 text-[10px] font-medium text-slate-600">
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {!mission.completed && mission.ctaUrl && mission.ctaLabel ? (
+                    <Link
+                      to={mission.ctaUrl}
+                      className="mt-3 inline-flex rounded-xl bg-slate-900 px-3 py-2 text-[11px] font-semibold text-white"
+                    >
+                      {mission.ctaLabel}
+                    </Link>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+
+            <p className="mt-3 text-[11px] text-slate-500">
+              {dailyMissions?.allCompleted
+                ? 'All daily missions are complete. Tomorrow rotates in a fresh mission mix.'
+                : 'Missions rotate by day and role so users get a clear reason to come back now without repeating the raw checklist.'}
             </p>
           </div>
 

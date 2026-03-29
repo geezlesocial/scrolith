@@ -98,6 +98,32 @@ export type FriendStreakDashboard = {
   candidates: FriendStreakUserSummary[];
 };
 
+export type DailyMission = {
+  key: string;
+  badge: string;
+  title: string;
+  description: string;
+  progress: number;
+  target: number;
+  progressLabel: string;
+  completed: boolean;
+  helperText?: string | null;
+  remainingActionTypes?: string[];
+  remainingActionLabels?: string[];
+  ctaLabel?: string | null;
+  ctaUrl?: string | null;
+  category?: string | null;
+};
+
+export type DailyMissionSummary = {
+  userId: string;
+  actionDate: string;
+  completedCount: number;
+  totalCount: number;
+  allCompleted: boolean;
+  missions: DailyMission[];
+};
+
 export type UserStreak = {
   userId: string;
   currentStreakDays: number;
@@ -107,6 +133,7 @@ export type UserStreak = {
   updatedAt?: string | null;
   careerDaily?: CareerDailySummary | null;
   friendStreaks?: FriendStreakDashboard | null;
+  dailyMissions?: DailyMissionSummary | null;
 };
 
 export type OpportunityHubData = {
