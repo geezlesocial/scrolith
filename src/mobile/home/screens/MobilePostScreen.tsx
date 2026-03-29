@@ -32,7 +32,13 @@ const postAiActions: Array<{ mode: PostEnhanceMode; label: string }> = [
   { mode: 'expand', label: 'Expand' }
 ];
 
-export default function MobilePostScreen() {
+export default function MobilePostScreen({
+  mobileLayout,
+  onClose
+}: {
+  mobileLayout?: any;
+  onClose?: () => void;
+} = {}) {
   const ctx = useOutletContext<any>();
   const routerLocation = useLocation();
   const navigate = useNavigate();
@@ -53,7 +59,7 @@ export default function MobilePostScreen() {
   const [aiOriginalText, setAiOriginalText] = useState('');
   const [aiCompareView, setAiCompareView] = useState<'compare' | 'ai'>('compare');
 
-  const layout = ctx?.mobileLayout ?? null;
+  const layout = mobileLayout ?? ctx?.mobileLayout ?? null;
   const composer = (layout?.postComposer || layout?.post_composer || {}) as Record<string, any>;
   const postCard = (layout?.postCard || layout?.post_card || {}) as Record<string, any>;
   const mentionsEnabled = postCard.mentionsEnabled !== false;
@@ -78,6 +84,14 @@ export default function MobilePostScreen() {
   const [aiInsightPreference, setAiInsightPreference] = useState<PostAiInsightPreference>('auto');
   const [topic, setTopic] = useState('');
   const [place, setPlace] = useState('');
+
+  const closeComposer = useCallback(() => {
+    if (onClose) {
+      onClose();
+      return;
+    }
+    navigate('/m/home');
+  }, [navigate, onClose]);
 
   const suggestedTopics = useMemo(() => {
     const raw = composer.topics || composer.topicList || composer.topic_list;
@@ -340,7 +354,7 @@ export default function MobilePostScreen() {
         window.dispatchEvent(new CustomEvent('community:post_updated', { detail: { post: updated } }));
 
         showNotification('success', 'Saved', 'Post updated.');
-        navigate('/m/home');
+        closeComposer();
         return;
       }
 
@@ -366,6 +380,7 @@ export default function MobilePostScreen() {
       setTopic('');
       setPlace('');
       showNotification('success', 'Posted', 'Your update is live.');
+      if (onClose) closeComposer();
     } catch (e: any) {
       showNotification('error', isEditing ? 'Save failed' : 'Post failed', e?.response?.data?.error || e?.message || 'Unable to post right now.');
     } finally {
@@ -381,7 +396,7 @@ export default function MobilePostScreen() {
           {isEditing ? (
             <button
               type="button"
-              onClick={() => navigate('/m/home')}
+              onClick={closeComposer}
               className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
               disabled={busy || loadingPost}
             >

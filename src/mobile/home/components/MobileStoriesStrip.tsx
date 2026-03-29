@@ -228,7 +228,13 @@ const SheetItem = ({
   </button>
 );
 
-export default function MobileStoriesStrip({ settings }: { settings?: any }) {
+export default function MobileStoriesStrip({
+  settings,
+  onOpenScroll
+}: {
+  settings?: any;
+  onOpenScroll?: (scroll: ScrollVideo) => void;
+}) {
   const navigate = useNavigate();
   const { user } = useUser();
   const { status: liveFeatureStatus } = useLiveFeature();
@@ -377,14 +383,18 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   );
 
   const openScrollFromRail = useCallback(
-    (scrollId: string) => {
-      const normalizedId = String(scrollId || '').trim();
+    (scroll: ScrollVideo) => {
+      const normalizedId = String(scroll?.id || '').trim();
       if (!normalizedId) return;
       runRailAction(`scroll:${normalizedId}`, () => {
+        if (onOpenScroll) {
+          onOpenScroll(scroll);
+          return;
+        }
         navigate(`/scroll?scroll=${encodeURIComponent(normalizedId)}`);
       });
     },
-    [navigate, runRailAction]
+    [navigate, onOpenScroll, runRailAction]
   );
 
   useEffect(() => {
@@ -1262,18 +1272,18 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                       onTouchStart={(event) => beginRailTouch(`scroll:${id}`, event)}
                       onTouchEnd={(event) =>
                         commitRailTouch(`scroll:${id}`, event, () => {
-                          openScrollFromRail(id);
+                          openScrollFromRail(scroll);
                         })
                       }
                       onTouchCancel={cancelRailGesture}
                       onPointerDown={(event) => beginRailGesture(`scroll:${id}`, event)}
                       onPointerUp={(event) =>
                         commitRailGesture(`scroll:${id}`, event, () => {
-                          openScrollFromRail(id);
+                          openScrollFromRail(scroll);
                         })
                       }
                       onPointerCancel={cancelRailGesture}
-                      onClick={() => openScrollFromRail(id)}
+                      onClick={() => openScrollFromRail(scroll)}
                       className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
                       style={{ touchAction: 'manipulation' }}
                       aria-label={`Open Scroll by ${authorName}`}

@@ -7,6 +7,8 @@ import { useMessages } from '../../context/MessageContext';
 import { useNotification } from '../../context/NotificationContext';
 import { useSocket } from '../../context/SocketContext';
 import { useUser } from '../../context/UserContext';
+import type { ScrollVideo } from '../../services/scroll';
+import type { PendingPostVideoScrollViewerSource } from '../../utils/postVideoScrollBridge';
 
 import MobileHeader from './components/MobileHeader';
 import MobileBottomNav, { MobileHomeLayoutSettings, MobileTabKey } from './components/MobileBottomNav';
@@ -15,6 +17,12 @@ import { DEFAULT_MEMBER_HOME_LOCATIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../..
 
 const SearchScreen = lazy(() => import('./components/SearchScreen'));
 const MobileHomeSheets = lazy(() => import('./components/MobileHomeSheets'));
+const MobileFeedScreen = lazy(() => import('./screens/MobileFeedScreen'));
+const MobileNetworkScreen = lazy(() => import('./screens/MobileNetworkScreen'));
+const MobilePostScreen = lazy(() => import('./screens/MobilePostScreen'));
+const MobileNotificationsScreen = lazy(() => import('./screens/MobileNotificationsScreen'));
+const MobileJobsScreen = lazy(() => import('./screens/MobileJobsScreen'));
+const ScrollFeed = lazy(() => import('../../features/scroll/ScrollFeed'));
 
 type MobileHomeLayoutConfig = {
   header?: {
@@ -197,6 +205,9 @@ const resolveActiveTab = (pathname: string): MobileTabKey => {
   return 'home';
 };
 
+const isMobileOverlayTab = (tab: MobileTabKey): tab is Exclude<MobileTabKey, 'home' | 'messages'> =>
+  tab === 'network' || tab === 'post' || tab === 'notifications' || tab === 'jobs';
+
 const useViewportIsMobile = (threshold = 900) => {
   const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < threshold : true));
   useEffect(() => {
@@ -230,6 +241,16 @@ const MobileHome = () => {
   const [quickMenuOpen, setQuickMenuOpen] = useState(false);
   const [messagesOpen, setMessagesOpen] = useState(false);
   const [currencyOpen, setCurrencyOpen] = useState(false);
+  const routeTab = resolveActiveTab(location.pathname);
+  const [activePanelTab, setActivePanelTab] = useState<Exclude<MobileTabKey, 'home' | 'messages'> | null>(
+    isMobileOverlayTab(routeTab) ? routeTab : null
+  );
+  const [scrollOverlay, setScrollOverlay] = useState<{
+    key: number;
+    initialItems: ScrollVideo[];
+    initialActiveScrollId: string | null;
+    initialViewerSource: PendingPostVideoScrollViewerSource | null;
+  } | null>(null);
 
   const allowDesktopOverride =
     new URLSearchParams(location.search).get('desktop') === '1' ||
@@ -287,7 +308,7 @@ const MobileHome = () => {
     return list.filter((n: any) => !(n?.isRead ?? n?.is_read) && !n?.dismissed).length;
   }, [notifications]);
 
-  const activeTab = resolveActiveTab(location.pathname);
+  const activeTab = activePanelTab || 'home';
 
   const bottomNavSettings: MobileHomeLayoutSettings = {
     bottomTabs: layout.bottomTabs,
@@ -302,6 +323,20 @@ const MobileHome = () => {
   const headerMessagesEnabled = layout.header?.messagesEnabled !== false && layout.messagesPopup?.enabled !== false;
   const headerQuickMenuEnabled = layout.header?.quickMenuEnabled !== false;
 
+  useEffect(() => {
+    if (!isMobileOverlayTab(routeTab)) return;
+    setActivePanelTab(routeTab);
+    if (location.pathname !== '/m/home') {
+      navigate(
+        {
+          pathname: '/m/home',
+          search: location.search
+        },
+        { replace: true }
+      );
+    }
+  }, [location.pathname, location.search, navigate, routeTab]);
+
   const onTabChange = (tab: MobileTabKey) => {
     if (tab === activeTab) {
       window.dispatchEvent(
@@ -313,10 +348,21 @@ const MobileHome = () => {
       return;
     }
     if (tab === 'messages') {
-      navigate('/messages');
+      setMessagesOpen(true);
+      void refreshMessages({ force: true });
       return;
     }
-    navigate(`/m/${tab}`);
+    if (tab === 'home') {
+      setActivePanelTab(null);
+      setScrollOverlay(null);
+      if (location.pathname !== '/m/home') {
+        navigate('/m/home', { replace: true });
+      }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    setScrollOverlay(null);
+    setActivePanelTab(tab);
   };
 
   const activeRoleOverride = useMemo(() => {
@@ -410,6 +456,78 @@ const MobileHome = () => {
   };
 
   const anySheetOpen = profileOpen || messagesOpen || currencyOpen || quickMenuOpen;
+  const handleOpenScrollOverlay = useMemo(
+    () => (scroll: ScrollVideo) => {
+      const normalizedId = String(scroll?.id || '').trim();
+      if (!normalizedId) return;
+      setActivePanelTab(null);
+      setScrollOverlay({
+        key: Date.now(),
+        initialItems: [scroll],
+        initialActiveScrollId: normalizedId,
+        initialViewerSource: null
+      });
+    },
+    []
+  );
+  const handleOpenPostVideoScroll = useMemo(
+    () => (source: PendingPostVideoScrollViewerSource) => {
+      setActivePanelTab(null);
+      setScrollOverlay({
+        key: Date.now(),
+        initialItems: [],
+        initialActiveScrollId: null,
+        initialViewerSource: source
+      });
+    },
+    []
+  );
+  const closeActivePanel = useMemo(
+    () => () => {
+      setActivePanelTab(null);
+      if (location.pathname !== '/m/home') {
+        navigate('/m/home', { replace: true });
+      }
+    },
+    [location.pathname, navigate]
+  );
+  const renderOverlayPanel = () => {
+    if (!activePanelTab) return null;
+    const titleMap: Record<Exclude<MobileTabKey, 'home' | 'messages'>, string> = {
+      network: 'My Network',
+      post: 'Post',
+      notifications: 'Notifications',
+      jobs: 'Jobs'
+    };
+    return (
+      <div className="fixed inset-0 z-[820] bg-slate-50 pt-14 pb-20">
+        <div className="sticky top-14 z-10 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+          <div className="text-sm font-semibold text-slate-900">{titleMap[activePanelTab]}</div>
+          <button
+            type="button"
+            onClick={closeActivePanel}
+            className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
+          >
+            Close
+          </button>
+        </div>
+        <div className="h-[calc(100vh-113px-env(safe-area-inset-bottom))] overflow-y-auto">
+          <Suspense
+            fallback={
+              <div className="px-4 py-6 text-sm font-medium text-slate-500">
+                Loading {titleMap[activePanelTab].toLowerCase()}...
+              </div>
+            }
+          >
+            {activePanelTab === 'network' ? <MobileNetworkScreen /> : null}
+            {activePanelTab === 'post' ? <MobilePostScreen mobileLayout={layout} onClose={closeActivePanel} /> : null}
+            {activePanelTab === 'notifications' ? <MobileNotificationsScreen /> : null}
+            {activePanelTab === 'jobs' ? <MobileJobsScreen /> : null}
+          </Suspense>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -431,14 +549,30 @@ const MobileHome = () => {
       />
 
       <div className="pt-14 pb-20">
-        <Outlet
-          context={{
-            mobileLayout: layout
-          }}
-        />
+        {/^\/m\/briefs(\/|$)/.test(location.pathname) ? (
+          <Outlet
+            context={{
+              mobileLayout: layout
+            }}
+          />
+        ) : (
+          <Suspense
+            fallback={
+              <div className="px-4 py-6 text-sm font-medium text-slate-500">
+                Loading feed...
+              </div>
+            }
+          >
+            <MobileFeedScreen
+              mobileLayout={layout}
+              onOpenScroll={handleOpenScrollOverlay}
+              onOpenPostVideoScroll={handleOpenPostVideoScroll}
+            />
+          </Suspense>
+        )}
       </div>
 
-      <MobileBottomNav activeTab={activeTab} onChange={onTabChange} settings={bottomNavSettings} />
+      {!scrollOverlay ? <MobileBottomNav activeTab={activeTab} onChange={onTabChange} settings={bottomNavSettings} /> : null}
 
       {searchOpen ? (
         <div className="fixed inset-0 z-[900] overflow-y-auto bg-slate-50 pt-14 pb-20">
@@ -453,6 +587,29 @@ const MobileHome = () => {
               enabled={searchEnabled}
               categories={searchCategories.length ? searchCategories : (DEFAULT_LAYOUT.search?.categories as SearchCategory[])}
               onClose={() => setSearchOpen(false)}
+            />
+          </Suspense>
+        </div>
+      ) : null}
+
+      {renderOverlayPanel()}
+
+      {scrollOverlay ? (
+        <div className="fixed inset-0 z-[860] bg-black">
+          <Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center bg-black text-sm font-medium text-white/80">
+                Loading Scroll...
+              </div>
+            }
+          >
+            <ScrollFeed
+              key={scrollOverlay.key}
+              embedded
+              onClose={() => setScrollOverlay(null)}
+              initialItems={scrollOverlay.initialItems}
+              initialActiveScrollId={scrollOverlay.initialActiveScrollId}
+              initialViewerSource={scrollOverlay.initialViewerSource}
             />
           </Suspense>
         </div>
@@ -546,11 +703,13 @@ const MobileHome = () => {
             }}
             onCreatePost={() => {
               setQuickMenuOpen(false);
-              navigate('/m/post');
+              setActivePanelTab('post');
+              if (location.pathname !== '/m/home') navigate('/m/home', { replace: true });
             }}
             onBrowseJobs={() => {
               setQuickMenuOpen(false);
-              navigate('/browse-jobs');
+              setActivePanelTab('jobs');
+              if (location.pathname !== '/m/home') navigate('/m/home', { replace: true });
             }}
             onBrowseGigs={() => {
               setQuickMenuOpen(false);

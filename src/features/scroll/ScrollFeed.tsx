@@ -95,7 +95,21 @@ const buildViewerSeedScroll = (source: PendingPostVideoScrollViewerSource): Scro
   updatedAt: source.createdAt || new Date().toISOString()
 });
 
-const ScrollFeed: React.FC = () => {
+type ScrollFeedProps = {
+  embedded?: boolean;
+  onClose?: () => void;
+  initialItems?: ScrollVideo[];
+  initialActiveScrollId?: string | null;
+  initialViewerSource?: PendingPostVideoScrollViewerSource | null;
+};
+
+const ScrollFeed: React.FC<ScrollFeedProps> = ({
+  embedded = false,
+  onClose,
+  initialItems = [],
+  initialActiveScrollId = null,
+  initialViewerSource = null
+}) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useUser();
@@ -135,6 +149,7 @@ const ScrollFeed: React.FC = () => {
   const itemRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const observerRef = useRef<IntersectionObserver | null>(null);
   const viewerSeedSourceRef = useRef<PendingPostVideoScrollViewerSource | null>(null);
+  const seededItemsRef = useRef<ScrollVideo[]>(Array.isArray(initialItems) ? initialItems.filter(Boolean) : []);
 
   const patchMetrics = useCallback((scrollId: string, metrics: Partial<ScrollVideo['metrics']>) => {
     setItems((prev) =>
@@ -244,8 +259,17 @@ const ScrollFeed: React.FC = () => {
         setNextCursor(data?.nextCursor || null);
         setItems((prev) => {
           if (!cursor) {
-            if (!seededItem) return nextItems;
-            return [seededItem, ...nextItems.filter((entry) => entry.id !== seededItem.id)];
+            const merged: ScrollVideo[] = [];
+            const seen = new Set<string>();
+            const pushUnique = (entry: ScrollVideo | null | undefined) => {
+              if (!entry?.id || seen.has(entry.id)) return;
+              seen.add(entry.id);
+              merged.push(entry);
+            };
+            pushUnique(seededItem);
+            seededItemsRef.current.forEach((entry) => pushUnique(entry));
+            nextItems.forEach((entry) => pushUnique(entry));
+            return merged;
           }
           const existing = new Set(prev.map((entry) => entry.id));
           const merged = [...prev];
@@ -274,6 +298,26 @@ const ScrollFeed: React.FC = () => {
   }, [loadFeed]);
 
   useEffect(() => {
+    viewerSeedSourceRef.current = initialViewerSource || null;
+  }, [initialViewerSource]);
+
+  useEffect(() => {
+    seededItemsRef.current = Array.isArray(initialItems) ? initialItems.filter(Boolean) : [];
+    if (!embedded || seededItemsRef.current.length === 0) return;
+    setItems((prev) => {
+      const next = [...seededItemsRef.current];
+      const seen = new Set(next.map((entry) => entry.id));
+      prev.forEach((entry) => {
+        if (!entry?.id || seen.has(entry.id)) return;
+        seen.add(entry.id);
+        next.push(entry);
+      });
+      return next;
+    });
+  }, [embedded, initialItems]);
+
+  useEffect(() => {
+    if (embedded) return;
     const params = new URLSearchParams(location.search);
     if (params.get('create') !== 'post-video') return;
     const pendingSource = readPendingPostVideoScrollSource();
@@ -291,6 +335,7 @@ const ScrollFeed: React.FC = () => {
   }, [location.pathname, location.search, navigate]);
 
   useEffect(() => {
+    if (embedded) return;
     const params = new URLSearchParams(location.search);
     if (params.get('watch') !== 'post-video') return;
     const pendingViewerSource = readPendingPostVideoScrollViewerSource();
@@ -312,6 +357,13 @@ const ScrollFeed: React.FC = () => {
       { replace: true }
     );
   }, [location.pathname, location.search, navigate]);
+
+  useEffect(() => {
+    const targetScrollId = String(initialActiveScrollId || '').trim();
+    if (!targetScrollId || items.length === 0) return;
+    const nextIndex = items.findIndex((entry) => entry.id === targetScrollId);
+    if (nextIndex >= 0) setActiveIndex(nextIndex);
+  }, [initialActiveScrollId, items]);
 
   useEffect(() => {
     if (!showLiveDiscovery) {
@@ -659,13 +711,20 @@ const ScrollFeed: React.FC = () => {
   );
 
   const activeScrollUrl = activeActionScroll?.id ? buildScrollUrl(activeActionScroll.id) : '';
+  const handleClose = useCallback(() => {
+    if (embedded && onClose) {
+      onClose();
+      return;
+    }
+    navigate(-1);
+  }, [embedded, navigate, onClose]);
 
   return (
     <div className="relative h-screen bg-black text-white">
       <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between px-4 py-4">
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={handleClose}
           className="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
           aria-label="Back"
         >

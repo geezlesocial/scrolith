@@ -27,7 +27,10 @@ import PostVideoActionBar from '../../../components/media/PostVideoActionBar';
 import PostExpandModal from '../../../components/post/PostExpandModal';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY } from '../../../utils/inlineMedia';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../../utils/postAttachmentMedia';
-import { stashPendingPostVideoScrollViewerSource } from '../../../utils/postVideoScrollBridge';
+import {
+  stashPendingPostVideoScrollViewerSource,
+  type PendingPostVideoScrollViewerSource
+} from '../../../utils/postVideoScrollBridge';
 import { resolveVerificationLevel } from '../../../utils/verification';
 import FeedAdCard from './FeedAdCard';
 import RecommendedListingCard from './RecommendedListingCard';
@@ -227,7 +230,13 @@ const resolveProfileUrl = (
   return '/profile/edit';
 };
 
-export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSettings | null }) {
+export default function MobileFeed({
+  settings,
+  onOpenPostVideoScroll
+}: {
+  settings?: MobileHomeLayoutSettings | null;
+  onOpenPostVideoScroll?: (source: PendingPostVideoScrollViewerSource) => void;
+}) {
   const navigate = useNavigate();
   const { user } = useUser();
   const { isConnected } = useSocket();
@@ -485,7 +494,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       const postId = String(post?.id || '').trim();
       const mediaUrl = String(media?.url || resolvePostAttachmentMediaUrl(media) || '').trim();
       if (!postId || !mediaUrl) return;
-      stashPendingPostVideoScrollViewerSource({
+      const sourcePayload: PendingPostVideoScrollViewerSource = {
         sourcePostId: postId,
         fileId: String(media?.fileId || media?.file_id || media?.file?.id || media?.asset?.id || media?.id || '').trim() || null,
         mediaUrl,
@@ -497,10 +506,15 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
         authorAvatar: String(post?.author?.avatarUrl || post?.authorAvatar || '').trim() || null,
         authorUsername: String(post?.author?.username || post?.authorUsername || '').trim() || null,
         createdAt: String(post?.createdAt || '').trim() || null
-      });
+      };
+      if (onOpenPostVideoScroll) {
+        onOpenPostVideoScroll(sourcePayload);
+        return;
+      }
+      stashPendingPostVideoScrollViewerSource(sourcePayload);
       navigate('/scroll?watch=post-video');
     },
-    [navigate]
+    [navigate, onOpenPostVideoScroll]
   );
 
   const openPostCard = useCallback(
