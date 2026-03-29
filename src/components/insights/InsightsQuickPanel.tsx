@@ -207,21 +207,17 @@ export default function InsightsQuickPanel({
       setError(null);
       setStatusMessage(null);
       try {
-        const results = await withFastFail(
-          Promise.allSettled([
-            InsightsService.getMyPgs(),
-            InsightsService.getMyStreak(),
-            InsightsService.getMyAchievements(),
-            InsightsService.getMyCreatorChallenges(),
-            InsightsService.getMyQuests(),
-            InsightsService.getOpportunityHub(),
-            InsightsService.getMatches('all'),
-            InsightsService.getFeedMode(),
-            InsightsService.getSkillGap()
-          ]),
-          20000,
-          'Insights request timed out. Please retry.'
-        );
+        const results = await Promise.allSettled([
+          withFastFail(InsightsService.getMyPgs(), 15000, 'Professional score request timed out.'),
+          withFastFail(InsightsService.getMyStreak(), 15000, 'Career streak request timed out.'),
+          withFastFail(InsightsService.getMyAchievements(), 15000, 'Achievement request timed out.'),
+          withFastFail(InsightsService.getMyCreatorChallenges(), 15000, 'Challenge request timed out.'),
+          withFastFail(InsightsService.getMyQuests(), 15000, 'Quest request timed out.'),
+          withFastFail(InsightsService.getOpportunityHub(), 15000, 'Opportunity hub request timed out.'),
+          withFastFail(InsightsService.getMatches('all'), 15000, 'Opportunity matches request timed out.'),
+          withFastFail(InsightsService.getFeedMode(), 15000, 'Feed mode request timed out.'),
+          withFastFail(InsightsService.getSkillGap(), 15000, 'Skill gap request timed out.')
+        ]);
 
         const [
           pgsResult,

@@ -27,8 +27,10 @@ type MobileInsightsSectionId =
   | 'career-quests'
   | 'skill-gap';
 
-type SectionCard = {
-  id: MobileInsightsSectionId;
+type MobileInsightsGroupId = 'growth' | 'opportunity';
+
+type GroupCard = {
+  id: MobileInsightsGroupId;
   label: string;
   description: string;
   value?: string | null;
@@ -40,6 +42,23 @@ const INSIGHTS_CACHE_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_CAREER_GOAL_COUNT = 4;
 const DEFAULT_MISSION_COUNT = 3;
 const DEFAULT_ACTIVE_STREAK_LIMIT = 3;
+const GROWTH_SECTIONS: MobileInsightsSectionId[] = [
+  'career-daily',
+  'daily-missions',
+  'badges-trophies',
+  'weekly-challenges',
+  'shared-accountability',
+  'career-quests',
+  'skill-gap'
+];
+const OPPORTUNITY_SECTIONS: MobileInsightsSectionId[] = [
+  'identity-trust',
+  'delivery-packaging',
+  'brief-to-match',
+  'feed-mode',
+  'opportunity-actions',
+  'opportunity-matches'
+];
 
 const compactNumberFormatter = new Intl.NumberFormat('en', {
   notation: 'compact',
@@ -82,7 +101,7 @@ export default function MobileInsightsHubLauncher() {
   const [quests, setQuests] = useState<UserQuest[]>([]);
   const [hub, setHub] = useState<OpportunityHubData | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState<MobileInsightsSectionId>('career-daily');
+  const [activeGroup, setActiveGroup] = useState<MobileInsightsGroupId>('growth');
 
   const sheetBodyRef = useRef<HTMLDivElement | null>(null);
 
@@ -151,18 +170,14 @@ export default function MobileInsightsHubLauncher() {
     setRefreshing(true);
     if (!pgs && !streak && !hub) setLoading(true);
     try {
-      const results = await withFastFail(
-        Promise.allSettled([
-          InsightsService.getMyPgs(),
-          InsightsService.getMyStreak(),
-          InsightsService.getMyAchievements(),
-          InsightsService.getMyCreatorChallenges(),
-          InsightsService.getMyQuests(),
-          InsightsService.getOpportunityHub()
-        ]),
-        15000,
-        'Insights request timed out. Please retry.'
-      );
+      const results = await Promise.allSettled([
+        withFastFail(InsightsService.getMyPgs(), 15000, 'Professional score request timed out.'),
+        withFastFail(InsightsService.getMyStreak(), 15000, 'Career streak request timed out.'),
+        withFastFail(InsightsService.getMyAchievements(), 15000, 'Achievement request timed out.'),
+        withFastFail(InsightsService.getMyCreatorChallenges(), 15000, 'Challenge request timed out.'),
+        withFastFail(InsightsService.getMyQuests(), 15000, 'Quest request timed out.'),
+        withFastFail(InsightsService.getOpportunityHub(), 15000, 'Opportunity hub request timed out.')
+      ]);
 
       const [pgsResult, streakResult, achievementsResult, creatorChallengesResult, questsResult, hubResult] = results;
       const nextPgs = takeValue(pgsResult);
@@ -178,14 +193,18 @@ export default function MobileInsightsHubLauncher() {
       setCreatorChallengeDashboard(nextCreatorChallenges || null);
       setQuests(Array.isArray(nextQuests) ? nextQuests : []);
       setHub(nextHub || null);
-      persistSummary({
-        pgs: nextPgs || null,
-        streak: nextStreak || null,
-        achievements: Array.isArray(nextAchievements) ? nextAchievements : [],
-        creatorChallenges: nextCreatorChallenges || null,
-        quests: Array.isArray(nextQuests) ? nextQuests : [],
-        hub: nextHub || null
-      });
+      if (results.some((result) => result.status === 'fulfilled')) {
+        persistSummary({
+          pgs: nextPgs || null,
+          streak: nextStreak || null,
+          achievements: Array.isArray(nextAchievements) ? nextAchievements : [],
+          creatorChallenges: nextCreatorChallenges || null,
+          quests: Array.isArray(nextQuests) ? nextQuests : [],
+          hub: nextHub || null
+        });
+      } else {
+        throw new Error('Insights request timed out. Please retry.');
+      }
     } catch (e: any) {
       setError(e?.response?.data?.message || e?.message || 'Unable to refresh mobile insights.');
     } finally {
@@ -212,33 +231,48 @@ export default function MobileInsightsHubLauncher() {
     if (!sheetOpen) return;
     let cancelled = false;
     let attempts = 0;
+    const visibleSections = activeGroup === 'growth' ? GROWTH_SECTIONS : OPPORTUNITY_SECTIONS;
 
-    const scrollToActiveSection = () => {
+    const syncSheetSections = () => {
       if (cancelled) return;
       const root = sheetBodyRef.current;
-      const target = root?.querySelector?.(`[data-insights-section="${activeSection}"]`) as HTMLElement | null;
+      if (!root) {
+        if (attempts >= 20) return;
+        attempts += 1;
+        window.setTimeout(syncSheetSections, 120);
+        return;
+      }
+
+      const nodes = Array.from(root.querySelectorAll('[data-insights-section]')) as HTMLElement[];
+      nodes.forEach((node) => {
+        const sectionId = String(node.getAttribute('data-insights-section') || '').trim() as MobileInsightsSectionId;
+        node.classList.toggle('hidden', !visibleSections.includes(sectionId));
+      });
+
+      const target = root.querySelector(`[data-insights-section="${visibleSections[0]}"]`) as HTMLElement | null;
       if (target) {
         target.scrollIntoView({ behavior: 'smooth', block: 'start' });
         return;
       }
+
       if (attempts >= 20) return;
       attempts += 1;
-      window.setTimeout(scrollToActiveSection, 120);
+      window.setTimeout(syncSheetSections, 120);
     };
 
-    const timer = window.setTimeout(scrollToActiveSection, 60);
+    const timer = window.setTimeout(syncSheetSections, 60);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [activeSection, sheetOpen]);
+  }, [activeGroup, sheetOpen]);
 
   const earnedAchievements = achievements.filter((item) => item?.earned);
   const careerDaily = streak?.careerDaily || null;
   const dailyMissions = streak?.dailyMissions || null;
   const friendStreaks = streak?.friendStreaks || null;
 
-  const sectionCards = useMemo<SectionCard[]>(() => {
+  const groupCards = useMemo<GroupCard[]>(() => {
     const verificationState = String(hub?.identity?.verificationState || 'Trust building').trim();
     const activeChallengeCount = Number(creatorChallengeDashboard?.activeCount || 0);
     const activeFriendCount = Number(friendStreaks?.activeCount || 0);
@@ -246,88 +280,21 @@ export default function MobileInsightsHubLauncher() {
     const deliveryTotal = Number(hub?.delivery?.activeContracts || 0) + Number(hub?.delivery?.activeOrders || 0);
     const opportunityMatches = Number(hub?.matching?.matches?.length || 0);
     const opportunityActions = Number(hub?.actions?.length || 0);
-    const skillGapCount = Array.isArray((hub as any)?.skillGap?.recommendations)
-      ? (hub as any).skillGap.recommendations.length
-      : 0;
+    const opportunityTotal = opportunityMatches + opportunityActions;
+    const growthProgress = `${Number(careerDaily?.completedCount || 0)}/${Number(careerDaily?.goalCount || DEFAULT_CAREER_GOAL_COUNT)} today`;
 
     return [
       {
-        id: 'career-daily',
-        label: 'Career streak',
-        description: 'Post, reply, apply, learn daily.',
-        value: `${Number(careerDaily?.completedCount || 0)}/${Number(careerDaily?.goalCount || DEFAULT_CAREER_GOAL_COUNT)}`
+        id: 'growth',
+        label: 'Growth controls',
+        description: 'Career streak, daily missions, badges, challenges, accountability, quests, and skill gap.',
+        value: growthProgress
       },
       {
-        id: 'daily-missions',
-        label: 'Daily missions',
-        description: 'Rotated goals that bring users back.',
-        value: `${Number(dailyMissions?.completedCount || 0)}/${Number(dailyMissions?.totalCount || DEFAULT_MISSION_COUNT)}`
-      },
-      {
-        id: 'badges-trophies',
-        label: 'Badges and trophies',
-        description: 'Visible status and progress cabinet.',
-        value: `${earnedAchievements.length} earned`
-      },
-      {
-        id: 'weekly-challenges',
-        label: 'Weekly challenges',
-        description: 'Submit, vote, and compete to win.',
-        value: `${activeChallengeCount} active`
-      },
-      {
-        id: 'shared-accountability',
-        label: 'Shared accountability',
-        description: 'Mutual-follow friend streaks.',
-        value: `${activeFriendCount}/${friendLimit} active`
-      },
-      {
-        id: 'identity-trust',
-        label: 'Identity and trust',
-        description: 'Profile health, trust, and visibility.',
-        value: verificationState
-      },
-      {
-        id: 'delivery-packaging',
-        label: 'Delivery and packaging',
-        description: 'Contracts, orders, gigs, and jobs.',
-        value: `${deliveryTotal} live`
-      },
-      {
-        id: 'brief-to-match',
-        label: 'Brief to match',
-        description: 'Generate hiring and packaging briefs.',
-        value: 'Generate'
-      },
-      {
-        id: 'feed-mode',
-        label: 'Feed mode',
-        description: 'Tune the member-home recommendation mode.',
-        value: 'Open'
-      },
-      {
-        id: 'opportunity-actions',
-        label: 'Opportunity actions',
-        description: 'Recommended next moves from the hub.',
-        value: `${opportunityActions} live`
-      },
-      {
-        id: 'opportunity-matches',
-        label: 'Opportunity matches',
-        description: 'Jobs, gigs, and pages ranked for you.',
-        value: `${opportunityMatches} shown`
-      },
-      {
-        id: 'career-quests',
-        label: 'Career quests',
-        description: 'Actionable tasks tied to growth.',
-        value: `${quests.length} active`
-      },
-      {
-        id: 'skill-gap',
-        label: 'Skill gap',
-        description: 'Generate next-step recommendations.',
-        value: skillGapCount > 0 ? `${skillGapCount} ready` : 'Generate'
+        id: 'opportunity',
+        label: 'Opportunity controls',
+        description: 'Identity, trust, delivery, brief matching, feed mode, actions, and ranked opportunities.',
+        value: opportunityTotal > 0 ? `${opportunityTotal} live` : verificationState
       }
     ];
   }, [
@@ -343,8 +310,8 @@ export default function MobileInsightsHubLauncher() {
     quests.length
   ]);
 
-  const openSection = useCallback((sectionId: MobileInsightsSectionId) => {
-    setActiveSection(sectionId);
+  const openGroup = useCallback((groupId: MobileInsightsGroupId) => {
+    setActiveGroup(groupId);
     setSheetOpen(true);
   }, []);
 
@@ -394,23 +361,23 @@ export default function MobileInsightsHubLauncher() {
 
         <div className="mt-3 flex items-center justify-between gap-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Quick toggles</p>
-          <span className="text-[11px] text-slate-400">Open what you need</span>
+          <span className="text-[11px] text-slate-400">2 grouped controls</span>
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2">
-          {sectionCards.map((section) => (
+          {groupCards.map((group) => (
             <button
-              key={section.id}
+              key={group.id}
               type="button"
-              onClick={() => openSection(section.id)}
+              onClick={() => openGroup(group.id)}
               className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50/50 active:scale-[0.99]"
             >
               <div className="flex items-start justify-between gap-2">
-                <span className="text-sm font-semibold text-slate-900">{section.label}</span>
-                {section.value ? (
-                  <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-indigo-700">{section.value}</span>
+                <span className="text-sm font-semibold text-slate-900">{group.label}</span>
+                {group.value ? (
+                  <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold text-indigo-700">{group.value}</span>
                 ) : null}
               </div>
-              <p className="mt-2 text-[11px] leading-5 text-slate-500">{section.description}</p>
+              <p className="mt-2 text-[11px] leading-5 text-slate-500">{group.description}</p>
             </button>
           ))}
         </div>
@@ -441,18 +408,18 @@ export default function MobileInsightsHubLauncher() {
                     </button>
                   </div>
                   <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                    {sectionCards.map((section) => (
+                    {groupCards.map((group) => (
                       <button
-                        key={section.id}
+                        key={group.id}
                         type="button"
-                        onClick={() => setActiveSection(section.id)}
+                        onClick={() => setActiveGroup(group.id)}
                         className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                          activeSection === section.id
+                          activeGroup === group.id
                             ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
                             : 'border-slate-200 bg-white text-slate-600'
                         }`}
                       >
-                        {section.label}
+                        {group.label}
                       </button>
                     ))}
                   </div>
