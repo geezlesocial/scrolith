@@ -151,6 +151,8 @@ model User {
   communityBusinessPages             CommunityBusinessPage[]             @relation("BusinessPageOwner")
   businessPageFollows                CommunityBusinessPageFollower[]
   businessPageAdminships             CommunityBusinessPageAdmin[]
+  scrollSeriesCreated                ScrollSeries[]                      @relation("ScrollSeriesCreator")
+  scrollSeriesItemsAdded             ScrollSeriesItem[]                  @relation("ScrollSeriesItemAddedBy")
 
   // Profile views
   profileViewsReceived ProfileView[] @relation("ProfileViewViewed")
@@ -3516,6 +3518,8 @@ model ScrollVideo {
   id                             String    @id @default(cuid())
   authorId                       String
   fileId                         String
+  sourceScrollId                 String?
+  responseMode                   String?
   title                          String?
   description                    String?   @db.Text
   offerTags                      Json?
@@ -3548,18 +3552,60 @@ model ScrollVideo {
   createdAt                      DateTime  @default(now())
   updatedAt                      DateTime  @updatedAt
 
-  tags        ScrollTag[]
-  comments    ScrollComment[]
-  engagements ScrollEngagement[]
-  reports     ScrollReport[]
+  sourceScroll ScrollVideo?       @relation("ScrollVideoSource", fields: [sourceScrollId], references: [id], onDelete: SetNull)
+  remixes      ScrollVideo[]      @relation("ScrollVideoSource")
+  seriesItems  ScrollSeriesItem[]
+  tags         ScrollTag[]
+  comments     ScrollComment[]
+  engagements  ScrollEngagement[]
+  reports      ScrollReport[]
 
   @@index([authorId, createdAt])
+  @@index([sourceScrollId, createdAt])
+  @@index([responseMode, createdAt])
   @@index([visibility, status, createdAt])
   @@index([fileId])
   @@index([status, createdAt])
   @@index([status, visibility, createdAt])
   @@index([videoIntegrityStatus])
   @@index([videoMonetizationBlocked])
+}
+
+model ScrollSeries {
+  id            String   @id @default(cuid())
+  creatorUserId String
+  title         String
+  description   String?  @db.Text
+  visibility    String   @default("public")
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  creator User               @relation("ScrollSeriesCreator", fields: [creatorUserId], references: [id], onDelete: Cascade)
+  items   ScrollSeriesItem[]
+
+  @@index([creatorUserId, createdAt])
+  @@index([creatorUserId, status, createdAt])
+  @@index([visibility, status, createdAt])
+}
+
+model ScrollSeriesItem {
+  id            String   @id @default(cuid())
+  seriesId      String
+  scrollId      String
+  addedByUserId String
+  position      Int
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  series  ScrollSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  scroll  ScrollVideo  @relation(fields: [scrollId], references: [id], onDelete: Cascade)
+  addedBy User         @relation("ScrollSeriesItemAddedBy", fields: [addedByUserId], references: [id], onDelete: Cascade)
+
+  @@unique([seriesId, scrollId])
+  @@unique([seriesId, position])
+  @@index([scrollId])
+  @@index([addedByUserId, createdAt])
 }
 
 model ScrollComment {

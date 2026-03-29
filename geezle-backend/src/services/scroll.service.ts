@@ -21,6 +21,8 @@ export type ScrollConfig = {
 const SCROLL_TABLE_NAMES = [
   'ScrollConfig',
   'ScrollVideo',
+  'ScrollSeries',
+  'ScrollSeriesItem',
   'ScrollTag',
   'ScrollEngagement',
   'ScrollReport',

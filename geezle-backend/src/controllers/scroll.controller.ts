@@ -21,6 +21,7 @@ import { dispatchMessageReceiptNotifications } from '../services/messageNotifica
 
 const SCROLL_VISIBILITIES = new Set(['public', 'network', 'followers', 'private']);
 const SCROLL_FILTER_PRESETS = new Set(['none', 'vibrant', 'cinematic', 'bw', 'sepia', 'warm']);
+const SCROLL_RESPONSE_MODES = new Set(['remix', 'duet']);
 const SCROLL_ENGAGEMENT_TYPES = new Set([
   'like',
   'comment',
@@ -84,6 +85,33 @@ const normalizeFilterPreset = (value: any) => {
   if (!normalized) return 'none';
   if (SCROLL_FILTER_PRESETS.has(normalized)) return normalized;
   return 'none';
+};
+
+const normalizeResponseMode = (value: any) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return null;
+  if (SCROLL_RESPONSE_MODES.has(normalized)) return normalized;
+  return null;
+};
+
+const uniqueStrings = (values: any): string[] => {
+  if (!Array.isArray(values)) return [];
+  return Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean)));
+};
+
+const normalizeSeriesIds = (value: any) => uniqueStrings(value);
+
+const normalizeSeriesStatus = (value: any, fallback = 'active') => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (['active', 'archived'].includes(normalized)) return normalized;
+  return fallback;
+};
+
+const sanitizeSeriesTitle = (value: any) => String(value || '').trim().slice(0, 120);
+
+const sanitizeSeriesDescription = (value: any) => {
+  const normalized = String(value || '').trim();
+  return normalized ? normalized.slice(0, 4000) : null;
 };
 
 const normalizeTagRows = (rawTags: any): Array<{ taggedUserId: string | null; taggedPageId: string | null }> => {
@@ -484,6 +512,8 @@ const scrollVideoListSelect: any = {
   id: true,
   authorId: true,
   fileId: true,
+  sourceScrollId: true,
+  responseMode: true,
   title: true,
   description: true,
   offerTags: true,
@@ -511,6 +541,238 @@ const scrollVideoListSelect: any = {
   videoMonetizationBlocked: true,
   createdAt: true,
   updatedAt: true
+};
+
+const buildSourceScrollSummaryMap = async (
+  req: Request,
+  scrolls: any[],
+  viewerId?: string | null
+) => {
+  const sourceIds = uniqueStrings(scrolls.map((scroll) => scroll?.sourceScrollId));
+  const map = new Map<string, any>();
+  if (!sourceIds.length) return map;
+
+  const prismaAny = prisma as any;
+  const sourceRows = await prismaAny.scrollVideo.findMany({
+    where: { id: { in: sourceIds } },
+    select: scrollVideoListSelect
+  });
+  if (!sourceRows.length) return map;
+
+  const privileged = isPrivilegedUser((req as any)?.user);
+  const accessResults = await Promise.all(
+    sourceRows.map(async (row: any) => {
+      const access = await canAccessScroll(row, viewerId, privileged);
+      return [String(row.id), access] as const;
+    })
+  );
+  const accessMap = new Map<string, { ok: boolean; status: number; error: string }>(accessResults);
+  const authorIds = uniqueStrings(sourceRows.map((row: any) => row?.authorId));
+  const fileIds = uniqueStrings(sourceRows.map((row: any) => row?.fileId));
+  const [authors, mediaMap] = await Promise.all([
+    authorIds.length
+      ? prisma.user.findMany({
+          where: { id: { in: authorIds } },
+          select: {
+            id: true,
+            name: true,
+            avatar: true,
+            username: true,
+            isVerified: true
+          }
+        })
+      : Promise.resolve([]),
+    buildScrollMediaMap(fileIds, req)
+  ]);
+  const authorMap = new Map<string, any>((authors as any[]).map((author: any) => [String(author.id), author]));
+
+  sourceRows.forEach((row: any) => {
+    const sourceId = String(row.id);
+    const access = accessMap.get(sourceId);
+    if (!access?.ok) {
+      map.set(sourceId, {
+        id: sourceId,
+        unavailable: true
+      });
+      return;
+    }
+    const author = authorMap.get(String(row.authorId)) || null;
+    map.set(sourceId, {
+      id: sourceId,
+      authorId: row.authorId,
+      author: {
+        id: author?.id || row.authorId,
+        name: author?.name || 'Community member',
+        avatar: resolveDirectMediaUrl(author?.avatar, getBaseFileUrl(req)) || author?.avatar || null,
+        username: author?.username || null,
+        isVerified: Boolean(author?.isVerified)
+      },
+      title: row.title || null,
+      description: row.description || null,
+      media: mediaMap.get(String(row.fileId)) || null,
+      createdAt: row.createdAt,
+      responseMode: row.responseMode || null
+    });
+  });
+
+  return map;
+};
+
+const buildScrollSeriesSummaryMap = async (
+  scrolls: any[],
+  viewerId?: string | null,
+  includeAdminFields = false
+) => {
+  const scrollIds = uniqueStrings(scrolls.map((scroll) => scroll?.id));
+  const result = new Map<string, any[]>();
+  if (!scrollIds.length) return result;
+
+  const prismaAny = prisma as any;
+  const itemRows = await prismaAny.scrollSeriesItem.findMany({
+    where: {
+      scrollId: { in: scrollIds },
+      series: {
+        status: { not: 'archived' }
+      }
+    },
+    orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+    select: {
+      scrollId: true,
+      position: true,
+      seriesId: true,
+      series: {
+        select: {
+          id: true,
+          creatorUserId: true,
+          title: true,
+          description: true,
+          visibility: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      }
+    }
+  });
+
+  if (!itemRows.length) return result;
+
+  const seriesIds = uniqueStrings(itemRows.map((row: any) => row?.seriesId));
+  const countRows = await prismaAny.scrollSeriesItem.findMany({
+    where: { seriesId: { in: seriesIds } },
+    select: { seriesId: true }
+  });
+  const counts = new Map<string, number>();
+  (countRows || []).forEach((row: any) => {
+    const seriesId = String(row?.seriesId || '').trim();
+    if (!seriesId) return;
+    counts.set(seriesId, Number(counts.get(seriesId) || 0) + 1);
+  });
+
+  itemRows.forEach((row: any) => {
+    const scrollId = String(row?.scrollId || '').trim();
+    const series = row?.series;
+    if (!scrollId || !series?.id) return;
+    const canEdit =
+      Boolean(viewerId) && String(series.creatorUserId || '').trim() === String(viewerId || '').trim();
+    const visibility = String(series.visibility || '').trim().toLowerCase();
+    const canView =
+      visibility === 'public' ||
+      visibility === 'network' ||
+      visibility === 'followers' ||
+      canEdit ||
+      includeAdminFields;
+    if (!canView) return;
+    if (!result.has(scrollId)) result.set(scrollId, []);
+    result.get(scrollId)!.push({
+      id: series.id,
+      creatorUserId: series.creatorUserId,
+      title: series.title,
+      description: series.description || null,
+      visibility: series.visibility,
+      status: series.status,
+      position: Number(row.position || 0),
+      itemCount: Number(counts.get(String(series.id)) || 0),
+      canEdit,
+      createdAt: series.createdAt,
+      updatedAt: series.updatedAt
+    });
+  });
+
+  return result;
+};
+
+const syncScrollSeriesMembership = async (
+  tx: any,
+  input: {
+    scrollId: string;
+    ownerUserId: string;
+    actorUserId: string;
+    seriesIds: string[];
+  }
+) => {
+  const scrollId = String(input.scrollId || '').trim();
+  const ownerUserId = String(input.ownerUserId || '').trim();
+  const actorUserId = String(input.actorUserId || '').trim();
+  const desiredSeriesIds = normalizeSeriesIds(input.seriesIds);
+  if (!scrollId || !ownerUserId || !actorUserId) return;
+
+  const validSeries = desiredSeriesIds.length
+    ? await tx.scrollSeries.findMany({
+        where: {
+          id: { in: desiredSeriesIds },
+          creatorUserId: ownerUserId,
+          status: 'active'
+        },
+        select: { id: true }
+      })
+    : [];
+  const validSeriesIds = uniqueStrings(validSeries.map((row: any) => row?.id));
+  if (validSeriesIds.length !== desiredSeriesIds.length) {
+    throw new Error('One or more selected series are unavailable.');
+  }
+
+  const existingItems = await tx.scrollSeriesItem.findMany({
+    where: { scrollId },
+    select: { id: true, seriesId: true }
+  });
+  const existingSeriesIds = uniqueStrings(existingItems.map((row: any) => row?.seriesId));
+  const toDelete = existingSeriesIds.filter((seriesId) => !validSeriesIds.includes(seriesId));
+  if (toDelete.length) {
+    await tx.scrollSeriesItem.deleteMany({
+      where: {
+        scrollId,
+        seriesId: { in: toDelete }
+      }
+    });
+  }
+
+  const missingSeriesIds = validSeriesIds.filter((seriesId) => !existingSeriesIds.includes(seriesId));
+  if (!missingSeriesIds.length) return;
+
+  const seriesItems = await tx.scrollSeriesItem.findMany({
+    where: { seriesId: { in: missingSeriesIds } },
+    select: { seriesId: true, position: true }
+  });
+  const nextPositions = new Map<string, number>();
+  (seriesItems || []).forEach((row: any) => {
+    const seriesId = String(row?.seriesId || '').trim();
+    if (!seriesId) return;
+    const current = Number(nextPositions.get(seriesId) || 0);
+    const candidate = Number(row?.position || 0);
+    if (candidate > current) nextPositions.set(seriesId, candidate);
+  });
+
+  if (missingSeriesIds.length) {
+    await tx.scrollSeriesItem.createMany({
+      data: missingSeriesIds.map((seriesId) => ({
+        seriesId,
+        scrollId,
+        addedByUserId: actorUserId,
+        position: Number(nextPositions.get(seriesId) || 0) + 1
+      }))
+    });
+  }
 };
 
 const scrollCommentListSelect: any = {
@@ -548,7 +810,7 @@ const fetchScrollPayloadList = async (
   const authorIds = Array.from(new Set(scrolls.map((scroll) => String(scroll?.authorId || '').trim()).filter(Boolean)));
   const fileIds = Array.from(new Set(scrolls.map((scroll) => String(scroll?.fileId || '').trim()).filter(Boolean)));
   const scrollIds = Array.from(new Set(scrolls.map((scroll) => String(scroll?.id || '').trim()).filter(Boolean)));
-  const [authors, mediaMap, tags, viewerLikes, dashTotals, reportRows, activeRestrictionMap] = await Promise.all([
+  const [authors, mediaMap, tags, viewerLikes, dashTotals, reportRows, activeRestrictionMap, sourceScrollMap, seriesMap] = await Promise.all([
     authorIds.length
       ? prisma.user.findMany({
           where: { id: { in: authorIds } },
@@ -590,7 +852,9 @@ const fetchScrollPayloadList = async (
           select: { scrollId: true, status: true }
         })
       : Promise.resolve([]),
-    includeAdminFields ? loadActiveScrollPostingRestrictions(authorIds) : Promise.resolve(new Map<string, any>())
+    includeAdminFields ? loadActiveScrollPostingRestrictions(authorIds) : Promise.resolve(new Map<string, any>()),
+    buildSourceScrollSummaryMap(req, scrolls, viewerId),
+    buildScrollSeriesSummaryMap(scrolls, viewerId, includeAdminFields)
   ]);
   const authorMap = new Map<string, any>((authors as any[]).map((author: any) => [String(author.id), author]));
   const tagsMap = new Map<string, any[]>();
@@ -628,6 +892,8 @@ const fetchScrollPayloadList = async (
     return {
       id: scroll.id,
       authorId: scroll.authorId,
+      sourceScrollId: scroll.sourceScrollId || null,
+      responseMode: scroll.sourceScrollId ? normalizeResponseMode(scroll.responseMode) || 'remix' : null,
       author: {
         id: author?.id || scroll.authorId,
         name: author?.name || 'Community member',
@@ -656,6 +922,11 @@ const fetchScrollPayloadList = async (
         typeof scroll.videoIntegrityMatchScore === 'number' ? scroll.videoIntegrityMatchScore : null,
       videoMonetizationBlocked: Boolean(scroll.videoMonetizationBlocked),
       media: mediaMap.get(String(scroll.fileId)) || null,
+      sourceScroll: scroll.sourceScrollId ? sourceScrollMap.get(String(scroll.sourceScrollId)) || {
+        id: String(scroll.sourceScrollId),
+        unavailable: true
+      } : null,
+      series: seriesMap.get(String(scroll.id)) || [],
       offerTags: normalizeStoredContentOfferTags(scroll.offerTags),
       tags: tagsMap.get(String(scroll.id)) || [],
       status: scroll.status,
@@ -904,6 +1175,9 @@ export const createScroll = async (req: Request, res: Response) => {
 
     const visibility = normalizeVisibility(req.body?.visibility, config.defaultVisibility || 'public');
     const filterPreset = normalizeFilterPreset(req.body?.filterPreset);
+    const sourceScrollId = String(req.body?.sourceScrollId || '').trim() || null;
+    const responseMode = sourceScrollId ? normalizeResponseMode(req.body?.responseMode) || 'remix' : null;
+    const seriesIds = normalizeSeriesIds(req.body?.seriesIds);
     const filterStrength =
       req.body?.filterStrength === undefined || req.body?.filterStrength === null
         ? null
@@ -920,32 +1194,58 @@ export const createScroll = async (req: Request, res: Response) => {
     const videoIntegrity = await assessVideoIntegrityByFile(fileId, userId);
 
     const prismaAny = prisma as any;
-    const created = await prismaAny.scrollVideo.create({
-      data: {
-        authorId: userId,
-        fileId,
-        title: String(req.body?.title || '').trim() || null,
-        description: String(req.body?.description || '').trim() || null,
-        offerTags: offerTags.length ? offerTags : null,
-        location: String(req.body?.location || '').trim() || null,
-        visibility,
-        graphicWarning,
-        isAIEnhanced,
-        filterPreset,
-        filterStrength: Number.isFinite(filterStrength as number) ? Number(filterStrength) : null,
-        ...buildVideoIntegrityUpdate(videoIntegrity)
-      }
-    });
-
-    if (tags.length > 0) {
-      await prismaAny.scrollTag.createMany({
-        data: tags.map((tag) => ({
-          scrollId: created.id,
-          taggedUserId: tag.taggedUserId,
-          taggedPageId: tag.taggedPageId
-        }))
+    if (sourceScrollId) {
+      const sourceScroll = await prismaAny.scrollVideo.findUnique({
+        where: { id: sourceScrollId },
+        select: scrollVideoListSelect
       });
+      const sourceAccess = await canAccessScroll(sourceScroll, userId, admin);
+      if (!sourceAccess.ok) {
+        return res.status(sourceAccess.status).json({ success: false, error: sourceAccess.error || 'Source scroll not found.' });
+      }
     }
+
+    const created = await prisma.$transaction(async (tx) => {
+      const next = await (tx as any).scrollVideo.create({
+        data: {
+          authorId: userId,
+          fileId,
+          sourceScrollId,
+          responseMode,
+          title: String(req.body?.title || '').trim() || null,
+          description: String(req.body?.description || '').trim() || null,
+          offerTags: offerTags.length ? offerTags : null,
+          location: String(req.body?.location || '').trim() || null,
+          visibility,
+          graphicWarning,
+          isAIEnhanced,
+          filterPreset,
+          filterStrength: Number.isFinite(filterStrength as number) ? Number(filterStrength) : null,
+          ...buildVideoIntegrityUpdate(videoIntegrity)
+        }
+      });
+
+      if (tags.length > 0) {
+        await (tx as any).scrollTag.createMany({
+          data: tags.map((tag) => ({
+            scrollId: next.id,
+            taggedUserId: tag.taggedUserId,
+            taggedPageId: tag.taggedPageId
+          }))
+        });
+      }
+
+      if (seriesIds.length) {
+        await syncScrollSeriesMembership(tx as any, {
+          scrollId: next.id,
+          ownerUserId: userId,
+          actorUserId: userId,
+          seriesIds
+        });
+      }
+
+      return next;
+    });
 
     try {
       await addFileUsage({
@@ -987,6 +1287,8 @@ export const updateScroll = async (req: Request, res: Response) => {
 
     const config = await getOrCreateScrollConfig();
     const updateData: Record<string, any> = {};
+    let nextSourceScrollId = String(existing?.sourceScrollId || '').trim() || null;
+    let nextResponseMode = normalizeResponseMode(existing?.responseMode) || null;
 
     if (typeof req.body?.title !== 'undefined') {
       updateData.title = String(req.body?.title || '').trim() || null;
@@ -1025,6 +1327,36 @@ export const updateScroll = async (req: Request, res: Response) => {
       updateData.offerTags = offerTags.length ? offerTags : null;
     }
 
+    if (typeof req.body?.sourceScrollId !== 'undefined') {
+      nextSourceScrollId = String(req.body?.sourceScrollId || '').trim() || null;
+      if (nextSourceScrollId && nextSourceScrollId === scrollId) {
+        return res.status(400).json({ success: false, error: 'A scroll cannot reference itself as a source.' });
+      }
+      if (nextSourceScrollId) {
+        const sourceScroll = await prismaAny.scrollVideo.findUnique({
+          where: { id: nextSourceScrollId },
+          select: scrollVideoListSelect
+        });
+        const sourceAccess = await canAccessScroll(sourceScroll, userId, isAdmin);
+        if (!sourceAccess.ok) {
+          return res.status(sourceAccess.status).json({ success: false, error: sourceAccess.error || 'Source scroll not found.' });
+        }
+      }
+      updateData.sourceScrollId = nextSourceScrollId;
+      if (!nextSourceScrollId) {
+        nextResponseMode = null;
+        updateData.responseMode = null;
+      }
+    }
+
+    if (typeof req.body?.responseMode !== 'undefined') {
+      nextResponseMode = nextSourceScrollId ? normalizeResponseMode(req.body?.responseMode) || 'remix' : null;
+      updateData.responseMode = nextResponseMode;
+    } else if (typeof req.body?.sourceScrollId !== 'undefined' && nextSourceScrollId) {
+      nextResponseMode = 'remix';
+      updateData.responseMode = nextResponseMode;
+    }
+
     if (typeof req.body?.fileId !== 'undefined') {
       const nextFileId = String(req.body?.fileId || '').trim();
       if (!nextFileId) {
@@ -1052,24 +1384,39 @@ export const updateScroll = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'AI label is required by admin settings.' });
     }
 
-    const updated = await prismaAny.scrollVideo.update({
-      where: { id: scrollId },
-      data: updateData
-    });
+    const tags = Array.isArray(req.body?.tags) ? normalizeTagRows(req.body?.tags) : null;
+    const seriesIds = Array.isArray(req.body?.seriesIds) ? normalizeSeriesIds(req.body?.seriesIds) : null;
 
-    if (Array.isArray(req.body?.tags)) {
-      const tags = normalizeTagRows(req.body?.tags);
-      await prismaAny.scrollTag.deleteMany({ where: { scrollId } });
-      if (tags.length > 0) {
-        await prismaAny.scrollTag.createMany({
-          data: tags.map((tag) => ({
-            scrollId,
-            taggedUserId: tag.taggedUserId,
-            taggedPageId: tag.taggedPageId
-          }))
+    const updated = await prisma.$transaction(async (tx) => {
+      const next = await (tx as any).scrollVideo.update({
+        where: { id: scrollId },
+        data: updateData
+      });
+
+      if (tags) {
+        await (tx as any).scrollTag.deleteMany({ where: { scrollId } });
+        if (tags.length > 0) {
+          await (tx as any).scrollTag.createMany({
+            data: tags.map((tag) => ({
+              scrollId,
+              taggedUserId: tag.taggedUserId,
+              taggedPageId: tag.taggedPageId
+            }))
+          });
+        }
+      }
+
+      if (seriesIds) {
+        await syncScrollSeriesMembership(tx as any, {
+          scrollId,
+          ownerUserId: String(existing.authorId || '').trim(),
+          actorUserId: userId,
+          seriesIds
         });
       }
-    }
+
+      return next;
+    });
 
     if (updateData.fileId && updateData.fileId !== existing.fileId) {
       try {
@@ -1322,6 +1669,276 @@ export const engageScroll = async (req: Request, res: Response) => {
     }
     console.error('engageScroll error:', error);
     return res.status(500).json({ success: false, error: error?.message || 'Failed to update engagement.' });
+  }
+};
+
+const getScrollSeriesAccess = (
+  series: { id: string; creatorUserId: string; visibility?: string | null; status?: string | null } | null,
+  viewerId?: string | null,
+  privileged = false
+) => {
+  if (!series) {
+    return { ok: false, status: 404, error: 'Scroll series not found.' };
+  }
+  const canEdit = Boolean(viewerId) && String(series.creatorUserId || '').trim() === String(viewerId || '').trim();
+  const status = String(series.status || '').trim().toLowerCase();
+  if (status === 'archived' && !canEdit && !privileged) {
+    return { ok: false, status: 404, error: 'Scroll series not found.' };
+  }
+  const visibility = normalizeVisibility(series.visibility, 'public');
+  if (visibility === 'private' && !canEdit && !privileged) {
+    return { ok: false, status: 403, error: 'You are not allowed to access this series.' };
+  }
+  return { ok: true, status: 200, error: '', canEdit: canEdit || privileged };
+};
+
+const buildScrollSeriesPayload = async (
+  req: Request,
+  series: any,
+  viewerId?: string | null,
+  options?: { includeItems?: boolean }
+) => {
+  if (!series?.id) return null;
+  const prismaAny = prisma as any;
+  const creator = await prisma.user.findUnique({
+    where: { id: String(series.creatorUserId) },
+    select: {
+      id: true,
+      name: true,
+      avatar: true,
+      username: true,
+      isVerified: true
+    }
+  });
+  const itemRows = await prismaAny.scrollSeriesItem.findMany({
+    where: {
+      seriesId: series.id,
+      scroll: {
+        status: 'active'
+      }
+    },
+    orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+    select: options?.includeItems
+      ? {
+          id: true,
+          position: true,
+          createdAt: true,
+          scroll: {
+            select: scrollVideoListSelect
+          }
+        }
+      : {
+          id: true,
+          position: true,
+          createdAt: true,
+          scrollId: true
+        }
+  });
+  const canEdit =
+    Boolean(viewerId) && String(series.creatorUserId || '').trim() === String(viewerId || '').trim();
+
+  let items: any[] = [];
+  if (options?.includeItems) {
+    const scrollRows = itemRows
+      .map((row: any) => row?.scroll)
+      .filter((row: any) => row?.id);
+    const payloads = await fetchScrollPayloadList(req, scrollRows, viewerId);
+    const payloadMap = new Map<string, any>(payloads.map((row: any) => [String(row.id), row]));
+    items = itemRows
+      .map((row: any) => ({
+        id: row.id,
+        position: Number(row.position || 0),
+        createdAt: row.createdAt,
+        scroll: payloadMap.get(String(row?.scroll?.id || '')) || null
+      }))
+      .filter((row: any) => row.scroll);
+  }
+
+  return {
+    id: series.id,
+    creatorUserId: series.creatorUserId,
+    title: series.title,
+    description: series.description || null,
+    visibility: normalizeVisibility(series.visibility, 'public'),
+    status: normalizeSeriesStatus(series.status, 'active'),
+    itemCount: Number(itemRows.length || 0),
+    canEdit,
+    creator: {
+      id: creator?.id || series.creatorUserId,
+      name: creator?.name || 'Community member',
+      avatar: resolveDirectMediaUrl(creator?.avatar, getBaseFileUrl(req)) || creator?.avatar || null,
+      username: creator?.username || null,
+      isVerified: Boolean(creator?.isVerified)
+    },
+    createdAt: series.createdAt,
+    updatedAt: series.updatedAt,
+    ...(options?.includeItems ? { items } : {})
+  };
+};
+
+export const getMyScrollSeries = async (req: Request, res: Response) => {
+  try {
+    const userId = String((req as any)?.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const prismaAny = prisma as any;
+    const rows = await prismaAny.scrollSeries.findMany({
+      where: {
+        creatorUserId: userId,
+        status: { not: 'archived' }
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }]
+    });
+    const payloads = await Promise.all(rows.map((row: any) => buildScrollSeriesPayload(req, row, userId)));
+    return res.json({ success: true, data: payloads.filter(Boolean) });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll module tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    console.error('getMyScrollSeries error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to load scroll series.' });
+  }
+};
+
+export const getScrollSeriesDetail = async (req: Request, res: Response) => {
+  try {
+    const seriesId = String(req.params.id || '').trim();
+    const viewerId = String((req as any)?.user?.id || '').trim() || null;
+    if (!seriesId) return res.status(400).json({ success: false, error: 'Series id is required.' });
+
+    const prismaAny = prisma as any;
+    const series = await prismaAny.scrollSeries.findUnique({ where: { id: seriesId } });
+    const access = getScrollSeriesAccess(series, viewerId, isAdminRequest(req));
+    if (!access.ok) return res.status(access.status).json({ success: false, error: access.error });
+
+    const payload = await buildScrollSeriesPayload(req, series, viewerId, { includeItems: true });
+    return res.json({ success: true, data: payload });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll module tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    console.error('getScrollSeriesDetail error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to load scroll series.' });
+  }
+};
+
+export const createScrollSeries = async (req: Request, res: Response) => {
+  try {
+    const userId = String((req as any)?.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const title = sanitizeSeriesTitle(req.body?.title);
+    if (!title) {
+      return res.status(400).json({ success: false, error: 'Series title is required.' });
+    }
+
+    const prismaAny = prisma as any;
+    const created = await prismaAny.scrollSeries.create({
+      data: {
+        creatorUserId: userId,
+        title,
+        description: sanitizeSeriesDescription(req.body?.description),
+        visibility: normalizeVisibility(req.body?.visibility, 'public'),
+        status: 'active'
+      }
+    });
+    const payload = await buildScrollSeriesPayload(req, created, userId, { includeItems: true });
+    return res.json({ success: true, data: payload });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll module tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    console.error('createScrollSeries error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to create scroll series.' });
+  }
+};
+
+export const updateScrollSeries = async (req: Request, res: Response) => {
+  try {
+    const seriesId = String(req.params.id || '').trim();
+    const userId = String((req as any)?.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    if (!seriesId) return res.status(400).json({ success: false, error: 'Series id is required.' });
+
+    const prismaAny = prisma as any;
+    const existing = await prismaAny.scrollSeries.findUnique({ where: { id: seriesId } });
+    const access = getScrollSeriesAccess(existing, userId, isAdminRequest(req));
+    if (!access.ok) return res.status(access.status).json({ success: false, error: access.error });
+    if (!access.canEdit) return res.status(403).json({ success: false, error: 'Forbidden' });
+
+    const updateData: Record<string, any> = {};
+    if (typeof req.body?.title !== 'undefined') {
+      const title = sanitizeSeriesTitle(req.body?.title);
+      if (!title) {
+        return res.status(400).json({ success: false, error: 'Series title cannot be empty.' });
+      }
+      updateData.title = title;
+    }
+    if (typeof req.body?.description !== 'undefined') {
+      updateData.description = sanitizeSeriesDescription(req.body?.description);
+    }
+    if (typeof req.body?.visibility !== 'undefined') {
+      updateData.visibility = normalizeVisibility(req.body?.visibility, existing.visibility || 'public');
+    }
+    if (typeof req.body?.status !== 'undefined') {
+      updateData.status = normalizeSeriesStatus(req.body?.status, existing.status || 'active');
+    }
+
+    const updated = await prismaAny.scrollSeries.update({
+      where: { id: seriesId },
+      data: updateData
+    });
+    const payload = await buildScrollSeriesPayload(req, updated, userId, { includeItems: true });
+    return res.json({ success: true, data: payload });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll module tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    console.error('updateScrollSeries error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to update scroll series.' });
+  }
+};
+
+export const deleteScrollSeries = async (req: Request, res: Response) => {
+  try {
+    const seriesId = String(req.params.id || '').trim();
+    const userId = String((req as any)?.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    if (!seriesId) return res.status(400).json({ success: false, error: 'Series id is required.' });
+
+    const prismaAny = prisma as any;
+    const existing = await prismaAny.scrollSeries.findUnique({ where: { id: seriesId } });
+    const access = getScrollSeriesAccess(existing, userId, isAdminRequest(req));
+    if (!access.ok) return res.status(access.status).json({ success: false, error: access.error });
+    if (!access.canEdit) return res.status(403).json({ success: false, error: 'Forbidden' });
+
+    await prismaAny.scrollSeries.delete({ where: { id: seriesId } });
+    return res.json({ success: true });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll module tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    console.error('deleteScrollSeries error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to delete scroll series.' });
   }
 };
 
