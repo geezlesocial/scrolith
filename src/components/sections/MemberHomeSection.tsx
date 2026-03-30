@@ -433,7 +433,7 @@ const normalizeStoryVisibility = (value?: string): StoryVisibility => {
 const isPrivateStoryVisibility = (value?: StoryVisibility) => value === 'private' || value === 'custom';
 
 const resolveStoryMedia = (story: any) => resolveInlineMedia(story, { typeHint: story?.type });
-const resolveStoryMediaUrl = (story: any) => resolveStoryMedia(story).src;
+const resolveStoryMediaUrl = (story: any) => (resolveStoryType(story) === 'text' ? '' : resolveStoryMedia(story).src);
 
 const resolveStoryContent = (story: any) =>
   story?.content ||
@@ -6814,7 +6814,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   })()}
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                  {resolveStoryMediaUrl(activeStory) ? (
+                  {resolveStoryType(activeStory) !== 'text' && resolveStoryMediaUrl(activeStory) ? (
                     <button
                       type="button"
                       onClick={() => void downloadStoryMedia(activeStory)}
@@ -6884,27 +6884,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               }}
             >
               {(() => {
-                const media = resolveStoryMedia(activeStory);
-                if (media.src) {
-                  return media.kind === 'video' ? (
-                    <InlineAutoplayVideo
-                      key={String(activeStory?.id || media.src)}
-                      src={media.src}
-                      poster={media.poster}
-                      className="h-full w-full object-cover bg-black"
-                      containerClassName="h-full w-full"
-                      controls={false}
-                      loop
-                      preload="metadata"
-                      autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
-                      showMuteToggle={false}
-                    />
-                  ) : (
-                    <img src={media.src} alt="Story" className="h-full w-full object-cover" />
-                  );
-                }
+                const storyType = resolveStoryType(activeStory);
                 const text = resolveStoryContent(activeStory);
-                if (text) {
+                const media = resolveStoryMedia(activeStory);
+                if (storyType === 'text' && text) {
                   const style = getStoryTextStyle(activeStory);
                   return (
                     <div
@@ -6923,6 +6906,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                         buttonClassName="text-white"
                       />
                     </div>
+                  );
+                }
+                if (media.src) {
+                  return media.kind === 'video' ? (
+                    <InlineAutoplayVideo
+                      key={String(activeStory?.id || media.src)}
+                      src={media.src}
+                      poster={media.poster}
+                      className="h-full w-full object-cover bg-black"
+                      containerClassName="h-full w-full"
+                      controls={false}
+                      loop
+                      preload="metadata"
+                      autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                      showMuteToggle={false}
+                    />
+                  ) : (
+                    <img src={media.src} alt="Story" className="h-full w-full object-cover" />
                   );
                 }
                 return <div className="flex h-full w-full items-center justify-center text-sm text-slate-500">No media</div>;
@@ -7021,7 +7022,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               {(() => {
                 const text = resolveStoryContent(activeStory);
                 const mediaUrl = resolveStoryMediaUrl(activeStory);
-                if (text && mediaUrl) {
+                if (resolveStoryType(activeStory) !== 'text' && text && mediaUrl) {
                   return (
                     <ExpandablePreviewText
                       text={text}

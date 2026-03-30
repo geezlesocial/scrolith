@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import {
   AlignCenterIcon as AlignCenter,
   AlignLeftIcon as AlignLeft,
@@ -48,6 +49,7 @@ type StoryVisibility = 'public' | 'private';
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const STORY_CONTROL_HIDE_DELAY_MS = 20000;
+const RAIL_TAP_MAX_TRAVEL = 42;
 
 const normalizeVisibility = (value: any): StoryVisibility => {
   const raw = String(value || '').trim().toLowerCase();
@@ -339,7 +341,7 @@ export default function MobileStoriesStrip({
       if (!start || start.key !== normalizedKey) return;
       const deltaX = Math.abs(event.clientX - start.x);
       const deltaY = Math.abs(event.clientY - start.y);
-      if (Math.max(deltaX, deltaY) > 28) return;
+      if (Math.max(deltaX, deltaY) > RAIL_TAP_MAX_TRAVEL) return;
       runRailAction(normalizedKey, action);
     },
     [runRailAction]
@@ -364,7 +366,7 @@ export default function MobileStoriesStrip({
       if (!start || !touch || start.key !== normalizedKey) return;
       const deltaX = Math.abs(touch.clientX - start.x);
       const deltaY = Math.abs(touch.clientY - start.y);
-      if (Math.max(deltaX, deltaY) > 28) return;
+      if (Math.max(deltaX, deltaY) > RAIL_TAP_MAX_TRAVEL) return;
       event.preventDefault();
       runRailAction(normalizedKey, action);
     },
@@ -375,7 +377,9 @@ export default function MobileStoriesStrip({
     (story: any) => {
       const storyId = String(story?.id || '').trim();
       runRailAction(`story:${storyId || 'unknown'}`, () => {
-        setActiveStory(story);
+        flushSync(() => {
+          setActiveStory(story);
+        });
         if (storyId) {
           CommunityService.viewStory(storyId).catch(() => {});
         }
@@ -1977,7 +1981,7 @@ function StoryViewer({
           </div>
 
           <div className="flex items-center gap-2">
-            {media.url ? (
+            {type !== 'text' && media.url ? (
               <button
                 type="button"
                 onClick={() => void handleDownload()}

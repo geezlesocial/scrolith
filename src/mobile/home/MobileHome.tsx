@@ -1,5 +1,6 @@
-import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { flushSync } from 'react-dom';
 
 import { useContent } from '../../context/ContentContext';
 import { useCurrency } from '../../context/CurrencyContext';
@@ -337,7 +338,7 @@ const MobileHome = () => {
     }
   }, [location.pathname, location.search, navigate, routeTab]);
 
-  const onTabChange = (tab: MobileTabKey) => {
+  const onTabChange = useCallback((tab: MobileTabKey) => {
     if (tab === activeTab) {
       window.dispatchEvent(
         new CustomEvent('mobile-home:tab-reselected', {
@@ -348,22 +349,28 @@ const MobileHome = () => {
       return;
     }
     if (tab === 'messages') {
-      setMessagesOpen(true);
+      flushSync(() => {
+        setMessagesOpen(true);
+      });
       void refreshMessages({ force: true });
       return;
     }
     if (tab === 'home') {
-      setActivePanelTab(null);
-      setScrollOverlay(null);
+      flushSync(() => {
+        setActivePanelTab(null);
+        setScrollOverlay(null);
+      });
       if (location.pathname !== '/m/home') {
         navigate('/m/home', { replace: true });
       }
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
-    setScrollOverlay(null);
-    setActivePanelTab(tab);
-  };
+    flushSync(() => {
+      setScrollOverlay(null);
+      setActivePanelTab(tab);
+    });
+  }, [activeTab, location.pathname, navigate, refreshMessages]);
 
   const activeRoleOverride = useMemo(() => {
     try {
@@ -410,6 +417,7 @@ const MobileHome = () => {
     let cancelled = false;
     const preload = () => {
       if (cancelled) return;
+      void import('./components/SearchScreen');
       void import('./screens/MobileNetworkScreen');
       void import('./screens/MobilePostScreen');
       void import('./screens/MobileNotificationsScreen');
@@ -420,7 +428,7 @@ const MobileHome = () => {
     };
 
     const frame = window.requestAnimationFrame(() => {
-      window.setTimeout(preload, 120);
+      window.setTimeout(preload, 32);
     });
 
     return () => {
@@ -460,24 +468,28 @@ const MobileHome = () => {
     () => (scroll: ScrollVideo) => {
       const normalizedId = String(scroll?.id || '').trim();
       if (!normalizedId) return;
-      setActivePanelTab(null);
-      setScrollOverlay({
-        key: Date.now(),
-        initialItems: [scroll],
-        initialActiveScrollId: normalizedId,
-        initialViewerSource: null
+      flushSync(() => {
+        setActivePanelTab(null);
+        setScrollOverlay({
+          key: Date.now(),
+          initialItems: [scroll],
+          initialActiveScrollId: normalizedId,
+          initialViewerSource: null
+        });
       });
     },
     []
   );
   const handleOpenPostVideoScroll = useMemo(
     () => (source: PendingPostVideoScrollViewerSource) => {
-      setActivePanelTab(null);
-      setScrollOverlay({
-        key: Date.now(),
-        initialItems: [],
-        initialActiveScrollId: null,
-        initialViewerSource: source
+      flushSync(() => {
+        setActivePanelTab(null);
+        setScrollOverlay({
+          key: Date.now(),
+          initialItems: [],
+          initialActiveScrollId: null,
+          initialViewerSource: source
+        });
       });
     },
     []
@@ -539,13 +551,27 @@ const MobileHome = () => {
         messagesUnread={messagesUnread}
         showMessages={headerMessagesEnabled}
         showQuickMenu={headerQuickMenuEnabled}
-        onOpenSearch={() => setSearchOpen(true)}
+        onOpenSearch={() => {
+          flushSync(() => {
+            setSearchOpen(true);
+          });
+        }}
         onOpenMessages={() => {
-          setMessagesOpen(true);
+          flushSync(() => {
+            setMessagesOpen(true);
+          });
           void refreshMessages({ force: true });
         }}
-        onOpenQuickMenu={() => setQuickMenuOpen(true)}
-        onOpenProfile={() => setProfileOpen(true)}
+        onOpenQuickMenu={() => {
+          flushSync(() => {
+            setQuickMenuOpen(true);
+          });
+        }}
+        onOpenProfile={() => {
+          flushSync(() => {
+            setProfileOpen(true);
+          });
+        }}
       />
 
       <div className="pt-14 pb-20">

@@ -201,7 +201,7 @@ const normalizeStoryVisibility = (value?: string): StoryVisibility => {
 const isPrivateStoryVisibility = (value?: StoryVisibility) => value === 'private' || value === 'custom';
 
 const resolveStoryMedia = (story: any) => resolveInlineMedia(story, { typeHint: story?.type });
-const resolveStoryMediaUrl = (story: any) => resolveStoryMedia(story).src;
+const resolveStoryMediaUrl = (story: any) => (resolveStoryType(story) === 'text' ? '' : resolveStoryMedia(story).src);
 
 const resolveStoryContent = (story: any) =>
   story?.content ||
@@ -3610,7 +3610,7 @@ const CommunityHome = () => {
                   })()}
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                  {resolveStoryMediaUrl(activeStory) ? (
+                  {resolveStoryType(activeStory) !== 'text' && resolveStoryMediaUrl(activeStory) ? (
                     <button
                       onClick={() => void downloadStoryMedia(activeStory)}
                       className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600 hover:text-gray-800"
@@ -3681,27 +3681,10 @@ const CommunityHome = () => {
               }}
             >
               {(() => {
-                const media = resolveStoryMedia(activeStory);
-                if (media.src) {
-                  return media.kind === 'video' ? (
-                    <InlineAutoplayVideo
-                      key={String(activeStory.id || media.src)}
-                      src={media.src}
-                      poster={media.poster}
-                      className="h-full w-full object-cover"
-                      containerClassName="h-full w-full"
-                      controls={false}
-                      loop
-                      preload="metadata"
-                      autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
-                      showMuteToggle={false}
-                    />
-                  ) : (
-                      <img src={media.src} alt="Story" className="h-full w-full object-cover" />
-                    );
-                  }
+                const storyType = resolveStoryType(activeStory);
                 const text = resolveStoryContent(activeStory);
-                if (text) {
+                const media = resolveStoryMedia(activeStory);
+                if (storyType === 'text' && text) {
                   const style = getStoryTextStyle(activeStory);
                   return (
                     <div
@@ -3722,6 +3705,24 @@ const CommunityHome = () => {
                     </div>
                   );
                 }
+                if (media.src) {
+                  return media.kind === 'video' ? (
+                    <InlineAutoplayVideo
+                      key={String(activeStory.id || media.src)}
+                      src={media.src}
+                      poster={media.poster}
+                      className="h-full w-full object-cover"
+                      containerClassName="h-full w-full"
+                      controls={false}
+                      loop
+                      preload="metadata"
+                      autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                      showMuteToggle={false}
+                    />
+                  ) : (
+                      <img src={media.src} alt="Story" className="h-full w-full object-cover" />
+                    );
+                  }
                 return <div className="h-full w-full flex items-center justify-center text-sm text-gray-500">No media</div>;
               })()}
               <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/70 via-black/15 to-black/45" />
@@ -3818,7 +3819,7 @@ const CommunityHome = () => {
               {(() => {
                 const text = resolveStoryContent(activeStory);
                 const mediaUrl = resolveStoryMediaUrl(activeStory);
-                if (text && mediaUrl) {
+                if (resolveStoryType(activeStory) !== 'text' && text && mediaUrl) {
                   return (
                     <ExpandablePreviewText
                       text={text}
