@@ -77,6 +77,10 @@ import OverlayActionRailButton from '../media/OverlayActionRailButton';
 import PostExpandModal from '../post/PostExpandModal';
 import PostOriginPreview from '../post/PostOriginPreview';
 import InsightsQuickPanel from '../insights/InsightsQuickPanel';
+import MemberHomeHighlightsBoard, {
+  type MemberHomeHighlightItem,
+  type MemberHomeHighlightPill
+} from '../member-home/MemberHomeHighlightsBoard';
 import StoryUploadStatusCard from '../stories/StoryUploadStatusCard';
 import { usePerformanceProfile } from '../../hooks/usePerformanceProfile';
 import { Capacitor } from '@capacitor/core';
@@ -4252,6 +4256,129 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     }
   }, [isGuest, navigate, projectBriefPrompt, routeToAuth, showNotification]);
 
+  const focusFeedSection = useCallback(() => {
+    if (typeof document === 'undefined') return;
+    document.getElementById('member-home-feed-stream')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  const discoveryAd = sidebarFeaturedAd || sidebarTopAd || sidebarMiddleAd;
+
+  const memberHomeHighlightPills = useMemo<MemberHomeHighlightPill[]>(() => {
+    const pills: MemberHomeHighlightPill[] = [{ label: 'Posts', value: String(feedItems.length) }];
+    if (jobs.length) pills.push({ label: 'Jobs', value: String(jobs.length) });
+    if (gigs.length) pills.push({ label: 'Gigs', value: String(gigs.length) });
+    if (profiles.length || recommendedPages.length) {
+      pills.push({ label: 'Network', value: String(profiles.length + recommendedPages.length) });
+    }
+    if (discoveryAd) pills.push({ label: 'Sponsored', value: '1' });
+    return pills;
+  }, [discoveryAd, feedItems.length, gigs.length, jobs.length, profiles.length, recommendedPages.length]);
+
+  const memberHomeHighlightItems = useMemo<MemberHomeHighlightItem[]>(() => {
+    const items: MemberHomeHighlightItem[] = [];
+    const topJob = jobs[0] as any;
+    const topGig = gigs[0] as any;
+    const topProfile = profiles[0];
+    const topPage = recommendedPages[0];
+    const topPost = feedItems[0];
+
+    if (topJob) {
+      items.push({
+        id: `desktop-job:${topJob.id}`,
+        eyebrow: 'Featured jobs',
+        title: topJob.title || 'Recommended job',
+        description: [topJob.clientName || 'Employer', topJob.category || 'Professional opportunity'].filter(Boolean).join(' · '),
+        meta: `Budget: ${formatListingAmount(topJob?.budget)}`,
+        badge: 'Live',
+        ctaLabel: 'Browse jobs',
+        href: topJob?.id ? `/jobs/${encodeURIComponent(topJob.id)}` : '/browse-jobs',
+        mediaUrl: resolveListingImageUrl(topJob),
+        icon: <Briefcase className="h-4 w-4" />,
+        tone: 'blue'
+      });
+    }
+
+    if (topGig) {
+      items.push({
+        id: `desktop-gig:${topGig.id}`,
+        eyebrow: 'Featured gigs',
+        title: topGig.title || 'Recommended gig',
+        description: [topGig.freelancerName || 'Freelancer', topGig.category || 'Service listing'].filter(Boolean).join(' · '),
+        meta: `From ${formatListingAmount(topGig?.price, 'Pricing available')}`,
+        badge: 'Recommended',
+        ctaLabel: 'Browse gigs',
+        href: topGig?.id ? `/gigs/${encodeURIComponent(topGig.id)}` : '/browse',
+        mediaUrl: resolveListingImageUrl(topGig),
+        icon: <Sparkles className="h-4 w-4" />,
+        tone: 'violet'
+      });
+    }
+
+    if (topProfile || topPage) {
+      const networkTitle = topProfile?.name || topPage?.name || 'Grow your network';
+      const networkDescription =
+        [topProfile?.name, topPage?.name].filter(Boolean).join(' · ') ||
+        'Recommended people and pages are available directly on your member home.';
+      items.push({
+        id: 'desktop-network',
+        eyebrow: 'Follow recommendations',
+        title: networkTitle,
+        description: networkDescription,
+        meta: `${profiles.length} people · ${recommendedPages.length} pages`,
+        badge: 'Grow',
+        ctaLabel: topProfile ? 'View profile' : 'Open page',
+        href: topProfile ? buildProfileUrl(topProfile) : topPage ? buildPageUrl(topPage) : undefined,
+        mediaUrl: topProfile?.avatar || topPage?.avatar || '',
+        icon: <Users className="h-4 w-4" />,
+        tone: 'emerald'
+      });
+    }
+
+    if (discoveryAd) {
+      items.push({
+        id: `desktop-ad:${discoveryAd.id}`,
+        eyebrow: 'Sponsored',
+        title: discoveryAd.title || 'Featured campaign',
+        description: discoveryAd.body || 'Approved ad campaigns are supported directly on member home.',
+        meta: 'Live campaign',
+        badge: 'Sponsored',
+        ctaLabel: discoveryAd.ctaText || 'Open campaign',
+        onClick: () => handleSidebarAdClick(discoveryAd),
+        mediaUrl: discoveryAd.mediaUrl || '',
+        icon: <Star className="h-4 w-4" />,
+        tone: 'amber'
+      });
+    } else if (topPost) {
+      items.push({
+        id: `desktop-post:${topPost.id}`,
+        eyebrow: 'Feed pulse',
+        title: topPost.title || topPost.author?.displayName || topPost.authorName || 'Fresh from your network',
+        description:
+          String(topPost.content || 'Posts and community updates stay live and accessible directly from member home.').trim(),
+        meta: `${feedItems.length} posts loaded`,
+        badge: 'Fresh',
+        ctaLabel: 'Open feed',
+        onClick: focusFeedSection,
+        mediaUrl: resolvePostAttachmentMediaUrl(topPost.attachments?.[0] || topPost.attachmentFileIds?.[0] || ''),
+        icon: <Compass className="h-4 w-4" />,
+        tone: 'slate'
+      });
+    }
+
+    return items.slice(0, 5);
+  }, [
+    buildPageUrl,
+    buildProfileUrl,
+    discoveryAd,
+    feedItems,
+    focusFeedSection,
+    gigs,
+    handleSidebarAdClick,
+    jobs,
+    profiles,
+    recommendedPages
+  ]);
+
   return (
     <section className="relative bg-[#f3f2ef] py-6 sm:py-12 text-base sm:text-[17px] leading-relaxed">
       <div className="pointer-events-none absolute inset-0 opacity-60">
@@ -4831,6 +4958,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               </div>
             )}
 
+            {memberHomeHighlightItems.length ? (
+              <MemberHomeHighlightsBoard
+                title="Member Home Discovery Board"
+                subtitle="Surface the best of Scrolith in one place: live posts, featured opportunities, follow recommendations, and sponsored campaigns."
+                pills={memberHomeHighlightPills}
+                items={memberHomeHighlightItems}
+                className="rise-fade-delay-1"
+              />
+            ) : null}
+
             <LiveFeaturedRail
               surface="memberHome"
               title="Featured Live Streams"
@@ -4838,7 +4975,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               className="mt-4"
             />
 
-            <div className="rounded-3xl border border-white/70 bg-white p-4 shadow-sm rise-fade-delay-1">
+            <div id="member-home-feed-stream" className="rounded-3xl border border-white/70 bg-white p-4 shadow-sm rise-fade-delay-1">
               <div className="mb-3 flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-900">{feedTitle}</p>
               </div>

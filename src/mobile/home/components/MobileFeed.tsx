@@ -5,7 +5,7 @@ import {
   ShieldCheckIcon as ShieldCheck
 } from '../../../components/icons/ShellIcons';
 import { Link, useNavigate } from 'react-router-dom';
-import { Sparkles } from 'lucide-react';
+import { Briefcase, Megaphone, Newspaper, Sparkles, Users as UsersIcon } from 'lucide-react';
 
 import { useSocket } from '../../../context/SocketContext';
 import { useUser } from '../../../context/UserContext';
@@ -36,6 +36,10 @@ import FeedAdCard from './FeedAdCard';
 import RecommendedListingCard from './RecommendedListingCard';
 import SuggestedCard from './SuggestedCard';
 import { usePerformanceProfile } from '../../../hooks/usePerformanceProfile';
+import MemberHomeHighlightsBoard, {
+  type MemberHomeHighlightItem,
+  type MemberHomeHighlightPill
+} from '../../../components/member-home/MemberHomeHighlightsBoard';
 
 type MobileHomeLayoutSettings = {
   feed?: {
@@ -201,6 +205,57 @@ const extractGigsFromPayload = (payload: any): Gig[] => {
   return [];
 };
 
+const formatHighlightMoney = (value: any) => {
+  const amount =
+    typeof value === 'number'
+      ? value
+      : typeof value?.amount === 'number'
+        ? value.amount
+        : typeof value?.minAmount === 'number'
+          ? value.minAmount
+          : typeof value?.maxAmount === 'number'
+            ? value.maxAmount
+            : null;
+  if (amount === null) return null;
+  try {
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(amount);
+  } catch {
+    return String(amount);
+  }
+};
+
+const pickFirstMediaEntry = (values: unknown) => {
+  if (!Array.isArray(values)) return null;
+  for (const value of values) {
+    if (!value) continue;
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'object') return value;
+  }
+  return null;
+};
+
+const resolveHighlightListingImage = (row: any) => {
+  const mediaCandidate =
+    pickFirstMediaEntry(row?.images) ||
+    pickFirstMediaEntry(row?.media) ||
+    row?.image ||
+    row?.coverImage ||
+    row?.cover ||
+    row?.thumbnailUrl ||
+    row?.thumbnail_url ||
+    row?.previewImage ||
+    row?.preview_image ||
+    row?.clientAvatar ||
+    row?.freelancerAvatar ||
+    null;
+  return mediaCandidate ? resolvePostAttachmentMediaUrl(mediaCandidate) : '';
+};
+
+const resolveHighlightAvatar = (value: unknown) => {
+  const normalized = resolvePostAttachmentMediaUrl(value);
+  return String(normalized || '').trim();
+};
+
 const isIgnoredSurfaceTarget = (target: EventTarget | null) => {
   const element = target as HTMLElement | null;
   if (!element) return false;
@@ -361,6 +416,148 @@ export default function MobileFeed({
     });
     return map;
   }, [adSlotIndexes, ads]);
+
+  const scrollToFeedSection = useCallback((sectionId: string) => {
+    if (typeof document === 'undefined') return;
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  const handleHighlightedAdOpen = useCallback((ad: any) => {
+    const destination = String(ad?.destinationUrl || ad?.destination_url || '').trim();
+    if (!destination) return;
+    void CommunityService.recordAdClick(String(ad?.id || '')).catch(() => {});
+    window.open(destination, '_blank', 'noopener,noreferrer');
+  }, []);
+
+  const highlightPills = useMemo<MemberHomeHighlightPill[]>(() => {
+    const pills: MemberHomeHighlightPill[] = [{ label: 'Posts', value: String(posts.length) }];
+    if (recommendedJobs.length) pills.push({ label: 'Jobs', value: String(recommendedJobs.length) });
+    if (recommendedGigs.length) pills.push({ label: 'Gigs', value: String(recommendedGigs.length) });
+    if (suggestedPeople.length || suggestedPages.length) {
+      pills.push({ label: 'Network', value: String(suggestedPeople.length + suggestedPages.length) });
+    }
+    if (ads.length) pills.push({ label: 'Sponsored', value: String(ads.length) });
+    return pills;
+  }, [ads.length, posts.length, recommendedGigs.length, recommendedJobs.length, suggestedPages.length, suggestedPeople.length]);
+
+  const highlightItems = useMemo<MemberHomeHighlightItem[]>(() => {
+    const items: MemberHomeHighlightItem[] = [];
+    const topJob = recommendedJobs[0];
+    const topGig = recommendedGigs[0];
+    const topPerson = suggestedPeople[0];
+    const topPage = suggestedPages[0];
+    const topAd = ads[0];
+    const topPost = posts[0];
+
+    if (topJob) {
+      const budgetLabel = formatHighlightMoney((topJob as any)?.budget);
+      items.push({
+        id: `mobile-job:${topJob.id}`,
+        eyebrow: 'Featured jobs',
+        title: topJob.title || 'Recommended job',
+        description: [topJob.clientName || 'Employer', topJob.category || topJob.subcategory || 'Professional opportunity']
+          .filter(Boolean)
+          .join(' · '),
+        meta: budgetLabel ? `Budget $${budgetLabel}` : 'Flexible budget',
+        badge: 'Live',
+        ctaLabel: 'Browse jobs',
+        href: '/browse-jobs',
+        mediaUrl: resolveHighlightListingImage(topJob as any),
+        icon: <Briefcase className="h-4 w-4" />,
+        tone: 'blue'
+      });
+    }
+
+    if (topGig) {
+      const priceLabel = formatHighlightMoney((topGig as any)?.price);
+      items.push({
+        id: `mobile-gig:${topGig.id}`,
+        eyebrow: 'Featured gigs',
+        title: topGig.title || 'Recommended gig',
+        description: [topGig.freelancerName || 'Freelancer', topGig.category || topGig.subcategory || 'Service listing']
+          .filter(Boolean)
+          .join(' · '),
+        meta: priceLabel ? `From $${priceLabel}` : 'Pricing available',
+        badge: 'Recommended',
+        ctaLabel: 'Browse gigs',
+        href: '/browse',
+        mediaUrl: resolveHighlightListingImage(topGig as any),
+        icon: <Sparkles className="h-4 w-4" />,
+        tone: 'violet'
+      });
+    }
+
+    if (topPerson || topPage) {
+      const networkLead = topPerson?.name || topPage?.name || 'Suggested connections';
+      const followPool = [topPerson?.name, topPage?.name].filter(Boolean).join(' · ');
+      items.push({
+        id: 'mobile-network-highlights',
+        eyebrow: 'Follow recommendations',
+        title: networkLead,
+        description:
+          followPool || 'Suggested people and pages are already integrated into your home feed for faster growth.',
+        meta: `${suggestedPeople.length} people · ${suggestedPages.length} pages`,
+        badge: 'Grow',
+        ctaLabel: 'Open recommendations',
+        onClick: () =>
+          scrollToFeedSection(
+            suggestedPeople.length
+              ? 'mobile-member-home-people-suggestions'
+              : suggestedPages.length
+                ? 'mobile-member-home-page-suggestions'
+                : 'mobile-member-home-feed-stream'
+          ),
+        mediaUrl: resolveHighlightAvatar(topPerson?.avatarUrl || topPage?.avatarUrl || null),
+        icon: <UsersIcon className="h-4 w-4" />,
+        tone: 'emerald'
+      });
+    }
+
+    if (topAd) {
+      items.push({
+        id: `mobile-ad:${topAd.id}`,
+        eyebrow: 'Sponsored',
+        title: topAd.title || 'Featured promotion',
+        description: String(topAd.body || 'Approved campaigns appear directly in the member home experience.').trim(),
+        meta: 'Live campaign',
+        badge: 'Sponsored',
+        ctaLabel: topAd.ctaText || 'Open campaign',
+        onClick: () => handleHighlightedAdOpen(topAd),
+        mediaUrl: Array.isArray(topAd.media) ? String(topAd.media[0]?.url || '').trim() : '',
+        icon: <Megaphone className="h-4 w-4" />,
+        tone: 'amber'
+      });
+    } else if (topPost) {
+      items.push({
+        id: `mobile-post:${topPost.id}`,
+        eyebrow: 'Feed pulse',
+        title: topPost.title || topPost.author?.displayName || topPost.authorName || 'Fresh from your network',
+        description: String(
+          topPost.content || 'Stay on top of the newest posts, updates, and conversations in your home feed.'
+        ).trim(),
+        meta: `${posts.length} live posts`,
+        badge: 'Fresh',
+        ctaLabel: 'Open posts',
+        onClick: () => scrollToFeedSection('mobile-member-home-feed-stream'),
+        mediaUrl: resolvePostAttachmentMediaUrl(topPost.attachments?.[0] || topPost.attachmentFileIds?.[0] || ''),
+        icon: <Newspaper className="h-4 w-4" />,
+        tone: 'slate'
+      });
+    }
+
+    return items.slice(0, 4);
+  }, [
+    ads,
+    handleHighlightedAdOpen,
+    posts,
+    recommendedGigs,
+    recommendedJobs,
+    scrollToFeedSection,
+    suggestedPages,
+    suggestedPeople
+  ]);
+
+  const showHighlightsBoard = highlightItems.length > 0;
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadMoreArmedRef = useRef(false);
@@ -1185,7 +1382,16 @@ export default function MobileFeed({
           Updating feed...
         </div>
       ) : null}
-      <div className="space-y-3">
+      <div id="mobile-member-home-feed-stream" className="space-y-3">
+        {showHighlightsBoard ? (
+          <MemberHomeHighlightsBoard
+            title="Member Home Highlights"
+            subtitle="Recommended opportunities, follow suggestions, promoted campaigns, and live post momentum in one place."
+            pills={highlightPills}
+            items={highlightItems}
+            compact
+          />
+        ) : null}
         {posts.map((post, idx) => {
           const postId = String(post?.id || '');
           const author = post?.author || {};
@@ -1597,11 +1803,15 @@ export default function MobileFeed({
               ) : null}
 
               {idx === 3 && showPeopleCard ? (
-                <SuggestedCard data={{ kind: 'people', title: 'Suggested people', items: suggestedPeople.map((p) => ({ ...p, name: p.name, username: p.username, avatarUrl: p.avatarUrl, targetType: 'user' })) }} />
+                <div id="mobile-member-home-people-suggestions">
+                  <SuggestedCard data={{ kind: 'people', title: 'Suggested people', items: suggestedPeople.map((p) => ({ ...p, name: p.name, username: p.username, avatarUrl: p.avatarUrl, targetType: 'user' })) }} />
+                </div>
               ) : null}
 
               {idx === 5 && showPagesCard ? (
-                <SuggestedCard data={{ kind: 'pages', title: 'Suggested pages', items: suggestedPages.map((p) => ({ ...p, name: p.name, username: p.username, avatarUrl: p.avatarUrl, targetType: 'page' })) }} />
+                <div id="mobile-member-home-page-suggestions">
+                  <SuggestedCard data={{ kind: 'pages', title: 'Suggested pages', items: suggestedPages.map((p) => ({ ...p, name: p.name, username: p.username, avatarUrl: p.avatarUrl, targetType: 'page' })) }} />
+                </div>
               ) : null}
             </React.Fragment>
           );
