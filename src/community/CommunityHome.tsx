@@ -62,6 +62,7 @@ import { usePerformanceProfile } from '../hooks/usePerformanceProfile';
 import { upsertImagePreloadLink } from '../utils/resourceHints';
 import GraphicWarningGate from '../components/media/GraphicWarningGate';
 import PostOriginPreview from '../components/post/PostOriginPreview';
+import StoryUploadStatusCard from '../components/stories/StoryUploadStatusCard';
 import {
   postAiInsightPreferenceToBoolean,
   resolvePostAiInsightPreference,
@@ -328,6 +329,9 @@ const CommunityHome = () => {
   const [storyRailTab, setStoryRailTab] = useState<'stories' | 'reels'>('stories');
   const [storyTextOpen, setStoryTextOpen] = useState(false);
   const [storyPosting, setStoryPosting] = useState(false);
+  const [storyMediaUploadBusy, setStoryMediaUploadBusy] = useState(false);
+  const [storyMediaUploadLabel, setStoryMediaUploadLabel] = useState('');
+  const [storyMediaUploadProgress, setStoryMediaUploadProgress] = useState(0);
   const [activeStory, setActiveStory] = useState<any | null>(null);
   const [storyEditOpen, setStoryEditOpen] = useState(false);
   const [editingStory, setEditingStory] = useState<any | null>(null);
@@ -1314,15 +1318,30 @@ const CommunityHome = () => {
     }
   };
 
+  const clearStoryMediaUploadState = () => {
+    setStoryMediaUploadBusy(false);
+    setStoryMediaUploadLabel('');
+    setStoryMediaUploadProgress(0);
+  };
+
   const publishStoryFile = async (file: File, type: 'image' | 'video') => {
     if (!user) return;
     setStoryPosting(true);
+    setStoryMediaUploadBusy(true);
+    setStoryMediaUploadProgress(0);
+    setStoryMediaUploadLabel(`Uploading ${file.name}`);
     try {
       const uploaded = await FileService.uploadFile(file, 'community', {
         role: user.role,
         visibility: isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public',
-        userId: user.id
+        userId: user.id,
+        onProgress: (percent) => {
+          setStoryMediaUploadProgress(percent || 0);
+          setStoryMediaUploadLabel(percent >= 100 ? `Preparing ${file.name}` : `Uploading ${file.name}`);
+        }
       });
+      setStoryMediaUploadProgress(100);
+      setStoryMediaUploadLabel('Preparing your story for publish...');
       const created = await CommunityService.createStory({
         type,
         mediaFileId: uploaded.id,
@@ -1335,6 +1354,7 @@ const CommunityHome = () => {
       showNotification('error', 'Stories', error?.message || 'Unable to post story.');
     } finally {
       setStoryPosting(false);
+      clearStoryMediaUploadState();
     }
   };
 
@@ -2297,51 +2317,65 @@ const CommunityHome = () => {
                   </div>
 
                   {storyRailTab === 'stories' ? (
-                    <div className={`grid gap-2 ${isMobileViewport ? 'grid-cols-2' : 'flex flex-wrap items-center'}`}>
-                      <select
-                        value={storyDraft.visibility}
-                        onChange={(event) =>
-                          setStoryDraft((prev) => ({ ...prev, visibility: normalizeStoryVisibility(event.target.value) }))
-                        }
-                        className={`${isMobileViewport ? 'rounded-2xl px-3 py-2 text-[11px]' : 'rounded-full px-3 py-1 text-xs'} border border-gray-200 font-semibold text-gray-600`}
-                      >
-                        {storyVisibilityOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => setStoryTextOpen(true)}
-                        className={storyActionButtonClass}
-                        disabled={storyPosting}
-                      >
-                        Text story
-                      </button>
-                      <button
-                        onClick={() => storyDeviceInputRef.current?.click()}
-                        className={storyActionButtonClass}
-                        disabled={storyPosting}
-                      >
-                        <Plus className="h-3 w-3" />
-                        From device
-                      </button>
-                      <button
-                        onClick={startStoryCamera}
-                        className={storyPrimaryButtonClass}
-                        disabled={storyPosting}
-                      >
-                        <CameraIcon className="h-3 w-3" />
-                        Camera
-                      </button>
-                      {liveFeatureStatus.enabled ? (
-                        <button
-                          type="button"
-                          onClick={() => navigate('/live/studio')}
-                          className={storyLiveButtonClass}
+                    <div className="space-y-3">
+                      <div className={`grid gap-2 ${isMobileViewport ? 'grid-cols-2' : 'flex flex-wrap items-center'}`}>
+                        <select
+                          value={storyDraft.visibility}
+                          onChange={(event) =>
+                            setStoryDraft((prev) => ({ ...prev, visibility: normalizeStoryVisibility(event.target.value) }))
+                          }
+                          className={`${isMobileViewport ? 'rounded-2xl px-3 py-2 text-[11px]' : 'rounded-full px-3 py-1 text-xs'} border border-gray-200 font-semibold text-gray-600`}
                         >
-                          Go Live
+                          {storyVisibilityOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => setStoryTextOpen(true)}
+                          className={storyActionButtonClass}
+                          disabled={storyPosting}
+                        >
+                          Text story
                         </button>
+                        <button
+                          onClick={() => storyDeviceInputRef.current?.click()}
+                          className={storyActionButtonClass}
+                          disabled={storyPosting}
+                        >
+                          <Plus className="h-3 w-3" />
+                          From device
+                        </button>
+                        <button
+                          onClick={startStoryCamera}
+                          className={storyPrimaryButtonClass}
+                          disabled={storyPosting}
+                        >
+                          <CameraIcon className="h-3 w-3" />
+                          Camera
+                        </button>
+                        {liveFeatureStatus.enabled ? (
+                          <button
+                            type="button"
+                            onClick={() => navigate('/live/studio')}
+                            className={storyLiveButtonClass}
+                          >
+                            Go Live
+                          </button>
+                        ) : null}
+                      </div>
+                      {storyMediaUploadLabel ? (
+                        <StoryUploadStatusCard
+                          busy={storyMediaUploadBusy}
+                          label={storyMediaUploadLabel}
+                          progress={storyMediaUploadProgress}
+                          hint={
+                            storyMediaUploadBusy
+                              ? 'Scrolith is uploading and preparing your selected story media.'
+                              : 'Your story upload is ready for the next step.'
+                          }
+                        />
                       ) : null}
                     </div>
                   ) : (

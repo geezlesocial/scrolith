@@ -77,6 +77,7 @@ import OverlayActionRailButton from '../media/OverlayActionRailButton';
 import PostExpandModal from '../post/PostExpandModal';
 import PostOriginPreview from '../post/PostOriginPreview';
 import InsightsQuickPanel from '../insights/InsightsQuickPanel';
+import StoryUploadStatusCard from '../stories/StoryUploadStatusCard';
 import { usePerformanceProfile } from '../../hooks/usePerformanceProfile';
 import { Capacitor } from '@capacitor/core';
 import { stashPendingPostVideoScrollViewerSource } from '../../utils/postVideoScrollBridge';
@@ -894,6 +895,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     ...getDefaultStoryTextDraft()
   }));
   const [storyPosting, setStoryPosting] = useState(false);
+  const [storyMediaUploadBusy, setStoryMediaUploadBusy] = useState(false);
+  const [storyMediaUploadLabel, setStoryMediaUploadLabel] = useState('');
+  const [storyMediaUploadProgress, setStoryMediaUploadProgress] = useState(0);
   const [storyEditSaving, setStoryEditSaving] = useState(false);
   const [storyActionBusy, setStoryActionBusy] = useState<Record<string, boolean>>({});
   const [storyActionTarget, setStoryActionTarget] = useState<any | null>(null);
@@ -2659,6 +2663,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     }
   }, [maxStories, showNotification, storyDraft, user]);
 
+  const clearStoryMediaUploadState = useCallback(() => {
+    setStoryMediaUploadBusy(false);
+    setStoryMediaUploadLabel('');
+    setStoryMediaUploadProgress(0);
+  }, []);
+
   const openStoryEditor = useCallback((story: any) => {
     if (!story) return;
     const style = getStoryTextStyle(story);
@@ -2753,12 +2763,21 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const publishStoryFile = useCallback(async (file: File, type: 'image' | 'video') => {
     if (!user) return;
     setStoryPosting(true);
+    setStoryMediaUploadBusy(true);
+    setStoryMediaUploadProgress(0);
+    setStoryMediaUploadLabel(`Uploading ${file.name}`);
     try {
       const uploaded = await FileService.uploadFile(file, 'community', {
         role: user.role,
         visibility: isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public',
-        userId: user.id
+        userId: user.id,
+        onProgress: (percent) => {
+          setStoryMediaUploadProgress(percent || 0);
+          setStoryMediaUploadLabel(percent >= 100 ? `Preparing ${file.name}` : `Uploading ${file.name}`);
+        }
       });
+      setStoryMediaUploadProgress(100);
+      setStoryMediaUploadLabel('Preparing your story for publish...');
       const created = await CommunityService.createStory({
         type,
         mediaFileId: uploaded.id,
@@ -2774,8 +2793,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       showNotification('error', 'Stories', error?.message || 'Unable to post story.');
     } finally {
       setStoryPosting(false);
+      clearStoryMediaUploadState();
     }
-  }, [maxStories, showNotification, storyDraft.visibility, user]);
+  }, [clearStoryMediaUploadState, maxStories, showNotification, storyDraft.visibility, user]);
 
   const handleStoryDeviceSelection = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -2789,28 +2809,43 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         return;
       }
       setStoryPosting(true);
+      setStoryMediaUploadBusy(true);
+      setStoryMediaUploadProgress(0);
+      setStoryMediaUploadLabel(`Uploading ${file.name}`);
       try {
         const uploaded = await FileService.uploadFile(file, 'community', {
           role: user.role,
           visibility: isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public',
-          userId: user.id
+          userId: user.id,
+          onProgress: (percent) => {
+            setStoryMediaUploadProgress(percent || 0);
+            setStoryMediaUploadLabel(percent >= 100 ? `Preparing ${file.name}` : `Uploading ${file.name}`);
+          }
         });
+        setStoryMediaUploadProgress(100);
+        setStoryMediaUploadLabel(`${file.name} is ready to publish.`);
         setStoryMediaDraftFile(uploaded);
         setStoryMediaPreviewOpen(true);
       } catch (error: any) {
         console.error(error);
         showNotification('error', 'Stories', error?.message || 'Unable to upload story media.');
+        clearStoryMediaUploadState();
       } finally {
         setStoryPosting(false);
+        setStoryMediaUploadBusy(false);
       }
     },
-    [showNotification, storyDraft.visibility, user]
+    [clearStoryMediaUploadState, showNotification, storyDraft.visibility, user]
   );
 
   const publishStorySelectedMedia = useCallback(async () => {
     if (!user) return;
     if (!storyMediaDraftFile?.id) return;
     setStoryPosting(true);
+    setStoryMediaUploadBusy(true);
+    setStoryMediaUploadProgress(100);
+    setStoryMediaUploadLabel('Preparing your story for publish...');
+    let published = false;
     try {
       const mime = String(storyMediaDraftFile?.mimeType || storyMediaDraftFile?.mime_type || '').toLowerCase();
       const explicitType = String(storyMediaDraftFile?.type || '').toLowerCase();
@@ -2827,14 +2862,22 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       setStoryMediaPreviewOpen(false);
       setStoryMediaDraftFile(null);
       setStoryDraft((prev) => ({ ...prev, content: '' }));
+      published = true;
       showNotification('success', 'Stories', 'Your story is live.');
     } catch (error: any) {
       console.error(error);
       showNotification('error', 'Stories', error?.message || 'Unable to post story.');
+      setStoryMediaUploadLabel('Media is ready. Review your caption and try publishing again.');
     } finally {
       setStoryPosting(false);
+      if (published) {
+        clearStoryMediaUploadState();
+      } else {
+        setStoryMediaUploadBusy(false);
+        setStoryMediaUploadProgress(storyMediaDraftFile?.id ? 100 : 0);
+      }
     }
-  }, [maxStories, showNotification, storyDraft.content, storyDraft.visibility, storyMediaDraftFile, user]);
+  }, [clearStoryMediaUploadState, maxStories, showNotification, storyDraft.content, storyDraft.visibility, storyMediaDraftFile, user]);
 
   const startStoryCamera = useCallback(async () => {
     if (Capacitor.isNativePlatform()) {
@@ -6180,17 +6223,42 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         }}
       />
 
+      {storyMediaUploadLabel && storyMediaUploadBusy && !storyMediaPreviewOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6">
+          <div className="w-full max-w-md rounded-2xl bg-white p-4 sm:p-5 shadow-2xl">
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Uploading story media</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Scrolith is uploading your file and preparing it for story publishing.
+                </p>
+              </div>
+              <StoryUploadStatusCard
+                busy={storyMediaUploadBusy}
+                label={storyMediaUploadLabel}
+                progress={storyMediaUploadProgress}
+                hint="Keep this window open while your story media uploads."
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {storyMediaPreviewOpen && storyMediaDraftFile?.id && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6">
           <div className="w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-2xl bg-white p-4 sm:p-5 shadow-2xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-900">Story preview</h3>
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Story preview</h3>
+                <p className="text-xs text-slate-500">Review your media, add a caption, and publish when ready.</p>
+              </div>
               <button
                 type="button"
                 onClick={() => {
                   if (storyPosting) return;
                   setStoryMediaPreviewOpen(false);
                   setStoryMediaDraftFile(null);
+                  clearStoryMediaUploadState();
                 }}
                 className="text-slate-500 hover:text-slate-700"
               >
@@ -6199,6 +6267,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             </div>
 
             <div className="mt-4 space-y-4">
+              {storyMediaUploadLabel ? (
+                <StoryUploadStatusCard
+                  busy={storyMediaUploadBusy}
+                  label={storyMediaUploadLabel}
+                  progress={storyMediaUploadProgress}
+                  hint={
+                    storyMediaUploadBusy
+                      ? 'Scrolith is finalizing your upload before publish.'
+                      : 'Your media is uploaded. Add a caption if you want, then publish.'
+                  }
+                />
+              ) : null}
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
                 {(() => {
                   const url =
@@ -6263,6 +6343,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                       if (storyPosting) return;
                       setStoryMediaPreviewOpen(false);
                       setStoryMediaDraftFile(null);
+                      clearStoryMediaUploadState();
                       storyDeviceInputRef.current?.click();
                     }}
                     className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700"

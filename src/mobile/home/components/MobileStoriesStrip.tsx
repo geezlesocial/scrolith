@@ -41,6 +41,7 @@ import PostShareModal from '../../../community/components/PostShareModal';
 import SendGcoinModal from '../../../components/SendGcoinModal';
 import { LiveService, type LiveSession } from '../../../services/live';
 import { buildPublicAppUrl } from '../../../utils/siteUrl';
+import StoryUploadStatusCard from '../../../components/stories/StoryUploadStatusCard';
 
 type StoryKind = 'text' | 'image' | 'video';
 type StoryVisibility = 'public' | 'private';
@@ -283,6 +284,7 @@ export default function MobileStoriesStrip({
   const [publishing, setPublishing] = useState(false);
   const [mediaUploadBusy, setMediaUploadBusy] = useState(false);
   const [mediaUploadLabel, setMediaUploadLabel] = useState('');
+  const [mediaUploadProgress, setMediaUploadProgress] = useState(0);
   const [storyActionTarget, setStoryActionTarget] = useState<any | null>(null);
   const [storyCommentOpen, setStoryCommentOpen] = useState(false);
   const [storyCommentDraft, setStoryCommentDraft] = useState('');
@@ -421,6 +423,9 @@ export default function MobileStoriesStrip({
     setDraftMediaFile(null);
     setDraftTextStyle(getDefaultStoryTextDraft());
     setComposerStep('choose');
+    setMediaUploadBusy(false);
+    setMediaUploadLabel('');
+    setMediaUploadProgress(0);
   };
 
   const openCreate = () => {
@@ -434,6 +439,9 @@ export default function MobileStoriesStrip({
 
   const openEdit = (story: any) => {
     if (!story?.id || !canManageStory(story, user)) return;
+    setMediaUploadBusy(false);
+    setMediaUploadLabel('');
+    setMediaUploadProgress(0);
     setComposerMode('edit');
     setEditingStory(story);
     const type = resolveStoryType(story);
@@ -919,22 +927,30 @@ export default function MobileStoriesStrip({
       return;
     }
     setMediaUploadBusy(true);
+    setMediaUploadProgress(0);
     setMediaUploadLabel(`Uploading ${file.name}`);
     try {
       const uploaded = await FileService.uploadFile(file, 'community' as any, {
         role: user.role,
         visibility: draftVisibility === 'private' ? 'private' : 'public',
-        userId: user.id
+        userId: user.id,
+        onProgress: (percent) => {
+          setMediaUploadProgress(percent || 0);
+          setMediaUploadLabel(percent >= 100 ? `Preparing ${file.name}` : `Uploading ${file.name}`);
+        }
       });
       setDraftType(type);
       setDraftMediaFile(uploaded);
       setComposerStep('compose');
       setComposerOpen(true);
+      setMediaUploadProgress(100);
+      setMediaUploadLabel(`${file.name} is ready to publish.`);
     } catch (error: any) {
       showNotification('error', 'Story', error?.response?.data?.error || error?.message || 'Unable to upload story media.');
+      setMediaUploadLabel('');
+      setMediaUploadProgress(0);
     } finally {
       setMediaUploadBusy(false);
-      setMediaUploadLabel('');
     }
   };
 
@@ -989,6 +1005,9 @@ export default function MobileStoriesStrip({
         showNotification('success', 'Story', 'Your story is live.');
       } else {
         if (!draftMediaFile?.id) throw new Error('Select a media file first.');
+        setMediaUploadBusy(true);
+        setMediaUploadProgress(100);
+        setMediaUploadLabel('Preparing your story for publish...');
         const created = await CommunityService.createStory({
           type: draftType,
           mediaFileId: draftMediaFile.id,
@@ -1005,8 +1024,16 @@ export default function MobileStoriesStrip({
       resetDraft();
     } catch (e: any) {
       showNotification('error', 'Story failed', e?.response?.data?.error || e?.message || 'Unable to publish story.');
+      if (draftType === 'image' || draftType === 'video') {
+        setMediaUploadBusy(false);
+        setMediaUploadProgress(draftMediaFile?.id ? 100 : 0);
+        setMediaUploadLabel(draftMediaFile?.id ? 'Media is ready. Review and publish when ready.' : '');
+      }
     } finally {
       setPublishing(false);
+      if (draftType === 'image' || draftType === 'video') {
+        setMediaUploadBusy(false);
+      }
     }
   };
 
@@ -1434,7 +1461,7 @@ export default function MobileStoriesStrip({
         }}
       >
         {composerStep === 'choose' ? (
-          <div className="space-y-2">
+          <div className="space-y-3">
             <SheetItem
               icon={<Type className="h-4 w-4" />}
               label="Text story"
@@ -1456,6 +1483,18 @@ export default function MobileStoriesStrip({
               label="Capture with camera"
               onClick={() => storyCameraInputRef.current?.click()}
             />
+            {mediaUploadLabel ? (
+              <StoryUploadStatusCard
+                busy={mediaUploadBusy}
+                label={mediaUploadLabel}
+                progress={mediaUploadProgress}
+                hint={
+                  mediaUploadBusy
+                    ? 'Scrolith is uploading your story media and preparing the preview.'
+                    : 'Your media is uploaded and ready for the story composer.'
+                }
+              />
+            ) : null}
           </div>
         ) : (
           <div className="space-y-3">
@@ -1623,11 +1662,17 @@ export default function MobileStoriesStrip({
                       Change media
                     </button>
                   </div>
-                  {mediaUploadBusy ? (
-                    <div className="flex items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>{mediaUploadLabel || 'Uploading media...'}</span>
-                    </div>
+                  {mediaUploadLabel ? (
+                    <StoryUploadStatusCard
+                      busy={mediaUploadBusy}
+                      label={mediaUploadLabel || 'Uploading media...'}
+                      progress={mediaUploadProgress}
+                      hint={
+                        mediaUploadBusy
+                          ? 'Keep this sheet open while Scrolith uploads and prepares your story media.'
+                          : 'Your media is uploaded. Add a caption if you want, then publish when ready.'
+                      }
+                    />
                   ) : null}
                   <textarea
                     value={draftContent}
