@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { flushSync } from 'react-dom';
 
@@ -21,8 +21,7 @@ import MobilePostScreen from './screens/MobilePostScreen';
 import MobileNotificationsScreen from './screens/MobileNotificationsScreen';
 import MobileJobsScreen from './screens/MobileJobsScreen';
 import ScrollFeed from '../../features/scroll/ScrollFeed';
-
-const MobileHomeSheets = lazy(() => import('./components/MobileHomeSheets'));
+import MobileHomeSheets from './components/MobileHomeSheets';
 
 type MobileHomeLayoutConfig = {
   header?: {
@@ -468,24 +467,6 @@ const MobileHome = () => {
     Math.min(20, Number(layout.messagesPopup?.previewLimit ?? DEFAULT_LAYOUT.messagesPopup?.previewLimit ?? 6) || 6)
   );
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    let cancelled = false;
-    const preload = () => {
-      if (cancelled) return;
-      void import('./components/MobileHomeSheets');
-    };
-
-    const frame = window.requestAnimationFrame(() => {
-      window.setTimeout(preload, 16);
-    });
-
-    return () => {
-      cancelled = true;
-      window.cancelAnimationFrame(frame);
-    };
-  }, []);
-
   const previewConversations = useMemo(() => {
     const list = Array.isArray(messageConversations) ? messageConversations : [];
     const sorted = [...list].sort((a: any, b: any) => {
@@ -691,119 +672,117 @@ const MobileHome = () => {
       ) : null}
 
       {anySheetOpen ? (
-        <Suspense fallback={<div className="fixed inset-0 z-[1000] bg-slate-900/20" />}>
-          <MobileHomeSheets
-            profileOpen={profileOpen}
-            messagesOpen={messagesOpen}
-            currencyOpen={currencyOpen}
-            quickMenuOpen={quickMenuOpen}
-            onCloseProfile={closeTopShellLayer}
-            onCloseMessages={closeTopShellLayer}
-            onCloseCurrency={closeTopShellLayer}
-            onCloseQuickMenu={closeTopShellLayer}
-            accountMenu={accountMenu}
-            quickMenu={quickMenu}
-            currencyCode={currency?.code || 'USD'}
-            availableCurrencies={Array.isArray(availableCurrencies) ? availableCurrencies : []}
-            onSelectCurrency={(code: string) => {
-              setCurrency(code);
-              setCurrencyOpen(false);
-            }}
-            messagesUnread={messagesUnread}
-            notificationsUnread={notificationsUnread}
-            socketConnected={Boolean(isConnected)}
-            messagesLoading={messagesLoading}
-            messagesError={messagesError}
-            previewConversations={previewConversations}
-            currentUserId={user?.id ? String(user.id) : null}
-            userName={user?.name || null}
-            userAvatar={user?.avatar || null}
-            onRefreshMessages={() => void refreshMessages({ force: true })}
-            onOpenConversation={(conversationId: string) => {
-              setMessagesOpen(false);
-              if (conversationId) navigate(`/messages/${encodeURIComponent(conversationId)}`);
-            }}
-            onOpenAllMessages={() => {
-              setMessagesOpen(false);
-              navigate('/messages');
-            }}
-            normalizedRole={normalizedRole}
-            isFreelancerMode={isFreelancerMode}
-            onDashboard={() => {
-              setProfileOpen(false);
-              navigate(dashboardPath);
-            }}
-            onViewAs={() => {
-              setProfileOpen(false);
-              if (user?.username) {
-                navigate(`/u/${encodeURIComponent(String(user.username))}`);
-                return;
-              }
-              if (user?.id) {
-                navigate(`/profile/${encodeURIComponent(String(user.id))}`);
-              }
-            }}
-            onSwitchCurrency={() => {
-              setProfileOpen(false);
-              setCurrencyOpen(true);
-            }}
-            onPostProject={() => {
-              setProfileOpen(false);
-              navigate(postProjectPath);
-            }}
-            onYourBriefs={() => {
-              setProfileOpen(false);
-              navigate('/m/briefs');
-            }}
-            onReferFriend={() => {
-              setProfileOpen(false);
-              navigate('/affiliate-program');
-            }}
-            onBilling={() => {
-              setProfileOpen(false);
-              navigate(billingPath);
-            }}
-            onSettings={() => {
-              setProfileOpen(false);
-              navigate('/settings');
-            }}
-            onLogout={() => {
-              setProfileOpen(false);
-              logout();
-            }}
-            onSwitchUserMode={() => {
-              setQuickMenuOpen(false);
-              switchUserInPlace();
-              navigate('/m/home');
-            }}
-            onCreatePost={() => {
-              setQuickMenuOpen(false);
-              setActivePanelTab('post');
-              if (location.pathname !== '/m/home') navigate('/m/home', { replace: true });
-            }}
-            onBrowseJobs={() => {
-              setQuickMenuOpen(false);
-              setActivePanelTab('jobs');
-              if (location.pathname !== '/m/home') navigate('/m/home', { replace: true });
-            }}
-            onBrowseGigs={() => {
-              setQuickMenuOpen(false);
-              navigate('/browse');
-            }}
-            onCommunity={() => {
-              setQuickMenuOpen(false);
-              navigate('/community');
-            }}
-            onProjectBriefs={() => {
-              setQuickMenuOpen(false);
-              navigate('/m/briefs');
-            }}
-            onGigCreation={() => {
-              setQuickMenuOpen(false);
-              navigate('/create-gig');
-            }}
-          />
-        </Suspense>
+        <MobileHomeSheets
+          profileOpen={profileOpen}
+          messagesOpen={messagesOpen}
+          currencyOpen={currencyOpen}
+          quickMenuOpen={quickMenuOpen}
+          onCloseProfile={closeTopShellLayer}
+          onCloseMessages={closeTopShellLayer}
+          onCloseCurrency={closeTopShellLayer}
+          onCloseQuickMenu={closeTopShellLayer}
+          accountMenu={accountMenu}
+          quickMenu={quickMenu}
+          currencyCode={currency?.code || 'USD'}
+          availableCurrencies={Array.isArray(availableCurrencies) ? availableCurrencies : []}
+          onSelectCurrency={(code: string) => {
+            setCurrency(code);
+            setCurrencyOpen(false);
+          }}
+          messagesUnread={messagesUnread}
+          notificationsUnread={notificationsUnread}
+          socketConnected={Boolean(isConnected)}
+          messagesLoading={messagesLoading}
+          messagesError={messagesError}
+          previewConversations={previewConversations}
+          currentUserId={user?.id ? String(user.id) : null}
+          userName={user?.name || null}
+          userAvatar={user?.avatar || null}
+          onRefreshMessages={() => void refreshMessages({ force: true })}
+          onOpenConversation={(conversationId: string) => {
+            setMessagesOpen(false);
+            if (conversationId) navigate(`/messages/${encodeURIComponent(conversationId)}`);
+          }}
+          onOpenAllMessages={() => {
+            setMessagesOpen(false);
+            navigate('/messages');
+          }}
+          normalizedRole={normalizedRole}
+          isFreelancerMode={isFreelancerMode}
+          onDashboard={() => {
+            setProfileOpen(false);
+            navigate(dashboardPath);
+          }}
+          onViewAs={() => {
+            setProfileOpen(false);
+            if (user?.username) {
+              navigate(`/u/${encodeURIComponent(String(user.username))}`);
+              return;
+            }
+            if (user?.id) {
+              navigate(`/profile/${encodeURIComponent(String(user.id))}`);
+            }
+          }}
+          onSwitchCurrency={() => {
+            setProfileOpen(false);
+            setCurrencyOpen(true);
+          }}
+          onPostProject={() => {
+            setProfileOpen(false);
+            navigate(postProjectPath);
+          }}
+          onYourBriefs={() => {
+            setProfileOpen(false);
+            navigate('/m/briefs');
+          }}
+          onReferFriend={() => {
+            setProfileOpen(false);
+            navigate('/affiliate-program');
+          }}
+          onBilling={() => {
+            setProfileOpen(false);
+            navigate(billingPath);
+          }}
+          onSettings={() => {
+            setProfileOpen(false);
+            navigate('/settings');
+          }}
+          onLogout={() => {
+            setProfileOpen(false);
+            logout();
+          }}
+          onSwitchUserMode={() => {
+            setQuickMenuOpen(false);
+            switchUserInPlace();
+            navigate('/m/home');
+          }}
+          onCreatePost={() => {
+            setQuickMenuOpen(false);
+            setActivePanelTab('post');
+            if (location.pathname !== '/m/home') navigate('/m/home', { replace: true });
+          }}
+          onBrowseJobs={() => {
+            setQuickMenuOpen(false);
+            setActivePanelTab('jobs');
+            if (location.pathname !== '/m/home') navigate('/m/home', { replace: true });
+          }}
+          onBrowseGigs={() => {
+            setQuickMenuOpen(false);
+            navigate('/browse');
+          }}
+          onCommunity={() => {
+            setQuickMenuOpen(false);
+            navigate('/community');
+          }}
+          onProjectBriefs={() => {
+            setQuickMenuOpen(false);
+            navigate('/m/briefs');
+          }}
+          onGigCreation={() => {
+            setQuickMenuOpen(false);
+            navigate('/create-gig');
+          }}
+        />
       ) : null}
     </div>
   );

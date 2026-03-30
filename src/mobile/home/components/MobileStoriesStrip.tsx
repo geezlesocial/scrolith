@@ -372,6 +372,37 @@ export default function MobileStoriesStrip({
     [runRailAction]
   );
 
+  const beginRailTouchGesture = useCallback((key: string, event: React.TouchEvent<HTMLElement>) => {
+    const touch = event.changedTouches?.[0] || event.touches?.[0];
+    if (!touch) return;
+    railGestureStartRef.current = {
+      key: String(key || '').trim(),
+      x: touch.clientX,
+      y: touch.clientY
+    };
+  }, []);
+
+  const cancelRailTouchGesture = useCallback(() => {
+    railGestureStartRef.current = null;
+  }, []);
+
+  const commitRailTouchGesture = useCallback(
+    (key: string, event: React.TouchEvent<HTMLElement>, action: () => void) => {
+      const normalizedKey = String(key || '').trim();
+      const start = railGestureStartRef.current;
+      const touch = event.changedTouches?.[0] || event.touches?.[0];
+      railGestureStartRef.current = null;
+      if (!start || start.key !== normalizedKey || !touch) return;
+      const deltaX = Math.abs(touch.clientX - start.x);
+      const deltaY = Math.abs(touch.clientY - start.y);
+      if (Math.max(deltaX, deltaY) > RAIL_TAP_MAX_TRAVEL) return;
+      event.preventDefault();
+      event.stopPropagation();
+      runRailAction(normalizedKey, action);
+    },
+    [runRailAction]
+  );
+
   const openStoryFromRail = useCallback(
     (story: any) => {
       const storyId = String(story?.id || '').trim();
@@ -1153,6 +1184,13 @@ export default function MobileStoriesStrip({
                     <button
                       key={id}
                       type="button"
+                      onTouchStart={(event) => beginRailTouchGesture(`story:${id}`, event)}
+                      onTouchEnd={(event) =>
+                        commitRailTouchGesture(`story:${id}`, event, () => {
+                          openStoryFromRail(story);
+                        })
+                      }
+                      onTouchCancel={cancelRailTouchGesture}
                       onPointerDown={(event) => beginRailGesture(`story:${id}`, event)}
                       onPointerUp={(event) =>
                         commitRailGesture(`story:${id}`, event, () => {
@@ -1294,6 +1332,13 @@ export default function MobileStoriesStrip({
                     <button
                       key={id}
                       type="button"
+                      onTouchStart={(event) => beginRailTouchGesture(`scroll:${id}`, event)}
+                      onTouchEnd={(event) =>
+                        commitRailTouchGesture(`scroll:${id}`, event, () => {
+                          openScrollFromRail(scroll);
+                        })
+                      }
+                      onTouchCancel={cancelRailTouchGesture}
                       onPointerDown={(event) => beginRailGesture(`scroll:${id}`, event)}
                       onPointerUp={(event) =>
                         commitRailGesture(`scroll:${id}`, event, () => {
