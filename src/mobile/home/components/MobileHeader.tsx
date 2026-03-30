@@ -57,8 +57,7 @@ export default function MobileHeader({
             if (event.pointerType === 'mouse' && event.button !== 0) return;
             triggerAction('profile', onOpenProfile);
           }}
-          onClick={(event) => {
-            if (event.detail !== 0) return;
+          onClick={() => {
             triggerAction('profile', onOpenProfile);
           }}
           className="relative h-9 w-9 overflow-hidden rounded-full border border-slate-200 bg-slate-100"
@@ -92,8 +91,7 @@ export default function MobileHeader({
             if (!searchEnabled) return;
             triggerAction('search', onOpenSearch);
           }}
-          onClick={(event) => {
-            if (event.detail !== 0) return;
+          onClick={() => {
             if (!searchEnabled) return;
             triggerAction('search', onOpenSearch);
           }}
@@ -115,8 +113,7 @@ export default function MobileHeader({
                 if (event.pointerType === 'mouse' && event.button !== 0) return;
                 triggerAction('messages', onOpenMessages);
               }}
-              onClick={(event) => {
-                if (event.detail !== 0) return;
+              onClick={() => {
                 triggerAction('messages', onOpenMessages);
               }}
               className="relative flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white"
@@ -139,8 +136,7 @@ export default function MobileHeader({
                 if (event.pointerType === 'mouse' && event.button !== 0) return;
                 triggerAction('menu', onOpenQuickMenu);
               }}
-              onClick={(event) => {
-                if (event.detail !== 0) return;
+              onClick={() => {
                 triggerAction('menu', onOpenQuickMenu);
               }}
               className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white"

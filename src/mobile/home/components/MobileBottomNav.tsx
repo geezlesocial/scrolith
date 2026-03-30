@@ -118,8 +118,7 @@ export default function MobileBottomNav({
                 if (event.pointerType === 'mouse' && event.button !== 0) return;
                 triggerTabChange(item.key);
               }}
-              onClick={(event) => {
-                if (event.detail !== 0) return;
+              onClick={() => {
                 triggerTabChange(item.key);
               }}
               className={[

@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { flushSync } from 'react-dom';
 
@@ -309,6 +309,7 @@ const MobileHome = () => {
   }, [notifications]);
 
   const activeTab = activePanelTab || 'home';
+  const shellLayerKeyRef = useRef<string | null>(null);
 
   const bottomNavSettings: MobileHomeLayoutSettings = {
     bottomTabs: layout.bottomTabs,
@@ -336,6 +337,62 @@ const MobileHome = () => {
       );
     }
   }, [location.pathname, location.search, navigate, routeTab]);
+
+  const clearShellLayers = useCallback(() => {
+    setSearchOpen(false);
+    setProfileOpen(false);
+    setQuickMenuOpen(false);
+    setMessagesOpen(false);
+    setCurrencyOpen(false);
+    setActivePanelTab(null);
+    setScrollOverlay(null);
+  }, []);
+
+  const shellLayerKey = useMemo(() => {
+    if (scrollOverlay) {
+      return `scroll:${scrollOverlay.initialActiveScrollId || scrollOverlay.initialViewerSource?.fileId || scrollOverlay.key}`;
+    }
+    if (activePanelTab) return `panel:${activePanelTab}`;
+    if (searchOpen) return 'search';
+    if (messagesOpen) return 'messages';
+    if (quickMenuOpen) return 'quick-menu';
+    if (profileOpen) return 'profile';
+    if (currencyOpen) return 'currency';
+    return null;
+  }, [activePanelTab, currencyOpen, messagesOpen, profileOpen, quickMenuOpen, scrollOverlay, searchOpen]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const previous = shellLayerKeyRef.current;
+    if (!previous && shellLayerKey) {
+      const nextState = { ...(window.history.state || {}), __scrolithMobileShellLayer: shellLayerKey };
+      window.history.pushState(nextState, '', window.location.href);
+    } else if (previous && shellLayerKey && previous !== shellLayerKey) {
+      const nextState = { ...(window.history.state || {}), __scrolithMobileShellLayer: shellLayerKey };
+      window.history.replaceState(nextState, '', window.location.href);
+    }
+    shellLayerKeyRef.current = shellLayerKey;
+  }, [shellLayerKey]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handlePopState = () => {
+      const marker = window.history.state?.__scrolithMobileShellLayer;
+      if (!marker) {
+        clearShellLayers();
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [clearShellLayers]);
+
+  const closeTopShellLayer = useCallback(() => {
+    if (typeof window !== 'undefined' && window.history.state?.__scrolithMobileShellLayer) {
+      window.history.back();
+      return;
+    }
+    clearShellLayers();
+  }, [clearShellLayers]);
 
   const onTabChange = useCallback((tab: MobileTabKey) => {
     if (tab === activeTab) {
@@ -488,12 +545,12 @@ const MobileHome = () => {
   );
   const closeActivePanel = useMemo(
     () => () => {
-      setActivePanelTab(null);
+      closeTopShellLayer();
       if (location.pathname !== '/m/home') {
         navigate('/m/home', { replace: true });
       }
     },
-    [location.pathname, navigate]
+    [closeTopShellLayer, location.pathname, navigate]
   );
   const renderOverlayPanel = () => {
     if (!activePanelTab) return null;
@@ -604,7 +661,7 @@ const MobileHome = () => {
             <SearchScreen
               enabled={searchEnabled}
               categories={searchCategories.length ? searchCategories : (DEFAULT_LAYOUT.search?.categories as SearchCategory[])}
-              onClose={() => setSearchOpen(false)}
+              onClose={closeTopShellLayer}
             />
           </Suspense>
         </div>
@@ -624,7 +681,7 @@ const MobileHome = () => {
             <ScrollFeed
               key={scrollOverlay.key}
               embedded
-              onClose={() => setScrollOverlay(null)}
+              onClose={closeTopShellLayer}
               initialItems={scrollOverlay.initialItems}
               initialActiveScrollId={scrollOverlay.initialActiveScrollId}
               initialViewerSource={scrollOverlay.initialViewerSource}
@@ -640,10 +697,10 @@ const MobileHome = () => {
             messagesOpen={messagesOpen}
             currencyOpen={currencyOpen}
             quickMenuOpen={quickMenuOpen}
-            onCloseProfile={() => setProfileOpen(false)}
-            onCloseMessages={() => setMessagesOpen(false)}
-            onCloseCurrency={() => setCurrencyOpen(false)}
-            onCloseQuickMenu={() => setQuickMenuOpen(false)}
+            onCloseProfile={closeTopShellLayer}
+            onCloseMessages={closeTopShellLayer}
+            onCloseCurrency={closeTopShellLayer}
+            onCloseQuickMenu={closeTopShellLayer}
             accountMenu={accountMenu}
             quickMenu={quickMenu}
             currencyCode={currency?.code || 'USD'}

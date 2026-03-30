@@ -325,10 +325,26 @@ export default function MobileStoriesStrip({
       x: event.clientX,
       y: event.clientY
     };
+    if (event.pointerType === 'touch') {
+      try {
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+      } catch {
+        // Ignore unsupported pointer capture environments.
+      }
+    }
   }, []);
 
-  const cancelRailGesture = useCallback(() => {
+  const cancelRailGesture = useCallback((event?: React.PointerEvent<HTMLElement>) => {
     railGestureStartRef.current = null;
+    if (event?.pointerType === 'touch') {
+      try {
+        if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+          event.currentTarget.releasePointerCapture?.(event.pointerId);
+        }
+      } catch {
+        // Ignore unsupported pointer capture environments.
+      }
+    }
   }, []);
 
   const commitRailGesture = useCallback(
@@ -336,6 +352,15 @@ export default function MobileStoriesStrip({
       const normalizedKey = String(key || '').trim();
       const start = railGestureStartRef.current;
       railGestureStartRef.current = null;
+      if (event.pointerType === 'touch') {
+        try {
+          if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+            event.currentTarget.releasePointerCapture?.(event.pointerId);
+          }
+        } catch {
+          // Ignore unsupported pointer capture environments.
+        }
+      }
       if (!start || start.key !== normalizedKey) return;
       const deltaX = Math.abs(event.clientX - start.x);
       const deltaY = Math.abs(event.clientY - start.y);
@@ -1134,10 +1159,8 @@ export default function MobileStoriesStrip({
                           openStoryFromRail(story);
                         })
                       }
-                      onPointerCancel={cancelRailGesture}
-                      onPointerLeave={cancelRailGesture}
-                      onClick={(event) => {
-                        if (event.detail !== 0) return;
+                      onPointerCancel={(event) => cancelRailGesture(event)}
+                      onClick={() => {
                         openStoryFromRail(story);
                       }}
                       className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
@@ -1277,10 +1300,8 @@ export default function MobileStoriesStrip({
                           openScrollFromRail(scroll);
                         })
                       }
-                      onPointerCancel={cancelRailGesture}
-                      onPointerLeave={cancelRailGesture}
-                      onClick={(event) => {
-                        if (event.detail !== 0) return;
+                      onPointerCancel={(event) => cancelRailGesture(event)}
+                      onClick={() => {
                         openScrollFromRail(scroll);
                       }}
                       className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
