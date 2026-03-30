@@ -48,7 +48,7 @@ export default function MobileBottomNav({
     (key: MobileTabKey) => {
       const now = Date.now();
       const previous = recentTouchActionRef.current;
-      if (previous?.key === key && now - previous.at < 450) return;
+      if (previous?.key === key && now - previous.at < 260) return;
       recentTouchActionRef.current = { key, at: now };
       setOptimisticActiveTab(key);
       onChange(key);

@@ -13,17 +13,16 @@ import type { PendingPostVideoScrollViewerSource } from '../../utils/postVideoSc
 
 import MobileHeader from './components/MobileHeader';
 import MobileBottomNav, { MobileHomeLayoutSettings, MobileTabKey } from './components/MobileBottomNav';
-import type { SearchCategory } from './components/SearchScreen';
+import SearchScreen, { type SearchCategory } from './components/SearchScreen';
 import { DEFAULT_MEMBER_HOME_LOCATIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../../constants/defaultAudienceOptions';
+import MobileFeedScreen from './screens/MobileFeedScreen';
+import MobileNetworkScreen from './screens/MobileNetworkScreen';
+import MobilePostScreen from './screens/MobilePostScreen';
+import MobileNotificationsScreen from './screens/MobileNotificationsScreen';
+import MobileJobsScreen from './screens/MobileJobsScreen';
+import ScrollFeed from '../../features/scroll/ScrollFeed';
 
-const SearchScreen = lazy(() => import('./components/SearchScreen'));
 const MobileHomeSheets = lazy(() => import('./components/MobileHomeSheets'));
-const MobileFeedScreen = lazy(() => import('./screens/MobileFeedScreen'));
-const MobileNetworkScreen = lazy(() => import('./screens/MobileNetworkScreen'));
-const MobilePostScreen = lazy(() => import('./screens/MobilePostScreen'));
-const MobileNotificationsScreen = lazy(() => import('./screens/MobileNotificationsScreen'));
-const MobileJobsScreen = lazy(() => import('./screens/MobileJobsScreen'));
-const ScrollFeed = lazy(() => import('../../features/scroll/ScrollFeed'));
 
 type MobileHomeLayoutConfig = {
   header?: {
@@ -417,18 +416,11 @@ const MobileHome = () => {
     let cancelled = false;
     const preload = () => {
       if (cancelled) return;
-      void import('./components/SearchScreen');
-      void import('./screens/MobileNetworkScreen');
-      void import('./screens/MobilePostScreen');
-      void import('./screens/MobileNotificationsScreen');
-      void import('./screens/MobileJobsScreen');
-      void import('./screens/MobileBriefsScreen');
       void import('./components/MobileHomeSheets');
-      void import('../../features/scroll/ScrollFeed');
     };
 
     const frame = window.requestAnimationFrame(() => {
-      window.setTimeout(preload, 32);
+      window.setTimeout(preload, 16);
     });
 
     return () => {

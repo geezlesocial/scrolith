@@ -49,7 +49,8 @@ type StoryVisibility = 'public' | 'private';
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const STORY_CONTROL_HIDE_DELAY_MS = 20000;
-const RAIL_TAP_MAX_TRAVEL = 42;
+const RAIL_TAP_MAX_TRAVEL = 72;
+const RAIL_ACTION_DEDUPE_MS = 260;
 
 const normalizeVisibility = (value: any): StoryVisibility => {
   const raw = String(value || '').trim().toLowerCase();
@@ -313,7 +314,7 @@ export default function MobileStoriesStrip({
     }
     const now = Date.now();
     const previous = recentRailActionRef.current;
-    if (previous?.key === normalizedKey && now - previous.at < 450) return;
+    if (previous?.key === normalizedKey && now - previous.at < RAIL_ACTION_DEDUPE_MS) return;
     recentRailActionRef.current = { key: normalizedKey, at: now };
     action();
   }, []);
@@ -342,6 +343,8 @@ export default function MobileStoriesStrip({
       const deltaX = Math.abs(event.clientX - start.x);
       const deltaY = Math.abs(event.clientY - start.y);
       if (Math.max(deltaX, deltaY) > RAIL_TAP_MAX_TRAVEL) return;
+      event.preventDefault();
+      event.stopPropagation();
       runRailAction(normalizedKey, action);
     },
     [runRailAction]
@@ -368,6 +371,7 @@ export default function MobileStoriesStrip({
       const deltaY = Math.abs(touch.clientY - start.y);
       if (Math.max(deltaX, deltaY) > RAIL_TAP_MAX_TRAVEL) return;
       event.preventDefault();
+      event.stopPropagation();
       runRailAction(normalizedKey, action);
     },
     [runRailAction]

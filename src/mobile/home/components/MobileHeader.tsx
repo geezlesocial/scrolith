@@ -43,7 +43,7 @@ export default function MobileHeader({
   const triggerAction = useCallback((key: string, action: () => void) => {
     const now = Date.now();
     const previous = recentActionRef.current;
-    if (previous?.key === key && now - previous.at < 450) return;
+    if (previous?.key === key && now - previous.at < 260) return;
     recentActionRef.current = { key, at: now };
     action();
   }, []);
