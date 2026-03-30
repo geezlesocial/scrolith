@@ -577,6 +577,7 @@ const formatMediaDuration = (duration?: number | null) => {
 const GRAPHIC_WARNING_LABEL = 'Graphic warning';
 const FEED_SINGLE_MEDIA_HEIGHT_CLASS = 'h-[20rem] sm:h-[24rem] lg:h-[28rem]';
 const FEED_MULTI_MEDIA_HEIGHT_CLASS = 'h-[15rem] sm:h-[18rem] lg:h-[22rem]';
+const BRAND_LOGO_URL = '/logo.png';
 
 const toPreviewMedia = (media: any): PreviewMedia | null => {
   const url = String(media?.url || '').trim();
@@ -708,6 +709,31 @@ const resolveListingImageUrl = (listing: any): string => {
     listing?.freelancerAvatar
   ]);
   return raw ? resolveAssetUrl(raw) : '';
+};
+
+const resolveHighlightPostMedia = (post: any): string => {
+  const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+  for (const attachment of attachments) {
+    if (!attachment) continue;
+    const posterUrl = String(resolvePostAttachmentPosterUrl(attachment) || '').trim();
+    if (posterUrl) return posterUrl;
+    const mime = String(attachment?.mimeType || attachment?.mime_type || '').trim().toLowerCase();
+    const type = String(attachment?.type || '').trim().toLowerCase();
+    if (mime.startsWith('image/') || type === 'image') {
+      const mediaUrl = String(resolvePostAttachmentMediaUrl(attachment) || '').trim();
+      if (mediaUrl) return mediaUrl;
+    }
+  }
+  return '';
+};
+
+const resolveHighlightPostFallback = (post: any): string => {
+  const raw = firstNonEmptyString([
+    post?.author?.avatarUrl,
+    post?.authorAvatar,
+    BRAND_LOGO_URL
+  ]);
+  return raw ? resolveAssetUrl(raw) : BRAND_LOGO_URL;
 };
 
 const extractJobsFromPayload = (payload: any): Job[] => {
@@ -4359,7 +4385,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         badge: 'Fresh',
         ctaLabel: 'Open feed',
         onClick: focusFeedSection,
-        mediaUrl: resolvePostAttachmentMediaUrl(topPost.attachments?.[0] || topPost.attachmentFileIds?.[0] || ''),
+        mediaUrl: resolveHighlightPostMedia(topPost),
+        fallbackMediaUrl: resolveHighlightPostFallback(topPost),
         icon: <Compass className="h-4 w-4" />,
         tone: 'slate'
       });

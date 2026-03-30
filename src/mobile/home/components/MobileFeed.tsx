@@ -96,6 +96,7 @@ const relativeTime = (iso?: string | null) => {
 
 const isVideo = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('video/');
 const isImage = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('image/');
+const BRAND_LOGO_URL = '/logo.png';
 const toPreviewMedia = (media: any): PreviewMedia | null => {
   const url = String(media?.url || '').trim();
   if (!url) return null;
@@ -254,6 +255,27 @@ const resolveHighlightListingImage = (row: any) => {
 const resolveHighlightAvatar = (value: unknown) => {
   const normalized = resolvePostAttachmentMediaUrl(value);
   return String(normalized || '').trim();
+};
+
+const resolveHighlightPostMedia = (post: any) => {
+  const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+  for (const attachment of attachments) {
+    if (!attachment) continue;
+    const posterUrl = String(resolvePostAttachmentPosterUrl(attachment) || '').trim();
+    if (posterUrl) return posterUrl;
+    const mime = String(attachment?.mimeType || attachment?.mime_type || '').trim().toLowerCase();
+    const type = String(attachment?.type || '').trim().toLowerCase();
+    if (isImage(mime) || type === 'image') {
+      const mediaUrl = String(resolvePostAttachmentMediaUrl(attachment) || '').trim();
+      if (mediaUrl) return mediaUrl;
+    }
+  }
+  return '';
+};
+
+const resolveHighlightPostFallback = (post: any) => {
+  const authorAvatar = resolveHighlightAvatar(post?.author?.avatarUrl || post?.authorAvatar || null);
+  return authorAvatar || BRAND_LOGO_URL;
 };
 
 const isIgnoredSurfaceTarget = (target: EventTarget | null) => {
@@ -539,7 +561,8 @@ export default function MobileFeed({
         badge: 'Fresh',
         ctaLabel: 'Open posts',
         onClick: () => scrollToFeedSection('mobile-member-home-feed-stream'),
-        mediaUrl: resolvePostAttachmentMediaUrl(topPost.attachments?.[0] || topPost.attachmentFileIds?.[0] || ''),
+        mediaUrl: resolveHighlightPostMedia(topPost),
+        fallbackMediaUrl: resolveHighlightPostFallback(topPost),
         icon: <Newspaper className="h-4 w-4" />,
         tone: 'slate'
       });

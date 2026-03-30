@@ -20,9 +20,12 @@ export type MemberHomeHighlightItem = {
   href?: string;
   onClick?: () => void;
   mediaUrl?: string | null;
+  fallbackMediaUrl?: string | null;
   icon?: React.ReactNode;
   tone?: HighlightTone;
 };
+
+const BRAND_LOGO_URL = '/logo.png';
 
 const toneClasses: Record<HighlightTone, { ring: string; badge: string; icon: string }> = {
   slate: {
@@ -85,6 +88,52 @@ const ActionSurface = ({
   }
 
   return <div className="flex h-full w-full flex-col text-left">{children}</div>;
+};
+
+const HighlightMedia = ({
+  item,
+  compact
+}: {
+  item: MemberHomeHighlightItem;
+  compact: boolean;
+}) => {
+  const fallbackMediaUrl = String(item.fallbackMediaUrl || BRAND_LOGO_URL).trim();
+  const initialSrc = String(item.mediaUrl || '').trim();
+  const [src, setSrc] = React.useState(initialSrc || fallbackMediaUrl || '');
+  const [hidden, setHidden] = React.useState(!initialSrc && !fallbackMediaUrl);
+
+  React.useEffect(() => {
+    const nextSrc = String(item.mediaUrl || '').trim();
+    const nextFallback = String(item.fallbackMediaUrl || BRAND_LOGO_URL).trim();
+    setSrc(nextSrc || nextFallback || '');
+    setHidden(!nextSrc && !nextFallback);
+  }, [item.fallbackMediaUrl, item.mediaUrl]);
+
+  if (hidden || !src) return null;
+
+  const isBrandFallback = src === BRAND_LOGO_URL || src === fallbackMediaUrl && fallbackMediaUrl === BRAND_LOGO_URL;
+
+  return (
+    <div className="relative mt-3 overflow-hidden rounded-2xl border border-white/70 bg-white/80">
+      <img
+        src={src}
+        alt={item.title}
+        className={[
+          compact ? 'h-24 w-full' : 'h-28 w-full',
+          isBrandFallback ? 'object-contain bg-slate-50 p-4' : 'object-cover'
+        ].join(' ')}
+        loading="lazy"
+        decoding="async"
+        onError={() => {
+          if (src !== fallbackMediaUrl && fallbackMediaUrl) {
+            setSrc(fallbackMediaUrl);
+            return;
+          }
+          setHidden(true);
+        }}
+      />
+    </div>
+  );
 };
 
 export default function MemberHomeHighlightsBoard({
@@ -173,17 +222,7 @@ export default function MemberHomeHighlightsBoard({
                   </div>
                 </div>
 
-                {item.mediaUrl ? (
-                  <div className="mt-3 overflow-hidden rounded-2xl border border-white/70 bg-white/80">
-                    <img
-                      src={item.mediaUrl}
-                      alt={item.title}
-                      className={compact ? 'h-24 w-full object-cover' : 'h-28 w-full object-cover'}
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  </div>
-                ) : null}
+                <HighlightMedia item={item} compact={compact} />
 
                 <p className="mt-3 text-sm leading-6 text-slate-600 break-words [overflow-wrap:anywhere]">
                   {item.description}

@@ -146,9 +146,21 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBo
 const RouteLoadingFallback = () => (
   <div className="flex min-h-[48vh] items-center justify-center px-4">
     <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
-        <div className="text-sm font-medium text-slate-700">Loading Scrolith...</div>
+      <div className="flex flex-col items-center gap-3 text-center">
+        <div className="flex h-20 w-20 items-center justify-center rounded-[1.75rem] border border-slate-200 bg-slate-50 shadow-sm">
+          <img
+            src="/logo.png"
+            alt="Scrolith logo"
+            className="h-14 w-14 object-contain"
+            onError={(event) => {
+              (event.currentTarget as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
+          <div className="text-sm font-medium text-slate-700">Loading Scrolith...</div>
+        </div>
       </div>
     </div>
   </div>

@@ -1,6 +1,8 @@
 import React from 'react';
 import { usePreloader } from '../context/PreloaderContext';
 
+const BRAND_LOGO_URL = '/logo.png';
+
 const hexToRgb = (hex: string) => {
   const raw = String(hex || '').replace('#', '').trim();
   if (raw.length !== 3 && raw.length !== 6) return null;
@@ -75,6 +77,7 @@ const GlobalPreloader: React.FC = () => {
     color: config.textColor,
     ...parseCustomCss(config.customCss),
   };
+  const logoUrl = String(config.logoUrl || BRAND_LOGO_URL).trim() || BRAND_LOGO_URL;
 
   return (
     <>
@@ -96,22 +99,25 @@ const GlobalPreloader: React.FC = () => {
           }`}
           style={containerStyle}
         >
-          {config.logoUrl ? (
+          <div
+            className="flex h-28 w-28 items-center justify-center rounded-[2rem] border border-white/10 bg-white/5 shadow-2xl"
+            style={{ animation: `preloader-brand-pulse ${animationDuration} ease-in-out infinite` }}
+          >
             <img
-              src={config.logoUrl}
+              src={logoUrl}
               alt="Scrolith preloader logo"
-              className="h-24 w-24 rounded-3xl object-cover shadow-2xl"
-              style={{ animation: `preloader-brand-pulse ${animationDuration} ease-in-out infinite` }}
-            />
-          ) : (
-            <div
-              className="h-24 w-24 rounded-3xl shadow-2xl"
-              style={{
-                background: `linear-gradient(135deg, ${toRgba(config.accentColor, 0.2)}, ${toRgba(config.accentColor, 0.5)})`,
-                animation: `preloader-brand-pulse ${animationDuration} ease-in-out infinite`,
+              className="h-20 w-20 object-contain"
+              onError={(event) => {
+                const target = event.currentTarget as HTMLImageElement;
+                if (target.dataset.fallbackApplied === 'true') {
+                  target.style.display = 'none';
+                  return;
+                }
+                target.dataset.fallbackApplied = 'true';
+                target.src = BRAND_LOGO_URL;
               }}
             />
-          )}
+          </div>
           {config.headlineText ? (
             <h3 className="text-lg font-semibold tracking-wide">{config.headlineText}</h3>
           ) : null}
