@@ -49,6 +49,7 @@ type PendingAttachment = {
 };
 
 type CommentPolicy = 'everyone' | 'followers' | 'following' | 'mutuals' | 'none';
+type CommentSortMode = 'relevant' | 'newest' | 'oldest';
 
 type PostCommentsProps = {
   postId: string;
@@ -116,6 +117,17 @@ const commentExists = (items: PostComment[], id: string): boolean =>
     comment.id === id || (comment.replies ? commentExists(comment.replies, id) : false)
   );
 
+const findCommentParentChain = (items: PostComment[], targetId: string, chain: string[] = []): string[] | null => {
+  for (const comment of items) {
+    if (comment.id === targetId) return chain;
+    if (comment.replies?.length) {
+      const nested = findCommentParentChain(comment.replies, targetId, [...chain, comment.id]);
+      if (nested) return nested;
+    }
+  }
+  return null;
+};
+
 const dedupeTopLevelComments = (items: PostComment[]): PostComment[] => {
   const seen = new Set<string>();
   return items.filter((comment) => {
@@ -142,6 +154,77 @@ const resolveCommentAvatar = (comment: PostComment): string | null => {
 
 const resolveCommentUsername = (comment: PostComment): string => {
   return String(comment.userUsername || comment.author?.username || '').trim().replace(/^@+/, '');
+};
+
+const toTimestamp = (value?: string) => {
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatRelativeTime = (value?: string) => {
+  const timestamp = toTimestamp(value);
+  if (!timestamp) return '';
+  const diffMs = Date.now() - timestamp;
+  const diffMinutes = Math.max(0, Math.floor(diffMs / 60000));
+  if (diffMinutes < 1) return 'now';
+  if (diffMinutes < 60) return `${diffMinutes}m`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d`;
+  const diffWeeks = Math.floor(diffDays / 7);
+  if (diffWeeks < 5) return `${diffWeeks}w`;
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths < 12) return `${diffMonths}mo`;
+  const diffYears = Math.floor(diffDays / 365);
+  return `${diffYears}y`;
+};
+
+const scoreCommentRelevance = (
+  comment: PostComment,
+  reactionCount: number,
+  replyCount: number
+) => {
+  const ageHours = Math.max(1, (Date.now() - toTimestamp(comment.createdAt)) / 3_600_000);
+  const freshnessBoost = Math.max(0, 36 - ageHours) * 0.25;
+  return (
+    normalizeCount(comment.likesCount) * 2 +
+    reactionCount * 2.5 +
+    replyCount * 3 +
+    freshnessBoost
+  );
+};
+
+const sortComments = (
+  items: PostComment[],
+  sortMode: CommentSortMode,
+  reactionSummary: Record<string, { counts: Record<string, number>; userReaction: string | null }>,
+  depth = 0
+): PostComment[] => {
+  const sorted = [...items]
+    .map((comment) => ({
+      ...comment,
+      replies: sortComments(comment.replies || [], sortMode, reactionSummary, depth + 1)
+    }))
+    .sort((left, right) => {
+      const leftCreatedAt = toTimestamp(left.createdAt);
+      const rightCreatedAt = toTimestamp(right.createdAt);
+      if (depth > 0) {
+        return leftCreatedAt - rightCreatedAt;
+      }
+      if (sortMode === 'newest') return rightCreatedAt - leftCreatedAt;
+      if (sortMode === 'oldest') return leftCreatedAt - rightCreatedAt;
+      const leftReplyCount = countActiveComments(left.replies || []);
+      const rightReplyCount = countActiveComments(right.replies || []);
+      const leftReactionCount = sumReactionTotals(reactionSummary[left.id]?.counts);
+      const rightReactionCount = sumReactionTotals(reactionSummary[right.id]?.counts);
+      return (
+        scoreCommentRelevance(right, rightReactionCount, rightReplyCount) -
+        scoreCommentRelevance(left, leftReactionCount, leftReplyCount)
+      );
+    });
+  return sorted;
 };
 
 const insertComment = (items: PostComment[], comment: PostComment): PostComment[] => {
@@ -215,6 +298,8 @@ const PostComments: React.FC<PostCommentsProps> = ({
   const [replyAttachments, setReplyAttachments] = useState<PendingAttachment[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
+  const [expandedReplies, setExpandedReplies] = useState<Record<string, boolean>>({});
+  const [commentSortMode, setCommentSortMode] = useState<CommentSortMode>('relevant');
   const [submitting, setSubmitting] = useState(false);
   const [uploadingAttachmentCount, setUploadingAttachmentCount] = useState(0);
   const [uploadingAttachmentLabel, setUploadingAttachmentLabel] = useState('');
@@ -277,6 +362,24 @@ const PostComments: React.FC<PostCommentsProps> = ({
   useEffect(() => {
     commentsRef.current = comments;
   }, [comments]);
+
+  useEffect(() => {
+    const id = String(focusCommentId || replyToId || '').trim();
+    if (!id) return;
+    const parentChain = findCommentParentChain(comments, id);
+    if (!parentChain?.length) return;
+    setExpandedReplies((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      parentChain.forEach((parentId) => {
+        if (!next[parentId]) {
+          next[parentId] = true;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [comments, focusCommentId, replyToId]);
 
   useEffect(() => {
     if (suppressNotifyRef.current) {
@@ -383,6 +486,11 @@ const PostComments: React.FC<PostCommentsProps> = ({
     };
   }, [commentIds]);
 
+  const sortedComments = useMemo(
+    () => sortComments(comments, commentSortMode, commentReactionSummary),
+    [comments, commentReactionSummary, commentSortMode]
+  );
+
   const handleSubmit = async (parentId?: string | null) => {
     if (submitLockRef.current) return;
     if (!checkAuth()) return;
@@ -413,6 +521,9 @@ const PostComments: React.FC<PostCommentsProps> = ({
         const prepared = { ...created, replies: created.replies || [] };
         const shouldIncrease = created.status !== 'deleted' && !commentExists(commentsRef.current, created.id);
         pendingCreatedIdsRef.current.add(String(created.id));
+        if (parentId) {
+          setExpandedReplies((prev) => ({ ...prev, [String(parentId)]: true }));
+        }
         setComments((prev) => {
           if (commentExists(prev, created.id)) {
             return updateCommentInTree(prev, prepared);
@@ -786,14 +897,16 @@ const PostComments: React.FC<PostCommentsProps> = ({
     const commentAuthorAvatar = resolveCommentAvatar(comment);
     const commentAuthorName = comment.userName || comment.author?.name || 'Community member';
     const commentAuthorUsername = resolveCommentUsername(comment);
+    const repliesExpanded = !!expandedReplies[comment.id] || replyToId === comment.id;
+    const visibleReplies = repliesExpanded ? comment.replies || [] : [];
     return (
       <div
         key={comment.id}
         id={`comment-${comment.id}`}
-        className={`mt-4 rounded-xl transition-colors ${depth > 0 ? 'ml-6 border-l border-slate-100 pl-4' : ''}`}
+        className={`mt-4 transition-colors ${depth > 0 ? 'ml-6 border-l border-slate-100 pl-4' : ''}`}
       >
         <div className="flex items-start gap-3">
-          <Link to={commentProfileUrl} className="h-9 w-9 rounded-full bg-slate-100 overflow-hidden">
+          <Link to={commentProfileUrl} className="h-10 w-10 overflow-hidden rounded-full bg-slate-100 shadow-sm">
             {commentAuthorAvatar ? (
               <img src={commentAuthorAvatar} alt={commentAuthorName} className="h-full w-full object-cover" />
             ) : (
@@ -802,111 +915,127 @@ const PostComments: React.FC<PostCommentsProps> = ({
               </div>
             )}
           </Link>
-          <div className="flex-1">
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <Link to={commentProfileUrl} className="font-semibold text-slate-900 hover:text-slate-700 hover:underline">
-                {commentAuthorName}
-              </Link>
-              {commentAuthorUsername ? (
-                <span className="text-xs text-slate-400">@{commentAuthorUsername}</span>
-              ) : null}
-              {comment.createdAt && (
-                <span className="text-xs text-slate-500">{formatTime(comment.createdAt)}</span>
-              )}
-              {comment.updatedAt && comment.updatedAt !== comment.createdAt && !isDeleted && (
-                <span className="text-[10px] text-slate-400">Edited</span>
+          <div className="min-w-0 flex-1">
+            <div className="rounded-3xl border border-slate-100 bg-white px-4 py-3 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
+                <Link to={commentProfileUrl} className="font-semibold text-slate-900 hover:text-slate-700 hover:underline">
+                  {commentAuthorName}
+                </Link>
+                {commentAuthorUsername ? (
+                  <span className="truncate text-xs text-slate-400">@{commentAuthorUsername}</span>
+                ) : null}
+                {comment.createdAt && (
+                  <span className="text-xs text-slate-500" title={formatTime(comment.createdAt)}>
+                    {formatRelativeTime(comment.createdAt)}
+                  </span>
+                )}
+                {comment.updatedAt && comment.updatedAt !== comment.createdAt && !isDeleted && (
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                    Edited
+                  </span>
+                )}
+              </div>
+
+              {isEditing ? (
+                <div className="mt-3 space-y-3">
+                  <CommentAiAssist
+                    value={editDraft}
+                    onReplace={setEditDraft}
+                    disabled={submitting}
+                    scopeLabel="edit"
+                  />
+                  <textarea
+                    value={editDraft}
+                    onChange={(event) => setEditDraft(event.target.value)}
+                    className="min-h-[110px] w-full rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingId(null);
+                        setEditDraft('');
+                      }}
+                      className="rounded-full border border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-600"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleEditSave}
+                      disabled={submitting}
+                      className="rounded-full bg-slate-900 px-4 py-2 text-[11px] font-semibold uppercase text-white disabled:opacity-60"
+                    >
+                      {submitting ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className={`mt-2 text-[15px] leading-6 ${isDeleted ? 'italic text-slate-400' : 'text-slate-800'}`}>
+                    {isDeleted ? (
+                      'This comment has been deleted.'
+                    ) : (
+                      <MentionText
+                        text={comment.content}
+                        mentionToken={focusMentionToken}
+                        viewerId={user?.id}
+                        viewerUsername={user?.username}
+                      />
+                    )}
+                  </div>
+                  {!isDeleted && renderAttachments(comment.attachments)}
+                </>
               )}
             </div>
 
-            {isEditing ? (
-              <div className="mt-2 space-y-2">
-                <textarea
-                  value={editDraft}
-                  onChange={(event) => setEditDraft(event.target.value)}
-                  className="min-h-[110px] w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700"
-                />
-                <CommentAiAssist
-                  value={editDraft}
-                  onReplace={setEditDraft}
-                  disabled={submitting}
-                  scopeLabel="edit"
-                />
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingId(null);
-                      setEditDraft('');
-                    }}
-                    className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-600"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleEditSave}
-                    disabled={submitting}
-                    className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold uppercase text-white disabled:opacity-60"
-                  >
-                    {submitting ? 'Saving...' : 'Save'}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <p className={`mt-2 text-sm ${isDeleted ? 'italic text-slate-400' : 'text-slate-700'}`}>
-                  {isDeleted ? (
-                    'This comment has been deleted.'
-                  ) : (
-                    <MentionText
-                      text={comment.content}
-                      mentionToken={focusMentionToken}
-                      viewerId={user?.id}
-                      viewerUsername={user?.username}
-                    />
-                  )}
-                </p>
-                {!isDeleted && renderAttachments(comment.attachments)}
-              </>
-            )}
-
             {!isEditing && (
-              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 pl-2 text-xs">
                 <button
                   type="button"
                   onClick={() => handleLike(comment)}
-                  className={`inline-flex items-center gap-1 hover:text-red-500 ${comment.likedByMe ? 'text-red-500' : ''}`}
+                  className={`inline-flex items-center gap-1 font-semibold transition hover:text-blue-600 ${
+                    comment.likedByMe ? 'text-blue-600' : 'text-slate-500'
+                  }`}
                 >
                   <Heart className={`h-3.5 w-3.5 ${comment.likedByMe ? 'fill-current' : ''}`} />
-                  {comment.likesCount || 0}
+                  <span>{normalizeCount(comment.likesCount)}</span>
                 </button>
                 {!isDeleted && (
                   <button
                     type="button"
                     onClick={() => {
                       if (!checkAuth()) return;
+                      setExpandedReplies((prev) => ({ ...prev, [comment.id]: true }));
                       setReplyToId(comment.id);
                       setReplyDraft('');
                       setReplyAttachments([]);
                     }}
-                    className="inline-flex items-center gap-1 hover:text-blue-500"
+                    className="inline-flex items-center gap-1 font-semibold text-slate-500 transition hover:text-slate-900"
                   >
                     <MessageCircle className="h-3.5 w-3.5" />
                     Reply
                   </button>
                 )}
-                {!isDeleted && (
-                  <span className="inline-flex items-center gap-1 text-slate-500">
-                    <span>{replyCount}</span>
-                    <span>replies</span>
+                {!isDeleted && reactionCount > 0 ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-500">
+                    {reactionCount} reactions
                   </span>
-                )}
-                {!isDeleted && (
-                  <span className="inline-flex items-center gap-1 text-slate-500">
-                    <span>{reactionCount}</span>
-                    <span>reactions</span>
-                  </span>
-                )}
+                ) : null}
+                {!isDeleted && replyCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedReplies((prev) => ({
+                        ...prev,
+                        [comment.id]: !repliesExpanded
+                      }))
+                    }
+                    className="font-semibold text-slate-500 transition hover:text-slate-900"
+                  >
+                    {repliesExpanded ? 'Hide replies' : `View ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`}
+                  </button>
+                ) : null}
                 {canEdit && (
                   <button
                     type="button"
@@ -914,7 +1043,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
                       setEditingId(comment.id);
                       setEditDraft(comment.content || '');
                     }}
-                    className="inline-flex items-center gap-1 hover:text-slate-700"
+                    className="inline-flex items-center gap-1 font-semibold text-slate-500 transition hover:text-slate-900"
                   >
                     <Edit3 className="h-3.5 w-3.5" />
                     Edit
@@ -924,7 +1053,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
                   <button
                     type="button"
                     onClick={() => handleDelete(comment.id)}
-                    className="inline-flex items-center gap-1 hover:text-rose-600"
+                    className="inline-flex items-center gap-1 font-semibold text-slate-500 transition hover:text-rose-600"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                     Delete
@@ -939,66 +1068,68 @@ const PostComments: React.FC<PostCommentsProps> = ({
                 targetId={comment.id}
                 initialCounts={reactionSummary?.counts}
                 initialUserReaction={reactionSummary?.userReaction}
-                className="mt-2"
+                className="mt-2 pl-1"
               />
             ) : null}
 
             {replyToId === comment.id && (
-              <div className="mt-3 space-y-2">
-                <textarea
-                  value={replyDraft}
-                  onChange={(event) => setReplyDraft(event.target.value)}
-                  placeholder="Write a reply..."
-                  className="min-h-[110px] w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700"
-                />
+              <div className="mt-3 rounded-3xl border border-slate-200 bg-slate-50/80 p-3 shadow-sm">
                 <CommentAiAssist
                   value={replyDraft}
                   onReplace={setReplyDraft}
                   disabled={submitting}
                   scopeLabel="reply"
                 />
+                <textarea
+                  value={replyDraft}
+                  onChange={(event) => setReplyDraft(event.target.value)}
+                  placeholder={`Reply as ${user?.name || user?.username || 'you'}...`}
+                  className="mt-3 min-h-[88px] w-full rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-700 outline-none transition focus:border-slate-300"
+                />
                 {renderPendingAttachments(replyAttachments, 'reply')}
                 {uploadingAttachmentCount > 0 ? (
-                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     <span>{uploadingAttachmentLabel || 'Uploading attachment...'}</span>
                   </div>
                 ) : null}
-                <div className="flex items-center gap-2">
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                   <button
                     type="button"
                     onClick={() => openPicker('reply')}
                     disabled={submitting || uploadingAttachmentCount > 0}
-                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                    className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
                   >
                     <Paperclip className="h-3.5 w-3.5" />
                     Upload Files
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setReplyToId(null);
-                      setReplyDraft('');
-                      setReplyAttachments([]);
-                    }}
-                    className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-600"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSubmit(comment.id)}
-                    disabled={submitting || uploadingAttachmentCount > 0}
-                    className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold uppercase text-white disabled:opacity-60"
-                  >
-                    <Send className="h-3.5 w-3.5" />
-                    Reply
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReplyToId(null);
+                        setReplyDraft('');
+                        setReplyAttachments([]);
+                      }}
+                      className="rounded-full border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-600"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSubmit(comment.id)}
+                      disabled={submitting || uploadingAttachmentCount > 0}
+                      className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-4 py-2 text-[11px] font-semibold uppercase text-white disabled:opacity-60"
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                      Reply
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
 
-            {comment.replies?.map((reply) => renderComment(reply, depth + 1))}
+            {visibleReplies.map((reply) => renderComment(reply, depth + 1))}
           </div>
         </div>
       </div>
@@ -1008,43 +1139,64 @@ const PostComments: React.FC<PostCommentsProps> = ({
   if (!expanded) return null;
 
   return (
-    <div id={`post-${postId}-comments`} className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
+    <div
+      id={`post-${postId}-comments`}
+      className="mt-4 rounded-[28px] border border-slate-100 bg-gradient-to-b from-slate-50 to-white p-4 shadow-[0_20px_60px_rgba(15,23,42,0.05)]"
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-sm font-semibold text-slate-800">Comments ({count})</div>
-        <span className="text-[11px] uppercase tracking-wide text-slate-400">{policyLabel}</span>
+        <div>
+          <div className="text-sm font-semibold text-slate-800">Comments ({count})</div>
+          <div className="mt-1 text-[11px] uppercase tracking-wide text-slate-400">{policyLabel}</div>
+        </div>
+        <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-500 shadow-sm">
+          <span>Sort</span>
+          <select
+            value={commentSortMode}
+            onChange={(event) => setCommentSortMode(event.target.value as CommentSortMode)}
+            className="bg-transparent text-[11px] font-semibold text-slate-700 outline-none"
+          >
+            <option value="relevant">Most relevant</option>
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+          </select>
+        </label>
       </div>
 
       {!user && (
-        <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-4 text-xs text-slate-500">
+        <div className="mt-3 rounded-3xl border border-slate-200 bg-white p-4 text-xs text-slate-500 shadow-sm">
           Log in to comment on this post.
         </div>
       )}
 
       {user && (
-        <div className="mt-3 space-y-2">
-          <textarea
-            ref={draftRef}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder={commentsDisabled ? 'Comments are disabled for this post.' : 'Write a comment...'}
-            disabled={commentsDisabled || submitting}
-            className="min-h-[120px] w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700 disabled:bg-slate-100"
-          />
+        <div className="mt-4 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
           <CommentAiAssist
             value={draft}
             onReplace={setDraft}
             disabled={commentsDisabled || submitting}
             scopeLabel="comment"
           />
+          <textarea
+            ref={draftRef}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder={
+              commentsDisabled
+                ? 'Comments are disabled for this post.'
+                : `Comment as ${user?.name || user?.username || 'you'}`
+            }
+            disabled={commentsDisabled || submitting}
+            className="mt-3 min-h-[96px] w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white disabled:bg-slate-100"
+          />
           {renderPendingAttachments(draftAttachments, 'draft')}
           {uploadingAttachmentCount > 0 ? (
-            <div className="flex items-center gap-2 text-xs text-slate-500">
+            <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               <span>{uploadingAttachmentLabel || 'Uploading attachment...'}</span>
             </div>
           ) : null}
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-slate-400">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <p className="max-w-[32rem] text-xs text-slate-400">
               {commentsDisabled ? 'Only the post author can comment.' : 'Be respectful and keep it constructive.'}
             </p>
             <div className="flex items-center gap-2">
@@ -1052,7 +1204,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
                 type="button"
                 onClick={() => openPicker('draft')}
                 disabled={commentsDisabled || submitting || uploadingAttachmentCount > 0}
-                className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-700 disabled:opacity-60"
+                className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-700 disabled:opacity-60"
               >
                 <Paperclip className="h-4 w-4" />
                 Upload Files
@@ -1077,7 +1229,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
         ) : comments.length === 0 ? (
           <p className="text-xs text-slate-500">No comments yet. Be the first to reply.</p>
         ) : (
-          comments.map((comment) => renderComment(comment))
+          sortedComments.map((comment) => renderComment(comment))
         )}
       </div>
 
