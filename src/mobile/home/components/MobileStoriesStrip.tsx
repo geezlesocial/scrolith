@@ -406,31 +406,48 @@ export default function MobileStoriesStrip({
   const openStoryFromRail = useCallback(
     (story: any) => {
       const storyId = String(story?.id || '').trim();
-      runRailAction(`story:${storyId || 'unknown'}`, () => {
-        flushSync(() => {
-          setActiveStory(story);
-        });
-        if (storyId) {
-          CommunityService.viewStory(storyId).catch(() => {});
-        }
+      flushSync(() => {
+        setActiveStory(story);
       });
+      if (storyId) {
+        CommunityService.viewStory(storyId).catch(() => {});
+      }
     },
-    [runRailAction]
+    []
   );
 
   const openScrollFromRail = useCallback(
     (scroll: ScrollVideo) => {
       const normalizedId = String(scroll?.id || '').trim();
       if (!normalizedId) return;
-      runRailAction(`scroll:${normalizedId}`, () => {
-        if (onOpenScroll) {
-          onOpenScroll(scroll);
-          return;
-        }
-        navigate(`/scroll?scroll=${encodeURIComponent(normalizedId)}`);
+      if (onOpenScroll) {
+        onOpenScroll(scroll);
+        return;
+      }
+      navigate(`/scroll?scroll=${encodeURIComponent(normalizedId)}`);
+    },
+    [navigate, onOpenScroll]
+  );
+
+  const handleStoryRailClick = useCallback(
+    (story: any) => {
+      const storyId = String(story?.id || '').trim();
+      runRailAction(`story:${storyId || 'unknown'}`, () => {
+        openStoryFromRail(story);
       });
     },
-    [navigate, onOpenScroll, runRailAction]
+    [openStoryFromRail, runRailAction]
+  );
+
+  const handleScrollRailClick = useCallback(
+    (scroll: ScrollVideo) => {
+      const normalizedId = String(scroll?.id || '').trim();
+      if (!normalizedId) return;
+      runRailAction(`scroll:${normalizedId}`, () => {
+        openScrollFromRail(scroll);
+      });
+    },
+    [openScrollFromRail, runRailAction]
   );
 
   useEffect(() => {
@@ -1199,7 +1216,7 @@ export default function MobileStoriesStrip({
                       }
                       onPointerCancel={(event) => cancelRailGesture(event)}
                       onClick={() => {
-                        openStoryFromRail(story);
+                        handleStoryRailClick(story);
                       }}
                       className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
                       style={{ touchAction: 'manipulation' }}
@@ -1347,7 +1364,7 @@ export default function MobileStoriesStrip({
                       }
                       onPointerCancel={(event) => cancelRailGesture(event)}
                       onClick={() => {
-                        openScrollFromRail(scroll);
+                        handleScrollRailClick(scroll);
                       }}
                       className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
                       style={{ touchAction: 'manipulation' }}
