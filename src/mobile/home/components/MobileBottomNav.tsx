@@ -114,12 +114,14 @@ export default function MobileBottomNav({
           return (
             <button
               key={item.key}
-              onTouchStart={() => triggerTabChange(item.key)}
-              onMouseDown={(event) => {
-                if (event.button !== 0) return;
+              onPointerDown={(event) => {
+                if (event.pointerType === 'mouse' && event.button !== 0) return;
                 triggerTabChange(item.key);
               }}
-              onClick={() => triggerTabChange(item.key)}
+              onClick={(event) => {
+                if (event.detail !== 0) return;
+                triggerTabChange(item.key);
+              }}
               className={[
                 'relative flex flex-col items-center justify-center rounded-xl px-3 py-2 text-[11px] font-semibold touch-manipulation',
                 isActive ? 'text-slate-900' : 'text-slate-500',

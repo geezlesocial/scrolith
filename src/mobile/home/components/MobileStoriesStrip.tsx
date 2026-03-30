@@ -298,7 +298,6 @@ export default function MobileStoriesStrip({
   const storyDeviceInputRef = useRef<HTMLInputElement | null>(null);
   const storyCameraInputRef = useRef<HTMLInputElement | null>(null);
   const railGestureStartRef = useRef<{ key: string; x: number; y: number } | null>(null);
-  const railTouchStartRef = useRef<{ key: string; x: number; y: number } | null>(null);
   const recentRailActionRef = useRef<{ key: string; at: number } | null>(null);
 
   const visibleStories = useMemo(() => {
@@ -320,7 +319,7 @@ export default function MobileStoriesStrip({
   }, []);
 
   const beginRailGesture = useCallback((key: string, event: React.PointerEvent<HTMLElement>) => {
-    if (event.pointerType === 'touch') return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
     railGestureStartRef.current = {
       key: String(key || '').trim(),
       x: event.clientX,
@@ -330,45 +329,16 @@ export default function MobileStoriesStrip({
 
   const cancelRailGesture = useCallback(() => {
     railGestureStartRef.current = null;
-    railTouchStartRef.current = null;
   }, []);
 
   const commitRailGesture = useCallback(
     (key: string, event: React.PointerEvent<HTMLElement>, action: () => void) => {
-      if (event.pointerType === 'touch') return;
       const normalizedKey = String(key || '').trim();
       const start = railGestureStartRef.current;
       railGestureStartRef.current = null;
       if (!start || start.key !== normalizedKey) return;
       const deltaX = Math.abs(event.clientX - start.x);
       const deltaY = Math.abs(event.clientY - start.y);
-      if (Math.max(deltaX, deltaY) > RAIL_TAP_MAX_TRAVEL) return;
-      event.preventDefault();
-      event.stopPropagation();
-      runRailAction(normalizedKey, action);
-    },
-    [runRailAction]
-  );
-
-  const beginRailTouch = useCallback((key: string, event: React.TouchEvent<HTMLElement>) => {
-    const touch = event.changedTouches?.[0];
-    if (!touch) return;
-    railTouchStartRef.current = {
-      key: String(key || '').trim(),
-      x: touch.clientX,
-      y: touch.clientY
-    };
-  }, []);
-
-  const commitRailTouch = useCallback(
-    (key: string, event: React.TouchEvent<HTMLElement>, action: () => void) => {
-      const normalizedKey = String(key || '').trim();
-      const start = railTouchStartRef.current;
-      railTouchStartRef.current = null;
-      const touch = event.changedTouches?.[0];
-      if (!start || !touch || start.key !== normalizedKey) return;
-      const deltaX = Math.abs(touch.clientX - start.x);
-      const deltaY = Math.abs(touch.clientY - start.y);
       if (Math.max(deltaX, deltaY) > RAIL_TAP_MAX_TRAVEL) return;
       event.preventDefault();
       event.stopPropagation();
@@ -1158,13 +1128,6 @@ export default function MobileStoriesStrip({
                     <button
                       key={id}
                       type="button"
-                      onTouchStart={(event) => beginRailTouch(`story:${id}`, event)}
-                      onTouchEnd={(event) =>
-                        commitRailTouch(`story:${id}`, event, () => {
-                          openStoryFromRail(story);
-                        })
-                      }
-                      onTouchCancel={cancelRailGesture}
                       onPointerDown={(event) => beginRailGesture(`story:${id}`, event)}
                       onPointerUp={(event) =>
                         commitRailGesture(`story:${id}`, event, () => {
@@ -1172,7 +1135,11 @@ export default function MobileStoriesStrip({
                         })
                       }
                       onPointerCancel={cancelRailGesture}
-                      onClick={() => openStoryFromRail(story)}
+                      onPointerLeave={cancelRailGesture}
+                      onClick={(event) => {
+                        if (event.detail !== 0) return;
+                        openStoryFromRail(story);
+                      }}
                       className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
                       style={{ touchAction: 'manipulation' }}
                       aria-label={`Open story by ${name}`}
@@ -1304,13 +1271,6 @@ export default function MobileStoriesStrip({
                     <button
                       key={id}
                       type="button"
-                      onTouchStart={(event) => beginRailTouch(`scroll:${id}`, event)}
-                      onTouchEnd={(event) =>
-                        commitRailTouch(`scroll:${id}`, event, () => {
-                          openScrollFromRail(scroll);
-                        })
-                      }
-                      onTouchCancel={cancelRailGesture}
                       onPointerDown={(event) => beginRailGesture(`scroll:${id}`, event)}
                       onPointerUp={(event) =>
                         commitRailGesture(`scroll:${id}`, event, () => {
@@ -1318,7 +1278,11 @@ export default function MobileStoriesStrip({
                         })
                       }
                       onPointerCancel={cancelRailGesture}
-                      onClick={() => openScrollFromRail(scroll)}
+                      onPointerLeave={cancelRailGesture}
+                      onClick={(event) => {
+                        if (event.detail !== 0) return;
+                        openScrollFromRail(scroll);
+                      }}
                       className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
                       style={{ touchAction: 'manipulation' }}
                       aria-label={`Open Scroll by ${authorName}`}

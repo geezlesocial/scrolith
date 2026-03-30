@@ -53,12 +53,14 @@ export default function MobileHeader({
       <div className="mx-auto flex max-w-md items-center gap-2 px-3 py-2">
         <button
           type="button"
-          onTouchStart={() => triggerAction('profile', onOpenProfile)}
-          onMouseDown={(event) => {
-            if (event.button !== 0) return;
+          onPointerDown={(event) => {
+            if (event.pointerType === 'mouse' && event.button !== 0) return;
             triggerAction('profile', onOpenProfile);
           }}
-          onClick={() => triggerAction('profile', onOpenProfile)}
+          onClick={(event) => {
+            if (event.detail !== 0) return;
+            triggerAction('profile', onOpenProfile);
+          }}
           className="relative h-9 w-9 overflow-hidden rounded-full border border-slate-200 bg-slate-100"
           aria-label="Open profile"
           style={{ WebkitTapHighlightColor: 'transparent' }}
@@ -85,15 +87,13 @@ export default function MobileHeader({
             'flex flex-1 items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-left touch-manipulation',
             searchEnabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
           ].join(' ')}
-          onTouchStart={() => {
+          onPointerDown={(event) => {
+            if (event.pointerType === 'mouse' && event.button !== 0) return;
             if (!searchEnabled) return;
             triggerAction('search', onOpenSearch);
           }}
-          onMouseDown={(event) => {
-            if (event.button !== 0 || !searchEnabled) return;
-            triggerAction('search', onOpenSearch);
-          }}
-          onClick={() => {
+          onClick={(event) => {
+            if (event.detail !== 0) return;
             if (!searchEnabled) return;
             triggerAction('search', onOpenSearch);
           }}
@@ -111,12 +111,14 @@ export default function MobileHeader({
           {showMessages ? (
             <button
               type="button"
-              onTouchStart={() => triggerAction('messages', onOpenMessages)}
-              onMouseDown={(event) => {
-                if (event.button !== 0) return;
+              onPointerDown={(event) => {
+                if (event.pointerType === 'mouse' && event.button !== 0) return;
                 triggerAction('messages', onOpenMessages);
               }}
-              onClick={() => triggerAction('messages', onOpenMessages)}
+              onClick={(event) => {
+                if (event.detail !== 0) return;
+                triggerAction('messages', onOpenMessages);
+              }}
               className="relative flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white"
               aria-label="Open messages"
               style={{ WebkitTapHighlightColor: 'transparent' }}
@@ -133,12 +135,14 @@ export default function MobileHeader({
           {showQuickMenu ? (
             <button
               type="button"
-              onTouchStart={() => triggerAction('menu', onOpenQuickMenu)}
-              onMouseDown={(event) => {
-                if (event.button !== 0) return;
+              onPointerDown={(event) => {
+                if (event.pointerType === 'mouse' && event.button !== 0) return;
                 triggerAction('menu', onOpenQuickMenu);
               }}
-              onClick={() => triggerAction('menu', onOpenQuickMenu)}
+              onClick={(event) => {
+                if (event.detail !== 0) return;
+                triggerAction('menu', onOpenQuickMenu);
+              }}
               className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white"
               aria-label="Open menu"
               style={{ WebkitTapHighlightColor: 'transparent' }}
