@@ -20,7 +20,9 @@ import {
   type UserStreak,
   type UserQuest
 } from '../../services/insights';
+import { ScrolithaService, type ScrolithaRewriteMode } from '../../services/scrolitha';
 import { ScrollService, type ScrollSeriesDiscovery } from '../../services/scroll';
+import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../utils/communityEventHighlights';
 
 type Props = {
   compact?: boolean;
@@ -107,6 +109,41 @@ const DEFAULT_CAREER_DAILY_ACTIONS: CareerDailyActionState[] = [
   { type: 'learn', label: 'Learn', completed: false }
 ];
 
+type CoachSurface = 'post' | 'gig' | 'brief';
+type CoachActionKey = 'grammar' | 'rephrase' | 'professional' | 'shorten' | 'expand' | 'improve-gig' | 'clarify-brief';
+
+const COACH_SURFACE_OPTIONS: Array<{ value: CoachSurface; label: string; helper: string }> = [
+  { value: 'post', label: 'Posts', helper: 'Polish updates before you publish.' },
+  { value: 'gig', label: 'Gigs', helper: 'Sharpen your listing copy and offer framing.' },
+  { value: 'brief', label: 'Briefs', helper: 'Clarify requirements before you match or hire.' }
+];
+
+const COACH_PLACEHOLDERS: Record<CoachSurface, string> = {
+  post: 'Paste a post draft, announcement, or community update for Scrolitha to improve.',
+  gig: 'Paste your gig title, pitch, or package copy for a stronger offer.',
+  brief: 'Paste a service need, hiring brief, or project outline to tighten before matching.'
+};
+
+const COACH_ACTIONS: Record<CoachSurface, Array<{ key: CoachActionKey; label: string; mode?: ScrolithaRewriteMode }>> = {
+  post: [
+    { key: 'grammar', label: 'Improve grammar', mode: 'grammar' },
+    { key: 'rephrase', label: 'Rephrase', mode: 'rephrase' },
+    { key: 'professional', label: 'Make professional', mode: 'professional' },
+    { key: 'shorten', label: 'Shorten', mode: 'shorten' },
+    { key: 'expand', label: 'Expand', mode: 'expand' }
+  ],
+  gig: [
+    { key: 'improve-gig', label: 'Improve gig' },
+    { key: 'professional', label: 'Make professional', mode: 'professional' },
+    { key: 'shorten', label: 'Shorten', mode: 'shorten' }
+  ],
+  brief: [
+    { key: 'clarify-brief', label: 'Clarify brief', mode: 'rephrase' },
+    { key: 'professional', label: 'Make professional', mode: 'professional' },
+    { key: 'expand', label: 'Expand', mode: 'expand' }
+  ]
+};
+
 const INSIGHTS_CACHE_VERSION = 'v2';
 const INSIGHTS_CACHE_TTL_MS = 15 * 60 * 1000;
 
@@ -147,7 +184,15 @@ export default function InsightsQuickPanel({
   const [selectedChallengeSubmissionMap, setSelectedChallengeSubmissionMap] = useState<Record<string, string>>({});
   const [featuredSeries, setFeaturedSeries] = useState<ScrollSeriesDiscovery[]>([]);
   const [broadcastChannels, setBroadcastChannels] = useState<BroadcastChannelSummary[]>([]);
+  const [officeHours, setOfficeHours] = useState<HighlightCommunityEvent[]>([]);
   const [broadcastActionBusy, setBroadcastActionBusy] = useState<string | null>(null);
+  const [officeHourActionBusy, setOfficeHourActionBusy] = useState<string | null>(null);
+  const [officeHourStatus, setOfficeHourStatus] = useState<string | null>(null);
+  const [coachSurface, setCoachSurface] = useState<CoachSurface>('post');
+  const [coachInput, setCoachInput] = useState('');
+  const [coachOutput, setCoachOutput] = useState('');
+  const [coachBusyAction, setCoachBusyAction] = useState<CoachActionKey | null>(null);
+  const [coachStatus, setCoachStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -166,6 +211,7 @@ export default function InsightsQuickPanel({
     Boolean(creatorChallengeDashboard?.challenges?.length) ||
     featuredSeries.length > 0 ||
     broadcastChannels.length > 0 ||
+    officeHours.length > 0 ||
     achievements.length > 0 ||
     quests.length > 0 ||
     matches.length > 0;
@@ -188,6 +234,7 @@ export default function InsightsQuickPanel({
         skillGap?: any;
         featuredSeries?: ScrollSeriesDiscovery[];
         broadcastChannels?: BroadcastChannelSummary[];
+        officeHours?: HighlightCommunityEvent[];
       };
       const ts = Number(parsed?.ts || 0);
       if (Date.now() - ts > INSIGHTS_CACHE_TTL_MS) return;
@@ -202,6 +249,7 @@ export default function InsightsQuickPanel({
       if (parsed?.skillGap) setSkillGap(parsed.skillGap);
       if (Array.isArray(parsed?.featuredSeries)) setFeaturedSeries(parsed.featuredSeries.slice(0, compact ? 2 : 3));
       if (Array.isArray(parsed?.broadcastChannels)) setBroadcastChannels(parsed.broadcastChannels.slice(0, compact ? 2 : 3));
+      if (Array.isArray(parsed?.officeHours)) setOfficeHours(parsed.officeHours.slice(0, compact ? 2 : 3));
       hasLoadedRef.current = true;
       setLoading(false);
       setError(null);
@@ -229,7 +277,8 @@ export default function InsightsQuickPanel({
           withFastFail(InsightsService.getFeedMode(), 15000, 'Feed mode request timed out.'),
           withFastFail(InsightsService.getSkillGap(), 15000, 'Skill gap request timed out.'),
           withFastFail(ScrollService.getDiscoverableSeries(compact ? 2 : 3), 15000, 'Series request timed out.'),
-          withFastFail(CommunityService.getBroadcastChannels(compact ? 2 : 3), 15000, 'Broadcast request timed out.')
+          withFastFail(CommunityService.getBroadcastChannels(compact ? 2 : 3), 15000, 'Broadcast request timed out.'),
+          withFastFail(CommunityService.getEvents(), 15000, 'Office hours request timed out.')
         ]);
 
         const [
@@ -243,7 +292,8 @@ export default function InsightsQuickPanel({
           feedModeResult,
           skillGapResult,
           featuredSeriesResult,
-          broadcastChannelsResult
+          broadcastChannelsResult,
+          officeHoursResult
         ] = results;
         const pgsData = takeValue(pgsResult);
         const streakData = takeValue(streakResult);
@@ -256,6 +306,10 @@ export default function InsightsQuickPanel({
         const skillGapData = takeValue(skillGapResult);
         const featuredSeriesData = takeValue(featuredSeriesResult);
         const broadcastChannelsData = takeValue(broadcastChannelsResult);
+        const officeHoursData =
+          officeHoursResult.status === 'fulfilled'
+            ? getHighlightedCommunityEvents(Array.isArray(officeHoursResult.value) ? officeHoursResult.value : [], compact ? 2 : 3)
+            : null;
 
         if (pgsData) setPgs(pgsData);
         if (streakData) setStreak(streakData);
@@ -273,6 +327,7 @@ export default function InsightsQuickPanel({
         if (skillGapData) setSkillGap(skillGapData);
         if (Array.isArray(featuredSeriesData)) setFeaturedSeries(featuredSeriesData.slice(0, compact ? 2 : 3));
         if (Array.isArray(broadcastChannelsData)) setBroadcastChannels(broadcastChannelsData.slice(0, compact ? 2 : 3));
+        if (Array.isArray(officeHoursData)) setOfficeHours(officeHoursData.slice(0, compact ? 2 : 3));
         try {
           localStorage.setItem(
             insightsCacheKey,
@@ -288,7 +343,8 @@ export default function InsightsQuickPanel({
               feedMode: (feedModeData?.mode || 'growth') as FeedMode,
               skillGap: skillGapData || null,
               featuredSeries: Array.isArray(featuredSeriesData) ? featuredSeriesData : [],
-              broadcastChannels: Array.isArray(broadcastChannelsData) ? broadcastChannelsData : []
+              broadcastChannels: Array.isArray(broadcastChannelsData) ? broadcastChannelsData : [],
+              officeHours: Array.isArray(officeHoursData) ? officeHoursData : []
             })
           );
         } catch {
@@ -313,7 +369,7 @@ export default function InsightsQuickPanel({
         setRefreshing(false);
       }
     },
-    [broadcastChannels.length, compact, featuredSeries.length, hasVisibleData, insightsCacheKey]
+    [broadcastChannels.length, compact, featuredSeries.length, hasVisibleData, insightsCacheKey, officeHours.length]
   );
 
   useEffect(() => {
@@ -349,6 +405,23 @@ export default function InsightsQuickPanel({
       socketHandlers.forEach((eventName) => socket?.off(eventName, onRefresh));
     };
   }, [socket, refresh, currentUserId]);
+
+  useEffect(() => {
+    const onEventRefresh = () => {
+      void refresh({ silent: true });
+    };
+    const browserEvents = [
+      'community:event_registered',
+      'community:event_unregistered',
+      'community:event_created',
+      'community:event_updated',
+      'community:event_deleted'
+    ] as const;
+    browserEvents.forEach((eventName) => window.addEventListener(eventName, onEventRefresh as EventListener));
+    return () => {
+      browserEvents.forEach((eventName) => window.removeEventListener(eventName, onEventRefresh as EventListener));
+    };
+  }, [refresh]);
 
   const scorePercent = useMemo(() => {
     const raw = Number(pgs?.score || 0);
@@ -442,6 +515,104 @@ export default function InsightsQuickPanel({
     const direct = String(channel?.source?.href || '').trim();
     return direct || '/community';
   }, []);
+  const focusInsightsSection = useCallback((sectionId: string, group?: 'growth' | 'opportunity') => {
+    if (typeof window !== 'undefined' && group) {
+      window.dispatchEvent(
+        new CustomEvent('insights:open_section', {
+          detail: { group, section: sectionId }
+        })
+      );
+    }
+    if (typeof document === 'undefined') return;
+    window.setTimeout(() => {
+      document.querySelector(`[data-insights-section="${sectionId}"]`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      });
+    }, group ? 120 : 0);
+  }, []);
+
+  useEffect(() => {
+    setCoachStatus(null);
+    setCoachOutput('');
+  }, [coachSurface]);
+
+  const runCoachAction = useCallback(
+    async (actionKey: CoachActionKey) => {
+      const text = String(coachInput || '').trim();
+      if (text.length < 12) {
+        setCoachStatus('Add a little more detail so Scrolitha has enough context to improve the draft.');
+        return;
+      }
+      setCoachBusyAction(actionKey);
+      setCoachStatus(null);
+      try {
+        let nextOutput = '';
+        if (coachSurface === 'gig' && actionKey === 'improve-gig') {
+          const result = await ScrolithaService.gigImprove({
+            text,
+            context: { surface: 'member_home', target: 'gig', source: 'insights_quick_panel' }
+          });
+          nextOutput = String(result?.improved || result?.rewrittenText || result?.text || '').trim();
+        } else {
+          const rewriteMode =
+            actionKey === 'clarify-brief'
+              ? 'rephrase'
+              : (COACH_ACTIONS[coachSurface].find((entry) => entry.key === actionKey)?.mode || 'professional');
+          const goal =
+            coachSurface === 'post'
+              ? 'Polish this post for a professional community feed while keeping it concise and credible.'
+              : coachSurface === 'gig'
+                ? 'Improve this gig copy so the offer is clearer, stronger, and easier for buyers to trust.'
+                : 'Clarify this brief so the need, scope, and expected outcome are easy to understand and match.';
+          const result = await ScrolithaService.rewrite({
+            text,
+            scope: coachSurface,
+            mode: rewriteMode as ScrolithaRewriteMode,
+            tone: actionKey === 'professional' ? 'professional' : undefined,
+            goal
+          });
+          nextOutput = String(result?.rewrittenText || result?.text || result?.reply || '').trim();
+        }
+
+        if (!nextOutput) {
+          throw new Error('Scrolitha returned an empty result. Please try again.');
+        }
+
+        setCoachOutput(nextOutput);
+        setCoachStatus('Scrolitha coach updated your draft.');
+      } catch (e: any) {
+        setCoachStatus(e?.response?.data?.message || e?.message || 'Scrolitha coach could not improve this draft right now.');
+      } finally {
+        setCoachBusyAction(null);
+      }
+    },
+    [coachInput, coachSurface]
+  );
+
+  const copyCoachOutput = useCallback(async () => {
+    const text = String(coachOutput || '').trim();
+    if (!text) return;
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        setCoachStatus('Draft copied.');
+      } else {
+        throw new Error('Clipboard not available.');
+      }
+    } catch {
+      setCoachStatus('Copy is unavailable on this device. Select the text manually.');
+    }
+  }, [coachOutput]);
+
+  const sendCoachOutputToBrief = useCallback(() => {
+    const text = String(coachOutput || coachInput || '').trim();
+    if (!text) return;
+    setBriefPrompt(text);
+    setBriefStatus('Scrolitha coach sent this draft into Brief to match.');
+    setCoachStatus('Draft moved to Brief to match.');
+    focusInsightsSection('brief-to-match', 'opportunity');
+  }, [coachInput, coachOutput, focusInsightsSection]);
 
   const toggleBroadcastFollow = useCallback(
     async (channel: BroadcastChannelSummary) => {
@@ -466,6 +637,40 @@ export default function InsightsQuickPanel({
       }
     },
     []
+  );
+
+  const toggleOfficeHourRegistration = useCallback(
+    async (event: HighlightCommunityEvent) => {
+      const eventId = String(event?.id || '').trim();
+      if (!eventId) return;
+      setOfficeHourActionBusy(eventId);
+      setOfficeHourStatus(null);
+      try {
+        if (event.isRegistered) {
+          await CommunityService.unregisterEvent(eventId);
+        } else {
+          await CommunityService.registerEvent(eventId);
+        }
+        setOfficeHours((current) =>
+          current.map((entry) =>
+            entry.id === eventId
+              ? {
+                  ...entry,
+                  isRegistered: !event.isRegistered,
+                  badge: !event.isRegistered ? (entry.isLive ? 'Live now' : 'Joined') : entry.isLive ? 'Live now' : entry.category === 'ama' ? 'AMA' : entry.category === 'office-hours' ? 'Office hours' : 'Event'
+                }
+              : entry
+          )
+        );
+        setOfficeHourStatus(event.isRegistered ? 'Office hours registration removed.' : 'You are registered for this session.');
+        void refresh({ silent: true });
+      } catch (e: any) {
+        setOfficeHourStatus(e?.response?.data?.message || e?.message || 'Unable to update event registration.');
+      } finally {
+        setOfficeHourActionBusy(null);
+      }
+    },
+    [refresh]
   );
 
   const mergeFriendStreakDashboard = useCallback(
@@ -1238,6 +1443,182 @@ export default function InsightsQuickPanel({
               </div>
             ) : (
               <p className="mt-3 text-xs text-slate-500">Creator and company broadcast updates will appear here as channels go live.</p>
+            )}
+          </div>
+
+          <div
+            data-insights-section="scrolitha-coach"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Scrolitha coach</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Improve posts, gigs, and briefs inside member_home without switching to a separate editor or assistant flow.
+                </p>
+              </div>
+              <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold text-cyan-700">Live coach</span>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {COACH_SURFACE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setCoachSurface(option.value)}
+                  className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
+                    coachSurface === option.value
+                      ? 'border border-indigo-200 bg-indigo-50 text-indigo-700'
+                      : 'border border-slate-200 bg-white text-slate-600'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
+            <p className="mt-2 text-[11px] text-slate-500">
+              {COACH_SURFACE_OPTIONS.find((option) => option.value === coachSurface)?.helper}
+            </p>
+
+            <textarea
+              value={coachInput}
+              onChange={(event) => setCoachInput(event.target.value)}
+              placeholder={COACH_PLACEHOLDERS[coachSurface]}
+              className="mt-3 min-h-[110px] w-full rounded-2xl border border-slate-200 px-3 py-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+            />
+
+            {coachStatus ? <p className="mt-2 text-xs text-slate-500">{coachStatus}</p> : null}
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {COACH_ACTIONS[coachSurface].map((action) => (
+                <button
+                  key={`${coachSurface}:${action.key}`}
+                  type="button"
+                  onClick={() => void runCoachAction(action.key)}
+                  disabled={coachBusyAction !== null}
+                  className={`rounded-xl px-3 py-2 text-xs font-semibold ${
+                    coachBusyAction === action.key
+                      ? 'bg-slate-900 text-white'
+                      : 'border border-slate-200 bg-white text-slate-700'
+                  } disabled:opacity-50`}
+                >
+                  {coachBusyAction === action.key ? 'Working...' : action.label}
+                </button>
+              ))}
+              {coachOutput ? (
+                <button
+                  type="button"
+                  onClick={() => void copyCoachOutput()}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                >
+                  Copy
+                </button>
+              ) : null}
+              {coachSurface === 'brief' ? (
+                <button
+                  type="button"
+                  onClick={sendCoachOutputToBrief}
+                  disabled={!String(coachOutput || coachInput || '').trim()}
+                  className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  Use in Brief to match
+                </button>
+              ) : null}
+            </div>
+
+            {coachOutput ? (
+              <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Updated draft</p>
+                  <span className="text-[11px] text-slate-400">{coachSurface}</span>
+                </div>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{coachOutput}</p>
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">
+                Choose a surface above, run a Scrolitha action, and the improved draft will appear here.
+              </p>
+            )}
+          </div>
+
+          <div
+            data-insights-section="live-office-hours"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Live AMAs / office hours</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Join creator or company sessions, register early, and keep the attendance loop inside your existing community events flow.
+                </p>
+              </div>
+              <span className="rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700">
+                {officeHours.length} live
+              </span>
+            </div>
+
+            {officeHourStatus ? <p className="mt-3 text-xs text-slate-500">{officeHourStatus}</p> : null}
+
+            {officeHours.length ? (
+              <div className="mt-3 grid gap-3">
+                {officeHours.map((event) => (
+                  <div key={event.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="line-clamp-1 text-sm font-semibold text-slate-900">{event.title}</p>
+                        <p className="mt-1 text-[11px] text-slate-500">{event.metaLabel}</p>
+                      </div>
+                      <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                        {event.badge}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-600">{event.description}</p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                      <span>{event.timingLabel}</span>
+                      {event.maxAttendees ? <span>{event.attendees}/{event.maxAttendees} seats</span> : null}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void toggleOfficeHourRegistration(event)}
+                        disabled={officeHourActionBusy === event.id}
+                        className={`rounded-xl px-3 py-2 text-xs font-semibold ${
+                          event.isRegistered ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'bg-slate-900 text-white'
+                        } disabled:opacity-50`}
+                      >
+                        {officeHourActionBusy === event.id
+                          ? 'Working...'
+                          : event.isRegistered
+                            ? event.isLive
+                              ? 'Joined'
+                              : 'Registered'
+                            : event.isLive
+                              ? 'Join live'
+                              : 'RSVP'}
+                      </button>
+                      <Link
+                        to="/community/events"
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600"
+                      >
+                        Open events
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs text-slate-500">
+                  Live AMAs and office hours will appear here as soon as creators or companies schedule upcoming sessions.
+                </p>
+                <Link
+                  to="/community/events"
+                  className="mt-3 inline-flex rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600"
+                >
+                  Browse events
+                </Link>
+              </div>
             )}
           </div>
 

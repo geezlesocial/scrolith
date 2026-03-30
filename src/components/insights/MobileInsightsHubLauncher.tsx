@@ -17,8 +17,10 @@ type MobileInsightsSectionId =
   | 'daily-missions'
   | 'badges-trophies'
   | 'weekly-challenges'
+  | 'scrolitha-coach'
   | 'scroll-series'
   | 'broadcast-channels'
+  | 'live-office-hours'
   | 'shared-accountability'
   | 'identity-trust'
   | 'delivery-packaging'
@@ -49,6 +51,7 @@ const GROWTH_SECTIONS: MobileInsightsSectionId[] = [
   'daily-missions',
   'badges-trophies',
   'weekly-challenges',
+  'scrolitha-coach',
   'scroll-series',
   'shared-accountability',
   'career-quests',
@@ -56,6 +59,7 @@ const GROWTH_SECTIONS: MobileInsightsSectionId[] = [
 ];
 const OPPORTUNITY_SECTIONS: MobileInsightsSectionId[] = [
   'broadcast-channels',
+  'live-office-hours',
   'identity-trust',
   'delivery-packaging',
   'brief-to-match',
@@ -106,6 +110,7 @@ export default function MobileInsightsHubLauncher() {
   const [hub, setHub] = useState<OpportunityHubData | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [activeGroup, setActiveGroup] = useState<MobileInsightsGroupId>('growth');
+  const [pendingSectionId, setPendingSectionId] = useState<MobileInsightsSectionId | null>(null);
 
   const sheetBodyRef = useRef<HTMLDivElement | null>(null);
   const hasSummaryData =
@@ -291,9 +296,14 @@ export default function MobileInsightsHubLauncher() {
         node.classList.toggle('hidden', !visibleSections.includes(sectionId));
       });
 
-      const target = root.querySelector(`[data-insights-section="${visibleSections[0]}"]`) as HTMLElement | null;
+      const requestedSection =
+        pendingSectionId && visibleSections.includes(pendingSectionId)
+          ? pendingSectionId
+          : visibleSections[0];
+      const target = root.querySelector(`[data-insights-section="${requestedSection}"]`) as HTMLElement | null;
       if (target) {
         target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (pendingSectionId) setPendingSectionId(null);
         return;
       }
 
@@ -307,7 +317,18 @@ export default function MobileInsightsHubLauncher() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [activeGroup, sheetOpen]);
+  }, [activeGroup, pendingSectionId, sheetOpen]);
+
+  useEffect(() => {
+    const onOpenSection = (event: Event) => {
+      const detail = (event as CustomEvent<{ group?: MobileInsightsGroupId; section?: MobileInsightsSectionId }>).detail || {};
+      if (detail.group) setActiveGroup(detail.group);
+      if (detail.section) setPendingSectionId(detail.section);
+      setSheetOpen(true);
+    };
+    window.addEventListener('insights:open_section', onOpenSection as EventListener);
+    return () => window.removeEventListener('insights:open_section', onOpenSection as EventListener);
+  }, []);
 
   const earnedAchievements = achievements.filter((item) => item?.earned);
   const careerDaily = streak?.careerDaily || null;
@@ -329,13 +350,13 @@ export default function MobileInsightsHubLauncher() {
       {
         id: 'growth',
         label: 'Growth controls',
-        description: 'Career streak, daily missions, badges, challenges, series, accountability, quests, and skill gap.',
+        description: 'Career streak, daily missions, badges, challenges, Scrolitha coach, series, accountability, quests, and skill gap.',
         value: growthProgress
       },
       {
         id: 'opportunity',
         label: 'Opportunity controls',
-        description: 'Broadcast updates, identity, trust, delivery, brief matching, feed mode, actions, and ranked opportunities.',
+        description: 'Broadcast updates, live office hours, identity, trust, delivery, brief matching, feed mode, actions, and ranked opportunities.',
         value: opportunityTotal > 0 ? `${opportunityTotal} live` : verificationState
       }
     ];

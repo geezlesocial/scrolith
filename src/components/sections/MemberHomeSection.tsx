@@ -20,7 +20,7 @@ import {
   VideoIcon as Video,
   XIcon as X
 } from '../icons/ShellIcons';
-import { AlertTriangle, ChevronLeft, ChevronRight, Coins, Download, Repeat2, Send as SendIcon } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Coins, Download, Repeat2, Send as SendIcon } from 'lucide-react';
 import { useLiveFeature } from '../../context/LiveFeatureContext';
 import { useUser } from '../../context/UserContext';
 import { useContent } from '../../context/ContentContext';
@@ -88,6 +88,7 @@ import { stashPendingPostVideoScrollViewerSource } from '../../utils/postVideoSc
 import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../../constants/defaultAudienceOptions';
 import { normalizeContentOfferTags, type OfferTagSelection } from '../../utils/contentOffers';
 import { buildPublicAppUrl } from '../../utils/siteUrl';
+import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../utils/communityEventHighlights';
 
 const STORY_CONTROL_HIDE_DELAY_MS = 20000;
 
@@ -890,6 +891,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [gigs, setGigs] = useState<Gig[]>([]);
   const [featuredSeries, setFeaturedSeries] = useState<ScrollSeriesDiscovery[]>([]);
   const [broadcastChannels, setBroadcastChannels] = useState<BroadcastChannelSummary[]>([]);
+  const [officeHours, setOfficeHours] = useState<HighlightCommunityEvent[]>([]);
   const [listingJobsPool, setListingJobsPool] = useState<Job[]>([]);
   const [listingGigsPool, setListingGigsPool] = useState<Gig[]>([]);
   const [listingImageErrors, setListingImageErrors] = useState<Record<string, boolean>>({});
@@ -1954,12 +1956,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     if (!user || !showDiscover) {
       setFeaturedSeries([]);
       setBroadcastChannels([]);
+      setOfficeHours([]);
       return;
     }
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      Promise.allSettled([ScrollService.getDiscoverableSeries(3), CommunityService.getBroadcastChannels(3)])
-        .then(([seriesResult, channelsResult]) => {
+      Promise.allSettled([ScrollService.getDiscoverableSeries(3), CommunityService.getBroadcastChannels(3), CommunityService.getEvents()])
+        .then(([seriesResult, channelsResult, eventsResult]) => {
           if (cancelled) return;
           setFeaturedSeries(
             seriesResult.status === 'fulfilled' && Array.isArray(seriesResult.value) ? seriesResult.value.slice(0, 3) : []
@@ -1967,11 +1970,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           setBroadcastChannels(
             channelsResult.status === 'fulfilled' && Array.isArray(channelsResult.value) ? channelsResult.value.slice(0, 3) : []
           );
+          setOfficeHours(
+            eventsResult.status === 'fulfilled'
+              ? getHighlightedCommunityEvents(Array.isArray(eventsResult.value) ? eventsResult.value : [], 2)
+              : []
+          );
         })
         .catch(() => {
           if (cancelled) return;
           setFeaturedSeries([]);
           setBroadcastChannels([]);
+          setOfficeHours([]);
         });
     }, 600);
     return () => {
@@ -4324,12 +4333,30 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     document.getElementById('member-home-feed-stream')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
+  const openInsightsSection = useCallback((sectionId: string, group?: 'growth' | 'opportunity') => {
+    if (typeof window !== 'undefined' && group) {
+      window.dispatchEvent(
+        new CustomEvent('insights:open_section', {
+          detail: { group, section: sectionId }
+        })
+      );
+    }
+    if (typeof document === 'undefined') return;
+    window.setTimeout(() => {
+      document.querySelector(`[data-insights-section="${sectionId}"]`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      });
+    }, group ? 120 : 0);
+  }, []);
+
   const discoveryAd = sidebarFeaturedAd || sidebarTopAd || sidebarMiddleAd;
 
   const memberHomeHighlightPills = useMemo<MemberHomeHighlightPill[]>(() => {
     const pills: MemberHomeHighlightPill[] = [{ label: 'Posts', value: String(feedItems.length) }];
     if (jobs.length) pills.push({ label: 'Jobs', value: String(jobs.length) });
     if (gigs.length) pills.push({ label: 'Gigs', value: String(gigs.length) });
+    if (officeHours.length) pills.push({ label: 'Live', value: String(officeHours.length) });
     if (featuredSeries.length) pills.push({ label: 'Series', value: String(featuredSeries.length) });
     if (broadcastChannels.length) pills.push({ label: 'Channels', value: String(broadcastChannels.length) });
     if (profiles.length || recommendedPages.length) {
@@ -4337,17 +4364,42 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     }
     if (discoveryAd) pills.push({ label: 'Sponsored', value: '1' });
     return pills;
-  }, [broadcastChannels.length, discoveryAd, featuredSeries.length, feedItems.length, gigs.length, jobs.length, profiles.length, recommendedPages.length]);
+  }, [
+    broadcastChannels.length,
+    discoveryAd,
+    featuredSeries.length,
+    feedItems.length,
+    gigs.length,
+    jobs.length,
+    officeHours.length,
+    profiles.length,
+    recommendedPages.length
+  ]);
 
   const memberHomeHighlightItems = useMemo<MemberHomeHighlightItem[]>(() => {
     const items: MemberHomeHighlightItem[] = [];
     const topJob = jobs[0] as any;
     const topGig = gigs[0] as any;
+    const topOfficeHour = officeHours[0];
     const topSeries = featuredSeries[0];
     const topBroadcastChannel = broadcastChannels[0];
     const topProfile = profiles[0];
     const topPage = recommendedPages[0];
     const topPost = feedItems[0];
+
+    items.push({
+      id: 'desktop-scrolitha-coach',
+      eyebrow: 'Scrolitha coach',
+      title: 'Improve posts, gigs, and briefs faster',
+      description: 'Use Scrolitha inside member_home to polish drafts before you publish, package, or match.',
+      meta: 'Posts · Gigs · Briefs',
+      badge: 'AI',
+      ctaLabel: 'Open coach',
+      onClick: () => openInsightsSection('scrolitha-coach', 'growth'),
+      mediaUrl: '/logo.png',
+      icon: <Sparkles className="h-4 w-4" />,
+      tone: 'violet'
+    });
 
     if (topJob) {
       items.push({
@@ -4378,6 +4430,23 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         mediaUrl: resolveListingImageUrl(topGig),
         icon: <Sparkles className="h-4 w-4" />,
         tone: 'violet'
+      });
+    }
+
+    if (topOfficeHour) {
+      items.push({
+        id: `desktop-office-hours:${topOfficeHour.id}`,
+        eyebrow: 'Live AMAs / office hours',
+        title: topOfficeHour.title || 'Upcoming office hours',
+        description: topOfficeHour.description,
+        meta: topOfficeHour.metaLabel,
+        badge: topOfficeHour.badge,
+        ctaLabel: topOfficeHour.isRegistered ? 'View session' : 'Open office hours',
+        onClick: () => openInsightsSection('live-office-hours', 'opportunity'),
+        mediaUrl: topOfficeHour.image || '',
+        fallbackMediaUrl: '/logo.png',
+        icon: <CalendarDays className="h-4 w-4" />,
+        tone: 'amber'
       });
     }
 
@@ -4486,6 +4555,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     gigs,
     handleSidebarAdClick,
     jobs,
+    officeHours,
+    openInsightsSection,
     profiles,
     recommendedPages
   ]);
@@ -5072,7 +5143,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             {memberHomeHighlightItems.length ? (
               <MemberHomeHighlightsBoard
                 title="Member Home Discovery Board"
-                subtitle="Surface the best of Scrolith in one place: live posts, featured opportunities, follow recommendations, and sponsored campaigns."
+                subtitle="Surface the best of Scrolith in one place: Scrolitha coach, live office hours, featured opportunities, follow recommendations, and sponsored campaigns."
                 pills={memberHomeHighlightPills}
                 items={memberHomeHighlightItems}
                 className="rise-fade-delay-1"

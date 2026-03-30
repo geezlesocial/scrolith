@@ -5,7 +5,7 @@ import {
   ShieldCheckIcon as ShieldCheck
 } from '../../../components/icons/ShellIcons';
 import { Link, useNavigate } from 'react-router-dom';
-import { Briefcase, Megaphone, MessageCircle, Newspaper, Sparkles, Users as UsersIcon, Video } from 'lucide-react';
+import { Briefcase, CalendarDays, Megaphone, MessageCircle, Newspaper, Sparkles, Users as UsersIcon, Video } from 'lucide-react';
 
 import { useSocket } from '../../../context/SocketContext';
 import { useUser } from '../../../context/UserContext';
@@ -41,6 +41,7 @@ import MemberHomeHighlightsBoard, {
   type MemberHomeHighlightItem,
   type MemberHomeHighlightPill
 } from '../../../components/member-home/MemberHomeHighlightsBoard';
+import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../../utils/communityEventHighlights';
 
 type MobileHomeLayoutSettings = {
   feed?: {
@@ -361,6 +362,7 @@ export default function MobileFeed({
   const [recommendedGigs, setRecommendedGigs] = useState<Gig[]>([]);
   const [featuredSeries, setFeaturedSeries] = useState<ScrollSeriesDiscovery[]>([]);
   const [broadcastChannels, setBroadcastChannels] = useState<BroadcastChannelSummary[]>([]);
+  const [officeHours, setOfficeHours] = useState<HighlightCommunityEvent[]>([]);
   const [secondaryFeedReady, setSecondaryFeedReady] = useState(false);
   const listingSlots = useMemo(() => {
     if (!showRecommendedGigsJobs || !user?.id || !posts.length) return 0;
@@ -449,6 +451,16 @@ export default function MobileFeed({
     document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
+  const openInsightsSection = useCallback((sectionId: string, group?: 'growth' | 'opportunity') => {
+    if (typeof window !== 'undefined' && group) {
+      window.dispatchEvent(
+        new CustomEvent('insights:open_section', {
+          detail: { group, section: sectionId }
+        })
+      );
+    }
+  }, []);
+
   const buildSeriesUrl = useCallback((seriesId?: string | null) => {
     const id = String(seriesId || '').trim();
     if (!id) return '/scroll';
@@ -470,6 +482,7 @@ export default function MobileFeed({
     const pills: MemberHomeHighlightPill[] = [{ label: 'Posts', value: String(posts.length) }];
     if (recommendedJobs.length) pills.push({ label: 'Jobs', value: String(recommendedJobs.length) });
     if (recommendedGigs.length) pills.push({ label: 'Gigs', value: String(recommendedGigs.length) });
+    if (officeHours.length) pills.push({ label: 'Live', value: String(officeHours.length) });
     if (featuredSeries.length) pills.push({ label: 'Series', value: String(featuredSeries.length) });
     if (broadcastChannels.length) pills.push({ label: 'Channels', value: String(broadcastChannels.length) });
     if (suggestedPeople.length || suggestedPages.length) {
@@ -481,6 +494,7 @@ export default function MobileFeed({
     ads.length,
     broadcastChannels.length,
     featuredSeries.length,
+    officeHours.length,
     posts.length,
     recommendedGigs.length,
     recommendedJobs.length,
@@ -492,12 +506,27 @@ export default function MobileFeed({
     const items: MemberHomeHighlightItem[] = [];
     const topJob = recommendedJobs[0];
     const topGig = recommendedGigs[0];
+    const topOfficeHour = officeHours[0];
     const topSeries = featuredSeries[0];
     const topBroadcastChannel = broadcastChannels[0];
     const topPerson = suggestedPeople[0];
     const topPage = suggestedPages[0];
     const topAd = ads[0];
     const topPost = posts[0];
+
+    items.push({
+      id: 'mobile-scrolitha-coach',
+      eyebrow: 'Scrolitha coach',
+      title: 'Improve posts, gigs, and briefs faster',
+      description: 'Open Scrolitha coach inside member_home to tighten your next post, listing, or brief.',
+      meta: 'Posts · Gigs · Briefs',
+      badge: 'AI',
+      ctaLabel: 'Open coach',
+      onClick: () => openInsightsSection('scrolitha-coach', 'growth'),
+      mediaUrl: '/logo.png',
+      icon: <Sparkles className="h-4 w-4" />,
+      tone: 'violet'
+    });
 
     if (topJob) {
       const budgetLabel = formatHighlightMoney((topJob as any)?.budget);
@@ -534,6 +563,23 @@ export default function MobileFeed({
         mediaUrl: resolveHighlightListingImage(topGig as any),
         icon: <Sparkles className="h-4 w-4" />,
         tone: 'violet'
+      });
+    }
+
+    if (topOfficeHour) {
+      items.push({
+        id: `mobile-office-hours:${topOfficeHour.id}`,
+        eyebrow: 'Live AMAs / office hours',
+        title: topOfficeHour.title || 'Upcoming office hours',
+        description: topOfficeHour.description,
+        meta: topOfficeHour.metaLabel,
+        badge: topOfficeHour.badge,
+        ctaLabel: topOfficeHour.isRegistered ? 'View session' : 'Open office hours',
+        onClick: () => openInsightsSection('live-office-hours', 'opportunity'),
+        mediaUrl: topOfficeHour.image || '',
+        fallbackMediaUrl: '/logo.png',
+        icon: <CalendarDays className="h-4 w-4" />,
+        tone: 'amber'
       });
     }
 
@@ -649,6 +695,8 @@ export default function MobileFeed({
     buildSeriesUrl,
     featuredSeries,
     handleHighlightedAdOpen,
+    officeHours,
+    openInsightsSection,
     onOpenScrollSeries,
     posts,
     recommendedGigs,
@@ -1247,9 +1295,10 @@ export default function MobileFeed({
     let cancelled = false;
     (async () => {
       const limit = constrainedForFeed ? 2 : 3;
-      const [seriesResult, broadcastResult] = await Promise.allSettled([
+      const [seriesResult, broadcastResult, eventsResult] = await Promise.allSettled([
         withFastFail(ScrollService.getDiscoverableSeries(limit), 15000, 'Series request timed out.'),
-        withFastFail(CommunityService.getBroadcastChannels(limit), 15000, 'Broadcast request timed out.')
+        withFastFail(CommunityService.getBroadcastChannels(limit), 15000, 'Broadcast request timed out.'),
+        withFastFail(CommunityService.getEvents(), 15000, 'Office hours request timed out.')
       ]);
       if (cancelled) return;
       if (seriesResult.status === 'fulfilled') {
@@ -1257,6 +1306,11 @@ export default function MobileFeed({
       }
       if (broadcastResult.status === 'fulfilled') {
         setBroadcastChannels(Array.isArray(broadcastResult.value) ? broadcastResult.value.slice(0, limit) : []);
+      }
+      if (eventsResult.status === 'fulfilled') {
+        setOfficeHours(getHighlightedCommunityEvents(Array.isArray(eventsResult.value) ? eventsResult.value : [], limit));
+      } else {
+        setOfficeHours([]);
       }
     })();
     return () => {
@@ -1512,7 +1566,7 @@ export default function MobileFeed({
         {showHighlightsBoard ? (
           <MemberHomeHighlightsBoard
             title="Member Home Highlights"
-            subtitle="Recommended opportunities, follow suggestions, promoted campaigns, and live post momentum in one place."
+            subtitle="Scrolitha coach, live office hours, recommended opportunities, follow suggestions, and live post momentum in one place."
             pills={highlightPills}
             items={highlightItems}
             compact
