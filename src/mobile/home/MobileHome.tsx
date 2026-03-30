@@ -249,6 +249,7 @@ const MobileHome = () => {
     initialItems: ScrollVideo[];
     initialActiveScrollId: string | null;
     initialViewerSource: PendingPostVideoScrollViewerSource | null;
+    initialSeriesId: string | null;
   } | null>(null);
 
   const allowDesktopOverride =
@@ -349,7 +350,12 @@ const MobileHome = () => {
 
   const shellLayerKey = useMemo(() => {
     if (scrollOverlay) {
-      return `scroll:${scrollOverlay.initialActiveScrollId || scrollOverlay.initialViewerSource?.fileId || scrollOverlay.key}`;
+      return `scroll:${
+        scrollOverlay.initialSeriesId ||
+        scrollOverlay.initialActiveScrollId ||
+        scrollOverlay.initialViewerSource?.fileId ||
+        scrollOverlay.key
+      }`;
     }
     if (activePanelTab) return `panel:${activePanelTab}`;
     if (searchOpen) return 'search';
@@ -504,7 +510,8 @@ const MobileHome = () => {
           key: Date.now(),
           initialItems: [scroll],
           initialActiveScrollId: normalizedId,
-          initialViewerSource: null
+          initialViewerSource: null,
+          initialSeriesId: null
         });
       });
     },
@@ -518,7 +525,26 @@ const MobileHome = () => {
           key: Date.now(),
           initialItems: [],
           initialActiveScrollId: null,
-          initialViewerSource: source
+          initialViewerSource: source,
+          initialSeriesId: null
+        });
+      });
+    },
+    []
+  );
+  const handleOpenScrollSeries = useMemo(
+    () => (seriesId: string, scrollId?: string | null) => {
+      const normalizedSeriesId = String(seriesId || '').trim();
+      if (!normalizedSeriesId) return;
+      const normalizedScrollId = String(scrollId || '').trim() || null;
+      flushSync(() => {
+        setActivePanelTab(null);
+        setScrollOverlay({
+          key: Date.now(),
+          initialItems: [],
+          initialActiveScrollId: normalizedScrollId,
+          initialViewerSource: null,
+          initialSeriesId: normalizedSeriesId
         });
       });
     },
@@ -623,6 +649,7 @@ const MobileHome = () => {
               mobileLayout={layout}
               onOpenScroll={handleOpenScrollOverlay}
               onOpenPostVideoScroll={handleOpenPostVideoScroll}
+              onOpenScrollSeries={handleOpenScrollSeries}
             />
           </Suspense>
         )}
@@ -666,6 +693,7 @@ const MobileHome = () => {
               initialItems={scrollOverlay.initialItems}
               initialActiveScrollId={scrollOverlay.initialActiveScrollId}
               initialViewerSource={scrollOverlay.initialViewerSource}
+              initialSeriesId={scrollOverlay.initialSeriesId}
             />
           </Suspense>
         </div>

@@ -17,6 +17,8 @@ type MobileInsightsSectionId =
   | 'daily-missions'
   | 'badges-trophies'
   | 'weekly-challenges'
+  | 'scroll-series'
+  | 'broadcast-channels'
   | 'shared-accountability'
   | 'identity-trust'
   | 'delivery-packaging'
@@ -47,11 +49,13 @@ const GROWTH_SECTIONS: MobileInsightsSectionId[] = [
   'daily-missions',
   'badges-trophies',
   'weekly-challenges',
+  'scroll-series',
   'shared-accountability',
   'career-quests',
   'skill-gap'
 ];
 const OPPORTUNITY_SECTIONS: MobileInsightsSectionId[] = [
+  'broadcast-channels',
   'identity-trust',
   'delivery-packaging',
   'brief-to-match',
@@ -325,13 +329,13 @@ export default function MobileInsightsHubLauncher() {
       {
         id: 'growth',
         label: 'Growth controls',
-        description: 'Career streak, daily missions, badges, challenges, accountability, quests, and skill gap.',
+        description: 'Career streak, daily missions, badges, challenges, series, accountability, quests, and skill gap.',
         value: growthProgress
       },
       {
         id: 'opportunity',
         label: 'Opportunity controls',
-        description: 'Identity, trust, delivery, brief matching, feed mode, actions, and ranked opportunities.',
+        description: 'Broadcast updates, identity, trust, delivery, brief matching, feed mode, actions, and ranked opportunities.',
         value: opportunityTotal > 0 ? `${opportunityTotal} live` : verificationState
       }
     ];

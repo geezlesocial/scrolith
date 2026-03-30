@@ -26,9 +26,9 @@ import { useUser } from '../../context/UserContext';
 import { useContent } from '../../context/ContentContext';
 import { useSocket } from '../../context/SocketContext';
 import { useNotification } from '../../context/NotificationContext';
-import { CommunityService } from '../../services/community';
+import { CommunityService, type BroadcastChannelSummary } from '../../services/community';
 import { PipelineService } from '../../services/pipeline';
-import { ScrollService, type ScrollConfig, type ScrollVideo } from '../../services/scroll';
+import { ScrollService, type ScrollConfig, type ScrollSeriesDiscovery, type ScrollVideo } from '../../services/scroll';
 import { ReactionsService } from '../../services/reactions';
 import { FileService } from '../../services/files';
 import { UserService } from '../../services/user';
@@ -888,6 +888,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [viewersLoading, setViewersLoading] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [gigs, setGigs] = useState<Gig[]>([]);
+  const [featuredSeries, setFeaturedSeries] = useState<ScrollSeriesDiscovery[]>([]);
+  const [broadcastChannels, setBroadcastChannels] = useState<BroadcastChannelSummary[]>([]);
   const [listingJobsPool, setListingJobsPool] = useState<Job[]>([]);
   const [listingGigsPool, setListingGigsPool] = useState<Gig[]>([]);
   const [listingImageErrors, setListingImageErrors] = useState<Record<string, boolean>>({});
@@ -1362,6 +1364,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     if (id) return `/profile/${id}`;
     if (currentUserId) return `/profile/${currentUserId}`;
     return '/profile/edit';
+  };
+  const buildSeriesUrl = (seriesId?: string | null) => {
+    const id = String(seriesId || '').trim();
+    if (!id) return '/scroll';
+    return `/scroll?series=${encodeURIComponent(id)}`;
   };
   const buildPageUrl = (page?: { slug?: string | null; handle?: string | null }) => {
     const slug = String(page?.slug || page?.handle || '').trim().replace(/^@+/, '');
@@ -1942,6 +1949,36 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       loadSidebar();
     }, 120);
   }, [loadSidebar]);
+
+  useEffect(() => {
+    if (!user || !showDiscover) {
+      setFeaturedSeries([]);
+      setBroadcastChannels([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      Promise.allSettled([ScrollService.getDiscoverableSeries(3), CommunityService.getBroadcastChannels(3)])
+        .then(([seriesResult, channelsResult]) => {
+          if (cancelled) return;
+          setFeaturedSeries(
+            seriesResult.status === 'fulfilled' && Array.isArray(seriesResult.value) ? seriesResult.value.slice(0, 3) : []
+          );
+          setBroadcastChannels(
+            channelsResult.status === 'fulfilled' && Array.isArray(channelsResult.value) ? channelsResult.value.slice(0, 3) : []
+          );
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setFeaturedSeries([]);
+          setBroadcastChannels([]);
+        });
+    }, 600);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [showDiscover, user]);
 
   const loadStories = useCallback(async () => {
     if (!user || !showStories) return;
@@ -4293,17 +4330,21 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     const pills: MemberHomeHighlightPill[] = [{ label: 'Posts', value: String(feedItems.length) }];
     if (jobs.length) pills.push({ label: 'Jobs', value: String(jobs.length) });
     if (gigs.length) pills.push({ label: 'Gigs', value: String(gigs.length) });
+    if (featuredSeries.length) pills.push({ label: 'Series', value: String(featuredSeries.length) });
+    if (broadcastChannels.length) pills.push({ label: 'Channels', value: String(broadcastChannels.length) });
     if (profiles.length || recommendedPages.length) {
       pills.push({ label: 'Network', value: String(profiles.length + recommendedPages.length) });
     }
     if (discoveryAd) pills.push({ label: 'Sponsored', value: '1' });
     return pills;
-  }, [discoveryAd, feedItems.length, gigs.length, jobs.length, profiles.length, recommendedPages.length]);
+  }, [broadcastChannels.length, discoveryAd, featuredSeries.length, feedItems.length, gigs.length, jobs.length, profiles.length, recommendedPages.length]);
 
   const memberHomeHighlightItems = useMemo<MemberHomeHighlightItem[]>(() => {
     const items: MemberHomeHighlightItem[] = [];
     const topJob = jobs[0] as any;
     const topGig = gigs[0] as any;
+    const topSeries = featuredSeries[0];
+    const topBroadcastChannel = broadcastChannels[0];
     const topProfile = profiles[0];
     const topPage = recommendedPages[0];
     const topPost = feedItems[0];
@@ -4337,6 +4378,46 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         mediaUrl: resolveListingImageUrl(topGig),
         icon: <Sparkles className="h-4 w-4" />,
         tone: 'violet'
+      });
+    }
+
+    if (topSeries) {
+      const featuredScroll = topSeries.featuredScroll || topSeries.previewItems?.[0] || topSeries.items?.[0]?.scroll || null;
+      items.push({
+        id: `desktop-series:${topSeries.id}`,
+        eyebrow: 'Series / playlists',
+        title: topSeries.title || 'Bingeable Scroll series',
+        description:
+          topSeries.description ||
+          featuredScroll?.description ||
+          featuredScroll?.title ||
+          'Creator-curated Scroll playlists keep the strongest work in sequence.',
+        meta: `${topSeries.creator.name} · ${topSeries.itemCount} items`,
+        badge: 'Series',
+        ctaLabel: 'Open series',
+        href: buildSeriesUrl(topSeries.id),
+        mediaUrl: featuredScroll?.media?.thumbnailUrl || featuredScroll?.media?.url || '',
+        icon: <Video className="h-4 w-4" />,
+        tone: 'rose'
+      });
+    }
+
+    if (topBroadcastChannel) {
+      items.push({
+        id: `desktop-broadcast:${topBroadcastChannel.id}`,
+        eyebrow: 'Broadcast updates',
+        title: topBroadcastChannel.name || topBroadcastChannel.source?.name || 'Creator updates',
+        description:
+          topBroadcastChannel.latestUpdate?.content ||
+          topBroadcastChannel.description ||
+          'Follow creator and company updates without digging through the full feed.',
+        meta: `${topBroadcastChannel.memberCount} followers · ${topBroadcastChannel.updateCount} updates`,
+        badge: topBroadcastChannel.isFollowing ? 'Following' : 'Live',
+        ctaLabel: 'Open source',
+        href: String(topBroadcastChannel.source?.href || '').trim() || '/community',
+        mediaUrl: topBroadcastChannel.source?.avatar || '',
+        icon: <MessageCircle className="h-4 w-4" />,
+        tone: 'emerald'
       });
     }
 
@@ -4392,12 +4473,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       });
     }
 
-    return items.slice(0, 5);
+    return items.slice(0, 6);
   }, [
+    broadcastChannels,
+    buildSeriesUrl,
     buildPageUrl,
     buildProfileUrl,
     discoveryAd,
     feedItems,
+    featuredSeries,
     focusFeedSection,
     gigs,
     handleSidebarAdClick,

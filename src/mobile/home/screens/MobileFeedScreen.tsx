@@ -9,11 +9,13 @@ import type { PendingPostVideoScrollViewerSource } from '../../../utils/postVide
 export default function MobileFeedScreen({
   mobileLayout,
   onOpenScroll,
-  onOpenPostVideoScroll
+  onOpenPostVideoScroll,
+  onOpenScrollSeries
 }: {
   mobileLayout?: any;
   onOpenScroll?: (scroll: ScrollVideo) => void;
   onOpenPostVideoScroll?: (source: PendingPostVideoScrollViewerSource) => void;
+  onOpenScrollSeries?: (seriesId: string, scrollId?: string | null) => void;
 } = {}) {
   const ctx = useOutletContext<any>();
   const layout = mobileLayout ?? ctx?.mobileLayout ?? null;
@@ -23,7 +25,11 @@ export default function MobileFeedScreen({
         <MobileInsightsHubLauncher />
       </div>
       <MobileStoriesStrip settings={layout} onOpenScroll={onOpenScroll} />
-      <MobileFeed settings={layout} onOpenPostVideoScroll={onOpenPostVideoScroll} />
+      <MobileFeed
+        settings={layout}
+        onOpenPostVideoScroll={onOpenPostVideoScroll}
+        onOpenScrollSeries={onOpenScrollSeries}
+      />
     </>
   );
 }

@@ -136,6 +136,11 @@ export interface ScrollSeriesDetail {
   updatedAt: string;
 }
 
+export interface ScrollSeriesDiscovery extends ScrollSeriesDetail {
+  featuredScroll?: ScrollVideo | null;
+  previewItems?: ScrollVideo[];
+}
+
 export interface ScrollPostingRestriction {
   id: string;
   userId: string;
@@ -392,6 +397,12 @@ class ScrollService {
   static async getSeries(id: string) {
     const response = await api.get(`/scroll/series/${encodeURIComponent(id)}`);
     return extractData<ScrollSeriesDetail>(response);
+  }
+
+  static async getDiscoverableSeries(limit: number = 4) {
+    const safeLimit = Math.max(1, Math.min(12, Number(limit || 4)));
+    const response = await api.get(`/scroll/series/discover?limit=${safeLimit}`);
+    return extractData<ScrollSeriesDiscovery[]>(response);
   }
 
   static async createSeries(payload: {

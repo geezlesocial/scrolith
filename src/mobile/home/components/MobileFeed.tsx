@@ -5,16 +5,17 @@ import {
   ShieldCheckIcon as ShieldCheck
 } from '../../../components/icons/ShellIcons';
 import { Link, useNavigate } from 'react-router-dom';
-import { Briefcase, Megaphone, Newspaper, Sparkles, Users as UsersIcon } from 'lucide-react';
+import { Briefcase, Megaphone, MessageCircle, Newspaper, Sparkles, Users as UsersIcon, Video } from 'lucide-react';
 
 import { useSocket } from '../../../context/SocketContext';
 import { useUser } from '../../../context/UserContext';
-import { CommunityService } from '../../../services/community';
+import { CommunityService, type BroadcastChannelSummary } from '../../../services/community';
 import { ReactionsService } from '../../../services/reactions';
 import { jobsApi, Job } from '../../../services/jobs';
 import { gigsApi, Gig } from '../../../services/gigs';
 import { RecoService } from '../../../services/reco';
 import { MessagingService } from '../../../services/messaging';
+import { ScrollService, type ScrollSeriesDiscovery } from '../../../services/scroll';
 import MentionText from '../../../community/components/MentionText';
 import PostEngagementBar from '../../../community/components/PostEngagementBar';
 import FollowButton from '../../../community/components/FollowButton';
@@ -309,10 +310,12 @@ const resolveProfileUrl = (
 
 export default function MobileFeed({
   settings,
-  onOpenPostVideoScroll
+  onOpenPostVideoScroll,
+  onOpenScrollSeries
 }: {
   settings?: MobileHomeLayoutSettings | null;
   onOpenPostVideoScroll?: (source: PendingPostVideoScrollViewerSource) => void;
+  onOpenScrollSeries?: (seriesId: string, scrollId?: string | null) => void;
 }) {
   const navigate = useNavigate();
   const { user } = useUser();
@@ -356,6 +359,8 @@ export default function MobileFeed({
   const [suggestedPages, setSuggestedPages] = useState<any[]>([]);
   const [recommendedJobs, setRecommendedJobs] = useState<Job[]>([]);
   const [recommendedGigs, setRecommendedGigs] = useState<Gig[]>([]);
+  const [featuredSeries, setFeaturedSeries] = useState<ScrollSeriesDiscovery[]>([]);
+  const [broadcastChannels, setBroadcastChannels] = useState<BroadcastChannelSummary[]>([]);
   const [secondaryFeedReady, setSecondaryFeedReady] = useState(false);
   const listingSlots = useMemo(() => {
     if (!showRecommendedGigsJobs || !user?.id || !posts.length) return 0;
@@ -444,6 +449,16 @@ export default function MobileFeed({
     document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
+  const buildSeriesUrl = useCallback((seriesId?: string | null) => {
+    const id = String(seriesId || '').trim();
+    if (!id) return '/scroll';
+    return `/scroll?series=${encodeURIComponent(id)}`;
+  }, []);
+
+  const resolveBroadcastHref = useCallback((channel?: BroadcastChannelSummary | null) => {
+    return String(channel?.source?.href || '').trim() || '/community';
+  }, []);
+
   const handleHighlightedAdOpen = useCallback((ad: any) => {
     const destination = String(ad?.destinationUrl || ad?.destination_url || '').trim();
     if (!destination) return;
@@ -455,17 +470,30 @@ export default function MobileFeed({
     const pills: MemberHomeHighlightPill[] = [{ label: 'Posts', value: String(posts.length) }];
     if (recommendedJobs.length) pills.push({ label: 'Jobs', value: String(recommendedJobs.length) });
     if (recommendedGigs.length) pills.push({ label: 'Gigs', value: String(recommendedGigs.length) });
+    if (featuredSeries.length) pills.push({ label: 'Series', value: String(featuredSeries.length) });
+    if (broadcastChannels.length) pills.push({ label: 'Channels', value: String(broadcastChannels.length) });
     if (suggestedPeople.length || suggestedPages.length) {
       pills.push({ label: 'Network', value: String(suggestedPeople.length + suggestedPages.length) });
     }
     if (ads.length) pills.push({ label: 'Sponsored', value: String(ads.length) });
     return pills;
-  }, [ads.length, posts.length, recommendedGigs.length, recommendedJobs.length, suggestedPages.length, suggestedPeople.length]);
+  }, [
+    ads.length,
+    broadcastChannels.length,
+    featuredSeries.length,
+    posts.length,
+    recommendedGigs.length,
+    recommendedJobs.length,
+    suggestedPages.length,
+    suggestedPeople.length
+  ]);
 
   const highlightItems = useMemo<MemberHomeHighlightItem[]>(() => {
     const items: MemberHomeHighlightItem[] = [];
     const topJob = recommendedJobs[0];
     const topGig = recommendedGigs[0];
+    const topSeries = featuredSeries[0];
+    const topBroadcastChannel = broadcastChannels[0];
     const topPerson = suggestedPeople[0];
     const topPage = suggestedPages[0];
     const topAd = ads[0];
@@ -506,6 +534,52 @@ export default function MobileFeed({
         mediaUrl: resolveHighlightListingImage(topGig as any),
         icon: <Sparkles className="h-4 w-4" />,
         tone: 'violet'
+      });
+    }
+
+    if (topSeries) {
+      const featuredScroll = topSeries.featuredScroll || topSeries.previewItems?.[0] || topSeries.items?.[0]?.scroll || null;
+      items.push({
+        id: `mobile-series:${topSeries.id}`,
+        eyebrow: 'Series / playlists',
+        title: topSeries.title || 'Bingeable Scroll series',
+        description:
+          topSeries.description ||
+          featuredScroll?.description ||
+          featuredScroll?.title ||
+          'Creator-curated Scroll playlists keep the strongest work in sequence.',
+        meta: `${topSeries.creator.name} · ${topSeries.itemCount} items`,
+        badge: 'Series',
+        ctaLabel: 'Open series',
+        ...(onOpenScrollSeries
+          ? {
+              onClick: () => onOpenScrollSeries(topSeries.id, featuredScroll?.id || null)
+            }
+          : {
+              href: buildSeriesUrl(topSeries.id)
+            }),
+        mediaUrl: featuredScroll?.media?.thumbnailUrl || featuredScroll?.media?.url || '',
+        icon: <Video className="h-4 w-4" />,
+        tone: 'rose'
+      });
+    }
+
+    if (topBroadcastChannel) {
+      items.push({
+        id: `mobile-broadcast:${topBroadcastChannel.id}`,
+        eyebrow: 'Broadcast updates',
+        title: topBroadcastChannel.name || topBroadcastChannel.source?.name || 'Creator updates',
+        description:
+          topBroadcastChannel.latestUpdate?.content ||
+          topBroadcastChannel.description ||
+          'Follow creator and company updates without digging through the full community feed.',
+        meta: `${topBroadcastChannel.memberCount} followers · ${topBroadcastChannel.updateCount} updates`,
+        badge: topBroadcastChannel.isFollowing ? 'Following' : 'Live',
+        ctaLabel: 'Open source',
+        href: resolveBroadcastHref(topBroadcastChannel),
+        mediaUrl: topBroadcastChannel.source?.avatar || '',
+        icon: <MessageCircle className="h-4 w-4" />,
+        tone: 'emerald'
       });
     }
 
@@ -568,13 +642,18 @@ export default function MobileFeed({
       });
     }
 
-    return items.slice(0, 4);
+    return items.slice(0, 6);
   }, [
     ads,
+    broadcastChannels,
+    buildSeriesUrl,
+    featuredSeries,
     handleHighlightedAdOpen,
+    onOpenScrollSeries,
     posts,
     recommendedGigs,
     recommendedJobs,
+    resolveBroadcastHref,
     scrollToFeedSection,
     suggestedPages,
     suggestedPeople
@@ -630,6 +709,8 @@ export default function MobileFeed({
 
   useEffect(() => {
     setSecondaryFeedReady(false);
+    setFeaturedSeries([]);
+    setBroadcastChannels([]);
   }, [currentUserId]);
 
   useEffect(() => {
@@ -1160,6 +1241,28 @@ export default function MobileFeed({
       window.clearTimeout(timer);
     };
   }, [feedSettings.showSuggestedPages, user?.id, secondaryFeedReady, loading, error, constrainedForFeed]);
+
+  useEffect(() => {
+    if (!secondaryFeedReady || loading || error || !user?.id) return;
+    let cancelled = false;
+    (async () => {
+      const limit = constrainedForFeed ? 2 : 3;
+      const [seriesResult, broadcastResult] = await Promise.allSettled([
+        withFastFail(ScrollService.getDiscoverableSeries(limit), 15000, 'Series request timed out.'),
+        withFastFail(CommunityService.getBroadcastChannels(limit), 15000, 'Broadcast request timed out.')
+      ]);
+      if (cancelled) return;
+      if (seriesResult.status === 'fulfilled') {
+        setFeaturedSeries(Array.isArray(seriesResult.value) ? seriesResult.value.slice(0, limit) : []);
+      }
+      if (broadcastResult.status === 'fulfilled') {
+        setBroadcastChannels(Array.isArray(broadcastResult.value) ? broadcastResult.value.slice(0, limit) : []);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [constrainedForFeed, error, loading, secondaryFeedReady, user?.id]);
 
   useEffect(() => {
     if (isConnected) return;

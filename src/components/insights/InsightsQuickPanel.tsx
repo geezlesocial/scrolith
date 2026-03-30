@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom';
 import { useSocket } from '../../context/SocketContext';
 import { useUser } from '../../context/UserContext';
+import { CommunityService, type BroadcastChannelSummary } from '../../services/community';
 import {
   type CreatorChallenge,
   type CreatorChallengeDashboard,
@@ -19,6 +20,7 @@ import {
   type UserStreak,
   type UserQuest
 } from '../../services/insights';
+import { ScrollService, type ScrollSeriesDiscovery } from '../../services/scroll';
 
 type Props = {
   compact?: boolean;
@@ -143,6 +145,9 @@ export default function InsightsQuickPanel({
   const [challengeActionBusy, setChallengeActionBusy] = useState<string | null>(null);
   const [challengeStatus, setChallengeStatus] = useState<string | null>(null);
   const [selectedChallengeSubmissionMap, setSelectedChallengeSubmissionMap] = useState<Record<string, string>>({});
+  const [featuredSeries, setFeaturedSeries] = useState<ScrollSeriesDiscovery[]>([]);
+  const [broadcastChannels, setBroadcastChannels] = useState<BroadcastChannelSummary[]>([]);
+  const [broadcastActionBusy, setBroadcastActionBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -159,6 +164,8 @@ export default function InsightsQuickPanel({
     Boolean(hub) ||
     Boolean(skillGap) ||
     Boolean(creatorChallengeDashboard?.challenges?.length) ||
+    featuredSeries.length > 0 ||
+    broadcastChannels.length > 0 ||
     achievements.length > 0 ||
     quests.length > 0 ||
     matches.length > 0;
@@ -179,6 +186,8 @@ export default function InsightsQuickPanel({
         matches?: any[];
         feedMode?: FeedMode;
         skillGap?: any;
+        featuredSeries?: ScrollSeriesDiscovery[];
+        broadcastChannels?: BroadcastChannelSummary[];
       };
       const ts = Number(parsed?.ts || 0);
       if (Date.now() - ts > INSIGHTS_CACHE_TTL_MS) return;
@@ -191,6 +200,8 @@ export default function InsightsQuickPanel({
       if (Array.isArray(parsed?.matches)) setMatches(parsed.matches.slice(0, compact ? 2 : 3));
       if (parsed?.feedMode) setFeedMode(parsed.feedMode);
       if (parsed?.skillGap) setSkillGap(parsed.skillGap);
+      if (Array.isArray(parsed?.featuredSeries)) setFeaturedSeries(parsed.featuredSeries.slice(0, compact ? 2 : 3));
+      if (Array.isArray(parsed?.broadcastChannels)) setBroadcastChannels(parsed.broadcastChannels.slice(0, compact ? 2 : 3));
       hasLoadedRef.current = true;
       setLoading(false);
       setError(null);
@@ -216,7 +227,9 @@ export default function InsightsQuickPanel({
           withFastFail(InsightsService.getOpportunityHub(), 15000, 'Opportunity hub request timed out.'),
           withFastFail(InsightsService.getMatches('all'), 15000, 'Opportunity matches request timed out.'),
           withFastFail(InsightsService.getFeedMode(), 15000, 'Feed mode request timed out.'),
-          withFastFail(InsightsService.getSkillGap(), 15000, 'Skill gap request timed out.')
+          withFastFail(InsightsService.getSkillGap(), 15000, 'Skill gap request timed out.'),
+          withFastFail(ScrollService.getDiscoverableSeries(compact ? 2 : 3), 15000, 'Series request timed out.'),
+          withFastFail(CommunityService.getBroadcastChannels(compact ? 2 : 3), 15000, 'Broadcast request timed out.')
         ]);
 
         const [
@@ -228,7 +241,9 @@ export default function InsightsQuickPanel({
           hubResult,
           matchesResult,
           feedModeResult,
-          skillGapResult
+          skillGapResult,
+          featuredSeriesResult,
+          broadcastChannelsResult
         ] = results;
         const pgsData = takeValue(pgsResult);
         const streakData = takeValue(streakResult);
@@ -239,6 +254,8 @@ export default function InsightsQuickPanel({
         const matchesData = takeValue(matchesResult);
         const feedModeData = takeValue(feedModeResult);
         const skillGapData = takeValue(skillGapResult);
+        const featuredSeriesData = takeValue(featuredSeriesResult);
+        const broadcastChannelsData = takeValue(broadcastChannelsResult);
 
         if (pgsData) setPgs(pgsData);
         if (streakData) setStreak(streakData);
@@ -254,6 +271,8 @@ export default function InsightsQuickPanel({
         setMatches(sourceMatches.slice(0, compact ? 2 : 3));
         if (feedModeData?.mode) setFeedMode((feedModeData.mode || 'growth') as FeedMode);
         if (skillGapData) setSkillGap(skillGapData);
+        if (Array.isArray(featuredSeriesData)) setFeaturedSeries(featuredSeriesData.slice(0, compact ? 2 : 3));
+        if (Array.isArray(broadcastChannelsData)) setBroadcastChannels(broadcastChannelsData.slice(0, compact ? 2 : 3));
         try {
           localStorage.setItem(
             insightsCacheKey,
@@ -267,7 +286,9 @@ export default function InsightsQuickPanel({
               hub: hubData || null,
               matches: sourceMatches,
               feedMode: (feedModeData?.mode || 'growth') as FeedMode,
-              skillGap: skillGapData || null
+              skillGap: skillGapData || null,
+              featuredSeries: Array.isArray(featuredSeriesData) ? featuredSeriesData : [],
+              broadcastChannels: Array.isArray(broadcastChannelsData) ? broadcastChannelsData : []
             })
           );
         } catch {
@@ -292,7 +313,7 @@ export default function InsightsQuickPanel({
         setRefreshing(false);
       }
     },
-    [compact, hasVisibleData, insightsCacheKey]
+    [broadcastChannels.length, compact, featuredSeries.length, hasVisibleData, insightsCacheKey]
   );
 
   useEffect(() => {
@@ -412,6 +433,40 @@ export default function InsightsQuickPanel({
   const earnedBadges = earnedAchievements.filter((item) => ['bronze', 'silver'].includes(String(item?.tier || '').toLowerCase()));
   const earnedTrophies = earnedAchievements.filter((item) => ['gold', 'platinum'].includes(String(item?.tier || '').toLowerCase()));
   const lockedAchievementPreview = achievements.filter((item) => !item?.earned).slice(0, compact ? 2 : 3);
+  const buildSeriesHref = useCallback((seriesId?: string | null) => {
+    const id = String(seriesId || '').trim();
+    if (!id) return '/scroll';
+    return `/scroll?series=${encodeURIComponent(id)}`;
+  }, []);
+  const resolveBroadcastHref = useCallback((channel?: BroadcastChannelSummary | null) => {
+    const direct = String(channel?.source?.href || '').trim();
+    return direct || '/community';
+  }, []);
+
+  const toggleBroadcastFollow = useCallback(
+    async (channel: BroadcastChannelSummary) => {
+      const channelId = String(channel?.id || '').trim();
+      if (!channelId) return;
+      setBroadcastActionBusy(channelId);
+      setStatusMessage(null);
+      try {
+        const next = channel.isFollowing
+          ? await CommunityService.unfollowBroadcastChannel(channelId)
+          : await CommunityService.followBroadcastChannel(channelId);
+        if (next?.id) {
+          setBroadcastChannels((current) =>
+            current.map((entry) => (String(entry.id) === channelId ? { ...entry, ...next } : entry))
+          );
+        }
+        setStatusMessage(channel.isFollowing ? 'Broadcast channel unfollowed.' : 'Broadcast channel followed.');
+      } catch (e: any) {
+        setStatusMessage(e?.response?.data?.message || e?.message || 'Unable to update broadcast follow status.');
+      } finally {
+        setBroadcastActionBusy(null);
+      }
+    },
+    []
+  );
 
   const mergeFriendStreakDashboard = useCallback(
     (dashboard: FriendStreakDashboard | null | undefined) => {
@@ -1051,6 +1106,138 @@ export default function InsightsQuickPanel({
               </div>
             ) : (
               <p className="mt-3 text-xs text-slate-500">Weekly creator challenges will appear here when the current week opens.</p>
+            )}
+          </div>
+
+          <div
+            data-insights-section="scroll-series"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Series and playlists</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Bingeable creator collections built on top of existing Scrolls, so viewers can keep watching the best work in sequence.
+                </p>
+              </div>
+              <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
+                {featuredSeries.length} live
+              </span>
+            </div>
+
+            {featuredSeries.length ? (
+              <div className="mt-3 grid gap-3">
+                {featuredSeries.map((series) => {
+                  const preview = series.previewItems?.[0] || series.featuredScroll || series.items?.[0]?.scroll || null;
+                  return (
+                    <div key={series.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="line-clamp-1 text-sm font-semibold text-slate-900">{series.title}</p>
+                          <p className="mt-1 text-[11px] text-slate-500">
+                            {series.creator.name}
+                            {series.creator.username ? ` (@${series.creator.username})` : ''}
+                            {' · '}
+                            {series.itemCount} items
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                          {series.status}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-600">
+                        {series.description || preview?.description || preview?.title || 'Open the playlist to keep watching without breaking the flow.'}
+                      </p>
+                      {preview ? (
+                        <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-500">
+                          <div className="font-semibold text-slate-700">{preview.title || 'Featured Scroll'}</div>
+                          <div className="mt-1 line-clamp-2">{preview.description || 'Top item ready to watch.'}</div>
+                        </div>
+                      ) : null}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Link
+                          to={buildSeriesHref(series.id)}
+                          className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
+                        >
+                          Open series
+                        </Link>
+                        <Link
+                          to="/scroll"
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600"
+                        >
+                          Browse Scroll
+                        </Link>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">Public creator series will appear here when members start organizing Scrolls into playlists.</p>
+            )}
+          </div>
+
+          <div
+            data-insights-section="broadcast-channels"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Broadcast channels</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Follow creator and company broadcast channels to receive focused updates without digging through the full community feed.
+                </p>
+              </div>
+              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                {broadcastChannels.length} live
+              </span>
+            </div>
+
+            {broadcastChannels.length ? (
+              <div className="mt-3 grid gap-3">
+                {broadcastChannels.map((channel) => (
+                  <div key={channel.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="line-clamp-1 text-sm font-semibold text-slate-900">{channel.name}</p>
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          {channel.source.name}
+                          {' · '}
+                          {channel.memberCount} followers
+                          {' · '}
+                          {channel.updateCount} updates
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                        {channel.sourceType === 'page' ? 'Company' : 'Creator'}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-600">
+                      {channel.latestUpdate?.content || channel.description || 'Follow this channel to receive the next update directly in your member_home workflow.'}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void toggleBroadcastFollow(channel)}
+                        disabled={broadcastActionBusy === channel.id}
+                        className={`rounded-xl px-3 py-2 text-xs font-semibold ${
+                          channel.isFollowing ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'bg-slate-900 text-white'
+                        } disabled:opacity-50`}
+                      >
+                        {broadcastActionBusy === channel.id ? 'Working...' : channel.isFollowing ? 'Following' : 'Follow'}
+                      </button>
+                      <Link
+                        to={resolveBroadcastHref(channel)}
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600"
+                      >
+                        Open source
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">Creator and company broadcast updates will appear here as channels go live.</p>
             )}
           </div>
 

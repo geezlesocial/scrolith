@@ -101,6 +101,7 @@ type ScrollFeedProps = {
   initialItems?: ScrollVideo[];
   initialActiveScrollId?: string | null;
   initialViewerSource?: PendingPostVideoScrollViewerSource | null;
+  initialSeriesId?: string | null;
 };
 
 const ScrollFeed: React.FC<ScrollFeedProps> = ({
@@ -108,7 +109,8 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   onClose,
   initialItems = [],
   initialActiveScrollId = null,
-  initialViewerSource = null
+  initialViewerSource = null,
+  initialSeriesId = null
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -150,6 +152,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const observerRef = useRef<IntersectionObserver | null>(null);
   const viewerSeedSourceRef = useRef<PendingPostVideoScrollViewerSource | null>(null);
   const seededItemsRef = useRef<ScrollVideo[]>(Array.isArray(initialItems) ? initialItems.filter(Boolean) : []);
+  const openedSeriesSourceRef = useRef<string | null>(null);
 
   const patchMetrics = useCallback((scrollId: string, metrics: Partial<ScrollVideo['metrics']>) => {
     setItems((prev) =>
@@ -651,6 +654,21 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     },
     [mergeScrollItems]
   );
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const querySeriesId = embedded ? '' : String(params.get('series') || '').trim();
+    const targetSeriesId = String(initialSeriesId || querySeriesId || '').trim();
+    if (!targetSeriesId) {
+      openedSeriesSourceRef.current = null;
+      return;
+    }
+    const targetScrollId = embedded ? String(initialActiveScrollId || '').trim() : String(params.get('scroll') || '').trim();
+    const openKey = `${embedded ? 'embedded' : 'route'}:${targetSeriesId}:${targetScrollId || ''}`;
+    if (openedSeriesSourceRef.current === openKey) return;
+    openedSeriesSourceRef.current = openKey;
+    void handleOpenSeries(targetSeriesId, targetScrollId || undefined);
+  }, [embedded, handleOpenSeries, initialActiveScrollId, initialSeriesId, location.search]);
 
   const handleSelectSeriesScroll = useCallback(
     (scrollId: string) => {

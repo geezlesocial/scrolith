@@ -262,6 +262,41 @@ export type BusinessPageStorefrontPayload = {
   summary: BusinessPagePackageSummary;
 };
 
+export type BroadcastChannelSummary = {
+  id: string;
+  name: string;
+  description?: string;
+  purpose: 'broadcast' | string;
+  isPublic: boolean;
+  memberCount: number;
+  updateCount: number;
+  canManage?: boolean;
+  isFollowing?: boolean;
+  sourceType: 'creator' | 'page' | string;
+  source: {
+    id: string;
+    name: string;
+    username?: string | null;
+    slug?: string | null;
+    avatar?: string | null;
+    href?: string | null;
+    isVerified?: boolean;
+  };
+  latestUpdate?: {
+    id: string;
+    content: string;
+    createdAt: string;
+    author?: {
+      id: string;
+      name: string;
+      avatar?: string | null;
+    };
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+  lastActivity?: string | null;
+};
+
 const normalizeBusinessPagePackageBilling = (value: unknown): BusinessPagePackageBilling => {
   const normalized = String(value || '').toLowerCase();
   if (normalized === 'hourly') return 'hourly';
@@ -1373,6 +1408,37 @@ class CommunityService {
       console.error('Failed to load channels:', error);
       return [];
     }
+  }
+
+  static async getBroadcastChannels(limit: number = 4): Promise<BroadcastChannelSummary[]> {
+    try {
+      const safeLimit = Math.max(1, Math.min(12, Number(limit || 4)));
+      const data = await this.get(`/community/broadcast-channels/discover?limit=${safeLimit}`);
+      return Array.isArray(data) ? (data as BroadcastChannelSummary[]) : [];
+    } catch (error) {
+      console.error('Failed to load broadcast channels:', error);
+      return [];
+    }
+  }
+
+  static async getMyBroadcastChannels(): Promise<BroadcastChannelSummary[]> {
+    try {
+      const data = await this.get('/community/broadcast-channels/mine');
+      return Array.isArray(data) ? (data as BroadcastChannelSummary[]) : [];
+    } catch (error) {
+      console.error('Failed to load your broadcast channels:', error);
+      return [];
+    }
+  }
+
+  static async followBroadcastChannel(channelId: string): Promise<BroadcastChannelSummary | null> {
+    const response = await this.post(`/community/broadcast-channels/${encodeURIComponent(channelId)}/follow`, {});
+    return extractData<BroadcastChannelSummary | null>(response);
+  }
+
+  static async unfollowBroadcastChannel(channelId: string): Promise<BroadcastChannelSummary | null> {
+    const response = await this.post(`/community/broadcast-channels/${encodeURIComponent(channelId)}/unfollow`, {});
+    return extractData<BroadcastChannelSummary | null>(response);
   }
 
   static async createChannel(channelData: {
