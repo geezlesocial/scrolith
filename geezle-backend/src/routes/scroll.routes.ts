@@ -6,6 +6,7 @@ import {
   createScrollComment,
   createScrollSeries,
   deleteScrollSeries,
+  getDiscoverableScrollSeries,
   getMyScrollSeries,
   updateScroll,
   updateScrollComment,
@@ -24,6 +25,7 @@ const SOCIAL_WRITE_IDEMPOTENCY_TTL_MS = 2 * 60 * 1000;
 
 router.get('/feed', authMiddleware, getScrollFeed);
 router.post('/create', authMiddleware, createScroll);
+router.get('/series/discover', authMiddleware, getDiscoverableScrollSeries);
 router.get('/series/mine', authMiddleware, getMyScrollSeries);
 router.post('/series', authMiddleware, createScrollSeries);
 router.get('/series/:id', authMiddleware, getScrollSeriesDetail);

@@ -3040,19 +3040,22 @@ model EventRegistration {
 }
 
 model CommunityChannel {
-  id           String      @id @default(cuid())
-  name         String
-  description  String?     @db.Text
-  type         ChannelType @default(PUBLIC)
-  ownerId      String
-  isPublic     Boolean     @default(true)
-  memberCount  Int         @default(0)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  lastActivity DateTime?
+  id             String      @id @default(cuid())
+  name           String
+  description    String?     @db.Text
+  type           ChannelType @default(PUBLIC)
+  ownerId        String
+  purpose        String      @default("chat")
+  businessPageId String?
+  isPublic       Boolean     @default(true)
+  memberCount    Int         @default(0)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  lastActivity   DateTime?
 
   // Relationships
   owner                   User                     @relation("ChannelOwner", fields: [ownerId], references: [id])
+  businessPage            CommunityBusinessPage?   @relation("BroadcastChannelPageAdmin", fields: [businessPageId], references: [id], onDelete: SetNull)
   memberships             ChannelMembership[]
   messages                CommunityMessage[]
   channelSubscriptionPlan ChannelSubscriptionPlan?
@@ -3060,6 +3063,8 @@ model CommunityChannel {
 
   @@index([ownerId])
   @@index([type])
+  @@index([businessPageId])
+  @@index([purpose, isPublic, lastActivity])
 }
 
 model ChannelMembership {
@@ -3937,10 +3942,11 @@ model CommunityBusinessPage {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
-  owner     User                            @relation("BusinessPageOwner", fields: [ownerId], references: [id], onDelete: Cascade)
-  followers CommunityBusinessPageFollower[]
-  admins    CommunityBusinessPageAdmin[]
-  posts     CommunityPost[]
+  owner             User                            @relation("BusinessPageOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  followers         CommunityBusinessPageFollower[]
+  admins            CommunityBusinessPageAdmin[]
+  posts             CommunityPost[]
+  broadcastChannels CommunityChannel[]              @relation("BroadcastChannelPageAdmin")
 
   @@index([ownerId])
   @@index([status])

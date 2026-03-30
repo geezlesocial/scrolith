@@ -115,6 +115,15 @@ import {
   adminDeleteBusinessPage
 } from '../controllers/community.business.controller';
 import {
+  createBroadcastChannel,
+  createBroadcastChannelPost,
+  followBroadcastChannel,
+  getBroadcastChannelDiscover,
+  getMyBroadcastChannels,
+  unfollowBroadcastChannel,
+  updateBroadcastChannel
+} from '../controllers/community.broadcast.controller';
+import {
   followTarget,
   unfollowTarget,
   unfollowTargetByUserId,
@@ -174,6 +183,8 @@ router.get('/homepage', getCommunityHomepage);
 router.get('/stories/feed', authMiddleware, getStoriesFeed);
 router.get('/business-pages/recommendations', authMiddleware, getRecommendedBusinessPages);
 router.get('/business-pages/config', getBusinessPageFeatureConfig);
+router.get('/broadcast-channels/discover', authMiddleware, getBroadcastChannelDiscover);
+router.get('/broadcast-channels/mine', authMiddleware, getMyBroadcastChannels);
 router.get('/mentions/pages', getPageMentions);
 router.get('/mentions/users', authMiddleware, getUserMentions);
 
@@ -190,6 +201,11 @@ router.post('/channels/:channelId/delete', authMiddleware, adminMiddleware, dele
 router.post('/channels/:channelId/join', authMiddleware, adminMiddleware, joinChannel);
 router.post('/channels/:channelId/leave', authMiddleware, adminMiddleware, leaveChannel);
 router.post('/channels/:channelId/messages', authMiddleware, adminMiddleware, postChannelMessage);
+router.post('/broadcast-channels', authMiddleware, createBroadcastChannel);
+router.put('/broadcast-channels/:id', authMiddleware, updateBroadcastChannel);
+router.post('/broadcast-channels/:id/follow', authMiddleware, followBroadcastChannel);
+router.post('/broadcast-channels/:id/unfollow', authMiddleware, unfollowBroadcastChannel);
+router.post('/broadcast-channels/:id/posts', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), createBroadcastChannelPost);
 router.post('/clubs/join', authMiddleware, joinClub);
 router.post('/clubs/leave', authMiddleware, leaveClub);
 router.post('/clubs/:clubId/delete', authMiddleware, adminMiddleware, deleteClub);

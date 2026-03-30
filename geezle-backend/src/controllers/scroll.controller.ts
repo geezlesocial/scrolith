@@ -1776,6 +1776,50 @@ const buildScrollSeriesPayload = async (
   };
 };
 
+export const getDiscoverableScrollSeries = async (req: Request, res: Response) => {
+  try {
+    const viewerId = String((req as any)?.user?.id || '').trim() || null;
+    const limit = Math.max(1, Math.min(12, toInt(req.query?.limit, 4)));
+    const prismaAny = prisma as any;
+    const rows = await prismaAny.scrollSeries.findMany({
+      where: {
+        status: 'active',
+        visibility: 'public',
+        items: {
+          some: {
+            scroll: {
+              status: 'active'
+            }
+          }
+        }
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      take: limit
+    });
+    const payloads = await Promise.all(
+      rows.map((row: any) => buildScrollSeriesPayload(req, row, viewerId, { includeItems: true }))
+    );
+    const data = payloads
+      .filter(Boolean)
+      .map((row: any) => ({
+        ...row,
+        featuredScroll: row?.items?.[0]?.scroll || null,
+        previewItems: Array.isArray(row?.items) ? row.items.slice(0, 3).map((entry: any) => entry.scroll).filter(Boolean) : []
+      }));
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll module tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    console.error('getDiscoverableScrollSeries error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to load scroll series.' });
+  }
+};
+
 export const getMyScrollSeries = async (req: Request, res: Response) => {
   try {
     const userId = String((req as any)?.user?.id || '').trim();
