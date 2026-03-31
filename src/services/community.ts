@@ -297,6 +297,56 @@ export type BroadcastChannelSummary = {
   lastActivity?: string | null;
 };
 
+export type StoryReplyItem = {
+  id: string;
+  storyId: string;
+  parentId?: string | null;
+  content: string;
+  createdAt: string;
+  updatedAt?: string | null;
+  viewerCanDelete?: boolean;
+  author: {
+    id: string;
+    name: string;
+    username?: string | null;
+    avatarUrl?: string | null;
+  };
+  replies: StoryReplyItem[];
+};
+
+export type StoryRepliesPayload = {
+  storyId: string;
+  totalReplies: number;
+  commentsCount: number;
+  replies: StoryReplyItem[];
+};
+
+export type CommunityPollOptionSummary = {
+  id: string;
+  label: string;
+  description?: string | null;
+  accent?: string | null;
+  position: number;
+  voteCount: number;
+  percentage: number;
+  selected?: boolean;
+};
+
+export type CommunityPollSummary = {
+  id: string;
+  key?: string | null;
+  title: string;
+  prompt: string;
+  kind: 'poll' | 'versus' | string;
+  status: string;
+  sourceScope: string;
+  totalVotes: number;
+  viewerVoteOptionId?: string | null;
+  createdAt: string;
+  endsAt?: string | null;
+  options: CommunityPollOptionSummary[];
+};
+
 const normalizeBusinessPagePackageBilling = (value: unknown): BusinessPagePackageBilling => {
   const normalized = String(value || '').toLowerCase();
   if (normalized === 'hourly') return 'hourly';
@@ -1129,6 +1179,53 @@ class CommunityService {
   static async engageStory(id: string, type: 'comment' | 'repost' | 'dash' | 'send'): Promise<any> {
     const response = await this.post(`/community/stories/${id}/engage`, { type });
     return response?.data ?? response;
+  }
+
+  static async getStoryReplies(id: string): Promise<StoryRepliesPayload> {
+    const response = await api.get(`/community/stories/${encodeURIComponent(id)}/replies`);
+    const data = extractData<any>(response) || {};
+    return {
+      storyId: String(data?.storyId || id || ''),
+      totalReplies: Number(data?.totalReplies || 0),
+      commentsCount: Number(data?.commentsCount || 0),
+      replies: Array.isArray(data?.replies) ? (data.replies as StoryReplyItem[]) : []
+    };
+  }
+
+  static async createStoryReply(
+    id: string,
+    payload: { content: string; parentId?: string | null }
+  ): Promise<{ storyId: string; commentsCount: number; reply: StoryReplyItem | null }> {
+    const response = await api.post(`/community/stories/${encodeURIComponent(id)}/replies`, payload);
+    const data = extractData<any>(response) || {};
+    return {
+      storyId: String(data?.storyId || id || ''),
+      commentsCount: Number(data?.commentsCount || 0),
+      reply: data?.reply ? (data.reply as StoryReplyItem) : null
+    };
+  }
+
+  static async deleteStoryReply(replyId: string): Promise<{ storyId: string; replyId: string; removedCount: number; commentsCount: number }> {
+    const response = await api.delete(`/community/stories/replies/${encodeURIComponent(replyId)}`);
+    const data = extractData<any>(response) || {};
+    return {
+      storyId: String(data?.storyId || ''),
+      replyId: String(data?.replyId || replyId || ''),
+      removedCount: Number(data?.removedCount || 0),
+      commentsCount: Number(data?.commentsCount || 0)
+    };
+  }
+
+  static async getPolls(limit: number = 4): Promise<CommunityPollSummary[]> {
+    const safeLimit = Math.max(1, Math.min(8, Number(limit || 4)));
+    const response = await api.get(`/community/polls/discover?scope=member_home&limit=${safeLimit}`);
+    const data = extractData<any>(response);
+    return Array.isArray(data) ? (data as CommunityPollSummary[]) : [];
+  }
+
+  static async votePoll(pollId: string, optionId: string): Promise<CommunityPollSummary | null> {
+    const response = await api.post(`/community/polls/${encodeURIComponent(pollId)}/vote`, { optionId });
+    return extractData<CommunityPollSummary | null>(response);
   }
 
   static async getMyBusinessPages(): Promise<any[]> {

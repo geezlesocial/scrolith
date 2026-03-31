@@ -16,12 +16,16 @@ type MobileInsightsSectionId =
   | 'career-daily'
   | 'daily-missions'
   | 'badges-trophies'
+  | 'league-tiers'
   | 'weekly-challenges'
+  | 'polls-versus'
   | 'scrolitha-coach'
   | 'scroll-series'
   | 'broadcast-channels'
   | 'live-office-hours'
   | 'shared-accountability'
+  | 'referral-squads'
+  | 'gcoin-reward-drops'
   | 'identity-trust'
   | 'delivery-packaging'
   | 'brief-to-match'
@@ -50,10 +54,14 @@ const GROWTH_SECTIONS: MobileInsightsSectionId[] = [
   'career-daily',
   'daily-missions',
   'badges-trophies',
+  'league-tiers',
   'weekly-challenges',
+  'polls-versus',
   'scrolitha-coach',
   'scroll-series',
   'shared-accountability',
+  'referral-squads',
+  'gcoin-reward-drops',
   'career-quests',
   'skill-gap'
 ];
@@ -350,7 +358,8 @@ export default function MobileInsightsHubLauncher() {
       {
         id: 'growth',
         label: 'Growth controls',
-        description: 'Career streak, daily missions, badges, challenges, Scrolitha coach, series, accountability, quests, and skill gap.',
+        description:
+          'Career streak, daily missions, badges, league tiers, polls, challenges, Scrolitha coach, series, accountability, referral squads, reward drops, quests, and skill gap.',
         value: growthProgress
       },
       {

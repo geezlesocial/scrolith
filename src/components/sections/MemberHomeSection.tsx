@@ -82,6 +82,7 @@ import MemberHomeHighlightsBoard, {
   type MemberHomeHighlightPill
 } from '../member-home/MemberHomeHighlightsBoard';
 import StoryUploadStatusCard from '../stories/StoryUploadStatusCard';
+import StoryReplySheet from '../stories/StoryReplySheet';
 import { usePerformanceProfile } from '../../hooks/usePerformanceProfile';
 import { Capacitor } from '@capacitor/core';
 import { stashPendingPostVideoScrollViewerSource } from '../../utils/postVideoScrollBridge';
@@ -7383,43 +7384,20 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         </div>
       )}
 
-      {storyCommentOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/60"
-            onClick={() => setStoryCommentOpen(false)}
-          />
-          <div className="relative w-full max-w-lg rounded-2xl bg-white p-5 text-slate-900 shadow-2xl">
-            <h3 className="text-base font-semibold">Comment on story</h3>
-            <p className="mt-1 text-xs text-slate-500">Your comment will be shared to your feed and linked to this story.</p>
-            <textarea
-              value={storyCommentDraft}
-              onChange={(event) => setStoryCommentDraft(event.target.value)}
-              rows={4}
-              placeholder="Write your comment..."
-              className="mt-4 w-full rounded-xl border border-slate-200 p-3 text-sm text-slate-700"
-            />
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setStoryCommentOpen(false)}
-                className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void submitStoryComment()}
-                className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase text-white"
-                disabled={Boolean(storyActionBusy[String(storyActionTarget?.id || '')])}
-              >
-                {storyActionBusy[String(storyActionTarget?.id || '')] ? 'Posting...' : 'Comment'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <StoryReplySheet
+        open={storyCommentOpen}
+        story={storyActionTarget}
+        onClose={() => setStoryCommentOpen(false)}
+        onStoryUpdate={(patch) => {
+          if (!patch?.id) return;
+          applyStoryUpdate({
+            ...(storyActionTarget || {}),
+            ...patch
+          });
+        }}
+        presentation="modal"
+        zIndexClassName="z-50"
+      />
 
       <RepostModal
         isOpen={storyRepostOpen}

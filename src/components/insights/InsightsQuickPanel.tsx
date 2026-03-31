@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom';
 import { useSocket } from '../../context/SocketContext';
 import { useUser } from '../../context/UserContext';
-import { CommunityService, type BroadcastChannelSummary } from '../../services/community';
+import { CommunityService, type BroadcastChannelSummary, type CommunityPollSummary } from '../../services/community';
 import {
   type CreatorChallenge,
   type CreatorChallengeDashboard,
@@ -14,9 +14,12 @@ import {
   type FeedMode,
   type FriendStreakActiveSummary,
   type FriendStreakInviteSummary,
+  type LeagueTierSummary,
   type OpportunityBriefResult,
   type OpportunityHubData,
   type ProfessionalScore,
+  type ReferralSquadSummary,
+  type RewardDropSummary,
   type UserStreak,
   type UserQuest
 } from '../../services/insights';
@@ -87,6 +90,21 @@ const tierClassName = (tier: string) => {
       return 'border-slate-300 bg-slate-100 text-slate-700';
     default:
       return 'border-orange-200 bg-orange-50 text-orange-700';
+  }
+};
+
+const leagueAccentClassName = (accent: string) => {
+  switch (String(accent || '').toLowerCase()) {
+    case 'amber':
+      return 'border-amber-200 bg-amber-50 text-amber-700';
+    case 'violet':
+      return 'border-violet-200 bg-violet-50 text-violet-700';
+    case 'indigo':
+      return 'border-indigo-200 bg-indigo-50 text-indigo-700';
+    case 'emerald':
+      return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+    default:
+      return 'border-slate-200 bg-slate-100 text-slate-700';
   }
 };
 
@@ -185,14 +203,22 @@ export default function InsightsQuickPanel({
   const [featuredSeries, setFeaturedSeries] = useState<ScrollSeriesDiscovery[]>([]);
   const [broadcastChannels, setBroadcastChannels] = useState<BroadcastChannelSummary[]>([]);
   const [officeHours, setOfficeHours] = useState<HighlightCommunityEvent[]>([]);
+  const [pollCards, setPollCards] = useState<CommunityPollSummary[]>([]);
   const [broadcastActionBusy, setBroadcastActionBusy] = useState<string | null>(null);
   const [officeHourActionBusy, setOfficeHourActionBusy] = useState<string | null>(null);
   const [officeHourStatus, setOfficeHourStatus] = useState<string | null>(null);
+  const [pollActionBusy, setPollActionBusy] = useState<string | null>(null);
+  const [pollStatus, setPollStatus] = useState<string | null>(null);
   const [coachSurface, setCoachSurface] = useState<CoachSurface>('post');
   const [coachInput, setCoachInput] = useState('');
   const [coachOutput, setCoachOutput] = useState('');
   const [coachBusyAction, setCoachBusyAction] = useState<CoachActionKey | null>(null);
   const [coachStatus, setCoachStatus] = useState<string | null>(null);
+  const [referralSquadActionBusy, setReferralSquadActionBusy] = useState<string | null>(null);
+  const [referralSquadStatus, setReferralSquadStatus] = useState<string | null>(null);
+  const [selectedReferralCandidateId, setSelectedReferralCandidateId] = useState('');
+  const [rewardDropActionBusy, setRewardDropActionBusy] = useState<string | null>(null);
+  const [rewardDropStatus, setRewardDropStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -212,6 +238,7 @@ export default function InsightsQuickPanel({
     featuredSeries.length > 0 ||
     broadcastChannels.length > 0 ||
     officeHours.length > 0 ||
+    pollCards.length > 0 ||
     achievements.length > 0 ||
     quests.length > 0 ||
     matches.length > 0;
@@ -235,6 +262,7 @@ export default function InsightsQuickPanel({
         featuredSeries?: ScrollSeriesDiscovery[];
         broadcastChannels?: BroadcastChannelSummary[];
         officeHours?: HighlightCommunityEvent[];
+        pollCards?: CommunityPollSummary[];
       };
       const ts = Number(parsed?.ts || 0);
       if (Date.now() - ts > INSIGHTS_CACHE_TTL_MS) return;
@@ -250,6 +278,7 @@ export default function InsightsQuickPanel({
       if (Array.isArray(parsed?.featuredSeries)) setFeaturedSeries(parsed.featuredSeries.slice(0, compact ? 2 : 3));
       if (Array.isArray(parsed?.broadcastChannels)) setBroadcastChannels(parsed.broadcastChannels.slice(0, compact ? 2 : 3));
       if (Array.isArray(parsed?.officeHours)) setOfficeHours(parsed.officeHours.slice(0, compact ? 2 : 3));
+      if (Array.isArray(parsed?.pollCards)) setPollCards(parsed.pollCards.slice(0, compact ? 2 : 3));
       hasLoadedRef.current = true;
       setLoading(false);
       setError(null);
@@ -278,7 +307,8 @@ export default function InsightsQuickPanel({
           withFastFail(InsightsService.getSkillGap(), 15000, 'Skill gap request timed out.'),
           withFastFail(ScrollService.getDiscoverableSeries(compact ? 2 : 3), 15000, 'Series request timed out.'),
           withFastFail(CommunityService.getBroadcastChannels(compact ? 2 : 3), 15000, 'Broadcast request timed out.'),
-          withFastFail(CommunityService.getEvents(), 15000, 'Office hours request timed out.')
+          withFastFail(CommunityService.getEvents(), 15000, 'Office hours request timed out.'),
+          withFastFail(CommunityService.getPolls(compact ? 2 : 3), 15000, 'Poll request timed out.')
         ]);
 
         const [
@@ -293,7 +323,8 @@ export default function InsightsQuickPanel({
           skillGapResult,
           featuredSeriesResult,
           broadcastChannelsResult,
-          officeHoursResult
+          officeHoursResult,
+          pollCardsResult
         ] = results;
         const pgsData = takeValue(pgsResult);
         const streakData = takeValue(streakResult);
@@ -310,6 +341,7 @@ export default function InsightsQuickPanel({
           officeHoursResult.status === 'fulfilled'
             ? getHighlightedCommunityEvents(Array.isArray(officeHoursResult.value) ? officeHoursResult.value : [], compact ? 2 : 3)
             : null;
+        const pollCardsData = takeValue(pollCardsResult);
 
         if (pgsData) setPgs(pgsData);
         if (streakData) setStreak(streakData);
@@ -328,6 +360,7 @@ export default function InsightsQuickPanel({
         if (Array.isArray(featuredSeriesData)) setFeaturedSeries(featuredSeriesData.slice(0, compact ? 2 : 3));
         if (Array.isArray(broadcastChannelsData)) setBroadcastChannels(broadcastChannelsData.slice(0, compact ? 2 : 3));
         if (Array.isArray(officeHoursData)) setOfficeHours(officeHoursData.slice(0, compact ? 2 : 3));
+        if (Array.isArray(pollCardsData)) setPollCards(pollCardsData.slice(0, compact ? 2 : 3));
         try {
           localStorage.setItem(
             insightsCacheKey,
@@ -344,7 +377,8 @@ export default function InsightsQuickPanel({
               skillGap: skillGapData || null,
               featuredSeries: Array.isArray(featuredSeriesData) ? featuredSeriesData : [],
               broadcastChannels: Array.isArray(broadcastChannelsData) ? broadcastChannelsData : [],
-              officeHours: Array.isArray(officeHoursData) ? officeHoursData : []
+              officeHours: Array.isArray(officeHoursData) ? officeHoursData : [],
+              pollCards: Array.isArray(pollCardsData) ? pollCardsData : []
             })
           );
         } catch {
@@ -369,7 +403,7 @@ export default function InsightsQuickPanel({
         setRefreshing(false);
       }
     },
-    [broadcastChannels.length, compact, featuredSeries.length, hasVisibleData, insightsCacheKey, officeHours.length]
+    [broadcastChannels.length, compact, featuredSeries.length, hasVisibleData, insightsCacheKey, officeHours.length, pollCards.length]
   );
 
   useEffect(() => {
@@ -501,6 +535,13 @@ export default function InsightsQuickPanel({
   const incomingFriendInvites = Array.isArray(friendStreaks?.incomingInvites) ? friendStreaks.incomingInvites : [];
   const outgoingFriendInvites = Array.isArray(friendStreaks?.outgoingInvites) ? friendStreaks.outgoingInvites : [];
   const friendCandidates = Array.isArray(friendStreaks?.candidates) ? friendStreaks.candidates : [];
+  const leagueTier = (streak?.leagueTier || null) as LeagueTierSummary | null;
+  const referralSquads = (streak?.referralSquads || null) as ReferralSquadSummary | null;
+  const rewardDrops = (streak?.rewardDrops || null) as RewardDropSummary | null;
+  const referralCandidates = Array.isArray(referralSquads?.candidates) ? referralSquads.candidates : [];
+  const incomingReferralInvites = Array.isArray(referralSquads?.incomingInvites) ? referralSquads.incomingInvites : [];
+  const outgoingReferralInvites = Array.isArray(referralSquads?.outgoingInvites) ? referralSquads.outgoingInvites : [];
+  const rewardDropCards = Array.isArray(rewardDrops?.drops) ? rewardDrops.drops : [];
   const creatorChallenges = Array.isArray(creatorChallengeDashboard?.challenges) ? creatorChallengeDashboard.challenges : [];
   const earnedAchievements = achievements.filter((item) => item?.earned);
   const earnedBadges = earnedAchievements.filter((item) => ['bronze', 'silver'].includes(String(item?.tier || '').toLowerCase()));
@@ -685,7 +726,30 @@ export default function InsightsQuickPanel({
         updatedAt: current?.updatedAt || null,
         careerDaily: current?.careerDaily || null,
         friendStreaks: dashboard,
-        dailyMissions: current?.dailyMissions || null
+        dailyMissions: current?.dailyMissions || null,
+        leagueTier: current?.leagueTier || null,
+        referralSquads: current?.referralSquads || null,
+        rewardDrops: current?.rewardDrops || null
+      }));
+    },
+    [currentUserId]
+  );
+
+  const mergeStreakPhaseSections = useCallback(
+    (patch: Partial<Pick<UserStreak, 'leagueTier' | 'referralSquads' | 'rewardDrops'>>) => {
+      setStreak((current) => ({
+        userId: current?.userId || currentUserId || '',
+        currentStreakDays: Number(current?.currentStreakDays || 0),
+        bestStreakDays: Number(current?.bestStreakDays || 0),
+        lastActiveDate: current?.lastActiveDate || null,
+        createdAt: current?.createdAt || null,
+        updatedAt: current?.updatedAt || null,
+        careerDaily: current?.careerDaily || null,
+        friendStreaks: current?.friendStreaks || null,
+        dailyMissions: current?.dailyMissions || null,
+        leagueTier: patch.leagueTier ?? current?.leagueTier ?? null,
+        referralSquads: patch.referralSquads ?? current?.referralSquads ?? null,
+        rewardDrops: patch.rewardDrops ?? current?.rewardDrops ?? null
       }));
     },
     [currentUserId]
@@ -796,6 +860,17 @@ export default function InsightsQuickPanel({
     }
   }, [friendCandidates, selectedFriendCandidateId]);
 
+  useEffect(() => {
+    const hasSelectedCandidate = referralCandidates.some((candidate) => candidate.id === selectedReferralCandidateId);
+    if (!referralCandidates.length) {
+      if (selectedReferralCandidateId) setSelectedReferralCandidateId('');
+      return;
+    }
+    if (!hasSelectedCandidate) {
+      setSelectedReferralCandidateId(String(referralCandidates[0]?.id || '').trim());
+    }
+  }, [referralCandidates, selectedReferralCandidateId]);
+
   const inviteFriendStreak = async () => {
     const partnerUserId = String(selectedFriendCandidateId || '').trim();
     if (!partnerUserId) {
@@ -847,6 +922,100 @@ export default function InsightsQuickPanel({
       setFriendStreakStatus(e?.response?.data?.message || e?.message || 'Unable to update the shared streak.');
     } finally {
       setFriendStreakActionBusy(null);
+    }
+  };
+
+  const inviteReferralSquadMember = async () => {
+    const partnerUserId = String(selectedReferralCandidateId || '').trim();
+    if (!partnerUserId) {
+      setReferralSquadStatus('Choose a mutual follow to invite first.');
+      return;
+    }
+    setReferralSquadActionBusy(`invite:${partnerUserId}`);
+    setReferralSquadStatus(null);
+    try {
+      const updated = await InsightsService.inviteReferralSquad(partnerUserId);
+      if (updated?.referralSquads) mergeStreakPhaseSections({ referralSquads: updated.referralSquads });
+      setReferralSquadStatus('Referral squad invite sent.');
+      void refresh({ silent: true });
+    } catch (e: any) {
+      setReferralSquadStatus(e?.response?.data?.message || e?.message || 'Unable to send the referral squad invite.');
+    } finally {
+      setReferralSquadActionBusy(null);
+    }
+  };
+
+  const respondToReferralInvite = async (
+    invite: NonNullable<ReferralSquadSummary['incomingInvites']>[number],
+    responseValue: 'accept' | 'decline'
+  ) => {
+    const inviteId = String(invite?.id || '').trim();
+    if (!inviteId) return;
+    setReferralSquadActionBusy(`${responseValue}:${inviteId}`);
+    setReferralSquadStatus(null);
+    try {
+      const updated = await InsightsService.respondReferralSquadInvite(inviteId, responseValue);
+      if (updated?.referralSquads) mergeStreakPhaseSections({ referralSquads: updated.referralSquads });
+      setReferralSquadStatus(responseValue === 'accept' ? 'Referral squad updated.' : 'Referral squad invite declined.');
+      void refresh({ silent: true });
+    } catch (e: any) {
+      setReferralSquadStatus(e?.response?.data?.message || e?.message || 'Unable to update the referral squad invite.');
+    } finally {
+      setReferralSquadActionBusy(null);
+    }
+  };
+
+  const leaveReferralSquadGroup = async () => {
+    const squadId = String(referralSquads?.currentSquad?.id || '').trim();
+    if (!squadId) return;
+    setReferralSquadActionBusy(`leave:${squadId}`);
+    setReferralSquadStatus(null);
+    try {
+      const updated = await InsightsService.leaveReferralSquad(squadId);
+      if (updated?.referralSquads) mergeStreakPhaseSections({ referralSquads: updated.referralSquads });
+      setReferralSquadStatus('Referral squad updated.');
+      void refresh({ silent: true });
+    } catch (e: any) {
+      setReferralSquadStatus(e?.response?.data?.message || e?.message || 'Unable to leave the referral squad.');
+    } finally {
+      setReferralSquadActionBusy(null);
+    }
+  };
+
+  const claimRewardDropCard = async (dropId: string) => {
+    const normalizedDropId = String(dropId || '').trim();
+    if (!normalizedDropId) return;
+    setRewardDropActionBusy(normalizedDropId);
+    setRewardDropStatus(null);
+    try {
+      const updated = await InsightsService.claimRewardDrop(normalizedDropId);
+      if (updated?.rewardDrops) mergeStreakPhaseSections({ rewardDrops: updated.rewardDrops });
+      setRewardDropStatus('Gcoin reward claimed.');
+      void refresh({ silent: true });
+    } catch (e: any) {
+      setRewardDropStatus(e?.response?.data?.message || e?.message || 'Unable to claim this reward drop.');
+    } finally {
+      setRewardDropActionBusy(null);
+    }
+  };
+
+  const castPollVote = async (pollId: string, optionId: string) => {
+    const normalizedPollId = String(pollId || '').trim();
+    const normalizedOptionId = String(optionId || '').trim();
+    if (!normalizedPollId || !normalizedOptionId) return;
+    setPollActionBusy(`${normalizedPollId}:${normalizedOptionId}`);
+    setPollStatus(null);
+    try {
+      const updated = await CommunityService.votePoll(normalizedPollId, normalizedOptionId);
+      if (updated?.id) {
+        setPollCards((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+      }
+      setPollStatus('Vote recorded.');
+      void refresh({ silent: true });
+    } catch (e: any) {
+      setPollStatus(e?.response?.data?.message || e?.message || 'Unable to record your vote.');
+    } finally {
+      setPollActionBusy(null);
     }
   };
 
@@ -1159,6 +1328,73 @@ export default function InsightsQuickPanel({
                   </span>
                 ))}
               </div>
+              ) : null}
+          </div>
+
+          <div
+            data-insights-section="league-tiers"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">League tiers</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Monthly ranking identity that turns score momentum into a visible tier, leaderboard context, and next-rank target.
+                </p>
+              </div>
+              <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${leagueAccentClassName(leagueTier?.tier?.accent || 'slate')}`}>
+                {leagueTier?.tier?.badge || 'Active'}
+              </span>
+            </div>
+
+            <div className={`mt-3 grid gap-3 ${compact || isDesktopRail ? 'grid-cols-1' : 'xl:grid-cols-3'}`}>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Current tier</div>
+                <div className="mt-2 text-sm font-semibold text-slate-900">{leagueTier?.tier?.label || 'Building tier'}</div>
+                <div className="mt-1 text-[11px] text-slate-500">Monthly percentile: {Number(leagueTier?.percentile || 0).toFixed(1)}%</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Rank</div>
+                <div className="mt-2 text-sm font-semibold text-slate-900">
+                  {leagueTier?.rank ? `#${formatWholeNumber(leagueTier.rank)}` : 'Unranked'}
+                </div>
+                <div className="mt-1 text-[11px] text-slate-500">
+                  {leagueTier?.totalRanked ? `${formatWholeNumber(leagueTier.totalRanked)} ranked this month` : 'Keep building actions to enter the monthly board.'}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Score</div>
+                <div className="mt-2 text-sm font-semibold text-slate-900">{formatWholeNumber(Number(leagueTier?.score || 0))}</div>
+                <div className="mt-1 text-[11px] text-slate-500">
+                  {leagueTier?.nextTier
+                    ? `${Number(leagueTier.nextTier.remainingPercentile || 0).toFixed(1)} percentile points to ${leagueTier.nextTier.label}.`
+                    : 'You are already in the top league tier.'}
+                </div>
+              </div>
+            </div>
+
+            {Array.isArray(leagueTier?.leaders) && leagueTier.leaders.length ? (
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-semibold text-slate-900">Top monthly operators</p>
+                  <span className="text-[11px] text-slate-500">{leagueTier.monthKey}</span>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {leagueTier.leaders.map((leader) => (
+                    <div key={leader.userId} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="line-clamp-1 text-sm font-semibold text-slate-900">
+                          #{leader.rank} {leader.name}
+                        </p>
+                        <p className="text-[11px] text-slate-500">{leader.username ? `@${leader.username}` : 'Scrolith member'}</p>
+                      </div>
+                      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                        {formatWholeNumber(Number(leader.score || 0))}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             ) : null}
           </div>
 
@@ -1311,6 +1547,83 @@ export default function InsightsQuickPanel({
               </div>
             ) : (
               <p className="mt-3 text-xs text-slate-500">Weekly creator challenges will appear here when the current week opens.</p>
+            )}
+          </div>
+
+          <div
+            data-insights-section="polls-versus"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Polls and versus cards</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Quick participation loops that let members signal their next move, compare options, and vote in a few seconds.
+                </p>
+              </div>
+              <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold text-cyan-700">
+                {pollCards.length} live
+              </span>
+            </div>
+
+            {pollStatus ? <p className="mt-3 text-xs text-slate-500">{pollStatus}</p> : null}
+
+            {pollCards.length ? (
+              <div className="mt-3 space-y-3">
+                {pollCards.map((poll) => (
+                  <div key={poll.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                            {poll.kind === 'versus' ? 'Versus' : 'Poll'}
+                          </span>
+                          <span className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700">
+                            {formatWholeNumber(Number(poll.totalVotes || 0))} votes
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm font-semibold text-slate-900">{poll.title}</p>
+                        <p className="mt-1 text-xs text-slate-600">{poll.prompt}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      {poll.options.map((option) => {
+                        const busyKey = `${poll.id}:${option.id}`;
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            onClick={() => void castPollVote(poll.id, option.id)}
+                            disabled={pollActionBusy === busyKey}
+                            className={`w-full rounded-2xl border px-3 py-3 text-left transition disabled:opacity-50 ${
+                              option.selected ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 bg-white hover:border-indigo-200'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-slate-900">{option.label}</p>
+                                {option.description ? <p className="mt-1 text-[11px] text-slate-500">{option.description}</p> : null}
+                              </div>
+                              <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${option.selected ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>
+                                {Number(option.percentage || 0).toFixed(0)}%
+                              </span>
+                            </div>
+                            <div className="mt-3 h-2 rounded-full bg-slate-100">
+                              <div
+                                className={`h-2 rounded-full transition-[width] duration-300 ${option.selected ? 'bg-indigo-500' : 'bg-slate-300'}`}
+                                style={{ width: `${clampPercent(Number(option.percentage || 0))}%` }}
+                              />
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">New polls and versus cards will appear here as soon as the member_home loop rotates in the next prompt.</p>
             )}
           </div>
 
@@ -1817,6 +2130,228 @@ export default function InsightsQuickPanel({
                 </div>
               </div>
             </div>
+          </div>
+
+          <div
+            data-insights-section="referral-squads"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Referral squads</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Invite mutual follows into a small squad, compete on referrals, and turn warm intros into a visible team identity.
+                </p>
+              </div>
+              <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+                {referralSquads?.currentSquad ? `${referralSquads.currentSquad.memberCount}/${referralSquads.currentSquad.maxMembers}` : 'Open'}
+              </span>
+            </div>
+
+            {referralSquadStatus ? <p className="mt-3 text-xs text-slate-500">{referralSquadStatus}</p> : null}
+
+            {referralSquads?.currentSquad ? (
+              <div className="mt-3 space-y-3">
+                <div className={`grid gap-3 ${compact || isDesktopRail ? 'grid-cols-1' : 'xl:grid-cols-3'}`}>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Squad</div>
+                    <div className="mt-2 text-sm font-semibold text-slate-900">{referralSquads.currentSquad.name}</div>
+                    <div className="mt-1 text-[11px] text-slate-500">Code {referralSquads.currentSquad.code}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Rank</div>
+                    <div className="mt-2 text-sm font-semibold text-slate-900">
+                      {referralSquads.currentSquad.rank ? `#${formatWholeNumber(referralSquads.currentSquad.rank)}` : 'Unranked'}
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      {referralSquads.currentSquad.totalSquads
+                        ? `${formatWholeNumber(referralSquads.currentSquad.totalSquads)} squads tracked`
+                        : 'Invite members to enter the squad board.'}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Payout</div>
+                    <div className="mt-2 text-sm font-semibold text-slate-900">
+                      {formatWholeNumber(Number(referralSquads.currentSquad.referralCount || 0))} referrals
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-500">{formatWholeNumber(Number(referralSquads.currentSquad.earnings || 0))} Gcoin-equivalent earnings tracked</div>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-slate-900">Members</p>
+                    <button
+                      type="button"
+                      onClick={() => void leaveReferralSquadGroup()}
+                      disabled={referralSquadActionBusy === `leave:${referralSquads.currentSquad.id}`}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 disabled:opacity-50"
+                    >
+                      {referralSquadActionBusy === `leave:${referralSquads.currentSquad.id}` ? 'Updating...' : 'Leave squad'}
+                    </button>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {referralSquads.currentSquad.members.map((member) => (
+                      <div key={member.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="line-clamp-1 text-sm font-semibold text-slate-900">{member.name}</p>
+                          <p className="text-[11px] text-slate-500">
+                            {member.username ? `@${member.username}` : 'Scrolith member'} · {member.role}
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                          {formatWholeNumber(Number(member.referrals || 0))} refs
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className={`mt-3 grid gap-3 ${compact || isDesktopRail ? 'grid-cols-1' : 'xl:grid-cols-[1.1fr_0.9fr]'}`}>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-900">Invite a referral operator</p>
+                      <p className="mt-1 text-[11px] text-slate-500">One squad per user, invite only from mutual follows.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void inviteReferralSquadMember()}
+                      disabled={!selectedReferralCandidateId || Boolean(referralSquadActionBusy) || referralSquads?.canInvite === false}
+                      className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                    >
+                      {referralSquadActionBusy?.startsWith('invite:') ? 'Inviting...' : 'Invite'}
+                    </button>
+                  </div>
+                  <select
+                    value={selectedReferralCandidateId}
+                    onChange={(event) => setSelectedReferralCandidateId(event.target.value)}
+                    disabled={!referralCandidates.length || referralSquads?.canInvite === false}
+                    className="mt-3 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:opacity-60"
+                  >
+                    {referralCandidates.length ? null : <option value="">No mutual follows available yet</option>}
+                    {referralCandidates.map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {candidate.name}
+                        {candidate.username ? ` (@${candidate.username})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-[11px] text-slate-500">
+                    Referral squads unlock team ranking, shared referral competition, and monthly reward eligibility.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  {incomingReferralInvites.length ? (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Incoming invites</p>
+                      <div className="mt-2 space-y-2">
+                        {incomingReferralInvites.map((invite) => (
+                          <div key={invite.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                            <p className="text-sm font-semibold text-slate-900">{invite.from?.name || 'Scrolith member'}</p>
+                            <p className="mt-1 text-[11px] text-slate-500">{invite.squadName}</p>
+                            <div className="mt-2 flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void respondToReferralInvite(invite, 'decline')}
+                                disabled={referralSquadActionBusy === `decline:${invite.id}`}
+                                className="rounded-xl border border-slate-200 px-3 py-1.5 text-[11px] font-semibold text-slate-600 disabled:opacity-50"
+                              >
+                                Decline
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void respondToReferralInvite(invite, 'accept')}
+                                disabled={referralSquadActionBusy === `accept:${invite.id}`}
+                                className="rounded-xl bg-indigo-600 px-3 py-1.5 text-[11px] font-semibold text-white disabled:opacity-50"
+                              >
+                                {referralSquadActionBusy === `accept:${invite.id}` ? 'Accepting...' : 'Accept'}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Outgoing invites</p>
+                      <span className="text-[11px] text-slate-500">{outgoingReferralInvites.length} pending</span>
+                    </div>
+                    {outgoingReferralInvites.length ? (
+                      <div className="mt-2 space-y-2">
+                        {outgoingReferralInvites.map((invite) => (
+                          <div key={invite.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                            <p className="font-semibold text-slate-900">{invite.to?.name || 'Scrolith member'}</p>
+                            <p className="mt-1 text-[11px] text-slate-500">{invite.squadName}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-slate-500">No pending referral squad invites yet.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div
+            data-insights-section="gcoin-reward-drops"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Gcoin reward drops</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Anticipation and reward loops tied to daily activity, league progress, and squad participation.
+                </p>
+              </div>
+              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                {Number(rewardDrops?.claimableCount || 0)} claimable
+              </span>
+            </div>
+
+            {rewardDropStatus ? <p className="mt-3 text-xs text-slate-500">{rewardDropStatus}</p> : null}
+
+            {rewardDropCards.length ? (
+              <div className="mt-3 grid gap-3">
+                {rewardDropCards.map((drop) => (
+                  <div key={drop.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-900">{drop.title}</p>
+                        <p className="mt-1 text-xs text-slate-600">{drop.description}</p>
+                      </div>
+                      <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                        +{formatWholeNumber(Number(drop.amount || 0))} Gcoin
+                      </span>
+                    </div>
+                    <p className="mt-2 text-[11px] text-slate-500">{drop.helperText}</p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                        drop.claimed ? 'bg-slate-100 text-slate-600' : drop.eligible ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                      }`}>
+                        {drop.statusLabel}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void claimRewardDropCard(drop.id)}
+                        disabled={!drop.eligible || drop.claimed || rewardDropActionBusy === drop.id}
+                        className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                      >
+                        {rewardDropActionBusy === drop.id ? 'Claiming...' : drop.claimed ? 'Claimed' : 'Claim'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">Reward drops will appear here as soon as the current streak, tier, and squad triggers are available.</p>
+            )}
           </div>
 
           {hub ? (

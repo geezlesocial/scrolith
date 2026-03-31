@@ -63,6 +63,7 @@ import { upsertImagePreloadLink } from '../utils/resourceHints';
 import GraphicWarningGate from '../components/media/GraphicWarningGate';
 import PostOriginPreview from '../components/post/PostOriginPreview';
 import StoryUploadStatusCard from '../components/stories/StoryUploadStatusCard';
+import StoryReplySheet from '../components/stories/StoryReplySheet';
 import {
   postAiInsightPreferenceToBoolean,
   resolvePostAiInsightPreference,
@@ -3850,43 +3851,14 @@ const CommunityHome = () => {
         onClose={() => setPreviewMedia(null)}
       />
 
-      {storyCommentOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/60"
-            onClick={() => setStoryCommentOpen(false)}
-          />
-          <div className="relative w-full max-w-lg rounded-2xl bg-white p-5 text-gray-900 shadow-2xl">
-            <h3 className="text-base font-semibold">Comment on story</h3>
-            <p className="mt-1 text-xs text-gray-500">Your comment will be shared to your feed and linked to this story.</p>
-            <textarea
-              value={storyCommentDraft}
-              onChange={(event) => setStoryCommentDraft(event.target.value)}
-              rows={4}
-              placeholder="Write your comment..."
-              className="mt-4 w-full rounded-xl border border-gray-200 p-3 text-sm text-gray-700"
-            />
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setStoryCommentOpen(false)}
-                className="rounded-full border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void submitStoryComment()}
-                className="rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold uppercase text-white"
-                disabled={Boolean(storyActionBusy[String(storyActionTarget?.id || '')])}
-              >
-                {storyActionBusy[String(storyActionTarget?.id || '')] ? 'Posting...' : 'Comment'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <StoryReplySheet
+        open={storyCommentOpen}
+        story={storyActionTarget}
+        onClose={() => setStoryCommentOpen(false)}
+        onStoryUpdate={(patch) => applyStoryUpdate({ ...(storyActionTarget || {}), ...patch })}
+        presentation="modal"
+        zIndexClassName="z-50"
+      />
 
       <RepostModal
         isOpen={storyRepostOpen}

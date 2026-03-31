@@ -124,6 +124,85 @@ export type DailyMissionSummary = {
   missions: DailyMission[];
 };
 
+export type LeagueTierSummary = {
+  userId: string;
+  monthKey: string;
+  rank: number | null;
+  totalRanked: number;
+  percentile: number;
+  score: number;
+  tier: {
+    key: string;
+    label: string;
+    badge: string;
+    accent: string;
+  };
+  nextTier?: {
+    key: string;
+    label: string;
+    minPercentile: number;
+    remainingPercentile: number;
+  } | null;
+  leaders: Array<{
+    userId: string;
+    name: string;
+    username?: string | null;
+    avatarUrl?: string | null;
+    score: number;
+    rank: number;
+  }>;
+};
+
+export type ReferralSquadInvite = {
+  id: string;
+  squadId: string;
+  squadName: string;
+  sentAt: string;
+  from?: FriendStreakUserSummary;
+  to?: FriendStreakUserSummary;
+};
+
+export type ReferralSquadSummary = {
+  userId: string;
+  canInvite: boolean;
+  currentSquad: null | {
+    id: string;
+    name: string;
+    code: string;
+    memberCount: number;
+    maxMembers: number;
+    referralCount: number;
+    earnings: number;
+    rank: number | null;
+    totalSquads: number;
+    members: Array<FriendStreakUserSummary & { role: 'captain' | 'member'; joinedAt: string; referrals: number; earnings: number }>;
+  };
+  incomingInvites: ReferralSquadInvite[];
+  outgoingInvites: ReferralSquadInvite[];
+  candidates: FriendStreakUserSummary[];
+};
+
+export type RewardDropCard = {
+  id: string;
+  key: string;
+  title: string;
+  description: string;
+  amount: number;
+  cadence: 'daily' | 'monthly' | 'once' | string;
+  eligible: boolean;
+  claimed: boolean;
+  statusLabel: string;
+  helperText: string;
+  claimRef: string;
+};
+
+export type RewardDropSummary = {
+  userId: string;
+  totalActive: number;
+  claimableCount: number;
+  drops: RewardDropCard[];
+};
+
 export type InsightAchievement = {
   id: string;
   key: string;
@@ -216,6 +295,9 @@ export type UserStreak = {
   careerDaily?: CareerDailySummary | null;
   friendStreaks?: FriendStreakDashboard | null;
   dailyMissions?: DailyMissionSummary | null;
+  leagueTier?: LeagueTierSummary | null;
+  referralSquads?: ReferralSquadSummary | null;
+  rewardDrops?: RewardDropSummary | null;
 };
 
 export type OpportunityHubData = {
@@ -431,6 +513,44 @@ class InsightsService {
     const data = extractData<any>(response);
     if (data && typeof data === 'object' && 'userId' in data) {
       return { friendStreaks: data } as UserStreak;
+    }
+    return data as UserStreak | null;
+  }
+
+  static async inviteReferralSquad(partnerUserId: string, squadName?: string): Promise<UserStreak | null> {
+    const response = await api.post('/insights/streak/referral-squads/invite', { partnerUserId, squadName });
+    const data = extractData<any>(response);
+    if (data && typeof data === 'object' && 'userId' in data) {
+      return { referralSquads: data } as UserStreak;
+    }
+    return data as UserStreak | null;
+  }
+
+  static async respondReferralSquadInvite(inviteId: string, responseValue: 'accept' | 'decline'): Promise<UserStreak | null> {
+    const response = await api.post(`/insights/streak/referral-squads/invites/${encodeURIComponent(inviteId)}/respond`, {
+      response: responseValue
+    });
+    const data = extractData<any>(response);
+    if (data && typeof data === 'object' && 'userId' in data) {
+      return { referralSquads: data } as UserStreak;
+    }
+    return data as UserStreak | null;
+  }
+
+  static async leaveReferralSquad(squadId: string): Promise<UserStreak | null> {
+    const response = await api.post(`/insights/streak/referral-squads/${encodeURIComponent(squadId)}/leave`, {});
+    const data = extractData<any>(response);
+    if (data && typeof data === 'object' && 'userId' in data) {
+      return { referralSquads: data } as UserStreak;
+    }
+    return data as UserStreak | null;
+  }
+
+  static async claimRewardDrop(dropId: string): Promise<UserStreak | null> {
+    const response = await api.post(`/insights/streak/reward-drops/${encodeURIComponent(dropId)}/claim`, {});
+    const data = extractData<any>(response);
+    if (data && typeof data === 'object' && 'userId' in data) {
+      return { rewardDrops: data } as UserStreak;
     }
     return data as UserStreak | null;
   }

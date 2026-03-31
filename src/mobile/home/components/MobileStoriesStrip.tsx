@@ -43,6 +43,7 @@ import SendGcoinModal from '../../../components/SendGcoinModal';
 import { LiveService, type LiveSession } from '../../../services/live';
 import { buildPublicAppUrl } from '../../../utils/siteUrl';
 import StoryUploadStatusCard from '../../../components/stories/StoryUploadStatusCard';
+import StoryReplySheet from '../../../components/stories/StoryReplySheet';
 
 type StoryKind = 'text' | 'image' | 'video';
 type StoryVisibility = 'public' | 'private';
@@ -1777,46 +1778,29 @@ export default function MobileStoriesStrip({
         onChange={handleStoryMediaInputChange}
       />
 
-      {storyCommentOpen ? (
-        <div className="fixed inset-0 z-[1100] flex items-end justify-center p-3">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/60"
-            onClick={() => {
-              const storyId = String(storyActionTarget?.id || '');
-              if (storyActionBusy[storyId]) return;
-              setStoryCommentOpen(false);
-            }}
-          />
-          <div className="relative w-full max-w-md rounded-3xl bg-white p-4 shadow-2xl">
-            <h3 className="text-sm font-semibold text-slate-900">Comment on story</h3>
-            <textarea
-              value={storyCommentDraft}
-              onChange={(event) => setStoryCommentDraft(event.target.value)}
-              rows={4}
-              placeholder="Write your comment..."
-              className="mt-3 w-full resize-none rounded-2xl border border-slate-200 p-3 text-sm text-slate-700"
-            />
-            <div className="mt-3 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setStoryCommentOpen(false)}
-                className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void submitStoryComment()}
-                className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white"
-                disabled={storyActionBusy[String(storyActionTarget?.id || '')]}
-              >
-                {storyActionBusy[String(storyActionTarget?.id || '')] ? 'Posting...' : 'Comment'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <StoryReplySheet
+        open={storyCommentOpen}
+        story={storyActionTarget}
+        onClose={() => setStoryCommentOpen(false)}
+        onStoryUpdate={(patch) => {
+          if (!patch?.id) return;
+          setStories((prev) => prev.map((entry) => (String(entry?.id || '') === String(patch.id) ? { ...entry, ...patch } : entry)));
+          setActiveStory((current) =>
+            String(current?.id || '') === String(patch.id)
+              ? {
+                  ...current,
+                  ...patch,
+                  interactions: {
+                    ...(current?.interactions || {}),
+                    ...(patch?.interactions || {})
+                  }
+                }
+              : current
+          );
+        }}
+        presentation="sheet"
+        zIndexClassName="z-[1100]"
+      />
 
       <RepostModal
         isOpen={storyRepostOpen}
