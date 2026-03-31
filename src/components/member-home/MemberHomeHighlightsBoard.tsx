@@ -197,37 +197,38 @@ export default function MemberHomeHighlightsBoard({
   if (!compact) {
     const featuredItem = items[0];
     const spotlightItems = items.slice(1, 3);
-    const gridItems = items.slice(3, 7);
+    const gridItems = items.slice(3, 6);
     const featuredTone = toneClasses[featuredItem.tone || 'slate'];
 
     return (
       <section className={['overflow-hidden rounded-[2rem] border border-white/80 bg-white p-5 shadow-sm sm:p-6', className].join(' ')}>
         <div className="flex flex-col gap-5">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-indigo-500">Discover</p>
               <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{title}</h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">{subtitle}</p>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">{subtitle}</p>
             </div>
             {pills?.length ? (
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
-                {pills.slice(0, 6).map((pill) => (
+              <div className="flex flex-wrap gap-2 lg:max-w-[28rem] lg:justify-end">
+                {pills.slice(0, 5).map((pill) => (
                   <div
                     key={`${pill.label}:${pill.value}`}
-                    className="min-w-[7.5rem] rounded-2xl border border-slate-200 bg-slate-50/90 px-3 py-2"
+                    className="rounded-full border border-slate-200 bg-slate-50/90 px-3 py-1.5"
                   >
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">{pill.label}</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-900">{pill.value}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      {pill.label}: <span className="text-slate-900">{pill.value}</span>
+                    </p>
                   </div>
                 ))}
               </div>
             ) : null}
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(20rem,0.95fr)]">
+          <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
             <div className={['overflow-hidden rounded-[1.75rem] border p-5 shadow-sm', featuredTone.ring].join(' ')}>
               <ActionSurface item={featuredItem}>
-                <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-stretch">
+                <div className="flex flex-col gap-5 2xl:grid 2xl:grid-cols-[minmax(0,1fr)_18rem] 2xl:items-stretch">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       {featuredItem.eyebrow ? (
@@ -250,12 +251,12 @@ export default function MemberHomeHighlightsBoard({
                     <div className="mt-4 flex items-start justify-between gap-4">
                       <div className="min-w-0">
                         <h3 className="text-2xl font-semibold leading-tight text-slate-950 line-clamp-2">{featuredItem.title}</h3>
-                        <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600 line-clamp-4">{featuredItem.description}</p>
+                        <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600 line-clamp-3">{featuredItem.description}</p>
                       </div>
                       {featuredItem.icon ? (
                         <span
                           className={[
-                            'hidden h-12 w-12 shrink-0 items-center justify-center rounded-2xl xl:inline-flex',
+                            'hidden h-12 w-12 shrink-0 items-center justify-center rounded-2xl lg:inline-flex',
                             featuredTone.icon
                           ].join(' ')}
                         >
@@ -284,13 +285,13 @@ export default function MemberHomeHighlightsBoard({
                     compact={false}
                     showMarginTop={false}
                     containerClassName="h-full rounded-[1.5rem]"
-                    heightClassName="h-full min-h-[16rem] w-full"
+                    heightClassName="h-full min-h-[13rem] w-full"
                   />
                 </div>
               </ActionSurface>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+            <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-1">
               {spotlightItems.map((item) => {
                 const tone = toneClasses[item.tone || 'slate'];
                 return (
@@ -316,7 +317,7 @@ export default function MemberHomeHighlightsBoard({
                           </span>
                         ) : null}
                       </div>
-                      <HighlightMedia item={item} compact={false} heightClassName="h-36 w-full" />
+                      <HighlightMedia item={item} compact={false} heightClassName="h-32 w-full" />
                       <p className="mt-3 text-sm leading-6 text-slate-600 line-clamp-3">{item.description}</p>
                       <div className="mt-4 flex items-center justify-between gap-3">
                         <span className="text-xs font-medium uppercase tracking-wide text-slate-400">{item.meta || 'Live on member home'}</span>
@@ -362,16 +363,14 @@ export default function MemberHomeHighlightsBoard({
                           {item.badge}
                         </span>
                       ) : null}
+                      {item.meta ? <p className="mt-3 text-xs font-medium uppercase tracking-wide text-slate-400">{item.meta}</p> : null}
                       <p className="mt-3 text-sm leading-6 text-slate-600 line-clamp-3">{item.description}</p>
-                      <div className="mt-4 flex items-center justify-between gap-3">
-                        <span className="text-xs font-medium uppercase tracking-wide text-slate-400">{item.meta || 'Explore now'}</span>
-                        {item.ctaLabel ? (
-                          <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
-                            {item.ctaLabel}
-                            <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-                          </span>
-                        ) : null}
-                      </div>
+                      {item.ctaLabel ? (
+                        <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
+                          <span>{item.ctaLabel}</span>
+                          <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+                        </div>
+                      ) : null}
                     </ActionSurface>
                   </div>
                 );
