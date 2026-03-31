@@ -4,6 +4,7 @@ import {
   MoreVerticalIcon as MoreVertical,
   XIcon as X
 } from '../../../components/icons/ShellIcons';
+import OptimizedImage from '../../../components/media/OptimizedImage';
 import { CommunityService } from '../../../services/community';
 
 type AdMedia = { id: string; url: string; mimeType: string | null; name: string | null };
@@ -86,9 +87,15 @@ export default function FeedAdCard({ ad }: { ad: CommunityAd }) {
       {primaryMedia ? (
         <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
           {isVideo(primaryMedia.mimeType) ? (
-            <video src={primaryMedia.url} className="h-48 w-full object-cover" controls preload="metadata" />
+            <video src={primaryMedia.url} className="h-48 w-full object-cover" controls preload="none" playsInline />
           ) : isImage(primaryMedia.mimeType) ? (
-            <img src={primaryMedia.url} alt={primaryMedia.name || ad.title || 'Ad media'} className="h-48 w-full object-cover" />
+            <OptimizedImage
+              src={primaryMedia.url}
+              alt={primaryMedia.name || ad.title || 'Ad media'}
+              width={640}
+              height={192}
+              className="h-48 w-full object-cover"
+            />
           ) : (
             <div className="flex h-48 w-full items-center justify-center p-4 text-xs text-slate-500">
               {primaryMedia.name || 'Attachment'}

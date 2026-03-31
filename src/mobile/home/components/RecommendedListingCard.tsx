@@ -8,6 +8,7 @@ import {
 } from '../../../components/icons/ShellIcons';
 import { Link, useNavigate } from 'react-router-dom';
 import VerifiedBadge from '../../../components/common/VerifiedBadge';
+import OptimizedImage from '../../../components/media/OptimizedImage';
 import { resolveVerificationLevel } from '../../../utils/verification';
 import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
 
@@ -231,12 +232,12 @@ export default function RecommendedListingCard({
                   </div>
                   <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
                     {clientAvatar ? (
-                      <img
+                      <OptimizedImage
                         src={clientAvatar}
+                        width={36}
+                        height={36}
                         alt=""
                         className="h-full w-full object-cover"
-                        loading="lazy"
-                        decoding="async"
                         onError={(event) => {
                           (event.currentTarget as HTMLImageElement).style.display = 'none';
                         }}
@@ -246,11 +247,12 @@ export default function RecommendedListingCard({
                 </div>
                 <Link to={href} className="mt-3 block overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
                   {canRenderImage ? (
-                    <img
+                    <OptimizedImage
                       src={imageUrl}
+                      width={320}
+                      height={128}
                       alt={job.title || 'Featured job'}
                       className="h-32 w-full object-cover"
-                      loading="lazy"
                       onError={() => setFailedImages((prev) => ({ ...prev, [imageKey]: true }))}
                     />
                   ) : (
@@ -357,12 +359,12 @@ export default function RecommendedListingCard({
                 </div>
                 <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
                   {freelancerAvatar ? (
-                    <img
+                    <OptimizedImage
                       src={freelancerAvatar}
+                      width={36}
+                      height={36}
                       alt=""
                       className="h-full w-full object-cover"
-                      loading="lazy"
-                      decoding="async"
                       onError={(event) => {
                         (event.currentTarget as HTMLImageElement).style.display = 'none';
                       }}
@@ -372,11 +374,12 @@ export default function RecommendedListingCard({
               </div>
               <Link to={href} className="mt-3 block overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
                 {canRenderImage ? (
-                  <img
+                  <OptimizedImage
                     src={imageUrl}
+                    width={320}
+                    height={128}
                     alt={gig.title || 'Featured gig'}
                     className="h-32 w-full object-cover"
-                    loading="lazy"
                     onError={() => setFailedImages((prev) => ({ ...prev, [imageKey]: true }))}
                   />
                 ) : (

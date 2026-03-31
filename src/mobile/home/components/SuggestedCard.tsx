@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { UserPlusIcon as UserPlus } from '../../../components/icons/ShellIcons';
 import { Link } from 'react-router-dom';
+import OptimizedImage from '../../../components/media/OptimizedImage';
 import { CommunityService } from '../../../services/community';
 import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
 
@@ -65,12 +66,12 @@ function FollowList({
           >
             <div className="h-10 w-10 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
               {item.avatarUrl ? (
-                <img
+                <OptimizedImage
                   src={resolvePostAttachmentMediaUrl(item.avatarUrl)}
+                  width={40}
+                  height={40}
                   alt={item.name}
                   className="h-full w-full object-cover"
-                  loading="lazy"
-                  decoding="async"
                   onError={(event) => {
                     (event.currentTarget as HTMLImageElement).style.display = 'none';
                   }}

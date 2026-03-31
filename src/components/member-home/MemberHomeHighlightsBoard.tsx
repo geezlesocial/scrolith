@@ -2,6 +2,8 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
 import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
+import OptimizedImage from '../media/OptimizedImage';
+import { resolveResponsiveAssetUrl } from '../../utils/assetUrl';
 
 type HighlightTone = 'slate' | 'blue' | 'emerald' | 'amber' | 'violet' | 'rose';
 
@@ -103,13 +105,17 @@ const HighlightMedia = ({
   compact,
   showMarginTop = true,
   containerClassName = '',
-  heightClassName
+  heightClassName,
+  imageWidth,
+  imageHeight
 }: {
   item: MemberHomeHighlightItem;
   compact: boolean;
   showMarginTop?: boolean;
   containerClassName?: string;
   heightClassName?: string;
+  imageWidth?: number;
+  imageHeight?: number;
 }) => {
   const fallbackMediaUrl = String(item.fallbackMediaUrl || BRAND_LOGO_URL).trim();
   const initialSrc = String(item.mediaUrl || '').trim();
@@ -130,6 +136,16 @@ const HighlightMedia = ({
   const isBrandFallback = src === BRAND_LOGO_URL || src === fallbackMediaUrl && fallbackMediaUrl === BRAND_LOGO_URL;
   const shouldRenderVideo = Boolean(videoUrl && isVideoUrl(videoUrl));
   const resolvedHeightClassName = heightClassName || (compact ? 'h-24 w-full' : 'h-28 w-full');
+  const resolvedImageWidth = imageWidth || (compact ? 320 : 384);
+  const resolvedImageHeight = imageHeight || (compact ? 144 : 192);
+  const optimizedPosterUrl = shouldRenderVideo
+    ? resolveResponsiveAssetUrl(posterUrl || src || fallbackMediaUrl || undefined, {
+        width: resolvedImageWidth,
+        height: resolvedImageHeight,
+        fit: 'cover',
+        quality: 68
+      })
+    : '';
 
   return (
     <div
@@ -144,7 +160,7 @@ const HighlightMedia = ({
       {shouldRenderVideo ? (
         <InlineAutoplayVideo
           src={videoUrl}
-          poster={posterUrl || src || fallbackMediaUrl || undefined}
+          poster={optimizedPosterUrl || undefined}
           controls={false}
           loop
           autoplayEnabled
@@ -153,17 +169,21 @@ const HighlightMedia = ({
           containerClassName="w-full"
           className={[resolvedHeightClassName, 'object-cover'].join(' ')}
           overlay={null}
+          preloadRootMargin="120px 0px 120px 0px"
         />
       ) : (
-        <img
+        <OptimizedImage
           src={src}
+          fallbackSrc={fallbackMediaUrl}
           alt={item.title}
+          width={resolvedImageWidth}
+          height={resolvedImageHeight}
+          fit={isBrandFallback ? 'contain' : 'cover'}
+          quality={68}
           className={[
             resolvedHeightClassName,
             isBrandFallback ? 'object-contain bg-slate-50 p-4' : 'object-cover'
           ].join(' ')}
-          loading="lazy"
-          decoding="async"
           onError={() => {
             if (src !== fallbackMediaUrl && fallbackMediaUrl) {
               setSrc(fallbackMediaUrl);
@@ -286,6 +306,8 @@ export default function MemberHomeHighlightsBoard({
                     showMarginTop={false}
                     containerClassName="h-full rounded-[1.5rem]"
                     heightClassName="h-full min-h-[13rem] w-full"
+                    imageWidth={560}
+                    imageHeight={336}
                   />
                 </div>
               </ActionSurface>
@@ -317,7 +339,13 @@ export default function MemberHomeHighlightsBoard({
                           </span>
                         ) : null}
                       </div>
-                      <HighlightMedia item={item} compact={false} heightClassName="h-32 w-full" />
+                      <HighlightMedia
+                        item={item}
+                        compact={false}
+                        heightClassName="h-32 w-full"
+                        imageWidth={384}
+                        imageHeight={192}
+                      />
                       <p className="mt-3 text-sm leading-6 text-slate-600 line-clamp-3">{item.description}</p>
                       <div className="mt-4 flex items-center justify-between gap-3">
                         <span className="text-xs font-medium uppercase tracking-wide text-slate-400">{item.meta || 'Live on member home'}</span>
@@ -451,7 +479,12 @@ export default function MemberHomeHighlightsBoard({
                   </div>
                 </div>
 
-                <HighlightMedia item={item} compact={compact} />
+                 <HighlightMedia
+                   item={item}
+                   compact={compact}
+                   imageWidth={compact ? 320 : 384}
+                   imageHeight={compact ? 160 : 192}
+                 />
 
                 <p className="mt-3 text-sm leading-6 text-slate-600 break-words [overflow-wrap:anywhere]">
                   {item.description}
