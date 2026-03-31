@@ -16,6 +16,16 @@ import {
   respondToFriendStreakInvite
 } from '../services/friendStreak.service';
 import {
+  buildEmptyLeagueTierSummary,
+  buildEmptyReferralSquadSummary,
+  buildEmptyRewardDropSummary,
+  claimRewardDrop,
+  getEngagementPhaseSummary,
+  inviteReferralSquadMember,
+  leaveReferralSquad,
+  respondReferralSquadInvite
+} from '../services/engagementPhase.service';
+import {
   completeUserQuest,
   generateOpportunityBriefMatches,
   generatePostPrediction,
@@ -104,7 +114,10 @@ const fallbackStreak = (userId: string, roleInput: unknown = 'USER') => ({
   updatedAt: null,
   careerDaily: buildEmptyCareerStreakSummary(userId),
   friendStreaks: buildEmptyFriendStreakDashboard(userId),
-  dailyMissions: buildEmptyDailyMissionSummary(userId, roleInput)
+  dailyMissions: buildEmptyDailyMissionSummary(userId, roleInput),
+  leagueTier: buildEmptyLeagueTierSummary(userId),
+  referralSquads: buildEmptyReferralSquadSummary(userId),
+  rewardDrops: buildEmptyRewardDropSummary(userId)
 });
 
 const fallbackRevenue = () => ({
@@ -173,11 +186,18 @@ export const getMyStreakController = async (req: Request, res: Response) => {
       careerDaily,
       friendStreaks
     });
+    const engagementPhase = await getEngagementPhaseSummary({
+      userId,
+      careerDaily
+    });
     const data = {
       ...streak,
       careerDaily,
       friendStreaks,
-      dailyMissions
+      dailyMissions,
+      leagueTier: engagementPhase.leagueTier,
+      referralSquads: engagementPhase.referralSquads,
+      rewardDrops: engagementPhase.rewardDrops
     };
     return res.json({ success: true, data, message: 'Streak loaded' });
   } catch (error) {
@@ -256,6 +276,92 @@ export const endFriendStreakController = async (req: Request, res: Response) => 
     if (message.toLowerCase().includes('not found')) return fail(res, message, error, 404);
     if (message.toLowerCase().includes('already closed')) return fail(res, message, error, 409);
     return fail(res, 'Failed to end friend streak', error);
+  }
+};
+
+export const inviteReferralSquadController = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
+    const partnerUserId = String(req.body?.partnerUserId || '').trim();
+    const squadName = String(req.body?.squadName || '').trim() || null;
+    if (!partnerUserId) return fail(res, 'partnerUserId is required', new Error('partnerUserId is required'), 400);
+    const data = await inviteReferralSquadMember({ userId, partnerUserId, squadName, app: req.app });
+    return res.json({ success: true, data, message: 'Referral squad invite processed' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to create referral squad invite');
+    if (message.toLowerCase().includes('required')) return fail(res, message, error, 400);
+    if (message.toLowerCase().includes('not found')) return fail(res, message, error, 404);
+    if (
+      message.toLowerCase().includes('already') ||
+      message.toLowerCase().includes('full') ||
+      message.toLowerCase().includes('mutual')
+    ) {
+      return fail(res, message, error, 409);
+    }
+    return fail(res, 'Failed to create referral squad invite', error);
+  }
+};
+
+export const respondReferralSquadController = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
+    const inviteId = String(req.params.inviteId || '').trim();
+    const responseValue = String(req.body?.response || '').trim().toLowerCase();
+    if (!inviteId) return fail(res, 'inviteId is required', new Error('inviteId is required'), 400);
+    const data = await respondReferralSquadInvite({
+      userId,
+      inviteId,
+      response: responseValue as 'accept' | 'decline',
+      app: req.app
+    });
+    return res.json({ success: true, data, message: 'Referral squad invite updated' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to update referral squad invite');
+    if (message.toLowerCase().includes('required') || message.toLowerCase().includes('must be')) {
+      return fail(res, message, error, 400);
+    }
+    if (message.toLowerCase().includes('not found')) return fail(res, message, error, 404);
+    if (message.toLowerCase().includes('pending') || message.toLowerCase().includes('full')) {
+      return fail(res, message, error, 409);
+    }
+    return fail(res, 'Failed to update referral squad invite', error);
+  }
+};
+
+export const leaveReferralSquadController = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
+    const squadId = String(req.params.squadId || '').trim();
+    if (!squadId) return fail(res, 'squadId is required', new Error('squadId is required'), 400);
+    const data = await leaveReferralSquad({ userId, squadId, app: req.app });
+    return res.json({ success: true, data, message: 'Referral squad updated' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to update referral squad');
+    if (message.toLowerCase().includes('required')) return fail(res, message, error, 400);
+    if (message.toLowerCase().includes('not found')) return fail(res, message, error, 404);
+    return fail(res, 'Failed to update referral squad', error);
+  }
+};
+
+export const claimRewardDropController = async (req: Request, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
+    const dropId = String(req.params.dropId || '').trim();
+    if (!dropId) return fail(res, 'dropId is required', new Error('dropId is required'), 400);
+    const data = await claimRewardDrop({ userId, dropId, app: req.app });
+    return res.json({ success: true, data, message: 'Reward drop claimed' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to claim reward drop');
+    if (message.toLowerCase().includes('required') || message.toLowerCase().includes('eligible')) {
+      return fail(res, message, error, 400);
+    }
+    if (message.toLowerCase().includes('already claimed')) return fail(res, message, error, 409);
+    if (message.toLowerCase().includes('not found')) return fail(res, message, error, 404);
+    return fail(res, 'Failed to claim reward drop', error);
   }
 };
 

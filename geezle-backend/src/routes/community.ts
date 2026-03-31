@@ -96,6 +96,15 @@ import {
   engageStory
 } from '../controllers/community.stories.controller';
 import {
+  getStoryRepliesController,
+  createStoryReplyController,
+  deleteStoryReplyController
+} from '../controllers/community.storyReplies.controller';
+import {
+  getCommunityPollsController,
+  voteCommunityPollController
+} from '../controllers/community.polls.controller';
+import {
   getBusinessPageFeatureConfig,
   getMyBusinessPages,
   createBusinessPage,
@@ -181,6 +190,8 @@ router.get('/leaderboard', authMiddleware, getLeaderboard);
 router.get('/settings', authMiddleware, adminMiddleware, getCommunitySettings);
 router.get('/homepage', getCommunityHomepage);
 router.get('/stories/feed', authMiddleware, getStoriesFeed);
+router.get('/stories/:id/replies', authMiddleware, getStoryRepliesController);
+router.get('/polls/discover', authMiddleware, getCommunityPollsController);
 router.get('/business-pages/recommendations', authMiddleware, getRecommendedBusinessPages);
 router.get('/business-pages/config', getBusinessPageFeatureConfig);
 router.get('/broadcast-channels/discover', authMiddleware, getBroadcastChannelDiscover);
@@ -248,6 +259,9 @@ router.delete('/stories/:id', authMiddleware, deleteStory);
 router.post('/stories/:id/view', authMiddleware, viewStory);
 router.post('/stories/:id/like', authMiddleware, toggleStoryLike);
 router.post('/stories/:id/engage', authMiddleware, engageStory);
+router.post('/stories/:id/replies', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), createStoryReplyController);
+router.delete('/stories/replies/:replyId', authMiddleware, deleteStoryReplyController);
+router.post('/polls/:pollId/vote', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), voteCommunityPollController);
 
 // Business pages
 router.get('/business-pages/me', authMiddleware, getMyBusinessPages);

@@ -148,6 +148,9 @@ model User {
   communityStories                   CommunityStory[]
   communityStoryLikes                CommunityStoryLike[]
   communityStoryViews                CommunityStoryView[]
+  communityStoryReplies              CommunityStoryReply[]
+  communityPollsCreated              CommunityPoll[]                     @relation("CommunityPollCreatedBy")
+  communityPollVotes                 CommunityPollVote[]
   communityBusinessPages             CommunityBusinessPage[]             @relation("BusinessPageOwner")
   businessPageFollows                CommunityBusinessPageFollower[]
   businessPageAdminships             CommunityBusinessPageAdmin[]
@@ -3869,9 +3872,10 @@ model CommunityStory {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  author User                 @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  views  CommunityStoryView[]
-  likes  CommunityStoryLike[]
+  author  User                  @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  views   CommunityStoryView[]
+  likes   CommunityStoryLike[]
+  replies CommunityStoryReply[]
 
   @@index([authorId])
   @@index([expiresAt])
@@ -3904,6 +3908,82 @@ model CommunityStoryView {
   @@unique([storyId, viewerId])
   @@index([storyId])
   @@index([viewerId])
+}
+
+model CommunityStoryReply {
+  id        String   @id @default(cuid())
+  storyId   String
+  authorId  String
+  parentId  String?
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  story   CommunityStory        @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  author  User                  @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent  CommunityStoryReply?  @relation("CommunityStoryReplyChain", fields: [parentId], references: [id], onDelete: Cascade)
+  replies CommunityStoryReply[] @relation("CommunityStoryReplyChain")
+
+  @@index([storyId, createdAt])
+  @@index([authorId, createdAt])
+  @@index([parentId, createdAt])
+}
+
+model CommunityPoll {
+  id            String    @id @default(cuid())
+  creatorUserId String?
+  key           String?   @unique
+  title         String
+  prompt        String    @db.Text
+  kind          String    @default("poll")
+  status        String    @default("active")
+  sourceScope   String    @default("member_home")
+  startsAt      DateTime?
+  endsAt        DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  creator User?                 @relation("CommunityPollCreatedBy", fields: [creatorUserId], references: [id], onDelete: SetNull)
+  options CommunityPollOption[]
+  votes   CommunityPollVote[]
+
+  @@index([creatorUserId, createdAt])
+  @@index([status, createdAt])
+  @@index([sourceScope, status, createdAt])
+}
+
+model CommunityPollOption {
+  id          String   @id @default(cuid())
+  pollId      String
+  label       String
+  description String?
+  accent      String?
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  poll  CommunityPoll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  votes CommunityPollVote[]
+
+  @@unique([pollId, position])
+  @@index([pollId])
+}
+
+model CommunityPollVote {
+  id        String   @id @default(cuid())
+  pollId    String
+  optionId  String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  poll   CommunityPoll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  option CommunityPollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  user   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, userId])
+  @@index([optionId])
+  @@index([userId, createdAt])
 }
 
 model CommunityBusinessPage {
