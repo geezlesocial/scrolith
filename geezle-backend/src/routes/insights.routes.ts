@@ -27,6 +27,16 @@ import {
   submitCreatorChallengeEntryController,
   voteCreatorChallengeEntryController
 } from '../modules/insights/controllers/insights.controller';
+import {
+  activateEventSeasonPassController,
+  answerExpertBountyQuestionController,
+  awardExpertBountyController,
+  createExpertBountyQuestionController,
+  getEngagementExpansionController,
+  submitSkillMiniGameController,
+  subscribeFanChannelController,
+  unlockPremiumSeriesController
+} from '../modules/insights/controllers/engagementExpansion.controller';
 
 const router = express.Router();
 
@@ -42,6 +52,14 @@ router.post('/streak/referral-squads/invite', inviteReferralSquadController);
 router.post('/streak/referral-squads/invites/:inviteId/respond', respondReferralSquadController);
 router.post('/streak/referral-squads/:squadId/leave', leaveReferralSquadController);
 router.post('/streak/reward-drops/:dropId/claim', claimRewardDropController);
+router.get('/engagement-phase/me', getEngagementExpansionController);
+router.post('/engagement-phase/fan-channels/:channelId/subscribe', subscribeFanChannelController);
+router.post('/engagement-phase/mini-games/:gameId/submit', submitSkillMiniGameController);
+router.post('/engagement-phase/seasons/:seasonId/passes/:passId/activate', activateEventSeasonPassController);
+router.post('/engagement-phase/premium-series/:seriesId/unlock', unlockPremiumSeriesController);
+router.post('/engagement-phase/bounties/questions', createExpertBountyQuestionController);
+router.post('/engagement-phase/bounties/questions/:questionId/answers', answerExpertBountyQuestionController);
+router.post('/engagement-phase/bounties/questions/:questionId/award', awardExpertBountyController);
 router.get('/challenges/me', getMyCreatorChallengesController);
 router.post('/challenges/:challengeId/entries', submitCreatorChallengeEntryController);
 router.post('/challenges/:challengeId/vote', voteCreatorChallengeEntryController);
