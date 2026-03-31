@@ -1483,6 +1483,7 @@ const applyFileResponseHeaders = (
   }
 };
 
+const PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL = 'public, max-age=604800, stale-while-revalidate=86400';
 const BRAND_LOGO_FALLBACK_URL = 'https://scrolith.com/logo.png';
 const BRAND_FAVICON_FALLBACK_URL = 'https://scrolith.com/favicon.png';
 const BRAND_ASSET_FALLBACK_NAMES = new Set([
@@ -1529,7 +1530,7 @@ const tryServeManagedStorageUploadAsset = async (relativePath: string, res: Resp
     applyFileResponseHeaders(res, {
       contentType: String(metadata?.contentType || '').trim() || getMimeTypeFromFilename(normalizedPath),
       contentLength: buffer.length,
-      cacheControl: 'public, max-age=86400'
+      cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
     });
     res.end(buffer);
     return true;
@@ -1550,7 +1551,7 @@ const tryServeManagedStorageUploadAsset = async (relativePath: string, res: Resp
         applyFileResponseHeaders(res, {
           contentType: String(metadata?.contentType || '').trim() || getMimeTypeFromFilename(normalizedPath),
           contentLength: Number(metadata?.size || 0) || undefined,
-          cacheControl: 'public, max-age=86400'
+          cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
         });
         const stream = createFirebaseStorageReadStream(normalizedPath);
         stream.on('error', (streamError) => {
@@ -1581,7 +1582,7 @@ const tryServeManagedStorageUploadAsset = async (relativePath: string, res: Resp
       applyFileResponseHeaders(res, {
         contentType,
         contentLength: blobResponse.contentLength,
-        cacheControl: 'public, max-age=86400'
+        cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
       });
       const stream = blobResponse.readableStreamBody;
       if (!stream) return false;
@@ -1771,7 +1772,7 @@ export const serveFileContent = async (req: Request, res: Response) => {
       const mimeType = getMimeTypeFromFilename(diskPath);
       applyFileResponseHeaders(res, {
         contentType: mimeType,
-        cacheControl: 'public, max-age=86400'
+        cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
       });
       res.sendFile(diskPath);
       return;
@@ -2059,7 +2060,7 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
     if (directLocalPath.startsWith(uploadsRoot) && fs.existsSync(directLocalPath)) {
       applyFileResponseHeaders(res, {
         contentType: directMimeType,
-        cacheControl: 'public, max-age=86400'
+        cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
       });
       res.sendFile(directLocalPath);
       return;
@@ -2125,7 +2126,7 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
               legacyMatch.mimeType ||
               getMimeTypeFromFilename(legacyMatch.filename || baseName),
             contentLength: buffer.length,
-            cacheControl: 'public, max-age=86400'
+            cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
           });
           res.end(buffer);
           return;
@@ -2169,7 +2170,7 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
               legacyMatch.mimeType ||
               getMimeTypeFromFilename(legacyMatch.filename || baseName),
             contentLength: Number(metadata?.size || 0) || undefined,
-            cacheControl: 'public, max-age=86400'
+            cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
           });
 
           const stream = createFirebaseStorageReadStream(objectName);
@@ -2222,7 +2223,7 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
           applyFileResponseHeaders(res, {
             contentType,
             contentLength: blobResponse.contentLength,
-            cacheControl: 'public, max-age=86400'
+            cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
           });
 
           const stream = blobResponse.readableStreamBody;
@@ -2271,7 +2272,7 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
       const contentType = legacyMatch.mimeType || getMimeTypeFromFilename(candidate);
       applyFileResponseHeaders(res, {
         contentType,
-        cacheControl: 'public, max-age=86400'
+        cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
       });
       res.sendFile(candidate);
       return;
