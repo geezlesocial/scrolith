@@ -31,6 +31,7 @@ import ScrollCreateModal from '../../../features/scroll/ScrollCreateModal';
 import ExpandablePreviewText from '../../../components/common/ExpandablePreviewText';
 import StaticPreviewText from '../../../components/common/StaticPreviewText';
 import InlineAutoplayVideo from '../../../components/media/InlineAutoplayVideo';
+import OptimizedImage from '../../../components/media/OptimizedImage';
 import { resolveInlineMedia } from '../../../utils/inlineMedia';
 import { downloadToDevice } from '../../../utils/deviceDownload';
 import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
@@ -1259,9 +1260,13 @@ export default function MobileStoriesStrip({
                             showMuteToggle={false}
                           />
                         ) : (
-                          <img
-                            src={media.url}
+                          <OptimizedImage
+                            src={media.thumbnailUrl || media.url}
+                            fallbackSrc={media.url}
                             alt=""
+                            width={184}
+                            height={308}
+                            sizes="92px"
                             className="pointer-events-none h-full w-full object-cover"
                             onError={() =>
                               setStoryPreviewMediaErrors((prev) =>
@@ -1271,18 +1276,32 @@ export default function MobileStoriesStrip({
                           />
                         )
                       ) : avatar ? (
-                        <img src={avatar} alt={name} className="pointer-events-none h-full w-full object-cover" />
+                        <OptimizedImage
+                          src={avatar}
+                          alt={name}
+                          width={184}
+                          height={308}
+                          sizes="92px"
+                          className="pointer-events-none h-full w-full object-cover"
+                        />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-white">
                           {fallbackLetter}
                         </div>
                       )}
-                      <div className="pointer-events-none absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
-                        {avatar ? (
-                          <img src={avatar} alt={name} className="h-full w-full object-cover" />
-                        ) : (
-                          <span>{fallbackLetter}</span>
-                        )}
+                        <div className="pointer-events-none absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
+                          {avatar ? (
+                            <OptimizedImage
+                              src={avatar}
+                              alt={name}
+                              width={56}
+                              height={56}
+                              sizes="28px"
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <span>{fallbackLetter}</span>
+                          )}
                       </div>
                       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
                         <p className="line-clamp-1 text-[10px] font-semibold text-white">{name}</p>

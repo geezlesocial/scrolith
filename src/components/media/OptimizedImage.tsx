@@ -3,7 +3,7 @@ import { resolveAssetUrl, resolveResponsiveAssetUrl } from '../../utils/assetUrl
 
 type OptimizedImageProps = Omit<
   React.ImgHTMLAttributes<HTMLImageElement>,
-  'src' | 'srcSet' | 'width' | 'height' | 'loading' | 'decoding'
+  'src' | 'srcSet' | 'sizes' | 'width' | 'height' | 'loading' | 'decoding' | 'fetchPriority'
 > & {
   src: string;
   fallbackSrc?: string | null;
@@ -13,6 +13,8 @@ type OptimizedImageProps = Omit<
   quality?: number;
   loading?: 'lazy' | 'eager';
   decoding?: 'async' | 'auto' | 'sync';
+  sizes?: string;
+  fetchPriority?: 'high' | 'low' | 'auto';
   disableSrcSet?: boolean;
 };
 
@@ -36,18 +38,37 @@ const buildResponsiveSources = (
     fit,
     quality
   });
-  const retinaSrc = resolveResponsiveAssetUrl(src, {
-    width: normalizedWidth * 2,
-    height: normalizedHeight * 2,
-    fit,
-    quality
-  });
+  const candidateWidths = Array.from(
+    new Set(
+      [normalizedWidth * 0.75, normalizedWidth, normalizedWidth * 1.5, normalizedWidth * 2]
+        .map((value) => normalizeDimension(value))
+        .filter((value) => value >= 96)
+    )
+  ).sort((a, b) => a - b);
+  const variants = candidateWidths
+    .map((candidateWidth) => {
+      const ratio = normalizedWidth > 0 ? normalizedHeight / normalizedWidth : 1;
+      const candidateHeight = normalizeDimension(candidateWidth * ratio);
+      return {
+        width: candidateWidth,
+        url: resolveResponsiveAssetUrl(src, {
+          width: candidateWidth,
+          height: candidateHeight,
+          fit,
+          quality
+        })
+      };
+    })
+    .filter((entry) => Boolean(entry.url));
+  const uniqueVariants = variants.filter(
+    (entry, index, list) => list.findIndex((candidate) => candidate.url === entry.url) === index
+  );
 
   return {
     baseSrc,
     srcSet:
-      retinaSrc && retinaSrc !== baseSrc
-        ? `${baseSrc} 1x, ${retinaSrc} 2x`
+      uniqueVariants.length > 1
+        ? uniqueVariants.map((entry) => `${entry.url} ${entry.width}w`).join(', ')
         : undefined
   };
 };
@@ -62,6 +83,8 @@ export default function OptimizedImage({
   quality = 72,
   loading = 'lazy',
   decoding = 'async',
+  sizes,
+  fetchPriority = 'auto',
   disableSrcSet = false,
   onError,
   ...rest
@@ -94,20 +117,25 @@ export default function OptimizedImage({
     setCurrentSrcSet(disableSrcSet ? undefined : resolvedSources.srcSet);
   }, [disableSrcSet, resolvedSources.baseSrc, resolvedSources.srcSet]);
 
+  const computedSizes = currentSrcSet ? sizes || `${normalizedWidth}px` : undefined;
+
   return (
     <img
       {...rest}
       src={currentSrc}
       srcSet={currentSrcSet}
+      sizes={computedSizes}
       alt={alt}
       width={normalizedWidth}
       height={normalizedHeight}
       loading={loading}
       decoding={decoding}
+      fetchPriority={fetchPriority}
       onError={(event) => {
         if (fallbackSources && currentSrc !== fallbackSources.baseSrc) {
           setCurrentSrc(fallbackSources.baseSrc);
           setCurrentSrcSet(disableSrcSet ? undefined : fallbackSources.srcSet);
+          return;
         }
         onError?.(event);
       }}

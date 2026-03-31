@@ -73,6 +73,7 @@ import MediaPreviewModal, { PreviewMedia } from '../media/MediaPreviewModal';
 import { downloadToDevice } from '../../utils/deviceDownload';
 import GraphicWarningGate from '../media/GraphicWarningGate';
 import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
+import OptimizedImage from '../media/OptimizedImage';
 import OverlayActionRailButton from '../media/OverlayActionRailButton';
 import PostExpandModal from '../post/PostExpandModal';
 import PostOriginPreview from '../post/PostOriginPreview';
@@ -4264,9 +4265,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
                   className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
                 >
-                  <img
+                  <OptimizedImage
                     src={(media as any).thumbnailUrl || media.url}
+                    fallbackSrc={media.url}
                     alt={media.name || 'Post media'}
+                    width={640}
+                    height={400}
+                    sizes="(max-width: 1024px) 100vw, 640px"
                     className={`${mediaPreviewHeightClass} w-full object-cover`}
                     loading="lazy"
                     decoding="async"
@@ -5045,7 +5050,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                   showMuteToggle={false}
                                 />
                               ) : (
-                                <img src={media.src} alt="Story" className="h-full w-full object-cover" />
+                                <OptimizedImage
+                                  src={media.src}
+                                  alt="Story"
+                                  width={176}
+                                  height={264}
+                                  sizes="88px"
+                                  className="h-full w-full object-cover"
+                                />
                               );
                             }
                             if (text) {
@@ -5080,7 +5092,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             return (
                               <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-white/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
                                 {authorAvatar ? (
-                                  <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
+                                  <OptimizedImage
+                                    src={authorAvatar}
+                                    alt={authorName}
+                                    width={56}
+                                    height={56}
+                                    sizes="28px"
+                                    className="h-full w-full object-cover"
+                                  />
                                 ) : (
                                   <span>{authorInitial}</span>
                                 )}
@@ -5472,7 +5491,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                     className="relative block h-40 w-full"
                                   >
                                     {media.thumbnailUrl ? (
-                                      <img src={media.thumbnailUrl} alt={media.name || 'Video loading'} className="h-40 w-full object-cover" />
+                                      <OptimizedImage
+                                        src={media.thumbnailUrl}
+                                        alt={media.name || 'Video loading'}
+                                        width={640}
+                                        height={320}
+                                        sizes="(max-width: 1024px) 100vw, 640px"
+                                        className="h-40 w-full object-cover"
+                                      />
                                     ) : (
                                       <div className="flex h-40 w-full items-center justify-center bg-slate-200">
                                         <Video className="h-8 w-8 text-slate-500" />
@@ -5489,9 +5515,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                   </button>
                                 ) : type === 'image' ? (
                                   <button type="button" onClick={() => setPreviewMedia(toPreviewMedia(media))} className="block h-40 w-full">
-                                    <img
+                                    <OptimizedImage
                                       src={media.thumbnailUrl || media.url}
+                                      fallbackSrc={media.url}
                                       alt={media.name || 'Post media'}
+                                      width={640}
+                                      height={320}
+                                      sizes="(max-width: 1024px) 100vw, 640px"
                                       className="h-40 w-full object-cover"
                                       loading="lazy"
                                       decoding="async"

@@ -107,7 +107,9 @@ const HighlightMedia = ({
   containerClassName = '',
   heightClassName,
   imageWidth,
-  imageHeight
+  imageHeight,
+  loading = 'lazy',
+  fetchPriority = 'auto'
 }: {
   item: MemberHomeHighlightItem;
   compact: boolean;
@@ -116,6 +118,8 @@ const HighlightMedia = ({
   heightClassName?: string;
   imageWidth?: number;
   imageHeight?: number;
+  loading?: 'lazy' | 'eager';
+  fetchPriority?: 'high' | 'low' | 'auto';
 }) => {
   const fallbackMediaUrl = String(item.fallbackMediaUrl || BRAND_LOGO_URL).trim();
   const initialSrc = String(item.mediaUrl || '').trim();
@@ -178,8 +182,11 @@ const HighlightMedia = ({
           alt={item.title}
           width={resolvedImageWidth}
           height={resolvedImageHeight}
+          sizes={compact ? '(max-width: 768px) 100vw, 20rem' : '(max-width: 1536px) 100vw, 35rem'}
           fit={isBrandFallback ? 'contain' : 'cover'}
           quality={68}
+          loading={loading}
+          fetchPriority={fetchPriority}
           className={[
             resolvedHeightClassName,
             isBrandFallback ? 'object-contain bg-slate-50 p-4' : 'object-cover'
@@ -308,6 +315,8 @@ export default function MemberHomeHighlightsBoard({
                     heightClassName="h-full min-h-[13rem] w-full"
                     imageWidth={560}
                     imageHeight={336}
+                    loading="eager"
+                    fetchPriority="high"
                   />
                 </div>
               </ActionSurface>

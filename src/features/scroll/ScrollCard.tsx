@@ -27,6 +27,7 @@ import { useUser } from '../../context/UserContext';
 import { resolveInlineMedia } from '../../utils/inlineMedia';
 import GraphicWarningGate from '../../components/media/GraphicWarningGate';
 import OverlayActionRailButton from '../../components/media/OverlayActionRailButton';
+import OptimizedImage from '../../components/media/OptimizedImage';
 
 type ScrollCardProps = {
   scroll: ScrollVideo;
@@ -429,10 +430,13 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
       {mediaUrl ? (
         <div className="relative h-full w-full bg-black">
           {media.poster ? (
-            <img
+            <OptimizedImage
               src={media.poster}
               alt=""
               aria-hidden
+              width={720}
+              height={1280}
+              sizes="(max-width: 768px) 100vw, 420px"
               className="absolute inset-0 h-full w-full object-cover blur-2xl opacity-35 scale-110"
             />
           ) : null}
@@ -474,7 +478,14 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         <div className="pointer-events-auto flex items-start gap-3">
           <div className="h-10 w-10 rounded-full bg-white/15 ring-2 ring-white/70 overflow-hidden flex items-center justify-center text-sm font-semibold">
             {scroll.author?.avatar ? (
-              <img src={scroll.author.avatar} alt={authorName} className="h-full w-full object-cover" />
+              <OptimizedImage
+                src={scroll.author.avatar}
+                alt={authorName}
+                width={80}
+                height={80}
+                sizes="40px"
+                className="h-full w-full object-cover"
+              />
             ) : (
               <span>{authorInitial(authorName)}</span>
             )}

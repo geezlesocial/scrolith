@@ -23,6 +23,7 @@ import PostOptionsButton from '../../../community/components/post-options/PostOp
 import ExpandablePreviewText from '../../../components/common/ExpandablePreviewText';
 import VerifiedBadge from '../../../components/common/VerifiedBadge';
 import InlineAutoplayVideo from '../../../components/media/InlineAutoplayVideo';
+import OptimizedImage from '../../../components/media/OptimizedImage';
 import MediaPreviewModal, { type PreviewMedia } from '../../../components/media/MediaPreviewModal';
 import PostVideoActionBar from '../../../components/media/PostVideoActionBar';
 import PostExpandModal from '../../../components/post/PostExpandModal';
@@ -1663,12 +1664,15 @@ export default function MobileFeed({
                     <Link
                       to={profileUrl}
                       className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-100 via-white to-slate-50 shadow-sm"
-                      aria-label={`View ${authorName} profile`}
-                    >
+                        aria-label={`View ${authorName} profile`}
+                      >
                         {authorAvatar ? (
-                          <img
+                          <OptimizedImage
                             src={authorAvatar}
                             alt={authorName}
+                            width={96}
+                            height={96}
+                            sizes="48px"
                             className="h-full w-full object-cover"
                             loading="lazy"
                             decoding="async"
@@ -1918,9 +1922,13 @@ export default function MobileFeed({
                                   onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
                                   className="block h-[17.5rem] w-full text-left sm:h-[20rem]"
                                 >
-                                  <img
+                                  <OptimizedImage
                                     src={resolvePostAttachmentMediaUrl(file)}
+                                    fallbackSrc={resolvePostAttachmentPosterUrl(file)}
                                     alt={file.name || 'Attachment'}
+                                    width={640}
+                                    height={400}
+                                    sizes="(max-width: 768px) 100vw, 640px"
                                     className="h-[17.5rem] w-full object-cover sm:h-[20rem]"
                                     loading="lazy"
                                     decoding="async"
