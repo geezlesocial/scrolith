@@ -7,6 +7,10 @@ import {
   type CreatorChallenge,
   type CreatorChallengeDashboard,
   type DailyMissionSummary,
+  type EngagementExpansionSummary,
+  type EventSeasonSummary,
+  type ExpertBountyQuestionSummary,
+  type FanClubCard,
   type FriendStreakDashboard,
   type InsightAchievement,
   InsightsService,
@@ -17,9 +21,11 @@ import {
   type LeagueTierSummary,
   type OpportunityBriefResult,
   type OpportunityHubData,
+  type PremiumSeriesCard,
   type ProfessionalScore,
   type ReferralSquadSummary,
   type RewardDropSummary,
+  type SkillMiniGameSummary,
   type UserStreak,
   type UserQuest
 } from '../../services/insights';
@@ -219,6 +225,24 @@ export default function InsightsQuickPanel({
   const [selectedReferralCandidateId, setSelectedReferralCandidateId] = useState('');
   const [rewardDropActionBusy, setRewardDropActionBusy] = useState<string | null>(null);
   const [rewardDropStatus, setRewardDropStatus] = useState<string | null>(null);
+  const [engagementExpansion, setEngagementExpansion] = useState<EngagementExpansionSummary | null>(null);
+  const [fanClubActionBusy, setFanClubActionBusy] = useState<string | null>(null);
+  const [fanClubStatus, setFanClubStatus] = useState<string | null>(null);
+  const [miniGameActionBusy, setMiniGameActionBusy] = useState<string | null>(null);
+  const [miniGameStatus, setMiniGameStatus] = useState<string | null>(null);
+  const [selectedMiniGameChoiceMap, setSelectedMiniGameChoiceMap] = useState<Record<string, string>>({});
+  const [seasonActionBusy, setSeasonActionBusy] = useState<string | null>(null);
+  const [seasonStatus, setSeasonStatus] = useState<string | null>(null);
+  const [premiumSeriesActionBusy, setPremiumSeriesActionBusy] = useState<string | null>(null);
+  const [premiumSeriesStatus, setPremiumSeriesStatus] = useState<string | null>(null);
+  const [bountyActionBusy, setBountyActionBusy] = useState<string | null>(null);
+  const [bountyStatus, setBountyStatus] = useState<string | null>(null);
+  const [bountyTitle, setBountyTitle] = useState('');
+  const [bountyBody, setBountyBody] = useState('');
+  const [bountyCategory, setBountyCategory] = useState('');
+  const [bountyTags, setBountyTags] = useState('');
+  const [bountyAmount, setBountyAmount] = useState('');
+  const [bountyAnswerDrafts, setBountyAnswerDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -239,6 +263,12 @@ export default function InsightsQuickPanel({
     broadcastChannels.length > 0 ||
     officeHours.length > 0 ||
     pollCards.length > 0 ||
+    Boolean(engagementExpansion?.fanClubs?.freeClubs?.length) ||
+    Boolean(engagementExpansion?.fanClubs?.fanChannels?.length) ||
+    Boolean(engagementExpansion?.miniGames?.games?.length) ||
+    Boolean(engagementExpansion?.seasons?.items?.length) ||
+    Boolean(engagementExpansion?.premiumSeries?.items?.length) ||
+    Boolean(engagementExpansion?.expertBounties?.questions?.length) ||
     achievements.length > 0 ||
     quests.length > 0 ||
     matches.length > 0;
@@ -263,6 +293,7 @@ export default function InsightsQuickPanel({
         broadcastChannels?: BroadcastChannelSummary[];
         officeHours?: HighlightCommunityEvent[];
         pollCards?: CommunityPollSummary[];
+        engagementExpansion?: EngagementExpansionSummary | null;
       };
       const ts = Number(parsed?.ts || 0);
       if (Date.now() - ts > INSIGHTS_CACHE_TTL_MS) return;
@@ -279,6 +310,7 @@ export default function InsightsQuickPanel({
       if (Array.isArray(parsed?.broadcastChannels)) setBroadcastChannels(parsed.broadcastChannels.slice(0, compact ? 2 : 3));
       if (Array.isArray(parsed?.officeHours)) setOfficeHours(parsed.officeHours.slice(0, compact ? 2 : 3));
       if (Array.isArray(parsed?.pollCards)) setPollCards(parsed.pollCards.slice(0, compact ? 2 : 3));
+      if (parsed?.engagementExpansion) setEngagementExpansion(parsed.engagementExpansion);
       hasLoadedRef.current = true;
       setLoading(false);
       setError(null);
@@ -308,7 +340,8 @@ export default function InsightsQuickPanel({
           withFastFail(ScrollService.getDiscoverableSeries(compact ? 2 : 3), 15000, 'Series request timed out.'),
           withFastFail(CommunityService.getBroadcastChannels(compact ? 2 : 3), 15000, 'Broadcast request timed out.'),
           withFastFail(CommunityService.getEvents(), 15000, 'Office hours request timed out.'),
-          withFastFail(CommunityService.getPolls(compact ? 2 : 3), 15000, 'Poll request timed out.')
+          withFastFail(CommunityService.getPolls(compact ? 2 : 3), 15000, 'Poll request timed out.'),
+          withFastFail(InsightsService.getEngagementExpansion(), 15000, 'Next-phase discovery request timed out.')
         ]);
 
         const [
@@ -324,7 +357,8 @@ export default function InsightsQuickPanel({
           featuredSeriesResult,
           broadcastChannelsResult,
           officeHoursResult,
-          pollCardsResult
+          pollCardsResult,
+          engagementExpansionResult
         ] = results;
         const pgsData = takeValue(pgsResult);
         const streakData = takeValue(streakResult);
@@ -342,6 +376,7 @@ export default function InsightsQuickPanel({
             ? getHighlightedCommunityEvents(Array.isArray(officeHoursResult.value) ? officeHoursResult.value : [], compact ? 2 : 3)
             : null;
         const pollCardsData = takeValue(pollCardsResult);
+        const engagementExpansionData = takeValue(engagementExpansionResult);
 
         if (pgsData) setPgs(pgsData);
         if (streakData) setStreak(streakData);
@@ -361,6 +396,7 @@ export default function InsightsQuickPanel({
         if (Array.isArray(broadcastChannelsData)) setBroadcastChannels(broadcastChannelsData.slice(0, compact ? 2 : 3));
         if (Array.isArray(officeHoursData)) setOfficeHours(officeHoursData.slice(0, compact ? 2 : 3));
         if (Array.isArray(pollCardsData)) setPollCards(pollCardsData.slice(0, compact ? 2 : 3));
+        if (engagementExpansionData) setEngagementExpansion(engagementExpansionData);
         try {
           localStorage.setItem(
             insightsCacheKey,
@@ -378,7 +414,8 @@ export default function InsightsQuickPanel({
               featuredSeries: Array.isArray(featuredSeriesData) ? featuredSeriesData : [],
               broadcastChannels: Array.isArray(broadcastChannelsData) ? broadcastChannelsData : [],
               officeHours: Array.isArray(officeHoursData) ? officeHoursData : [],
-              pollCards: Array.isArray(pollCardsData) ? pollCardsData : []
+              pollCards: Array.isArray(pollCardsData) ? pollCardsData : [],
+              engagementExpansion: engagementExpansionData || null
             })
           );
         } catch {
@@ -403,7 +440,21 @@ export default function InsightsQuickPanel({
         setRefreshing(false);
       }
     },
-    [broadcastChannels.length, compact, featuredSeries.length, hasVisibleData, insightsCacheKey, officeHours.length, pollCards.length]
+    [
+      broadcastChannels.length,
+      compact,
+      engagementExpansion?.expertBounties?.questions?.length,
+      engagementExpansion?.fanClubs?.fanChannels?.length,
+      engagementExpansion?.fanClubs?.freeClubs?.length,
+      engagementExpansion?.miniGames?.games?.length,
+      engagementExpansion?.premiumSeries?.items?.length,
+      engagementExpansion?.seasons?.items?.length,
+      featuredSeries.length,
+      hasVisibleData,
+      insightsCacheKey,
+      officeHours.length,
+      pollCards.length
+    ]
   );
 
   useEffect(() => {
@@ -542,6 +593,15 @@ export default function InsightsQuickPanel({
   const incomingReferralInvites = Array.isArray(referralSquads?.incomingInvites) ? referralSquads.incomingInvites : [];
   const outgoingReferralInvites = Array.isArray(referralSquads?.outgoingInvites) ? referralSquads.outgoingInvites : [];
   const rewardDropCards = Array.isArray(rewardDrops?.drops) ? rewardDrops.drops : [];
+  const fanClubGroups = engagementExpansion?.fanClubs || { freeClubs: [], fanChannels: [] };
+  const freeFanClubs = Array.isArray(fanClubGroups.freeClubs) ? fanClubGroups.freeClubs : [];
+  const paidFanChannels = Array.isArray(fanClubGroups.fanChannels) ? fanClubGroups.fanChannels : [];
+  const miniGames = Array.isArray(engagementExpansion?.miniGames?.games) ? engagementExpansion?.miniGames?.games : [];
+  const seasonItems = Array.isArray(engagementExpansion?.seasons?.items) ? engagementExpansion?.seasons?.items : [];
+  const premiumSeriesCards = Array.isArray(engagementExpansion?.premiumSeries?.items) ? engagementExpansion?.premiumSeries?.items : [];
+  const expertBountyQuestions = Array.isArray(engagementExpansion?.expertBounties?.questions)
+    ? engagementExpansion?.expertBounties?.questions
+    : [];
   const creatorChallenges = Array.isArray(creatorChallengeDashboard?.challenges) ? creatorChallengeDashboard.challenges : [];
   const earnedAchievements = achievements.filter((item) => item?.earned);
   const earnedBadges = earnedAchievements.filter((item) => ['bronze', 'silver'].includes(String(item?.tier || '').toLowerCase()));
@@ -555,6 +615,13 @@ export default function InsightsQuickPanel({
   const resolveBroadcastHref = useCallback((channel?: BroadcastChannelSummary | null) => {
     const direct = String(channel?.source?.href || '').trim();
     return direct || '/community';
+  }, []);
+  const buildActorLabel = useCallback((person?: { name?: string | null; username?: string | null } | null) => {
+    if (!person) return 'Scrolith member';
+    const name = String(person.name || '').trim();
+    const username = String(person.username || '').trim();
+    if (name && username) return `${name} (@${username})`;
+    return name || (username ? `@${username}` : 'Scrolith member');
   }, []);
   const focusInsightsSection = useCallback((sectionId: string, group?: 'growth' | 'opportunity') => {
     if (typeof window !== 'undefined' && group) {
@@ -577,6 +644,26 @@ export default function InsightsQuickPanel({
     setCoachStatus(null);
     setCoachOutput('');
   }, [coachSurface]);
+
+  useEffect(() => {
+    if (!miniGames.length) return;
+    setSelectedMiniGameChoiceMap((current) => {
+      const next = { ...current };
+      let changed = false;
+      miniGames.forEach((game) => {
+        const gameId = String(game?.id || '').trim();
+        const currentChoice = String(next[gameId] || '').trim();
+        const preferredChoice =
+          String(game?.selectedChoiceId || '').trim() ||
+          String(game?.choices?.[0]?.id || '').trim();
+        if (gameId && preferredChoice && currentChoice !== preferredChoice && !game.playedToday) {
+          next[gameId] = preferredChoice;
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
+  }, [miniGames]);
 
   const runCoachAction = useCallback(
     async (actionKey: CoachActionKey) => {
@@ -712,6 +799,255 @@ export default function InsightsQuickPanel({
       }
     },
     [refresh]
+  );
+
+  const mergeEngagementExpansion = useCallback((summary: EngagementExpansionSummary | null | undefined) => {
+    if (!summary) return;
+    setEngagementExpansion(summary);
+  }, []);
+
+  const toggleFreeFanClubMembership = useCallback(
+    async (club: FanClubCard) => {
+      const clubId = String(club?.id || '').trim();
+      if (!clubId) return;
+      setFanClubActionBusy(`club:${clubId}`);
+      setFanClubStatus(null);
+      try {
+        if (club.isJoined) {
+          await CommunityService.leaveClub(clubId);
+        } else {
+          await CommunityService.joinClub(clubId);
+        }
+        setEngagementExpansion((current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            fanClubs: {
+              ...current.fanClubs,
+              freeClubs: current.fanClubs.freeClubs.map((entry) =>
+                entry.id === clubId
+                  ? {
+                      ...entry,
+                      isJoined: !club.isJoined,
+                      memberCount: Math.max(0, Number(entry.memberCount || 0) + (club.isJoined ? -1 : 1))
+                    }
+                  : entry
+              )
+            }
+          };
+        });
+        setFanClubStatus(club.isJoined ? 'Fan club left.' : 'Fan club joined.');
+        void refresh({ silent: true });
+      } catch (e: any) {
+        setFanClubStatus(e?.response?.data?.message || e?.message || 'Unable to update fan club membership.');
+      } finally {
+        setFanClubActionBusy(null);
+      }
+    },
+    [refresh]
+  );
+
+  const handleFanChannelAction = useCallback(
+    async (channel: FanClubCard) => {
+      const channelId = String(channel?.id || '').trim();
+      if (!channelId) return;
+      setFanClubActionBusy(`channel:${channelId}`);
+      setFanClubStatus(null);
+      try {
+        let nextSummary: EngagementExpansionSummary | null = null;
+        if (channel.pricing?.isPaid && !channel.pricing?.subscribed) {
+          nextSummary = await InsightsService.subscribeFanChannel(channelId);
+          setFanClubStatus('Premium fan channel unlocked.');
+        } else {
+          const next = channel.isFollowing
+            ? await CommunityService.unfollowBroadcastChannel(channelId)
+            : await CommunityService.followBroadcastChannel(channelId);
+          setEngagementExpansion((current) => {
+            if (!current) return current;
+            return {
+              ...current,
+              fanClubs: {
+                ...current.fanClubs,
+                fanChannels: current.fanClubs.fanChannels.map((entry) =>
+                  entry.id === channelId
+                    ? {
+                        ...entry,
+                        isFollowing: Boolean(next?.isFollowing ?? !channel.isFollowing),
+                        memberCount: Math.max(
+                          0,
+                          Number(next?.memberCount ?? entry.memberCount ?? 0) + (channel.isFollowing ? -1 : 1)
+                        ),
+                        latestUpdate: next?.latestUpdate || entry.latestUpdate || null
+                      }
+                    : entry
+                )
+              }
+            };
+          });
+          setFanClubStatus(channel.isFollowing ? 'Fan channel unfollowed.' : 'Fan channel followed.');
+        }
+        if (nextSummary) mergeEngagementExpansion(nextSummary);
+        void refresh({ silent: true });
+      } catch (e: any) {
+        setFanClubStatus(e?.response?.data?.message || e?.message || 'Unable to update the fan channel right now.');
+      } finally {
+        setFanClubActionBusy(null);
+      }
+    },
+    [mergeEngagementExpansion, refresh]
+  );
+
+  const submitMiniGame = useCallback(
+    async (game: SkillMiniGameSummary) => {
+      const gameId = String(game?.id || '').trim();
+      const choiceId = String(selectedMiniGameChoiceMap[gameId] || '').trim();
+      if (!gameId || !choiceId) {
+        setMiniGameStatus('Choose an answer first.');
+        return;
+      }
+      setMiniGameActionBusy(gameId);
+      setMiniGameStatus(null);
+      try {
+        const next = await InsightsService.submitSkillMiniGame(gameId, choiceId);
+        mergeEngagementExpansion(next);
+        const selectedChoice = game.choices.find((entry) => entry.id === choiceId);
+        const correctChoice = game.choices.find((entry) => entry.id === game.selectedChoiceId);
+        setMiniGameStatus(
+          next?.miniGames?.games?.find((entry) => entry.id === gameId)?.correctToday
+            ? `Correct. ${selectedChoice?.label || 'That answer'} earned your Gcoin reward.`
+            : game.explanation || 'Answer recorded.'
+        );
+        void refresh({ silent: true });
+      } catch (e: any) {
+        setMiniGameStatus(e?.response?.data?.message || e?.message || 'Unable to submit the mini-game answer.');
+      } finally {
+        setMiniGameActionBusy(null);
+      }
+    },
+    [mergeEngagementExpansion, refresh, selectedMiniGameChoiceMap]
+  );
+
+  const activateSeasonPass = useCallback(
+    async (seasonId: string, passId: string) => {
+      const normalizedSeasonId = String(seasonId || '').trim();
+      const normalizedPassId = String(passId || '').trim();
+      if (!normalizedSeasonId || !normalizedPassId) return;
+      setSeasonActionBusy(`${normalizedSeasonId}:${normalizedPassId}`);
+      setSeasonStatus(null);
+      try {
+        const next = await InsightsService.activateEventSeasonPass(normalizedSeasonId, normalizedPassId);
+        mergeEngagementExpansion(next);
+        setSeasonStatus('Season pass activated.');
+        void refresh({ silent: true });
+      } catch (e: any) {
+        setSeasonStatus(e?.response?.data?.message || e?.message || 'Unable to activate the season pass.');
+      } finally {
+        setSeasonActionBusy(null);
+      }
+    },
+    [mergeEngagementExpansion, refresh]
+  );
+
+  const unlockSeriesSupport = useCallback(
+    async (seriesId: string) => {
+      const normalizedSeriesId = String(seriesId || '').trim();
+      if (!normalizedSeriesId) return;
+      setPremiumSeriesActionBusy(normalizedSeriesId);
+      setPremiumSeriesStatus(null);
+      try {
+        const next = await InsightsService.unlockPremiumSeries(normalizedSeriesId);
+        mergeEngagementExpansion(next);
+        setPremiumSeriesStatus('Premium series unlocked.');
+        void refresh({ silent: true });
+      } catch (e: any) {
+        setPremiumSeriesStatus(e?.response?.data?.message || e?.message || 'Unable to unlock this premium series.');
+      } finally {
+        setPremiumSeriesActionBusy(null);
+      }
+    },
+    [mergeEngagementExpansion, refresh]
+  );
+
+  const createBountyQuestion = useCallback(async () => {
+    const title = String(bountyTitle || '').trim();
+    const body = String(bountyBody || '').trim();
+    if (title.length < 8 || body.length < 20) {
+      setBountyStatus('Add a clear title and a more detailed question before posting a bounty.');
+      return;
+    }
+    setBountyActionBusy('create');
+    setBountyStatus(null);
+    try {
+      const next = await InsightsService.createExpertBountyQuestion({
+        title,
+        body,
+        category: String(bountyCategory || '').trim() || null,
+        tags: String(bountyTags || '')
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+          .slice(0, 6),
+        bountyAmount: Number(bountyAmount || 0) > 0 ? Number(bountyAmount || 0) : 0
+      });
+      mergeEngagementExpansion(next);
+      setBountyTitle('');
+      setBountyBody('');
+      setBountyCategory('');
+      setBountyTags('');
+      setBountyAmount('');
+      setBountyStatus('Expert bounty posted.');
+      void refresh({ silent: true });
+    } catch (e: any) {
+      setBountyStatus(e?.response?.data?.message || e?.message || 'Unable to create the expert bounty.');
+    } finally {
+      setBountyActionBusy(null);
+    }
+  }, [bountyAmount, bountyBody, bountyCategory, bountyTags, bountyTitle, mergeEngagementExpansion, refresh]);
+
+  const answerBountyQuestion = useCallback(
+    async (question: ExpertBountyQuestionSummary) => {
+      const questionId = String(question?.id || '').trim();
+      const body = String(bountyAnswerDrafts[questionId] || '').trim();
+      if (!questionId || body.length < 12) {
+        setBountyStatus('Add a more useful answer before submitting.');
+        return;
+      }
+      setBountyActionBusy(`answer:${questionId}`);
+      setBountyStatus(null);
+      try {
+        const next = await InsightsService.answerExpertBountyQuestion(questionId, body);
+        mergeEngagementExpansion(next);
+        setBountyAnswerDrafts((current) => ({ ...current, [questionId]: '' }));
+        setBountyStatus('Expert answer submitted.');
+        void refresh({ silent: true });
+      } catch (e: any) {
+        setBountyStatus(e?.response?.data?.message || e?.message || 'Unable to submit this answer.');
+      } finally {
+        setBountyActionBusy(null);
+      }
+    },
+    [bountyAnswerDrafts, mergeEngagementExpansion, refresh]
+  );
+
+  const awardBountyAnswer = useCallback(
+    async (questionId: string, answerId: string) => {
+      const normalizedQuestionId = String(questionId || '').trim();
+      const normalizedAnswerId = String(answerId || '').trim();
+      if (!normalizedQuestionId || !normalizedAnswerId) return;
+      setBountyActionBusy(`award:${normalizedAnswerId}`);
+      setBountyStatus(null);
+      try {
+        const next = await InsightsService.awardExpertBounty(normalizedQuestionId, normalizedAnswerId);
+        mergeEngagementExpansion(next);
+        setBountyStatus('Bounty awarded.');
+        void refresh({ silent: true });
+      } catch (e: any) {
+        setBountyStatus(e?.response?.data?.message || e?.message || 'Unable to award this bounty.');
+      } finally {
+        setBountyActionBusy(null);
+      }
+    },
+    [mergeEngagementExpansion, refresh]
   );
 
   const mergeFriendStreakDashboard = useCallback(
@@ -1932,6 +2268,558 @@ export default function InsightsQuickPanel({
                   Browse events
                 </Link>
               </div>
+            )}
+          </div>
+
+          <div
+            data-insights-section="fan-clubs"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Fan clubs</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Free and paid micro-communities for creators and companies, built on top of clubs and broadcast channels.
+                </p>
+              </div>
+              <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
+                {freeFanClubs.length + paidFanChannels.length} live
+              </span>
+            </div>
+
+            {fanClubStatus ? <p className="mt-3 text-xs text-slate-500">{fanClubStatus}</p> : null}
+
+            {freeFanClubs.length || paidFanChannels.length ? (
+              <div className={`mt-3 grid gap-3 ${compact || isDesktopRail ? 'grid-cols-1' : 'xl:grid-cols-2'}`}>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Free fan clubs</p>
+                    <span className="text-[11px] text-slate-500">{freeFanClubs.length} clubs</span>
+                  </div>
+                  {freeFanClubs.length ? (
+                    <div className="mt-3 space-y-3">
+                      {freeFanClubs.map((club) => (
+                        <div key={club.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="line-clamp-1 text-sm font-semibold text-slate-900">{club.title}</p>
+                              <p className="mt-1 text-[11px] text-slate-500">
+                                {buildActorLabel(club.owner)} • {formatWholeNumber(Number(club.memberCount || 0))} members
+                              </p>
+                            </div>
+                            <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                              {club.visibility}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-xs text-slate-600">{club.description || 'A focused member club ready for your next update, discussion, and event loop.'}</p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void toggleFreeFanClubMembership(club)}
+                              disabled={fanClubActionBusy === `club:${club.id}`}
+                              className={`rounded-xl px-3 py-2 text-xs font-semibold ${
+                                club.isJoined ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'bg-slate-900 text-white'
+                              } disabled:opacity-50`}
+                            >
+                              {fanClubActionBusy === `club:${club.id}` ? 'Working...' : club.isJoined ? 'Joined' : 'Join club'}
+                            </button>
+                            <Link
+                              to="/community/clubs"
+                              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600"
+                            >
+                              Browse clubs
+                            </Link>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-xs text-slate-500">Fan clubs will appear here as soon as the community clubs loop is seeded with public rooms.</p>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Paid / creator channels</p>
+                    <span className="text-[11px] text-slate-500">{paidFanChannels.length} channels</span>
+                  </div>
+                  {paidFanChannels.length ? (
+                    <div className="mt-3 space-y-3">
+                      {paidFanChannels.map((channel) => (
+                        <div key={channel.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="line-clamp-1 text-sm font-semibold text-slate-900">{channel.title}</p>
+                              <p className="mt-1 text-[11px] text-slate-500">
+                                {buildActorLabel(channel.owner)} • {formatWholeNumber(Number(channel.memberCount || 0))} followers
+                              </p>
+                            </div>
+                            <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                              {channel.pricing?.isPaid ? `${formatWholeNumber(Number(channel.pricing.price || 0))} ${channel.pricing.currency}` : 'Free'}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-xs text-slate-600">
+                            {channel.latestUpdate?.content || channel.description || 'Focused updates, creator drops, and recurring insider signals.'}
+                          </p>
+                          {channel.pricing?.perks?.length ? (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {channel.pricing.perks.slice(0, compact ? 2 : 3).map((perk) => (
+                                <span key={perk} className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">
+                                  {perk}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void handleFanChannelAction(channel)}
+                              disabled={fanClubActionBusy === `channel:${channel.id}`}
+                              className={`rounded-xl px-3 py-2 text-xs font-semibold ${
+                                channel.pricing?.isPaid && !channel.pricing?.subscribed
+                                  ? 'bg-slate-900 text-white'
+                                  : channel.isFollowing
+                                    ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+                                    : 'border border-slate-200 bg-white text-slate-700'
+                              } disabled:opacity-50`}
+                            >
+                              {fanClubActionBusy === `channel:${channel.id}`
+                                ? 'Working...'
+                                : channel.pricing?.isPaid && !channel.pricing?.subscribed
+                                  ? `Unlock ${formatWholeNumber(Number(channel.pricing.price || 0))} ${channel.pricing.currency}`
+                                  : channel.isFollowing
+                                    ? 'Following'
+                                    : 'Follow channel'}
+                            </button>
+                            <Link
+                              to={channel.owner?.href || '/community'}
+                              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600"
+                            >
+                              Open source
+                            </Link>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-xs text-slate-500">Paid creator and company fan channels will appear here as soon as the first plans are published.</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">Fan clubs and paid micro-communities will show up here when the first public rooms go live.</p>
+            )}
+          </div>
+
+          <div
+            data-insights-section="skill-mini-games"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Skill mini-games</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Quick professional drills with instant feedback and Gcoin upside, designed to keep the daily loop useful instead of noisy.
+                </p>
+              </div>
+              <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold text-cyan-700">
+                {Number(engagementExpansion?.miniGames?.playedCount || 0)}/{Number(engagementExpansion?.miniGames?.totalCount || 0)}
+              </span>
+            </div>
+
+            {miniGameStatus ? <p className="mt-3 text-xs text-slate-500">{miniGameStatus}</p> : null}
+
+            {miniGames.length ? (
+              <div className="mt-3 grid gap-3">
+                {miniGames.map((game) => (
+                  <div key={game.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                            {game.category}
+                          </span>
+                          <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700">
+                            +{formatWholeNumber(Number(game.rewardAmount || 0))} Gcoin
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm font-semibold text-slate-900">{game.title}</p>
+                        <p className="mt-1 text-xs text-slate-600">{game.prompt}</p>
+                      </div>
+                    </div>
+                    {game.helperText ? <p className="mt-2 text-[11px] text-slate-500">{game.helperText}</p> : null}
+                    <div className="mt-3 grid gap-2">
+                      {game.choices.map((choice) => {
+                        const selectedId = String(selectedMiniGameChoiceMap[game.id] || game.selectedChoiceId || '').trim();
+                        const isSelected = selectedId === choice.id;
+                        return (
+                          <button
+                            key={choice.id}
+                            type="button"
+                            onClick={() =>
+                              setSelectedMiniGameChoiceMap((current) => ({
+                                ...current,
+                                [game.id]: choice.id
+                              }))
+                            }
+                            disabled={game.playedToday}
+                            className={`rounded-xl border px-3 py-2 text-left text-xs transition ${
+                              isSelected ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-700'
+                            } disabled:opacity-70`}
+                          >
+                            {choice.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void submitMiniGame(game)}
+                        disabled={game.playedToday || miniGameActionBusy === game.id}
+                        className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                      >
+                        {miniGameActionBusy === game.id ? 'Submitting...' : game.playedToday ? (game.correctToday ? 'Completed' : 'Played today') : 'Submit answer'}
+                      </button>
+                      {game.playedToday ? (
+                        <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${game.correctToday ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                          {game.correctToday ? 'Correct today' : 'Try again tomorrow'}
+                        </span>
+                      ) : null}
+                    </div>
+                    {game.playedToday ? <p className="mt-2 text-[11px] text-slate-500">{game.explanation}</p> : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">New skill mini-games will appear here as the daily training rotation opens.</p>
+            )}
+          </div>
+
+          <div
+            data-insights-section="event-passes-seasons"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Event passes / seasons</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Recurring seasonal attendance loops that combine events, clubs, and mini-games into one visible habit cycle.
+                </p>
+              </div>
+              <span className="rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700">
+                {seasonItems.length} seasons
+              </span>
+            </div>
+
+            {seasonStatus ? <p className="mt-3 text-xs text-slate-500">{seasonStatus}</p> : null}
+
+            {seasonItems.length ? (
+              <div className="mt-3 grid gap-3">
+                {seasonItems.map((season) => (
+                  <div key={season.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                            {season.badge}
+                          </span>
+                          <span className="rounded-full bg-indigo-50 px-2 py-1 text-[10px] font-semibold text-indigo-700">
+                            {season.progress.completedGoals}/{season.progress.totalGoals} goals
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm font-semibold text-slate-900">{season.title}</p>
+                        <p className="mt-1 text-xs text-slate-600">{season.description}</p>
+                      </div>
+                      <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                        {formatRelativeDeadline(season.endsAt)}
+                      </span>
+                    </div>
+                    <div className={`mt-3 grid gap-2 ${compact || isDesktopRail ? 'grid-cols-1' : 'sm:grid-cols-3'}`}>
+                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-500">
+                        <div className="font-semibold uppercase tracking-wide text-slate-500">Events joined</div>
+                        <div className="mt-1 text-sm font-semibold text-slate-900">{season.progress.registeredEvents}</div>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-500">
+                        <div className="font-semibold uppercase tracking-wide text-slate-500">Clubs joined</div>
+                        <div className="mt-1 text-sm font-semibold text-slate-900">{season.progress.joinedClubs}</div>
+                      </div>
+                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] text-slate-500">
+                        <div className="font-semibold uppercase tracking-wide text-slate-500">Mini-games won</div>
+                        <div className="mt-1 text-sm font-semibold text-slate-900">{season.progress.miniGamesCompleted}</div>
+                      </div>
+                    </div>
+                    {season.passes.length ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {season.passes.map((pass) => (
+                          <button
+                            key={pass.id}
+                            type="button"
+                            onClick={() => void activateSeasonPass(season.id, pass.id)}
+                            disabled={pass.activated || seasonActionBusy === `${season.id}:${pass.id}`}
+                            className={`rounded-xl px-3 py-2 text-xs font-semibold ${
+                              pass.activated ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'border border-slate-200 bg-white text-slate-700'
+                            } disabled:opacity-50`}
+                          >
+                            {seasonActionBusy === `${season.id}:${pass.id}`
+                              ? 'Activating...'
+                              : pass.activated
+                                ? `${pass.label} active`
+                                : pass.price > 0
+                                  ? `${pass.label} • ${formatWholeNumber(Number(pass.price || 0))} ${pass.currency}`
+                                  : `${pass.label} • Free`}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                    {season.nextEvents.length ? (
+                      <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Next events</p>
+                        <div className="mt-2 space-y-2">
+                          {season.nextEvents.map((event) => (
+                            <div key={event.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                              <div className="min-w-0">
+                                <p className="line-clamp-1 text-sm font-semibold text-slate-900">{event.title}</p>
+                                <p className="text-[11px] text-slate-500">{event.type} • {new Date(event.startTime).toLocaleString()}</p>
+                              </div>
+                              <Link to="/community/events" className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600">
+                                {event.isRegistered ? 'Open' : 'RSVP'}
+                              </Link>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">Season passes will appear here when the next recurring event cycle opens.</p>
+            )}
+          </div>
+
+          <div
+            data-insights-section="premium-series"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Premium content series</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Monetized binge content for creators, with support-unlock style access that fits the Scroll series model already live on the platform.
+                </p>
+              </div>
+              <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+                {premiumSeriesCards.length} series
+              </span>
+            </div>
+
+            {premiumSeriesStatus ? <p className="mt-3 text-xs text-slate-500">{premiumSeriesStatus}</p> : null}
+
+            {premiumSeriesCards.length ? (
+              <div className="mt-3 grid gap-3">
+                {premiumSeriesCards.map((series) => (
+                  <div key={series.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="line-clamp-1 text-sm font-semibold text-slate-900">{series.title}</p>
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          {buildActorLabel(series.creator)} • {series.itemCount} items
+                        </p>
+                      </div>
+                      <span className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+                        series.unlock.unlocked ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                      }`}>
+                        {series.unlock.unlocked ? 'Unlocked' : series.unlock.bonusLabel}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-600">
+                      {series.description || series.unlock.teaser || 'Support unlock this creator series to back the work and keep the binge loop alive.'}
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {series.unlock.available && !series.unlock.unlocked ? (
+                        <button
+                          type="button"
+                          onClick={() => void unlockSeriesSupport(series.id)}
+                          disabled={premiumSeriesActionBusy === series.id}
+                          className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                        >
+                          {premiumSeriesActionBusy === series.id
+                            ? 'Unlocking...'
+                            : `Unlock ${formatWholeNumber(Number(series.unlock.price || 0))} ${series.unlock.currency}`}
+                        </button>
+                      ) : null}
+                      <Link
+                        to={series.href || buildSeriesHref(series.id)}
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                      >
+                        {series.unlock.unlocked ? 'Open premium series' : 'Preview series'}
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">Premium series will appear here as creators start turning Scroll playlists into monetized collections.</p>
+            )}
+          </div>
+
+          <div
+            data-insights-section="expert-answer-bounties"
+            className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Expert answer bounties</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Pay-to-answer or tip-to-answer questions that turn high-value knowledge into a faster, clearer response loop.
+                </p>
+              </div>
+              <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                {formatWholeNumber(Number(engagementExpansion?.expertBounties?.totalBountyAmount || 0))} Gcoin open
+              </span>
+            </div>
+
+            {bountyStatus ? <p className="mt-3 text-xs text-slate-500">{bountyStatus}</p> : null}
+
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Create a bounty-backed question</p>
+                  <p className="mt-1 text-[11px] text-slate-500">Attract focused expert answers with a clear question and optional Gcoin bounty.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void createBountyQuestion()}
+                  disabled={bountyActionBusy === 'create'}
+                  className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  {bountyActionBusy === 'create' ? 'Posting...' : 'Post bounty'}
+                </button>
+              </div>
+              <div className="mt-3 grid gap-3">
+                <input
+                  value={bountyTitle}
+                  onChange={(event) => setBountyTitle(event.target.value)}
+                  placeholder="Question title"
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                />
+                <textarea
+                  value={bountyBody}
+                  onChange={(event) => setBountyBody(event.target.value)}
+                  placeholder="Describe the problem, the context, and the kind of expert answer you want."
+                  className="min-h-[92px] w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                />
+                <div className={`grid gap-3 ${compact || isDesktopRail ? 'grid-cols-1' : 'sm:grid-cols-3'}`}>
+                  <input
+                    value={bountyCategory}
+                    onChange={(event) => setBountyCategory(event.target.value)}
+                    placeholder="Category"
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                  />
+                  <input
+                    value={bountyTags}
+                    onChange={(event) => setBountyTags(event.target.value)}
+                    placeholder="Tags, comma separated"
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                  />
+                  <input
+                    value={bountyAmount}
+                    onChange={(event) => setBountyAmount(event.target.value.replace(/[^0-9.]/g, ''))}
+                    placeholder="Bounty amount"
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {expertBountyQuestions.length ? (
+              <div className="mt-3 grid gap-3">
+                {expertBountyQuestions.map((question) => (
+                  <div key={question.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="line-clamp-1 text-sm font-semibold text-slate-900">{question.title}</p>
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          {buildActorLabel(question.author)} • {question.answerCount} answers
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                        {formatWholeNumber(Number(question.bountyAmount || 0))} {question.bountyCurrency}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-600">{question.body}</p>
+                    {question.tags.length ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {question.tags.slice(0, compact ? 3 : 5).map((tag) => (
+                          <span key={tag} className="rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-slate-600">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    {question.answers.length ? (
+                      <div className="mt-3 space-y-2">
+                        {question.answers.map((answer) => (
+                          <div key={answer.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{buildActorLabel(answer.author)}</p>
+                                <p className="mt-1 text-xs text-slate-600">{answer.body}</p>
+                              </div>
+                              {answer.isAccepted ? (
+                                <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Accepted</span>
+                              ) : question.canAward ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void awardBountyAnswer(question.id, answer.id)}
+                                  disabled={bountyActionBusy === `award:${answer.id}`}
+                                  className="rounded-xl bg-slate-900 px-3 py-1.5 text-[11px] font-semibold text-white disabled:opacity-50"
+                                >
+                                  {bountyActionBusy === `award:${answer.id}` ? 'Awarding...' : 'Award'}
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {question.canAnswer && !question.acceptedAnswerId ? (
+                      <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                        <textarea
+                          value={bountyAnswerDrafts[question.id] || ''}
+                          onChange={(event) =>
+                            setBountyAnswerDrafts((current) => ({
+                              ...current,
+                              [question.id]: event.target.value
+                            }))
+                          }
+                          placeholder="Write a concise expert answer."
+                          className="min-h-[84px] w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                        />
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void answerBountyQuestion(question)}
+                            disabled={bountyActionBusy === `answer:${question.id}`}
+                            className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+                          >
+                            {bountyActionBusy === `answer:${question.id}` ? 'Submitting...' : 'Submit answer'}
+                          </button>
+                          <Link
+                            to="/answers"
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600"
+                          >
+                            Open Answers
+                          </Link>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">Open expert bounties will appear here as soon as members start funding high-value questions.</p>
             )}
           </div>
 

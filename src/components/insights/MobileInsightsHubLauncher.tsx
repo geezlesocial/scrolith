@@ -20,6 +20,11 @@ type MobileInsightsSectionId =
   | 'weekly-challenges'
   | 'polls-versus'
   | 'scrolitha-coach'
+  | 'fan-clubs'
+  | 'skill-mini-games'
+  | 'event-passes-seasons'
+  | 'premium-series'
+  | 'expert-answer-bounties'
   | 'scroll-series'
   | 'broadcast-channels'
   | 'live-office-hours'
@@ -58,6 +63,8 @@ const GROWTH_SECTIONS: MobileInsightsSectionId[] = [
   'weekly-challenges',
   'polls-versus',
   'scrolitha-coach',
+  'skill-mini-games',
+  'premium-series',
   'scroll-series',
   'shared-accountability',
   'referral-squads',
@@ -66,6 +73,9 @@ const GROWTH_SECTIONS: MobileInsightsSectionId[] = [
   'skill-gap'
 ];
 const OPPORTUNITY_SECTIONS: MobileInsightsSectionId[] = [
+  'fan-clubs',
+  'event-passes-seasons',
+  'expert-answer-bounties',
   'broadcast-channels',
   'live-office-hours',
   'identity-trust',
@@ -359,13 +369,14 @@ export default function MobileInsightsHubLauncher() {
         id: 'growth',
         label: 'Growth controls',
         description:
-          'Career streak, daily missions, badges, league tiers, polls, challenges, Scrolitha coach, series, accountability, referral squads, reward drops, quests, and skill gap.',
+          'Career streak, daily missions, badges, league tiers, polls, challenges, Scrolitha coach, mini-games, premium series, accountability, referral squads, reward drops, quests, and skill gap.',
         value: growthProgress
       },
       {
         id: 'opportunity',
         label: 'Opportunity controls',
-        description: 'Broadcast updates, live office hours, identity, trust, delivery, brief matching, feed mode, actions, and ranked opportunities.',
+        description:
+          'Fan clubs, event seasons, expert bounties, broadcast updates, live office hours, identity, trust, delivery, brief matching, feed mode, actions, and ranked opportunities.',
         value: opportunityTotal > 0 ? `${opportunityTotal} live` : verificationState
       }
     ];

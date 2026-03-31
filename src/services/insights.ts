@@ -203,6 +203,175 @@ export type RewardDropSummary = {
   drops: RewardDropCard[];
 };
 
+export type FanClubCard = {
+  id: string;
+  title: string;
+  description: string;
+  visibility?: 'public' | 'private' | string;
+  memberCount: number;
+  owner: {
+    id: string;
+    name: string;
+    username?: string | null;
+    avatarUrl?: string | null;
+    href?: string | null;
+  };
+  coverImage?: string | null;
+  isJoined?: boolean;
+  isFollowing?: boolean;
+  sourceType?: 'creator' | 'page' | string;
+  updateCount?: number;
+  pricing?: {
+    isPaid: boolean;
+    price: number;
+    currency: string;
+    trialDays: number;
+    headline?: string | null;
+    perks: string[];
+    subscribed: boolean;
+  };
+  latestUpdate?: {
+    content: string;
+    createdAt?: string | null;
+  } | null;
+};
+
+export type SkillMiniGameChoice = {
+  id: string;
+  label: string;
+};
+
+export type SkillMiniGameSummary = {
+  id: string;
+  title: string;
+  prompt: string;
+  category: string;
+  rewardAmount: number;
+  helperText?: string | null;
+  explanation: string;
+  choices: SkillMiniGameChoice[];
+  playedToday: boolean;
+  correctToday: boolean;
+  selectedChoiceId?: string | null;
+  rewardGranted: boolean;
+};
+
+export type EventSeasonPassSummary = {
+  id: string;
+  label: string;
+  description?: string | null;
+  price: number;
+  currency: string;
+  active: boolean;
+  activated: boolean;
+};
+
+export type EventSeasonSummary = {
+  id: string;
+  key: string;
+  title: string;
+  description: string;
+  badge: string;
+  startsAt: string;
+  endsAt: string;
+  progress: {
+    completedGoals: number;
+    totalGoals: number;
+    registeredEvents: number;
+    joinedClubs: number;
+    miniGamesCompleted: number;
+  };
+  nextEvents: Array<{
+    id: string;
+    title: string;
+    type: string;
+    startTime: string;
+    isRegistered: boolean;
+  }>;
+  passes: EventSeasonPassSummary[];
+};
+
+export type PremiumSeriesCard = {
+  id: string;
+  title: string;
+  description?: string | null;
+  creator: {
+    id: string;
+    name: string;
+    username?: string | null;
+    avatarUrl?: string | null;
+  };
+  itemCount: number;
+  href: string;
+  unlock: {
+    available: boolean;
+    unlocked: boolean;
+    price: number;
+    currency: string;
+    teaser: string;
+    bonusLabel: string;
+  };
+};
+
+export type ExpertBountyAnswerSummary = {
+  id: string;
+  body: string;
+  isAccepted: boolean;
+  createdAt: string;
+  author: {
+    id: string;
+    name: string;
+    username?: string | null;
+    avatarUrl?: string | null;
+  };
+};
+
+export type ExpertBountyQuestionSummary = {
+  id: string;
+  title: string;
+  body: string;
+  category?: string | null;
+  tags: string[];
+  status: string;
+  bountyAmount: number;
+  bountyCurrency: string;
+  answerCount: number;
+  acceptedAnswerId?: string | null;
+  author: {
+    id: string;
+    name: string;
+    username?: string | null;
+    avatarUrl?: string | null;
+  };
+  canAnswer: boolean;
+  canAward: boolean;
+  answers: ExpertBountyAnswerSummary[];
+};
+
+export type EngagementExpansionSummary = {
+  fanClubs: {
+    freeClubs: FanClubCard[];
+    fanChannels: FanClubCard[];
+  };
+  miniGames: {
+    dayKey: string;
+    playedCount: number;
+    totalCount: number;
+    games: SkillMiniGameSummary[];
+  };
+  seasons: {
+    items: EventSeasonSummary[];
+  };
+  premiumSeries: {
+    items: PremiumSeriesCard[];
+  };
+  expertBounties: {
+    openCount: number;
+    totalBountyAmount: number;
+    questions: ExpertBountyQuestionSummary[];
+  };
+};
+
 export type InsightAchievement = {
   id: string;
   key: string;
@@ -553,6 +722,61 @@ class InsightsService {
       return { rewardDrops: data } as UserStreak;
     }
     return data as UserStreak | null;
+  }
+
+  static async getEngagementExpansion(): Promise<EngagementExpansionSummary | null> {
+    const response = await api.get('/insights/engagement-phase/me');
+    return extractData<EngagementExpansionSummary | null>(response);
+  }
+
+  static async subscribeFanChannel(channelId: string): Promise<EngagementExpansionSummary | null> {
+    const response = await api.post(`/insights/engagement-phase/fan-channels/${encodeURIComponent(channelId)}/subscribe`, {});
+    return extractData<EngagementExpansionSummary | null>(response);
+  }
+
+  static async submitSkillMiniGame(gameId: string, choiceId: string): Promise<EngagementExpansionSummary | null> {
+    const response = await api.post(`/insights/engagement-phase/mini-games/${encodeURIComponent(gameId)}/submit`, { choiceId });
+    return extractData<EngagementExpansionSummary | null>(response);
+  }
+
+  static async activateEventSeasonPass(seasonId: string, passId: string): Promise<EngagementExpansionSummary | null> {
+    const response = await api.post(
+      `/insights/engagement-phase/seasons/${encodeURIComponent(seasonId)}/passes/${encodeURIComponent(passId)}/activate`,
+      {}
+    );
+    return extractData<EngagementExpansionSummary | null>(response);
+  }
+
+  static async unlockPremiumSeries(seriesId: string): Promise<EngagementExpansionSummary | null> {
+    const response = await api.post(`/insights/engagement-phase/premium-series/${encodeURIComponent(seriesId)}/unlock`, {});
+    return extractData<EngagementExpansionSummary | null>(response);
+  }
+
+  static async createExpertBountyQuestion(payload: {
+    title: string;
+    body: string;
+    category?: string | null;
+    tags?: string[];
+    bountyAmount?: number;
+  }): Promise<EngagementExpansionSummary | null> {
+    const response = await api.post('/insights/engagement-phase/bounties/questions', payload);
+    return extractData<EngagementExpansionSummary | null>(response);
+  }
+
+  static async answerExpertBountyQuestion(questionId: string, body: string): Promise<EngagementExpansionSummary | null> {
+    const response = await api.post(
+      `/insights/engagement-phase/bounties/questions/${encodeURIComponent(questionId)}/answers`,
+      { body }
+    );
+    return extractData<EngagementExpansionSummary | null>(response);
+  }
+
+  static async awardExpertBounty(questionId: string, answerId: string): Promise<EngagementExpansionSummary | null> {
+    const response = await api.post(
+      `/insights/engagement-phase/bounties/questions/${encodeURIComponent(questionId)}/award`,
+      { answerId }
+    );
+    return extractData<EngagementExpansionSummary | null>(response);
   }
 
   static async getMyCreatorChallenges(): Promise<CreatorChallengeDashboard | null> {
