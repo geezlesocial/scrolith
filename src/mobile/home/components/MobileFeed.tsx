@@ -275,6 +275,29 @@ const resolveHighlightPostMedia = (post: any) => {
   return '';
 };
 
+const resolveHighlightPostVideo = (post: any) => {
+  const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+  for (const attachment of attachments) {
+    if (!attachment) continue;
+    const mime = String(attachment?.mimeType || attachment?.mime_type || '').trim().toLowerCase();
+    const type = String(attachment?.type || '').trim().toLowerCase();
+    if (!isVideo(mime) && type !== 'video') continue;
+    const mediaUrl = String(resolvePostAttachmentMediaUrl(attachment) || '').trim();
+    if (mediaUrl) return mediaUrl;
+  }
+  return '';
+};
+
+const resolveHighlightPostPoster = (post: any) => {
+  const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+  for (const attachment of attachments) {
+    if (!attachment) continue;
+    const posterUrl = String(resolvePostAttachmentPosterUrl(attachment) || '').trim();
+    if (posterUrl) return posterUrl;
+  }
+  return '';
+};
+
 const resolveHighlightPostFallback = (post: any) => {
   const authorAvatar = resolveHighlightAvatar(post?.author?.avatarUrl || post?.authorAvatar || null);
   return authorAvatar || BRAND_LOGO_URL;
@@ -682,6 +705,8 @@ export default function MobileFeed({
         ctaLabel: 'Open posts',
         onClick: () => scrollToFeedSection('mobile-member-home-feed-stream'),
         mediaUrl: resolveHighlightPostMedia(topPost),
+        videoUrl: resolveHighlightPostVideo(topPost),
+        posterUrl: resolveHighlightPostPoster(topPost),
         fallbackMediaUrl: resolveHighlightPostFallback(topPost),
         icon: <Newspaper className="h-4 w-4" />,
         tone: 'slate'

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight } from 'lucide-react';
+import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
 
 type HighlightTone = 'slate' | 'blue' | 'emerald' | 'amber' | 'violet' | 'rose';
 
@@ -20,12 +21,19 @@ export type MemberHomeHighlightItem = {
   href?: string;
   onClick?: () => void;
   mediaUrl?: string | null;
+  videoUrl?: string | null;
+  posterUrl?: string | null;
   fallbackMediaUrl?: string | null;
   icon?: React.ReactNode;
   tone?: HighlightTone;
 };
 
 const BRAND_LOGO_URL = '/logo.png';
+const isVideoUrl = (value?: string | null) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return /\.(mp4|webm|mov|m4v|ogg)(?:$|[?#])/.test(normalized);
+};
 
 const toneClasses: Record<HighlightTone, { ring: string; badge: string; icon: string }> = {
   slate: {
@@ -99,6 +107,8 @@ const HighlightMedia = ({
 }) => {
   const fallbackMediaUrl = String(item.fallbackMediaUrl || BRAND_LOGO_URL).trim();
   const initialSrc = String(item.mediaUrl || '').trim();
+  const videoUrl = String(item.videoUrl || '').trim();
+  const posterUrl = String(item.posterUrl || '').trim();
   const [src, setSrc] = React.useState(initialSrc || fallbackMediaUrl || '');
   const [hidden, setHidden] = React.useState(!initialSrc && !fallbackMediaUrl);
 
@@ -112,26 +122,42 @@ const HighlightMedia = ({
   if (hidden || !src) return null;
 
   const isBrandFallback = src === BRAND_LOGO_URL || src === fallbackMediaUrl && fallbackMediaUrl === BRAND_LOGO_URL;
+  const shouldRenderVideo = Boolean(videoUrl && isVideoUrl(videoUrl));
 
   return (
     <div className="relative mt-3 overflow-hidden rounded-2xl border border-white/70 bg-white/80">
-      <img
-        src={src}
-        alt={item.title}
-        className={[
-          compact ? 'h-24 w-full' : 'h-28 w-full',
-          isBrandFallback ? 'object-contain bg-slate-50 p-4' : 'object-cover'
-        ].join(' ')}
-        loading="lazy"
-        decoding="async"
-        onError={() => {
-          if (src !== fallbackMediaUrl && fallbackMediaUrl) {
-            setSrc(fallbackMediaUrl);
-            return;
-          }
-          setHidden(true);
-        }}
-      />
+      {shouldRenderVideo ? (
+        <InlineAutoplayVideo
+          src={videoUrl}
+          poster={posterUrl || src || fallbackMediaUrl || undefined}
+          controls={false}
+          loop
+          autoplayEnabled
+          showMuteToggle={false}
+          loadingLabel={false}
+          containerClassName="w-full"
+          className={[compact ? 'h-24 w-full object-cover' : 'h-28 w-full object-cover'].join(' ')}
+          overlay={null}
+        />
+      ) : (
+        <img
+          src={src}
+          alt={item.title}
+          className={[
+            compact ? 'h-24 w-full' : 'h-28 w-full',
+            isBrandFallback ? 'object-contain bg-slate-50 p-4' : 'object-cover'
+          ].join(' ')}
+          loading="lazy"
+          decoding="async"
+          onError={() => {
+            if (src !== fallbackMediaUrl && fallbackMediaUrl) {
+              setSrc(fallbackMediaUrl);
+              return;
+            }
+            setHidden(true);
+          }}
+        />
+      )}
     </div>
   );
 };
