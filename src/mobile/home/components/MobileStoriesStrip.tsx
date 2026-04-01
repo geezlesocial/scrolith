@@ -301,11 +301,21 @@ export default function MobileStoriesStrip({
   const storyCameraInputRef = useRef<HTMLInputElement | null>(null);
   const railGestureStartRef = useRef<{ key: string; x: number; y: number } | null>(null);
   const recentRailActionRef = useRef<{ key: string; at: number } | null>(null);
+  const storiesRef = useRef<any[]>([]);
+  const scrollsRef = useRef<ScrollVideo[]>([]);
 
   const visibleStories = useMemo(() => {
     const list = Array.isArray(stories) ? stories : [];
     return list.filter(isStoryActive).slice(0, maxItems);
   }, [stories, maxItems]);
+
+  useEffect(() => {
+    storiesRef.current = stories;
+  }, [stories]);
+
+  useEffect(() => {
+    scrollsRef.current = scrolls;
+  }, [scrolls]);
 
   const runRailAction = useCallback((key: string, action: () => void) => {
     const normalizedKey = String(key || '').trim();
@@ -720,6 +730,10 @@ export default function MobileStoriesStrip({
       .then((items) => {
         if (!mounted) return;
         const nextStories = Array.isArray(items) ? items.filter(isStoryActive).slice(0, maxItems) : [];
+        if (nextStories.length === 0 && storiesRef.current.length > 0) {
+          setError('Showing saved stories while we reconnect.');
+          return;
+        }
         setStories(nextStories);
         setError(null);
         try {
@@ -736,7 +750,7 @@ export default function MobileStoriesStrip({
       })
       .catch((e: any) => {
         if (!mounted) return;
-        if (hasCachedStories) {
+        if (hasCachedStories || storiesRef.current.length > 0) {
           setError('Showing saved stories while we reconnect.');
         } else {
           setError(e?.response?.data?.error || e?.message || 'Failed to load stories');
@@ -778,6 +792,11 @@ export default function MobileStoriesStrip({
         const items = Array.isArray(feed?.items)
           ? feed.items.filter((item) => String(item?.status || '').toUpperCase() !== 'REMOVED').slice(0, maxScrollItems)
           : [];
+        if (items.length === 0 && scrollsRef.current.length > 0) {
+          setScrollConfig(feed?.config || null);
+          setScrollError('Showing saved Scroll videos while we reconnect.');
+          return;
+        }
         setScrolls(items);
         setScrollConfig(feed?.config || null);
         setScrollError(null);
@@ -796,7 +815,7 @@ export default function MobileStoriesStrip({
       })
       .catch((e: any) => {
         if (!mounted) return;
-        if (hasCachedScrolls) {
+        if (hasCachedScrolls || scrollsRef.current.length > 0) {
           setScrollError('Showing saved Scroll videos while we reconnect.');
         } else {
           setScrollError(e?.response?.data?.error || e?.message || 'Failed to load Scroll videos');

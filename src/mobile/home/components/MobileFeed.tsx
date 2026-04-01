@@ -1068,13 +1068,18 @@ export default function MobileFeed({
       );
       const nextPosts = Array.isArray(resp?.items) ? resp.items : [];
       const nextCursor = resp?.nextCursor ? String(resp.nextCursor) : null;
+      const shouldPreserveExistingFeed = mode === 'initial' && nextPosts.length === 0 && postsRef.current.length > 0;
 
       rateLimitUntilRef.current = 0;
       setRateLimitUntil(null);
       setError(null);
       setStatusMessage(null);
       cursorRef.current = nextCursor;
-      const mergedPosts = mode === 'more' ? [...postsRef.current, ...nextPosts] : nextPosts;
+      const mergedPosts = shouldPreserveExistingFeed
+        ? postsRef.current
+        : mode === 'more'
+          ? [...postsRef.current, ...nextPosts]
+          : nextPosts;
       postsRef.current = mergedPosts;
       startTransition(() => {
         setCursor(nextCursor);
@@ -1083,6 +1088,9 @@ export default function MobileFeed({
           setRenderedPostCount(Math.min(initialRenderCount, mergedPosts.length || initialRenderCount));
         }
       });
+      if (shouldPreserveExistingFeed) {
+        setStatusMessage('Showing your saved feed while we reconnect.');
+      }
       try {
         localStorage.setItem(
           feedCacheKey,

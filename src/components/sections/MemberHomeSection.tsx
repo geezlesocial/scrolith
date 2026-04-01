@@ -903,6 +903,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const desktopInitialRenderCount = desktopConstrainedFeed ? 6 : 8;
   const desktopRenderStep = desktopConstrainedFeed ? 4 : 6;
   const [renderedFeedItemCount, setRenderedFeedItemCount] = useState(desktopInitialRenderCount);
+  const feedItemsRef = useRef<FeedPost[]>([]);
   const deferredFeedItems = useDeferredValue(feedItems);
   const visibleFeedItems = useMemo(
     () => deferredFeedItems.slice(0, Math.min(renderedFeedItemCount, deferredFeedItems.length)),
@@ -944,6 +945,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [storiesLoading, setStoriesLoading] = useState(false);
   const [reels, setReels] = useState<ScrollVideo[]>([]);
   const [reelsLoading, setReelsLoading] = useState(false);
+  const reelsRef = useRef<ScrollVideo[]>([]);
   const [scrollConfig, setScrollConfig] = useState<ScrollConfig | null>(null);
   const [scrollCreateOpen, setScrollCreateOpen] = useState(false);
   const [storyRailTab, setStoryRailTab] = useState<'stories' | 'reels'>('stories');
@@ -1036,6 +1038,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const postMediaTapTimersRef = useRef<Record<string, number>>({});
   const postMediaLastTapAtRef = useRef<Record<string, number>>({});
   const storyGestureStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    feedItemsRef.current = feedItems;
+  }, [feedItems]);
+
+  useEffect(() => {
+    reelsRef.current = reels;
+  }, [reels]);
   const storyOverlayHideTimerRef = useRef<number | null>(null);
   const storyLastTapAtRef = useRef(0);
   const [selfProfileCover, setSelfProfileCover] = useState('');
@@ -1767,10 +1777,22 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               return bScore - aScore;
             })
           : normalized;
+      const shouldPreserveExistingFeed =
+        sorted.length === 0 &&
+        feedItemsRef.current.length > 0 &&
+        scope === 'discover' &&
+        !feedTopic &&
+        !feedRegion;
+      const effectiveFeedItems = shouldPreserveExistingFeed ? feedItemsRef.current : sorted;
       startTransition(() => {
-        setFeedItems(sorted);
-        setRenderedFeedItemCount(Math.min(desktopInitialRenderCount, sorted.length || desktopInitialRenderCount));
+        setFeedItems(effectiveFeedItems);
+        setRenderedFeedItemCount(
+          Math.min(desktopInitialRenderCount, effectiveFeedItems.length || desktopInitialRenderCount)
+        );
       });
+      if (shouldPreserveExistingFeed) {
+        return;
+      }
       const followSeed: Record<string, boolean> = {};
       const authorIds = new Set<string>();
       sorted.forEach((post) => {
@@ -1800,10 +1822,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       setCommentCounts(counts);
     } catch (error) {
       console.error('Failed to load home feed', error);
-      startTransition(() => {
-        setFeedItems([]);
-        setRenderedFeedItemCount(desktopInitialRenderCount);
-      });
+      if (!feedItemsRef.current.length) {
+        startTransition(() => {
+          setFeedItems([]);
+          setRenderedFeedItemCount(desktopInitialRenderCount);
+        });
+      }
     } finally {
       setFeedLoading(false);
     }
@@ -2106,12 +2130,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       const nextReels = Array.isArray(feed?.items)
         ? feed.items.filter((item) => String(item?.status || '').toUpperCase() !== 'REMOVED').slice(0, maxReels)
         : [];
+      if (nextReels.length === 0 && reelsRef.current.length > 0) {
+        setScrollConfig(feed?.config || null);
+        return;
+      }
       setScrollConfig(feed?.config || null);
       setReels(nextReels);
     } catch (error) {
       console.error('Failed to load reels', error);
-      setScrollConfig(null);
-      setReels([]);
+      if (!reelsRef.current.length) {
+        setScrollConfig(null);
+        setReels([]);
+      }
     } finally {
       setReelsLoading(false);
     }
