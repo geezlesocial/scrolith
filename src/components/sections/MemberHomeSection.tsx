@@ -1410,8 +1410,50 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const buildPageUrl = (page?: { slug?: string | null; handle?: string | null }) => {
     const slug = String(page?.slug || page?.handle || '').trim().replace(/^@+/, '');
     if (!slug) return '/community';
-    return `/community?page=${encodeURIComponent(slug)}`;
+    return `/company/${encodeURIComponent(slug)}`;
   };
+  const resolveSearchItemUrl = useCallback(
+    (item: any, normalizedType?: SearchGroupKey | string | undefined) => {
+      const direct = String(item?.url || item?.link || item?.href || '').trim();
+      if (direct) return direct;
+
+      const kind = String(normalizedType || item?.type || item?.kind || item?.entityType || item?.category || '')
+        .trim()
+        .toLowerCase();
+
+      if (kind === 'people' || kind === 'person' || kind === 'users' || kind === 'user') {
+        return buildProfileUrl({
+          id: item?.id || item?._id || item?.userId || item?.user_id || null,
+          username: item?.username || item?.handle || item?.meta?.username || null
+        });
+      }
+
+      if (kind === 'pages' || kind === 'page') {
+        return buildPageUrl({
+          slug: item?.slug || item?.handle || item?.username || item?.meta?.slug || null,
+          handle: item?.handle || item?.username || null
+        });
+      }
+
+      if (kind === 'jobs' || kind === 'job') {
+        const id = String(item?.slug || item?.id || item?._id || item?.jobId || item?.job_id || '').trim();
+        return id ? `/jobs/${encodeURIComponent(id)}` : '';
+      }
+
+      if (kind === 'gigs' || kind === 'gig') {
+        const id = String(item?.slug || item?.id || item?._id || item?.gigId || item?.gig_id || '').trim();
+        return id ? `/gigs/${encodeURIComponent(id)}` : '';
+      }
+
+      if (kind === 'posts' || kind === 'post') {
+        const id = String(item?.id || item?._id || item?.postId || item?.post_id || '').trim();
+        return id ? `/post/${encodeURIComponent(id)}` : '';
+      }
+
+      return '';
+    },
+    [buildPageUrl]
+  );
   const normalizeSidebarAd = useCallback((ad: any): SidebarAdCard | null => {
     const id = String(ad?.id || '').trim();
     if (!id) return null;
@@ -2171,13 +2213,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       subtitle: item.subtitle || undefined,
       description: item.description || item.excerpt || item.summary || item.subtitle,
       excerpt: item.excerpt,
-      url: item.url || item.link || item.href,
+      url: resolveSearchItemUrl(item, normalizedType),
       avatarUrl: avatar,
       image: avatar || undefined,
       category: item.category,
       meta: item.meta || {}
     };
-  }, [normalizeSearchType]);
+  }, [normalizeSearchType, resolveSearchItemUrl]);
 
   const normalizeSearchGroups = useCallback((groups: any): SearchGroupMap => {
     const next = emptySearchGroups();

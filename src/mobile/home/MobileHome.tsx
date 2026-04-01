@@ -369,11 +369,16 @@ const MobileHome = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const previous = shellLayerKeyRef.current;
+    const currentState = { ...(window.history.state || {}) };
     if (!previous && shellLayerKey) {
-      const nextState = { ...(window.history.state || {}), __scrolithMobileShellLayer: shellLayerKey };
+      const nextState = { ...currentState, __scrolithMobileShellLayer: shellLayerKey };
       window.history.pushState(nextState, '', window.location.href);
     } else if (previous && shellLayerKey && previous !== shellLayerKey) {
-      const nextState = { ...(window.history.state || {}), __scrolithMobileShellLayer: shellLayerKey };
+      const nextState = { ...currentState, __scrolithMobileShellLayer: shellLayerKey };
+      window.history.replaceState(nextState, '', window.location.href);
+    } else if (previous && !shellLayerKey && currentState.__scrolithMobileShellLayer) {
+      const nextState = { ...currentState };
+      delete nextState.__scrolithMobileShellLayer;
       window.history.replaceState(nextState, '', window.location.href);
     }
     shellLayerKeyRef.current = shellLayerKey;
@@ -398,6 +403,38 @@ const MobileHome = () => {
     }
     clearShellLayers();
   }, [clearShellLayers]);
+
+  const dismissShellLayers = useCallback(() => {
+    flushSync(() => {
+      clearShellLayers();
+    });
+    if (typeof window === 'undefined') return;
+    const currentState = { ...(window.history.state || {}) };
+    if (!currentState.__scrolithMobileShellLayer) return;
+    delete currentState.__scrolithMobileShellLayer;
+    window.history.replaceState(currentState, '', window.location.href);
+  }, [clearShellLayers]);
+
+  const navigateFromShell = useCallback(
+    (to: string, options?: { replace?: boolean }) => {
+      dismissShellLayers();
+      navigate(to, options);
+    },
+    [dismissShellLayers, navigate]
+  );
+
+  const openPanelFromShell = useCallback(
+    (tab: Exclude<MobileTabKey, 'home' | 'messages'>) => {
+      dismissShellLayers();
+      flushSync(() => {
+        setActivePanelTab(tab);
+      });
+      if (location.pathname !== '/m/home') {
+        navigate('/m/home', { replace: true });
+      }
+    },
+    [dismissShellLayers, location.pathname, navigate]
+  );
 
   const onTabChange = useCallback((tab: MobileTabKey) => {
     if (tab === activeTab) {
@@ -670,6 +707,7 @@ const MobileHome = () => {
               enabled={searchEnabled}
               categories={searchCategories.length ? searchCategories : (DEFAULT_LAYOUT.search?.categories as SearchCategory[])}
               onClose={closeTopShellLayer}
+              onNavigate={dismissShellLayers}
             />
           </Suspense>
         </div>
@@ -728,27 +766,23 @@ const MobileHome = () => {
           userAvatar={user?.avatar || null}
           onRefreshMessages={() => void refreshMessages({ force: true })}
           onOpenConversation={(conversationId: string) => {
-            setMessagesOpen(false);
-            if (conversationId) navigate(`/messages/${encodeURIComponent(conversationId)}`);
+            if (conversationId) navigateFromShell(`/messages/${encodeURIComponent(conversationId)}`);
           }}
           onOpenAllMessages={() => {
-            setMessagesOpen(false);
-            navigate('/messages');
+            navigateFromShell('/messages');
           }}
           normalizedRole={normalizedRole}
           isFreelancerMode={isFreelancerMode}
           onDashboard={() => {
-            setProfileOpen(false);
-            navigate(dashboardPath);
+            navigateFromShell(dashboardPath);
           }}
           onViewAs={() => {
-            setProfileOpen(false);
             if (user?.username) {
-              navigate(`/u/${encodeURIComponent(String(user.username))}`);
+              navigateFromShell(`/u/${encodeURIComponent(String(user.username))}`);
               return;
             }
             if (user?.id) {
-              navigate(`/profile/${encodeURIComponent(String(user.id))}`);
+              navigateFromShell(`/profile/${encodeURIComponent(String(user.id))}`);
             }
           }}
           onSwitchCurrency={() => {
@@ -756,59 +790,48 @@ const MobileHome = () => {
             setCurrencyOpen(true);
           }}
           onPostProject={() => {
-            setProfileOpen(false);
-            navigate(postProjectPath);
+            navigateFromShell(postProjectPath);
           }}
           onYourBriefs={() => {
-            setProfileOpen(false);
-            navigate('/m/briefs');
+            navigateFromShell('/m/briefs');
           }}
           onReferFriend={() => {
-            setProfileOpen(false);
-            navigate('/affiliate-program');
+            navigateFromShell('/affiliate-program');
           }}
           onBilling={() => {
-            setProfileOpen(false);
-            navigate(billingPath);
+            navigateFromShell(billingPath);
           }}
           onSettings={() => {
-            setProfileOpen(false);
-            navigate('/settings');
+            navigateFromShell('/settings');
           }}
           onLogout={() => {
-            setProfileOpen(false);
+            dismissShellLayers();
             logout();
           }}
           onSwitchUserMode={() => {
-            setQuickMenuOpen(false);
+            dismissShellLayers();
             switchUserInPlace();
-            navigate('/m/home');
+            if (location.pathname !== '/m/home') {
+              navigate('/m/home');
+            }
           }}
           onCreatePost={() => {
-            setQuickMenuOpen(false);
-            setActivePanelTab('post');
-            if (location.pathname !== '/m/home') navigate('/m/home', { replace: true });
+            openPanelFromShell('post');
           }}
           onBrowseJobs={() => {
-            setQuickMenuOpen(false);
-            setActivePanelTab('jobs');
-            if (location.pathname !== '/m/home') navigate('/m/home', { replace: true });
+            openPanelFromShell('jobs');
           }}
           onBrowseGigs={() => {
-            setQuickMenuOpen(false);
-            navigate('/browse');
+            navigateFromShell('/browse');
           }}
           onCommunity={() => {
-            setQuickMenuOpen(false);
-            navigate('/community');
+            navigateFromShell('/community');
           }}
           onProjectBriefs={() => {
-            setQuickMenuOpen(false);
-            navigate('/m/briefs');
+            navigateFromShell('/m/briefs');
           }}
           onGigCreation={() => {
-            setQuickMenuOpen(false);
-            navigate('/create-gig');
+            navigateFromShell('/create-gig');
           }}
         />
       ) : null}

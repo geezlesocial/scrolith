@@ -29,11 +29,13 @@ const EMPTY_BUCKETS: SearchBuckets = {
 export default function SearchScreen({
   enabled,
   categories,
-  onClose
+  onClose,
+  onNavigate
 }: {
   enabled: boolean;
   categories: SearchCategory[];
   onClose: () => void;
+  onNavigate?: () => void;
 }) {
   const [q, setQ] = useState('');
   const [active, setActive] = useState<SearchScope>('all');
@@ -192,13 +194,13 @@ export default function SearchScreen({
                 </div>
                 <div className="divide-y divide-slate-100">
                   {section.items.map((row: any, index: number) => (
-                    <SearchRow
-                      key={`${section.key}-${row?.id ?? row?.url ?? index}`}
-                      type={section.key}
-                      row={row}
-                      onNavigate={onClose}
-                    />
-                  ))}
+                      <SearchRow
+                        key={`${section.key}-${row?.id ?? row?.url ?? index}`}
+                        type={section.key}
+                        row={row}
+                        onNavigate={onNavigate || onClose}
+                      />
+                    ))}
                 </div>
               </div>
             ))}
@@ -206,13 +208,13 @@ export default function SearchScreen({
         ) : (
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
             {activeResults.map((row: any, index: number) => (
-              <SearchRow
-                key={`${active}-${row?.id ?? row?.url ?? index}`}
-                type={active}
-                row={row}
-                onNavigate={onClose}
-              />
-            ))}
+                <SearchRow
+                  key={`${active}-${row?.id ?? row?.url ?? index}`}
+                  type={active}
+                  row={row}
+                  onNavigate={onNavigate || onClose}
+                />
+              ))}
           </div>
         )}
       </div>
@@ -238,7 +240,44 @@ function SearchRow({ type, row, onNavigate }: { type: string; row: any; onNaviga
     (row?.username ? `@${row.username}` : '') ??
     '';
 
-  const url = row?.url ?? row?.actionUrl ?? row?.action_url ?? null;
+  const normalizeUrl = (value: unknown) => String(value || '').trim();
+  const normalizeHandle = (value: unknown) => String(value || '').trim().replace(/^@+/, '');
+  const resolvedType = String(type || row?.type || row?.kind || '').trim().toLowerCase();
+  const resolvedUrl = (() => {
+    const direct = normalizeUrl(row?.url ?? row?.actionUrl ?? row?.action_url);
+    if (direct) return direct;
+
+    if (resolvedType === 'people' || resolvedType === 'person' || resolvedType === 'user' || resolvedType === 'users') {
+      const handle = normalizeHandle(row?.username ?? row?.handle ?? row?.meta?.username);
+      if (handle) return `/u/${encodeURIComponent(handle)}`;
+      const id = normalizeUrl(row?.id ?? row?._id ?? row?.userId ?? row?.user_id);
+      if (id) return `/profile/${encodeURIComponent(id)}`;
+    }
+
+    if (resolvedType === 'pages' || resolvedType === 'page') {
+      const slug = normalizeHandle(row?.slug ?? row?.handle ?? row?.username ?? row?.meta?.slug);
+      const id = normalizeUrl(row?.id ?? row?._id);
+      if (slug) return `/company/${encodeURIComponent(slug)}`;
+      if (id) return `/company/${encodeURIComponent(id)}`;
+    }
+
+    if (resolvedType === 'jobs' || resolvedType === 'job') {
+      const jobId = normalizeUrl(row?.slug ?? row?.id ?? row?._id ?? row?.jobId ?? row?.job_id);
+      if (jobId) return `/jobs/${encodeURIComponent(jobId)}`;
+    }
+
+    if (resolvedType === 'gigs' || resolvedType === 'gig') {
+      const gigId = normalizeUrl(row?.slug ?? row?.id ?? row?._id ?? row?.gigId ?? row?.gig_id);
+      if (gigId) return `/gigs/${encodeURIComponent(gigId)}`;
+    }
+
+    if (resolvedType === 'posts' || resolvedType === 'post') {
+      const postId = normalizeUrl(row?.id ?? row?._id ?? row?.postId ?? row?.post_id);
+      if (postId) return `/post/${encodeURIComponent(postId)}`;
+    }
+
+    return null;
+  })();
   const avatar = row?.avatarUrl ?? row?.image ?? row?.avatar ?? null;
 
   const initials = String(title || 'R')
@@ -270,17 +309,17 @@ function SearchRow({ type, row, onNavigate }: { type: string; row: any; onNaviga
     </div>
   );
 
-  if (typeof url === 'string' && url.startsWith('/')) {
+  if (typeof resolvedUrl === 'string' && resolvedUrl.startsWith('/')) {
     return (
-      <Link to={url} onClick={onNavigate}>
+      <Link to={resolvedUrl} onClick={onNavigate}>
         {card}
       </Link>
     );
   }
 
-  if (typeof url === 'string' && url.trim()) {
+  if (typeof resolvedUrl === 'string' && resolvedUrl.trim()) {
     return (
-      <a href={url} target="_blank" rel="noreferrer" onClick={onNavigate} className="block">
+      <a href={resolvedUrl} target="_blank" rel="noreferrer" onClick={onNavigate} className="block">
         {card}
       </a>
     );
