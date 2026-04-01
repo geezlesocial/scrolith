@@ -658,6 +658,17 @@ const AppContent = () => {
 
   const isFooterSuppressedByRule = matchesAnyRouteRule(location.pathname, footerHiddenRoutes);
   const isSupportWidgetSuppressedByRule = matchesAnyRouteRule(location.pathname, supportWidgetHiddenRoutes);
+  const memberHomeDesktopOverride =
+    new URLSearchParams(location.search).get('desktop') === '1' ||
+    new URLSearchParams(location.search).get('view') === 'desktop';
+  const isMobileViewport = typeof window !== 'undefined' ? window.innerWidth < 900 : false;
+  const shouldUseMobileMemberHome = isMobileViewport && !memberHomeDesktopOverride;
+  const isMobileStandaloneRoute =
+    shouldUseMobileMemberHome &&
+    !isMobileShellRoute &&
+    !isAdminRoute &&
+    !isMessagesRoute &&
+    matchesAnyRouteRule(location.pathname, MOBILE_STANDALONE_ROUTE_RULES);
   const shouldHideAppDistributionPrompt =
     isMobileShellRoute ||
     isMessagesRoute ||
@@ -680,17 +691,6 @@ const AppContent = () => {
     isMessagesRoute ||
     isScrollRoute ||
     isFooterSuppressedByRule;
-  const memberHomeDesktopOverride =
-    new URLSearchParams(location.search).get('desktop') === '1' ||
-    new URLSearchParams(location.search).get('view') === 'desktop';
-  const isMobileViewport = typeof window !== 'undefined' ? window.innerWidth < 900 : false;
-  const shouldUseMobileMemberHome = isMobileViewport && !memberHomeDesktopOverride;
-  const isMobileStandaloneRoute =
-    shouldUseMobileMemberHome &&
-    !isMobileShellRoute &&
-    !isAdminRoute &&
-    !isMessagesRoute &&
-    matchesAnyRouteRule(location.pathname, MOBILE_STANDALONE_ROUTE_RULES);
   const renderResponsiveMobilePage = (title: string, node: React.ReactNode, fullBleed = true) =>
     isMobileStandaloneRoute ? (
       <MobileAppRouteFrame title={title} fullBleed={fullBleed}>
