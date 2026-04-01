@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   BriefcaseIcon as Briefcase,
@@ -49,16 +49,11 @@ import PostHeader from '../../community/components/PostHeader';
 import PostOptionsButton from '../../community/components/post-options/PostOptionsButton';
 import PostEngagementBar from '../../community/components/PostEngagementBar';
 import ReactionBar from '../../community/components/ReactionBar';
-import RepostModal from '../../community/components/RepostModal';
-import PostShareModal from '../../community/components/PostShareModal';
 import MentionText from '../../community/components/MentionText';
 import MentionHashtagTextarea from '../../community/components/MentionHashtagTextarea';
 import FollowButton from '../../community/components/FollowButton';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from '../../community/followState';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../community/storyStyles';
-import ScrollCreateModal from '../../features/scroll/ScrollCreateModal';
-import LiveFeaturedRail from '../../features/live/components/LiveFeaturedRail';
-import SendGcoinModal from '../SendGcoinModal';
 import { resolveAssetUrl } from '../../utils/assetUrl';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../../utils/inlineMedia';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../utils/postAttachmentMedia';
@@ -69,21 +64,15 @@ import {
   type PostAiInsightPreference
 } from '../../utils/postAiControls';
 import { resolveVerificationLevel } from '../../utils/verification';
-import MediaPreviewModal, { PreviewMedia } from '../media/MediaPreviewModal';
+import type { PreviewMedia } from '../media/MediaPreviewModal';
 import { downloadToDevice } from '../../utils/deviceDownload';
 import GraphicWarningGate from '../media/GraphicWarningGate';
 import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
 import OptimizedImage from '../media/OptimizedImage';
 import OverlayActionRailButton from '../media/OverlayActionRailButton';
-import PostExpandModal from '../post/PostExpandModal';
 import PostOriginPreview from '../post/PostOriginPreview';
-import InsightsQuickPanel from '../insights/InsightsQuickPanel';
-import MemberHomeHighlightsBoard, {
-  type MemberHomeHighlightItem,
-  type MemberHomeHighlightPill
-} from '../member-home/MemberHomeHighlightsBoard';
+import type { MemberHomeHighlightItem, MemberHomeHighlightPill } from '../member-home/MemberHomeHighlightsBoard';
 import StoryUploadStatusCard from '../stories/StoryUploadStatusCard';
-import StoryReplySheet from '../stories/StoryReplySheet';
 import { usePerformanceProfile } from '../../hooks/usePerformanceProfile';
 import { Capacitor } from '@capacitor/core';
 import { stashPendingPostVideoScrollViewerSource } from '../../utils/postVideoScrollBridge';
@@ -91,6 +80,17 @@ import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../../c
 import { normalizeContentOfferTags, type OfferTagSelection } from '../../utils/contentOffers';
 import { buildPublicAppUrl } from '../../utils/siteUrl';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../utils/communityEventHighlights';
+
+const RepostModal = React.lazy(() => import('../../community/components/RepostModal'));
+const PostShareModal = React.lazy(() => import('../../community/components/PostShareModal'));
+const ScrollCreateModal = React.lazy(() => import('../../features/scroll/ScrollCreateModal'));
+const LiveFeaturedRail = React.lazy(() => import('../../features/live/components/LiveFeaturedRail'));
+const SendGcoinModal = React.lazy(() => import('../SendGcoinModal'));
+const MediaPreviewModal = React.lazy(() => import('../media/MediaPreviewModal'));
+const PostExpandModal = React.lazy(() => import('../post/PostExpandModal'));
+const InsightsQuickPanel = React.lazy(() => import('../insights/InsightsQuickPanel'));
+const MemberHomeHighlightsBoard = React.lazy(() => import('../member-home/MemberHomeHighlightsBoard'));
+const StoryReplySheet = React.lazy(() => import('../stories/StoryReplySheet'));
 
 const STORY_CONTROL_HIDE_DELAY_MS = 20000;
 
@@ -813,6 +813,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const followStateMap = useFollowStateMap();
   const [managedContent, setManagedContent] = useState<MemberHomeContent | null>(contentProp ?? null);
   const viewTracked = useRef<Set<string>>(new Set());
+  const desktopFeedSentinelRef = useRef<HTMLDivElement | null>(null);
   const focusPostId = React.useMemo(() => {
     const routeId = String(params.id || '').trim();
     if (routeId) return routeId;
@@ -898,6 +899,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [feedRegion, setFeedRegion] = useState('');
   const [feedLoading, setFeedLoading] = useState(false);
   const [feedItems, setFeedItems] = useState<FeedPost[]>([]);
+  const desktopConstrainedFeed = profile.lowBandwidth || profile.dataSaver;
+  const desktopInitialRenderCount = desktopConstrainedFeed ? 6 : 8;
+  const desktopRenderStep = desktopConstrainedFeed ? 4 : 6;
+  const [renderedFeedItemCount, setRenderedFeedItemCount] = useState(desktopInitialRenderCount);
+  const deferredFeedItems = useDeferredValue(feedItems);
+  const visibleFeedItems = useMemo(
+    () => deferredFeedItems.slice(0, Math.min(renderedFeedItemCount, deferredFeedItems.length)),
+    [deferredFeedItems, renderedFeedItemCount]
+  );
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [pipelineBusyByPostId, setPipelineBusyByPostId] = useState<Record<string, boolean>>({});
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
@@ -1715,7 +1725,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               return bScore - aScore;
             })
           : normalized;
-      setFeedItems(sorted);
+      startTransition(() => {
+        setFeedItems(sorted);
+        setRenderedFeedItemCount(Math.min(desktopInitialRenderCount, sorted.length || desktopInitialRenderCount));
+      });
       const followSeed: Record<string, boolean> = {};
       const authorIds = new Set<string>();
       sorted.forEach((post) => {
@@ -1745,11 +1758,25 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       setCommentCounts(counts);
     } catch (error) {
       console.error('Failed to load home feed', error);
-      setFeedItems([]);
+      startTransition(() => {
+        setFeedItems([]);
+        setRenderedFeedItemCount(desktopInitialRenderCount);
+      });
     } finally {
       setFeedLoading(false);
     }
-  }, [defaultIntentFeedTab, feedRegion, feedTab, feedTopic, maxFeedItems, normalizePost, showCategoriesFilter, showIntentModes, user]);
+  }, [
+    defaultIntentFeedTab,
+    desktopInitialRenderCount,
+    feedRegion,
+    feedTab,
+    feedTopic,
+    maxFeedItems,
+    normalizePost,
+    showCategoriesFilter,
+    showIntentModes,
+    user
+  ]);
 
   const loadSidebar = useCallback(async () => {
     if (!user) return;
@@ -3444,17 +3471,43 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   }, [feedRegion, user]);
 
   useEffect(() => {
+    setRenderedFeedItemCount((prev) => {
+      if (!feedItems.length) return desktopInitialRenderCount;
+      const minimum = Math.min(desktopInitialRenderCount, feedItems.length);
+      if (prev < minimum) return minimum;
+      if (prev > feedItems.length) return feedItems.length;
+      return prev;
+    });
+  }, [desktopInitialRenderCount, feedItems.length]);
+
+  useEffect(() => {
     viewTracked.current.clear();
   }, [user?.id]);
 
   useEffect(() => {
-    if (!user?.id || !feedItems.length) return;
-    feedItems.forEach((post) => {
+    if (!user?.id || !visibleFeedItems.length) return;
+    visibleFeedItems.forEach((post) => {
       if (!post?.id || viewTracked.current.has(post.id)) return;
       viewTracked.current.add(post.id);
       CommunityService.postView(post.id).catch(() => {});
     });
-  }, [feedItems, user?.id]);
+  }, [user?.id, visibleFeedItems]);
+
+  useEffect(() => {
+    if (!desktopFeedSentinelRef.current) return;
+    const node = desktopFeedSentinelRef.current;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting) return;
+        if (renderedFeedItemCount >= feedItems.length) return;
+        setRenderedFeedItemCount((prev) => Math.min(feedItems.length, prev + desktopRenderStep));
+      },
+      { rootMargin: '900px 0px', threshold: 0.01 }
+    );
+    obs.observe(node);
+    return () => obs.disconnect();
+  }, [desktopRenderStep, feedItems.length, renderedFeedItemCount]);
 
   useEffect(() => {
     if (!socket || !user) return;
@@ -5186,21 +5239,37 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             )}
 
             {memberHomeHighlightItems.length ? (
-              <MemberHomeHighlightsBoard
-                title="Member Home Discovery Board"
-                subtitle="Surface the best of Scrolith in one place: Scrolitha coach, live office hours, featured opportunities, follow recommendations, and sponsored campaigns."
-                pills={memberHomeHighlightPills}
-                items={memberHomeHighlightItems}
-                className="rise-fade-delay-1"
-              />
+              <Suspense
+                fallback={
+                  <div className="rounded-3xl border border-white/70 bg-white p-5 text-sm text-slate-500 shadow-sm rise-fade-delay-1">
+                    Loading discovery board...
+                  </div>
+                }
+              >
+                <MemberHomeHighlightsBoard
+                  title="Member Home Discovery Board"
+                  subtitle="Surface the best of Scrolith in one place: Scrolitha coach, live office hours, featured opportunities, follow recommendations, and sponsored campaigns."
+                  pills={memberHomeHighlightPills}
+                  items={memberHomeHighlightItems}
+                  className="rise-fade-delay-1"
+                />
+              </Suspense>
             ) : null}
 
-            <LiveFeaturedRail
-              surface="memberHome"
-              title="Featured Live Streams"
-              subtitle="Keep active livestreams visible on desktop and mobile web with a one-tap watch rail."
-              className="mt-4"
-            />
+            <Suspense
+              fallback={
+                <div className="mt-4 rounded-3xl border border-white/70 bg-white p-5 text-sm text-slate-500 shadow-sm">
+                  Loading live streams...
+                </div>
+              }
+            >
+              <LiveFeaturedRail
+                surface="memberHome"
+                title="Featured Live Streams"
+                subtitle="Keep active livestreams visible on desktop and mobile web with a one-tap watch rail."
+                className="mt-4"
+              />
+            </Suspense>
 
             <div id="member-home-feed-stream" className="rounded-3xl border border-white/70 bg-white p-4 shadow-sm rise-fade-delay-1">
               <div className="mb-3 flex items-center justify-between">
@@ -5597,7 +5666,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   No posts found. Follow creators or switch to Discover to explore.
                 </div>
               ) : (
-                feedItems.map((post, postIndex) => {
+                visibleFeedItems.map((post, postIndex) => {
                   const isEditing = editingPostId === post.id && editingDraft;
                   const commentCount = commentCounts[post.id] ?? post.interactions?.comments ?? 0;
                   const resolvedAuthor = {
@@ -6003,11 +6072,25 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   );
                 })
               )}
+              <div ref={desktopFeedSentinelRef} className="h-8" />
+              {renderedFeedItemCount < feedItems.length ? (
+                <div className="pb-2 text-center text-xs font-medium text-slate-500">
+                  Scroll to reveal more posts.
+                </div>
+              ) : null}
             </div>
           </main>
 
           <aside className="order-3 space-y-4 lg:col-span-2 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0 xl:col-span-1 xl:block xl:space-y-4">
-            <InsightsQuickPanel desktopMode="rail" className="xl:sticky xl:top-4" />
+            <Suspense
+              fallback={
+                <div className="rounded-3xl border border-white/70 bg-white p-5 text-sm text-slate-500 shadow-sm xl:sticky xl:top-4">
+                  Loading insights...
+                </div>
+              }
+            >
+              <InsightsQuickPanel desktopMode="rail" className="xl:sticky xl:top-4" />
+            </Suspense>
             {showTopSidebarAd && (
               <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 sm:p-5 shadow-sm">
                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-amber-600">Sponsored</div>
@@ -6588,15 +6671,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         onChange={handleStoryDeviceSelection}
       />
 
-      <ScrollCreateModal
-        open={scrollCreateOpen}
-        onClose={() => setScrollCreateOpen(false)}
-        config={scrollConfig}
-        onCreated={(created) => {
-          setReels((prev) => [created, ...prev.filter((item) => item.id !== created.id)].slice(0, maxReels));
-          setStoryRailTab('reels');
-        }}
-      />
+      {scrollCreateOpen ? (
+        <Suspense fallback={null}>
+          <ScrollCreateModal
+            open={scrollCreateOpen}
+            onClose={() => setScrollCreateOpen(false)}
+            config={scrollConfig}
+            onCreated={(created) => {
+              setReels((prev) => [created, ...prev.filter((item) => item.id !== created.id)].slice(0, maxReels));
+              setStoryRailTab('reels');
+            }}
+          />
+        </Suspense>
+      ) : null}
 
       {storyMediaUploadLabel && storyMediaUploadBusy && !storyMediaPreviewOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6">
@@ -7414,75 +7501,91 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         </div>
       )}
 
-      <StoryReplySheet
-        open={storyCommentOpen}
-        story={storyActionTarget}
-        onClose={() => setStoryCommentOpen(false)}
-        onStoryUpdate={(patch) => {
-          if (!patch?.id) return;
-          applyStoryUpdate({
-            ...(storyActionTarget || {}),
-            ...patch
-          });
-        }}
-        presentation="modal"
-        zIndexClassName="z-50"
-      />
+      {storyCommentOpen || storyRepostOpen || storySendOpen || storyDashOpen || expandedPost || previewMedia ? (
+        <Suspense fallback={null}>
+          {storyCommentOpen ? (
+            <StoryReplySheet
+              open={storyCommentOpen}
+              story={storyActionTarget}
+              onClose={() => setStoryCommentOpen(false)}
+              onStoryUpdate={(patch) => {
+                if (!patch?.id) return;
+                applyStoryUpdate({
+                  ...(storyActionTarget || {}),
+                  ...patch
+                });
+              }}
+              presentation="modal"
+              zIndexClassName="z-50"
+            />
+          ) : null}
 
-      <RepostModal
-        isOpen={storyRepostOpen}
-        onClose={() => setStoryRepostOpen(false)}
-        busy={Boolean(storyActionBusy[String(storyActionTarget?.id || '')])}
-        onRepostNow={async () => repostStory()}
-        onRepostWithComment={async (comment) => repostStory(comment)}
-      />
+          {storyRepostOpen ? (
+            <RepostModal
+              isOpen={storyRepostOpen}
+              onClose={() => setStoryRepostOpen(false)}
+              busy={Boolean(storyActionBusy[String(storyActionTarget?.id || '')])}
+              onRepostNow={async () => repostStory()}
+              onRepostWithComment={async (comment) => repostStory(comment)}
+            />
+          ) : null}
 
-      <PostShareModal
-        isOpen={storySendOpen}
-        onClose={() => setStorySendOpen(false)}
-        postUrl={activeStoryShareUrl}
-        entityLabel="story"
-        shareText={
-          storyActionTarget?.id
-            ? `Check this story on Scrolith: ${activeStoryShareUrl}`
-            : 'Check this story on Scrolith'
-        }
-        onShareToNetwork={() => {
-          if (!storyActionTarget?.id) return;
-          setStorySendOpen(false);
-          setStoryRepostOpen(true);
-        }}
-        onTrackedShare={async () => {
-          if (!storyActionTarget?.id) return;
-          await engageStoryAndSync(storyActionTarget, 'send');
-        }}
-      />
+          {storySendOpen ? (
+            <PostShareModal
+              isOpen={storySendOpen}
+              onClose={() => setStorySendOpen(false)}
+              postUrl={activeStoryShareUrl}
+              entityLabel="story"
+              shareText={
+                storyActionTarget?.id
+                  ? `Check this story on Scrolith: ${activeStoryShareUrl}`
+                  : 'Check this story on Scrolith'
+              }
+              onShareToNetwork={() => {
+                if (!storyActionTarget?.id) return;
+                setStorySendOpen(false);
+                setStoryRepostOpen(true);
+              }}
+              onTrackedShare={async () => {
+                if (!storyActionTarget?.id) return;
+                await engageStoryAndSync(storyActionTarget, 'send');
+              }}
+            />
+          ) : null}
 
-      <SendGcoinModal
-        isOpen={storyDashOpen}
-        onClose={() => setStoryDashOpen(false)}
-        prefillRecipientId={activeStoryDashRecipient || undefined}
-        titleOverride="Dash Story Creator"
-        subtitleOverride="Support this story creator instantly with your Gcoin balance."
-        onSuccess={async () => {
-          if (!storyActionTarget?.id) return;
-          await engageStoryAndSync(storyActionTarget, 'dash');
-        }}
-      />
+          {storyDashOpen ? (
+            <SendGcoinModal
+              isOpen={storyDashOpen}
+              onClose={() => setStoryDashOpen(false)}
+              prefillRecipientId={activeStoryDashRecipient || undefined}
+              titleOverride="Dash Story Creator"
+              subtitleOverride="Support this story creator instantly with your Gcoin balance."
+              onSuccess={async () => {
+                if (!storyActionTarget?.id) return;
+                await engageStoryAndSync(storyActionTarget, 'dash');
+              }}
+            />
+          ) : null}
 
-      <PostExpandModal
-        open={Boolean(expandedPost)}
-        post={expandedPost}
-        viewerId={user?.id}
-        viewerUsername={user?.username}
-        onClose={() => setExpandedPost(null)}
-      />
+          {expandedPost ? (
+            <PostExpandModal
+              open={Boolean(expandedPost)}
+              post={expandedPost}
+              viewerId={user?.id}
+              viewerUsername={user?.username}
+              onClose={() => setExpandedPost(null)}
+            />
+          ) : null}
 
-      <MediaPreviewModal
-        open={Boolean(previewMedia)}
-        media={previewMedia}
-        onClose={() => setPreviewMedia(null)}
-      />
+          {previewMedia ? (
+            <MediaPreviewModal
+              open={Boolean(previewMedia)}
+              media={previewMedia}
+              onClose={() => setPreviewMedia(null)}
+            />
+          ) : null}
+        </Suspense>
+      ) : null}
     </section>
   );
 };

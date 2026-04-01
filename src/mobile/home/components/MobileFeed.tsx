@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Loader2Icon as Loader2,
   MoreVerticalIcon as MoreVertical,
@@ -24,9 +24,8 @@ import ExpandablePreviewText from '../../../components/common/ExpandablePreviewT
 import VerifiedBadge from '../../../components/common/VerifiedBadge';
 import InlineAutoplayVideo from '../../../components/media/InlineAutoplayVideo';
 import OptimizedImage from '../../../components/media/OptimizedImage';
-import MediaPreviewModal, { type PreviewMedia } from '../../../components/media/MediaPreviewModal';
+import type { PreviewMedia } from '../../../components/media/MediaPreviewModal';
 import PostVideoActionBar from '../../../components/media/PostVideoActionBar';
-import PostExpandModal from '../../../components/post/PostExpandModal';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY } from '../../../utils/inlineMedia';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../../utils/postAttachmentMedia';
 import {
@@ -38,11 +37,12 @@ import FeedAdCard from './FeedAdCard';
 import RecommendedListingCard from './RecommendedListingCard';
 import SuggestedCard from './SuggestedCard';
 import { usePerformanceProfile } from '../../../hooks/usePerformanceProfile';
-import MemberHomeHighlightsBoard, {
-  type MemberHomeHighlightItem,
-  type MemberHomeHighlightPill
-} from '../../../components/member-home/MemberHomeHighlightsBoard';
+import type { MemberHomeHighlightItem, MemberHomeHighlightPill } from '../../../components/member-home/MemberHomeHighlightsBoard';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../../utils/communityEventHighlights';
+
+const MediaPreviewModal = React.lazy(() => import('../../../components/media/MediaPreviewModal'));
+const PostExpandModal = React.lazy(() => import('../../../components/post/PostExpandModal'));
+const MemberHomeHighlightsBoard = React.lazy(() => import('../../../components/member-home/MemberHomeHighlightsBoard'));
 
 type MobileHomeLayoutSettings = {
   feed?: {
@@ -358,6 +358,8 @@ export default function MobileFeed({
   const showRecommendedGigsJobs = feedSettings.showRecommendedGigsJobs !== false;
   const [isConstrainedConnection, setIsConstrainedConnection] = useState<boolean>(() => isConstrainedNetwork());
   const constrainedForFeed = isConstrainedConnection || profile.lowBandwidth || profile.dataSaver;
+  const initialRenderCount = constrainedForFeed ? 4 : 6;
+  const renderStep = constrainedForFeed ? 3 : 5;
   const listingCardEveryPosts = clamp(Number((feedSettings as any).listingCardEveryPosts ?? 2) || 2, 1, 6);
   const maxListingCardsPerFeed = clamp(Number((feedSettings as any).maxListingCardsPerFeed ?? 8) || 8, 1, 16);
   const listingPoolLimit = Math.max(
@@ -368,6 +370,7 @@ export default function MobileFeed({
   const promotedFrequency = clamp(Number(feedSettings.promotedFrequency ?? 6) || 6, 2, 20);
 
   const [posts, setPosts] = useState<any[]>([]);
+  const [renderedPostCount, setRenderedPostCount] = useState(initialRenderCount);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -388,6 +391,11 @@ export default function MobileFeed({
   const [broadcastChannels, setBroadcastChannels] = useState<BroadcastChannelSummary[]>([]);
   const [officeHours, setOfficeHours] = useState<HighlightCommunityEvent[]>([]);
   const [secondaryFeedReady, setSecondaryFeedReady] = useState(false);
+  const deferredPosts = useDeferredValue(posts);
+  const visiblePosts = useMemo(
+    () => deferredPosts.slice(0, Math.min(renderedPostCount, deferredPosts.length)),
+    [deferredPosts, renderedPostCount]
+  );
   const listingSlots = useMemo(() => {
     if (!showRecommendedGigsJobs || !user?.id || !posts.length) return 0;
     const baseSlots = Math.floor(posts.length / listingCardEveryPosts);
@@ -758,17 +766,30 @@ export default function MobileFeed({
       const parsed = JSON.parse(raw) as { ts?: number; items?: any[]; cursor?: string | null };
       const cachedPosts = Array.isArray(parsed?.items) ? parsed.items : [];
       if (!cachedPosts.length) return;
-      setPosts(cachedPosts);
       postsRef.current = cachedPosts;
       const cachedCursor = parsed?.cursor ? String(parsed.cursor) : null;
       cursorRef.current = cachedCursor;
-      setCursor(cachedCursor);
+      startTransition(() => {
+        setPosts(cachedPosts);
+        setCursor(cachedCursor);
+        setRenderedPostCount(Math.min(initialRenderCount, cachedPosts.length || initialRenderCount));
+      });
       setLoading(false);
       setError(null);
     } catch {
       // Ignore cache parse errors and continue network-first.
     }
-  }, [feedCacheKey]);
+  }, [feedCacheKey, initialRenderCount]);
+
+  useEffect(() => {
+    setRenderedPostCount((prev) => {
+      if (!posts.length) return initialRenderCount;
+      const minimum = Math.min(initialRenderCount, posts.length);
+      if (prev < minimum) return minimum;
+      if (prev > posts.length) return posts.length;
+      return prev;
+    });
+  }, [initialRenderCount, posts.length]);
 
   useEffect(() => {
     const connection = getNavigatorConnection();
@@ -1053,10 +1074,15 @@ export default function MobileFeed({
       setError(null);
       setStatusMessage(null);
       cursorRef.current = nextCursor;
-      setCursor(nextCursor);
       const mergedPosts = mode === 'more' ? [...postsRef.current, ...nextPosts] : nextPosts;
       postsRef.current = mergedPosts;
-      setPosts(mergedPosts);
+      startTransition(() => {
+        setCursor(nextCursor);
+        setPosts(mergedPosts);
+        if (mode === 'initial') {
+          setRenderedPostCount(Math.min(initialRenderCount, mergedPosts.length || initialRenderCount));
+        }
+      });
       try {
         localStorage.setItem(
           feedCacheKey,
@@ -1115,7 +1141,7 @@ export default function MobileFeed({
       setLoadingMore(false);
       loadInFlightRef.current = false;
     }
-  }, [constrainedForFeed, profile.feedPageSize, feedCacheKey]);
+  }, [constrainedForFeed, profile.feedPageSize, feedCacheKey, initialRenderCount]);
 
   useEffect(() => {
     void load('initial');
@@ -1463,11 +1489,11 @@ export default function MobileFeed({
   }, [user?.id]);
 
   useEffect(() => {
-    if (!user?.id || !posts.length) return;
+    if (!user?.id || !visiblePosts.length) return;
     if (constrainedForFeed) return;
     if (loading || error) return;
 
-    const pending = posts
+    const pending = visiblePosts
       .map((p) => String(p?.id || '').trim())
       .filter(Boolean)
       .filter((id) => !viewTrackedRef.current.has(id))
@@ -1492,7 +1518,7 @@ export default function MobileFeed({
       cancelled = true;
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [posts, user?.id, loading, error, constrainedForFeed]);
+  }, [visiblePosts, user?.id, loading, error, constrainedForFeed]);
 
   useEffect(() => {
     if (!sentinelRef.current) return;
@@ -1501,6 +1527,10 @@ export default function MobileFeed({
       (entries) => {
         const entry = entries[0];
         if (!entry?.isIntersecting) return;
+        if (renderedPostCount < posts.length) {
+          setRenderedPostCount((prev) => Math.min(posts.length, prev + renderStep));
+          return;
+        }
         if (!cursor) return;
         if (loadingMore || loading) return;
         if (loadMoreArmedRef.current) return;
@@ -1513,7 +1543,7 @@ export default function MobileFeed({
     );
     obs.observe(node);
     return () => obs.disconnect();
-  }, [cursor, loading, loadingMore, load]);
+  }, [cursor, loading, loadingMore, load, posts.length, renderStep, renderedPostCount]);
 
   const showTagsCard = feedSettings.showTrendingTags !== false && trendingTags.length > 0;
   const showPeopleCard = feedSettings.showSuggestedPeople !== false && suggestedPeople.length > 0;
@@ -1590,15 +1620,23 @@ export default function MobileFeed({
       ) : null}
       <div id="mobile-member-home-feed-stream" className="space-y-3">
         {showHighlightsBoard ? (
-          <MemberHomeHighlightsBoard
-            title="Member Home Highlights"
-            subtitle="Scrolitha coach, live office hours, recommended opportunities, follow suggestions, and live post momentum in one place."
-            pills={highlightPills}
-            items={highlightItems}
-            compact
-          />
+          <Suspense
+            fallback={
+              <div className="rounded-[30px] border border-slate-200 bg-white px-4 py-5 text-sm text-slate-500 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)]">
+                Loading highlights...
+              </div>
+            }
+          >
+            <MemberHomeHighlightsBoard
+              title="Member Home Highlights"
+              subtitle="Scrolitha coach, live office hours, recommended opportunities, follow suggestions, and live post momentum in one place."
+              pills={highlightPills}
+              items={highlightItems}
+              compact
+            />
+          </Suspense>
         ) : null}
-        {posts.map((post, idx) => {
+        {visiblePosts.map((post, idx) => {
           const postId = String(post?.id || '');
           const author = post?.author || {};
           const authorName = author.displayName || post?.authorName || post?.authorUsername || 'Member';
@@ -2039,22 +2077,32 @@ export default function MobileFeed({
 
         <div ref={sentinelRef} className="h-6" />
 
-        {!cursor ? <div className="py-6 text-center text-xs text-slate-500">You're all caught up.</div> : null}
+        {renderedPostCount < posts.length ? (
+          <div className="py-3 text-center text-xs font-medium text-slate-500">
+            Scroll to reveal more posts.
+          </div>
+        ) : !cursor ? (
+          <div className="py-6 text-center text-xs text-slate-500">You're all caught up.</div>
+        ) : null}
       </div>
 
-      <PostExpandModal
-        open={Boolean(expandedPost)}
-        post={expandedPost}
-        viewerId={user?.id}
-        viewerUsername={user?.username}
-        onClose={() => setExpandedPost(null)}
-      />
+      {(expandedPost || previewMedia) ? (
+        <Suspense fallback={null}>
+          <PostExpandModal
+            open={Boolean(expandedPost)}
+            post={expandedPost}
+            viewerId={user?.id}
+            viewerUsername={user?.username}
+            onClose={() => setExpandedPost(null)}
+          />
 
-      <MediaPreviewModal
-        open={Boolean(previewMedia)}
-        media={previewMedia}
-        onClose={() => setPreviewMedia(null)}
-      />
+          <MediaPreviewModal
+            open={Boolean(previewMedia)}
+            media={previewMedia}
+            onClose={() => setPreviewMedia(null)}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }
