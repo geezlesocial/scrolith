@@ -93,6 +93,7 @@ const MobilePostScreen = React.lazy(() => import('./mobile/home/screens/MobilePo
 const MobileNotificationsScreen = React.lazy(() => import('./mobile/home/screens/MobileNotificationsScreen'));
 const MobileJobsScreen = React.lazy(() => import('./mobile/home/screens/MobileJobsScreen'));
 const MobileBriefsScreen = React.lazy(() => import('./mobile/home/screens/MobileBriefsScreen'));
+const MobileAppRouteFrame = React.lazy(() => import('./mobile/home/components/MobileAppRouteFrame'));
 
 // Community Components
 const CommunityLayout = React.lazy(() => import('./community/CommunityLayout'));
@@ -231,6 +232,29 @@ const matchesRouteRule = (pathname: string, ruleValue: string) => {
 
 const matchesAnyRouteRule = (pathname: string, rules: string[]) =>
   rules.some((rule) => matchesRouteRule(pathname, rule));
+
+const MOBILE_STANDALONE_ROUTE_RULES = [
+  '/browse',
+  '/browse-jobs',
+  '/search',
+  '/gigs/*',
+  '/jobs/*',
+  '/post/*',
+  '/community*',
+  '/scroll*',
+  '/profile/*',
+  '/u/*',
+  '/company/*',
+  '/settings',
+  '/kyc',
+  '/create-gig',
+  '/create-job',
+  '/favorites',
+  '/cart',
+  '/support',
+  '/contact',
+  '/affiliate-program'
+];
 
 // Inner App component to use hooks
 const AppContent = () => {
@@ -643,25 +667,45 @@ const AppContent = () => {
   const shouldHideSupportWidget =
     isAdminRoute ||
     isMobileShellRoute ||
+    isMobileStandaloneRoute ||
     isMessagesRoute ||
     isMessagesTabRoute ||
     isGigDetailRoute ||
     isScrollRoute ||
     isSupportWidgetSuppressedByRule;
   const shouldHideFooter =
-    isMobileShellRoute || isAdminRoute || isMessagesRoute || isScrollRoute || isFooterSuppressedByRule;
+    isMobileShellRoute ||
+    isMobileStandaloneRoute ||
+    isAdminRoute ||
+    isMessagesRoute ||
+    isScrollRoute ||
+    isFooterSuppressedByRule;
   const memberHomeDesktopOverride =
     new URLSearchParams(location.search).get('desktop') === '1' ||
     new URLSearchParams(location.search).get('view') === 'desktop';
   const isMobileViewport = typeof window !== 'undefined' ? window.innerWidth < 900 : false;
   const shouldUseMobileMemberHome = isMobileViewport && !memberHomeDesktopOverride;
+  const isMobileStandaloneRoute =
+    shouldUseMobileMemberHome &&
+    !isMobileShellRoute &&
+    !isAdminRoute &&
+    !isMessagesRoute &&
+    matchesAnyRouteRule(location.pathname, MOBILE_STANDALONE_ROUTE_RULES);
+  const renderResponsiveMobilePage = (title: string, node: React.ReactNode, fullBleed = true) =>
+    isMobileStandaloneRoute ? (
+      <MobileAppRouteFrame title={title} fullBleed={fullBleed}>
+        {node}
+      </MobileAppRouteFrame>
+    ) : (
+      <>{node}</>
+    );
   
   return (
     <div className="flex flex-col min-h-screen relative">
       <IntegrationsManager />
       <OfflineBanner />
-      {!shouldHideAppDistributionPrompt && nonCriticalUiReady && <AppDistributionPrompt />}
-      {!isAdminRoute && !isMobileShellRoute && !isScrollRoute && <Navbar />}
+      {!shouldHideAppDistributionPrompt && !isMobileStandaloneRoute && nonCriticalUiReady && <AppDistributionPrompt />}
+      {!isAdminRoute && !isMobileShellRoute && !isScrollRoute && !isMobileStandaloneRoute && <Navbar />}
       <main className="flex-grow">
         <ErrorBoundary>
           <Suspense fallback={<RouteLoadingFallback />}>
@@ -727,14 +771,14 @@ const AppContent = () => {
               />
               <Route path="/auth/oauth/callback" element={<OAuthCallback />} />
               
-              {/* Browse & Search Pages */}
-              <Route path="/browse" element={<BrowseTalent />} />
-              <Route path="/browse-jobs" element={<BrowseJobs />} />
-              <Route path="/search" element={<SearchResults />} />
-              
-              {/* Detail Pages */}
-              <Route path="/gigs/:id" element={<GigDetail />} />
-              <Route path="/jobs/:id" element={<JobDetail />} />
+               {/* Browse & Search Pages */}
+               <Route path="/browse" element={renderResponsiveMobilePage('Browse gigs', <BrowseTalent />)} />
+               <Route path="/browse-jobs" element={renderResponsiveMobilePage('Browse jobs', <BrowseJobs />)} />
+               <Route path="/search" element={renderResponsiveMobilePage('Search', <SearchResults />)} />
+               
+               {/* Detail Pages */}
+               <Route path="/gigs/:id" element={renderResponsiveMobilePage('Gig details', <GigDetail />)} />
+               <Route path="/jobs/:id" element={renderResponsiveMobilePage('Job details', <JobDetail />)} />
               
               {/* CMS Pages */}
               <Route path="/blog" element={<Blog />} />
@@ -746,37 +790,37 @@ const AppContent = () => {
               <Route path="/careers" element={<StaticPage slugOverride="careers" canonicalPathOverride="/careers" />} />
               <Route path="/p/:slug" element={<StaticPage />} />
               
-              {/* Support Page */}
-              <Route path="/support" element={<Support />} />
-              <Route
-                path="/contact"
-                element={
-                  <ProtectedRoute>
-                    <ContactPage />
-                  </ProtectedRoute>
-                }
-              />
-              
-              {/* Affiliate Program */}
-              <Route path="/affiliate-program" element={<AffiliateProgram />} />
+               {/* Support Page */}
+               <Route path="/support" element={renderResponsiveMobilePage('Support', <Support />)} />
+               <Route
+                 path="/contact"
+                 element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Contact', <ContactPage />)}
+                   </ProtectedRoute>
+                 }
+               />
+               
+               {/* Affiliate Program */}
+               <Route path="/affiliate-program" element={renderResponsiveMobilePage('Referral', <AffiliateProgram />)} />
               
               {/* Community Platform Routes (auth required) */}
-              <Route
-                path="/post/:postId"
-                element={
-                  <ProtectedRoute>
-                    <PostDetailView />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/community"
-                element={
-                  <ProtectedRoute>
-                    <CommunityLayout />
-                  </ProtectedRoute>
-                }
-              >
+               <Route
+                 path="/post/:postId"
+                 element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Post', <PostDetailView />)}
+                   </ProtectedRoute>
+                 }
+               />
+               <Route
+                 path="/community"
+                 element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Community', <CommunityLayout />)}
+                   </ProtectedRoute>
+                 }
+               >
                 <Route index element={<CommunityHome />} />
                 <Route path="posts/:id" element={<CommunityHome />} />
                 <Route path="forum" element={<Forum />} />
@@ -815,14 +859,14 @@ const AppContent = () => {
                   </ProtectedRoute>
                 }
               />
-              <Route
-                path="/scroll"
-                element={
-                  <ProtectedRoute>
-                    <ScrollFeed />
-                  </ProtectedRoute>
-                }
-              />
+               <Route
+                 path="/scroll"
+                 element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Scroll', <ScrollFeed />, false)}
+                   </ProtectedRoute>
+                 }
+               />
               <Route
                 path="/live"
                 element={
@@ -861,28 +905,28 @@ const AppContent = () => {
                 </ProtectedRoute>
               } />
               
-              {/* Profiles */}
-              <Route path="/profile/:id" element={<FreelancerProfile />} />
-              <Route path="/u/:username" element={<FreelancerProfile />} />
-              <Route path="/community/u/:username" element={<FreelancerProfile />} />
-              <Route path="/company/:slug" element={<CompanyPage />} />
+               {/* Profiles */}
+               <Route path="/profile/:id" element={renderResponsiveMobilePage('Profile', <FreelancerProfile />)} />
+               <Route path="/u/:username" element={renderResponsiveMobilePage('Profile', <FreelancerProfile />)} />
+               <Route path="/community/u/:username" element={renderResponsiveMobilePage('Profile', <FreelancerProfile />)} />
+               <Route path="/company/:slug" element={renderResponsiveMobilePage('Page', <CompanyPage />)} />
               <Route path="/profile/edit" element={
                 <ProtectedRoute>
                   <EditProfile />
                 </ProtectedRoute>
               } />
 
-              {/* Protected Common Routes */}
-              <Route path="/settings" element={
-                  <ProtectedRoute>
-                    <SettingsModule />
-                  </ProtectedRoute>
-              } />
-              <Route path="/kyc" element={
-                  <ProtectedRoute>
-                    <KYCVerification />
-                  </ProtectedRoute>
-              } />
+               {/* Protected Common Routes */}
+               <Route path="/settings" element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Settings', <SettingsModule />)}
+                   </ProtectedRoute>
+               } />
+               <Route path="/kyc" element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Verification', <KYCVerification />)}
+                   </ProtectedRoute>
+               } />
 
               <Route path="/messages" element={
                   <ProtectedRoute>
@@ -897,16 +941,16 @@ const AppContent = () => {
                   </ProtectedRoute>
               } />
 
-              <Route path="/favorites" element={
-                  <ProtectedRoute>
-                    <Favorites />
-                  </ProtectedRoute>
-              } />
-              <Route path="/cart" element={
-                  <ProtectedRoute>
-                    <Cart />
-                  </ProtectedRoute>
-              } />
+               <Route path="/favorites" element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Favorites', <Favorites />)}
+                   </ProtectedRoute>
+               } />
+               <Route path="/cart" element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Cart', <Cart />)}
+                   </ProtectedRoute>
+               } />
 
               {/* Admin Routes */}
               <Route 
@@ -970,14 +1014,14 @@ const AppContent = () => {
                     </ProtectedRoute>
                 }
               />
-                <Route 
-                path="/create-gig" 
-                element={
-                    <ProtectedRoute allowedRoles={[UserRole.FREELANCER]}>
-                      <CreateGig />
-                    </ProtectedRoute>
-                } 
-              />
+               <Route 
+                 path="/create-gig" 
+                 element={
+                     <ProtectedRoute allowedRoles={[UserRole.FREELANCER]}>
+                       {renderResponsiveMobilePage('Create gig', <CreateGig />)}
+                     </ProtectedRoute>
+                 } 
+               />
 
               {/* Client Routes */}
                 <Route
@@ -988,14 +1032,14 @@ const AppContent = () => {
                       </ProtectedRoute>
                   }
                 />
-              <Route 
-                path="/create-job" 
-                element={
-                    <ProtectedRoute allowedRoles={[UserRole.EMPLOYER]}>
-                      <CreateJob />
-                    </ProtectedRoute>
-                } 
-              />
+               <Route 
+                 path="/create-job" 
+                 element={
+                     <ProtectedRoute allowedRoles={[UserRole.EMPLOYER]}>
+                       {renderResponsiveMobilePage('Create job', <CreateJob />)}
+                     </ProtectedRoute>
+                 } 
+               />
               <Route
                 path="/client/dashboard/jobs/edit/:id"
                 element={
@@ -1071,7 +1115,7 @@ const AppContent = () => {
           <SupportWidget />
         </Suspense>
       )}
-      {!isAdminRoute && !isMobileShellRoute && nonCriticalUiReady && (
+      {!isAdminRoute && !isMobileShellRoute && !isMobileStandaloneRoute && nonCriticalUiReady && (
         <Suspense fallback={null}>
           <MarketingPopups />
         </Suspense>
