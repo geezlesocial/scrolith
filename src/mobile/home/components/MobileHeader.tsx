@@ -50,7 +50,7 @@ export default function MobileHeader({
 
   return (
     <header className="fixed left-0 right-0 top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex max-w-md items-center gap-2 px-3 py-2">
+      <div className="mx-auto flex w-full min-w-0 max-w-md items-center gap-2 px-3 py-2">
         <button
           type="button"
           onPointerDown={(event) => {
@@ -60,7 +60,7 @@ export default function MobileHeader({
           onClick={() => {
             triggerAction('profile', onOpenProfile);
           }}
-          className="relative h-9 w-9 overflow-hidden rounded-full border border-slate-200 bg-slate-100"
+          className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100"
           aria-label="Open profile"
           style={{ WebkitTapHighlightColor: 'transparent' }}
         >
@@ -83,7 +83,7 @@ export default function MobileHeader({
         <button
           type="button"
           className={[
-            'flex flex-1 items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-left touch-manipulation',
+            'flex min-w-0 flex-1 items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-left touch-manipulation',
             searchEnabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
           ].join(' ')}
           onPointerDown={(event) => {
@@ -100,12 +100,12 @@ export default function MobileHeader({
           style={{ WebkitTapHighlightColor: 'transparent' }}
         >
           <Search className="h-4 w-4 text-slate-500" />
-          <span className="truncate text-sm text-slate-500">
+          <span className="min-w-0 truncate text-sm text-slate-500">
             Search posts, jobs, gigs, people, pages
           </span>
         </button>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {showMessages ? (
             <button
               type="button"

@@ -183,26 +183,42 @@ const SectionTitle = ({
   </div>
 );
 
-const SheetItem = ({ icon, label, description, badge, tone = 'slate', onClick }: SheetMenuItem) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className="flex w-full items-start justify-between gap-3 rounded-3xl border border-slate-200 bg-white px-3 py-3 text-left shadow-sm transition hover:border-indigo-200 hover:bg-slate-50"
-  >
-    <div className="flex min-w-0 gap-3">
-      <div className={['rounded-2xl p-2.5', toneClassMap[tone]].join(' ')}>{icon}</div>
-      <div className="min-w-0">
-        <p className="truncate text-sm font-semibold text-slate-900">{label}</p>
-        <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+const SheetItem = ({ icon, label, description, badge, tone = 'slate', onClick }: SheetMenuItem) => {
+  const lastTapRef = React.useRef(0);
+
+  const triggerAction = () => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 260) return;
+    lastTapRef.current = now;
+    onClick();
+  };
+
+  return (
+    <button
+      type="button"
+      onPointerUp={(event) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        triggerAction();
+      }}
+      onClick={triggerAction}
+      className="flex w-full touch-manipulation items-start justify-between gap-3 rounded-3xl border border-slate-200 bg-white px-3 py-3 text-left shadow-sm transition hover:border-indigo-200 hover:bg-slate-50 active:scale-[0.995]"
+      style={{ WebkitTapHighlightColor: 'transparent' }}
+    >
+      <div className="flex min-w-0 gap-3">
+        <div className={['rounded-2xl p-2.5', toneClassMap[tone]].join(' ')}>{icon}</div>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-slate-900">{label}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+        </div>
       </div>
-    </div>
-    {badge ? (
-      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-        {badge}
-      </span>
-    ) : null}
-  </button>
-);
+      {badge ? (
+        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+          {badge}
+        </span>
+      ) : null}
+    </button>
+  );
+};
 
 const renderMenuSection = (
   title: string,

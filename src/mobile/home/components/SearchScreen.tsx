@@ -1,4 +1,4 @@
-import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeftIcon as ArrowLeft, SearchIcon as Search } from '../../../components/icons/ShellIcons';
 import { mobileSearch } from '../../../services/mobileSearch';
@@ -47,10 +47,9 @@ export default function SearchScreen({
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<SearchBuckets>(EMPTY_BUCKETS);
   const [retryTick, setRetryTick] = useState(0);
-  const deferredQuery = useDeferredValue(q);
   const requestIdRef = useRef(0);
 
-  const normalizedQuery = deferredQuery.trim();
+  const normalizedQuery = q.trim();
   const canSearch = enabled && normalizedQuery.length >= 2;
   const available = useMemo(
     () => (Array.isArray(categories) && categories.length ? categories : DEFAULT_ORDER),
@@ -106,14 +105,48 @@ export default function SearchScreen({
                 : Promise.resolve([])
             ]);
             if (requestIdRef.current !== requestId) return;
-            setResults((prev) => ({
-              ...prev,
-              posts: Array.isArray(posts) ? posts : [],
+            const unifiedGroups = {
               people: Array.isArray(unified?.groups?.people) ? unified.groups.people : [],
               pages: Array.isArray(unified?.groups?.pages) ? unified.groups.pages : [],
               jobs: Array.isArray(unified?.groups?.jobs) ? unified.groups.jobs : [],
-            gigs: Array.isArray(unified?.groups?.gigs) ? unified.groups.gigs : []
-          }));
+              gigs: Array.isArray(unified?.groups?.gigs) ? unified.groups.gigs : []
+            };
+            const unifiedCount =
+              unifiedGroups.people.length +
+              unifiedGroups.pages.length +
+              unifiedGroups.jobs.length +
+              unifiedGroups.gigs.length;
+
+            if (unifiedCount === 0) {
+              const fallbackQueries = await Promise.all([
+                available.includes('people')
+                  ? mobileSearch.search({ q: normalizedQuery, type: 'people', limit: 4 })
+                  : Promise.resolve([]),
+                available.includes('pages')
+                  ? mobileSearch.search({ q: normalizedQuery, type: 'pages', limit: 4 })
+                  : Promise.resolve([]),
+                available.includes('jobs')
+                  ? mobileSearch.search({ q: normalizedQuery, type: 'jobs', limit: 4 })
+                  : Promise.resolve([]),
+                available.includes('gigs')
+                  ? mobileSearch.search({ q: normalizedQuery, type: 'gigs', limit: 4 })
+                  : Promise.resolve([])
+              ]);
+              if (requestIdRef.current !== requestId) return;
+              unifiedGroups.people = Array.isArray(fallbackQueries[0]) ? fallbackQueries[0] : [];
+              unifiedGroups.pages = Array.isArray(fallbackQueries[1]) ? fallbackQueries[1] : [];
+              unifiedGroups.jobs = Array.isArray(fallbackQueries[2]) ? fallbackQueries[2] : [];
+              unifiedGroups.gigs = Array.isArray(fallbackQueries[3]) ? fallbackQueries[3] : [];
+            }
+
+            setResults((prev) => ({
+              ...prev,
+              posts: Array.isArray(posts) ? posts : [],
+              people: unifiedGroups.people,
+              pages: unifiedGroups.pages,
+              jobs: unifiedGroups.jobs,
+              gigs: unifiedGroups.gigs
+            }));
         } else {
           const resp = await mobileSearch.search({ q: normalizedQuery, type: active, limit: 12 });
           if (requestIdRef.current !== requestId) return;
@@ -130,7 +163,7 @@ export default function SearchScreen({
     }, 240);
 
     return () => window.clearTimeout(timer);
-  }, [active, enabled, normalizedQuery, retryTick]);
+  }, [active, available, enabled, normalizedQuery, retryTick]);
 
   return (
     <div className="mx-auto max-w-md px-3 py-4">
@@ -266,6 +299,7 @@ function SearchRow({
   onNavigate: () => void;
   onNavigateUrl?: (url: string) => void;
 }) {
+  const lastTapRef = useRef(0);
   const toInternalUrl = (value: string) => {
     const normalized = String(value || '').trim();
     if (!normalized) return '';
@@ -389,10 +423,26 @@ function SearchRow({
     </div>
   );
 
+  const triggerNavigation = (action: () => void) => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 260) return;
+    lastTapRef.current = now;
+    action();
+  };
+
   if (typeof resolvedUrl === 'string' && resolvedUrl.startsWith('/')) {
     if (onNavigateUrl) {
       return (
-        <button type="button" onClick={() => onNavigateUrl(resolvedUrl)} className="block w-full text-left">
+        <button
+          type="button"
+          onPointerUp={(event) => {
+            if (event.pointerType === 'mouse' && event.button !== 0) return;
+            triggerNavigation(() => onNavigateUrl(resolvedUrl));
+          }}
+          onClick={() => triggerNavigation(() => onNavigateUrl(resolvedUrl))}
+          className="block w-full touch-manipulation text-left"
+          style={{ WebkitTapHighlightColor: 'transparent' }}
+        >
           {card}
         </button>
       );

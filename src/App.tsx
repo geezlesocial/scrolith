@@ -961,7 +961,7 @@ const AppContent = () => {
                 path="/admin/dashboard" 
                 element={
                   <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
-                    <AdminDashboard />
+                    {renderResponsiveMobilePage('Dashboard', <AdminDashboard />, false)}
                   </ProtectedRoute>
                 } 
               />
@@ -1014,7 +1014,7 @@ const AppContent = () => {
                 path="/freelancer/dashboard/*"
                 element={
                     <ProtectedRoute>
-                      <DashboardRouter />
+                      {renderResponsiveMobilePage('Dashboard', <DashboardRouter />, false)}
                     </ProtectedRoute>
                 }
               />
@@ -1032,7 +1032,7 @@ const AppContent = () => {
                   path="/client/dashboard/*"
                   element={
                       <ProtectedRoute>
-                        <DashboardRouter />
+                        {renderResponsiveMobilePage('Dashboard', <DashboardRouter />, false)}
                       </ProtectedRoute>
                   }
                 />
