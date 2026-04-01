@@ -20,13 +20,14 @@ export default function MobileAppRouteFrame({
 }: MobileAppRouteFrameProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const cameFromMobileHome = Boolean((location.state as Record<string, unknown> | null)?.fromMobileHome);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' });
   }, [location.pathname, location.search]);
 
   const handleBack = () => {
-    if (window.history.length > 1) {
+    if (!cameFromMobileHome && window.history.length > 1) {
       navigate(-1);
       return;
     }

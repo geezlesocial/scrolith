@@ -240,10 +240,6 @@ const MobileHome = () => {
   const [quickMenuOpen, setQuickMenuOpen] = useState(false);
   const [messagesOpen, setMessagesOpen] = useState(false);
   const [currencyOpen, setCurrencyOpen] = useState(false);
-  const [pendingShellNavigation, setPendingShellNavigation] = useState<{
-    to: string;
-    options?: { replace?: boolean };
-  } | null>(null);
   const routeTab = resolveActiveTab(location.pathname);
   const [activePanelTab, setActivePanelTab] = useState<Exclude<MobileTabKey, 'home' | 'messages'> | null>(
     isMobileOverlayTab(routeTab) ? routeTab : null
@@ -412,6 +408,7 @@ const MobileHome = () => {
     flushSync(() => {
       clearShellLayers();
     });
+    shellLayerKeyRef.current = null;
     if (typeof window === 'undefined') return;
     const currentState = { ...(window.history.state || {}) };
     if (!currentState.__scrolithMobileShellLayer) return;
@@ -420,38 +417,22 @@ const MobileHome = () => {
   }, [clearShellLayers]);
 
   const navigateFromShell = useCallback(
-    (to: string, options?: { replace?: boolean }) => {
+    (to: string, options?: { replace?: boolean; state?: Record<string, unknown> }) => {
       dismissShellLayers();
-      setPendingShellNavigation({
-        to,
-        options
-      });
+      const nextOptions = {
+        ...options,
+        state: {
+          ...(options?.state || {}),
+          fromMobileHome: true,
+          fromShellPath: location.pathname
+        }
+      };
+      window.setTimeout(() => {
+        navigate(to, nextOptions);
+      }, 0);
     },
-    [dismissShellLayers]
+    [dismissShellLayers, location.pathname, navigate]
   );
-
-  useEffect(() => {
-    if (!pendingShellNavigation) return;
-    if (searchOpen || profileOpen || quickMenuOpen || messagesOpen || currencyOpen || activePanelTab || scrollOverlay) {
-      return;
-    }
-    const nextNavigation = pendingShellNavigation;
-    const timer = window.setTimeout(() => {
-      setPendingShellNavigation(null);
-      navigate(nextNavigation.to, nextNavigation.options);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [
-    activePanelTab,
-    currencyOpen,
-    messagesOpen,
-    navigate,
-    pendingShellNavigation,
-    profileOpen,
-    quickMenuOpen,
-    scrollOverlay,
-    searchOpen
-  ]);
 
   const openPanelFromShell = useCallback(
     (tab: Exclude<MobileTabKey, 'home' | 'messages'>) => {

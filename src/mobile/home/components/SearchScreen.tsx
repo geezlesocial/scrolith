@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeftIcon as ArrowLeft, SearchIcon as Search } from '../../../components/icons/ShellIcons';
 import { mobileSearch } from '../../../services/mobileSearch';
+import OptimizedImage from '../../../components/media/OptimizedImage';
+import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
 
 export type SearchCategory = 'posts' | 'people' | 'pages' | 'jobs' | 'gigs';
 type SearchScope = SearchCategory | 'all';
@@ -44,8 +46,12 @@ export default function SearchScreen({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<SearchBuckets>(EMPTY_BUCKETS);
+  const [retryTick, setRetryTick] = useState(0);
+  const deferredQuery = useDeferredValue(q);
+  const requestIdRef = useRef(0);
 
-  const canSearch = enabled && q.trim().length >= 2;
+  const normalizedQuery = deferredQuery.trim();
+  const canSearch = enabled && normalizedQuery.length >= 2;
   const available = useMemo(
     () => (Array.isArray(categories) && categories.length ? categories : DEFAULT_ORDER),
     [categories]
@@ -72,47 +78,57 @@ export default function SearchScreen({
         .filter((section) => section.items.length > 0),
     [available, results]
   );
+  const hasVisibleResults = active === 'all' ? allSections.length > 0 : activeResults.length > 0;
 
   useEffect(() => {
     setActive('all');
   }, [categories, enabled]);
 
-  const run = async () => {
-    if (!canSearch) return;
-    setLoading(true);
-    setError(null);
-    try {
-      if (active === 'all') {
-        const unified = await mobileSearch.searchUnified({ q: q.trim(), perType: 4, limit: 20 });
-        setResults((prev) => ({
-          ...prev,
-          people: Array.isArray(unified?.groups?.people) ? unified.groups.people : [],
-          pages: Array.isArray(unified?.groups?.pages) ? unified.groups.pages : [],
-          jobs: Array.isArray(unified?.groups?.jobs) ? unified.groups.jobs : [],
-          gigs: Array.isArray(unified?.groups?.gigs) ? unified.groups.gigs : []
-        }));
-      } else {
-        const resp = await mobileSearch.search({ q: q.trim(), type: active, limit: 12 });
-        setResults((prev) => ({ ...prev, [active]: Array.isArray(resp) ? resp : [] }));
-      }
-    } catch (e: any) {
-      setError(e?.response?.data?.error ?? e?.message ?? 'Search failed.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    const t = window.setTimeout(() => {
-      void run();
-    }, 320);
-    return () => window.clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, active, enabled]);
+    if (!enabled || normalizedQuery.length < 2) {
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        if (active === 'all') {
+          const unified = await mobileSearch.searchUnified({ q: normalizedQuery, perType: 4, limit: 20 });
+          if (requestIdRef.current !== requestId) return;
+          setResults((prev) => ({
+            ...prev,
+            people: Array.isArray(unified?.groups?.people) ? unified.groups.people : [],
+            pages: Array.isArray(unified?.groups?.pages) ? unified.groups.pages : [],
+            jobs: Array.isArray(unified?.groups?.jobs) ? unified.groups.jobs : [],
+            gigs: Array.isArray(unified?.groups?.gigs) ? unified.groups.gigs : []
+          }));
+        } else {
+          const resp = await mobileSearch.search({ q: normalizedQuery, type: active, limit: 12 });
+          if (requestIdRef.current !== requestId) return;
+          setResults((prev) => ({ ...prev, [active]: Array.isArray(resp) ? resp : [] }));
+        }
+      } catch (e: any) {
+        if (requestIdRef.current !== requestId) return;
+        setError(e?.response?.data?.error ?? e?.message ?? 'Search failed.');
+      } finally {
+        if (requestIdRef.current === requestId) {
+          setLoading(false);
+        }
+      }
+    }, 240);
+
+    return () => window.clearTimeout(timer);
+  }, [active, enabled, normalizedQuery, retryTick]);
 
   return (
     <div className="mx-auto max-w-md px-3 py-4">
-      <div className="sticky top-14 z-10 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="sticky top-0 z-10 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -133,6 +149,7 @@ export default function SearchScreen({
               disabled={!enabled}
               autoFocus
             />
+            {loading && canSearch ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-slate-500" /> : null}
           </div>
         </div>
 
@@ -166,7 +183,7 @@ export default function SearchScreen({
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
             Type at least 2 characters to search.
           </div>
-        ) : loading ? (
+        ) : loading && !hasVisibleResults ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
             Searching {active === 'all' ? 'users, pages, jobs and gigs' : GROUP_LABELS[active].toLowerCase()}...
           </div>
@@ -174,15 +191,19 @@ export default function SearchScreen({
           <div className="rounded-xl border border-red-200 bg-white p-4">
             <div className="text-sm font-semibold text-red-700">Search error</div>
             <div className="mt-1 text-sm text-slate-700">{error}</div>
-            <button
-              type="button"
-              onClick={() => void run()}
-              className="mt-3 w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
-            >
-              Retry
-            </button>
+            {canSearch ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setRetryTick((value) => value + 1);
+                }}
+                className="mt-3 w-full rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Retry
+              </button>
+            ) : null}
           </div>
-        ) : activeResults.length === 0 ? (
+        ) : !loading && activeResults.length === 0 ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
             No results found for "{q.trim()}".
           </div>
@@ -237,6 +258,20 @@ function SearchRow({
   onNavigate: () => void;
   onNavigateUrl?: (url: string) => void;
 }) {
+  const toInternalUrl = (value: string) => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return '';
+    if (normalized.startsWith('/')) return normalized;
+    if (typeof window === 'undefined') return normalized;
+    try {
+      const url = new URL(normalized, window.location.origin);
+      if (url.origin !== window.location.origin) return normalized;
+      return `${url.pathname}${url.search}${url.hash}`;
+    } catch {
+      return normalized;
+    }
+  };
+
   const title =
     row?.title ??
     row?.name ??
@@ -257,10 +292,7 @@ function SearchRow({
   const normalizeUrl = (value: unknown) => String(value || '').trim();
   const normalizeHandle = (value: unknown) => String(value || '').trim().replace(/^@+/, '');
   const resolvedType = String(type || row?.type || row?.kind || '').trim().toLowerCase();
-  const resolvedUrl = (() => {
-    const direct = normalizeUrl(row?.url ?? row?.actionUrl ?? row?.action_url);
-    if (direct) return direct;
-
+  const canonicalUrl = (() => {
     if (resolvedType === 'people' || resolvedType === 'person' || resolvedType === 'user' || resolvedType === 'users') {
       const handle = normalizeHandle(row?.username ?? row?.handle ?? row?.meta?.username);
       if (handle) return `/u/${encodeURIComponent(handle)}`;
@@ -292,7 +324,33 @@ function SearchRow({
 
     return null;
   })();
-  const avatar = row?.avatarUrl ?? row?.image ?? row?.avatar ?? null;
+  const resolvedUrl = canonicalUrl || toInternalUrl(normalizeUrl(row?.url ?? row?.actionUrl ?? row?.action_url)) || null;
+  const avatar = resolvePostAttachmentMediaUrl({
+    url:
+      row?.avatarUrl ??
+      row?.avatar ??
+      row?.image ??
+      row?.photo ??
+      row?.logoUrl ??
+      row?.logo ??
+      row?.iconUrl ??
+      row?.meta?.avatarUrl ??
+      row?.meta?.avatar ??
+      row?.meta?.image ??
+      '',
+    fileId:
+      row?.avatarFileId ??
+      row?.avatar_file_id ??
+      row?.imageFileId ??
+      row?.image_file_id ??
+      row?.logoFileId ??
+      row?.logo_file_id ??
+      row?.iconFileId ??
+      row?.icon_file_id ??
+      row?.meta?.avatarFileId ??
+      row?.meta?.avatar_file_id ??
+      ''
+  });
 
   const initials = String(title || 'R')
     .trim()
@@ -306,7 +364,7 @@ function SearchRow({
     <div className="flex items-center gap-3 p-3 hover:bg-slate-50">
       <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
         {avatar ? (
-          <img src={avatar} alt={title} className="h-full w-full object-cover" />
+          <OptimizedImage src={avatar} alt={title} width={80} height={80} sizes="40px" className="h-full w-full object-cover" />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-[11px] font-semibold text-slate-600">
             {initials || 'R'}

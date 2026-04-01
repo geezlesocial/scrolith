@@ -60,9 +60,12 @@ const normalizeVisibility = (value: any): StoryVisibility => {
 };
 
 const resolveStoryType = (story: any): StoryKind => {
-  const raw = String(story?.type || '').trim().toLowerCase();
+  const raw = String(story?.type || story?.storyType || story?.media?.type || '').trim().toLowerCase();
   if (raw === 'video') return 'video';
   if (raw === 'image') return 'image';
+  const media = resolveInlineMedia(story, { typeHint: raw || story?.type });
+  if (media.kind === 'video') return 'video';
+  if (media.kind === 'image') return 'image';
   return 'text';
 };
 
@@ -88,13 +91,69 @@ const resolveStoryMediaUrl = (story: any) => {
 };
 
 const resolveStoryAuthorName = (story: any, fallback = 'Story') => {
-  const normalized = String(story?.authorName || story?.author?.name || '').trim();
+  const normalized = String(
+    story?.authorName ||
+      story?.author?.displayName ||
+      story?.author?.name ||
+      story?.author?.username ||
+      story?.userName ||
+      story?.user_name ||
+      story?.user?.displayName ||
+      story?.user?.name ||
+      story?.user?.username ||
+      ''
+  ).trim();
   return normalized || fallback;
 };
 
 const resolveStoryAuthorAvatar = (story: any) => {
-  const normalized = String(story?.authorAvatar || story?.author?.avatar || '').trim();
-  return normalized ? resolvePostAttachmentMediaUrl(normalized) : '';
+  return resolvePostAttachmentMediaUrl({
+    url:
+      story?.authorAvatar ||
+      story?.author?.avatarUrl ||
+      story?.author?.avatar ||
+      story?.authorPhoto ||
+      story?.userAvatar ||
+      story?.user_avatar ||
+      story?.user?.avatarUrl ||
+      story?.user?.avatar ||
+      '',
+    fileId:
+      story?.authorAvatarFileId ||
+      story?.author?.avatarFileId ||
+      story?.author?.avatar_file_id ||
+      story?.user?.avatarFileId ||
+      story?.user?.avatar_file_id ||
+      ''
+  });
+};
+
+const resolveStoryAuthorProfileUrl = (story: any) => {
+  const companySlug = String(
+    story?.author?.businessSlug ||
+      story?.author?.companySlug ||
+      story?.author?.pageSlug ||
+      story?.page?.slug ||
+      story?.businessPage?.slug ||
+      ''
+  ).trim();
+  if (companySlug) return `/company/${encodeURIComponent(companySlug)}`;
+
+  const username = String(
+    story?.authorUsername ||
+      story?.author?.username ||
+      story?.userName ||
+      story?.user_name ||
+      story?.user?.username ||
+      ''
+  )
+    .trim()
+    .replace(/^@+/, '');
+  if (username) return `/u/${encodeURIComponent(username)}`;
+
+  const authorId = resolveStoryOwnerId(story);
+  if (authorId) return `/profile/${encodeURIComponent(authorId)}`;
+  return null;
 };
 
 const resolveStoryAuthorInitial = (story: any) => {
@@ -119,18 +178,46 @@ const resolveScrollMedia = (scroll: ScrollVideo) => {
 };
 
 const resolveScrollAuthorName = (scroll: ScrollVideo, fallback = 'Scrolith') => {
-  const normalized = String(scroll?.author?.name || '').trim();
+  const normalized = String(
+    scroll?.author?.displayName || scroll?.author?.name || scroll?.author?.username || ''
+  ).trim();
   return normalized || fallback;
 };
 
 const resolveScrollAuthorAvatar = (scroll: ScrollVideo) => {
-  const normalized = String(scroll?.author?.avatar || '').trim();
-  return normalized ? resolvePostAttachmentMediaUrl(normalized) : '';
+  return resolvePostAttachmentMediaUrl({
+    url:
+      scroll?.author?.avatarUrl ||
+      scroll?.author?.avatar ||
+      scroll?.author?.photo ||
+      '',
+    fileId:
+      scroll?.author?.avatarFileId ||
+      scroll?.author?.avatar_file_id ||
+      ''
+  });
 };
 
 const resolveScrollAuthorInitial = (scroll: ScrollVideo) => {
   const first = resolveScrollAuthorName(scroll, 'S').replace(/^@+/, '').trim().charAt(0).toUpperCase();
   return first || 'S';
+};
+
+const resolveScrollAuthorProfileUrl = (scroll: ScrollVideo) => {
+  const companySlug = String(
+    scroll?.author?.businessSlug ||
+      scroll?.author?.companySlug ||
+      scroll?.author?.pageSlug ||
+      ''
+  ).trim();
+  if (companySlug) return `/company/${encodeURIComponent(companySlug)}`;
+
+  const username = String(scroll?.author?.username || '').trim().replace(/^@+/, '');
+  if (username) return `/u/${encodeURIComponent(username)}`;
+
+  const authorId = String(scroll?.author?.id || '').trim();
+  if (authorId) return `/profile/${encodeURIComponent(authorId)}`;
+  return null;
 };
 
 const canManageStory = (story: any, user: any) => {
@@ -436,7 +523,9 @@ export default function MobileStoriesStrip({
         onOpenScroll(scroll);
         return;
       }
-      navigate(`/scroll?scroll=${encodeURIComponent(normalizedId)}`);
+      navigate(`/scroll?scroll=${encodeURIComponent(normalizedId)}`, {
+        state: { fromMobileHome: true }
+      });
     },
     [navigate, onOpenScroll]
   );
@@ -1927,6 +2016,7 @@ function StoryViewer({
 
   const name = resolveStoryAuthorName(story, 'Story');
   const avatar = resolveStoryAuthorAvatar(story);
+  const authorProfileUrl = resolveStoryAuthorProfileUrl(story);
   const type = resolveStoryType(story);
   const media = resolveStoryMediaUrl(story);
   const content = resolveStoryContent(story);
@@ -2011,6 +2101,11 @@ function StoryViewer({
     }
   };
 
+  const openAuthorProfile = () => {
+    if (!authorProfileUrl) return;
+    navigate(authorProfileUrl, { state: { fromMobileHome: true } });
+  };
+
   return (
     <div
       className="fixed inset-0 z-[950] bg-black"
@@ -2023,19 +2118,40 @@ function StoryViewer({
           overlayShouldShow ? 'max-h-40 opacity-100' : 'pointer-events-none max-h-0 opacity-0'
         }`}
       >
-        <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="h-9 w-9 overflow-hidden rounded-full border border-white/20 bg-white/10">
-              {avatar ? (
-                <img src={avatar} alt={name} className="h-full w-full object-cover" />
+          <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
+            <div className="flex min-w-0 items-center gap-3">
+              {authorProfileUrl ? (
+                <button type="button" onClick={openAuthorProfile} className="flex min-w-0 items-center gap-3 text-left">
+                  <div className="h-9 w-9 overflow-hidden rounded-full border border-white/20 bg-white/10">
+                    {avatar ? (
+                      <OptimizedImage src={avatar} alt={name} width={72} height={72} sizes="36px" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-xs font-semibold">
+                        {(name[0] || 'S').toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold">{name}</div>
+                    <div className="truncate text-[11px] text-white/70">Open profile</div>
+                  </div>
+                </button>
               ) : (
-                <div className="flex h-full w-full items-center justify-center text-xs font-semibold">
-                  {(name[0] || 'S').toUpperCase()}
-                </div>
+                <>
+                  <div className="h-9 w-9 overflow-hidden rounded-full border border-white/20 bg-white/10">
+                    {avatar ? (
+                      <OptimizedImage src={avatar} alt={name} width={72} height={72} sizes="36px" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-xs font-semibold">
+                        {(name[0] || 'S').toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold">{name}</div>
+                  </div>
+                </>
               )}
-            </div>
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold">{name}</div>
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 {ownerId && String(ownerId) !== String(viewer?.id || '') ? (
                   <FollowButton
@@ -2051,7 +2167,6 @@ function StoryViewer({
                 </div>
               </div>
             </div>
-          </div>
 
           <div className="flex items-center gap-2">
             {type !== 'text' && media.url ? (
