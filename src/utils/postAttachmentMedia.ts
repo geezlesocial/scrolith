@@ -13,6 +13,16 @@ const looksLikeDirectUrl = (value: string) => {
   );
 };
 
+const isLegacyUploadPath = (value: string) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.startsWith('/uploads/') ||
+    normalized.startsWith('uploads/') ||
+    normalized.includes('/uploads/')
+  );
+};
+
 const buildFileContentUrl = (value: string) => {
   const contentId = String(value || '').trim();
   if (!contentId) return '';
@@ -36,14 +46,18 @@ export const resolvePostAttachmentMediaUrl = (attachment: any) => {
         attachment?.video_url ||
         '';
   const normalizedDirect = String(directValue || '').trim();
-  if (normalizedDirect && looksLikeDirectUrl(normalizedDirect)) {
-    return resolveAssetUrl(normalizedDirect);
-  }
-
   const contentId =
     typeof attachment === 'string'
       ? normalizedDirect
       : String(attachment?.fileId || attachment?.file_id || attachment?.id || '').trim();
+
+  if (contentId && isLegacyUploadPath(normalizedDirect)) {
+    return resolveAssetUrl(buildFileContentUrl(contentId));
+  }
+
+  if (normalizedDirect && looksLikeDirectUrl(normalizedDirect)) {
+    return resolveAssetUrl(normalizedDirect);
+  }
 
   if (!contentId) return normalizedDirect;
   return resolveAssetUrl(buildFileContentUrl(contentId));
@@ -63,11 +77,13 @@ export const resolvePostAttachmentPosterUrl = (attachment: any) => {
     attachment?.thumbnail_file_url ||
     '';
   const normalizedPoster = String(posterValue || '').trim();
+  const posterId = String(attachment?.thumbnailFileId || attachment?.thumbnail_file_id || '').trim();
+  if (posterId && isLegacyUploadPath(normalizedPoster)) {
+    return resolveAssetUrl(buildFileContentUrl(posterId));
+  }
   if (normalizedPoster) {
     return resolveAssetUrl(normalizedPoster);
   }
-
-  const posterId = String(attachment?.thumbnailFileId || attachment?.thumbnail_file_id || '').trim();
   if (!posterId) return undefined;
   return resolveAssetUrl(buildFileContentUrl(posterId));
 };

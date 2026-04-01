@@ -84,6 +84,16 @@ const looksLikeDirectUrl = (value: string) => {
   );
 };
 
+const isLegacyUploadPath = (value: string) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.startsWith('/uploads/') ||
+    normalized.startsWith('uploads/') ||
+    normalized.includes('/uploads/')
+  );
+};
+
 const resolveContentUrl = (value: string) => {
   const normalized = String(value || '').trim();
   if (!normalized) return '';
@@ -152,15 +162,18 @@ export const resolveInlineMedia = (
     readFirstString(media, MEDIA_CONTENT_ID_KEYS) ||
     (media !== root ? readFirstString(root, ROOT_CONTENT_ID_KEYS) : '');
 
-  const src = directValue
-    ? looksLikeDirectUrl(directValue)
-      ? resolveAssetUrl(directValue)
-      : resolveContentUrl(directValue)
-    : mediaContentId
-      ? looksLikeDirectUrl(mediaContentId)
-        ? resolveAssetUrl(mediaContentId)
-        : resolveContentUrl(mediaContentId)
-      : '';
+  const shouldPreferContentSrc = Boolean(mediaContentId) && isLegacyUploadPath(directValue);
+  const src = shouldPreferContentSrc
+    ? resolveContentUrl(mediaContentId)
+    : directValue
+      ? looksLikeDirectUrl(directValue)
+        ? resolveAssetUrl(directValue)
+        : resolveContentUrl(directValue)
+      : mediaContentId
+        ? looksLikeDirectUrl(mediaContentId)
+          ? resolveAssetUrl(mediaContentId)
+          : resolveContentUrl(mediaContentId)
+        : '';
 
   const posterValue =
     readFirstString(media, POSTER_KEYS) ||
@@ -168,13 +181,16 @@ export const resolveInlineMedia = (
   const posterId =
     readFirstString(media, MEDIA_POSTER_ID_KEYS) ||
     (media !== root ? readFirstString(root, ROOT_POSTER_ID_KEYS) : '');
-  const poster = posterValue
-    ? looksLikeDirectUrl(posterValue)
-      ? resolveAssetUrl(posterValue)
-      : resolveContentUrl(posterValue)
-    : posterId
-      ? resolveContentUrl(posterId)
-      : '';
+  const shouldPreferPosterId = Boolean(posterId) && isLegacyUploadPath(posterValue);
+  const poster = shouldPreferPosterId
+    ? resolveContentUrl(posterId)
+    : posterValue
+      ? looksLikeDirectUrl(posterValue)
+        ? resolveAssetUrl(posterValue)
+        : resolveContentUrl(posterValue)
+      : posterId
+        ? resolveContentUrl(posterId)
+        : '';
 
   const kind = inferMediaKind(
     options?.typeHint ?? media?.type ?? root?.type,

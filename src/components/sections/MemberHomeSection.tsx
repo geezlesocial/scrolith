@@ -312,6 +312,8 @@ type StoryDraft = {
   textAlign: 'center' | 'left' | 'right';
 };
 
+type StoryKind = 'text' | 'image' | 'video';
+
 type SearchResultItem = {
   id?: string;
   type?: string;
@@ -439,6 +441,16 @@ const normalizeStoryVisibility = (value?: string): StoryVisibility => {
 
 const isPrivateStoryVisibility = (value?: StoryVisibility) => value === 'private' || value === 'custom';
 
+const resolveStoryType = (story: any): StoryKind => {
+  const raw = String(story?.type || story?.storyType || story?.media?.type || '').trim().toLowerCase();
+  if (raw === 'video') return 'video';
+  if (raw === 'image') return 'image';
+  const media = resolveInlineMedia(story, { typeHint: raw || story?.type });
+  if (media.kind === 'video') return 'video';
+  if (media.kind === 'image') return 'image';
+  return 'text';
+};
+
 const resolveStoryMedia = (story: any) => resolveInlineMedia(story, { typeHint: story?.type });
 const resolveStoryMediaUrl = (story: any) => (resolveStoryType(story) === 'text' ? '' : resolveStoryMedia(story).src);
 
@@ -465,18 +477,25 @@ const resolveStoryAuthorName = (story: any, fallback = 'Community') => {
 };
 
 const resolveStoryAuthorAvatar = (story: any) => {
-  const raw =
-    story?.authorAvatar ||
-    story?.author?.avatarUrl ||
-    story?.author?.avatar ||
-    story?.authorPhoto ||
-    story?.userAvatar ||
-    story?.user_avatar ||
-    story?.user?.avatarUrl ||
-    story?.user?.avatar ||
-    '';
-  const normalized = String(raw || '').trim();
-  return normalized ? resolveAssetUrl(normalized) : '';
+  return resolvePostAttachmentMediaUrl({
+    url:
+      story?.authorAvatar ||
+      story?.author?.avatarUrl ||
+      story?.author?.avatar ||
+      story?.authorPhoto ||
+      story?.userAvatar ||
+      story?.user_avatar ||
+      story?.user?.avatarUrl ||
+      story?.user?.avatar ||
+      '',
+    fileId:
+      story?.authorAvatarFileId ||
+      story?.author?.avatarFileId ||
+      story?.author?.avatar_file_id ||
+      story?.user?.avatarFileId ||
+      story?.user?.avatar_file_id ||
+      ''
+  });
 };
 
 const resolveStoryAuthorInitial = (story: any) => {
