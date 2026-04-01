@@ -30,12 +30,14 @@ export default function SearchScreen({
   enabled,
   categories,
   onClose,
-  onNavigate
+  onNavigate,
+  onNavigateUrl
 }: {
   enabled: boolean;
   categories: SearchCategory[];
   onClose: () => void;
   onNavigate?: () => void;
+  onNavigateUrl?: (url: string) => void;
 }) {
   const [q, setQ] = useState('');
   const [active, setActive] = useState<SearchScope>('all');
@@ -199,6 +201,7 @@ export default function SearchScreen({
                         type={section.key}
                         row={row}
                         onNavigate={onNavigate || onClose}
+                        onNavigateUrl={onNavigateUrl}
                       />
                     ))}
                 </div>
@@ -213,6 +216,7 @@ export default function SearchScreen({
                   type={active}
                   row={row}
                   onNavigate={onNavigate || onClose}
+                  onNavigateUrl={onNavigateUrl}
                 />
               ))}
           </div>
@@ -222,7 +226,17 @@ export default function SearchScreen({
   );
 }
 
-function SearchRow({ type, row, onNavigate }: { type: string; row: any; onNavigate: () => void }) {
+function SearchRow({
+  type,
+  row,
+  onNavigate,
+  onNavigateUrl
+}: {
+  type: string;
+  row: any;
+  onNavigate: () => void;
+  onNavigateUrl?: (url: string) => void;
+}) {
   const title =
     row?.title ??
     row?.name ??
@@ -310,6 +324,13 @@ function SearchRow({ type, row, onNavigate }: { type: string; row: any; onNaviga
   );
 
   if (typeof resolvedUrl === 'string' && resolvedUrl.startsWith('/')) {
+    if (onNavigateUrl) {
+      return (
+        <button type="button" onClick={() => onNavigateUrl(resolvedUrl)} className="block w-full text-left">
+          {card}
+        </button>
+      );
+    }
     return (
       <Link to={resolvedUrl} onClick={onNavigate}>
         {card}

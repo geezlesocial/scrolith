@@ -240,6 +240,10 @@ const MobileHome = () => {
   const [quickMenuOpen, setQuickMenuOpen] = useState(false);
   const [messagesOpen, setMessagesOpen] = useState(false);
   const [currencyOpen, setCurrencyOpen] = useState(false);
+  const [pendingShellNavigation, setPendingShellNavigation] = useState<{
+    to: string;
+    options?: { replace?: boolean };
+  } | null>(null);
   const routeTab = resolveActiveTab(location.pathname);
   const [activePanelTab, setActivePanelTab] = useState<Exclude<MobileTabKey, 'home' | 'messages'> | null>(
     isMobileOverlayTab(routeTab) ? routeTab : null
@@ -418,10 +422,36 @@ const MobileHome = () => {
   const navigateFromShell = useCallback(
     (to: string, options?: { replace?: boolean }) => {
       dismissShellLayers();
-      navigate(to, options);
+      setPendingShellNavigation({
+        to,
+        options
+      });
     },
-    [dismissShellLayers, navigate]
+    [dismissShellLayers]
   );
+
+  useEffect(() => {
+    if (!pendingShellNavigation) return;
+    if (searchOpen || profileOpen || quickMenuOpen || messagesOpen || currencyOpen || activePanelTab || scrollOverlay) {
+      return;
+    }
+    const nextNavigation = pendingShellNavigation;
+    const timer = window.setTimeout(() => {
+      setPendingShellNavigation(null);
+      navigate(nextNavigation.to, nextNavigation.options);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [
+    activePanelTab,
+    currencyOpen,
+    messagesOpen,
+    navigate,
+    pendingShellNavigation,
+    profileOpen,
+    quickMenuOpen,
+    scrollOverlay,
+    searchOpen
+  ]);
 
   const openPanelFromShell = useCallback(
     (tab: Exclude<MobileTabKey, 'home' | 'messages'>) => {
@@ -708,6 +738,7 @@ const MobileHome = () => {
               categories={searchCategories.length ? searchCategories : (DEFAULT_LAYOUT.search?.categories as SearchCategory[])}
               onClose={closeTopShellLayer}
               onNavigate={dismissShellLayers}
+              onNavigateUrl={navigateFromShell}
             />
           </Suspense>
         </div>
