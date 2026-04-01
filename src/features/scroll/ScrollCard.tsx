@@ -510,69 +510,87 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
       <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/80 via-black/20 to-black/40" />
 
       <div className="pointer-events-none absolute left-4 right-4 top-4 z-30 flex items-start justify-between gap-3">
-          <div className="pointer-events-auto flex items-start gap-3">
-            <div className="h-10 w-10 rounded-full bg-white/15 ring-2 ring-white/70 overflow-hidden flex items-center justify-center text-sm font-semibold">
-              {authorAvatar ? (
-                <OptimizedImage
-                  src={authorAvatar}
-                  alt={authorName}
-                  width={80}
-                  height={80}
-                  sizes="40px"
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <span>{authorInitial(authorName)}</span>
-              )}
-            </div>
+          <div className="pointer-events-auto">
+            {authorProfileUrl ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  navigate(authorProfileUrl, { state: { fromMobileHome: true } });
+                }}
+                className="flex items-start gap-3 text-left"
+              >
+                <div className="h-10 w-10 rounded-full bg-white/15 ring-2 ring-white/70 overflow-hidden flex items-center justify-center text-sm font-semibold">
+                  {authorAvatar ? (
+                    <OptimizedImage
+                      src={authorAvatar}
+                      alt={authorName}
+                      width={80}
+                      height={80}
+                      sizes="40px"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span>{authorInitial(authorName)}</span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold leading-tight">{authorName}</p>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                    <p className="truncate text-xs text-white/80">{scroll.author?.username ? `@${scroll.author.username}` : 'Scrolith'}</p>
+                    {scroll.isAIEnhanced ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] font-semibold text-cyan-100 ring-1 ring-cyan-300/40">
+                        <Sparkles className="h-3 w-3" />
+                        AI
+                      </span>
+                    ) : null}
+                    {scroll.graphicWarning ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-semibold text-amber-100 ring-1 ring-amber-300/40">
+                        <AlertTriangle className="h-3 w-3" />
+                        Graphic warning
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </button>
+            ) : (
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-full bg-white/15 ring-2 ring-white/70 overflow-hidden flex items-center justify-center text-sm font-semibold">
+                  {authorAvatar ? (
+                    <OptimizedImage
+                      src={authorAvatar}
+                      alt={authorName}
+                      width={80}
+                      height={80}
+                      sizes="40px"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span>{authorInitial(authorName)}</span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold leading-tight">{authorName}</p>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                    <p className="truncate text-xs text-white/80">{scroll.author?.username ? `@${scroll.author.username}` : 'Scrolith'}</p>
+                    {scroll.isAIEnhanced ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] font-semibold text-cyan-100 ring-1 ring-cyan-300/40">
+                        <Sparkles className="h-3 w-3" />
+                        AI
+                      </span>
+                    ) : null}
+                    {scroll.graphicWarning ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-semibold text-amber-100 ring-1 ring-amber-300/40">
+                        <AlertTriangle className="h-3 w-3" />
+                        Graphic warning
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="min-w-0">
-              {authorProfileUrl ? (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    navigate(authorProfileUrl, { state: { fromMobileHome: true } });
-                  }}
-                  className="min-w-0 text-left"
-                >
-                  <p className="truncate text-sm font-semibold leading-tight">{authorName}</p>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                    <p className="truncate text-xs text-white/80">{scroll.author?.username ? `@${scroll.author.username}` : 'Scrolith'}</p>
-                    {scroll.isAIEnhanced ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] font-semibold text-cyan-100 ring-1 ring-cyan-300/40">
-                        <Sparkles className="h-3 w-3" />
-                        AI
-                      </span>
-                    ) : null}
-                    {scroll.graphicWarning ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-semibold text-amber-100 ring-1 ring-amber-300/40">
-                        <AlertTriangle className="h-3 w-3" />
-                        Graphic warning
-                      </span>
-                    ) : null}
-                  </div>
-                </button>
-              ) : (
-                <>
-                  <p className="truncate text-sm font-semibold leading-tight">{authorName}</p>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                    <p className="truncate text-xs text-white/80">{scroll.author?.username ? `@${scroll.author.username}` : 'Scrolith'}</p>
-                    {scroll.isAIEnhanced ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] font-semibold text-cyan-100 ring-1 ring-cyan-300/40">
-                        <Sparkles className="h-3 w-3" />
-                        AI
-                      </span>
-                    ) : null}
-                    {scroll.graphicWarning ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-semibold text-amber-100 ring-1 ring-amber-300/40">
-                        <AlertTriangle className="h-3 w-3" />
-                        Graphic warning
-                      </span>
-                    ) : null}
-                  </div>
-                </>
-              )}
               <div
                 className={`mt-2 transition-all duration-300 ${
                   touchOverlayMode

@@ -234,6 +234,10 @@ const matchesAnyRouteRule = (pathname: string, rules: string[]) =>
   rules.some((rule) => matchesRouteRule(pathname, rule));
 
 const MOBILE_STANDALONE_ROUTE_RULES = [
+  '/dashboard*',
+  '/freelancer/dashboard*',
+  '/client/dashboard*',
+  '/admin/dashboard*',
   '/browse',
   '/browse-jobs',
   '/search',

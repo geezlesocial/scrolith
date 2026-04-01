@@ -94,6 +94,14 @@ type MobileHomeLayoutConfig = {
   };
 };
 
+type PendingShellNavigation = {
+  to: string;
+  options?: {
+    replace?: boolean;
+    state?: Record<string, unknown>;
+  };
+};
+
 const DEFAULT_LAYOUT: MobileHomeLayoutConfig = {
   header: {
     messagesEnabled: true,
@@ -310,6 +318,8 @@ const MobileHome = () => {
 
   const activeTab = activePanelTab || 'home';
   const shellLayerKeyRef = useRef<string | null>(null);
+  const pendingShellNavigationRef = useRef<PendingShellNavigation | null>(null);
+  const [pendingShellNavigationToken, setPendingShellNavigationToken] = useState(0);
 
   const bottomNavSettings: MobileHomeLayoutSettings = {
     bottomTabs: layout.bottomTabs,
@@ -396,6 +406,13 @@ const MobileHome = () => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [clearShellLayers]);
 
+  useEffect(() => {
+    const pending = pendingShellNavigationRef.current;
+    if (!pending || shellLayerKey) return;
+    pendingShellNavigationRef.current = null;
+    navigate(pending.to, pending.options);
+  }, [navigate, pendingShellNavigationToken, shellLayerKey]);
+
   const closeTopShellLayer = useCallback(() => {
     if (typeof window !== 'undefined' && window.history.state?.__scrolithMobileShellLayer) {
       window.history.back();
@@ -418,20 +435,21 @@ const MobileHome = () => {
 
   const navigateFromShell = useCallback(
     (to: string, options?: { replace?: boolean; state?: Record<string, unknown> }) => {
-      dismissShellLayers();
-      const nextOptions = {
-        ...options,
-        state: {
-          ...(options?.state || {}),
-          fromMobileHome: true,
-          fromShellPath: location.pathname
+      pendingShellNavigationRef.current = {
+        to,
+        options: {
+          ...options,
+          state: {
+            ...(options?.state || {}),
+            fromMobileHome: true,
+            fromShellPath: location.pathname
+          }
         }
       };
-      window.setTimeout(() => {
-        navigate(to, nextOptions);
-      }, 0);
+      dismissShellLayers();
+      setPendingShellNavigationToken((value) => value + 1);
     },
-    [dismissShellLayers, location.pathname, navigate]
+    [dismissShellLayers, location.pathname]
   );
 
   const openPanelFromShell = useCallback(
@@ -817,10 +835,12 @@ const MobileHome = () => {
             navigateFromShell('/settings');
           }}
           onLogout={() => {
+            pendingShellNavigationRef.current = null;
             dismissShellLayers();
             logout();
           }}
           onSwitchUserMode={() => {
+            pendingShellNavigationRef.current = null;
             dismissShellLayers();
             switchUserInPlace();
             if (location.pathname !== '/m/home') {

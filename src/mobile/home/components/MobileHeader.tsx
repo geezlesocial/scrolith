@@ -13,7 +13,7 @@ export type MobileHomeLayoutSettings = {
 
 export default function MobileHeader({
   user,
-  loading,
+  loading: _loading,
   socketConnected,
   settings,
   messagesUnread,
@@ -100,8 +100,8 @@ export default function MobileHeader({
           style={{ WebkitTapHighlightColor: 'transparent' }}
         >
           <Search className="h-4 w-4 text-slate-500" />
-          <span className="text-sm text-slate-500">
-            {loading ? 'Loading settings...' : 'Search posts, jobs, gigs, people, pages'}
+          <span className="truncate text-sm text-slate-500">
+            Search posts, jobs, gigs, people, pages
           </span>
         </button>
 

@@ -363,6 +363,8 @@ export default function MobileStoriesStrip({
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
   const [storyPreviewMediaErrors, setStoryPreviewMediaErrors] = useState<Record<string, boolean>>({});
+  const [storyAvatarErrors, setStoryAvatarErrors] = useState<Record<string, boolean>>({});
+  const [scrollAvatarErrors, setScrollAvatarErrors] = useState<Record<string, boolean>>({});
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerStep, setComposerStep] = useState<'choose' | 'compose'>('choose');
@@ -1304,6 +1306,7 @@ export default function MobileStoriesStrip({
                   const storyType = resolveStoryType(story);
                   const storyText = resolveStoryContent(story);
                   const avatar = resolveStoryAuthorAvatar(story);
+                  const avatarFailed = Boolean(storyAvatarErrors[id]);
                   const media = resolveStoryMediaUrl(story);
                   const imagePreviewFailed = Boolean(storyPreviewMediaErrors[id]);
                   const fallbackLetter = resolveStoryAuthorInitial(story);
@@ -1398,7 +1401,7 @@ export default function MobileStoriesStrip({
                         </div>
                       )}
                         <div className="pointer-events-none absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
-                          {avatar ? (
+                          {avatar && !avatarFailed ? (
                             <OptimizedImage
                               src={avatar}
                               alt={name}
@@ -1406,6 +1409,11 @@ export default function MobileStoriesStrip({
                               height={56}
                               sizes="28px"
                               className="h-full w-full object-cover"
+                              onError={() =>
+                                setStoryAvatarErrors((prev) =>
+                                  prev[id] ? prev : { ...prev, [id]: true }
+                                )
+                              }
                             />
                           ) : (
                             <span>{fallbackLetter}</span>
@@ -1472,6 +1480,7 @@ export default function MobileStoriesStrip({
                   const media = resolveScrollMedia(scroll);
                   const authorName = resolveScrollAuthorName(scroll, 'Scrolith');
                   const authorAvatar = resolveScrollAuthorAvatar(scroll);
+                  const authorAvatarFailed = Boolean(scrollAvatarErrors[id]);
                   const authorInitial = resolveScrollAuthorInitial(scroll);
                   return (
                     <button
@@ -1514,8 +1523,20 @@ export default function MobileStoriesStrip({
                         <div className="flex h-full w-full items-center justify-center text-xs text-white/80">Scroll</div>
                       )}
                       <div className="pointer-events-none absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
-                        {authorAvatar ? (
-                          <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
+                        {authorAvatar && !authorAvatarFailed ? (
+                          <OptimizedImage
+                            src={authorAvatar}
+                            alt={authorName}
+                            width={56}
+                            height={56}
+                            sizes="28px"
+                            className="h-full w-full object-cover"
+                            onError={() =>
+                              setScrollAvatarErrors((prev) =>
+                                prev[id] ? prev : { ...prev, [id]: true }
+                              )
+                            }
+                          />
                         ) : (
                           <span>{authorInitial}</span>
                         )}

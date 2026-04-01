@@ -59,7 +59,7 @@ export default function SearchScreen({
 
   const activeResults = useMemo(() => {
     if (active === 'all') {
-      return DEFAULT_ORDER.filter((key) => key !== 'posts' && available.includes(key)).flatMap((key) =>
+      return DEFAULT_ORDER.filter((key) => available.includes(key)).flatMap((key) =>
         Array.isArray(results?.[key]) ? results[key] : []
       );
     }
@@ -69,7 +69,7 @@ export default function SearchScreen({
 
   const allSections = useMemo(
     () =>
-      DEFAULT_ORDER.filter((key) => key !== 'posts' && available.includes(key))
+      DEFAULT_ORDER.filter((key) => available.includes(key))
         .map((key) => ({
           key,
           label: GROUP_LABELS[key],
@@ -96,16 +96,22 @@ export default function SearchScreen({
 
     const timer = window.setTimeout(async () => {
       setLoading(true);
-      setError(null);
-      try {
-        if (active === 'all') {
-          const unified = await mobileSearch.searchUnified({ q: normalizedQuery, perType: 4, limit: 20 });
-          if (requestIdRef.current !== requestId) return;
-          setResults((prev) => ({
-            ...prev,
-            people: Array.isArray(unified?.groups?.people) ? unified.groups.people : [],
-            pages: Array.isArray(unified?.groups?.pages) ? unified.groups.pages : [],
-            jobs: Array.isArray(unified?.groups?.jobs) ? unified.groups.jobs : [],
+        setError(null);
+        try {
+          if (active === 'all') {
+            const [unified, posts] = await Promise.all([
+              mobileSearch.searchUnified({ q: normalizedQuery, perType: 4, limit: 20 }),
+              available.includes('posts')
+                ? mobileSearch.search({ q: normalizedQuery, type: 'posts', limit: 6 })
+                : Promise.resolve([])
+            ]);
+            if (requestIdRef.current !== requestId) return;
+            setResults((prev) => ({
+              ...prev,
+              posts: Array.isArray(posts) ? posts : [],
+              people: Array.isArray(unified?.groups?.people) ? unified.groups.people : [],
+              pages: Array.isArray(unified?.groups?.pages) ? unified.groups.pages : [],
+              jobs: Array.isArray(unified?.groups?.jobs) ? unified.groups.jobs : [],
             gigs: Array.isArray(unified?.groups?.gigs) ? unified.groups.gigs : []
           }));
         } else {
@@ -149,7 +155,9 @@ export default function SearchScreen({
               disabled={!enabled}
               autoFocus
             />
-            {loading && canSearch ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-slate-500" /> : null}
+            <div className="flex h-4 w-4 items-center justify-center">
+              {loading && canSearch ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-slate-500" /> : null}
+            </div>
           </div>
         </div>
 
@@ -185,7 +193,7 @@ export default function SearchScreen({
           </div>
         ) : loading && !hasVisibleResults ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-            Searching {active === 'all' ? 'users, pages, jobs and gigs' : GROUP_LABELS[active].toLowerCase()}...
+            Searching {active === 'all' ? 'posts, users, pages, jobs and gigs' : GROUP_LABELS[active].toLowerCase()}...
           </div>
         ) : error ? (
           <div className="rounded-xl border border-red-200 bg-white p-4">
@@ -203,7 +211,7 @@ export default function SearchScreen({
               </button>
             ) : null}
           </div>
-        ) : !loading && activeResults.length === 0 ? (
+        ) : !loading && !hasVisibleResults ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
             No results found for "{q.trim()}".
           </div>
