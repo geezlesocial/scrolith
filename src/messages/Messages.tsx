@@ -4,7 +4,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
 import { MessagingService } from '../services/messaging';
 import { Conversation, Message, ProjectBrief, UploadedFile, UserRole } from '../types';
-import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download, Camera } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download, Camera, FileText } from 'lucide-react';
 import { AIService } from '../services/ai/ai.service';
 import { UserService } from '../services/user';
 import { useUser } from '../context/UserContext';

@@ -554,14 +554,17 @@ const Navbar = () => {
                   );
                 }
                 return (
-                  <Link
+                  <button
                     key={item.id || url}
-                    to={url}
-                    onClick={() => setOpen(false)}
-                    className="block px-4 py-2 hover:bg-gray-50 hover:text-blue-600"
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      navigate(url);
+                    }}
+                    className="block w-full px-4 py-2 text-left hover:bg-gray-50 hover:text-blue-600"
                   >
                     {content}
-                  </Link>
+                  </button>
                 );
               })}
             </div>
@@ -662,9 +665,17 @@ const Navbar = () => {
     }
 
     return (
-      <Link key={item.id || url} to={url} className={baseClass} onClick={() => setShowProfileDropdown(false)}>
+      <button
+        key={item.id || url}
+        type="button"
+        className={`${baseClass} w-full text-left`}
+        onClick={() => {
+          setShowProfileDropdown(false);
+          navigate(url);
+        }}
+      >
         {content}
-      </Link>
+      </button>
     );
   };
 

@@ -695,6 +695,7 @@ const AppContent = () => {
     isMessagesRoute ||
     isScrollRoute ||
     isFooterSuppressedByRule;
+  const routeRenderKey = `${location.pathname}${location.search}${location.hash}`;
   const renderResponsiveMobilePage = (title: string, node: React.ReactNode, fullBleed = true) =>
     isMobileStandaloneRoute ? (
       <MobileAppRouteFrame title={title} fullBleed={fullBleed}>
@@ -711,9 +712,9 @@ const AppContent = () => {
       {!shouldHideAppDistributionPrompt && !isMobileStandaloneRoute && nonCriticalUiReady && <AppDistributionPrompt />}
       {!isAdminRoute && !isMobileShellRoute && !isScrollRoute && !isMobileStandaloneRoute && <Navbar />}
       <main className="flex-grow">
-        <ErrorBoundary>
-          <Suspense fallback={<RouteLoadingFallback />}>
-            <Routes>
+        <ErrorBoundary key={routeRenderKey}>
+          <Suspense key={routeRenderKey} fallback={<RouteLoadingFallback />}>
+            <Routes location={location} key={routeRenderKey}>
               <Route path="/" element={<Landing />} />
               <Route
                 path="/member_home"

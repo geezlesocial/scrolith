@@ -4830,9 +4830,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                 const key = result.id || `${section.key}-${result.title || result.name || href}-${index}`;
                                 if (href.startsWith('/')) {
                                   return (
-                                    <Link key={key} to={href} onClick={() => setSearchOpen(false)}>
+                                    <button
+                                      key={key}
+                                      type="button"
+                                      onClick={() => {
+                                        setSearchOpen(false);
+                                        navigate(href);
+                                      }}
+                                      className="block w-full text-left"
+                                    >
                                       {itemNode}
-                                    </Link>
+                                    </button>
                                   );
                                 }
 
@@ -4915,18 +4923,30 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   Share an update
                   <Plus className="h-4 w-4 text-slate-400" />
                 </button>
-                <Link to="/browse-jobs" className="flex items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-sm sm:text-base text-slate-700">
+                <button
+                  type="button"
+                  onClick={() => navigate('/browse-jobs')}
+                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left text-sm sm:text-base text-slate-700"
+                >
                   Browse jobs
                   <Briefcase className="h-4 w-4 text-slate-400" />
-                </Link>
-                <Link to="/browse" className="flex items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-sm sm:text-base text-slate-700">
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/browse')}
+                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left text-sm sm:text-base text-slate-700"
+                >
                   Browse gigs
                   <Sparkles className="h-4 w-4 text-slate-400" />
-                </Link>
-                <Link to="/messages" className="flex items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-sm sm:text-base text-slate-700">
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/messages')}
+                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left text-sm sm:text-base text-slate-700"
+                >
                   Messages
                   <MessageCircle className="h-4 w-4 text-slate-400" />
-                </Link>
+                </button>
               </div>
 
               <div className="mt-4 rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-blue-50 p-3">
@@ -6223,9 +6243,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     <MessageCircle className="h-4 w-4 text-slate-600" />
                     {messagesTitle}
                   </div>
-                  <Link to="/messages" className="text-[11px] font-semibold uppercase text-slate-400">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/messages')}
+                    className="text-[11px] font-semibold uppercase text-slate-400"
+                  >
                     View all
-                  </Link>
+                  </button>
                 </div>
                 <div className="mt-4 space-y-3">
                   {messagesLoading ? (
@@ -6239,10 +6263,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                         : [];
                       const primary = participants[0] || conversation.participants?.[0] || {};
                       return (
-                        <Link
+                        <button
                           key={conversation.id}
-                          to={`/messages/${conversation.id}`}
-                          className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200 p-3 hover:border-slate-300"
+                          type="button"
+                          onClick={() => navigate(`/messages/${conversation.id}`)}
+                          className="flex w-full items-start justify-between gap-3 rounded-2xl border border-slate-200 p-3 text-left hover:border-slate-300"
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             <div className="h-10 w-10 rounded-full bg-slate-100 overflow-hidden">
@@ -6262,7 +6287,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                               {conversation.unreadCount}
                             </span>
                           ) : null}
-                        </Link>
+                        </button>
                       );
                     })
                   )}

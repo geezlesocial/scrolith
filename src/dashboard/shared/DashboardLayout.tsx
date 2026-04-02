@@ -200,8 +200,10 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    const newUrl = `${location.pathname}?tab=${tab}`;
-    window.history.replaceState({}, '', newUrl);
+    const params = new URLSearchParams(location.search);
+    params.set('tab', tab);
+    const nextSearch = params.toString();
+    navigate(`${location.pathname}${nextSearch ? `?${nextSearch}` : ''}`, { replace: true });
     setIsSidebarOpen(false);
     window.dispatchEvent(new CustomEvent('dashboard-navigation', { detail: { tab } }));
   };
