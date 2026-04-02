@@ -41,6 +41,204 @@ import { MarketingService } from './services/marketing';
 import { resolveResponsiveAssetUrl } from './utils/assetUrl';
 import { getCanonicalAppOrigin, getCanonicalRedirectUrl } from './utils/siteUrl';
 
+const HISTORY_SYNC_EVENT = 'scrolith:history-sync';
+const CHUNK_RELOAD_GUARD_KEY = 'scrolith:chunk-reload-target';
+
+const normalizeRouteHref = (value: string) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    try {
+      const parsed = new URL(raw);
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    } catch {
+      return raw;
+    }
+  }
+  return raw;
+};
+
+const getCurrentBrowserRoute = () =>
+  typeof window === 'undefined'
+    ? ''
+    : `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+const isLikelyChunkLoadError = (error: unknown) => {
+  const message = String(
+    (error as { message?: unknown } | null)?.message ||
+      (error as { reason?: { message?: unknown } } | null)?.reason?.message ||
+      error ||
+      ''
+  ).toLowerCase();
+
+  return (
+    message.includes('failed to fetch dynamically imported module') ||
+    message.includes('error loading dynamically imported module') ||
+    message.includes('importing a module script failed') ||
+    message.includes('dynamically imported module') ||
+    message.includes('chunkloaderror') ||
+    message.includes('loading css chunk') ||
+    message.includes('unable to preload css')
+  );
+};
+
+const scheduleChunkRecoveryReload = (targetHref?: string) => {
+  if (typeof window === 'undefined') return;
+  const nextRoute = normalizeRouteHref(targetHref || getCurrentBrowserRoute());
+  if (!nextRoute) return;
+
+  try {
+    const guardedTarget = sessionStorage.getItem(CHUNK_RELOAD_GUARD_KEY);
+    if (guardedTarget === nextRoute) return;
+    sessionStorage.setItem(CHUNK_RELOAD_GUARD_KEY, nextRoute);
+  } catch {
+    // Ignore session storage failures and still attempt reload.
+  }
+
+  window.setTimeout(() => {
+    if (window.location.href === window.location.origin) {
+      window.location.assign(nextRoute || '/');
+      return;
+    }
+    window.location.reload();
+  }, 40);
+};
+
+const patchBrowserHistoryEvents = () => {
+  if (typeof window === 'undefined') return;
+  const historyRef = window.history as History & { __scrolithHistoryPatched?: boolean };
+  if (historyRef.__scrolithHistoryPatched) return;
+
+  (['pushState', 'replaceState'] as const).forEach((method) => {
+    const original = historyRef[method];
+    if (typeof original !== 'function') return;
+    historyRef[method] = function patchedHistoryState(...args: Parameters<History[typeof method]>) {
+      const result = original.apply(this, args);
+      try {
+        window.dispatchEvent(
+          new CustomEvent(HISTORY_SYNC_EVENT, {
+            detail: {
+              method,
+              href: `${window.location.pathname}${window.location.search}${window.location.hash}`
+            }
+          })
+        );
+      } catch {
+        // Ignore history sync event failures.
+      }
+      return result;
+    } as History[typeof method];
+  });
+
+  historyRef.__scrolithHistoryPatched = true;
+};
+
+const RouterHistorySync: React.FC = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const currentRouteRef = useRef('');
+  const pendingRouteRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    patchBrowserHistoryEvents();
+  }, []);
+
+  useEffect(() => {
+    const currentRoute = `${location.pathname}${location.search}${location.hash}`;
+    currentRouteRef.current = currentRoute;
+    if (pendingRouteRef.current === currentRoute) {
+      pendingRouteRef.current = null;
+    }
+  }, [location.pathname, location.search, location.hash]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let frame: number | null = null;
+
+    const syncRouterLocation = () => {
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+      frame = window.requestAnimationFrame(() => {
+        const browserRoute = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        const currentRoute = currentRouteRef.current;
+        if (!browserRoute || browserRoute === currentRoute || pendingRouteRef.current === browserRoute) {
+          return;
+        }
+        pendingRouteRef.current = browserRoute;
+        navigate(browserRoute, { replace: true, state: window.history.state as Record<string, unknown> | null });
+      });
+    };
+
+    window.addEventListener('popstate', syncRouterLocation);
+    window.addEventListener(HISTORY_SYNC_EVENT, syncRouterLocation as EventListener);
+
+    return () => {
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+      window.removeEventListener('popstate', syncRouterLocation);
+      window.removeEventListener(HISTORY_SYNC_EVENT, syncRouterLocation as EventListener);
+    };
+  }, [navigate]);
+
+  return null;
+};
+
+const ChunkLoadRecovery: React.FC = () => {
+  const location = useLocation();
+
+  useEffect(() => {
+    const currentRoute = `${location.pathname}${location.search}${location.hash}`;
+    try {
+      if (sessionStorage.getItem(CHUNK_RELOAD_GUARD_KEY) === currentRoute) {
+        sessionStorage.removeItem(CHUNK_RELOAD_GUARD_KEY);
+      }
+    } catch {
+      // Ignore session storage failures.
+    }
+  }, [location.pathname, location.search, location.hash]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleChunkFailure = (error: unknown, href?: string) => {
+      if (!isLikelyChunkLoadError(error)) return;
+      scheduleChunkRecoveryReload(href);
+    };
+
+    const handlePreloadError = (event: Event) => {
+      const preloadEvent = event as Event & {
+        payload?: unknown;
+        detail?: { href?: string; url?: string };
+        preventDefault?: () => void;
+      };
+      preloadEvent.preventDefault?.();
+      handleChunkFailure(preloadEvent.payload || preloadEvent, preloadEvent.detail?.href || preloadEvent.detail?.url);
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      handleChunkFailure(event.reason);
+    };
+
+    const handleWindowError = (event: ErrorEvent) => {
+      handleChunkFailure(event.error || event.message || event, event.filename);
+    };
+
+    window.addEventListener('vite:preloadError', handlePreloadError as EventListener);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    window.addEventListener('error', handleWindowError);
+
+    return () => {
+      window.removeEventListener('vite:preloadError', handlePreloadError as EventListener);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      window.removeEventListener('error', handleWindowError);
+    };
+  }, []);
+
+  return null;
+};
+
 // Lazy Loaded Components
 const Landing = React.lazy(() => import('./main/Landing'));
 const Login = React.lazy(() => import('./auth/Login'));
@@ -1278,6 +1476,8 @@ const LiveFeatureRoute: React.FC<{ children: React.ReactNode }> = ({ children })
 function App() {
   return (
     <BrowserRouter>
+      <RouterHistorySync />
+      <ChunkLoadRecovery />
       <UserProvider>
         <SocketProvider>
           <PreloaderProvider>

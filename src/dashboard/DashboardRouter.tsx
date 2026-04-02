@@ -20,6 +20,7 @@ const MyJobs = React.lazy(() => import('./employer/MyJobs'));
 const ProposalsOffers = React.lazy(() =>
   import('./employer/ProposalsOffers').then((module) => ({ default: module.ProposalsOffers }))
 );
+const ProjectBriefs = React.lazy(() => import('./employer/ProjectBriefs'));
 const EmployerContracts = React.lazy(() => import('./employer/Contracts'));
 const EmployerUploadedFiles = React.lazy(() => import('./employer/UploadedFiles'));
 const EmployerFavorites = React.lazy(() => import('./employer/Favorites'));
@@ -97,7 +98,11 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
       proposals: 'proposals-offers',
       proposal: 'proposals-offers',
       offers: 'proposals-offers',
-      'proposals-offers': 'proposals-offers'
+      'proposals-offers': 'proposals-offers',
+      briefs: 'project-briefs',
+      brief: 'project-briefs',
+      projectbriefs: 'project-briefs',
+      'project-briefs': 'project-briefs'
     };
     return employerMap[tab] || tab;
   }
@@ -227,6 +232,8 @@ export const DashboardRouter: React.FC = () => {
           return <MyJobs />;
         case 'proposals-offers':
           return <ProposalsOffers />;
+        case 'project-briefs':
+          return <ProjectBriefs />;
         case 'contracts':
           return <EmployerContracts />;
         case 'orders':

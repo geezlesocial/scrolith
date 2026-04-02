@@ -330,11 +330,7 @@ const Navbar = () => {
   }, []);
 
   const handleLogout = () => {
-    try {
-      logout();
-    } finally {
-      navigate('/');
-    }
+    logout();
   };
 
   const resolveNotificationActorProfileUrl = (notification: any): string | undefined => {
@@ -1017,14 +1013,18 @@ const Navbar = () => {
                                 if (profileEnabled) {
                                   setShowProfileDropdown(!showProfileDropdown);
                                 } else {
-                                  window.location.href = "/profile/edit";
+                                  navigate("/profile/edit");
                                 }
                               }
                               if (actionType === "help") setShowHelpDropdown(!showHelpDropdown);
                               if (actionType === "favorites") {
                                 const favUrl = icon.url ?? icon.link ?? icon.href ?? "";
                                 if (favUrl) {
-                                  window.location.href = favUrl;
+                                  if (favUrl.startsWith('http')) {
+                                    window.location.href = favUrl;
+                                  } else {
+                                    navigate(favUrl);
+                                  }
                                 }
                               }
                             }}

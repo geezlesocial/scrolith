@@ -73,11 +73,17 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
     const employerMap: Record<string, string> = {
       jobs: 'my-jobs',
       job: 'my-jobs',
+      'my-jobs': 'my-jobs',
       order: 'orders',
       orders: 'orders',
       proposals: 'proposals-offers',
       proposal: 'proposals-offers',
-      offers: 'proposals-offers'
+      offers: 'proposals-offers',
+      'proposals-offers': 'proposals-offers',
+      briefs: 'project-briefs',
+      brief: 'project-briefs',
+      projectbriefs: 'project-briefs',
+      'project-briefs': 'project-briefs'
     };
     return employerMap[tab] || tab;
   }
@@ -311,6 +317,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           description: 'Hiring workflows, candidate review, and delivery management.',
           items: [
             { tab: 'my-jobs', label: 'My Jobs', icon: BriefcaseBusiness, description: 'Open roles, pipeline depth, and response rates' },
+            { tab: 'project-briefs', label: 'Project Briefs', icon: FileText, description: 'AI briefs, requirement drafts, and client-side scoping' },
             { tab: 'my-ads', label: 'My Ads', icon: Megaphone, description: 'Promotion campaigns for hiring visibility' },
             { tab: 'orders', label: 'Orders', icon: ShoppingBag, description: 'Purchased services, delivery progress, and order status' },
             { tab: 'proposals-offers', label: 'Proposals & Offers', icon: FileText, description: 'Applicant review, shortlist, and offers' },

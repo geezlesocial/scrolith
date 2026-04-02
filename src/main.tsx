@@ -4,6 +4,8 @@ import { Capacitor } from '@capacitor/core'
 import App from './App'
 import './index.css'
 
+const WEB_CACHE_RESET_KEY = 'scrolith:web-cache-reset-v1'
+
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
 )
@@ -43,15 +45,14 @@ const isNative = () => {
   }
 };
 
-const clearNativeWebCaches = async () => {
-  if (!isNative()) return;
+const clearBrowserCaches = async () => {
   try {
     if ('serviceWorker' in navigator) {
       const registrations = await navigator.serviceWorker.getRegistrations();
       await Promise.all(registrations.map((registration) => registration.unregister()));
     }
   } catch (err) {
-    console.warn('Native cache cleanup (service worker) failed', err);
+    console.warn('Browser cache cleanup (service worker) failed', err);
   }
 
   try {
@@ -60,19 +61,29 @@ const clearNativeWebCaches = async () => {
       await Promise.all(cacheKeys.map((key) => caches.delete(key)));
     }
   } catch (err) {
-    console.warn('Native cache cleanup (CacheStorage) failed', err);
+    console.warn('Browser cache cleanup (CacheStorage) failed', err);
   }
 };
 
-if (!isNative() && 'serviceWorker' in navigator && import.meta.env.PROD) {
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker
-      .register('/sw.js', { updateViaCache: 'none' })
-      .then((registration) => registration.update().catch(() => undefined))
-      .catch((err) => {
-        console.warn('Service worker registration failed', err);
-      });
+    if (isNative()) return;
+    try {
+      if (window.localStorage.getItem(WEB_CACHE_RESET_KEY) === '1') return;
+    } catch {
+      // Ignore storage failures and continue with cleanup.
+    }
+
+    void clearBrowserCaches().finally(() => {
+      try {
+        window.localStorage.setItem(WEB_CACHE_RESET_KEY, '1');
+      } catch {
+        // Ignore storage failures.
+      }
+    });
   });
-} else if (isNative()) {
-  void clearNativeWebCaches();
+}
+
+if (isNative()) {
+  void clearBrowserCaches();
 }
