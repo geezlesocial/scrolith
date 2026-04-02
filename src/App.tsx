@@ -43,6 +43,7 @@ import { getCanonicalAppOrigin, getCanonicalRedirectUrl } from './utils/siteUrl'
 
 const HISTORY_SYNC_EVENT = 'scrolith:history-sync';
 const CHUNK_RELOAD_GUARD_KEY = 'scrolith:chunk-reload-target';
+const ROUTE_SYNC_RELOAD_GUARD_KEY = 'scrolith:route-sync-reload-target';
 
 const normalizeRouteHref = (value: string) => {
   const raw = String(value || '').trim();
@@ -104,6 +105,26 @@ const scheduleChunkRecoveryReload = (targetHref?: string) => {
   }, 40);
 };
 
+const scheduleRouteSyncReload = (targetHref?: string) => {
+  if (typeof window === 'undefined') return;
+  const nextRoute = normalizeRouteHref(targetHref || getCurrentBrowserRoute());
+  if (!nextRoute) return;
+
+  try {
+    const guardedTarget = sessionStorage.getItem(ROUTE_SYNC_RELOAD_GUARD_KEY);
+    if (guardedTarget === nextRoute) return;
+    sessionStorage.setItem(ROUTE_SYNC_RELOAD_GUARD_KEY, nextRoute);
+  } catch {
+    // Ignore session storage failures and still attempt reload.
+  }
+
+  window.setTimeout(() => {
+    const currentBrowserRoute = getCurrentBrowserRoute();
+    if (currentBrowserRoute !== nextRoute) return;
+    window.location.replace(nextRoute);
+  }, 40);
+};
+
 const patchBrowserHistoryEvents = () => {
   if (typeof window === 'undefined') return;
   const historyRef = window.history as History & { __scrolithHistoryPatched?: boolean };
@@ -114,6 +135,11 @@ const patchBrowserHistoryEvents = () => {
     if (typeof original !== 'function') return;
     historyRef[method] = function patchedHistoryState(...args: Parameters<History[typeof method]>) {
       const result = original.apply(this, args);
+      try {
+        window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }));
+      } catch {
+        // Ignore popstate synthesis failures.
+      }
       try {
         window.dispatchEvent(
           new CustomEvent(HISTORY_SYNC_EVENT, {
@@ -138,6 +164,7 @@ const RouterHistorySync: React.FC = () => {
   const navigate = useNavigate();
   const currentRouteRef = useRef('');
   const pendingRouteRef = useRef<string | null>(null);
+  const desyncFallbackTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     patchBrowserHistoryEvents();
@@ -148,6 +175,17 @@ const RouterHistorySync: React.FC = () => {
     currentRouteRef.current = currentRoute;
     if (pendingRouteRef.current === currentRoute) {
       pendingRouteRef.current = null;
+    }
+    if (desyncFallbackTimerRef.current !== null) {
+      window.clearTimeout(desyncFallbackTimerRef.current);
+      desyncFallbackTimerRef.current = null;
+    }
+    try {
+      if (sessionStorage.getItem(ROUTE_SYNC_RELOAD_GUARD_KEY) === currentRoute) {
+        sessionStorage.removeItem(ROUTE_SYNC_RELOAD_GUARD_KEY);
+      }
+    } catch {
+      // Ignore session storage failures.
     }
   }, [location.pathname, location.search, location.hash]);
 
@@ -167,6 +205,15 @@ const RouterHistorySync: React.FC = () => {
         }
         pendingRouteRef.current = browserRoute;
         navigate(browserRoute, { replace: true, state: window.history.state as Record<string, unknown> | null });
+        if (desyncFallbackTimerRef.current !== null) {
+          window.clearTimeout(desyncFallbackTimerRef.current);
+        }
+        desyncFallbackTimerRef.current = window.setTimeout(() => {
+          desyncFallbackTimerRef.current = null;
+          if (currentRouteRef.current === browserRoute) return;
+          if (getCurrentBrowserRoute() !== browserRoute) return;
+          scheduleRouteSyncReload(browserRoute);
+        }, 220);
       });
     };
 
@@ -176,6 +223,9 @@ const RouterHistorySync: React.FC = () => {
     return () => {
       if (frame !== null) {
         window.cancelAnimationFrame(frame);
+      }
+      if (desyncFallbackTimerRef.current !== null) {
+        window.clearTimeout(desyncFallbackTimerRef.current);
       }
       window.removeEventListener('popstate', syncRouterLocation);
       window.removeEventListener(HISTORY_SYNC_EVENT, syncRouterLocation as EventListener);
