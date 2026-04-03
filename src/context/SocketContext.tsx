@@ -2,13 +2,11 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react'
 import { Socket } from 'socket.io-client'
 import { useUser } from './UserContext'
+import { useNetworkStatus } from './NetworkStatusContext'
 import { socketService } from '../utils/socket'
 import { tokenStore } from '../services/tokenStore'
 import { getBackendOrigin } from '../utils/apiBase'
 import { trackMobileRuntimeEvent } from '../mobile/mobileTelemetry'
-import { App } from '@capacitor/app'
-import { Capacitor } from '@capacitor/core'
-import type { PluginListenerHandle } from '@capacitor/core'
 
 export interface SocketContextType {
   socket: Socket | null
@@ -39,6 +37,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const { user, isAuthenticated } = useUser()
+  const { shouldAttemptLiveConnections, recoveryTick } = useNetworkStatus()
   const lastOptionsRef = useRef<any>(null)
   const hasEverConnectedRef = useRef(false)
   const pendingReconnectTelemetryRef = useRef(false)
@@ -201,6 +200,11 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setIsConnected(false)
     }
 
+    if (!shouldAttemptLiveConnections) {
+      cleanupSocket()
+      return
+    }
+
     const backendEnv =
       import.meta.env.VITE_BACKEND_URL ||
       import.meta.env.VITE_API_URL ||
@@ -227,9 +231,18 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       // Reuse the current socket only when its identity matches the current
       // auth state. This prevents a guest socket from surviving after login.
-      if (existingSocket?.connected && existingSignature === nextSignature) {
+      if (existingSocket && existingSignature === nextSignature) {
         setSocket(existingSocket)
-        setIsConnected(true)
+        setIsConnected(Boolean(existingSocket.connected))
+        if (!existingSocket.connected) {
+          socketService.connect(lastOptionsRef.current || {
+            url: socketUrl,
+            namespace: '/community',
+            userId: user?.id || 'guest',
+            role: user?.role || 'guest',
+            token
+          })
+        }
         return
       }
 
@@ -325,38 +338,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => {
       cleanupSocket()
     }
-  }, [user?.id, user?.role, isAuthenticated])
-
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    let listenerHandle: PluginListenerHandle | null = null;
-    let cancelled = false;
-    const handlePromise = App.addListener('appStateChange', (state) => {
-      if (state.isActive) {
-        const last = lastOptionsRef.current;
-        if (last) socketService.connect(last);
-      } else {
-        socketService.disconnect();
-      }
-    });
-
-    void handlePromise.then((handle) => {
-      if (cancelled) {
-        void handle.remove();
-        return;
-      }
-      listenerHandle = handle;
-    }).catch(() => {
-      listenerHandle = null;
-    });
-
-    return () => {
-      cancelled = true;
-      if (listenerHandle) {
-        void listenerHandle.remove();
-      }
-    };
-  }, []);
+  }, [user?.id, user?.role, isAuthenticated, shouldAttemptLiveConnections, recoveryTick])
 
   return (
     <SocketContext.Provider value={{ socket, isConnected }}>

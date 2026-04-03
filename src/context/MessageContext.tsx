@@ -2,6 +2,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { Conversation } from '../types';
 import { MessagingService } from '../services/messaging';
+import { useNetworkStatus } from './NetworkStatusContext';
 import { useUser } from './UserContext';
 import { useSocket } from './SocketContext';
 
@@ -18,6 +19,7 @@ const MessageContext = createContext<MessageContextType | undefined>(undefined);
 export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useUser();
   const { socket, isConnected } = useSocket();
+  const { isOnline, recoveryTick } = useNetworkStatus();
   const [unreadCount, setUnreadCount] = useState(0);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(false);
@@ -31,6 +33,11 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setUnreadCount(0);
       setConversations([]);
       setError(null);
+      return;
+    }
+
+    if (!isOnline && !options?.force) {
+      setLoading(false);
       return;
     }
 
@@ -68,7 +75,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
 
     return inFlightRefreshRef.current;
-  }, [user?.id, user?.role]);
+  }, [user?.id, user?.role, isOnline]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -78,6 +85,9 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
     void refreshMessages();
+    if (!isOnline) {
+      return;
+    }
 
     if (!socket || !isConnected) {
       const interval = window.setInterval(() => {
@@ -99,7 +109,12 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       socket.off('messages:sent', handleRefresh);
       socket.off('messages:read', handleRefresh);
     };
-  }, [user?.id, socket, isConnected, refreshMessages]);
+  }, [user?.id, socket, isConnected, refreshMessages, isOnline]);
+
+  useEffect(() => {
+    if (!user?.id || !isOnline || recoveryTick <= 0) return;
+    void refreshMessages({ force: true });
+  }, [user?.id, isOnline, recoveryTick, refreshMessages]);
 
   return (
     <MessageContext.Provider value={{ unreadCount, conversations, loading, error, refreshMessages }}>

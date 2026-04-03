@@ -19,6 +19,7 @@ import { NotificationProvider, useNotification } from './context/NotificationCon
 import { FavoritesProvider } from './context/FavoritesContext';
 import { CartProvider } from './context/CartContext';
 import { MessageProvider } from './context/MessageContext';
+import { NetworkStatusProvider } from './context/NetworkStatusContext';
 import { UserProvider, useUser } from './context/UserContext';
 import { SocketProvider } from './context/SocketContext';
 import { PreloaderProvider } from './context/PreloaderContext';
@@ -1564,33 +1565,35 @@ const LiveFeatureRoute: React.FC<{ children: React.ReactNode }> = ({ children })
 function App() {
   return (
     <BrowserRouter>
-      <RouterHistorySync />
-      <ChunkLoadRecovery />
-      <UserProvider>
-        <SocketProvider>
-          <PreloaderProvider>
-            <ContentProvider>
-              <I18nProvider>
-                <NotificationProvider>
-                  <ToastContainer />
-                  <CurrencyProvider>
-                    <FavoritesProvider>
-                      <CartProvider>
-                        <MessageProvider>
-                          <LiveFeatureProvider>
-                            <GlobalPreloader />
-                            <AppContent />
-                          </LiveFeatureProvider>
-                        </MessageProvider>
-                      </CartProvider>
-                    </FavoritesProvider>
-                  </CurrencyProvider>
-                </NotificationProvider>
-              </I18nProvider>
-            </ContentProvider>
-          </PreloaderProvider>
-        </SocketProvider>
-      </UserProvider>
+      <NetworkStatusProvider>
+        <RouterHistorySync />
+        <ChunkLoadRecovery />
+        <UserProvider>
+          <SocketProvider>
+            <PreloaderProvider>
+              <ContentProvider>
+                <I18nProvider>
+                  <NotificationProvider>
+                    <ToastContainer />
+                    <CurrencyProvider>
+                      <FavoritesProvider>
+                        <CartProvider>
+                          <MessageProvider>
+                            <LiveFeatureProvider>
+                              <GlobalPreloader />
+                              <AppContent />
+                            </LiveFeatureProvider>
+                          </MessageProvider>
+                        </CartProvider>
+                      </FavoritesProvider>
+                    </CurrencyProvider>
+                  </NotificationProvider>
+                </I18nProvider>
+              </ContentProvider>
+            </PreloaderProvider>
+          </SocketProvider>
+        </UserProvider>
+      </NetworkStatusProvider>
     </BrowserRouter>
   );
 }

@@ -17,12 +17,28 @@ export type SocketConnectOptions = {
 
 class SocketService {
   private socket: Socket | null = null
+  private socketSignature: string | null = null
   private reconnectAttempts = 0
   private maxReconnectAttempts = 10
   private pingInterval: ReturnType<typeof setInterval> | null = null
 
   connect(options: SocketConnectOptions) {
-    if (this.socket?.connected) {
+    const nextSignature = JSON.stringify({
+      url: String(options.url || '').trim(),
+      namespace: String(options.namespace || '').trim(),
+      userId: String(options.userId || '').trim(),
+      role: String(options.role || '').trim(),
+      token: String(options.token || '').trim()
+    })
+
+    if (this.socket && this.socketSignature === nextSignature) {
+      if (!this.socket.connected) {
+        try {
+          this.socket.connect()
+        } catch {
+          // Ignore reconnect errors; socket.io will continue retrying.
+        }
+      }
       return this.socket
     }
 
@@ -39,6 +55,7 @@ class SocketService {
       ? `${normalizedBaseUrl}${namespace}`
       : (namespace || undefined)
 
+    this.socketSignature = nextSignature
     this.socket = io(socketUrl, {
       path: '/socket.io',
       transports: ['websocket', 'polling'],
@@ -136,6 +153,7 @@ class SocketService {
       this.socket.disconnect()
     }
     this.socket = null
+    this.socketSignature = null
     this.reconnectAttempts = 0
   }
 

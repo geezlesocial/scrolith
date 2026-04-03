@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Notification } from '../types';
+import { useNetworkStatus } from './NetworkStatusContext';
 import { useUser } from './UserContext';
 import { useSocket } from './SocketContext';
 import { NotificationService, notificationsApi } from '../services/notifications';
@@ -35,6 +36,7 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated } = useUser();
   const { socket } = useSocket();
+  const { isOnline, recoveryTick } = useNetworkStatus();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [toasts, setToasts] = useState<NotificationItem[]>([]);
   const pollRef = useRef<number | null>(null);
@@ -140,6 +142,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   const refreshNotifications = useCallback(async (options?: { force?: boolean }) => {
     if (!isAuthenticated) return;
+    if (!isOnline && !options?.force) return;
     if (!options?.force && Date.now() - lastRefreshAtRef.current < REFRESH_MIN_INTERVAL_MS) {
       return;
     }
@@ -171,7 +174,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     });
 
     return inFlightRefreshRef.current;
-  }, [isAuthenticated, normalizeNotification]);
+  }, [isAuthenticated, isOnline, normalizeNotification]);
 
   const showNotification = useCallback((
     type: 'success' | 'error' | 'warning' | 'info' | 'alert',
@@ -236,6 +239,19 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return;
+    if (!isOnline || recoveryTick <= 0) return;
+    void refreshNotifications({ force: true });
+  }, [isAuthenticated, user?.id, isOnline, recoveryTick, refreshNotifications]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) return;
+    if (!isOnline) {
+      if (pollRef.current) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
     if (!socket) {
       if (pollRef.current) return;
       pollRef.current = window.setInterval(() => refreshNotifications(), 45000);
@@ -268,7 +284,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         pollRef.current = null;
       }
     };
-  }, [socket, isAuthenticated, user?.id, refreshNotifications]);
+  }, [socket, isAuthenticated, user?.id, refreshNotifications, isOnline]);
 
   useEffect(() => {
     if (!socket || !isAuthenticated || !user?.id) return;

@@ -8,6 +8,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Briefcase, CalendarDays, Megaphone, MessageCircle, Newspaper, Sparkles, Users as UsersIcon, Video } from 'lucide-react';
 
 import { useSocket } from '../../../context/SocketContext';
+import { useNetworkStatus } from '../../../context/NetworkStatusContext';
 import { useUser } from '../../../context/UserContext';
 import { CommunityService, type BroadcastChannelSummary } from '../../../services/community';
 import { ReactionsService } from '../../../services/reactions';
@@ -346,6 +347,7 @@ export default function MobileFeed({
   const navigate = useNavigate();
   const { user } = useUser();
   const { isConnected } = useSocket();
+  const { isOnline, recoveryTick, shouldAttemptLiveConnections } = useNetworkStatus();
   const { profile } = usePerformanceProfile();
   const currentUserId = String(user?.id || 'guest').trim() || 'guest';
   const feedCacheKey = useMemo(() => `mobile_feed_cache:${FEED_CACHE_VERSION}:${currentUserId}`, [currentUserId]);
@@ -1380,12 +1382,17 @@ export default function MobileFeed({
   }, [constrainedForFeed, error, loading, secondaryFeedReady, user?.id]);
 
   useEffect(() => {
-    if (isConnected) return;
+    if (isConnected || !shouldAttemptLiveConnections) return;
     const id = window.setInterval(() => {
       void load('initial');
     }, 60000);
     return () => window.clearInterval(id);
-  }, [isConnected, load]);
+  }, [isConnected, load, shouldAttemptLiveConnections]);
+
+  useEffect(() => {
+    if (!isOnline || recoveryTick <= 0) return;
+    void load('initial');
+  }, [isOnline, recoveryTick, load]);
 
   useEffect(() => {
     const onCreated = (event: Event) => {

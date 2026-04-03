@@ -1,25 +1,43 @@
 import { useEffect, useState } from 'react';
-import { WifiOff } from 'lucide-react';
+import { CheckCircle2, WifiOff } from 'lucide-react';
+import { useNetworkStatus } from '../context/NetworkStatusContext';
 
 const OfflineBanner = () => {
-  const [online, setOnline] = useState(() => navigator.onLine);
+  const { isOnline, isRecentlyReconnected, shouldAttemptLiveConnections } = useNetworkStatus();
+  const [showRecoveredState, setShowRecoveredState] = useState(false);
 
   useEffect(() => {
-    const update = () => setOnline(navigator.onLine);
-    window.addEventListener('online', update);
-    window.addEventListener('offline', update);
-    return () => {
-      window.removeEventListener('online', update);
-      window.removeEventListener('offline', update);
-    };
-  }, []);
+    if (!isRecentlyReconnected || !isOnline) {
+      setShowRecoveredState(false);
+      return;
+    }
+    setShowRecoveredState(true);
+    const timeout = window.setTimeout(() => {
+      setShowRecoveredState(false);
+    }, 3500);
+    return () => window.clearTimeout(timeout);
+  }, [isOnline, isRecentlyReconnected]);
 
-  if (online) return null;
+  if (isOnline && !showRecoveredState) return null;
 
   return (
-    <div className="fixed bottom-4 left-4 right-4 z-50 rounded-xl bg-gray-900 text-white px-4 py-3 shadow-lg flex items-center gap-2">
-      <WifiOff className="w-4 h-4 text-yellow-300" />
-      <span className="text-sm font-medium">You are offline. Some features may be unavailable.</span>
+    <div
+      className={`fixed bottom-4 left-4 right-4 z-50 flex items-center gap-2 rounded-xl px-4 py-3 shadow-lg ${
+        isOnline
+          ? 'bg-emerald-600 text-white'
+          : 'bg-gray-900 text-white'
+      }`}
+    >
+      {isOnline ? (
+        <CheckCircle2 className="h-4 w-4 text-emerald-100" />
+      ) : (
+        <WifiOff className="h-4 w-4 text-yellow-300" />
+      )}
+      <span className="text-sm font-medium">
+        {isOnline
+          ? `Back online. ${shouldAttemptLiveConnections ? 'Reconnecting live updates…' : 'Resuming the app…'}`
+          : 'You are offline. Live updates and retries are paused until your connection returns.'}
+      </span>
     </div>
   );
 };
