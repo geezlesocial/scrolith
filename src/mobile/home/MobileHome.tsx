@@ -246,7 +246,7 @@ const MobileHome = () => {
     error: messagesError,
     refreshMessages
   } = useMessages();
-  const { notifications, showNotification } = useNotification();
+  const { notifications, refreshNotifications, showNotification } = useNotification();
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
