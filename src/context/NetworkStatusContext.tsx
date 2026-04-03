@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useRef, useState 
 import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 import type { PluginListenerHandle } from '@capacitor/core';
+import { trackMobileRuntimeEvent } from '../mobile/mobileTelemetry';
 import {
   isRecentlyRestoredOnline,
   shouldAttemptRealtimeConnections
@@ -48,6 +49,8 @@ export const NetworkStatusProvider: React.FC<{ children: React.ReactNode }> = ({
   const [lastOfflineAt, setLastOfflineAt] = useState<number | null>(null);
   const [lastOnlineAt, setLastOnlineAt] = useState<number | null>(getInitialOnlineState() ? Date.now() : null);
   const lastOnlineRef = useRef(getInitialOnlineState());
+  const appBackgroundedAtRef = useRef<number | null>(null);
+  const lastAppActiveRef = useRef(true);
 
   useEffect(() => {
     const markOnline = () => {
@@ -86,8 +89,32 @@ export const NetworkStatusProvider: React.FC<{ children: React.ReactNode }> = ({
     let listenerHandle: PluginListenerHandle | null = null;
     const handlePromise = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
       setIsAppActive(isActive);
+      const wasActive = lastAppActiveRef.current;
+      lastAppActiveRef.current = isActive;
+      if (!isActive && wasActive) {
+        appBackgroundedAtRef.current = Date.now();
+        void trackMobileRuntimeEvent(
+          'app_backgrounded',
+          { online: lastOnlineRef.current },
+          { dedupeMs: 1_000, sourcePath: '/runtime/app-state' }
+        );
+      }
       if (isActive && lastOnlineRef.current) {
         setRecoveryTick((value) => value + 1);
+      }
+      if (isActive && !wasActive) {
+        const backgroundDurationMs = appBackgroundedAtRef.current
+          ? Math.max(0, Date.now() - appBackgroundedAtRef.current)
+          : 0;
+        appBackgroundedAtRef.current = null;
+        void trackMobileRuntimeEvent(
+          'app_resumed',
+          {
+            online: lastOnlineRef.current,
+            backgroundDurationMs
+          },
+          { dedupeMs: 1_000, sourcePath: '/runtime/app-state' }
+        );
       }
     });
 

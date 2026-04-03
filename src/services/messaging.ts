@@ -1,6 +1,11 @@
 import api from './api';
 import { beginManagedIdempotentRequest } from './idempotency';
 import { Conversation, Message, UserRole, MessageReaction, VoiceCall, MessengerVoiceConfig } from '../types';
+import {
+  annotateRecoverableError,
+  createOfflineRecoveryError,
+  isRetryableWriteError
+} from '../mobile/runtime/requestRecovery';
 
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
@@ -178,7 +183,9 @@ const conversationCache = new Map<string, { timestamp: number; data: Conversatio
 const inFlight = new Map<string, Promise<Conversation[]>>();
 const CACHE_TTL_MS = 5000;
 const RATE_LIMIT_COOLDOWN_MS = 30000;
+const WRITE_RETRY_ATTEMPTS = 2;
 let rateLimitUntil = 0;
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const MessagingService = {
   getVoiceRuntimeConfig: async (): Promise<MessengerVoiceConfig & { blockedForCurrentUser?: boolean }> => {
@@ -262,22 +269,70 @@ export const MessagingService = {
     attachments?: string[],
     replyToMessageId?: string | null
   ): Promise<Message> => {
-    const response = await api.post(`/messages/conversations/${conversationId}/messages`, {
-      senderId,
-      text,
-      role,
-      attachments: Array.isArray(attachments) ? attachments : [],
-      replyToMessageId: replyToMessageId || null
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw createOfflineRecoveryError('Message is queued in the composer while you are offline. Retry when your connection returns.');
+    }
+    const request = beginManagedIdempotentRequest(`message-send:${conversationId}:${senderId}`);
+    let lastError: any = null;
+    for (let attempt = 0; attempt <= WRITE_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await api.post(
+          `/messages/conversations/${conversationId}/messages`,
+          {
+            senderId,
+            text,
+            role,
+            attachments: Array.isArray(attachments) ? attachments : [],
+            replyToMessageId: replyToMessageId || null
+          },
+          { headers: request.headers }
+        );
+        request.complete();
+        return normalizeMessage(extractData<any>(response));
+      } catch (error) {
+        lastError = annotateRecoverableError(error);
+        if (!lastError.retryable || attempt >= WRITE_RETRY_ATTEMPTS) {
+          request.retain();
+          throw lastError;
+        }
+        await wait(400 * (attempt + 1));
+      }
+    }
+    request.retain();
+    throw annotateRecoverableError(lastError, {
+      retryable: isRetryableWriteError(lastError)
     });
-    return normalizeMessage(extractData<any>(response));
   },
 
   sendVoiceNote: async (
     conversationId: string,
     payload: { fileId: string; durationMs: number; text?: string }
   ): Promise<Message> => {
-    const response = await api.post(`/messages/conversations/${conversationId}/voice-notes`, payload);
-    return normalizeMessage(extractData<any>(response));
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw createOfflineRecoveryError('Voice note is paused while you are offline. Retry when your connection returns.');
+    }
+    const request = beginManagedIdempotentRequest(`voice-note:${conversationId}:${payload.fileId}`);
+    let lastError: any = null;
+    for (let attempt = 0; attempt <= WRITE_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await api.post(`/messages/conversations/${conversationId}/voice-notes`, payload, {
+          headers: request.headers
+        });
+        request.complete();
+        return normalizeMessage(extractData<any>(response));
+      } catch (error) {
+        lastError = annotateRecoverableError(error);
+        if (!lastError.retryable || attempt >= WRITE_RETRY_ATTEMPTS) {
+          request.retain();
+          throw lastError;
+        }
+        await wait(400 * (attempt + 1));
+      }
+    }
+    request.retain();
+    throw annotateRecoverableError(lastError, {
+      retryable: isRetryableWriteError(lastError)
+    });
   },
 
   getVoiceCallHistory: async (conversationId: string): Promise<VoiceCall[]> => {

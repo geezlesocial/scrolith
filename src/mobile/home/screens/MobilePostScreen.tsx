@@ -10,6 +10,7 @@ import { AIService, type PostEnhanceMode } from '../../../services/ai/ai.service
 import { FileService } from '../../../services/files';
 import { Camera, Download, Loader2, Paperclip } from 'lucide-react';
 import { downloadToDevice } from '../../../utils/deviceDownload';
+import { getRecoverableActionMessage } from '../../../mobile/runtime/requestRecovery';
 import {
   postAiInsightPreferenceToBoolean,
   resolvePostAiInsightPreference,
@@ -177,7 +178,12 @@ export default function MobilePostScreen({
           const uploaded = await FileService.uploadFile(file, 'community' as any, {
             role: user?.role,
             visibility: visibility === 'private' ? 'private' : 'public',
-            userId: user?.id
+            userId: user?.id,
+            onRetry: (attempt) => {
+              setUploadingAttachmentLabel(
+                `Retrying ${file.name} after a temporary network issue (${attempt}/${2})`
+              );
+            }
           });
           appendAttachment(uploaded);
         }
@@ -185,7 +191,7 @@ export default function MobilePostScreen({
         showNotification(
           'error',
           'Attachments',
-          error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Unable to upload attachment.'
+          getRecoverableActionMessage('Attachment upload', error)
         );
       } finally {
         setUploadingAttachmentCount(0);
@@ -383,7 +389,11 @@ export default function MobilePostScreen({
       showNotification('success', 'Posted', 'Your update is live.');
       if (onClose) closeComposer();
     } catch (e: any) {
-      showNotification('error', isEditing ? 'Save failed' : 'Post failed', e?.response?.data?.error || e?.message || 'Unable to post right now.');
+      showNotification(
+        'error',
+        isEditing ? 'Save failed' : 'Post failed',
+        getRecoverableActionMessage(isEditing ? 'Post update' : 'Post publish', e)
+      );
     } finally {
       setBusy(false);
     }

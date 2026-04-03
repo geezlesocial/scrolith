@@ -1,5 +1,10 @@
 import api from './api';
 import { UploadedFile } from '../types';
+import {
+  annotateRecoverableError,
+  createOfflineRecoveryError,
+  isRetryableWriteError
+} from '../mobile/runtime/requestRecovery';
 
 type VisibilityOption = 'public' | 'private';
 
@@ -20,6 +25,7 @@ const FILE_UPLOAD_TIMEOUT_BASE_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIME
 const FILE_UPLOAD_TIMEOUT_PER_MB_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_PER_MB_MS ?? 15000);
 const FILE_UPLOAD_TIMEOUT_MAX_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_MAX_MS ?? 900000);
 const FILE_LIST_RETRY_ATTEMPTS = Number(import.meta.env.VITE_FILES_LIST_RETRY_ATTEMPTS ?? 2);
+const FILE_UPLOAD_RETRY_ATTEMPTS = Number(import.meta.env.VITE_FILE_UPLOAD_RETRY_ATTEMPTS ?? 2);
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -140,6 +146,7 @@ type UploadFileOptions =
       userId?: string;
       user_id?: string;
       onProgress?: (percent: number, event: ProgressEvent) => void;
+      onRetry?: (attempt: number, delayMs: number, error: Error) => void;
     };
 
 export const FileService = {
@@ -250,21 +257,47 @@ export const FileService = {
       FILE_UPLOAD_TIMEOUT_MAX_MS,
       Math.max(FILE_UPLOAD_TIMEOUT_BASE_MS, FILE_UPLOAD_TIMEOUT_BASE_MS + sizeMb * FILE_UPLOAD_TIMEOUT_PER_MB_MS)
     );
+    const retryHandler =
+      typeof options === 'object' && options
+        ? options.onRetry
+        : undefined;
+    const totalAttempts = Math.max(1, FILE_UPLOAD_RETRY_ATTEMPTS + 1);
 
-    const response = await api.post<ApiResponse<UploadedFile>>('/files/upload', formData, {
-      timeout: uploadTimeout,
-      maxBodyLength: Infinity,
-      maxContentLength: Infinity,
-      onUploadProgress: onProgress
-        ? (event) => {
-            const total = event.total ?? 0;
-            const percent = total ? Math.round((event.loaded / total) * 100) : 0;
-            onProgress(percent, event);
-          }
-        : undefined
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw createOfflineRecoveryError('Upload is paused while you are offline. Retry when your connection returns.');
+    }
+
+    let lastError: any = null;
+    for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
+      try {
+        const response = await api.post<ApiResponse<UploadedFile>>('/files/upload', formData, {
+          timeout: uploadTimeout,
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+          onUploadProgress: onProgress
+            ? (event) => {
+                const total = event.total ?? 0;
+                const percent = total ? Math.round((event.loaded / total) * 100) : 0;
+                onProgress(percent, event);
+              }
+            : undefined
+        });
+        const data = handleApiResponse(response);
+        return normalizeUploadedFile(data);
+      } catch (error: any) {
+        const normalizedError = annotateRecoverableError(error);
+        lastError = normalizedError;
+        const shouldRetry = normalizedError.retryable && attempt < totalAttempts - 1;
+        if (!shouldRetry) break;
+        const delayMs = 500 * (attempt + 1);
+        retryHandler?.(attempt + 1, delayMs, normalizedError);
+        await wait(delayMs);
+      }
+    }
+
+    throw annotateRecoverableError(lastError, {
+      retryable: isRetryableWriteError(lastError)
     });
-    const data = handleApiResponse(response);
-    return normalizeUploadedFile(data);
   },
 
   // deleteFile supports legacy (id, ownerId?) signature but ownerId is ignored server-side

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Notification } from '../types';
+import { getRecoverableActionMessage, isOfflineLikeError } from '../mobile/runtime/requestRecovery';
 import { useNetworkStatus } from './NetworkStatusContext';
 import { useUser } from './UserContext';
 import { useSocket } from './SocketContext';
@@ -29,6 +30,9 @@ interface NotificationContextType {
   clearNotifications: () => void;
   refreshNotifications: (options?: { force?: boolean }) => Promise<void>;
   showNotification: (type: 'success' | 'error' | 'warning' | 'info' | 'alert', title: string, message: string, actionUrl?: string, durationMs?: number) => void;
+  syncState: 'idle' | 'loading' | 'ready' | 'offline' | 'error' | 'retrying';
+  error: string | null;
+  lastSyncedAt: number | null;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
@@ -39,6 +43,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const { isOnline, recoveryTick } = useNetworkStatus();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [toasts, setToasts] = useState<NotificationItem[]>([]);
+  const [syncState, setSyncState] = useState<NotificationContextType['syncState']>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const pollRef = useRef<number | null>(null);
   const inFlightRefreshRef = useRef<Promise<void> | null>(null);
   const lastRefreshAtRef = useRef(0);
@@ -142,7 +149,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   const refreshNotifications = useCallback(async (options?: { force?: boolean }) => {
     if (!isAuthenticated) return;
-    if (!isOnline && !options?.force) return;
+    if (!isOnline && !options?.force) {
+      setError('Notifications are paused while you are offline.');
+      setSyncState('offline');
+      return;
+    }
     if (!options?.force && Date.now() - lastRefreshAtRef.current < REFRESH_MIN_INTERVAL_MS) {
       return;
     }
@@ -152,6 +163,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
     const request = (async () => {
       try {
+        setError(null);
+        setSyncState(options?.force ? 'retrying' : 'loading');
         const raw = await NotificationService.getAll({ limit: 80 });
         const serverList = Array.isArray(raw) ? raw.map((n: any) => normalizeNotification(n)) : [];
         setNotifications(prev => {
@@ -162,10 +175,14 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             if (!seen.has(n.id)) merged.push(n);
           });
           return merged.slice(0, 100);
-        });
-        lastRefreshAtRef.current = Date.now();
-      } catch {
-        // ignore
+          });
+        const refreshedAt = Date.now();
+        lastRefreshAtRef.current = refreshedAt;
+        setLastSyncedAt(refreshedAt);
+        setSyncState('ready');
+      } catch (error) {
+        setError(getRecoverableActionMessage('Notification sync', error));
+        setSyncState(isOfflineLikeError(error) ? 'offline' : 'error');
       }
     })();
 
@@ -232,6 +249,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         pollRef.current = null;
       }
       setNotifications([]);
+      setError(null);
+      setSyncState('idle');
+      setLastSyncedAt(null);
       return;
     }
     void refreshNotifications({ force: true });
@@ -452,8 +472,23 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     markAsRead,
     clearNotifications,
     refreshNotifications,
-    showNotification
-  }), [notifications, toasts, addNotification, removeNotification, markAsRead, clearNotifications, refreshNotifications, showNotification]);
+    showNotification,
+    syncState,
+    error,
+    lastSyncedAt
+  }), [
+    notifications,
+    toasts,
+    addNotification,
+    removeNotification,
+    markAsRead,
+    clearNotifications,
+    refreshNotifications,
+    showNotification,
+    syncState,
+    error,
+    lastSyncedAt
+  ]);
 
   return (
     <NotificationContext.Provider value={contextValue}>

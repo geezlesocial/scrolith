@@ -20,6 +20,7 @@ let nativeRegisterRetryCount = 0;
 let nativeRegisterRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let lastReportedPushError = '';
 let lastReportedPushErrorAt = 0;
+let navigateToPath: ((path: string) => void) | undefined;
 
 const storeToken = async (token: string) => {
   if (!Capacitor.isNativePlatform()) return;
@@ -85,6 +86,10 @@ const registerTokenWithBackend = async (token: string) => {
     return true;
   } catch (e) {
     console.error('Failed to register device token', e);
+    await reportPushTrackingEvent('push_token_sync_failed', {
+      platform: Capacitor.getPlatform(),
+      tokenPrefix: String(token || '').slice(0, 12)
+    });
     return false;
   }
 };
@@ -163,6 +168,9 @@ const buildForegroundPushPayload = (incoming: any) => {
 };
 
 const attachPushListeners = (navigate?: (path: string) => void) => {
+  if (navigate) {
+    navigateToPath = navigate;
+  }
   if (listenersAttached) return;
   listenersAttached = true;
 
@@ -215,15 +223,23 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
   });
 
   PushNotifications.addListener('pushNotificationActionPerformed', (event) => {
+    const notificationData = (event.notification?.data as any) || {};
     const deepLink =
-      (event.notification?.data as any)?.deepLink || (event.notification?.data as any)?.deeplink;
+      notificationData?.deepLink || notificationData?.deeplink;
+    const path = deepLink ? extractPathFromUrl(String(deepLink)) : null;
     void reportPushTrackingEvent('push_notification_opened', {
       notificationId: event.notification?.id || (event.notification?.data as any)?.notificationId || null,
-      path: deepLink || null
+      path: path || deepLink || null
     });
-    if (!deepLink || !navigate) return;
-    const path = extractPathFromUrl(String(deepLink));
-    if (path) navigate(path);
+    if (!deepLink || !path || !navigateToPath) {
+      void reportPushTrackingEvent('push_notification_open_failed', {
+        notificationId: event.notification?.id || notificationData?.notificationId || null,
+        reason: !deepLink ? 'missing_deeplink' : !path ? 'invalid_path' : 'navigate_unavailable',
+        path: deepLink || null
+      });
+      return;
+    }
+    navigateToPath(path);
   });
 };
 

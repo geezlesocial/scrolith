@@ -21,6 +21,7 @@ import { BriefsService } from '../services/briefs';
 import { proposalsApi } from '../services/proposals';
 import { normalizeDealFlowSettings } from '../utils/dealFlow';
 import AcceptProposalContractModal from '../components/contracts/AcceptProposalContractModal';
+import { getRecoverableActionMessage } from '../mobile/runtime/requestRecovery';
 
 
 const QUICK_REACTIONS = ['\u{1F44D}', '\u2764\uFE0F', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}'];
@@ -989,6 +990,14 @@ const Messages = () => {
                   role: user.role,
                   userId: user.id,
                   visibility: 'private',
+                  onRetry: (_attempt, _delayMs) => {
+                      setAttachmentUploadState({
+                          fileName: file.name || 'Attachment',
+                          progress: 0,
+                          uploadedCount: index,
+                          totalCount: queue.length
+                      });
+                  },
                   onProgress: (progress) => {
                       setAttachmentUploadState({
                           fileName: file.name || 'Attachment',
@@ -1013,12 +1022,7 @@ const Messages = () => {
               uploaded.length === 1 ? 'Attachment ready to send.' : `${uploaded.length} attachments ready to send.`
           );
       } catch (error: any) {
-          const message =
-              error?.response?.data?.error ||
-              error?.response?.data?.message ||
-              error?.message ||
-              'Failed to upload attachment.';
-          showNotification('error', 'Attachments', String(message));
+          showNotification('error', 'Attachments', getRecoverableActionMessage('Attachment upload', error));
       } finally {
           window.setTimeout(() => setAttachmentUploadState(null), 600);
       }
@@ -1963,7 +1967,7 @@ const Messages = () => {
           showNotification(
               'error',
               'Message',
-              (error as any)?.response?.data?.error || (error as any)?.message || 'Failed to send message'
+              getRecoverableActionMessage('Message send', error)
           );
           traceClient('ui.send_message.error', {
               conversationId: activeConvoId,
@@ -1998,12 +2002,7 @@ const Messages = () => {
           applyConversationMessageChanges(activeConvoId, (messages) => [...messages, message]);
           refreshMessages();
       } catch (error: any) {
-          const backendError =
-              error?.response?.data?.error ||
-              error?.response?.data?.message ||
-              error?.message ||
-              'Failed to send voice note.';
-          showNotification('error', 'Voice notes', String(backendError));
+          showNotification('error', 'Voice notes', getRecoverableActionMessage('Voice note send', error));
       } finally {
           setVoiceNoteBusy(false);
       }

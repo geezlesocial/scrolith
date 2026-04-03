@@ -18,8 +18,13 @@ export type AppDistributionEvent =
   | 'push_permission_denied'
   | 'push_notification_received'
   | 'push_notification_opened'
+  | 'push_notification_open_failed'
+  | 'push_token_sync_failed'
   | 'socket_connect_error'
-  | 'socket_reconnected';
+  | 'socket_reconnected'
+  | 'app_backgrounded'
+  | 'app_resumed'
+  | 'deep_link_navigation_failed';
 
 export type AppDistributionConfig = {
   enabled: boolean;

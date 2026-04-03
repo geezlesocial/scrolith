@@ -2,6 +2,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { Conversation } from '../types';
 import { MessagingService } from '../services/messaging';
+import { getRecoverableActionMessage, isOfflineLikeError } from '../mobile/runtime/requestRecovery';
 import { useNetworkStatus } from './NetworkStatusContext';
 import { useUser } from './UserContext';
 import { useSocket } from './SocketContext';
@@ -11,6 +12,8 @@ interface MessageContextType {
   conversations: Conversation[];
   loading: boolean;
   error: string | null;
+  syncState: 'idle' | 'loading' | 'ready' | 'offline' | 'error' | 'retrying';
+  lastSyncedAt: number | null;
   refreshMessages: (options?: { force?: boolean }) => Promise<void>;
 }
 
@@ -24,6 +27,8 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncState, setSyncState] = useState<MessageContextType['syncState']>('idle');
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const inFlightRefreshRef = useRef<Promise<void> | null>(null);
   const lastRefreshAtRef = useRef(0);
   const REFRESH_MIN_INTERVAL_MS = 15_000;
@@ -33,11 +38,15 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setUnreadCount(0);
       setConversations([]);
       setError(null);
+      setSyncState('idle');
+      setLastSyncedAt(null);
       return;
     }
 
     if (!isOnline && !options?.force) {
       setLoading(false);
+      setError('Messages are paused while you are offline.');
+      setSyncState('offline');
       return;
     }
 
@@ -52,6 +61,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const request = (async () => {
       setLoading(true);
       setError(null);
+      setSyncState(options?.force ? 'retrying' : 'loading');
       try {
         const convos = await MessagingService.getAllConversations(user.id, user.role, {
           force: Boolean(options?.force)
@@ -62,9 +72,13 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           return acc + (Number.isFinite(v) ? Math.max(0, Math.trunc(v)) : 0);
         }, 0);
         setUnreadCount(count);
-        lastRefreshAtRef.current = Date.now();
+        const refreshedAt = Date.now();
+        lastRefreshAtRef.current = refreshedAt;
+        setLastSyncedAt(refreshedAt);
+        setSyncState('ready');
       } catch (e: any) {
-        setError(e?.response?.data?.error || e?.message || 'Failed to refresh messages');
+        setError(getRecoverableActionMessage('Message sync', e));
+        setSyncState(isOfflineLikeError(e) ? 'offline' : 'error');
       } finally {
         setLoading(false);
       }
@@ -117,7 +131,9 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [user?.id, isOnline, recoveryTick, refreshMessages]);
 
   return (
-    <MessageContext.Provider value={{ unreadCount, conversations, loading, error, refreshMessages }}>
+    <MessageContext.Provider
+      value={{ unreadCount, conversations, loading, error, syncState, lastSyncedAt, refreshMessages }}
+    >
       {children}
     </MessageContext.Provider>
   );

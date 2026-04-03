@@ -41,6 +41,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const lastOptionsRef = useRef<any>(null)
   const hasEverConnectedRef = useRef(false)
   const pendingReconnectTelemetryRef = useRef(false)
+  const mountedRef = useRef(true)
 
   useEffect(() => {
     // Attach community event listeners when socket is available
@@ -194,14 +195,25 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
   }, [socket]);
   useEffect(() => {
+    return () => {
+      mountedRef.current = false
+      socketService.disconnect()
+    }
+  }, [])
+
+  useEffect(() => {
     const cleanupSocket = () => {
       socketService.disconnect()
-      setSocket(null)
-      setIsConnected(false)
+      if (mountedRef.current) {
+        setSocket(null)
+        setIsConnected(false)
+      }
     }
 
     if (!shouldAttemptLiveConnections) {
-      cleanupSocket()
+      if (socketService.getSocket()) {
+        cleanupSocket()
+      }
       return
     }
 
@@ -246,7 +258,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return
       }
 
-      cleanupSocket()
+      if (existingSocket && existingSignature !== nextSignature) {
+        cleanupSocket()
+      }
 
       const options = {
         url: socketUrl,
@@ -334,10 +348,6 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     void connectSocket()
-
-    return () => {
-      cleanupSocket()
-    }
   }, [user?.id, user?.role, isAuthenticated, shouldAttemptLiveConnections, recoveryTick])
 
   return (
