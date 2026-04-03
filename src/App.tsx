@@ -40,6 +40,20 @@ import {
 import { MarketingService } from './services/marketing';
 import { resolveResponsiveAssetUrl } from './utils/assetUrl';
 import { getCanonicalAppOrigin, getCanonicalRedirectUrl } from './utils/siteUrl';
+import BrowseTalent from './main/BrowseTalent';
+import BrowseJobs from './main/BrowseJobs';
+import SearchResults from './pages/SearchResults';
+import Messages from './messages/Messages';
+import FreelancerProfile from './profile/FreelancerProfile';
+import CompanyPage from './pages/CompanyPage';
+import ContactPage from './pages/ContactPage';
+import AffiliateProgram from './pages/AffiliateProgram';
+import Favorites from './pages/Favorites';
+import Cart from './pages/Cart';
+import SettingsModule from './dashboard/shared/SettingsModule';
+import { DashboardRouter } from './dashboard/DashboardRouter';
+import CommunityLayout from './community/CommunityLayout';
+import CommunityHome from './community/CommunityHome';
 
 const HISTORY_SYNC_EVENT = 'scrolith:history-sync';
 const CHUNK_RELOAD_GUARD_KEY = 'scrolith:chunk-reload-target';
@@ -296,9 +310,6 @@ const Signup = React.lazy(() => import('./auth/Signup'));
 const ForgotPassword = React.lazy(() => import('./auth/ForgotPassword'));
 const ResetPassword = React.lazy(() => import('./auth/ResetPassword'));
 const OAuthCallback = React.lazy(() => import('./auth/OAuthCallback'));
-const BrowseTalent = React.lazy(() => import('./main/BrowseTalent'));
-const BrowseJobs = React.lazy(() => import('./main/BrowseJobs'));
-const SearchResults = React.lazy(() => import('./pages/SearchResults'));
 const DynamicFooter = React.lazy(() => import('./components/DynamicFooter'));
 const SupportWidget = React.lazy(() => import('./components/SupportWidget'));
 const MarketingPopups = React.lazy(() => import('./components/MarketingPopups'));
@@ -307,9 +318,6 @@ const CreateJob = React.lazy(() => import('./create-job-post/CreateJob'));
 const EditJob = React.lazy(() => import('./dashboard/employer/EditJob'));
 const CreateGig = React.lazy(() => import('./create-gig/CreateGig'));
 const KYCVerification = React.lazy(() => import('./kyc/KYCVerification'));
-const Messages = React.lazy(() => import('./messages/Messages'));
-const FreelancerProfile = React.lazy(() => import('./profile/FreelancerProfile'));
-const CompanyPage = React.lazy(() => import('./pages/CompanyPage'));
 const EditProfile = React.lazy(() => import('./profile/EditProfile'));
 const DeveloperDocs = React.lazy(() => import('./dashboard/DeveloperDocs'));
 const LanguagesAdmin = React.lazy(() => import('./dashboard/admin/Languages'));
@@ -318,20 +326,12 @@ const JobDetail = React.lazy(() => import('./main/JobDetail'));
 const Blog = React.lazy(() => import('./pages/Blog'));
 const BlogPost = React.lazy(() => import('./pages/BlogPost'));
 const StaticPage = React.lazy(() => import('./pages/StaticPage'));
-const ContactPage = React.lazy(() => import('./pages/ContactPage'));
 const AnswersPage = React.lazy(() => import('./pages/AnswersPage'));
 const GuidesPage = React.lazy(() => import('./pages/GuidesPage'));
 const HirePage = React.lazy(() => import('./pages/HirePage'));
 const FreelancerPage = React.lazy(() => import('./pages/FreelancerPage'));
 const Support = React.lazy(() => import('./pages/Support'));
-const AffiliateProgram = React.lazy(() => import('./pages/AffiliateProgram'));
-const Favorites = React.lazy(() => import('./pages/Favorites'));
-const Cart = React.lazy(() => import('./pages/Cart'));
-const SettingsModule = React.lazy(() => import('./dashboard/shared/SettingsModule'));
 const PostDetailView = React.lazy(() => import('./pages/PostDetailView'));
-const DashboardRouter = React.lazy(() =>
-  import('./dashboard/DashboardRouter').then((module) => ({ default: module.DashboardRouter }))
-);
 
 // Mobile (LinkedIn-style) logged-in home shell
 const MobileHome = React.lazy(() => import('./mobile/home/MobileHome'));
@@ -344,8 +344,6 @@ const MobileBriefsScreen = React.lazy(() => import('./mobile/home/screens/Mobile
 const MobileAppRouteFrame = React.lazy(() => import('./mobile/home/components/MobileAppRouteFrame'));
 
 // Community Components
-const CommunityLayout = React.lazy(() => import('./community/CommunityLayout'));
-const CommunityHome = React.lazy(() => import('./community/CommunityHome'));
 const Forum = React.lazy(() => import('./community/Forum'));
 const ThreadDetail = React.lazy(() => import('./community/ThreadDetail'));
 const Clubs = React.lazy(() => import('./community/Clubs'));
@@ -364,6 +362,20 @@ const ScrollFeed = React.lazy(() => import('./features/scroll/ScrollFeed'));
 const LiveStudio = React.lazy(() => import('./features/live/LiveStudio'));
 const LiveViewer = React.lazy(() => import('./features/live/LiveViewer'));
 const MemberHomeSection = React.lazy(() => import('./components/sections/MemberHomeSection'));
+
+const preloadAuthenticatedRouteModules = () =>
+  Promise.allSettled([
+    import('./mobile/home/components/MobileAppRouteFrame'),
+    import('./mobile/home/screens/MobileNotificationsScreen'),
+    import('./mobile/home/screens/MobileJobsScreen'),
+    import('./mobile/home/screens/MobileBriefsScreen'),
+    import('./pages/PostDetailView'),
+    import('./features/scroll/ScrollFeed'),
+    import('./create-gig/CreateGig'),
+    import('./create-job-post/CreateJob'),
+    import('./pages/Support'),
+    import('./profile/EditProfile')
+  ]);
 
 // Error Boundary Component
 type ErrorBoundaryState = { hasError: boolean };
@@ -600,6 +612,33 @@ const AppContent = () => {
       disposed = true;
     };
   }, [isHomeRoute]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !user) return;
+
+    let cancelled = false;
+    let idleId: number | null = null;
+    let timeoutId: number | null = null;
+
+    const warmRoutes = () => {
+      if (cancelled) return;
+      void preloadAuthenticatedRouteModules();
+    };
+
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      idleId = (window as any).requestIdleCallback(warmRoutes, { timeout: 1200 });
+    } else {
+      timeoutId = window.setTimeout(warmRoutes, 180);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      if (idleId !== null && typeof window !== 'undefined' && 'cancelIdleCallback' in window) {
+        (window as any).cancelIdleCallback(idleId);
+      }
+    };
+  }, [isAuthenticated, user?.id]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
