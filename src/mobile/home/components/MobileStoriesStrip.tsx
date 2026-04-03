@@ -2146,24 +2146,6 @@ function StoryViewer({
     };
   }, [story?.id, overlayVisible, touchOverlayMode]);
 
-  useEffect(() => {
-    if (autoAdvanceTimerRef.current) {
-      window.clearTimeout(autoAdvanceTimerRef.current);
-      autoAdvanceTimerRef.current = null;
-    }
-    if (!story?.id) return;
-    const delay = resolveStoryAutoAdvanceDelay(story);
-    autoAdvanceTimerRef.current = window.setTimeout(() => {
-      advanceStory();
-    }, delay);
-    return () => {
-      if (autoAdvanceTimerRef.current) {
-        window.clearTimeout(autoAdvanceTimerRef.current);
-        autoAdvanceTimerRef.current = null;
-      }
-    };
-  }, [advanceStory, story?.commentsCount, story?.createdAt, story?.id, story?.media?.duration]);
-
   const revealOverlay = () => {
     if (!touchOverlayMode) return;
     setOverlayVisible(true);
@@ -2183,6 +2165,24 @@ function StoryViewer({
     }
     onClose();
   }, [goToOffset, hasNext, onClose]);
+
+  useEffect(() => {
+    if (autoAdvanceTimerRef.current) {
+      window.clearTimeout(autoAdvanceTimerRef.current);
+      autoAdvanceTimerRef.current = null;
+    }
+    if (!story?.id) return;
+    const delay = resolveStoryAutoAdvanceDelay(story);
+    autoAdvanceTimerRef.current = window.setTimeout(() => {
+      advanceStory();
+    }, delay);
+    return () => {
+      if (autoAdvanceTimerRef.current) {
+        window.clearTimeout(autoAdvanceTimerRef.current);
+        autoAdvanceTimerRef.current = null;
+      }
+    };
+  }, [advanceStory, story?.commentsCount, story?.createdAt, story?.id, story?.media?.duration]);
 
   const handleDownload = async () => {
     if (!media.url) {
