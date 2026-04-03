@@ -730,7 +730,6 @@ export default function MobileFeed({
     featuredSeries,
     handleHighlightedAdOpen,
     officeHours,
-    openPostCard,
     openInsightsSection,
     onOpenScrollSeries,
     posts,

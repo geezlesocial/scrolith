@@ -6101,10 +6101,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             <button
                               type="button"
                               onClick={submitPostEdit}
-                              disabled={actionBusy}
+                              disabled={postActionBusy}
                               className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase text-white disabled:opacity-60"
                             >
-                              {actionBusy ? 'Saving...' : 'Save changes'}
+                              {postActionBusy ? 'Saving...' : 'Save changes'}
                             </button>
                           </div>
                         </div>
