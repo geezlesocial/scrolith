@@ -3,6 +3,7 @@ import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { addFileUsage, removeUsage } from '../utils/fileUsage';
 import { resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
+import { buildStoryActionUrl, deliverStoryEngagementAlert } from '../services/storyEngagementDelivery.service';
 
 const DISK_ID_PREFIX = 'disk:';
 const DEFAULT_VIDEO_THUMBNAIL_FILENAME = '__video_fallback_thumbnail.svg';
@@ -37,6 +38,16 @@ const resolveStoredFileUrl = (
 const getStoryExpiryHours = async () => {
   const cfg = await prisma.communityConfig.findFirst();
   return cfg?.storyExpiryHours ?? 24;
+};
+
+const resolveActorDisplayName = async (userId?: string | null) => {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) return 'Scrolith member';
+  const actor = await prisma.user.findUnique({
+    where: { id: normalizedUserId },
+    select: { name: true, username: true, email: true }
+  });
+  return actor?.name || actor?.username || actor?.email || 'Scrolith member';
 };
 
 const resolveStoryMedia = async (fileId?: string | null, req?: Request) => {
@@ -139,6 +150,14 @@ const STORY_VISIBILITIES = new Set([
 
 const STORY_ENGAGEMENT_TYPES = new Set(['comment', 'repost', 'dash', 'send']);
 
+const STORY_AUTHOR_SELECT = {
+  id: true,
+  name: true,
+  avatar: true,
+  username: true,
+  profilePhotoFileId: true
+};
+
 const getStoryEngagementField = (type: string) => {
   if (type === 'comment') return 'commentsCount';
   if (type === 'repost') return 'repostsCount';
@@ -216,6 +235,7 @@ const buildStoryPayload = async (
     authorId: story.authorId,
     authorName: story.author?.name || 'Anonymous',
     authorAvatar: resolveDirectMediaUrl(story.author?.avatar, getBaseFileUrl(req)) || story.author?.avatar || null,
+    authorAvatarFileId: story.author?.profilePhotoFileId || null,
     authorUsername: story.author?.username || null,
     type: story.type,
     content: story.content,
@@ -326,7 +346,7 @@ export const getStoriesFeed = async (req: Request, res: Response) => {
         : { visibility: 'public' })
     };
     const baseInclude = {
-      author: { select: { id: true, name: true, avatar: true, username: true } }
+      author: { select: STORY_AUTHOR_SELECT }
     };
 
     let stories: any[] = [];
@@ -437,7 +457,7 @@ export const createStory = async (req: Request, res: Response) => {
         textFont: typeof textFont === 'string' && textFont.trim() ? textFont.trim() : null,
         textAlign: normalizedType === 'text' ? normalizedAlign : null
       },
-      include: { author: { select: { id: true, name: true, avatar: true, username: true } } }
+      include: { author: { select: STORY_AUTHOR_SELECT } }
     });
 
     if (story.mediaFileId) {
@@ -582,7 +602,7 @@ export const updateStory = async (req: Request, res: Response) => {
         existing = await prisma.communityStory.findUnique({
           where: { id: storyId },
           include: {
-            author: { select: { id: true, name: true, avatar: true, username: true } },
+            author: { select: STORY_AUTHOR_SELECT },
             ...(userId ? { likes: { where: { userId }, select: { id: true } } } : {})
           }
         });
@@ -592,7 +612,7 @@ export const updateStory = async (req: Request, res: Response) => {
         existing = await prisma.communityStory.findUnique({
           where: { id: storyId },
           include: {
-            author: { select: { id: true, name: true, avatar: true, username: true } }
+            author: { select: STORY_AUTHOR_SELECT }
           }
         });
         if (existing && userId) {
@@ -640,7 +660,7 @@ export const updateStory = async (req: Request, res: Response) => {
         where: { id: storyId },
         data: updateData,
         include: {
-          author: { select: { id: true, name: true, avatar: true, username: true } },
+          author: { select: STORY_AUTHOR_SELECT },
           ...(userId ? { likes: { where: { userId }, select: { id: true } } } : {})
         }
       });
@@ -651,7 +671,7 @@ export const updateStory = async (req: Request, res: Response) => {
         where: { id: storyId },
         data: updateData,
         include: {
-          author: { select: { id: true, name: true, avatar: true, username: true } }
+          author: { select: STORY_AUTHOR_SELECT }
         }
       });
       updated = {
@@ -707,6 +727,10 @@ export const toggleStoryLike = async (req: Request, res: Response) => {
     const storyId = req.params.id;
     const story = await prisma.communityStory.findUnique({ where: { id: storyId } });
     if (!story) return res.status(404).json({ success: false, error: 'Story not found' });
+    const relations = await getFollowRelations(userId);
+    if (!canViewStory({ authorId: story.authorId, visibility: story.visibility }, userId, relations)) {
+      return res.status(403).json({ success: false, error: 'Not authorized to engage this story' });
+    }
 
     let liked = false;
     let likesCount = 0;
@@ -736,6 +760,30 @@ export const toggleStoryLike = async (req: Request, res: Response) => {
     const io = (req.app as any).get('communityIo') || (req.app as any).get('io');
     try { io?.emit('community:story_liked', payload); } catch (e) {}
     try { realtime.emitToUser(story.authorId, 'community:story_liked', payload); } catch (e) {}
+
+    if (liked && String(story.authorId || '') !== String(userId || '')) {
+      const actorName = await resolveActorDisplayName(String(userId || ''));
+      const storyLink = buildStoryActionUrl(storyId);
+      await deliverStoryEngagementAlert({
+        recipientId: String(story.authorId || ''),
+        actorId: String(userId || ''),
+        storyId,
+        notificationType: 'story_like',
+        title: 'New story like',
+        body: `${actorName} liked your story.`,
+        inboxText: `${actorName} liked your story.`,
+        inboxMetadata: {
+          category: 'story_like',
+          storyId,
+          storyUrl: storyLink
+        },
+        notificationMetadata: {
+          category: 'story_like',
+          storyId,
+          storyUrl: storyLink
+        }
+      });
+    }
 
     return res.json({ success: true, data: payload });
   } catch (error: any) {
@@ -822,6 +870,53 @@ export const engageStory = async (req: Request, res: Response) => {
     try { io?.emit('community:story_updated', payload); } catch (e) {}
     try { realtime.emitToUser(story.authorId, 'community:story_engaged', payload); } catch (e) {}
     try { realtime.emitToUser(story.authorId, 'community:story_updated', payload); } catch (e) {}
+
+    if (String(story.authorId || '') !== String(userId || '')) {
+      const actorName = await resolveActorDisplayName(String(userId || ''));
+      const storyLink = buildStoryActionUrl(storyId);
+      const alertByType: Record<string, { title: string; body: string; inboxText?: string | null }> = {
+        comment: {
+          title: 'New story comment',
+          body: `${actorName} commented on your story.`,
+          inboxText: `${actorName} commented on your story.`
+        },
+        repost: {
+          title: 'Story reposted',
+          body: `${actorName} reposted your story.`
+        },
+        dash: {
+          title: 'Story support received',
+          body: `${actorName} supported your story.`
+        },
+        send: {
+          title: 'Story shared',
+          body: `${actorName} shared your story.`
+        }
+      };
+      const selectedAlert = alertByType[type];
+      if (selectedAlert) {
+        await deliverStoryEngagementAlert({
+          recipientId: String(story.authorId || ''),
+          actorId: String(userId || ''),
+          storyId,
+          notificationType: `story_${type}`,
+          title: selectedAlert.title,
+          body: selectedAlert.body,
+          inboxText: selectedAlert.inboxText,
+          inboxMetadata: {
+            category: `story_${type}`,
+            storyId,
+            storyUrl: storyLink
+          },
+          notificationMetadata: {
+            category: `story_${type}`,
+            storyId,
+            storyUrl: storyLink
+          },
+          notificationActionUrl: storyLink
+        });
+      }
+    }
 
     return res.json({ success: true, data: payload });
   } catch (error: any) {

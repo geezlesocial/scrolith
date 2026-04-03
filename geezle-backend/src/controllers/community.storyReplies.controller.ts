@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
+import { buildStoryActionUrl, deliverStoryEngagementAlert } from '../services/storyEngagementDelivery.service';
 
 const normalizeVisibility = (value?: string | null) => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -56,6 +57,14 @@ const canViewStory = (
   }
 };
 
+const STORY_REPLY_AUTHOR_SELECT = {
+  id: true,
+  name: true,
+  username: true,
+  avatar: true,
+  profilePhotoFileId: true
+};
+
 const buildReplyTree = (rows: any[], viewerUserId?: string | null, storyAuthorId?: string | null) => {
   const byParent = new Map<string, any[]>();
   rows.forEach((row) => {
@@ -79,7 +88,8 @@ const buildReplyTree = (rows: any[], viewerUserId?: string | null, storyAuthorId
       id: row.authorId,
       name: row.author?.name || row.author?.username || 'Scrolith member',
       username: row.author?.username || null,
-      avatarUrl: row.author?.avatar || null
+      avatarUrl: row.author?.avatar || null,
+      avatarFileId: row.author?.profilePhotoFileId || null
     },
     replies: (byParent.get(String(row.id)) || [])
       .slice()
@@ -108,6 +118,13 @@ const countReplyBranch = (replyId: string, rows: any[]) => {
   return walk(replyId);
 };
 
+const buildSnippet = (value: unknown, maxLength = 140) => {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+};
+
 export const getStoryRepliesController = async (req: Request, res: Response) => {
   try {
     const viewerUserId = String(req.user?.id || '').trim() || null;
@@ -131,7 +148,7 @@ export const getStoryRepliesController = async (req: Request, res: Response) => 
       orderBy: [{ createdAt: 'asc' }],
       include: {
         author: {
-          select: { id: true, name: true, username: true, avatar: true }
+          select: STORY_REPLY_AUTHOR_SELECT
         }
       }
     });
@@ -174,14 +191,16 @@ export const createStoryReplyController = async (req: Request, res: Response) =>
       return res.status(403).json({ success: false, error: 'Not authorized to reply to this story' });
     }
 
+    let parentAuthorId: string | null = null;
     if (parentId) {
       const parent = await prisma.communityStoryReply.findUnique({
         where: { id: parentId },
-        select: { id: true, storyId: true }
+        select: { id: true, storyId: true, authorId: true }
       });
       if (!parent || String(parent.storyId) !== storyId) {
         return res.status(400).json({ success: false, error: 'Reply target not found for this story' });
       }
+      parentAuthorId = String(parent.authorId || '').trim() || null;
     }
 
     const created = await prisma.$transaction(async (prismaTx) => {
@@ -194,7 +213,7 @@ export const createStoryReplyController = async (req: Request, res: Response) =>
         },
         include: {
           author: {
-            select: { id: true, name: true, username: true, avatar: true }
+            select: STORY_REPLY_AUTHOR_SELECT
           }
         }
       });
@@ -205,6 +224,71 @@ export const createStoryReplyController = async (req: Request, res: Response) =>
       });
       return { reply, commentsCount: Number(updatedStory.commentsCount || 0) };
     });
+
+    const actorName =
+      created.reply.author?.name ||
+      created.reply.author?.username ||
+      'Scrolith member';
+    const snippet = buildSnippet(content, 120);
+    const storyLink = buildStoryActionUrl(storyId);
+
+    if (String(story.authorId || '') !== userId) {
+      await deliverStoryEngagementAlert({
+        recipientId: String(story.authorId || ''),
+        actorId: userId,
+        storyId,
+        notificationType: parentId ? 'story_reply' : 'story_comment',
+        title: parentId ? 'New story reply' : 'New story comment',
+        body: parentId
+          ? `${actorName} replied on your story: ${snippet}`
+          : `${actorName} commented on your story: ${snippet}`,
+        inboxText: parentId
+          ? `${actorName} replied on your story: ${snippet}`
+          : `${actorName} commented on your story: ${snippet}`,
+        inboxMetadata: {
+          category: parentId ? 'story_reply' : 'story_comment',
+          storyId,
+          parentId: parentId || null,
+          storyUrl: storyLink,
+          snippet
+        },
+        notificationMetadata: {
+          category: parentId ? 'story_reply' : 'story_comment',
+          storyId,
+          parentId: parentId || null,
+          storyUrl: storyLink,
+          snippet
+        },
+        notificationActionUrl: storyLink
+      });
+    }
+
+    if (parentAuthorId && parentAuthorId !== userId && parentAuthorId !== String(story.authorId || '')) {
+      await deliverStoryEngagementAlert({
+        recipientId: parentAuthorId,
+        actorId: userId,
+        storyId,
+        notificationType: 'story_reply',
+        title: 'Reply to your story comment',
+        body: `${actorName} replied to your story comment: ${snippet}`,
+        inboxText: `${actorName} replied to your story comment: ${snippet}`,
+        inboxMetadata: {
+          category: 'story_reply',
+          storyId,
+          parentId: parentId || null,
+          storyUrl: storyLink,
+          snippet
+        },
+        notificationMetadata: {
+          category: 'story_reply',
+          storyId,
+          parentId: parentId || null,
+          storyUrl: storyLink,
+          snippet
+        },
+        notificationActionUrl: storyLink
+      });
+    }
 
     return res.json({
       success: true,
