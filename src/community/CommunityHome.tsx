@@ -866,75 +866,102 @@ const CommunityHome = () => {
     };
 
     const fetchData = async () => {
+      setStoriesLoading(true);
+      setReelsLoading(true);
+      const postsLimit = Math.max(6, Math.min(40, Number(profile.feedPageSize || 20)));
+      const reelsLimit = Math.max(6, Math.min(24, Number(profile.feedPageSize || 18)));
       try {
-        setStoriesLoading(true);
-        setReelsLoading(true);
-        const postsLimit = Math.max(6, Math.min(40, Number(profile.feedPageSize || 20)));
-        const reelsLimit = Math.max(6, Math.min(24, Number(profile.feedPageSize || 18)));
-        const [feedPosts, ads, homepageConfig, storiesFeed, scrollFeed] = await Promise.all([
+        const [
+          feedPostsResult,
+          adsResult,
+          homepageConfigResult,
+          storiesFeedResult,
+          scrollFeedResult,
+          overviewResult
+        ] = await Promise.allSettled([
           CommunityService.getPosts({ limit: postsLimit }),
           AdService.getAds(user?.role),
           CommunityService.getCommunityHomepage(),
           CommunityService.getStoriesFeed(),
-          ScrollService.getFeed({ limit: reelsLimit }).catch((error) => {
-            console.warn('Failed to load reels feed on community home:', error);
-            return { items: [] as ScrollVideo[] };
-          }),
+          ScrollService.getFeed({ limit: reelsLimit }),
           loadCommunityOverview()
         ]);
         if (cancelled) return;
-        const normalizedPosts = sortPosts((Array.isArray(feedPosts) ? feedPosts : []).map(normalizePost));
-        setPosts(normalizedPosts);
-        const followSeed: Record<string, boolean> = {};
-        const authorIds = new Set<string>();
-        normalizedPosts.forEach((post: any) => {
-          const authorType = String(post.author?.type || 'user').toLowerCase();
-          const authorId = String(post.author?.id || post.authorId || '').trim();
-          if (authorType !== 'user' || !authorId || String(user?.id || '') === authorId) return;
-          authorIds.add(authorId);
-          if (post.viewer?.isFollowingAuthor !== undefined) {
-            followSeed[authorId] = Boolean(post.viewer.isFollowingAuthor);
+
+        if (feedPostsResult.status === 'fulfilled') {
+          const normalizedPosts = sortPosts((Array.isArray(feedPostsResult.value) ? feedPostsResult.value : []).map(normalizePost));
+          setPosts((prev) => (normalizedPosts.length === 0 && prev.length ? prev : normalizedPosts));
+          setCommentCounts((prev) => {
+            if (normalizedPosts.length === 0 && Object.keys(prev).length) return prev;
+            return normalizedPosts.reduce((acc: Record<string, number>, post: any) => {
+              acc[post.id] = post.interactions?.comments ?? 0;
+              return acc;
+            }, {});
+          });
+
+          const followSeed: Record<string, boolean> = {};
+          const authorIds = new Set<string>();
+          normalizedPosts.forEach((post: any) => {
+            const authorType = String(post.author?.type || 'user').toLowerCase();
+            const authorId = String(post.author?.id || post.authorId || '').trim();
+            if (authorType !== 'user' || !authorId || String(user?.id || '') === authorId) return;
+            authorIds.add(authorId);
+            if (post.viewer?.isFollowingAuthor !== undefined) {
+              followSeed[authorId] = Boolean(post.viewer.isFollowingAuthor);
+            }
+          });
+          if (Object.keys(followSeed).length) {
+            setFollowStatuses((prev) => ({ ...prev, ...followSeed }));
           }
-        });
-        if (Object.keys(followSeed).length) {
-          setFollowStatuses(followSeed);
-        }
-        if (authorIds.size && user?.id) {
-          try {
-            const statusMap = await CommunityService.getFollowStatus(Array.from(authorIds));
-            if (cancelled) return;
-            setFollowStatuses(statusMap);
-          } catch (error) {
-            console.warn('Failed to hydrate follow status map for community posts:', error);
+          if (authorIds.size && user?.id) {
+            try {
+              const statusMap = await CommunityService.getFollowStatus(Array.from(authorIds));
+              if (cancelled) return;
+              setFollowStatuses(statusMap);
+            } catch (error) {
+              console.warn('Failed to hydrate follow status map for community posts:', error);
+            }
           }
+        } else {
+          console.error('Failed to load community posts:', feedPostsResult.reason);
         }
-        setCommentCounts(
-          normalizedPosts.reduce((acc: Record<string, number>, post: any) => {
-            acc[post.id] = post.interactions?.comments ?? 0;
-            return acc;
-          }, {})
-        );
-        setAds(ads);
-        setHomepage(homepageConfig);
-        setStories(filterActiveStories(Array.isArray(storiesFeed) ? storiesFeed : []));
-        const nextReels = Array.isArray(scrollFeed?.items)
-          ? scrollFeed.items.filter((item: ScrollVideo) => String(item?.status || '').toUpperCase() !== 'REMOVED').slice(0, reelsLimit)
-          : [];
-        setScrollConfig(scrollFeed?.config || null);
-        setReels(nextReels);
+
+        if (adsResult.status === 'fulfilled') {
+          setAds(Array.isArray(adsResult.value) ? adsResult.value : []);
+        } else {
+          console.error('Failed to load community ads:', adsResult.reason);
+        }
+
+        if (homepageConfigResult.status === 'fulfilled') {
+          setHomepage(homepageConfigResult.value || null);
+        } else {
+          console.error('Failed to load community homepage config:', homepageConfigResult.reason);
+        }
+
+        if (storiesFeedResult.status === 'fulfilled') {
+          const nextStories = filterActiveStories(Array.isArray(storiesFeedResult.value) ? storiesFeedResult.value : []);
+          setStories((prev) => (nextStories.length === 0 && prev.length ? prev : nextStories));
+        } else {
+          console.error('Failed to load community stories:', storiesFeedResult.reason);
+        }
+
+        if (scrollFeedResult.status === 'fulfilled') {
+          const nextReels = Array.isArray(scrollFeedResult.value?.items)
+            ? scrollFeedResult.value.items
+                .filter((item: ScrollVideo) => String(item?.status || '').toUpperCase() !== 'REMOVED')
+                .slice(0, reelsLimit)
+            : [];
+          setScrollConfig(scrollFeedResult.value?.config || null);
+          setReels((prev) => (nextReels.length === 0 && prev.length ? prev : nextReels));
+        } else {
+          console.error('Failed to load community reels:', scrollFeedResult.reason);
+        }
+
+        if (overviewResult.status === 'rejected') {
+          console.error('Failed to load community overview:', overviewResult.reason);
+        }
       } catch (error) {
         console.error('Error loading community data:', error);
-        setTrendingTopics([]);
-        setUpcomingEvents([]);
-        setTopContributors([]);
-        setDiscussions([]);
-        setAds([]);
-        setPosts([]);
-        setCommentCounts({});
-        setHomepage(null);
-        setStories([]);
-        setScrollConfig(null);
-        setReels([]);
       } finally {
         if (!cancelled) {
           setStoriesLoading(false);
@@ -970,7 +997,8 @@ const CommunityHome = () => {
       try {
         const updated = await CommunityService.getStoriesFeed();
         if (cancelled) return;
-        setStories(filterActiveStories(Array.isArray(updated) ? updated : []));
+        const nextStories = filterActiveStories(Array.isArray(updated) ? updated : []);
+        setStories((prev) => (nextStories.length === 0 && prev.length ? prev : nextStories));
       } catch (e) { console.error('Failed to refresh stories', e); }
     };
     const onStoryUpdated = (event: Event) => {
@@ -1567,6 +1595,22 @@ const CommunityHome = () => {
         viewerLiked: liked,
         _count: { ...(story._count || {}), likes: likesCount }
       });
+      window.dispatchEvent(
+        new CustomEvent('community:story_liked', {
+          detail: {
+            storyId: story.id,
+            userId: user.id,
+            liked,
+            likesCount,
+            story: {
+              id: story.id,
+              likesCount,
+              viewerLiked: liked,
+              _count: { ...(story._count || {}), likes: likesCount }
+            }
+          }
+        })
+      );
     } catch (error: any) {
       console.error('Failed to like story', error);
       showNotification('error', 'Stories', error?.message || 'Unable to like story.');
@@ -1593,7 +1637,7 @@ const CommunityHome = () => {
       const response = await CommunityService.engageStory(storyId, type);
       const payload = response?.story || response;
       const interactions = response?.interactions || payload?.interactions || {};
-      applyStoryUpdate({
+      const nextStoryPatch = {
         ...story,
         ...(payload || {}),
         commentsCount: interactions.comments ?? payload?.commentsCount ?? story.commentsCount ?? 0,
@@ -1607,7 +1651,26 @@ const CommunityHome = () => {
           dashes: interactions.dashes ?? payload?.dashesCount ?? story.interactions?.dashes ?? story.dashesCount ?? 0,
           sends: interactions.sends ?? payload?.sendsCount ?? story.interactions?.sends ?? story.sendsCount ?? 0
         }
-      });
+      };
+      applyStoryUpdate(nextStoryPatch);
+      window.dispatchEvent(
+        new CustomEvent('community:story_engaged', {
+          detail: {
+            storyId,
+            type,
+            interactions,
+            story: {
+              id: storyId,
+              ...(payload || {}),
+              commentsCount: nextStoryPatch.commentsCount,
+              repostsCount: nextStoryPatch.repostsCount,
+              dashesCount: nextStoryPatch.dashesCount,
+              sendsCount: nextStoryPatch.sendsCount,
+              interactions: nextStoryPatch.interactions
+            }
+          }
+        })
+      );
       return response;
     },
     [applyStoryUpdate]

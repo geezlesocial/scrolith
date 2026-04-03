@@ -40,7 +40,11 @@ type ReplyNodeProps = {
 
 function ReplyNode({ reply, depth = 0, onReply, onDelete, deleteBusyId }: ReplyNodeProps) {
   const authorName = String(reply.author?.name || reply.author?.username || 'Scrolith member').trim();
-  const avatarUrl = resolvePostAttachmentMediaUrl(reply.author?.avatarUrl || '') || fallbackAvatar(authorName);
+  const avatarUrl =
+    resolvePostAttachmentMediaUrl({
+      url: reply.author?.avatarUrl || '',
+      fileId: reply.author?.avatarFileId || ''
+    }) || fallbackAvatar(authorName);
   return (
     <div className={`${depth > 0 ? 'ml-7 border-l border-slate-200 pl-4' : ''}`}>
       <div className="flex gap-3 py-3">
@@ -111,6 +115,30 @@ export default function StoryReplySheet({
   const [replyTarget, setReplyTarget] = useState<StoryReplyItem | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const dispatchStoryReplyCount = useCallback(
+    (nextCount: number) => {
+      if (!storyId) return;
+      const detail = {
+        storyId,
+        type: 'comment',
+        interactions: {
+          comments: nextCount
+        },
+        story: {
+          id: storyId,
+          commentsCount: nextCount,
+          interactions: {
+            ...(story?.interactions || {}),
+            comments: nextCount
+          }
+        }
+      };
+      window.dispatchEvent(new CustomEvent('community:story_engaged', { detail }));
+      window.dispatchEvent(new CustomEvent('community:story_updated', { detail: { story: detail.story } }));
+    },
+    [story?.interactions, storyId]
+  );
+
   const refreshReplies = useCallback(async () => {
     if (!storyId) return;
     setLoading(true);
@@ -127,12 +155,13 @@ export default function StoryReplySheet({
           comments: Number(payload.commentsCount || payload.totalReplies || 0)
         }
       });
+      dispatchStoryReplyCount(Number(payload.commentsCount || payload.totalReplies || 0));
     } catch (e: any) {
       setError(e?.response?.data?.error || e?.message || 'Unable to load replies.');
     } finally {
       setLoading(false);
     }
-  }, [onStoryUpdate, story?.interactions, storyId]);
+  }, [dispatchStoryReplyCount, onStoryUpdate, story?.interactions, storyId]);
 
   useEffect(() => {
     if (!open || !storyId) return;
@@ -172,13 +201,14 @@ export default function StoryReplySheet({
           comments: nextCount
         }
       });
+      dispatchStoryReplyCount(nextCount);
       await refreshReplies();
     } catch (e: any) {
       setError(e?.response?.data?.error || e?.message || 'Unable to reply to this story.');
     } finally {
       setBusy(false);
     }
-  }, [busy, commentsCount, draft, onStoryUpdate, refreshReplies, replyTarget?.id, story?.interactions, storyId]);
+  }, [busy, commentsCount, dispatchStoryReplyCount, draft, onStoryUpdate, refreshReplies, replyTarget?.id, story?.interactions, storyId]);
 
   const deleteReply = useCallback(
     async (reply: StoryReplyItem) => {
@@ -197,6 +227,7 @@ export default function StoryReplySheet({
             comments: nextCount
           }
         });
+        dispatchStoryReplyCount(nextCount);
         await refreshReplies();
       } catch (e: any) {
         showNotification('error', 'Stories', e?.response?.data?.error || e?.message || 'Unable to delete reply.');
@@ -204,7 +235,7 @@ export default function StoryReplySheet({
         setDeleteBusyId(null);
       }
     },
-    [onStoryUpdate, refreshReplies, showNotification, story?.interactions, storyId]
+    [dispatchStoryReplyCount, onStoryUpdate, refreshReplies, showNotification, story?.interactions, storyId]
   );
 
   if (!open) return null;

@@ -310,6 +310,7 @@ export type StoryReplyItem = {
     name: string;
     username?: string | null;
     avatarUrl?: string | null;
+    avatarFileId?: string | null;
   };
   replies: StoryReplyItem[];
 };

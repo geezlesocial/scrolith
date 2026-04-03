@@ -381,7 +381,6 @@ export default function MobileStoriesStrip({
   const [mediaUploadProgress, setMediaUploadProgress] = useState(0);
   const [storyActionTarget, setStoryActionTarget] = useState<any | null>(null);
   const [storyCommentOpen, setStoryCommentOpen] = useState(false);
-  const [storyCommentDraft, setStoryCommentDraft] = useState('');
   const [storyRepostOpen, setStoryRepostOpen] = useState(false);
   const [storySendOpen, setStorySendOpen] = useState(false);
   const [storyDashOpen, setStoryDashOpen] = useState(false);
@@ -657,10 +656,12 @@ export default function MobileStoriesStrip({
       const response = await CommunityService.engageStory(storyId, type);
       const nextStory = response?.story || response?.data?.story || null;
       const interactions = response?.interactions || response?.data?.interactions || null;
+      let storyPatch: Record<string, any> | null = null;
       if (nextStory && typeof nextStory === 'object') {
+        storyPatch = nextStory;
         patchStoryInState(storyId, nextStory);
       } else if (interactions && typeof interactions === 'object') {
-        patchStoryInState(storyId, {
+        storyPatch = {
           commentsCount: interactions.comments,
           repostsCount: interactions.reposts,
           dashesCount: interactions.dashes,
@@ -671,18 +672,25 @@ export default function MobileStoriesStrip({
             dashes: interactions.dashes,
             sends: interactions.sends
           }
-        });
+        };
+        patchStoryInState(storyId, storyPatch);
       } else {
         const increments: Record<string, number> = {};
         if (type === 'comment') increments.commentsCount = Number(story?.commentsCount || story?.interactions?.comments || 0) + 1;
         if (type === 'repost') increments.repostsCount = Number(story?.repostsCount || story?.interactions?.reposts || 0) + 1;
         if (type === 'dash') increments.dashesCount = Number(story?.dashesCount || story?.interactions?.dashes || 0) + 1;
         if (type === 'send') increments.sendsCount = Number(story?.sendsCount || story?.interactions?.sends || 0) + 1;
+        storyPatch = increments;
         patchStoryInState(storyId, increments);
       }
       window.dispatchEvent(
         new CustomEvent('community:story_engaged', {
-          detail: { storyId, type }
+          detail: {
+            storyId,
+            type,
+            interactions,
+            story: storyPatch ? { id: storyId, ...storyPatch } : undefined
+          }
         })
       );
     } finally {
@@ -711,11 +719,26 @@ export default function MobileStoriesStrip({
         payload?.likesCount ??
         payload?.likes ??
         Math.max(0, Number(story?.likesCount ?? story?._count?.likes ?? 0) + (liked ? 1 : -1));
-      patchStoryInState(storyId, {
+      const storyPatch = {
         likesCount,
         viewerLiked: liked,
         _count: { ...(story?._count || {}), likes: likesCount }
-      });
+      };
+      patchStoryInState(storyId, storyPatch);
+      window.dispatchEvent(
+        new CustomEvent('community:story_liked', {
+          detail: {
+            storyId,
+            userId: user.id,
+            liked,
+            likesCount,
+            story: {
+              id: storyId,
+              ...storyPatch
+            }
+          }
+        })
+      );
     } catch (error) {
       console.error('Failed to like story', error);
     } finally {
@@ -730,7 +753,6 @@ export default function MobileStoriesStrip({
   const handleStoryCommentAction = (story: any) => {
     if (!story?.id) return;
     setStoryActionTarget(story);
-    setStoryCommentDraft('');
     setStoryCommentOpen(true);
   };
 
@@ -750,28 +772,6 @@ export default function MobileStoriesStrip({
     if (!story?.id) return;
     setStoryActionTarget(story);
     setStoryDashOpen(true);
-  };
-
-  const submitStoryComment = async () => {
-    const story = storyActionTarget;
-    const storyId = String(story?.id || '').trim();
-    if (!storyId) return;
-    const content = String(storyCommentDraft || '').trim();
-    if (!content) {
-      showNotification('warning', 'Stories', 'Comment cannot be empty.');
-      return;
-    }
-    try {
-      await CommunityService.createPost({
-        content: `${content}\n\nCommented on story by ${resolveStoryAuthorName(story, 'Community member')}.\n${buildStoryUrl(storyId)}`
-      });
-      await engageStoryAndSync(story, 'comment');
-      setStoryCommentOpen(false);
-      setStoryCommentDraft('');
-      showNotification('success', 'Stories', 'Comment shared to your feed.');
-    } catch (e: any) {
-      showNotification('error', 'Stories', e?.response?.data?.error || e?.message || 'Unable to comment on story.');
-    }
   };
 
   const repostStory = async (comment?: string) => {
@@ -1016,23 +1016,55 @@ export default function MobileStoriesStrip({
       const detail = (event as CustomEvent).detail || {};
       const storyId = String(detail?.storyId || detail?.id || '').trim();
       const story = detail?.story || null;
+      const interactions = detail?.interactions || {};
       if (!storyId && !story?.id) return;
       const normalizedId = storyId || String(story.id);
       if (story && typeof story === 'object') {
         patchStoryInState(normalizedId, story);
+        return;
       }
+      if (interactions && typeof interactions === 'object') {
+        patchStoryInState(normalizedId, {
+          commentsCount: interactions.comments,
+          repostsCount: interactions.reposts,
+          dashesCount: interactions.dashes,
+          sendsCount: interactions.sends,
+          interactions: {
+            comments: interactions.comments,
+            reposts: interactions.reposts,
+            dashes: interactions.dashes,
+            sends: interactions.sends
+          }
+        });
+      }
+    };
+    const onLiked = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const storyId = String(detail?.storyId || detail?.id || '').trim();
+      if (!storyId) return;
+      const likesCount = detail?.likesCount;
+      const likedByViewer = user?.id ? String(detail?.userId) === String(user.id) && Boolean(detail?.liked) : undefined;
+      patchStoryInState(storyId, {
+        likesCount,
+        viewerLiked: likedByViewer,
+        _count: {
+          likes: likesCount
+        }
+      });
     };
     window.addEventListener('community:story_created', onCreated as EventListener);
     window.addEventListener('community:story_updated', onUpdated as EventListener);
     window.addEventListener('community:story_deleted', onDeleted as EventListener);
     window.addEventListener('community:story_engaged', onEngaged as EventListener);
+    window.addEventListener('community:story_liked', onLiked as EventListener);
     return () => {
       window.removeEventListener('community:story_created', onCreated as EventListener);
       window.removeEventListener('community:story_updated', onUpdated as EventListener);
       window.removeEventListener('community:story_deleted', onDeleted as EventListener);
       window.removeEventListener('community:story_engaged', onEngaged as EventListener);
+      window.removeEventListener('community:story_liked', onLiked as EventListener);
     };
-  }, [enabled, maxItems]);
+  }, [enabled, maxItems, user?.id]);
 
   useEffect(() => {
     if (!enabled) return;
