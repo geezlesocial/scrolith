@@ -7,6 +7,7 @@ import {
   PlusSquareIcon as PlusSquare,
   UsersIcon as Users
 } from '../../../components/icons/ShellIcons';
+import { MOBILE_BOTTOM_NAV_CONTAINER_CLASS } from '../mobileShellLayout';
 
 export type MobileTabKey = 'home' | 'network' | 'post' | 'notifications' | 'jobs' | 'messages';
 
@@ -107,7 +108,7 @@ export default function MobileBottomNav({
       className="pointer-events-auto fixed bottom-0 left-0 right-0 z-[140] border-t border-slate-200 bg-white/95 backdrop-blur"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
-      <div className="mx-auto flex max-w-md items-center justify-around px-2 py-2">
+      <div className={MOBILE_BOTTOM_NAV_CONTAINER_CLASS}>
         {visible.map((item) => {
           const isActive = optimisticActiveTab === item.key;
           const primary = item.isPrimary;

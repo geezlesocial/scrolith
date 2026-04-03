@@ -4,6 +4,7 @@ import { ArrowLeftIcon as ArrowLeft, SearchIcon as Search } from '../../../compo
 import { mobileSearch } from '../../../services/mobileSearch';
 import OptimizedImage from '../../../components/media/OptimizedImage';
 import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
+import { MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
 
 export type SearchCategory = 'posts' | 'people' | 'pages' | 'jobs' | 'gigs';
 type SearchScope = SearchCategory | 'all';
@@ -166,7 +167,7 @@ export default function SearchScreen({
   }, [active, available, enabled, normalizedQuery, retryTick]);
 
   return (
-    <div className="mx-auto max-w-md px-3 py-4">
+    <div className={MOBILE_PAGE_SECTION_CLASS}>
       <div className="sticky top-0 z-10 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="flex items-center gap-2">
           <button
@@ -435,7 +436,7 @@ function SearchRow({
       return (
         <button
           type="button"
-          onPointerUp={(event) => {
+          onPointerDown={(event) => {
             if (event.pointerType === 'mouse' && event.button !== 0) return;
             triggerNavigation(() => onNavigateUrl(resolvedUrl));
           }}

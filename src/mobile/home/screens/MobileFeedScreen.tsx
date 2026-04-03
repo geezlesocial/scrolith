@@ -5,6 +5,7 @@ import MobileStoriesStrip from '../components/MobileStoriesStrip';
 import MobileInsightsHubLauncher from '../../../components/insights/MobileInsightsHubLauncher';
 import type { ScrollVideo } from '../../../services/scroll';
 import type { PendingPostVideoScrollViewerSource } from '../../../utils/postVideoScrollBridge';
+import { MOBILE_PAGE_CONTAINER_CLASS } from '../mobileShellLayout';
 
 export default function MobileFeedScreen({
   mobileLayout,
@@ -21,8 +22,10 @@ export default function MobileFeedScreen({
   const layout = mobileLayout ?? ctx?.mobileLayout ?? null;
   return (
     <>
-      <div className="px-3 pt-3 pb-3">
-        <MobileInsightsHubLauncher />
+      <div className="pt-3 pb-3">
+        <div className={MOBILE_PAGE_CONTAINER_CLASS}>
+          <MobileInsightsHubLauncher />
+        </div>
       </div>
       <MobileStoriesStrip settings={layout} onOpenScroll={onOpenScroll} />
       <MobileFeed

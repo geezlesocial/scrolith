@@ -15,6 +15,7 @@ import {
   TagIcon as Tag,
   UsersIcon as Users
 } from '../../../components/icons/ShellIcons';
+import { MOBILE_SHEET_CARD_CLASS } from '../mobileShellLayout';
 
 type AccountMenuConfig = {
   dashboard?: boolean;
@@ -133,7 +134,7 @@ const Sheet = ({
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[1000] flex items-end justify-center bg-slate-950/55 p-3">
-      <div className="w-full max-w-md overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-2xl">
+      <div className={MOBILE_SHEET_CARD_CLASS}>
         <div className="flex justify-center pt-3">
           <div className="h-1.5 w-14 rounded-full bg-slate-200" />
         </div>
@@ -196,7 +197,7 @@ const SheetItem = ({ icon, label, description, badge, tone = 'slate', onClick }:
   return (
     <button
       type="button"
-      onPointerUp={(event) => {
+      onPointerDown={(event) => {
         if (event.pointerType === 'mouse' && event.button !== 0) return;
         triggerAction();
       }}
@@ -229,7 +230,7 @@ const renderMenuSection = (
   return (
     <section className="rounded-3xl border border-slate-200 bg-slate-50/70 p-3">
       <SectionTitle title={title} description={description} />
-      <div className="space-y-2">{items.map((item) => <SheetItem key={item.id} {...item} />)}</div>
+      <div className="grid gap-2 sm:grid-cols-2">{items.map((item) => <SheetItem key={item.id} {...item} />)}</div>
     </section>
   );
 };

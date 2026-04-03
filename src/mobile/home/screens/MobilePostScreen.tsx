@@ -16,6 +16,7 @@ import {
   resolveStoredPostAiInsightPreference,
   type PostAiInsightPreference
 } from '../../../utils/postAiControls';
+import { MOBILE_MODAL_CARD_CLASS, MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
 
 const getMimeType = (file: any) =>
   String(file?.mime_type || file?.mimeType || file?.mimetype || file?.mime || '').toLowerCase();
@@ -389,7 +390,7 @@ export default function MobilePostScreen({
   };
 
   return (
-    <div className="mx-auto max-w-md px-3 py-4">
+    <div className={MOBILE_PAGE_SECTION_CLASS}>
       <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div className="text-sm font-semibold text-slate-900">{isEditing ? 'Edit post' : 'Create post'}</div>
@@ -647,7 +648,7 @@ export default function MobilePostScreen({
 
       {aiSuggestionOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3">
-          <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-2xl">
+          <div className={MOBILE_MODAL_CARD_CLASS}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-base font-semibold text-slate-900">AI Draft Suggestion</h3>

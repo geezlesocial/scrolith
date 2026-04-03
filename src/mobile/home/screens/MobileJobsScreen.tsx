@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BriefcaseIcon as Briefcase, SearchIcon as Search } from '../../../components/icons/ShellIcons';
 import { jobsApi, Job } from '../../../services/jobs';
+import { MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
 
 const formatBudget = (budget: Job['budget']) => {
   if (!budget) return '';
@@ -43,7 +44,7 @@ export default function MobileJobsScreen() {
   const header = useMemo(() => (search.trim() ? `Jobs for “${search.trim()}”` : 'Jobs'), [search]);
 
   return (
-    <div className="mx-auto max-w-md px-3 py-4">
+    <div className={MOBILE_PAGE_SECTION_CLASS}>
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
         <Briefcase className="h-4 w-4" />
         {header}

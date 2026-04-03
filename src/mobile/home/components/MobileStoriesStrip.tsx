@@ -45,6 +45,11 @@ import { LiveService, type LiveSession } from '../../../services/live';
 import { buildPublicAppUrl } from '../../../utils/siteUrl';
 import StoryUploadStatusCard from '../../../components/stories/StoryUploadStatusCard';
 import StoryReplySheet from '../../../components/stories/StoryReplySheet';
+import {
+  MOBILE_MODAL_CARD_CLASS,
+  MOBILE_PAGE_CONTAINER_CLASS,
+  MOBILE_STORY_VIEWER_CLASS
+} from '../mobileShellLayout';
 
 type StoryKind = 'text' | 'image' | 'video';
 type StoryVisibility = 'public' | 'private';
@@ -56,6 +61,9 @@ const STORY_VIDEO_FALLBACK_ADVANCE_MS = 9000;
 const STORY_AUTO_ADVANCE_MAX_MS = 30000;
 const RAIL_TAP_MAX_TRAVEL = 72;
 const RAIL_ACTION_DEDUPE_MS = 260;
+const STORY_RAIL_CARD_CLASS =
+  'relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl sm:h-[176px] sm:w-[108px] md:h-[188px] md:w-[120px]';
+const STORY_RAIL_MEDIA_SIZES = '(max-width: 640px) 92px, (max-width: 768px) 108px, 120px';
 
 const normalizeVisibility = (value: any): StoryVisibility => {
   const raw = String(value || '').trim().toLowerCase();
@@ -290,7 +298,7 @@ const Sheet = ({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-md rounded-3xl bg-white p-4 shadow-2xl">
+      <div className={MOBILE_MODAL_CARD_CLASS}>
         <div className="mb-3 flex items-center justify-between">
           <div className="text-sm font-semibold text-slate-900">{title}</div>
           <button
@@ -1274,7 +1282,7 @@ export default function MobileStoriesStrip({
 
   return (
     <>
-      <div className="mx-auto max-w-md px-3 pt-3">
+      <div className={`${MOBILE_PAGE_CONTAINER_CLASS} pt-3`}>
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="inline-flex items-center rounded-full border border-slate-200 bg-white p-1">
             <button
@@ -1327,7 +1335,7 @@ export default function MobileStoriesStrip({
               <button
                 type="button"
                 onClick={openCreate}
-                className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-dashed border-slate-300 bg-white"
+                className={`${STORY_RAIL_CARD_CLASS} border border-dashed border-slate-300 bg-white`}
                 aria-label="Create story"
               >
                 <div className="absolute inset-0 bg-gradient-to-b from-blue-500/10 via-indigo-500/10 to-cyan-500/15" />
@@ -1387,7 +1395,7 @@ export default function MobileStoriesStrip({
                       onClick={() => {
                         handleStoryRailClick(story);
                       }}
-                      className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
+                      className={`${STORY_RAIL_CARD_CLASS} border border-slate-200 bg-slate-900`}
                       style={{ touchAction: 'manipulation' }}
                       aria-label={`Open story by ${name}`}
                     >
@@ -1431,9 +1439,9 @@ export default function MobileStoriesStrip({
                             src={media.thumbnailUrl || media.url}
                             fallbackSrc={media.url}
                             alt=""
-                            width={184}
-                            height={308}
-                            sizes="92px"
+                            width={240}
+                            height={376}
+                            sizes={STORY_RAIL_MEDIA_SIZES}
                             className="pointer-events-none h-full w-full object-cover"
                             onError={() =>
                               setStoryPreviewMediaErrors((prev) =>
@@ -1446,9 +1454,9 @@ export default function MobileStoriesStrip({
                         <OptimizedImage
                           src={avatar}
                           alt={name}
-                          width={184}
-                          height={308}
-                          sizes="92px"
+                          width={240}
+                          height={376}
+                          sizes={STORY_RAIL_MEDIA_SIZES}
                           className="pointer-events-none h-full w-full object-cover"
                         />
                       ) : (
@@ -1502,7 +1510,7 @@ export default function MobileStoriesStrip({
               <button
                 type="button"
                 onClick={() => setScrollCreateOpen(true)}
-                className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-dashed border-slate-300 bg-white"
+                className={`${STORY_RAIL_CARD_CLASS} border border-dashed border-slate-300 bg-white`}
                 aria-label="Create Scroll"
               >
                 <div className="absolute inset-0 bg-gradient-to-b from-fuchsia-500/15 via-indigo-500/10 to-cyan-500/15" />
@@ -1559,7 +1567,7 @@ export default function MobileStoriesStrip({
                       onClick={() => {
                         handleScrollRailClick(scroll);
                       }}
-                      className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
+                      className={`${STORY_RAIL_CARD_CLASS} border border-slate-200 bg-slate-900`}
                       style={{ touchAction: 'manipulation' }}
                       aria-label={`Open Scroll by ${authorName}`}
                     >
@@ -1621,7 +1629,7 @@ export default function MobileStoriesStrip({
                 <button
                   type="button"
                   onClick={() => navigate('/live/studio')}
-                  className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-dashed border-rose-300 bg-white"
+                  className={`${STORY_RAIL_CARD_CLASS} border border-dashed border-rose-300 bg-white`}
                   aria-label="Create Live Stream"
                 >
                   <div className="absolute inset-0 bg-gradient-to-b from-rose-500/20 via-fuchsia-500/10 to-indigo-500/15" />
@@ -2319,7 +2327,7 @@ function StoryViewer({
         }`}
       >
         <div
-          className="relative h-full w-full max-w-md overflow-hidden rounded-3xl bg-slate-900"
+          className={MOBILE_STORY_VIEWER_CLASS}
           style={{ touchAction: 'pan-y' }}
           onTouchStart={(event) => {
             const target = event.target as HTMLElement | null;

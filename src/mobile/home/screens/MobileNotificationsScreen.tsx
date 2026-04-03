@@ -8,8 +8,13 @@ import {
   getNotificationBucket,
   isExternalNotificationUrl
 } from '../../../utils/notificationRouting';
+import { MOBILE_MODAL_CARD_CLASS, MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
 
-export default function MobileNotificationsScreen() {
+export default function MobileNotificationsScreen({
+  onNavigate
+}: {
+  onNavigate?: (to: string) => void;
+}) {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, isAuthenticated } = useUser();
@@ -128,8 +133,21 @@ export default function MobileNotificationsScreen() {
     }
   }, [location.search, list]);
 
+  const openTarget = (targetUrl: string) => {
+    if (!targetUrl) return;
+    if (isExternalNotificationUrl(targetUrl)) {
+      window.location.href = targetUrl;
+      return;
+    }
+    if (onNavigate) {
+      onNavigate(targetUrl);
+      return;
+    }
+    navigate(targetUrl);
+  };
+
   return (
-    <div className="mx-auto max-w-md px-3 py-4">
+    <div className={MOBILE_PAGE_SECTION_CLASS}>
       {growthShortcuts.length ? (
         <div className="mb-3 rounded-3xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/70 to-slate-50 p-4 shadow-sm">
           <div className="mb-3">
@@ -145,7 +163,7 @@ export default function MobileNotificationsScreen() {
               <button
                 key={item.id}
                 type="button"
-                onClick={() => navigate(item.path)}
+                onClick={() => openTarget(item.path)}
                 className="rounded-2xl border border-white/80 bg-white px-3 py-3 text-left shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50/60"
               >
                 <div className="text-sm font-semibold text-slate-900">{item.label}</div>
@@ -211,11 +229,7 @@ export default function MobileNotificationsScreen() {
                     return;
                   }
                   if (actionUrl) {
-                    if (isExternalNotificationUrl(actionUrl)) {
-                      window.location.href = actionUrl;
-                      return;
-                    }
-                    navigate(actionUrl);
+                    openTarget(actionUrl);
                   }
                 }}
                 className={[
@@ -244,7 +258,7 @@ export default function MobileNotificationsScreen() {
       )}
       {selectedCampaignDetails ? (
         <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/45 p-3">
-          <div className="w-full max-w-md rounded-3xl bg-white p-4 shadow-2xl">
+          <div className={MOBILE_MODAL_CARD_CLASS}>
             <div className="mb-2 flex items-start justify-between gap-3">
               <div className="text-sm font-semibold text-slate-900">{selectedCampaignDetails.title}</div>
               <button
@@ -282,11 +296,7 @@ export default function MobileNotificationsScreen() {
                 <button
                   type="button"
                   onClick={() => {
-                    if (isExternalNotificationUrl(selectedCampaignDetails.actionUrl as string)) {
-                      window.location.href = selectedCampaignDetails.actionUrl as string;
-                    } else {
-                      navigate(selectedCampaignDetails.actionUrl as string);
-                    }
+                    openTarget(selectedCampaignDetails.actionUrl as string);
                     setSelectedCampaign(null);
                   }}
                   className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white"

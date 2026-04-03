@@ -22,6 +22,7 @@ import MobileNotificationsScreen from './screens/MobileNotificationsScreen';
 import MobileJobsScreen from './screens/MobileJobsScreen';
 import ScrollFeed from '../../features/scroll/ScrollFeed';
 import MobileHomeSheets from './components/MobileHomeSheets';
+import { MOBILE_PAGE_CONTAINER_CLASS, shouldUseMobileShellViewport } from './mobileShellLayout';
 
 type MobileHomeLayoutConfig = {
   header?: {
@@ -215,20 +216,24 @@ const resolveActiveTab = (pathname: string): MobileTabKey => {
 const isMobileOverlayTab = (tab: MobileTabKey): tab is Exclude<MobileTabKey, 'home' | 'messages'> =>
   tab === 'network' || tab === 'post' || tab === 'notifications' || tab === 'jobs';
 
-const useViewportIsMobile = (threshold = 900) => {
-  const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < threshold : true));
+const useViewportIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(() => shouldUseMobileShellViewport());
   useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth < threshold);
+    const onResize = () => setIsMobile(shouldUseMobileShellViewport());
     window.addEventListener('resize', onResize, { passive: true });
-    return () => window.removeEventListener('resize', onResize);
-  }, [threshold]);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
   return isMobile;
 };
 
 const MobileHome = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const isMobileViewport = useViewportIsMobile(900);
+  const isMobileViewport = useViewportIsMobile();
 
   const { user, logout, updateUser } = useUser();
   const { settings, loading } = useContent();
@@ -635,15 +640,17 @@ const MobileHome = () => {
     };
     return (
       <div className="fixed inset-0 z-[820] bg-slate-50 pt-14 pb-20">
-        <div className="sticky top-14 z-10 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
-          <div className="text-sm font-semibold text-slate-900">{titleMap[activePanelTab]}</div>
-          <button
-            type="button"
-            onClick={closeActivePanel}
-            className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
-          >
-            Close
-          </button>
+        <div className="sticky top-14 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
+          <div className={`${MOBILE_PAGE_CONTAINER_CLASS} flex items-center justify-between py-3`}>
+            <div className="text-sm font-semibold text-slate-900">{titleMap[activePanelTab]}</div>
+            <button
+              type="button"
+              onClick={closeActivePanel}
+              className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
+            >
+              Close
+            </button>
+          </div>
         </div>
         <div className="h-[calc(100vh-113px-env(safe-area-inset-bottom))] overflow-y-auto">
           <Suspense
@@ -655,7 +662,7 @@ const MobileHome = () => {
           >
             {activePanelTab === 'network' ? <MobileNetworkScreen /> : null}
             {activePanelTab === 'post' ? <MobilePostScreen mobileLayout={layout} onClose={closeActivePanel} /> : null}
-            {activePanelTab === 'notifications' ? <MobileNotificationsScreen /> : null}
+            {activePanelTab === 'notifications' ? <MobileNotificationsScreen onNavigate={navigateFromShell} /> : null}
             {activePanelTab === 'jobs' ? <MobileJobsScreen /> : null}
           </Suspense>
         </div>

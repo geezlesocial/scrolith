@@ -39,6 +39,7 @@ import SuggestedCard from './SuggestedCard';
 import { usePerformanceProfile } from '../../../hooks/usePerformanceProfile';
 import type { MemberHomeHighlightItem, MemberHomeHighlightPill } from '../../../components/member-home/MemberHomeHighlightsBoard';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../../utils/communityEventHighlights';
+import { MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
 
 const MediaPreviewModal = React.lazy(() => import('../../../components/media/MediaPreviewModal'));
 const PostExpandModal = React.lazy(() => import('../../../components/post/PostExpandModal'));
@@ -1559,7 +1560,7 @@ export default function MobileFeed({
 
   if (loading && posts.length === 0) {
     return (
-      <div className="mx-auto max-w-md px-3 py-4">
+      <div className={MOBILE_PAGE_SECTION_CLASS}>
         <div className="flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white p-6">
           <Loader2 className="h-5 w-5 animate-spin" />
           <span className="text-sm text-slate-600">Loading feed...</span>
@@ -1570,7 +1571,7 @@ export default function MobileFeed({
 
   if (error && posts.length === 0) {
     return (
-      <div className="mx-auto max-w-md px-3 py-4">
+      <div className={MOBILE_PAGE_SECTION_CLASS}>
         <div className="rounded-2xl border border-red-200 bg-white p-4">
           <div className="text-sm font-semibold text-red-700">Feed error</div>
           <div className="mt-1 text-sm text-slate-700">{error}</div>
@@ -1593,7 +1594,7 @@ export default function MobileFeed({
 
   if (!posts.length) {
     return (
-      <div className="mx-auto max-w-md px-3 py-4">
+      <div className={MOBILE_PAGE_SECTION_CLASS}>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
           No posts yet. Be the first to share an update.
         </div>
@@ -1602,7 +1603,7 @@ export default function MobileFeed({
   }
 
   return (
-    <div className="mx-auto max-w-md px-3 py-4">
+    <div className={MOBILE_PAGE_SECTION_CLASS}>
       {statusMessage ? (
         <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
           <div className="text-xs font-semibold text-amber-800">{statusMessage}</div>

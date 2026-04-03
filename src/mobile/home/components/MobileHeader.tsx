@@ -4,6 +4,7 @@ import {
   MoreHorizontalIcon as MoreHorizontal,
   SearchIcon as Search
 } from '../../../components/icons/ShellIcons';
+import { MOBILE_HEADER_CONTAINER_CLASS } from '../mobileShellLayout';
 
 export type MobileHomeLayoutSettings = {
   search?: {
@@ -50,7 +51,7 @@ export default function MobileHeader({
 
   return (
     <header className="fixed left-0 right-0 top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex w-full min-w-0 max-w-md items-center gap-2 px-3 py-2">
+      <div className={MOBILE_HEADER_CONTAINER_CLASS}>
         <button
           type="button"
           onPointerDown={(event) => {

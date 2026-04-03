@@ -4,6 +4,7 @@ import {
   ArrowLeftIcon as ArrowLeft,
   HomeIcon as Home
 } from '../../../components/icons/ShellIcons';
+import { MOBILE_HEADER_BAR_CLASS, MOBILE_PAGE_CONTAINER_CLASS } from '../mobileShellLayout';
 
 type MobileAppRouteFrameProps = {
   title: string;
@@ -41,7 +42,7 @@ export default function MobileAppRouteFrame({
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="fixed inset-x-0 top-0 z-[70] border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-md items-center gap-3 px-3">
+        <div className={`${MOBILE_HEADER_BAR_CLASS} h-14`}>
           <button
             type="button"
             onClick={handleBack}
@@ -68,7 +69,7 @@ export default function MobileAppRouteFrame({
       </header>
 
       <div
-        className={fullBleed ? '' : 'mx-auto max-w-md px-3'}
+        className={fullBleed ? '' : MOBILE_PAGE_CONTAINER_CLASS}
         style={{
           paddingTop: `calc(${MOBILE_HEADER_HEIGHT}px + env(safe-area-inset-top, 0px))`,
           paddingBottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))'

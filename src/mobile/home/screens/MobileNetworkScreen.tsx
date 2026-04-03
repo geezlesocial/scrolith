@@ -7,6 +7,7 @@ import {
 } from '../../../components/icons/ShellIcons';
 import { CommunityService } from '../../../services/community';
 import { useUser } from '../../../context/UserContext';
+import { MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
 
 type Tab = 'following' | 'followers';
 
@@ -84,14 +85,14 @@ export default function MobileNetworkScreen() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-md px-3 py-4">
+      <div className={MOBILE_PAGE_SECTION_CLASS}>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">Loading {header}...</div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-md px-3 py-4">
+    <div className={MOBILE_PAGE_SECTION_CLASS}>
       <div className="mb-3 flex gap-2">
         <button
           type="button"

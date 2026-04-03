@@ -54,6 +54,7 @@ import SettingsModule from './dashboard/shared/SettingsModule';
 import { DashboardRouter } from './dashboard/DashboardRouter';
 import CommunityLayout from './community/CommunityLayout';
 import CommunityHome from './community/CommunityHome';
+import { shouldUseMobileShellViewport } from './mobile/home/mobileShellLayout';
 
 const HISTORY_SYNC_EVENT = 'scrolith:history-sync';
 const CHUNK_RELOAD_GUARD_KEY = 'scrolith:chunk-reload-target';
@@ -952,7 +953,7 @@ const AppContent = () => {
   const memberHomeDesktopOverride =
     new URLSearchParams(location.search).get('desktop') === '1' ||
     new URLSearchParams(location.search).get('view') === 'desktop';
-  const isMobileViewport = typeof window !== 'undefined' ? window.innerWidth < 900 : false;
+  const isMobileViewport = shouldUseMobileShellViewport();
   const shouldUseMobileMemberHome = isMobileViewport && !memberHomeDesktopOverride;
   const isMobileStandaloneRoute =
     shouldUseMobileMemberHome &&
