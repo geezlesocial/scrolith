@@ -1002,9 +1002,11 @@ const Navbar = () => {
                         .map((icon: any) => (
                         <div
                           key={icon.id}
+                          className="relative"
                           ref={(icon.actionType || icon.type) === "notifications" ? notifRef : (icon.actionType || icon.type) === "messages" ? msgRef : helpRef}
                         >
                           <button
+                            type="button"
                             onClick={() => {
                               const actionType = icon.actionType || icon.type;
                               if (actionType === "notifications") setShowNotifications(!showNotifications);

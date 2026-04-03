@@ -939,6 +939,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     () => deferredFeedItems.slice(0, Math.min(renderedFeedItemCount, deferredFeedItems.length)),
     [deferredFeedItems, renderedFeedItemCount]
   );
+  const renderableFeedItems = useMemo(() => {
+    if (visibleFeedItems.length > 0 || feedItems.length === 0) return visibleFeedItems;
+    return feedItems.slice(0, Math.min(renderedFeedItemCount, feedItems.length));
+  }, [feedItems, renderedFeedItemCount, visibleFeedItems]);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [pipelineBusyByPostId, setPipelineBusyByPostId] = useState<Record<string, boolean>>({});
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
@@ -3622,12 +3626,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   }, [user, showStories, showMessages, showSlider, loadStories, loadReels, loadMessages, loadSlider]);
 
   useEffect(() => {
-    if (!feedRegion && user) {
-      setFeedRegion(user.location || user.country || '');
-    }
-  }, [feedRegion, user]);
-
-  useEffect(() => {
     setRenderedFeedItemCount((prev) => {
       if (!feedItems.length) return desktopInitialRenderCount;
       const minimum = Math.min(desktopInitialRenderCount, feedItems.length);
@@ -3642,13 +3640,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   }, [user?.id]);
 
   useEffect(() => {
-    if (!user?.id || !visibleFeedItems.length) return;
-    visibleFeedItems.forEach((post) => {
+    if (!user?.id || !renderableFeedItems.length) return;
+    renderableFeedItems.forEach((post) => {
       if (!post?.id || viewTracked.current.has(post.id)) return;
       viewTracked.current.add(post.id);
       CommunityService.postView(post.id).catch(() => {});
     });
-  }, [user?.id, visibleFeedItems]);
+  }, [renderableFeedItems, user?.id]);
 
   useEffect(() => {
     if (!desktopFeedSentinelRef.current) return;
@@ -5840,10 +5838,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 </div>
               ) : feedItems.length === 0 ? (
                 <div className="rounded-3xl border border-white/70 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
-                  No posts found. Follow creators or switch to Discover to explore.
+                  {feedTopic || feedRegion
+                    ? 'No posts match the current filters. Clear the topic or region filter to widen your feed.'
+                    : 'No posts found. Follow creators or switch to Discover to explore.'}
                 </div>
               ) : (
-                visibleFeedItems.map((post, postIndex) => {
+                renderableFeedItems.map((post, postIndex) => {
                   const isEditing = editingPostId === post.id && editingDraft;
                   const commentCount = commentCounts[post.id] ?? post.interactions?.comments ?? 0;
                   const resolvedAuthor = {

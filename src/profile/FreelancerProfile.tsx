@@ -654,22 +654,22 @@ const FreelancerProfile = () => {
 
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 -mt-20 relative z-10">
             <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-200">
-                <div className="p-6 md:p-8">
-                    <div className="flex flex-col md:flex-row items-start md:items-end justify-between gap-4">
-                        <div className="flex items-end gap-6">
+                <div className="p-5 md:p-8">
+                    <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+                        <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end sm:gap-6">
                             <button
                                 type="button"
                                 onClick={() => {
                                   if (stories.length > 0) openStory(stories[0]);
                                 }}
-                                className="relative"
+                                className="relative shrink-0 self-center sm:self-auto"
                             >
                                 <img
-                                    className={`w-28 h-28 sm:w-32 sm:h-32 rounded-xl border-4 border-white shadow-md bg-white ${
+                                    className={`h-24 w-24 rounded-xl border-4 border-white bg-white object-cover shadow-md sm:h-28 sm:w-28 md:h-32 md:w-32 ${
                                       stories.length > 0 ? 'ring-4 ring-emerald-400 ring-offset-2 ring-offset-white' : ''
                                     }`}
-                                    src={publicUser?.avatar || "https://via.placeholder.com/256"}
-                                    alt=""
+                                    src={resolveAssetUrl(String(publicUser?.avatar || '')) || "https://via.placeholder.com/256"}
+                                    alt={publicUser?.name || 'Profile photo'}
                                 />
                                 {storiesLoading && (
                                   <span className="absolute inset-x-0 -bottom-6 text-xs text-gray-400">Loading story...</span>
@@ -678,8 +678,8 @@ const FreelancerProfile = () => {
                                   <span className="absolute inset-x-0 -bottom-6 text-xs font-semibold text-emerald-600">View story</span>
                                 )}
                             </button>
-                            <div className="mb-2">
-                                <div className="flex items-center gap-2">
+                            <div className="min-w-0 flex-1 text-center sm:text-left">
+                                <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
                                     <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">{publicUser?.name || "Profile"}</h1>
                                     {profileVerificationLevel ? (
                                       <VerifiedBadge
@@ -696,7 +696,7 @@ const FreelancerProfile = () => {
                                   <p className="text-sm font-semibold text-blue-600 break-all">{cleanBaseUrl}/u/{publicUser.username}</p>
                                 )}
                                 <p className="text-lg text-gray-600 font-medium">{profile?.title || "-"}</p>
-                                <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-500">
+                                <div className="mt-2 flex flex-wrap items-center justify-center gap-3 text-sm text-gray-500 sm:justify-start">
                                     <span className="inline-flex items-center gap-1">
                                       <Users className="w-4 h-4" />
                                       {followersCount} followers
@@ -709,23 +709,25 @@ const FreelancerProfile = () => {
                                     {publicBirthMonthDay && (
                                       <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
                                         Born {publicBirthMonthDay}
-                                      </span>
+                                        </span>
                                     )}
                                 </div>
-                                <div className="flex items-center text-gray-500 mt-1 text-sm">
-                                    <MapPin className="w-4 h-4 mr-1" /> {profile?.location || "-"}
-                                    <span className="mx-2">&middot;</span>
+                                <div className="mt-1 flex flex-wrap items-center justify-center gap-2 text-sm text-gray-500 sm:justify-start">
+                                    <span className="inline-flex items-center gap-1">
+                                      <MapPin className="w-4 h-4" /> {profile?.location || "-"}
+                                    </span>
+                                    <span className="hidden sm:inline">&middot;</span>
                                     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
                                         {loading ? 'Loading' : 'Available'}
                                     </span>
                                 </div>
                             </div>
                         </div>
-                        <div className="flex gap-3 flex-wrap">
+                        <div className="flex w-full flex-wrap gap-3 sm:w-auto">
                             {isOwner ? (
                                 <button
                                   onClick={() => setShowInlineEditor((prev) => !prev)}
-                                  className="px-6 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition shadow-sm"
+                                  className="flex-1 rounded-lg border border-gray-300 bg-white px-6 py-2 font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 sm:flex-none"
                                 >
                                     {showInlineEditor ? 'Close Editor' : 'Edit Profile'}
                                 </button>
@@ -734,7 +736,7 @@ const FreelancerProfile = () => {
                                     <button
                                         onClick={followState.isFollowing ? handleUnfollow : handleFollow}
                                         disabled={followLoading}
-                                        className={`px-6 py-2 rounded-lg font-medium transition border ${
+                                        className={`flex-1 rounded-lg border px-6 py-2 font-medium transition sm:flex-none ${
                                           followState.isFollowing
                                             ? 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
                                             : 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
@@ -744,7 +746,7 @@ const FreelancerProfile = () => {
                                     </button>
                                     <button
                                         onClick={handleContact}
-                                        className="px-6 py-2 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition"
+                                        className="flex-1 rounded-lg border border-gray-300 bg-white px-6 py-2 font-medium text-gray-700 transition hover:bg-gray-50 sm:flex-none"
                                     >
                                         Contact
                                     </button>
@@ -754,28 +756,30 @@ const FreelancerProfile = () => {
                     </div>
 
                     {/* Navigation Tabs */}
-                    <div className="flex border-b border-gray-200 mt-10 space-x-8">
-                        {[
-                            { id: 'overview', label: 'Overview' },
-                            storefrontHasTab ? { id: 'storefront', label: 'Storefront' } : null,
-                            { id: 'portfolio', label: 'Portfolio' },
-                            { id: 'reviews', label: 'Reviews' },
-                            { id: 'followers', label: 'Followers' }
-                        ]
-                            .filter((tab): tab is { id: string; label: string } => Boolean(tab))
-                            .map((tab) => (
-                            <button
-                                key={tab.id}
-                                onClick={() => setActiveTab(tab.id)}
-                                className={`pb-4 text-sm font-medium border-b-2 transition-colors ${
-                                    activeTab === tab.id
-                                    ? 'border-blue-600 text-blue-600' 
-                                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                                }`}
-                            >
-                                {tab.label}
-                            </button>
-                        ))}
+                    <div className="mt-8 overflow-x-auto">
+                        <div className="flex min-w-max gap-6 border-b border-gray-200 px-1">
+                            {[
+                                { id: 'overview', label: 'Overview' },
+                                storefrontHasTab ? { id: 'storefront', label: 'Storefront' } : null,
+                                { id: 'portfolio', label: 'Portfolio' },
+                                { id: 'reviews', label: 'Reviews' },
+                                { id: 'followers', label: 'Followers' }
+                            ]
+                                .filter((tab): tab is { id: string; label: string } => Boolean(tab))
+                                .map((tab) => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setActiveTab(tab.id)}
+                                    className={`shrink-0 pb-4 text-sm font-medium border-b-2 transition-colors ${
+                                        activeTab === tab.id
+                                        ? 'border-blue-600 text-blue-600' 
+                                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                                    }`}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
 

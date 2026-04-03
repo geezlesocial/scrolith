@@ -358,14 +358,14 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
         {isSidebarOpen && (
           <button
             type="button"
-            className="fixed inset-0 z-30 bg-black/40 md:hidden"
+            className="fixed inset-x-0 bottom-0 top-14 z-30 bg-black/40 md:hidden"
             aria-label="Close dashboard menu"
             onClick={() => setIsSidebarOpen(false)}
           />
         )}
 
         <aside
-          className={`fixed inset-y-0 left-0 z-40 w-[84vw] max-w-[320px] overflow-y-auto border-r border-gray-200 bg-white p-3 transition-transform duration-200 ease-out md:static md:z-auto md:w-64 md:max-w-none md:p-3 md:translate-x-0 lg:w-[268px] xl:w-[280px] xl:p-4 ${
+          className={`fixed bottom-0 left-0 top-14 z-40 w-[84vw] max-w-[320px] overflow-y-auto border-r border-gray-200 bg-white p-3 transition-transform duration-200 ease-out md:static md:inset-y-0 md:z-auto md:w-64 md:max-w-none md:p-3 md:translate-x-0 lg:w-[268px] xl:w-[280px] xl:p-4 ${
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         >

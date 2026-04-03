@@ -501,8 +501,8 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
     'Selected video';
 
   return (
-    <div className="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="mx-auto mt-8 w-full max-w-2xl rounded-3xl border border-white/15 bg-slate-950 text-white shadow-2xl">
+    <div className="fixed inset-0 z-[920] overflow-y-auto bg-black/60 p-3 backdrop-blur-sm sm:p-4">
+      <div className="mx-auto flex min-h-[calc(100dvh-1.5rem)] w-full max-w-2xl flex-col rounded-3xl border border-white/15 bg-slate-950 text-white shadow-2xl sm:mt-8 sm:min-h-0 sm:max-h-[calc(100dvh-4rem)]">
         <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
           <div className="flex items-center gap-2">
             <Clapperboard className="h-5 w-5 text-cyan-300" />
@@ -513,7 +513,7 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
           </button>
         </div>
 
-        <div className="space-y-4 px-6 py-5">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-6">
           <div className="block">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-white/70">Video</span>
             <input
@@ -970,7 +970,7 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
           ) : null}
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-white/10 px-6 py-4">
+        <div className="sticky bottom-0 z-10 flex items-center justify-end gap-3 border-t border-white/10 bg-slate-950/95 px-4 py-4 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] backdrop-blur sm:px-6">
           <button
             type="button"
             onClick={resetAndClose}
