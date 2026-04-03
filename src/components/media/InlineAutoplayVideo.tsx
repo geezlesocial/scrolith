@@ -18,6 +18,7 @@ type InlineAutoplayVideoProps = {
   rootMargin?: string;
   preloadRootMargin?: string;
   onDoubleTapLike?: () => void;
+  onEnded?: () => void;
   overlay?: React.ReactNode | ((video: HTMLVideoElement | null) => React.ReactNode);
   loadingLabel?: string | false;
 };
@@ -36,10 +37,11 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
   defaultMuted = true,
   onMutedChange,
   showMuteToggle = true,
-  threshold = 0.6,
+  threshold = 0.35,
   rootMargin = '0px 0px -10% 0px',
   preloadRootMargin = '160px 0px 160px 0px',
   onDoubleTapLike,
+  onEnded,
   overlay,
   loadingLabel = false
 }) => {
@@ -364,6 +366,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
           if (controls) return;
           resumePlaybackFromInteraction();
         }}
+        onEnded={onEnded}
       />
       {loadingLabel !== false && shouldLoadSource && isLoadingVideo ? (
         <div className="pointer-events-none absolute left-3 top-3 z-10">

@@ -138,7 +138,10 @@ const HighlightMedia = ({
   if (hidden || !src) return null;
 
   const isBrandFallback = src === BRAND_LOGO_URL || src === fallbackMediaUrl && fallbackMediaUrl === BRAND_LOGO_URL;
-  const shouldRenderVideo = Boolean(videoUrl && isVideoUrl(videoUrl));
+  const shouldRenderVideo = Boolean(
+    videoUrl &&
+      (isVideoUrl(videoUrl) || videoUrl.includes('/api/files/content/') || Boolean(posterUrl))
+  );
   const resolvedHeightClassName = heightClassName || (compact ? 'h-24 w-full' : 'h-28 w-full');
   const resolvedImageWidth = imageWidth || (compact ? 320 : 384);
   const resolvedImageHeight = imageHeight || (compact ? 144 : 192);
@@ -168,12 +171,14 @@ const HighlightMedia = ({
           controls={false}
           loop
           autoplayEnabled
+          threshold={0.2}
+          rootMargin="0px 0px 12% 0px"
           showMuteToggle={false}
           loadingLabel={false}
           containerClassName="w-full"
           className={[resolvedHeightClassName, 'object-cover'].join(' ')}
           overlay={null}
-          preloadRootMargin="120px 0px 120px 0px"
+          preloadRootMargin="320px 0px 320px 0px"
         />
       ) : (
         <OptimizedImage

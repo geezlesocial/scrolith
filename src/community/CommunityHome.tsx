@@ -102,6 +102,9 @@ const GRAPHIC_WARNING_LABEL = 'Graphic warning';
 const FEED_SINGLE_MEDIA_HEIGHT_CLASS = 'h-[20rem] sm:h-[24rem] lg:h-[28rem]';
 const FEED_MULTI_MEDIA_HEIGHT_CLASS = 'h-[15rem] sm:h-[18rem] lg:h-[22rem]';
 const STORY_CONTROL_HIDE_DELAY_MS = 20000;
+const STORY_AUTO_ADVANCE_MS = 5500;
+const STORY_VIDEO_FALLBACK_ADVANCE_MS = 9000;
+const STORY_AUTO_ADVANCE_MAX_MS = 30000;
 
 const formatRelativeTime = (value: string | Date | null | undefined) => {
   if (!value) return 'recently';
@@ -214,6 +217,14 @@ const resolveStoryType = (story: any): StoryKind => {
 
 const resolveStoryMedia = (story: any) => resolveInlineMedia(story, { typeHint: story?.type });
 const resolveStoryMediaUrl = (story: any) => (resolveStoryType(story) === 'text' ? '' : resolveStoryMedia(story).src);
+const resolveStoryAutoAdvanceDelay = (story: any) => {
+  if (resolveStoryType(story) !== 'video') return STORY_AUTO_ADVANCE_MS;
+  const durationSeconds = Number(story?.media?.duration ?? story?.duration ?? story?.mediaDuration ?? 0);
+  if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
+    return Math.max(4000, Math.min(STORY_AUTO_ADVANCE_MAX_MS, Math.round(durationSeconds * 1000 + 350)));
+  }
+  return STORY_VIDEO_FALLBACK_ADVANCE_MS;
+};
 
 const resolveStoryContent = (story: any) =>
   story?.content ||
@@ -399,6 +410,7 @@ const CommunityHome = () => {
   const postMediaLastTapAtRef = useRef<Record<string, number>>({});
   const storyGestureStartRef = useRef<{ x: number; y: number } | null>(null);
   const storyOverlayHideTimerRef = useRef<number | null>(null);
+  const storyAutoAdvanceTimerRef = useRef<number | null>(null);
   const storyLastTapAtRef = useRef(0);
   const storyPreviewStyle = getStoryTextStyle(storyDraft);
   const storyEditPreviewStyle = getStoryTextStyle(storyEditDraft);
@@ -740,6 +752,18 @@ const CommunityHome = () => {
       return filterActiveStories(next);
     });
     setActiveStory((current) => (current?.id === updated.id ? { ...current, ...updated } : current));
+    setStoryActionTarget((current) =>
+      current?.id === updated.id
+        ? {
+            ...current,
+            ...updated,
+            interactions: {
+              ...(current?.interactions || {}),
+              ...(updated?.interactions || {})
+            }
+          }
+        : current
+    );
   }, [filterActiveStories]);
 
   const syncCommentCount = useCallback((postId: string, nextCount: unknown) => {
@@ -1830,6 +1854,15 @@ const CommunityHome = () => {
     [activeStory?.id, stories, openStory]
   );
 
+  const advanceActiveStory = useCallback(() => {
+    if (!activeStory?.id) return;
+    if (hasNextStory) {
+      void goToStoryByOffset(1);
+      return;
+    }
+    setActiveStory(null);
+  }, [activeStory?.id, goToStoryByOffset, hasNextStory]);
+
   const onStoryGestureStart = useCallback((event: React.TouchEvent<HTMLElement>) => {
     const target = event.target as HTMLElement | null;
     if (target?.closest('button, a, input, textarea, select, label')) {
@@ -1904,6 +1937,24 @@ const CommunityHome = () => {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activeStory?.id, goToStoryByOffset]);
+
+  useEffect(() => {
+    if (storyAutoAdvanceTimerRef.current) {
+      window.clearTimeout(storyAutoAdvanceTimerRef.current);
+      storyAutoAdvanceTimerRef.current = null;
+    }
+    if (!activeStory?.id) return;
+    const delay = resolveStoryAutoAdvanceDelay(activeStory);
+    storyAutoAdvanceTimerRef.current = window.setTimeout(() => {
+      advanceActiveStory();
+    }, delay);
+    return () => {
+      if (storyAutoAdvanceTimerRef.current) {
+        window.clearTimeout(storyAutoAdvanceTimerRef.current);
+        storyAutoAdvanceTimerRef.current = null;
+      }
+    };
+  }, [activeStory?.commentsCount, activeStory?.createdAt, activeStory?.id, activeStory?.media?.duration, advanceActiveStory]);
 
   const activeStoryShareUrl = storyActionTarget?.id
     ? buildStoryUrl(String(storyActionTarget.id))
@@ -3796,9 +3847,10 @@ const CommunityHome = () => {
                       className="h-full w-full object-cover"
                       containerClassName="h-full w-full"
                       controls={false}
-                      loop
+                      loop={false}
                       preload="metadata"
                       autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                      onEnded={advanceActiveStory}
                       showMuteToggle={false}
                     />
                   ) : (

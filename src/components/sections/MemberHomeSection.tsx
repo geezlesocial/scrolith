@@ -93,6 +93,9 @@ const MemberHomeHighlightsBoard = React.lazy(() => import('../member-home/Member
 const StoryReplySheet = React.lazy(() => import('../stories/StoryReplySheet'));
 
 const STORY_CONTROL_HIDE_DELAY_MS = 20000;
+const STORY_AUTO_ADVANCE_MS = 5500;
+const STORY_VIDEO_FALLBACK_ADVANCE_MS = 9000;
+const STORY_AUTO_ADVANCE_MAX_MS = 30000;
 
 type MemberHomeContent = {
   title?: string;
@@ -453,6 +456,14 @@ const resolveStoryType = (story: any): StoryKind => {
 
 const resolveStoryMedia = (story: any) => resolveInlineMedia(story, { typeHint: story?.type });
 const resolveStoryMediaUrl = (story: any) => (resolveStoryType(story) === 'text' ? '' : resolveStoryMedia(story).src);
+const resolveStoryAutoAdvanceDelay = (story: any) => {
+  if (resolveStoryType(story) !== 'video') return STORY_AUTO_ADVANCE_MS;
+  const durationSeconds = Number(story?.media?.duration ?? story?.duration ?? story?.mediaDuration ?? 0);
+  if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
+    return Math.max(4000, Math.min(STORY_AUTO_ADVANCE_MAX_MS, Math.round(durationSeconds * 1000 + 350)));
+  }
+  return STORY_VIDEO_FALLBACK_ADVANCE_MS;
+};
 
 const resolveStoryContent = (story: any) =>
   story?.content ||
@@ -992,7 +1003,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [storyActionBusy, setStoryActionBusy] = useState<Record<string, boolean>>({});
   const [storyActionTarget, setStoryActionTarget] = useState<any | null>(null);
   const [storyCommentOpen, setStoryCommentOpen] = useState(false);
-  const [storyCommentDraft, setStoryCommentDraft] = useState('');
   const [storyRepostOpen, setStoryRepostOpen] = useState(false);
   const [storySendOpen, setStorySendOpen] = useState(false);
   const [storyDashOpen, setStoryDashOpen] = useState(false);
@@ -1066,6 +1076,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     reelsRef.current = reels;
   }, [reels]);
   const storyOverlayHideTimerRef = useRef<number | null>(null);
+  const storyAutoAdvanceTimerRef = useRef<number | null>(null);
   const storyLastTapAtRef = useRef(0);
   const [selfProfileCover, setSelfProfileCover] = useState('');
 
@@ -1421,6 +1432,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       return filterActiveStories(next).slice(0, maxStories);
     });
     setActiveStory((current) => (current?.id === updated.id ? { ...current, ...updated } : current));
+    setStoryActionTarget((current) =>
+      current?.id === updated.id
+        ? {
+            ...current,
+            ...updated,
+            interactions: {
+              ...(current?.interactions || {}),
+              ...(updated?.interactions || {})
+            }
+          }
+        : current
+    );
   }, [filterActiveStories, maxStories]);
 
   const buildProfileUrl = (entry?: { id?: string | null; username?: string | null }) => {
@@ -2132,10 +2155,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     try {
       const feed = await CommunityService.getStoriesFeed();
       const list = Array.isArray(feed) ? feed : [];
-      setStories(filterActiveStories(list).slice(0, maxStories));
+      setStories((prev) => {
+        const nextStories = filterActiveStories(list).slice(0, maxStories);
+        return nextStories.length === 0 && prev.length ? prev : nextStories;
+      });
     } catch (error) {
       console.error('Failed to load stories', error);
-      setStories([]);
     } finally {
       setStoriesLoading(false);
     }
@@ -2971,6 +2996,22 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         viewerLiked: liked,
         _count: { ...(story._count || {}), likes: likesCount }
       });
+      window.dispatchEvent(
+        new CustomEvent('community:story_liked', {
+          detail: {
+            storyId: story.id,
+            userId: user.id,
+            liked,
+            likesCount,
+            story: {
+              id: story.id,
+              likesCount,
+              viewerLiked: liked,
+              _count: { ...(story._count || {}), likes: likesCount }
+            }
+          }
+        })
+      );
     } catch (error: any) {
       console.error('Failed to like story', error);
       showNotification('error', 'Stories', error?.message || 'Unable to like story.');
@@ -3225,6 +3266,30 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           sends: interactions.sends ?? payload?.sendsCount ?? story.interactions?.sends ?? story.sendsCount ?? 0
         }
       });
+      window.dispatchEvent(
+        new CustomEvent('community:story_engaged', {
+          detail: {
+            storyId,
+            type,
+            interactions,
+            story: {
+              id: storyId,
+              ...(payload || {}),
+              commentsCount: interactions.comments ?? payload?.commentsCount ?? story.commentsCount ?? 0,
+              repostsCount: interactions.reposts ?? payload?.repostsCount ?? story.repostsCount ?? 0,
+              dashesCount: interactions.dashes ?? payload?.dashesCount ?? story.dashesCount ?? 0,
+              sendsCount: interactions.sends ?? payload?.sendsCount ?? story.sendsCount ?? 0,
+              interactions: {
+                ...(story.interactions || {}),
+                comments: interactions.comments ?? payload?.commentsCount ?? story.interactions?.comments ?? story.commentsCount ?? 0,
+                reposts: interactions.reposts ?? payload?.repostsCount ?? story.interactions?.reposts ?? story.repostsCount ?? 0,
+                dashes: interactions.dashes ?? payload?.dashesCount ?? story.interactions?.dashes ?? story.dashesCount ?? 0,
+                sends: interactions.sends ?? payload?.sendsCount ?? story.interactions?.sends ?? story.sendsCount ?? 0
+              }
+            }
+          }
+        })
+      );
       return response;
     },
     [applyStoryUpdate]
@@ -3248,7 +3313,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       if (!ensureStoryAuth('Log in to comment on stories?')) return;
       if (!story?.id) return;
       setStoryActionTarget(story);
-      setStoryCommentDraft('');
       setStoryCommentOpen(true);
     },
     [ensureStoryAuth]
@@ -3282,31 +3346,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     },
     [ensureStoryAuth]
   );
-
-  const submitStoryComment = useCallback(async () => {
-    const story = storyActionTarget;
-    const storyId = String(story?.id || '').trim();
-    if (!storyId || storyActionBusy[storyId]) return;
-    const content = String(storyCommentDraft || '').trim();
-    if (!content) {
-      showNotification('warning', 'Stories', 'Comment cannot be empty.');
-      return;
-    }
-    setStoryActionBusy((prev) => ({ ...prev, [storyId]: true }));
-    try {
-      await CommunityService.createPost({
-        content: `${content}\n\nCommented on story by ${resolveStoryAuthorName(story, 'Community member')}.\n${buildStoryUrl(storyId)}`
-      });
-      await engageStoryAndSync(story, 'comment');
-      setStoryCommentOpen(false);
-      setStoryCommentDraft('');
-      showNotification('success', 'Stories', 'Comment shared to your feed.');
-    } catch (error: any) {
-      showNotification('error', 'Stories', error?.message || 'Unable to comment on this story.');
-    } finally {
-      setStoryActionBusy((prev) => ({ ...prev, [storyId]: false }));
-    }
-  }, [buildStoryUrl, engageStoryAndSync, showNotification, storyActionBusy, storyActionTarget, storyCommentDraft]);
 
   const repostStory = useCallback(
     async (comment?: string) => {
@@ -3384,6 +3423,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     [activeStory?.id, stories, openStory]
   );
 
+  const advanceActiveStory = useCallback(() => {
+    if (!activeStory?.id) return;
+    if (hasNextStory) {
+      void goToStoryByOffset(1);
+      return;
+    }
+    setActiveStory(null);
+  }, [activeStory?.id, goToStoryByOffset, hasNextStory]);
+
   const onStoryGestureStart = useCallback((event: React.TouchEvent<HTMLElement>) => {
     const target = event.target as HTMLElement | null;
     if (target?.closest('button, a, input, textarea, select, label')) {
@@ -3458,6 +3506,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activeStory?.id, goToStoryByOffset]);
+
+  useEffect(() => {
+    if (storyAutoAdvanceTimerRef.current) {
+      window.clearTimeout(storyAutoAdvanceTimerRef.current);
+      storyAutoAdvanceTimerRef.current = null;
+    }
+    if (!activeStory?.id) return;
+    const delay = resolveStoryAutoAdvanceDelay(activeStory);
+    storyAutoAdvanceTimerRef.current = window.setTimeout(() => {
+      advanceActiveStory();
+    }, delay);
+    return () => {
+      if (storyAutoAdvanceTimerRef.current) {
+        window.clearTimeout(storyAutoAdvanceTimerRef.current);
+        storyAutoAdvanceTimerRef.current = null;
+      }
+    };
+  }, [activeStory?.commentsCount, activeStory?.createdAt, activeStory?.id, activeStory?.media?.duration, advanceActiveStory]);
 
   const activeStoryShareUrl = storyActionTarget?.id
     ? buildStoryUrl(String(storyActionTarget.id))
@@ -4706,8 +4772,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           String(topPost.content || 'Posts and community updates stay live and accessible directly from member home.').trim(),
         meta: `${feedItems.length} posts loaded`,
         badge: 'Fresh',
-        ctaLabel: 'Open feed',
-        onClick: focusFeedSection,
+        ctaLabel: 'Open post',
+        onClick: () => openPostCard(topPost),
         mediaUrl: resolveHighlightPostMedia(topPost),
         videoUrl: resolveHighlightPostVideo(topPost),
         posterUrl: resolveHighlightPostPoster(topPost),
@@ -4726,10 +4792,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     discoveryAd,
     feedItems,
     featuredSeries,
-    focusFeedSection,
     gigs,
     handleSidebarAdClick,
     jobs,
+    openPostCard,
     officeHours,
     openInsightsSection,
     profiles,
@@ -7488,18 +7554,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 }
                 if (media.src) {
                   return media.kind === 'video' ? (
-                    <InlineAutoplayVideo
-                      key={String(activeStory?.id || media.src)}
-                      src={media.src}
-                      poster={media.poster}
-                      className="h-full w-full object-cover bg-black"
-                      containerClassName="h-full w-full"
-                      controls={false}
-                      loop
-                      preload="metadata"
-                      autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
-                      showMuteToggle={false}
-                    />
+                     <InlineAutoplayVideo
+                       key={String(activeStory?.id || media.src)}
+                       src={media.src}
+                       poster={media.poster}
+                       className="h-full w-full object-cover bg-black"
+                       containerClassName="h-full w-full"
+                       controls={false}
+                       loop={false}
+                       preload="metadata"
+                       autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                       onEnded={advanceActiveStory}
+                       showMuteToggle={false}
+                     />
                   ) : (
                     <img src={media.src} alt="Story" className="h-full w-full object-cover" />
                   );

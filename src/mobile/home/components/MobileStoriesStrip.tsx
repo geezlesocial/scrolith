@@ -51,6 +51,9 @@ type StoryVisibility = 'public' | 'private';
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const STORY_CONTROL_HIDE_DELAY_MS = 20000;
+const STORY_AUTO_ADVANCE_MS = 5500;
+const STORY_VIDEO_FALLBACK_ADVANCE_MS = 9000;
+const STORY_AUTO_ADVANCE_MAX_MS = 30000;
 const RAIL_TAP_MAX_TRAVEL = 72;
 const RAIL_ACTION_DEDUPE_MS = 260;
 
@@ -88,6 +91,15 @@ const resolveStoryMediaUrl = (story: any) => {
     url: media.src || null,
     thumbnailUrl: media.poster || null
   };
+};
+
+const resolveStoryAutoAdvanceDelay = (story: any) => {
+  if (resolveStoryType(story) !== 'video') return STORY_AUTO_ADVANCE_MS;
+  const durationSeconds = Number(story?.media?.duration ?? story?.duration ?? story?.mediaDuration ?? 0);
+  if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
+    return Math.max(4000, Math.min(STORY_AUTO_ADVANCE_MAX_MS, Math.round(durationSeconds * 1000 + 350)));
+  }
+  return STORY_VIDEO_FALLBACK_ADVANCE_MS;
 };
 
 const resolveStoryAuthorName = (story: any, fallback = 'Story') => {
@@ -646,6 +658,18 @@ export default function MobileStoriesStrip({
       })
     );
     setActiveStory((current) => (String(current?.id) === String(storyId) ? { ...current, ...patch } : current));
+    setStoryActionTarget((current) =>
+      String(current?.id) === String(storyId)
+        ? {
+            ...current,
+            ...patch,
+            interactions: {
+              ...(current?.interactions || {}),
+              ...(patch?.interactions || {})
+            }
+          }
+        : current
+    );
   };
 
   const engageStoryAndSync = async (story: any, type: 'comment' | 'repost' | 'dash' | 'send') => {
@@ -2065,6 +2089,7 @@ function StoryViewer({
   const [overlayVisible, setOverlayVisible] = useState(true);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const overlayHideTimerRef = useRef<number | null>(null);
+  const autoAdvanceTimerRef = useRef<number | null>(null);
   const lastTapAtRef = useRef(0);
 
   const name = resolveStoryAuthorName(story, 'Story');
@@ -2121,6 +2146,24 @@ function StoryViewer({
     };
   }, [story?.id, overlayVisible, touchOverlayMode]);
 
+  useEffect(() => {
+    if (autoAdvanceTimerRef.current) {
+      window.clearTimeout(autoAdvanceTimerRef.current);
+      autoAdvanceTimerRef.current = null;
+    }
+    if (!story?.id) return;
+    const delay = resolveStoryAutoAdvanceDelay(story);
+    autoAdvanceTimerRef.current = window.setTimeout(() => {
+      advanceStory();
+    }, delay);
+    return () => {
+      if (autoAdvanceTimerRef.current) {
+        window.clearTimeout(autoAdvanceTimerRef.current);
+        autoAdvanceTimerRef.current = null;
+      }
+    };
+  }, [advanceStory, story?.commentsCount, story?.createdAt, story?.id, story?.media?.duration]);
+
   const revealOverlay = () => {
     if (!touchOverlayMode) return;
     setOverlayVisible(true);
@@ -2132,6 +2175,14 @@ function StoryViewer({
     if (!next) return;
     onNavigate(next);
   };
+
+  const advanceStory = useCallback(() => {
+    if (hasNext) {
+      goToOffset(1);
+      return;
+    }
+    onClose();
+  }, [goToOffset, hasNext, onClose]);
 
   const handleDownload = async () => {
     if (!media.url) {
@@ -2367,11 +2418,12 @@ function StoryViewer({
                 className="h-full w-full object-cover"
                 containerClassName="h-full w-full"
                 controls={false}
-                loop
+                loop={false}
                 preload="metadata"
                 autoplayEnabled={autoplayEnabled}
                 muted={muted}
                 onMutedChange={setMuted}
+                onEnded={advanceStory}
                 showMuteToggle={false}
               />
             ) : (
