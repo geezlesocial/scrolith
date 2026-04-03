@@ -340,18 +340,13 @@ const MobileHome = () => {
   const headerQuickMenuEnabled = layout.header?.quickMenuEnabled !== false;
 
   useEffect(() => {
-    if (!isMobileOverlayTab(routeTab)) return;
-    setActivePanelTab(routeTab);
-    if (location.pathname !== '/m/home') {
-      navigate(
-        {
-          pathname: '/m/home',
-          search: location.search
-        },
-        { replace: true }
-      );
-    }
-  }, [location.pathname, location.search, navigate, routeTab]);
+    setActivePanelTab(isMobileOverlayTab(routeTab) ? routeTab : null);
+  }, [routeTab]);
+
+  useEffect(() => {
+    if (activePanelTab !== 'notifications') return;
+    void refreshNotifications?.({ force: true }).catch(() => {});
+  }, [activePanelTab, refreshNotifications]);
 
   const clearShellLayers = useCallback(() => {
     setSearchOpen(false);
@@ -372,14 +367,13 @@ const MobileHome = () => {
         scrollOverlay.key
       }`;
     }
-    if (activePanelTab) return `panel:${activePanelTab}`;
     if (searchOpen) return 'search';
     if (messagesOpen) return 'messages';
     if (quickMenuOpen) return 'quick-menu';
     if (profileOpen) return 'profile';
     if (currencyOpen) return 'currency';
     return null;
-  }, [activePanelTab, currencyOpen, messagesOpen, profileOpen, quickMenuOpen, scrollOverlay, searchOpen]);
+  }, [currencyOpen, messagesOpen, profileOpen, quickMenuOpen, scrollOverlay, searchOpen]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -463,8 +457,9 @@ const MobileHome = () => {
       flushSync(() => {
         setActivePanelTab(tab);
       });
-      if (location.pathname !== '/m/home') {
-        navigate('/m/home', { replace: true });
+      const nextPath = `/m/${tab}`;
+      if (location.pathname !== nextPath) {
+        navigate(nextPath);
       }
     },
     [dismissShellLayers, location.pathname, navigate]
@@ -502,6 +497,10 @@ const MobileHome = () => {
       setScrollOverlay(null);
       setActivePanelTab(tab);
     });
+    const nextPath = `/m/${tab}`;
+    if (location.pathname !== nextPath) {
+      navigate(nextPath);
+    }
   }, [activeTab, location.pathname, navigate, refreshMessages]);
 
   const activeRoleOverride = useMemo(() => {
@@ -623,12 +622,12 @@ const MobileHome = () => {
   );
   const closeActivePanel = useMemo(
     () => () => {
-      closeTopShellLayer();
+      dismissShellLayers();
       if (location.pathname !== '/m/home') {
         navigate('/m/home', { replace: true });
       }
     },
-    [closeTopShellLayer, location.pathname, navigate]
+    [dismissShellLayers, location.pathname, navigate]
   );
   const renderOverlayPanel = () => {
     if (!activePanelTab) return null;
