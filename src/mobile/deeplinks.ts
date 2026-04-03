@@ -1,5 +1,7 @@
 import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
+import { trackMobileRuntimeEvent } from './mobileTelemetry';
+import { extractPathFromAppUrl } from './runtime/deepLinkUtils';
 
 const CUSTOM_SCHEME = 'scrolith';
 
@@ -13,30 +15,7 @@ const getAllowedHosts = () => {
 };
 
 export const extractPathFromUrl = (url: string): string | null => {
-  try {
-    const raw = String(url || '').trim();
-    if (!raw) return null;
-
-    // Custom scheme: scrolith://<path>  (case-insensitive)
-    // We intentionally treat everything after `://` as the web path so
-    // `scrolith://freelancer/dashboard` becomes `/freelancer/dashboard`.
-    const schemeIndex = raw.indexOf('://');
-    if (schemeIndex > 0) {
-      const scheme = raw.slice(0, schemeIndex).toLowerCase();
-      const rest = raw.slice(schemeIndex + 3);
-      if (scheme === CUSTOM_SCHEME) {
-        const normalized = rest.replace(/^\/+/, '');
-        return `/${normalized}`;
-      }
-    }
-
-    const parsed = new URL(raw);
-    const allowedHosts = getAllowedHosts();
-    if (!allowedHosts.has(parsed.hostname.toLowerCase())) return null;
-    return `${parsed.pathname}${parsed.search || ''}`;
-  } catch {
-    return null;
-  }
+  return extractPathFromAppUrl(url, getAllowedHosts(), CUSTOM_SCHEME);
 };
 
 export const registerDeepLinks = (navigate: (path: string) => void) => {
@@ -45,8 +24,24 @@ export const registerDeepLinks = (navigate: (path: string) => void) => {
   let disposed = false;
   const handleUrl = (url?: string | null) => {
     if (disposed) return;
-    const path = extractPathFromUrl(url || '');
-    if (path) navigate(path);
+    const rawUrl = String(url || '').trim();
+    const path = extractPathFromUrl(rawUrl);
+    if (!path) {
+      if (rawUrl) {
+        void trackMobileRuntimeEvent(
+          'deep_link_invalid',
+          { url: rawUrl },
+          { dedupeMs: 10_000, sourcePath: '/mobile/deeplinks' }
+        );
+      }
+      return;
+    }
+    void trackMobileRuntimeEvent(
+      'deep_link_opened',
+      { url: rawUrl, path },
+      { dedupeMs: 3_000, sourcePath: path }
+    );
+    navigate(path);
   };
 
   void App.getLaunchUrl()

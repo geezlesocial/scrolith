@@ -9,7 +9,17 @@ export type AppDistributionEvent =
   | 'prompt_suppressed'
   | 'campaign_opened'
   | 'push_registration_error'
-  | 'push_token_registered';
+  | 'push_token_registered'
+  | 'mobile_runtime_error'
+  | 'chunk_load_recovery'
+  | 'route_sync_recovery'
+  | 'deep_link_opened'
+  | 'deep_link_invalid'
+  | 'push_permission_denied'
+  | 'push_notification_received'
+  | 'push_notification_opened'
+  | 'socket_connect_error'
+  | 'socket_reconnected';
 
 export type AppDistributionConfig = {
   enabled: boolean;

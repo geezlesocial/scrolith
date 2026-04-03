@@ -5,6 +5,7 @@ import { useUser } from './UserContext'
 import { socketService } from '../utils/socket'
 import { tokenStore } from '../services/tokenStore'
 import { getBackendOrigin } from '../utils/apiBase'
+import { trackMobileRuntimeEvent } from '../mobile/mobileTelemetry'
 import { App } from '@capacitor/app'
 import { Capacitor } from '@capacitor/core'
 import type { PluginListenerHandle } from '@capacitor/core'
@@ -39,6 +40,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isConnected, setIsConnected] = useState(false)
   const { user, isAuthenticated } = useUser()
   const lastOptionsRef = useRef<any>(null)
+  const hasEverConnectedRef = useRef(false)
+  const pendingReconnectTelemetryRef = useRef(false)
 
   useEffect(() => {
     // Attach community event listeners when socket is available
@@ -241,6 +244,18 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         onConnect: (connectedSocket) => {
           setIsConnected(true)
           setSocket(connectedSocket)
+          if (hasEverConnectedRef.current || pendingReconnectTelemetryRef.current) {
+            void trackMobileRuntimeEvent(
+              'socket_reconnected',
+              {
+                namespace: '/community',
+                userId: user?.id || 'guest'
+              },
+              { dedupeMs: 5_000, sourcePath: '/socket/community' }
+            )
+          }
+          hasEverConnectedRef.current = true
+          pendingReconnectTelemetryRef.current = false
           // Join user-specific rooms only when authenticated
           try {
             if (token && user && user.id) {
@@ -266,6 +281,16 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
             console.error('Socket connect error:', error.message)
           }
           setIsConnected(false)
+          pendingReconnectTelemetryRef.current = true
+          void trackMobileRuntimeEvent(
+            'socket_connect_error',
+            {
+              namespace: '/community',
+              userId: user?.id || 'guest',
+              message: error?.message || 'socket_connect_error'
+            },
+            { dedupeMs: 15_000, sourcePath: '/socket/community' }
+          )
         },
         onError: (error) => {
           if (isSocketTraceEnabled()) {

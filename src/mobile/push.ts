@@ -3,8 +3,9 @@ import { Preferences } from '@capacitor/preferences';
 import { PushNotifications } from '@capacitor/push-notifications';
 import api from '../services/api';
 import { tokenStore } from '../services/tokenStore';
-import { AppDistributionService } from '../services/appDistribution';
+import { type AppDistributionEvent } from '../services/appDistribution';
 import { extractPathFromUrl } from './deeplinks';
+import { trackMobileRuntimeEvent } from './mobileTelemetry';
 
 let initialized = false;
 let listenersAttached = false;
@@ -90,18 +91,13 @@ const registerTokenWithBackend = async (token: string) => {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const reportPushTrackingEvent = async (event: 'push_registration_error' | 'push_token_registered', details: Record<string, any>) => {
-  try {
-    await AppDistributionService.trackEvent({
-      event,
-      platform: Capacitor.getPlatform() as any,
-      deviceCategory: Capacitor.getPlatform() as any,
-      sourcePath: '/mobile/push',
-      details
-    });
-  } catch {
-    // best effort only
-  }
+const reportPushTrackingEvent = async (
+  event: AppDistributionEvent,
+  details: Record<string, any>
+) => {
+  await trackMobileRuntimeEvent(event, details, {
+    sourcePath: '/mobile/push'
+  });
 };
 
 const scheduleNativeRegisterRetry = async (reason: string) => {
@@ -205,6 +201,10 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
 
   PushNotifications.addListener('pushNotificationReceived', (notification) => {
     try {
+      void reportPushTrackingEvent('push_notification_received', {
+        type: notification?.data?.type || notification?.notification?.data?.type || 'system',
+        notificationId: notification?.id || notification?.data?.notificationId || null
+      });
       if (typeof window === 'undefined') return;
       window.dispatchEvent(new CustomEvent('mobile:push-notification-received', {
         detail: buildForegroundPushPayload(notification)
@@ -217,6 +217,10 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
   PushNotifications.addListener('pushNotificationActionPerformed', (event) => {
     const deepLink =
       (event.notification?.data as any)?.deepLink || (event.notification?.data as any)?.deeplink;
+    void reportPushTrackingEvent('push_notification_opened', {
+      notificationId: event.notification?.id || (event.notification?.data as any)?.notificationId || null,
+      path: deepLink || null
+    });
     if (!deepLink || !navigate) return;
     const path = extractPathFromUrl(String(deepLink));
     if (path) navigate(path);
@@ -240,7 +244,12 @@ export const initPushNotifications = async (navigate?: (path: string) => void) =
   }
 
   const perm = await PushNotifications.requestPermissions();
-  if (perm.receive !== 'granted') return;
+  if (perm.receive !== 'granted') {
+    await reportPushTrackingEvent('push_permission_denied', {
+      receive: perm.receive
+    });
+    return;
+  }
 
   await PushNotifications.register();
   initialized = true;

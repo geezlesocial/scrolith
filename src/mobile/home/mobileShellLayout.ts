@@ -1,3 +1,5 @@
+import { shouldUseMobileShellViewportFor } from './mobileShellLayoutUtils';
+
 export const MOBILE_SHELL_BREAKPOINT = 1180;
 
 export const MOBILE_PAGE_CONTAINER_CLASS = 'mx-auto w-full max-w-[980px] px-3 sm:px-4 md:px-5';
@@ -17,5 +19,5 @@ export const MOBILE_STORY_VIEWER_CLASS =
 export const shouldUseMobileShellViewport = () => {
   if (typeof window === 'undefined') return false;
   const hasCoarseTouch = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
-  return window.innerWidth < MOBILE_SHELL_BREAKPOINT || (hasCoarseTouch && window.innerWidth <= 1366);
+  return shouldUseMobileShellViewportFor(window.innerWidth, hasCoarseTouch, MOBILE_SHELL_BREAKPOINT);
 };

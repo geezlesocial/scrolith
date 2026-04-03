@@ -40,6 +40,8 @@ import {
 import { MarketingService } from './services/marketing';
 import { resolveResponsiveAssetUrl } from './utils/assetUrl';
 import { getCanonicalAppOrigin, getCanonicalRedirectUrl } from './utils/siteUrl';
+import { trackMobileRuntimeEvent } from './mobile/mobileTelemetry';
+import { isLikelyChunkLoadError, normalizeRouteHref } from './mobile/runtime/routeRecovery';
 import BrowseTalent from './main/BrowseTalent';
 import BrowseJobs from './main/BrowseJobs';
 import SearchResults from './pages/SearchResults';
@@ -60,43 +62,10 @@ const HISTORY_SYNC_EVENT = 'scrolith:history-sync';
 const CHUNK_RELOAD_GUARD_KEY = 'scrolith:chunk-reload-target';
 const ROUTE_SYNC_RELOAD_GUARD_KEY = 'scrolith:route-sync-reload-target';
 
-const normalizeRouteHref = (value: string) => {
-  const raw = String(value || '').trim();
-  if (!raw) return '';
-  if (raw.startsWith('http://') || raw.startsWith('https://')) {
-    try {
-      const parsed = new URL(raw);
-      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
-    } catch {
-      return raw;
-    }
-  }
-  return raw;
-};
-
 const getCurrentBrowserRoute = () =>
   typeof window === 'undefined'
     ? ''
     : `${window.location.pathname}${window.location.search}${window.location.hash}`;
-
-const isLikelyChunkLoadError = (error: unknown) => {
-  const message = String(
-    (error as { message?: unknown } | null)?.message ||
-      (error as { reason?: { message?: unknown } } | null)?.reason?.message ||
-      error ||
-      ''
-  ).toLowerCase();
-
-  return (
-    message.includes('failed to fetch dynamically imported module') ||
-    message.includes('error loading dynamically imported module') ||
-    message.includes('importing a module script failed') ||
-    message.includes('dynamically imported module') ||
-    message.includes('chunkloaderror') ||
-    message.includes('loading css chunk') ||
-    message.includes('unable to preload css')
-  );
-};
 
 const scheduleChunkRecoveryReload = (targetHref?: string) => {
   if (typeof window === 'undefined') return;
@@ -110,6 +79,14 @@ const scheduleChunkRecoveryReload = (targetHref?: string) => {
   } catch {
     // Ignore session storage failures and still attempt reload.
   }
+
+  void trackMobileRuntimeEvent(
+    'chunk_load_recovery',
+    {
+      targetRoute: nextRoute
+    },
+    { dedupeMs: 10_000, sourcePath: nextRoute }
+  );
 
   window.setTimeout(() => {
     if (window.location.href === window.location.origin) {
@@ -132,6 +109,14 @@ const scheduleRouteSyncReload = (targetHref?: string) => {
   } catch {
     // Ignore session storage failures and still attempt reload.
   }
+
+  void trackMobileRuntimeEvent(
+    'route_sync_recovery',
+    {
+      targetRoute: nextRoute
+    },
+    { dedupeMs: 10_000, sourcePath: nextRoute }
+  );
 
   window.setTimeout(() => {
     const currentBrowserRoute = getCurrentBrowserRoute();
@@ -394,6 +379,19 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBo
   }
 
   componentDidCatch(error: unknown, info: unknown) {
+    void trackMobileRuntimeEvent(
+      'mobile_runtime_error',
+      {
+        message:
+          (error as { message?: string } | null)?.message ||
+          'react_error_boundary',
+        componentStack:
+          (info as { componentStack?: string } | null)?.componentStack || ''
+      },
+      {
+        dedupeMs: 15_000
+      }
+    );
     console.error(error, info);
   }
 
