@@ -296,6 +296,7 @@ type PostDraft = {
   tags: string;
   mentions: string;
   topic: string;
+  region: string;
   location: string;
   visibility: 'public' | 'friends' | 'network' | 'private' | 'custom';
   commentPolicy: 'everyone' | 'followers' | 'following' | 'mutuals' | 'none';
@@ -371,6 +372,7 @@ const createEmptyPostDraft = (): PostDraft => ({
   tags: '',
   mentions: '',
   topic: '',
+  region: '',
   location: '',
   visibility: 'public',
   commentPolicy: 'everyone',
@@ -381,16 +383,108 @@ const createEmptyPostDraft = (): PostDraft => ({
   media: []
 });
 
-const readRenderableText = (value: unknown): string => {
-  if (typeof value === 'string') return value.trim();
-  if (typeof value === 'number') return String(value);
+const stripHtmlToText = (value: string): string =>
+  String(value || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const normalizeCompareText = (value: string): string =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const composePostLocationValue = (location: string, region: string): string => {
+  const nextLocation = String(location || '').trim();
+  const nextRegion = String(region || '').trim();
+  if (!nextLocation) return nextRegion;
+  if (!nextRegion) return nextLocation;
+  const normalizedLocation = normalizeCompareText(nextLocation);
+  const normalizedRegion = normalizeCompareText(nextRegion);
+  if (!normalizedLocation || !normalizedRegion) return nextLocation || nextRegion;
+  if (normalizedLocation.includes(normalizedRegion) || normalizedRegion.includes(normalizedLocation)) {
+    return nextLocation;
+  }
+  return `${nextLocation}, ${nextRegion}`;
+};
+
+const readRenderableText = (value: unknown, seen?: WeakSet<object>): string => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') {
+    const raw = value.trim();
+    if (!raw) return '';
+    if (
+      (raw.startsWith('{') && raw.endsWith('}')) ||
+      (raw.startsWith('[') && raw.endsWith(']'))
+    ) {
+      try {
+        const parsed = JSON.parse(raw);
+        const parsedText = readRenderableText(parsed, seen);
+        if (parsedText) return parsedText;
+      } catch {
+        // Fall through to the raw string.
+      }
+    }
+    const htmlText = stripHtmlToText(raw);
+    return htmlText || raw;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => readRenderableText(entry, seen))
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+  }
   if (value && typeof value === 'object') {
-    const nested =
-      (value as Record<string, unknown>).text ??
-      (value as Record<string, unknown>).content ??
-      (value as Record<string, unknown>).body ??
-      '';
-    return typeof nested === 'string' ? nested.trim() : '';
+    const nextSeen = seen || new WeakSet<object>();
+    if (nextSeen.has(value as object)) return '';
+    nextSeen.add(value as object);
+    const record = value as Record<string, unknown>;
+    const preferredKeys = [
+      'text',
+      'content',
+      'body',
+      'description',
+      'title',
+      'headline',
+      'subject',
+      'caption',
+      'summary',
+      'excerpt',
+      'message',
+      'plainText',
+      'plain_text',
+      'formattedText',
+      'formatted_text',
+      'html',
+      'htmlContent',
+      'html_content',
+      'label',
+      'value',
+      'insert'
+    ];
+    for (const key of preferredKeys) {
+      if (!(key in record)) continue;
+      const nestedText = readRenderableText(record[key], nextSeen);
+      if (nestedText) return nestedText;
+    }
+    const blockText = readRenderableText(record.blocks, nextSeen);
+    if (blockText) return blockText;
+    const deltaText = readRenderableText(record.ops, nextSeen);
+    if (deltaText) return deltaText;
+    return Object.values(record)
+      .map((entry) => readRenderableText(entry, nextSeen))
+      .filter(Boolean)
+      .join(' ')
+      .trim();
   }
   return '';
 };
@@ -1506,7 +1600,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     [desktopPostAuthorOptions, postAuthorScopeId, userPostAuthorOption]
   );
   const activePostBusinessPageId = activePostAuthor.type === 'page' ? activePostAuthor.pageId || null : null;
-  const postLocationSummary = getStructuredLocationLabel(postLocationDetails) || String(postDraft.location || '').trim();
+  const postLocationSummary = composePostLocationValue(
+    getStructuredLocationLabel(postLocationDetails) || String(postDraft.location || '').trim(),
+    postDraft.region
+  );
   const profileViewersTitle = content?.profileViewersTitle || 'Profile viewers';
   const profileViewingTitle = content?.profileViewingTitle || 'Recently viewed';
   const storyPreviewStyle = getStoryTextStyle(storyDraft);
@@ -1828,8 +1925,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               id: post.originalPost.id,
               authorName: post.originalPost.authorName ?? post.originalPost.author_name ?? null,
               authorUsername: post.originalPost.authorUsername ?? post.originalPost.author_username ?? null,
-              title: post.originalPost.title ?? null,
-              content: post.originalPost.content ?? null
+              title: readRenderableText(post.originalPost.title) || null,
+              content: readRenderableText(post.originalPost.content) || null
             }
           : null,
       isPinned: post.isPinned ?? post.is_pinned ?? false,
@@ -2839,13 +2936,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     }
     setPosting(true);
     try {
+      const submitLocation = composePostLocationValue(postDraft.location, postDraft.region);
       const created = await CommunityService.createPost({
         title: postDraft.title.trim(),
         content: postDraft.content,
         attachmentFileIds,
         businessPageId: activePostBusinessPageId || undefined,
         topic: postDraft.topic || undefined,
-        location: postDraft.location || undefined,
+        location: submitLocation || undefined,
         visibility: postDraft.visibility,
         commentPolicy: postDraft.commentPolicy,
         graphicWarning: postDraft.graphicWarning,
@@ -2888,6 +2986,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       tags: (post.tags || []).join(', '),
       mentions: (post.mentions || []).join(', '),
       topic: post.topic || '',
+      region: '',
       location: post.location || '',
       visibility: (post.visibility as PostDraft['visibility']) || 'public',
       commentPolicy,
@@ -4916,52 +5015,91 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             </option>
                           ))}
                         </select>
-                        <input
-                          value={postDraft.topic}
-                          onChange={(event) => setPostDraft((prev) => ({ ...prev, topic: event.target.value }))}
-                          list="member_home_topics"
-                          placeholder="Topic (optional)"
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400"
-                        />
+                        <label className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+                          <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Topic
+                          </span>
+                          <input
+                            value={postDraft.topic}
+                            onChange={(event) => setPostDraft((prev) => ({ ...prev, topic: event.target.value }))}
+                            list="member_home_topics"
+                            placeholder="Topic (optional)"
+                            className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+                          />
+                        </label>
                       </div>
-                      <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-900">Location</p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              {postLocationSummary || 'Use map search or current location to enrich this post.'}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setPostLocationPickerOpen((prev) => !prev)}
-                            className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+                          <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Region
+                          </span>
+                          <select
+                            value={postDraft.region}
+                            onChange={(event) => {
+                              const nextRegion = event.target.value;
+                              setPostDraft((prev) => {
+                                const currentLocation = String(prev.location || '').trim();
+                                const previousRegion = String(prev.region || '').trim();
+                                const nextLocation =
+                                  !currentLocation || currentLocation === previousRegion
+                                    ? nextRegion
+                                    : currentLocation;
+                                return {
+                                  ...prev,
+                                  region: nextRegion,
+                                  location: nextLocation
+                                };
+                              });
+                            }}
+                            className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
                           >
-                            <MapPin className="h-3.5 w-3.5" />
-                            {postLocationPickerOpen ? 'Hide map' : postLocationSummary ? 'Edit with map' : 'Auto-detect with map'}
-                          </button>
-                        </div>
-                        <input
-                          value={postDraft.location}
-                          onChange={(event) => {
-                            const nextValue = event.target.value;
-                            setPostDraft((prev) => ({ ...prev, location: nextValue }));
-                            setPostLocationDetails(null);
-                          }}
-                          list="member_home_locations"
-                          placeholder={user?.location || user?.country || 'Location (optional)'}
-                          className="mt-3 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400"
-                        />
-                        {postLocationPickerOpen ? (
-                          <div className="mt-4">
-                            <LocationPicker
-                              value={postLocationDetails}
-                              onChange={handlePostLocationDetailsChange}
-                              label="Integrated map location"
-                              placeholder="Search city, area, or place"
-                            />
+                            <option value="">Select region (optional)</option>
+                            {regions.map((region) => (
+                              <option key={region} value={region}>
+                                {region}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">Location</p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {postLocationSummary || 'Use map search or current location to enrich this post.'}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setPostLocationPickerOpen((prev) => !prev)}
+                              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+                            >
+                              <MapPin className="h-3.5 w-3.5" />
+                              {postLocationPickerOpen ? 'Hide map' : postLocationSummary ? 'Edit with map' : 'Auto-detect with map'}
+                            </button>
                           </div>
-                        ) : null}
+                          <input
+                            value={postDraft.location}
+                            onChange={(event) => {
+                              const nextValue = event.target.value;
+                              setPostDraft((prev) => ({ ...prev, location: nextValue }));
+                              setPostLocationDetails(null);
+                            }}
+                            list="member_home_locations"
+                            placeholder={user?.location || user?.country || 'Location (optional)'}
+                            className="mt-3 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400"
+                          />
+                          {postLocationPickerOpen ? (
+                            <div className="mt-4">
+                              <LocationPicker
+                                value={postLocationDetails}
+                                onChange={handlePostLocationDetailsChange}
+                                label="Integrated map location"
+                                placeholder="Search city, area, or place"
+                              />
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
                       <OfferTagSelector
                         mode={activePostBusinessPageId ? 'business' : 'user'}
@@ -5045,28 +5183,31 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                   <X className="h-4 w-4" />
                                 </button>
                                 {type === 'video' ? (
-                                  <button
-                                    type="button"
+                                  <div
+                                    role="button"
+                                    tabIndex={0}
                                     onClick={() => setPreviewMedia(toPreviewMedia(media))}
-                                    className="relative block h-48 w-full"
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'Enter' || event.key === ' ') {
+                                        event.preventDefault();
+                                        setPreviewMedia(toPreviewMedia(media));
+                                      }
+                                    }}
+                                    className="relative block h-48 w-full cursor-pointer overflow-hidden"
                                   >
-                                    {media.thumbnailUrl ? (
-                                      <OptimizedImage
-                                        src={media.thumbnailUrl}
-                                        alt={media.name || 'Video preview'}
-                                        width={960}
-                                        height={540}
-                                        sizes="(max-width: 1280px) 100vw, 420px"
-                                        className="h-48 w-full object-cover"
-                                      />
-                                    ) : (
-                                      <div className="flex h-48 w-full items-center justify-center bg-slate-200">
-                                        <Video className="h-8 w-8 text-slate-500" />
-                                      </div>
-                                    )}
-                                    <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                                      <div className="rounded-full bg-white/90 px-3 py-1 text-[11px] font-semibold text-slate-900">
-                                        Play preview
+                                    <InlineAutoplayVideo
+                                      src={media.url}
+                                      poster={media.thumbnailUrl || undefined}
+                                      className="h-48 w-full object-cover"
+                                      controls={false}
+                                      loop
+                                      autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                                      preload="metadata"
+                                      loadingLabel="Video preview loading"
+                                    />
+                                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/70 via-slate-950/10 to-transparent px-4 pb-3 pt-10">
+                                      <div className="inline-flex rounded-full bg-white/90 px-3 py-1 text-[11px] font-semibold text-slate-900 shadow-sm">
+                                        Autoplay preview
                                       </div>
                                     </div>
                                     {durationLabel ? (
@@ -5074,7 +5215,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                         {durationLabel}
                                       </span>
                                     ) : null}
-                                  </button>
+                                  </div>
                                 ) : type === 'image' ? (
                                   <button
                                     type="button"
