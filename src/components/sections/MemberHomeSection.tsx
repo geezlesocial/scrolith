@@ -2098,8 +2098,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         if (feedTopic) payload.topic = feedTopic;
         if (feedRegion) payload.region = feedRegion;
       }
-      const extractFeedItems = (value: any) =>
-        Array.isArray(value?.items) ? value.items : Array.isArray(value) ? value : [];
+      const extractFeedItems = (value: any) => {
+        if (Array.isArray(value?.items)) return value.items;
+        if (Array.isArray(value?.posts)) return value.posts;
+        if (Array.isArray(value?.data?.items)) return value.data.items;
+        if (Array.isArray(value?.data?.posts)) return value.data.posts;
+        if (Array.isArray(value?.data)) return value.data;
+        return Array.isArray(value) ? value : [];
+      };
       const normalizeFeedItems = (sourceItems: any[]) =>
         (Array.isArray(sourceItems) ? sourceItems : [])
           .map((item) => {
@@ -2116,15 +2122,36 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           [...preferred, ...fallback].filter(Boolean) as Array<FeedPost & { id?: string | null }>
         ) as FeedPost[];
       const shouldFetchCommunityBaseline = scope === 'discover' && !feedTopic && !feedRegion;
-      const [feedResult, baselinePostsResult] = await Promise.allSettled([
-        CommunityService.getFeed(payload),
-        shouldFetchCommunityBaseline ? CommunityService.getPosts({ limit: maxFeedItems }) : Promise.resolve([])
-      ]);
+      const applyImmediateFeedSeed = (itemsToSeed: FeedPost[]) => {
+        if (!itemsToSeed.length) return;
+        if (requestId !== feedLoadRequestIdRef.current) return;
+        feedItemsRef.current = itemsToSeed;
+        startTransition(() => {
+          setFeedItems(itemsToSeed);
+          setRenderedFeedItemCount(
+            Math.min(desktopInitialRenderCount, itemsToSeed.length || desktopInitialRenderCount)
+          );
+        });
+      };
+      const feedRequest = CommunityService.getFeed(payload);
+      const baselinePostsRequest = shouldFetchCommunityBaseline
+        ? CommunityService.getPosts({ limit: maxFeedItems })
+        : Promise.resolve([]);
+      const seededBaselineRequest = baselinePostsRequest
+        .then((value) => {
+          const normalizedBaselineItems = normalizeFeedItems(extractFeedItems(value));
+          if (!resolvedMode && normalizedBaselineItems.length > 0 && feedItemsRef.current.length === 0) {
+            applyImmediateFeedSeed(normalizedBaselineItems);
+          }
+          return normalizedBaselineItems;
+        })
+        .catch(() => []);
+      const [feedResult, baselinePostsResult] = await Promise.allSettled([feedRequest, seededBaselineRequest]);
       if (requestId !== feedLoadRequestIdRef.current) return;
       const data = feedResult.status === 'fulfilled' ? feedResult.value : null;
       let items = extractFeedItems(data);
-      const baselineItems =
-        baselinePostsResult.status === 'fulfilled' ? extractFeedItems(baselinePostsResult.value) : [];
+      const normalizedBaselineItems =
+        baselinePostsResult.status === 'fulfilled' ? baselinePostsResult.value : [];
       if (
         scope === 'discover' &&
         resolvedMode &&
@@ -2144,7 +2171,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       }
       if (requestId !== feedLoadRequestIdRef.current) return;
       const normalizedFeedItems = normalizeFeedItems(items);
-      const normalizedBaselineItems = normalizeFeedItems(baselineItems);
       let normalized = normalizedFeedItems;
       if (shouldFetchCommunityBaseline) {
         normalized = resolvedMode
@@ -2179,6 +2205,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         !feedTopic &&
         !feedRegion;
       const effectiveFeedItems = shouldPreserveExistingFeed ? feedItemsRef.current : sorted;
+      feedItemsRef.current = effectiveFeedItems;
       startTransition(() => {
         setFeedItems(effectiveFeedItems);
         setRenderedFeedItemCount(
@@ -3921,7 +3948,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   );
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !feedTabInitializedRef.current) return;
     loadFeed();
   }, [user, feedTab, feedTopic, feedRegion, loadFeed]);
 
@@ -6486,7 +6513,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             </div>
 
             <div className="space-y-4">
-              {feedLoading ? (
+              {feedLoading && feedItems.length === 0 ? (
                 <div className="rounded-3xl border border-white/70 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
                   Loading your feed...
                 </div>

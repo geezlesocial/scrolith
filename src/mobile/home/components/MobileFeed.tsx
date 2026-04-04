@@ -213,6 +213,10 @@ const extractGigsFromPayload = (payload: any): Gig[] => {
 
 const extractFeedItemsFromPayload = (payload: any): any[] => {
   if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.posts)) return payload.posts;
+  if (Array.isArray(payload?.data?.items)) return payload.data.items;
+  if (Array.isArray(payload?.data?.posts)) return payload.data.posts;
+  if (Array.isArray(payload?.data)) return payload.data;
   if (Array.isArray(payload)) return payload;
   return [];
 };
@@ -1070,21 +1074,31 @@ export default function MobileFeed({
       let nextCursor: string | null = null;
       let usedPostsFallback = false;
       if (mode === 'initial') {
-        const [feedResult, fallbackResult] = await Promise.allSettled([
-          withFastFail(
-            CommunityService.getFeed({
-              limit: feedLimit,
-              scope: 'discover'
-            }),
-            constrainedForFeed ? 15000 : 18000,
-            'Feed request timed out. Please retry.'
-          ),
-          withFastFail(
-            CommunityService.getPosts({ limit: feedLimit }),
-            constrainedForFeed ? 12000 : 15000,
-            'Fallback feed request timed out. Please retry.'
-          )
-        ]);
+        const feedRequest = withFastFail(
+          CommunityService.getFeed({
+            limit: feedLimit,
+            scope: 'discover'
+          }),
+          constrainedForFeed ? 15000 : 18000,
+          'Feed request timed out. Please retry.'
+        );
+        const fallbackRequest = withFastFail(
+          CommunityService.getPosts({ limit: feedLimit }),
+          constrainedForFeed ? 12000 : 15000,
+          'Fallback feed request timed out. Please retry.'
+        );
+        const seededFallbackRequest = fallbackRequest.then((value) => {
+          const fallbackItems = extractFeedItemsFromPayload(value);
+          if (fallbackItems.length > 0 && postsRef.current.length === 0) {
+            postsRef.current = fallbackItems;
+            startTransition(() => {
+              setPosts(fallbackItems);
+              setRenderedPostCount(Math.min(initialRenderCount, fallbackItems.length || initialRenderCount));
+            });
+          }
+          return fallbackItems;
+        });
+        const [feedResult, fallbackResult] = await Promise.allSettled([feedRequest, seededFallbackRequest]);
         const feedResponse = feedResult.status === 'fulfilled' ? feedResult.value : null;
         const discoveredPosts = extractFeedItemsFromPayload(feedResponse);
         const fallbackPosts =
