@@ -45,6 +45,7 @@ import StaticPreviewText from '../common/StaticPreviewText';
 import OfferTagSelector from '../commerce/OfferTagSelector';
 import ContentOfferTags from '../commerce/ContentOfferTags';
 import VerifiedBadge from '../common/VerifiedBadge';
+import LocationPicker from '../common/LocationPicker';
 import PostHeader from '../../community/components/PostHeader';
 import PostOptionsButton from '../../community/components/post-options/PostOptionsButton';
 import PostEngagementBar from '../../community/components/PostEngagementBar';
@@ -80,6 +81,7 @@ import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../../c
 import { normalizeContentOfferTags, type OfferTagSelection } from '../../utils/contentOffers';
 import { buildPublicAppUrl } from '../../utils/siteUrl';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../utils/communityEventHighlights';
+import type { StructuredLocationFields } from '../../types';
 
 const RepostModal = React.lazy(() => import('../../community/components/RepostModal'));
 const PostShareModal = React.lazy(() => import('../../community/components/PostShareModal'));
@@ -304,6 +306,18 @@ type PostDraft = {
   media: PostMediaItem[];
 };
 
+type DesktopComposerIntent = 'text' | 'photo' | 'video' | 'article';
+
+type PostAuthorOption = {
+  id: string;
+  type: 'user' | 'page';
+  label: string;
+  subtitle: string;
+  avatarUrl?: string | null;
+  pageId?: string | null;
+  slug?: string | null;
+};
+
 type StoryVisibility = 'public' | 'followers' | 'following' | 'mutuals' | 'network' | 'private' | 'custom';
 
 type StoryDraft = {
@@ -350,6 +364,67 @@ const emptySearchGroups = (): SearchGroupMap => ({
   jobs: [],
   gigs: []
 });
+
+const createEmptyPostDraft = (): PostDraft => ({
+  title: '',
+  content: '',
+  tags: '',
+  mentions: '',
+  topic: '',
+  location: '',
+  visibility: 'public',
+  commentPolicy: 'everyone',
+  graphicWarning: false,
+  isAIEnhanced: false,
+  aiInsightPreference: 'auto',
+  offerTags: [],
+  media: []
+});
+
+const readRenderableText = (value: unknown): string => {
+  if (typeof value === 'string') return value.trim();
+  if (typeof value === 'number') return String(value);
+  if (value && typeof value === 'object') {
+    const nested =
+      (value as Record<string, unknown>).text ??
+      (value as Record<string, unknown>).content ??
+      (value as Record<string, unknown>).body ??
+      '';
+    return typeof nested === 'string' ? nested.trim() : '';
+  }
+  return '';
+};
+
+const getStructuredLocationLabel = (value?: Partial<StructuredLocationFields> | null): string =>
+  readRenderableText(value?.formattedAddress || value?.formatted_address || value?.location);
+
+const normalizeOwnedBusinessPage = (page: any): PostAuthorOption | null => {
+  const pageId = readRenderableText(page?.id || page?._id);
+  const label = readRenderableText(page?.name || page?.title || page?.pageName);
+  if (!pageId || !label) return null;
+  const subtitle =
+    readRenderableText(page?.tagline || page?.headline || page?.industry || page?.category) || 'Post as page';
+  const avatarUrl =
+    readRenderableText(
+      page?.avatarUrl ||
+        page?.avatar ||
+        page?.logoUrl ||
+        page?.logo ||
+        page?.imageUrl ||
+        page?.profileImage ||
+        page?.profile_image
+    ) || null;
+  const slug = readRenderableText(page?.slug || page?.handle) || null;
+  return {
+    id: `page:${pageId}`,
+    type: 'page',
+    label,
+    subtitle,
+    avatarUrl,
+    pageId,
+    slug
+  };
+};
 
 type FeedTab = 'latest' | 'following' | 'trending' | 'for_you' | 'hire' | 'sell' | 'learn' | 'local';
 
@@ -1021,21 +1096,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const storyRecorderRef = useRef<MediaRecorder | null>(null);
   const storyChunksRef = useRef<Blob[]>([]);
   const [storyRecording, setStoryRecording] = useState(false);
-  const [postDraft, setPostDraft] = useState<PostDraft>({
-    title: '',
-    content: '',
-    tags: '',
-    mentions: '',
-    topic: '',
-    location: '',
-    visibility: 'public',
-    commentPolicy: 'everyone',
-    graphicWarning: false,
-    isAIEnhanced: false,
-    aiInsightPreference: 'auto',
-    offerTags: [],
-    media: []
-  });
+  const [postDraft, setPostDraft] = useState<PostDraft>(createEmptyPostDraft);
+  const [desktopComposerOpen, setDesktopComposerOpen] = useState(false);
+  const [desktopComposerIntent, setDesktopComposerIntent] = useState<DesktopComposerIntent>('text');
+  const [postLocationDetails, setPostLocationDetails] = useState<Partial<StructuredLocationFields> | null>(null);
+  const [postLocationPickerOpen, setPostLocationPickerOpen] = useState(false);
+  const [ownedBusinessPages, setOwnedBusinessPages] = useState<PostAuthorOption[]>([]);
+  const [ownedBusinessPagesLoading, setOwnedBusinessPagesLoading] = useState(false);
+  const [postAuthorScopeId, setPostAuthorScopeId] = useState('user');
   const [posting, setPosting] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiRunningMode, setAiRunningMode] = useState<PostEnhanceMode | null>(null);
@@ -1050,6 +1118,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [expandedPost, setExpandedPost] = useState<any | null>(null);
   const postMediaInputRef = useRef<HTMLInputElement | null>(null);
   const postCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const postTitleInputRef = useRef<HTMLInputElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
@@ -1065,6 +1134,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [sliderItems, setSliderItems] = useState<any[]>([]);
   const composerRef = useRef<HTMLDivElement | null>(null);
+  const ownedBusinessPagesLoadedRef = useRef(false);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const sidebarRefreshTimeoutRef = useRef<number | null>(null);
   const adImpressionsRef = useRef<Set<string>>(new Set());
@@ -1414,10 +1484,93 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const userHeadline = user?.title || (user as any)?.headline || (user as any)?.tagline || user?.role || 'Member';
   const userLocation = user?.location || (user as any)?.country || '';
   const composerTitle = content?.composerTitle || 'Share a quick update or idea with your network.';
+  const userPostAuthorOption = useMemo<PostAuthorOption>(
+    () => ({
+      id: 'user',
+      type: 'user',
+      label: String(user?.name || currentUsername || 'You').trim() || 'You',
+      subtitle: userHeadline || 'Post as yourself',
+      avatarUrl: String(user?.avatar || '').trim() || null,
+      pageId: null,
+      slug: null
+    }),
+    [currentUsername, user?.avatar, user?.name, userHeadline]
+  );
+  const desktopPostAuthorOptions = useMemo(
+    () => [userPostAuthorOption, ...ownedBusinessPages],
+    [ownedBusinessPages, userPostAuthorOption]
+  );
+  const activePostAuthor = useMemo(
+    () =>
+      desktopPostAuthorOptions.find((option) => option.id === postAuthorScopeId) || userPostAuthorOption,
+    [desktopPostAuthorOptions, postAuthorScopeId, userPostAuthorOption]
+  );
+  const activePostBusinessPageId = activePostAuthor.type === 'page' ? activePostAuthor.pageId || null : null;
+  const postLocationSummary = getStructuredLocationLabel(postLocationDetails) || String(postDraft.location || '').trim();
   const profileViewersTitle = content?.profileViewersTitle || 'Profile viewers';
   const profileViewingTitle = content?.profileViewingTitle || 'Recently viewed';
   const storyPreviewStyle = getStoryTextStyle(storyDraft);
   const storyEditPreviewStyle = getStoryTextStyle(storyEditDraft);
+
+  useEffect(() => {
+    if (!desktopPostAuthorOptions.some((option) => option.id === postAuthorScopeId)) {
+      setPostAuthorScopeId('user');
+    }
+  }, [desktopPostAuthorOptions, postAuthorScopeId]);
+
+  useEffect(() => {
+    if (!desktopComposerOpen || !user?.id || ownedBusinessPagesLoadedRef.current) return;
+    let active = true;
+    setOwnedBusinessPagesLoading(true);
+    CommunityService.getMyBusinessPages()
+      .then((pages) => {
+        if (!active) return;
+        const normalized = (Array.isArray(pages) ? pages : [])
+          .map(normalizeOwnedBusinessPage)
+          .filter((entry): entry is PostAuthorOption => Boolean(entry));
+        setOwnedBusinessPages(normalized);
+        ownedBusinessPagesLoadedRef.current = true;
+      })
+      .catch((error) => {
+        console.error('Unable to load owned business pages for desktop composer', error);
+        if (!active) return;
+        setOwnedBusinessPages([]);
+        ownedBusinessPagesLoadedRef.current = true;
+      })
+      .finally(() => {
+        if (active) setOwnedBusinessPagesLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [desktopComposerOpen, user?.id]);
+
+  useEffect(() => {
+    if (!desktopComposerOpen) return;
+    const timer = window.setTimeout(() => {
+      if (desktopComposerIntent === 'article') {
+        postTitleInputRef.current?.focus();
+      } else {
+        composerInputRef.current?.focus();
+      }
+      if (desktopComposerIntent === 'photo' || desktopComposerIntent === 'video') {
+        postMediaInputRef.current?.click();
+      }
+    }, 140);
+    return () => window.clearTimeout(timer);
+  }, [desktopComposerIntent, desktopComposerOpen]);
+
+  useEffect(() => {
+    if (!desktopComposerOpen) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setDesktopComposerOpen(false);
+      setPostLocationPickerOpen(false);
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [desktopComposerOpen]);
   const filterActiveStories = useCallback((items: any[]) => items.filter(isStoryActive), []);
   const canManageStory = useCallback((story: any) => {
     if (!user) return false;
@@ -1611,15 +1764,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     return {
       id: post.id || `${authorId}-${Date.now()}`,
       title:
-        post.title ??
-        post.headline ??
-        post.subject ??
+        readRenderableText(post.title) ||
+        readRenderableText(post.headline) ||
+        readRenderableText(post.subject) ||
         null,
       content:
-        post.content ??
-        post.body ??
-        post.text ??
-        post.description ??
+        readRenderableText(post.content) ||
+        readRenderableText(post.body) ||
+        readRenderableText(post.text) ||
+        readRenderableText(post.description) ||
         '',
       attachmentFileIds: Array.isArray(post.attachmentFileIds)
         ? post.attachmentFileIds
@@ -2690,6 +2843,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         title: postDraft.title.trim(),
         content: postDraft.content,
         attachmentFileIds,
+        businessPageId: activePostBusinessPageId || undefined,
         topic: postDraft.topic || undefined,
         location: postDraft.location || undefined,
         visibility: postDraft.visibility,
@@ -2699,21 +2853,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         aiInsightEnabled: postAiInsightPreferenceToBoolean(postDraft.aiInsightPreference),
         offerTags: postDraft.offerTags
       });
-      setPostDraft({
-        title: '',
-        content: '',
-        tags: '',
-        mentions: '',
-        topic: '',
-        location: '',
-        visibility: 'public',
-        commentPolicy: 'everyone',
-        graphicWarning: false,
-        isAIEnhanced: false,
-        aiInsightPreference: 'auto',
-        offerTags: [],
-        media: []
-      });
+      setPostDraft(createEmptyPostDraft());
+      setPostLocationDetails(null);
+      setPostLocationPickerOpen(false);
+      setDesktopComposerOpen(false);
       if (created) {
         const normalized = normalizePost(created);
         setFeedItems((prev) => [normalized, ...prev.filter((item) => String(item.id) !== String(normalized.id))]);
@@ -2731,7 +2874,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     } finally {
       setPosting(false);
     }
-  }, [normalizePost, postDraft, showNotification, user]);
+  }, [activePostBusinessPageId, normalizePost, postDraft, showNotification, user]);
 
   const beginEditPost = useCallback((post: FeedPost) => {
     const policyValue = String(post.commentPolicy || 'everyone').toLowerCase();
@@ -4545,11 +4688,534 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     );
   };
 
+  const openDesktopComposer = useCallback(
+    (intent: DesktopComposerIntent = 'text') => {
+      if (!showComposer) return;
+      composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setDesktopComposerIntent(intent);
+      setDesktopComposerOpen(true);
+    },
+    [showComposer]
+  );
+
+  const closeDesktopComposer = useCallback(() => {
+    setDesktopComposerOpen(false);
+    setPostLocationPickerOpen(false);
+  }, []);
+
   const focusComposer = useCallback(() => {
-    if (!showComposer) return;
-    composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    window.setTimeout(() => composerInputRef.current?.focus(), 250);
-  }, [showComposer]);
+    openDesktopComposer('text');
+  }, [openDesktopComposer]);
+
+  const handlePostAuthorScopeChange = useCallback((nextValue: string) => {
+    setPostAuthorScopeId(nextValue);
+    setPostDraft((prev) => (prev.offerTags.length ? { ...prev, offerTags: [] } : prev));
+  }, []);
+
+  const handlePostLocationDetailsChange = useCallback((nextValue: Partial<StructuredLocationFields>) => {
+    setPostLocationDetails((prev) => {
+      const merged = { ...(prev || {}), ...(nextValue || {}) };
+      const nextLabel = getStructuredLocationLabel(merged);
+      setPostDraft((current) => ({
+        ...current,
+        location: nextLabel || String(current.location || '').trim()
+      }));
+      return merged;
+    });
+  }, []);
+
+  const renderDesktopComposer = useCallback(() => {
+    if (!showComposer) return null;
+
+    return (
+      <>
+        <div
+          ref={composerRef}
+          className="mt-4 rounded-[32px] border border-slate-200/90 bg-white p-5 shadow-[0_24px_48px_-36px_rgba(15,23,42,0.36)]"
+        >
+          <div className="flex items-center gap-4">
+            <div className="h-12 w-12 overflow-hidden rounded-2xl bg-slate-100 shadow-sm">
+              {user?.avatar ? (
+                <img src={user.avatar} alt={user.name || 'User'} className="h-full w-full object-cover" />
+              ) : (
+                <Users className="mx-auto mt-3.5 h-5 w-5 text-slate-400" />
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => openDesktopComposer('text')}
+              className="flex-1 rounded-full border border-slate-200 bg-white px-5 py-3 text-left text-base text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
+            >
+              Start a post
+            </button>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            <button
+              type="button"
+              onClick={() => openDesktopComposer('video')}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+            >
+              <Video className="h-4 w-4 text-emerald-600" />
+              Video
+            </button>
+            <button
+              type="button"
+              onClick={() => openDesktopComposer('photo')}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+            >
+              <ImageIcon className="h-4 w-4 text-sky-600" />
+              Photo
+            </button>
+            <button
+              type="button"
+              onClick={() => openDesktopComposer('article')}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+            >
+              <FileText className="h-4 w-4 text-amber-600" />
+              Write article
+            </button>
+          </div>
+        </div>
+
+        {desktopComposerOpen ? (
+          <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/45 p-6">
+            <button
+              type="button"
+              aria-label="Close create post dialog"
+              className="absolute inset-0"
+              onClick={closeDesktopComposer}
+            />
+            <div className="relative z-[1] flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-[34px] border border-white/80 bg-white shadow-[0_32px_96px_-34px_rgba(15,23,42,0.55)]">
+              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+                <div className="flex min-w-0 items-center gap-4">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-slate-100 shadow-sm">
+                    {activePostAuthor.avatarUrl ? (
+                      <img
+                        src={activePostAuthor.avatarUrl}
+                        alt={activePostAuthor.label}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <Users className="h-5 w-5 text-slate-400" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      Posting as
+                    </p>
+                    <p className="truncate text-xl font-semibold text-slate-950">{activePostAuthor.label}</p>
+                    <p className="truncate text-sm text-slate-500">
+                      {activePostAuthor.subtitle} - {composerTitle}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex min-w-[240px] items-start gap-3">
+                  <label className="flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 shadow-sm">
+                    <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      Post from
+                    </span>
+                    <select
+                      value={postAuthorScopeId}
+                      onChange={(event) => handlePostAuthorScopeChange(event.target.value)}
+                      className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+                    >
+                      {desktopPostAuthorOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                          {option.type === 'page' ? ' - Page' : ' - Personal'}
+                        </option>
+                      ))}
+                    </select>
+                    {ownedBusinessPagesLoading ? (
+                      <span className="mt-2 block text-[11px] text-slate-500">Loading your pages...</span>
+                    ) : null}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={closeDesktopComposer}
+                    className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
+                    aria-label="Close create post dialog"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 py-6">
+                <div className="mx-auto max-w-4xl space-y-5">
+                  <div className="rounded-[28px] border border-slate-200 bg-slate-50/85 p-4">
+                    <MentionHashtagTextarea
+                      ref={composerInputRef}
+                      value={postDraft.content}
+                      onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, content: nextValue }))}
+                      placeholder="What do you want to talk about?"
+                      mentionsEnabled={mentionsEnabled}
+                      hashtagsEnabled={hashtagsEnabled}
+                      className="min-h-[180px] w-full resize-none rounded-[24px] border border-slate-200 bg-white p-4 text-[15px] leading-7 text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+                    />
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {postAiActions.map((action) => (
+                        <button
+                          key={action.mode}
+                          type="button"
+                          onClick={() => void runPostAi(action.mode)}
+                          disabled={aiLoading || posting}
+                          className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <Sparkles className="h-3.5 w-3.5" />
+                          {aiRunningMode === action.mode && aiLoading ? 'Working...' : action.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-[11px] text-slate-500">
+                      {hashtagsEnabled ? '#tags' : '#tags (disabled by admin)'} and{' '}
+                      {mentionsEnabled ? '@mentions' : '@mentions (disabled by admin)'} supported. AI suggestions never publish without your approval.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+                    <div className="space-y-4">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <input
+                          ref={postTitleInputRef}
+                          value={postDraft.title}
+                          onChange={(event) => setPostDraft((prev) => ({ ...prev, title: event.target.value }))}
+                          placeholder="Post title (optional)"
+                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400"
+                        />
+                        <select
+                          value={postDraft.visibility}
+                          onChange={(event) =>
+                            setPostDraft((prev) => ({
+                              ...prev,
+                              visibility: event.target.value as PostDraft['visibility']
+                            }))
+                          }
+                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400"
+                        >
+                          <option value="public">Public</option>
+                          <option value="network">Network</option>
+                          <option value="friends">Friends</option>
+                          <option value="private">Private</option>
+                        </select>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <select
+                          value={postDraft.commentPolicy}
+                          onChange={(event) =>
+                            setPostDraft((prev) => ({
+                              ...prev,
+                              commentPolicy: event.target.value as PostDraft['commentPolicy']
+                            }))
+                          }
+                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400"
+                        >
+                          {commentPolicyOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          value={postDraft.topic}
+                          onChange={(event) => setPostDraft((prev) => ({ ...prev, topic: event.target.value }))}
+                          list="member_home_topics"
+                          placeholder="Topic (optional)"
+                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400"
+                        />
+                      </div>
+                      <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">Location</p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {postLocationSummary || 'Use map search or current location to enrich this post.'}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setPostLocationPickerOpen((prev) => !prev)}
+                            className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+                          >
+                            <MapPin className="h-3.5 w-3.5" />
+                            {postLocationPickerOpen ? 'Hide map' : postLocationSummary ? 'Edit with map' : 'Auto-detect with map'}
+                          </button>
+                        </div>
+                        <input
+                          value={postDraft.location}
+                          onChange={(event) => {
+                            const nextValue = event.target.value;
+                            setPostDraft((prev) => ({ ...prev, location: nextValue }));
+                            setPostLocationDetails(null);
+                          }}
+                          list="member_home_locations"
+                          placeholder={user?.location || user?.country || 'Location (optional)'}
+                          className="mt-3 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400"
+                        />
+                        {postLocationPickerOpen ? (
+                          <div className="mt-4">
+                            <LocationPicker
+                              value={postLocationDetails}
+                              onChange={handlePostLocationDetailsChange}
+                              label="Integrated map location"
+                              placeholder="Search city, area, or place"
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                      <OfferTagSelector
+                        mode={activePostBusinessPageId ? 'business' : 'user'}
+                        ownerUserId={activePostBusinessPageId ? undefined : user?.id}
+                        businessPageId={activePostBusinessPageId}
+                        value={postDraft.offerTags}
+                        onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, offerTags: nextValue }))}
+                        label={activePostBusinessPageId ? 'Tag page offers' : 'Tag storefront offers'}
+                        helperText={
+                          activePostBusinessPageId
+                            ? "Attach this page's offers so viewers can open the page storefront or start a brief without leaving the post."
+                            : 'Attach relevant services so viewers can open your storefront, message you, or start a brief without leaving the post.'
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="grid gap-3">
+                        <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm">
+                          <input
+                            type="checkbox"
+                            checked={postDraft.graphicWarning}
+                            onChange={(event) =>
+                              setPostDraft((prev) => ({ ...prev, graphicWarning: event.target.checked }))
+                            }
+                          />
+                          <span className="inline-flex items-center gap-2">
+                            <AlertTriangle className="h-4 w-4 text-amber-600" />
+                            {GRAPHIC_WARNING_LABEL}
+                          </span>
+                        </label>
+                        <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm">
+                          <input
+                            type="checkbox"
+                            checked={postDraft.isAIEnhanced}
+                            onChange={(event) =>
+                              setPostDraft((prev) => ({ ...prev, isAIEnhanced: event.target.checked }))
+                            }
+                          />
+                          <span className="inline-flex items-center gap-2">
+                            <Sparkles className="h-4 w-4 text-emerald-600" />
+                            Mark as AI-enhanced
+                          </span>
+                        </label>
+                        <label className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+                          <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Scrolitha AI insight
+                          </span>
+                          <select
+                            value={postDraft.aiInsightPreference}
+                            onChange={(event) =>
+                              setPostDraft((prev) => ({
+                                ...prev,
+                                aiInsightPreference: resolvePostAiInsightPreference(event.target.value, 'auto')
+                              }))
+                            }
+                            className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+                          >
+                            <option value="auto">Automatic</option>
+                            <option value="on">Generate for this post</option>
+                            <option value="off">Do not generate</option>
+                          </select>
+                        </label>
+                      </div>
+
+                      {postDraft.media.length > 0 ? (
+                        <div className="grid gap-3">
+                          {postDraft.media.map((media) => {
+                            const type = media.type || inferMediaType(media);
+                            const durationLabel = formatMediaDuration(media.duration);
+                            return (
+                              <div
+                                key={media.localId}
+                                className="relative overflow-hidden rounded-[24px] border border-slate-200 bg-slate-50"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => handlePostMediaRemove(media.localId)}
+                                  className="absolute right-3 top-3 z-10 rounded-full bg-white/90 p-1.5 text-slate-500 shadow-sm hover:text-slate-700"
+                                >
+                                  <X className="h-4 w-4" />
+                                </button>
+                                {type === 'video' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewMedia(toPreviewMedia(media))}
+                                    className="relative block h-48 w-full"
+                                  >
+                                    {media.thumbnailUrl ? (
+                                      <OptimizedImage
+                                        src={media.thumbnailUrl}
+                                        alt={media.name || 'Video preview'}
+                                        width={960}
+                                        height={540}
+                                        sizes="(max-width: 1280px) 100vw, 420px"
+                                        className="h-48 w-full object-cover"
+                                      />
+                                    ) : (
+                                      <div className="flex h-48 w-full items-center justify-center bg-slate-200">
+                                        <Video className="h-8 w-8 text-slate-500" />
+                                      </div>
+                                    )}
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                                      <div className="rounded-full bg-white/90 px-3 py-1 text-[11px] font-semibold text-slate-900">
+                                        Play preview
+                                      </div>
+                                    </div>
+                                    {durationLabel ? (
+                                      <span className="absolute bottom-3 right-3 rounded bg-black/75 px-2 py-1 text-[10px] font-semibold text-white">
+                                        {durationLabel}
+                                      </span>
+                                    ) : null}
+                                  </button>
+                                ) : type === 'image' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewMedia(toPreviewMedia(media))}
+                                    className="block h-48 w-full"
+                                  >
+                                    <OptimizedImage
+                                      src={media.thumbnailUrl || media.url}
+                                      fallbackSrc={media.url}
+                                      alt={media.name || 'Post media'}
+                                      width={960}
+                                      height={540}
+                                      sizes="(max-width: 1280px) 100vw, 420px"
+                                      className="h-48 w-full object-cover"
+                                      loading="lazy"
+                                      decoding="async"
+                                    />
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewMedia(toPreviewMedia(media))}
+                                    className="flex h-40 w-full flex-col items-center justify-center p-4 text-xs text-slate-500"
+                                  >
+                                    <FileText className="mb-2 h-6 w-6 text-slate-400" />
+                                    {media.name || 'Attachment'}
+                                  </button>
+                                )}
+                                {media.uploading ? (
+                                  <div className="absolute inset-0 flex items-center justify-center bg-white/75 text-xs font-semibold text-slate-600">
+                                    Uploading {media.progress ?? 0}%
+                                  </div>
+                                ) : null}
+                                {media.error ? (
+                                  <div className="absolute inset-x-0 bottom-0 bg-red-50 px-3 py-2 text-[10px] text-red-600">
+                                    {media.error}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50/80 p-6 text-center text-sm text-slate-500">
+                          Add media to make your post richer across desktop and mobile.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <datalist id="member_home_topics">
+                    {topics.slice(0, 500).map((topic) => (
+                      <option key={topic} value={topic} />
+                    ))}
+                  </datalist>
+                  <datalist id="member_home_locations">
+                    {regions.slice(0, 500).map((region) => (
+                      <option key={region} value={region} />
+                    ))}
+                  </datalist>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-200 bg-white/95 px-6 py-4">
+                <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => postMediaInputRef.current?.click()}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+                    >
+                      <Video className="h-4 w-4" />
+                      From device
+                    </button>
+                    <button
+                      type="button"
+                      onClick={startCamera}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+                    >
+                      <Camera className="h-4 w-4" />
+                      Camera
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={closeDesktopComposer}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handlePostSubmit}
+                      disabled={posting || postDraft.media.some((item) => item.uploading)}
+                      className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-white shadow-sm disabled:opacity-60"
+                    >
+                      {posting ? 'Posting...' : 'Post update'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </>
+    );
+  }, [
+    activePostAuthor,
+    activePostBusinessPageId,
+    aiLoading,
+    aiRunningMode,
+    closeDesktopComposer,
+    composerTitle,
+    desktopComposerOpen,
+    desktopPostAuthorOptions,
+    handlePostAuthorScopeChange,
+    handlePostLocationDetailsChange,
+    handlePostMediaRemove,
+    hashtagsEnabled,
+    mentionsEnabled,
+    openDesktopComposer,
+    ownedBusinessPagesLoading,
+    postAuthorScopeId,
+    postDraft,
+    postLocationDetails,
+    postLocationPickerOpen,
+    postLocationSummary,
+    posting,
+    postAiActions,
+    regions,
+    runPostAi,
+    showComposer,
+    startCamera,
+    topics,
+    user?.avatar,
+    user?.country,
+    user?.id,
+    user?.location,
+    user?.name
+  ]);
 
   const routeToAuth = useCallback(
     (mode: 'login' | 'signup', action: 'project_brief' | 'gig_creation') => {
@@ -5592,281 +6258,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   )}
                 </div>
               )}
-              {showComposer && (
-                <div ref={composerRef} className="mt-4 rounded-3xl border border-slate-200 bg-white p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="h-11 w-11 rounded-2xl bg-slate-100 overflow-hidden">
-                      {user?.avatar ? (
-                        <img src={user.avatar} alt={user.name || 'User'} className="h-full w-full object-cover" />
-                      ) : (
-                        <Users className="mx-auto mt-3 h-5 w-5 text-slate-400" />
-                      )}
-                    </div>
-                    <div className="flex-1 space-y-3">
-                      <p className="text-sm text-slate-600">{composerTitle}</p>
-                      <MentionHashtagTextarea
-                        ref={composerInputRef}
-                        value={postDraft.content}
-                        onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, content: nextValue }))}
-                        placeholder="Write your update, ask a question, or share what you are working on..."
-                        mentionsEnabled={mentionsEnabled}
-                        hashtagsEnabled={hashtagsEnabled}
-                        className="min-h-[120px] w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700 focus:border-slate-400 focus:outline-none"
-                      />
-                      <div className="text-xs text-slate-500">
-                        {hashtagsEnabled ? '#tags' : '#tags (disabled by admin)'} and{' '}
-                        {mentionsEnabled ? '@mentions' : '@mentions (disabled by admin)'} supported
-                      </div>
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                        <div className="flex flex-wrap gap-2">
-                          {postAiActions.map((action) => (
-                            <button
-                              key={action.mode}
-                              type="button"
-                              onClick={() => void runPostAi(action.mode)}
-                              disabled={aiLoading || posting}
-                              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              <Sparkles className="h-3.5 w-3.5" />
-                              {aiRunningMode === action.mode && aiLoading ? 'Working...' : action.label}
-                            </button>
-                          ))}
-                        </div>
-                        <p className="mt-2 text-[11px] text-slate-500">
-                          When AI is used, content remains user-authored.
-                        </p>
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-3">
-                        <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
-                          <input
-                            type="checkbox"
-                            checked={postDraft.graphicWarning}
-                            onChange={(event) => setPostDraft((prev) => ({ ...prev, graphicWarning: event.target.checked }))}
-                          />
-                          <span className="inline-flex items-center gap-1">
-                            <AlertTriangle className="h-4 w-4 text-amber-600" />
-                            {GRAPHIC_WARNING_LABEL}
-                          </span>
-                        </label>
-                        <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
-                          <input
-                            type="checkbox"
-                            checked={postDraft.isAIEnhanced}
-                            onChange={(event) => setPostDraft((prev) => ({ ...prev, isAIEnhanced: event.target.checked }))}
-                          />
-                          <span className="inline-flex items-center gap-1">
-                            <Sparkles className="h-4 w-4 text-emerald-600" />
-                            Mark as AI-enhanced
-                          </span>
-                        </label>
-                        <label className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-                          <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                            Scrolitha AI insight
-                          </span>
-                          <select
-                            value={postDraft.aiInsightPreference}
-                            onChange={(event) =>
-                              setPostDraft((prev) => ({
-                                ...prev,
-                                aiInsightPreference: resolvePostAiInsightPreference(event.target.value, 'auto')
-                              }))
-                            }
-                            className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
-                          >
-                            <option value="auto">Automatic</option>
-                            <option value="on">Generate for this post</option>
-                            <option value="off">Do not generate</option>
-                          </select>
-                        </label>
-                      </div>
-                      <p className="text-[11px] text-slate-500">
-                        Automatic preserves your current Scrolitha insight settings. Use Generate or Do not generate to override this post only.
-                      </p>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <input
-                          value={postDraft.title}
-                          onChange={(event) => setPostDraft((prev) => ({ ...prev, title: event.target.value }))}
-                          placeholder="Post title (optional)"
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
-                        />
-                        <select
-                          value={postDraft.visibility}
-                          onChange={(event) =>
-                            setPostDraft((prev) => ({ ...prev, visibility: event.target.value as PostDraft['visibility'] }))
-                          }
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
-                        >
-                          <option value="public">Public</option>
-                          <option value="network">Network</option>
-                          <option value="friends">Friends</option>
-                          <option value="private">Private</option>
-                        </select>
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <select
-                          value={postDraft.commentPolicy}
-                          onChange={(event) =>
-                            setPostDraft((prev) => ({ ...prev, commentPolicy: event.target.value as PostDraft['commentPolicy'] }))
-                          }
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
-                        >
-                          {commentPolicyOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <input
-                          value={postDraft.topic}
-                          onChange={(event) => setPostDraft((prev) => ({ ...prev, topic: event.target.value }))}
-                          list="member_home_topics"
-                          placeholder="Topic (optional)"
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
-                        />
-                        <input
-                          value={postDraft.location}
-                          onChange={(event) => setPostDraft((prev) => ({ ...prev, location: event.target.value }))}
-                          list="member_home_locations"
-                          placeholder={user?.location || user?.country || 'Location (optional)'}
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
-                        />
-                      </div>
-                      <OfferTagSelector
-                        mode="user"
-                        ownerUserId={user?.id}
-                        value={postDraft.offerTags}
-                        onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, offerTags: nextValue }))}
-                        label="Tag storefront offers"
-                        helperText="Attach relevant services so viewers can open your storefront, message you, or start a brief without leaving the post."
-                      />
-                      <datalist id="member_home_topics">
-                        {topics.slice(0, 500).map((topic) => (
-                          <option key={topic} value={topic} />
-                        ))}
-                      </datalist>
-                      <datalist id="member_home_locations">
-                        {regions.slice(0, 500).map((region) => (
-                          <option key={region} value={region} />
-                        ))}
-                      </datalist>
-
-                      {postDraft.media.length > 0 && (
-                        <div className="grid gap-3 md:grid-cols-2">
-                          {postDraft.media.map((media) => {
-                            const type = media.type || inferMediaType(media);
-                            const durationLabel = formatMediaDuration(media.duration);
-                            return (
-                              <div key={media.localId} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                                <button
-                                  type="button"
-                                  onClick={() => handlePostMediaRemove(media.localId)}
-                                  className="absolute right-2 top-2 z-10 rounded-full bg-white/90 p-1 text-slate-500 hover:text-slate-700"
-                                >
-                                  <X className="h-4 w-4" />
-                                </button>
-                                {type === 'video' ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => setPreviewMedia(toPreviewMedia(media))}
-                                    className="relative block h-40 w-full"
-                                  >
-                                    {media.thumbnailUrl ? (
-                                      <OptimizedImage
-                                        src={media.thumbnailUrl}
-                                        alt={media.name || 'Video loading'}
-                                        width={640}
-                                        height={320}
-                                        sizes="(max-width: 1024px) 100vw, 640px"
-                                        className="h-40 w-full object-cover"
-                                      />
-                                    ) : (
-                                      <div className="flex h-40 w-full items-center justify-center bg-slate-200">
-                                        <Video className="h-8 w-8 text-slate-500" />
-                                      </div>
-                                    )}
-                                    <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                                      <div className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-slate-900">Play</div>
-                                    </div>
-                                    {durationLabel && (
-                                      <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                                        {durationLabel}
-                                      </span>
-                                    )}
-                                  </button>
-                                ) : type === 'image' ? (
-                                  <button type="button" onClick={() => setPreviewMedia(toPreviewMedia(media))} className="block h-40 w-full">
-                                    <OptimizedImage
-                                      src={media.thumbnailUrl || media.url}
-                                      fallbackSrc={media.url}
-                                      alt={media.name || 'Post media'}
-                                      width={640}
-                                      height={320}
-                                      sizes="(max-width: 1024px) 100vw, 640px"
-                                      className="h-40 w-full object-cover"
-                                      loading="lazy"
-                                      decoding="async"
-                                    />
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => setPreviewMedia(toPreviewMedia(media))}
-                                    className="flex h-40 w-full flex-col items-center justify-center p-4 text-xs text-slate-500"
-                                  >
-                                    <FileText className="mb-2 h-6 w-6 text-slate-400" />
-                                    {media.name || 'Attachment'}
-                                  </button>
-                                )}
-                                {media.uploading && (
-                                  <div className="absolute inset-0 flex items-center justify-center bg-white/70 text-xs font-semibold text-slate-600">
-                                    Uploading {media.progress ?? 0}%
-                                  </div>
-                                )}
-                                {media.error && (
-                                  <div className="absolute inset-x-0 bottom-0 bg-red-50 px-3 py-2 text-[10px] text-red-600">
-                                    {media.error}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => postMediaInputRef.current?.click()}
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
-                      >
-                        <Video className="h-4 w-4" />
-                        From device
-                      </button>
-                      <button
-                        type="button"
-                        onClick={startCamera}
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
-                      >
-                        <Camera className="h-4 w-4" />
-                        Camera
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handlePostSubmit}
-                      disabled={posting || postDraft.media.some((item) => item.uploading)}
-                      className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-60"
-                    >
-                      {posting ? 'Posting...' : 'Post update'}
-                    </button>
-                  </div>
-                </div>
-              )}
+              {renderDesktopComposer()}
             </div>
 
             <div className="space-y-4">
@@ -5883,7 +6275,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               ) : (
                 renderableFeedItems.map((post, postIndex) => {
                   const isEditing = editingPostId === post.id && editingDraft;
+                  const postBusy = Boolean(postActionBusy[post.id]);
                   const commentCount = commentCounts[post.id] ?? post.interactions?.comments ?? 0;
+                  const postTitle =
+                    readRenderableText(post.title) ||
+                    readRenderableText((post as any).headline) ||
+                    readRenderableText((post as any).subject);
+                  const postContent =
+                    readRenderableText(post.content) ||
+                    readRenderableText((post as any).body) ||
+                    readRenderableText((post as any).text) ||
+                    readRenderableText((post as any).description) ||
+                    readRenderableText(post.originalPost?.content) ||
+                    '';
                   const resolvedAuthor = {
                     id: post.author?.id || post.authorId,
                     username: post.author?.username ?? post.authorUsername,
@@ -6139,23 +6543,23 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             <button
                               type="button"
                               onClick={submitPostEdit}
-                              disabled={postActionBusy}
+                              disabled={postBusy}
                               className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase text-white disabled:opacity-60"
                             >
-                              {postActionBusy ? 'Saving...' : 'Save changes'}
+                              {postBusy ? 'Saving...' : 'Save changes'}
                             </button>
                           </div>
                         </div>
                       ) : (
                         <>
                           <div className="mt-4 space-y-4">
-                            {post.title ? (
+                            {postTitle ? (
                               <button
                                 type="button"
                                 onClick={() => openPostCard(post)}
                                 className="text-left text-xl font-semibold leading-tight tracking-tight text-slate-950 transition hover:text-slate-700 [overflow-wrap:anywhere]"
                               >
-                                {post.title}
+                                {postTitle}
                               </button>
                             ) : null}
                             {focusPostId === post.id && focusMentionToken ? (
@@ -6164,32 +6568,42 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                               </div>
                             ) : null}
                             <PostOriginPreview originalPost={post.originalPost} />
-                            <div
-                              className="cursor-pointer text-[15px] leading-[1.78] text-slate-700 [overflow-wrap:anywhere]"
-                              role="button"
-                              tabIndex={0}
-                              onClick={(event) => openPostFromText(event, post)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' || event.key === ' ') {
-                                  event.preventDefault();
-                                  openPostCard(post);
-                                }
-                              }}
-                            >
-                              <ExpandablePreviewText
-                                text={post.content}
-                                className="inline"
-                                buttonClassName="text-slate-900"
-                                renderText={(visibleText) => (
-                                  <MentionText
-                                    text={visibleText}
-                                    mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
-                                    viewerId={user?.id}
-                                    viewerUsername={user?.username}
-                                  />
-                                )}
-                              />
-                            </div>
+                            {postContent ? (
+                              <div
+                                className="cursor-pointer text-[15px] leading-[1.78] text-slate-700 [overflow-wrap:anywhere]"
+                                role="button"
+                                tabIndex={0}
+                                onClick={(event) => openPostFromText(event, post)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    openPostCard(post);
+                                  }
+                                }}
+                              >
+                                <ExpandablePreviewText
+                                  text={postContent}
+                                  className="inline"
+                                  buttonClassName="text-slate-900"
+                                  renderText={(visibleText) => (
+                                    <MentionText
+                                      text={visibleText}
+                                      mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
+                                      viewerId={user?.id}
+                                      viewerUsername={user?.username}
+                                    />
+                                  )}
+                                />
+                              </div>
+                            ) : !post.attachments?.length ? (
+                              <button
+                                type="button"
+                                onClick={() => openPostCard(post)}
+                                className="text-left text-sm italic text-slate-500 transition hover:text-slate-700"
+                              >
+                                Open post
+                              </button>
+                            ) : null}
                             {post.tags?.length ? (
                               <div className="flex flex-wrap gap-2">
                                 {post.tags.map((tag) => (
