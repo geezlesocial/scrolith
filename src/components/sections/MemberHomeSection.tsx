@@ -1103,6 +1103,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const desktopRenderStep = desktopConstrainedFeed ? 4 : 6;
   const [renderedFeedItemCount, setRenderedFeedItemCount] = useState(desktopInitialRenderCount);
   const feedItemsRef = useRef<FeedPost[]>([]);
+  const feedLoadRequestIdRef = useRef(0);
   const deferredFeedItems = useDeferredValue(feedItems);
   const visibleFeedItems = useMemo(
     () => deferredFeedItems.slice(0, Math.min(renderedFeedItemCount, deferredFeedItems.length)),
@@ -2073,6 +2074,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
   const loadFeed = useCallback(async () => {
     if (!user) return;
+    const requestId = ++feedLoadRequestIdRef.current;
     setFeedLoading(true);
     try {
       const scope = feedTab === 'following' ? 'following' : 'discover';
@@ -2109,9 +2111,20 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             }
           })
           .filter((item): item is FeedPost => Boolean(item));
-
-      const data = await CommunityService.getFeed(payload);
+      const mergeFeedItems = (preferred: FeedPost[], fallback: FeedPost[]) =>
+        dedupeById(
+          [...preferred, ...fallback].filter(Boolean) as Array<FeedPost & { id?: string | null }>
+        ) as FeedPost[];
+      const shouldFetchCommunityBaseline = scope === 'discover' && !feedTopic && !feedRegion;
+      const [feedResult, baselinePostsResult] = await Promise.allSettled([
+        CommunityService.getFeed(payload),
+        shouldFetchCommunityBaseline ? CommunityService.getPosts({ limit: maxFeedItems }) : Promise.resolve([])
+      ]);
+      if (requestId !== feedLoadRequestIdRef.current) return;
+      const data = feedResult.status === 'fulfilled' ? feedResult.value : null;
       let items = extractFeedItems(data);
+      const baselineItems =
+        baselinePostsResult.status === 'fulfilled' ? extractFeedItems(baselinePostsResult.value) : [];
       if (
         scope === 'discover' &&
         resolvedMode &&
@@ -2129,17 +2142,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           console.warn('Failed to load desktop discover feed fallback', fallbackError);
         }
       }
-      let normalized = normalizeFeedItems(items);
-      if (scope === 'discover' && !feedTopic && !feedRegion && normalized.length === 0) {
-        try {
-          const communityPosts = await CommunityService.getPosts({ limit: maxFeedItems });
-          const fallbackNormalized = normalizeFeedItems(communityPosts);
-          if (fallbackNormalized.length > 0) {
-            normalized = fallbackNormalized;
-          }
-        } catch (postsFallbackError) {
-          console.warn('Failed to load desktop community posts fallback', postsFallbackError);
-        }
+      if (requestId !== feedLoadRequestIdRef.current) return;
+      const normalizedFeedItems = normalizeFeedItems(items);
+      const normalizedBaselineItems = normalizeFeedItems(baselineItems);
+      let normalized = normalizedFeedItems;
+      if (shouldFetchCommunityBaseline) {
+        normalized = resolvedMode
+          ? normalizedFeedItems.length > 0
+            ? normalizedFeedItems
+            : normalizedBaselineItems
+          : mergeFeedItems(normalizedFeedItems, normalizedBaselineItems);
       }
       const sorted =
         feedTab === 'trending'
@@ -2159,6 +2171,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               return bScore - aScore;
             })
           : normalized;
+      if (requestId !== feedLoadRequestIdRef.current) return;
       const shouldPreserveExistingFeed =
         sorted.length === 0 &&
         feedItemsRef.current.length > 0 &&
@@ -2203,6 +2216,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       });
       setCommentCounts(counts);
     } catch (error) {
+      if (requestId !== feedLoadRequestIdRef.current) return;
       console.error('Failed to load home feed', error);
       if (!feedItemsRef.current.length) {
         startTransition(() => {
@@ -2211,7 +2225,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         });
       }
     } finally {
-      setFeedLoading(false);
+      if (requestId === feedLoadRequestIdRef.current) {
+        setFeedLoading(false);
+      }
     }
   }, [
     defaultIntentFeedTab,

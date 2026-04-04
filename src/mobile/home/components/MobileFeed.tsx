@@ -1066,34 +1066,46 @@ export default function MobileFeed({
         setLoadingMore(true);
       }
 
-      const resp = await withFastFail(
-        CommunityService.getFeed({
-          cursor: mode === 'more' ? cursorRef.current || undefined : undefined,
-          limit: feedLimit,
-          scope: 'discover'
-        }),
-        constrainedForFeed ? 15000 : 18000,
-        'Feed request timed out. Please retry.'
-      );
-      let nextPosts = extractFeedItemsFromPayload(resp);
-      let nextCursor = resp?.nextCursor ? String(resp.nextCursor) : null;
+      let nextPosts: any[] = [];
+      let nextCursor: string | null = null;
       let usedPostsFallback = false;
-      if (mode === 'initial' && nextPosts.length === 0) {
-        try {
-          const fallbackPosts = await withFastFail(
+      if (mode === 'initial') {
+        const [feedResult, fallbackResult] = await Promise.allSettled([
+          withFastFail(
+            CommunityService.getFeed({
+              limit: feedLimit,
+              scope: 'discover'
+            }),
+            constrainedForFeed ? 15000 : 18000,
+            'Feed request timed out. Please retry.'
+          ),
+          withFastFail(
             CommunityService.getPosts({ limit: feedLimit }),
             constrainedForFeed ? 12000 : 15000,
             'Fallback feed request timed out. Please retry.'
-          );
-          const extractedFallbackPosts = extractFeedItemsFromPayload(fallbackPosts);
-          if (extractedFallbackPosts.length > 0) {
-            nextPosts = extractedFallbackPosts;
-            nextCursor = null;
-            usedPostsFallback = true;
-          }
-        } catch (fallbackError) {
-          console.warn('Failed to load mobile community posts fallback', fallbackError);
-        }
+          )
+        ]);
+        const feedResponse = feedResult.status === 'fulfilled' ? feedResult.value : null;
+        const discoveredPosts = extractFeedItemsFromPayload(feedResponse);
+        const fallbackPosts =
+          fallbackResult.status === 'fulfilled' ? extractFeedItemsFromPayload(fallbackResult.value) : [];
+        nextPosts = fallbackPosts.length > 0
+          ? dedupeById([...(discoveredPosts as Array<any & { id?: string | null }>), ...(fallbackPosts as Array<any & { id?: string | null }>)])
+          : discoveredPosts;
+        nextCursor = discoveredPosts.length > 0 && feedResponse?.nextCursor ? String(feedResponse.nextCursor) : null;
+        usedPostsFallback = fallbackPosts.length > 0 && discoveredPosts.length === 0;
+      } else {
+        const resp = await withFastFail(
+          CommunityService.getFeed({
+            cursor: cursorRef.current || undefined,
+            limit: feedLimit,
+            scope: 'discover'
+          }),
+          constrainedForFeed ? 15000 : 18000,
+          'Feed request timed out. Please retry.'
+        );
+        nextPosts = extractFeedItemsFromPayload(resp);
+        nextCursor = resp?.nextCursor ? String(resp.nextCursor) : null;
       }
       const shouldPreserveExistingFeed = mode === 'initial' && nextPosts.length === 0 && postsRef.current.length > 0;
 
@@ -1163,42 +1175,6 @@ export default function MobileFeed({
           setError(String(backendError || 'Too many requests. Please try again later.'));
         }
       } else {
-        if (mode === 'initial' && postsRef.current.length === 0) {
-          try {
-            const fallbackPosts = await withFastFail(
-              CommunityService.getPosts({ limit: feedLimit }),
-              constrainedForFeed ? 12000 : 15000,
-              'Fallback feed request timed out. Please retry.'
-            );
-            const extractedFallbackPosts = extractFeedItemsFromPayload(fallbackPosts);
-            if (extractedFallbackPosts.length > 0) {
-              cursorRef.current = null;
-              postsRef.current = extractedFallbackPosts;
-              setError(null);
-              setStatusMessage('Showing community posts while your home feed reconnects.');
-              startTransition(() => {
-                setCursor(null);
-                setPosts(extractedFallbackPosts);
-                setRenderedPostCount(Math.min(initialRenderCount, extractedFallbackPosts.length || initialRenderCount));
-              });
-              try {
-                localStorage.setItem(
-                  feedCacheKey,
-                  JSON.stringify({
-                    ts: Date.now(),
-                    cursor: null,
-                    items: extractedFallbackPosts.slice(0, 80)
-                  })
-                );
-              } catch {
-                // Ignore cache write errors.
-              }
-              return;
-            }
-          } catch (fallbackError) {
-            console.warn('Failed to recover mobile feed from community posts fallback', fallbackError);
-          }
-        }
         if (postsRef.current.length > 0) {
           setError(null);
           setStatusMessage('Showing your saved feed while we reconnect.');
