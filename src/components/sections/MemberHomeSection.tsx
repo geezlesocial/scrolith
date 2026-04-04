@@ -2118,6 +2118,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           console.warn('Failed to load desktop discover feed fallback', fallbackError);
         }
       }
+      if (scope === 'discover' && !feedTopic && !feedRegion && items.length === 0) {
+        try {
+          const communityPosts = await CommunityService.getPosts({ limit: maxFeedItems, status: 'active' });
+          if (Array.isArray(communityPosts) && communityPosts.length > 0) {
+            items = communityPosts;
+          }
+        } catch (postsFallbackError) {
+          console.warn('Failed to load desktop community posts fallback', postsFallbackError);
+        }
+      }
       const normalized = items
         .map((item) => {
           try {
@@ -2326,18 +2336,34 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         }))
       );
 
-      const rawJobsList = jobsRes.status === 'fulfilled'
+      let rawJobsList = jobsRes.status === 'fulfilled'
         ? mergeSettledResponses<Job & { id?: string | null }>(jobsRes.value, extractJobsFromPayload)
         : [];
+      if (rawJobsList.length === 0 && (showJobs || showEmployers)) {
+        try {
+          const fallbackJobs = await jobsApi.getJobs({ status: 'active', limit: listingPoolLimit });
+          rawJobsList = extractJobsFromPayload(fallbackJobs);
+        } catch (jobsFallbackError) {
+          console.warn('Failed to load desktop jobs fallback', jobsFallbackError);
+        }
+      }
       const jobsList = shuffleArray(
         dedupeById((rawJobsList || []) as Array<Job & { id: string }>)
       );
       setListingJobsPool(jobsList.slice(0, listingPoolLimit));
       setJobs(jobsList.slice(0, maxJobs));
 
-      const rawGigsList = gigsRes.status === 'fulfilled'
+      let rawGigsList = gigsRes.status === 'fulfilled'
         ? mergeSettledResponses<Gig & { id?: string | null }>(gigsRes.value, extractGigsFromPayload)
         : [];
+      if (rawGigsList.length === 0 && (showGigs || showFreelancers)) {
+        try {
+          const fallbackGigs = await gigsApi.getGigs({ status: 'active', limit: listingPoolLimit });
+          rawGigsList = extractGigsFromPayload(fallbackGigs);
+        } catch (gigsFallbackError) {
+          console.warn('Failed to load desktop gigs fallback', gigsFallbackError);
+        }
+      }
       const gigsList = shuffleArray(
         dedupeById((rawGigsList || []) as Array<Gig & { id: string }>)
       );
