@@ -11,6 +11,7 @@ import { useSocket } from '../../../context/SocketContext';
 import { useNetworkStatus } from '../../../context/NetworkStatusContext';
 import { useUser } from '../../../context/UserContext';
 import { CommunityService, type BroadcastChannelSummary } from '../../../services/community';
+import { fetchPublicCommunityPostsBaseline } from '../../../services/communityFeedFallback';
 import { ReactionsService } from '../../../services/reactions';
 import { jobsApi, Job } from '../../../services/jobs';
 import { gigsApi, Gig } from '../../../services/gigs';
@@ -184,7 +185,7 @@ const pickSlotIndexes = (count: number, slots: number, seed: string) => {
     .sort((a, b) => a - b);
 };
 
-const FEED_CACHE_VERSION = 'v2';
+const FEED_CACHE_VERSION = 'v3';
 const withFastFail = async <T,>(promise: Promise<T>, timeoutMs: number, fallbackMessage: string): Promise<T> => {
   let timer: number | null = null;
   try {
@@ -1083,7 +1084,17 @@ export default function MobileFeed({
           'Feed request timed out. Please retry.'
         );
         const fallbackRequest = withFastFail(
-          CommunityService.getPosts({ limit: feedLimit }),
+          Promise.allSettled([
+            CommunityService.getPosts({ limit: feedLimit }),
+            fetchPublicCommunityPostsBaseline(feedLimit)
+          ]).then((results) => {
+            const serviceItems = results[0]?.status === 'fulfilled' ? extractFeedItemsFromPayload(results[0].value) : [];
+            const publicItems = results[1]?.status === 'fulfilled' ? extractFeedItemsFromPayload(results[1].value) : [];
+            return dedupeById([
+              ...(serviceItems as Array<any & { id?: string | null }>),
+              ...(publicItems as Array<any & { id?: string | null }>)
+            ]);
+          }),
           constrainedForFeed ? 12000 : 15000,
           'Fallback feed request timed out. Please retry.'
         );
@@ -1104,7 +1115,7 @@ export default function MobileFeed({
         const fallbackPosts =
           fallbackResult.status === 'fulfilled' ? extractFeedItemsFromPayload(fallbackResult.value) : [];
         nextPosts = fallbackPosts.length > 0
-          ? dedupeById([...(discoveredPosts as Array<any & { id?: string | null }>), ...(fallbackPosts as Array<any & { id?: string | null }>)])
+          ? dedupeById([...(fallbackPosts as Array<any & { id?: string | null }>), ...(discoveredPosts as Array<any & { id?: string | null }>)])
           : discoveredPosts;
         nextCursor = discoveredPosts.length > 0 && feedResponse?.nextCursor ? String(feedResponse.nextCursor) : null;
         usedPostsFallback = fallbackPosts.length > 0 && discoveredPosts.length === 0;
@@ -1144,18 +1155,20 @@ export default function MobileFeed({
       if (shouldPreserveExistingFeed) {
         setStatusMessage('Showing your saved feed while we reconnect.');
       }
-      try {
-        localStorage.setItem(
-          feedCacheKey,
-          JSON.stringify({
-            ts: Date.now(),
-            cursor: nextCursor,
-            items: mergedPosts.slice(0, 80)
-          })
-        );
-      } catch {
-        // Ignore cache write errors.
-      }
+        if (mergedPosts.length > 0) {
+          try {
+            localStorage.setItem(
+              feedCacheKey,
+              JSON.stringify({
+                ts: Date.now(),
+                cursor: nextCursor,
+                items: mergedPosts.slice(0, 80)
+              })
+            );
+          } catch {
+            // Ignore cache write errors.
+          }
+        }
     } catch (e: any) {
       const status = Number(e?.response?.status || 0);
       const backendError = e?.response?.data?.error ?? e?.message ?? 'Failed to load feed.';
@@ -1232,11 +1245,12 @@ export default function MobileFeed({
   }, [feedSettings.showPromoted, secondaryFeedReady, loading, error, constrainedForFeed]);
 
   useEffect(() => {
-    if (!showRecommendedGigsJobs || !user?.id) {
+    if (!showRecommendedGigsJobs) {
       setRecommendedJobs([]);
       setRecommendedGigs([]);
       return;
     }
+    if (!user?.id) return;
     if (!secondaryFeedReady) return;
     if (loading || error) return;
     let cancelled = false;

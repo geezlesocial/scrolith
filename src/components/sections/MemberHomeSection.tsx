@@ -27,6 +27,7 @@ import { useContent } from '../../context/ContentContext';
 import { useSocket } from '../../context/SocketContext';
 import { useNotification } from '../../context/NotificationContext';
 import { CommunityService, type BroadcastChannelSummary } from '../../services/community';
+import { fetchPublicCommunityPostsBaseline } from '../../services/communityFeedFallback';
 import { PipelineService } from '../../services/pipeline';
 import { ScrollService, type ScrollConfig, type ScrollSeriesDiscovery, type ScrollVideo } from '../../services/scroll';
 import { ReactionsService } from '../../services/reactions';
@@ -1574,7 +1575,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   ]);
   const currentUserId = String((user as any)?.id || (user as any)?.user_id || '').trim();
   const feedTabStorageKey = `member_home_feed_tab:${currentUserId || 'guest'}`;
+  const feedCacheKey = `member_home_feed_cache:v4:${currentUserId || 'guest'}`;
   const feedTabInitializedRef = useRef(false);
+  const [feedTabReady, setFeedTabReady] = useState(false);
   const currentUsername = String((user as any)?.username || (user as any)?.user_name || '').trim();
   const userHeadline = user?.title || (user as any)?.headline || (user as any)?.tagline || user?.role || 'Member';
   const userLocation = user?.location || (user as any)?.country || '';
@@ -2135,12 +2138,21 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       };
       const feedRequest = CommunityService.getFeed(payload);
       const baselinePostsRequest = shouldFetchCommunityBaseline
-        ? CommunityService.getPosts({ limit: maxFeedItems })
+        ? Promise.allSettled([
+            CommunityService.getPosts({ limit: maxFeedItems }),
+            fetchPublicCommunityPostsBaseline(maxFeedItems)
+          ]).then((results) => {
+            const serviceItems = results[0]?.status === 'fulfilled' ? extractFeedItems(results[0].value) : [];
+            const publicItems = results[1]?.status === 'fulfilled' ? extractFeedItems(results[1].value) : [];
+            return dedupeById(
+              [...serviceItems, ...publicItems].filter(Boolean) as Array<any & { id?: string | null }>
+            );
+          })
         : Promise.resolve([]);
       const seededBaselineRequest = baselinePostsRequest
         .then((value) => {
           const normalizedBaselineItems = normalizeFeedItems(extractFeedItems(value));
-          if (!resolvedMode && normalizedBaselineItems.length > 0 && feedItemsRef.current.length === 0) {
+          if (normalizedBaselineItems.length > 0 && feedItemsRef.current.length === 0) {
             applyImmediateFeedSeed(normalizedBaselineItems);
           }
           return normalizedBaselineItems;
@@ -2173,11 +2185,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       const normalizedFeedItems = normalizeFeedItems(items);
       let normalized = normalizedFeedItems;
       if (shouldFetchCommunityBaseline) {
-        normalized = resolvedMode
-          ? normalizedFeedItems.length > 0
-            ? normalizedFeedItems
-            : normalizedBaselineItems
-          : mergeFeedItems(normalizedFeedItems, normalizedBaselineItems);
+        normalized = mergeFeedItems(normalizedFeedItems, normalizedBaselineItems);
       }
       const sorted =
         feedTab === 'trending'
@@ -2212,6 +2220,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           Math.min(desktopInitialRenderCount, effectiveFeedItems.length || desktopInitialRenderCount)
         );
       });
+      if (effectiveFeedItems.length > 0) {
+        try {
+          window.localStorage.setItem(
+            feedCacheKey,
+            JSON.stringify({
+              ts: Date.now(),
+              items: effectiveFeedItems.slice(0, 80)
+            })
+          );
+        } catch {
+          // Ignore cache write failures.
+        }
+      }
       if (shouldPreserveExistingFeed) {
         return;
       }
@@ -2246,6 +2267,23 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       if (requestId !== feedLoadRequestIdRef.current) return;
       console.error('Failed to load home feed', error);
       if (!feedItemsRef.current.length) {
+        try {
+          const raw = window.localStorage.getItem(feedCacheKey);
+          const parsed = raw ? (JSON.parse(raw) as { items?: FeedPost[] }) : null;
+          const cachedItems = Array.isArray(parsed?.items) ? parsed.items : [];
+          if (cachedItems.length > 0) {
+            feedItemsRef.current = cachedItems;
+            startTransition(() => {
+              setFeedItems(cachedItems);
+              setRenderedFeedItemCount(
+                Math.min(desktopInitialRenderCount, cachedItems.length || desktopInitialRenderCount)
+              );
+            });
+            return;
+          }
+        } catch {
+          // Ignore cache read failures.
+        }
         startTransition(() => {
           setFeedItems([]);
           setRenderedFeedItemCount(desktopInitialRenderCount);
@@ -2259,6 +2297,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   }, [
     defaultIntentFeedTab,
     desktopInitialRenderCount,
+    feedCacheKey,
     feedRegion,
     feedTab,
     feedTopic,
@@ -3948,9 +3987,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   );
 
   useEffect(() => {
-    if (!user || !feedTabInitializedRef.current) return;
+    if (!user || !feedTabReady) return;
     loadFeed();
-  }, [user, feedTab, feedTopic, feedRegion, loadFeed]);
+  }, [user, feedTab, feedTopic, feedRegion, feedTabReady, loadFeed]);
 
   useEffect(() => {
     if (feedTabInitializedRef.current) return;
@@ -3966,7 +4005,28 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     }
     setFeedTab(restored || defaultFeedTab);
     feedTabInitializedRef.current = true;
+    setFeedTabReady(true);
   }, [defaultFeedTab, defaultIntentFeedTab, feedTabStorageKey, showIntentModes]);
+
+  useEffect(() => {
+    if (!feedCacheKey) return;
+    try {
+      const raw = window.localStorage.getItem(feedCacheKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { items?: FeedPost[] };
+      const cachedItems = Array.isArray(parsed?.items) ? parsed.items : [];
+      if (!cachedItems.length) return;
+      feedItemsRef.current = cachedItems;
+      startTransition(() => {
+        setFeedItems(cachedItems);
+        setRenderedFeedItemCount(
+          Math.min(desktopInitialRenderCount, cachedItems.length || desktopInitialRenderCount)
+        );
+      });
+    } catch {
+      // Ignore cache read failures.
+    }
+  }, [desktopInitialRenderCount, feedCacheKey]);
 
   useEffect(() => {
     if (!feedTabInitializedRef.current) return;
