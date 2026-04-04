@@ -1857,6 +1857,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       aiInsightTextRaw === null || aiInsightTextRaw === undefined
         ? null
         : String(aiInsightTextRaw).trim() || null;
+    const attachments = Array.isArray(post.attachments)
+      ? post.attachments
+      : Array.isArray(post.media)
+        ? post.media
+        : [];
+    const tags = Array.isArray(post.tags) ? post.tags : [];
+    const mentions = Array.isArray(post.mentions) ? post.mentions : [];
 
     return {
       id: post.id || `${authorId}-${Date.now()}`,
@@ -1873,10 +1880,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         '',
       attachmentFileIds: Array.isArray(post.attachmentFileIds)
         ? post.attachmentFileIds
-        : Array.isArray(post.attachments)
-          ? post.attachments.map((item: any) => item?.id).filter(Boolean)
+        : attachments.length > 0
+          ? attachments.map((item: any) => item?.id || item?.fileId || item?.file_id).filter(Boolean)
           : [],
-      attachments: (post.attachments || []).map((item: any) => ({
+      attachments: attachments.map((item: any) => ({
         ...item,
         id: item.id || item.fileId || item.file_id || resolvePostAttachmentMediaUrl(item),
         url: resolvePostAttachmentMediaUrl(item) || item.url || '',
@@ -1908,12 +1915,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       authorAvatar,
       createdAt: post.createdAt || post.created_at,
       updatedAt: post.updatedAt || post.updated_at,
-      tags: post.tags || [],
-      mentions: post.mentions || [],
+      tags,
+      mentions,
       topic: post.topic || null,
       topicSummary: Array.isArray(post.topicSummary)
         ? dedupeLabels(post.topicSummary.map((entry: string) => String(entry || '').trim()))
-        : dedupeLabels([post.topic || '', ...((post.tags || []) as string[])]),
+        : dedupeLabels([post.topic || '', ...(tags as string[])]),
       location: post.location || null,
       visibility: post.visibility,
       commentPolicy: post.commentPolicy || post.comment_policy || 'everyone',
@@ -2111,7 +2118,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           console.warn('Failed to load desktop discover feed fallback', fallbackError);
         }
       }
-      const normalized = items.map(normalizePost);
+      const normalized = items
+        .map((item) => {
+          try {
+            return normalizePost(item);
+          } catch (normalizeError) {
+            console.warn('Skipping malformed desktop feed post', normalizeError, item);
+            return null;
+          }
+        })
+        .filter((item): item is FeedPost => Boolean(item));
       const sorted =
         feedTab === 'trending'
           ? [...normalized].sort((a, b) => {
