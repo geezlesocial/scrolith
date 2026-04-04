@@ -1610,20 +1610,30 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
     return {
       id: post.id || `${authorId}-${Date.now()}`,
-      title: post.title,
-      content: post.content,
+      title:
+        post.title ??
+        post.headline ??
+        post.subject ??
+        null,
+      content:
+        post.content ??
+        post.body ??
+        post.text ??
+        post.description ??
+        '',
       attachmentFileIds: Array.isArray(post.attachmentFileIds)
         ? post.attachmentFileIds
         : Array.isArray(post.attachments)
           ? post.attachments.map((item: any) => item?.id).filter(Boolean)
           : [],
       attachments: (post.attachments || []).map((item: any) => ({
+        ...item,
         id: item.id || item.fileId || item.file_id || resolvePostAttachmentMediaUrl(item),
-        url: resolvePostAttachmentMediaUrl(item),
+        url: resolvePostAttachmentMediaUrl(item) || item.url || '',
         name: item.name || item.originalName || item.filename,
         mimeType: item.mimeType || item.mime_type,
         type: item.type || inferMediaType(item),
-        thumbnailUrl: resolvePostAttachmentPosterUrl(item),
+        thumbnailUrl: resolvePostAttachmentPosterUrl(item) || item.thumbnailUrl || item.thumbnail_url || null,
         duration: item.duration,
         width: item.width,
         height: item.height
@@ -1717,7 +1727,32 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         item.id === updated.id
           ? {
               ...item,
-              ...updated,
+              ...Object.fromEntries(Object.entries(updated).filter(([, value]) => value !== undefined)),
+              title: updated.title !== undefined ? updated.title : item.title,
+              content: updated.content !== undefined ? updated.content : item.content,
+              attachmentFileIds:
+                updated.attachmentFileIds !== undefined ? updated.attachmentFileIds : item.attachmentFileIds,
+              attachments: updated.attachments !== undefined ? updated.attachments : item.attachments,
+              tags: updated.tags !== undefined ? updated.tags : item.tags,
+              mentions: updated.mentions !== undefined ? updated.mentions : item.mentions,
+              topic: updated.topic !== undefined ? updated.topic : item.topic,
+              topicSummary: updated.topicSummary !== undefined ? updated.topicSummary : item.topicSummary,
+              location: updated.location !== undefined ? updated.location : item.location,
+              author:
+                updated.author !== undefined
+                  ? { ...(item.author || {}), ...(updated.author || {}) }
+                  : item.author,
+              authorId: updated.authorId !== undefined ? updated.authorId : item.authorId,
+              authorUserId: updated.authorUserId !== undefined ? updated.authorUserId : item.authorUserId,
+              authorName: updated.authorName !== undefined ? updated.authorName : item.authorName,
+              authorUsername: updated.authorUsername !== undefined ? updated.authorUsername : item.authorUsername,
+              authorAvatar: updated.authorAvatar !== undefined ? updated.authorAvatar : item.authorAvatar,
+              originalPost: updated.originalPost !== undefined ? updated.originalPost : item.originalPost,
+              ranking: updated.ranking !== undefined ? updated.ranking : item.ranking,
+              pipelineState:
+                updated.pipelineState !== undefined
+                  ? { ...(item.pipelineState || {}), ...(updated.pipelineState || {}) }
+                  : item.pipelineState,
               interactions: updated.interactions
                 ? { ...(item.interactions || {}), ...updated.interactions }
                 : item.interactions,
@@ -4421,7 +4456,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           {attachments.map((media) => {
             const type = inferMediaType(media || {});
             const mediaKey = String(media.id || media.url || '');
+            const mediaUrl = String(resolvePostAttachmentMediaUrl(media) || (media as any)?.url || '').trim();
+            const posterUrl = String(resolvePostAttachmentPosterUrl(media) || (media as any)?.thumbnailUrl || '').trim();
             const durationLabel = formatMediaDuration((media as any)?.duration);
+            if (!mediaUrl && type !== 'document') return null;
             if (type === 'video') {
               return (
                 <div
@@ -4446,8 +4484,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   className="group relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
                 >
                   <InlineAutoplayVideo
-                    src={media.url}
-                    poster={(media as any)?.thumbnailUrl || undefined}
+                    src={mediaUrl}
+                    poster={posterUrl || undefined}
                     className={`${mediaPreviewHeightClass} w-full object-cover`}
                     controls={false}
                     loop
@@ -4474,8 +4512,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
                 >
                   <OptimizedImage
-                    src={(media as any).thumbnailUrl || media.url}
-                    fallbackSrc={media.url}
+                    src={posterUrl || mediaUrl}
+                    fallbackSrc={mediaUrl}
                     alt={media.name || 'Post media'}
                     width={640}
                     height={400}
@@ -4489,7 +4527,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             }
             const isPdf =
               String(media.mimeType || '').toLowerCase() === 'application/pdf' ||
-              String(media.url || '').toLowerCase().endsWith('.pdf');
+              mediaUrl.toLowerCase().endsWith('.pdf');
             return (
               <button
                 key={media.id || media.url}

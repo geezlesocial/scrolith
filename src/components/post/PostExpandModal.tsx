@@ -3,6 +3,7 @@ import { ExternalLink, X } from 'lucide-react';
 
 import MentionText from '../../community/components/MentionText';
 import GraphicWarningGate from '../media/GraphicWarningGate';
+import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../utils/postAttachmentMedia';
 
 type ExpandedPostAttachment = {
   id?: string | null;
@@ -78,7 +79,18 @@ const PostExpandModal: React.FC<PostExpandModalProps> = ({
   const authorUsername = String(post.authorUsername || '').trim().replace(/^@+/, '');
   const authorAvatar = String(post.authorAvatar || '').trim();
   const attachments = Array.isArray(post.attachments)
-    ? post.attachments.filter((item) => String(item?.url || '').trim())
+    ? post.attachments
+        .map((item) => {
+          const url = String(resolvePostAttachmentMediaUrl(item) || item?.url || '').trim();
+          const thumbnailUrl = String(resolvePostAttachmentPosterUrl(item) || item?.thumbnailUrl || '').trim();
+          if (!url) return null;
+          return {
+            ...item,
+            url,
+            thumbnailUrl: thumbnailUrl || null
+          };
+        })
+        .filter(Boolean)
     : [];
   const singleAttachment = attachments.length === 1;
 
