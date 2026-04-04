@@ -2098,6 +2098,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       }
       const extractFeedItems = (value: any) =>
         Array.isArray(value?.items) ? value.items : Array.isArray(value) ? value : [];
+      const normalizeFeedItems = (sourceItems: any[]) =>
+        (Array.isArray(sourceItems) ? sourceItems : [])
+          .map((item) => {
+            try {
+              return normalizePost(item);
+            } catch (normalizeError) {
+              console.warn('Skipping malformed desktop feed post', normalizeError, item);
+              return null;
+            }
+          })
+          .filter((item): item is FeedPost => Boolean(item));
 
       const data = await CommunityService.getFeed(payload);
       let items = extractFeedItems(data);
@@ -2118,26 +2129,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           console.warn('Failed to load desktop discover feed fallback', fallbackError);
         }
       }
-      if (scope === 'discover' && !feedTopic && !feedRegion && items.length === 0) {
+      let normalized = normalizeFeedItems(items);
+      if (scope === 'discover' && !feedTopic && !feedRegion && normalized.length === 0) {
         try {
-          const communityPosts = await CommunityService.getPosts({ limit: maxFeedItems, status: 'active' });
-          if (Array.isArray(communityPosts) && communityPosts.length > 0) {
-            items = communityPosts;
+          const communityPosts = await CommunityService.getPosts({ limit: maxFeedItems });
+          const fallbackNormalized = normalizeFeedItems(communityPosts);
+          if (fallbackNormalized.length > 0) {
+            normalized = fallbackNormalized;
           }
         } catch (postsFallbackError) {
           console.warn('Failed to load desktop community posts fallback', postsFallbackError);
         }
       }
-      const normalized = items
-        .map((item) => {
-          try {
-            return normalizePost(item);
-          } catch (normalizeError) {
-            console.warn('Skipping malformed desktop feed post', normalizeError, item);
-            return null;
-          }
-        })
-        .filter((item): item is FeedPost => Boolean(item));
       const sorted =
         feedTab === 'trending'
           ? [...normalized].sort((a, b) => {
@@ -2350,8 +2353,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       const jobsList = shuffleArray(
         dedupeById((rawJobsList || []) as Array<Job & { id: string }>)
       );
-      setListingJobsPool(jobsList.slice(0, listingPoolLimit));
-      setJobs(jobsList.slice(0, maxJobs));
+      setListingJobsPool((prev) => (jobsList.length === 0 && prev.length ? prev : jobsList.slice(0, listingPoolLimit)));
+      setJobs((prev) => (jobsList.length === 0 && prev.length ? prev : jobsList.slice(0, maxJobs)));
 
       let rawGigsList = gigsRes.status === 'fulfilled'
         ? mergeSettledResponses<Gig & { id?: string | null }>(gigsRes.value, extractGigsFromPayload)
@@ -2367,8 +2370,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       const gigsList = shuffleArray(
         dedupeById((rawGigsList || []) as Array<Gig & { id: string }>)
       );
-      setListingGigsPool(gigsList.slice(0, listingPoolLimit));
-      setGigs(gigsList.slice(0, maxGigs));
+      setListingGigsPool((prev) => (gigsList.length === 0 && prev.length ? prev : gigsList.slice(0, listingPoolLimit)));
+      setGigs((prev) => (gigsList.length === 0 && prev.length ? prev : gigsList.slice(0, maxGigs)));
 
       const employerMap = new Map<string, ProfileCard>();
       jobsList.forEach((job: Job) => {

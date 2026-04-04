@@ -211,6 +211,12 @@ const extractGigsFromPayload = (payload: any): Gig[] => {
   return [];
 };
 
+const extractFeedItemsFromPayload = (payload: any): any[] => {
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload)) return payload;
+  return [];
+};
+
 const formatHighlightMoney = (value: any) => {
   const amount =
     typeof value === 'number'
@@ -1049,6 +1055,7 @@ export default function MobileFeed({
     }
     if (loadInFlightRef.current) return;
     loadInFlightRef.current = true;
+    const feedLimit = Math.max(6, Math.min(24, Number(profile.feedPageSize || (constrainedForFeed ? 8 : 12))));
 
     try {
       if (mode === 'initial') {
@@ -1059,7 +1066,6 @@ export default function MobileFeed({
         setLoadingMore(true);
       }
 
-      const feedLimit = Math.max(6, Math.min(24, Number(profile.feedPageSize || (constrainedForFeed ? 8 : 12))));
       const resp = await withFastFail(
         CommunityService.getFeed({
           cursor: mode === 'more' ? cursorRef.current || undefined : undefined,
@@ -1069,14 +1075,32 @@ export default function MobileFeed({
         constrainedForFeed ? 15000 : 18000,
         'Feed request timed out. Please retry.'
       );
-      const nextPosts = Array.isArray(resp?.items) ? resp.items : [];
-      const nextCursor = resp?.nextCursor ? String(resp.nextCursor) : null;
+      let nextPosts = extractFeedItemsFromPayload(resp);
+      let nextCursor = resp?.nextCursor ? String(resp.nextCursor) : null;
+      let usedPostsFallback = false;
+      if (mode === 'initial' && nextPosts.length === 0) {
+        try {
+          const fallbackPosts = await withFastFail(
+            CommunityService.getPosts({ limit: feedLimit }),
+            constrainedForFeed ? 12000 : 15000,
+            'Fallback feed request timed out. Please retry.'
+          );
+          const extractedFallbackPosts = extractFeedItemsFromPayload(fallbackPosts);
+          if (extractedFallbackPosts.length > 0) {
+            nextPosts = extractedFallbackPosts;
+            nextCursor = null;
+            usedPostsFallback = true;
+          }
+        } catch (fallbackError) {
+          console.warn('Failed to load mobile community posts fallback', fallbackError);
+        }
+      }
       const shouldPreserveExistingFeed = mode === 'initial' && nextPosts.length === 0 && postsRef.current.length > 0;
 
       rateLimitUntilRef.current = 0;
       setRateLimitUntil(null);
       setError(null);
-      setStatusMessage(null);
+      setStatusMessage(usedPostsFallback ? 'Showing community posts while your home feed reconnects.' : null);
       cursorRef.current = nextCursor;
       const mergedPosts = shouldPreserveExistingFeed
         ? postsRef.current
@@ -1139,6 +1163,42 @@ export default function MobileFeed({
           setError(String(backendError || 'Too many requests. Please try again later.'));
         }
       } else {
+        if (mode === 'initial' && postsRef.current.length === 0) {
+          try {
+            const fallbackPosts = await withFastFail(
+              CommunityService.getPosts({ limit: feedLimit }),
+              constrainedForFeed ? 12000 : 15000,
+              'Fallback feed request timed out. Please retry.'
+            );
+            const extractedFallbackPosts = extractFeedItemsFromPayload(fallbackPosts);
+            if (extractedFallbackPosts.length > 0) {
+              cursorRef.current = null;
+              postsRef.current = extractedFallbackPosts;
+              setError(null);
+              setStatusMessage('Showing community posts while your home feed reconnects.');
+              startTransition(() => {
+                setCursor(null);
+                setPosts(extractedFallbackPosts);
+                setRenderedPostCount(Math.min(initialRenderCount, extractedFallbackPosts.length || initialRenderCount));
+              });
+              try {
+                localStorage.setItem(
+                  feedCacheKey,
+                  JSON.stringify({
+                    ts: Date.now(),
+                    cursor: null,
+                    items: extractedFallbackPosts.slice(0, 80)
+                  })
+                );
+              } catch {
+                // Ignore cache write errors.
+              }
+              return;
+            }
+          } catch (fallbackError) {
+            console.warn('Failed to recover mobile feed from community posts fallback', fallbackError);
+          }
+        }
         if (postsRef.current.length > 0) {
           setError(null);
           setStatusMessage('Showing your saved feed while we reconnect.');
@@ -1226,13 +1286,13 @@ export default function MobileFeed({
             ) as Array<Gig & { id: string }>
           ).slice(0, requestLimit);
 
-          setRecommendedJobs(jobsList);
-          setRecommendedGigs(gigsList);
+          setRecommendedJobs((prev) => (jobsList.length === 0 && prev.length ? prev : jobsList));
+          setRecommendedGigs((prev) => (gigsList.length === 0 && prev.length ? prev : gigsList));
         })
         .catch(() => {
           if (cancelled) return;
-          setRecommendedJobs([]);
-          setRecommendedGigs([]);
+          setRecommendedJobs((prev) => prev);
+          setRecommendedGigs((prev) => prev);
         });
     }, 1100);
 
