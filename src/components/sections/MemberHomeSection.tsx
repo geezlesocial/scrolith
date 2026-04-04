@@ -2069,7 +2069,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     setFeedLoading(true);
     try {
       const scope = feedTab === 'following' ? 'following' : 'discover';
-      const resolvedMode =
+      const requestedMode =
         feedTab === 'latest'
           ? showIntentModes
             ? defaultIntentFeedTab
@@ -2081,14 +2081,36 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             : feedTab !== 'following'
               ? feedTab
               : undefined;
+      const resolvedMode =
+        requestedMode && String(requestedMode).toLowerCase() !== 'for_you' ? requestedMode : undefined;
       const payload: any = { limit: maxFeedItems, scope };
       if (resolvedMode) payload.mode = resolvedMode;
       if (scope === 'discover' && showCategoriesFilter) {
         if (feedTopic) payload.topic = feedTopic;
         if (feedRegion) payload.region = feedRegion;
       }
+      const extractFeedItems = (value: any) =>
+        Array.isArray(value?.items) ? value.items : Array.isArray(value) ? value : [];
+
       const data = await CommunityService.getFeed(payload);
-      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
+      let items = extractFeedItems(data);
+      if (
+        scope === 'discover' &&
+        resolvedMode &&
+        !feedTopic &&
+        !feedRegion &&
+        items.length === 0
+      ) {
+        try {
+          const fallbackData = await CommunityService.getFeed({ limit: maxFeedItems, scope: 'discover' });
+          const fallbackItems = extractFeedItems(fallbackData);
+          if (fallbackItems.length > 0) {
+            items = fallbackItems;
+          }
+        } catch (fallbackError) {
+          console.warn('Failed to load desktop discover feed fallback', fallbackError);
+        }
+      }
       const normalized = items.map(normalizePost);
       const sorted =
         feedTab === 'trending'
