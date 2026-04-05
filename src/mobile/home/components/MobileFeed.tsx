@@ -1165,6 +1165,47 @@ export default function MobileFeed({
             // Ignore and allow the preserved-feed path below to win.
           }
         }
+        if (nextPosts.length === 0) {
+          try {
+            const authoritativePosts = extractFeedItemsFromPayload(
+              await CommunityService.getPosts({ limit: feedLimit })
+            );
+            if (authoritativePosts.length > 0) {
+              nextPosts = authoritativePosts;
+              usedPostsFallback = true;
+            }
+          } catch {
+            // Ignore and continue to the remaining authoritative fallbacks.
+          }
+        }
+        if (nextPosts.length === 0) {
+          try {
+            const authoritativePublicBaseline = extractFeedItemsFromPayload(
+              await fetchPublicCommunityPostsBaseline(feedLimit)
+            );
+            if (authoritativePublicBaseline.length > 0) {
+              nextPosts = authoritativePublicBaseline;
+              usedPostsFallback = true;
+            }
+          } catch {
+            // Ignore and continue to the direct feed fallback.
+          }
+        }
+        if (nextPosts.length === 0) {
+          try {
+            const authoritativeFeed = extractFeedItemsFromPayload(
+              await CommunityService.getFeed({
+                limit: feedLimit,
+                scope: 'discover'
+              })
+            );
+            if (authoritativeFeed.length > 0) {
+              nextPosts = authoritativeFeed;
+            }
+          } catch {
+            // Ignore and allow the preserved-feed path below to win.
+          }
+        }
       } else {
         const resp = await withFastFail(
           CommunityService.getFeed({

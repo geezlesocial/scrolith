@@ -2245,6 +2245,66 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           console.warn('Failed to load emergency desktop posts feed', emergencyPostsError);
         }
       }
+      if (normalized.length === 0 && shouldFetchCommunityBaseline) {
+        try {
+          const authoritativePosts = normalizeFeedItems(
+            extractFeedItems(await CommunityService.getPosts({ limit: maxFeedItems }))
+          );
+          if (requestId !== feedLoadRequestIdRef.current) return;
+          if (authoritativePosts.length > 0) {
+            normalized = authoritativePosts;
+          }
+        } catch (authoritativePostsError) {
+          console.warn('Failed to load authoritative desktop posts baseline', authoritativePostsError);
+        }
+      }
+      if (normalized.length === 0 && shouldFetchCommunityBaseline) {
+        try {
+          const authoritativePublicPosts = normalizeFeedItems(
+            extractFeedItems(await fetchPublicCommunityPostsBaseline(maxFeedItems))
+          );
+          if (requestId !== feedLoadRequestIdRef.current) return;
+          if (authoritativePublicPosts.length > 0) {
+            normalized = authoritativePublicPosts;
+          }
+        } catch (authoritativePublicPostsError) {
+          console.warn('Failed to load authoritative desktop public posts baseline', authoritativePublicPostsError);
+        }
+      }
+      if (normalized.length === 0 && scope === 'discover') {
+        try {
+          const authoritativeFeedItems = normalizeFeedItems(
+            extractFeedItems(await CommunityService.getFeed(payload))
+          );
+          if (requestId !== feedLoadRequestIdRef.current) return;
+          if (authoritativeFeedItems.length > 0) {
+            normalized = shouldFetchCommunityBaseline
+              ? mergeFeedItems(authoritativeFeedItems, normalizedBaselineItems)
+              : authoritativeFeedItems;
+          }
+        } catch (authoritativeFeedError) {
+          console.warn('Failed to load authoritative desktop discover feed', authoritativeFeedError);
+        }
+      }
+      if (
+        normalized.length === 0 &&
+        scope === 'discover' &&
+        resolvedMode &&
+        !feedTopic &&
+        !feedRegion
+      ) {
+        try {
+          const authoritativeFallbackItems = normalizeFeedItems(
+            extractFeedItems(await CommunityService.getFeed({ limit: maxFeedItems, scope: 'discover' }))
+          );
+          if (requestId !== feedLoadRequestIdRef.current) return;
+          if (authoritativeFallbackItems.length > 0) {
+            normalized = authoritativeFallbackItems;
+          }
+        } catch (authoritativeFallbackError) {
+          console.warn('Failed to load authoritative desktop discover fallback feed', authoritativeFallbackError);
+        }
+      }
       const sorted =
         feedTab === 'trending'
           ? [...normalized].sort((a, b) => {

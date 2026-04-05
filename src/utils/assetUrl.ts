@@ -27,6 +27,23 @@ const isAssetPath = (value: string) => {
   );
 };
 
+const isNativeLikeRuntime = () => {
+  if (typeof window === 'undefined') return false;
+  const protocol = String(window.location?.protocol || '').toLowerCase();
+  const host = String(window.location?.hostname || '').toLowerCase();
+  if (protocol === 'capacitor:' || protocol === 'ionic:' || protocol === 'file:') {
+    return true;
+  }
+  return protocol === 'https:' && host === 'localhost';
+};
+
+const shouldPreferRelativeAssetUrls = () => typeof window !== 'undefined' && !isNativeLikeRuntime();
+
+const toRelativeAssetPath = (value: string) => {
+  if (!value) return value;
+  return value.startsWith('/') ? value : `/${value}`;
+};
+
 export const resolveAssetUrl = (value?: string | null) => {
   if (!value) return value ?? '';
   const trimmed = String(value).trim();
@@ -49,6 +66,10 @@ export const resolveAssetUrl = (value?: string | null) => {
     if (!isAssetPath(lower)) return trimmed;
     try {
       const url = new URL(trimmed);
+      const backendUrl = new URL(backendOrigin);
+      if (shouldPreferRelativeAssetUrls() && url.origin === backendUrl.origin) {
+        return `${url.pathname}${url.search}${url.hash}`;
+      }
       if (!localAssetHosts.has(url.hostname.toLowerCase())) return trimmed;
       return `${backendOrigin}${url.pathname}${url.search}${url.hash}`;
     } catch {
@@ -57,6 +78,9 @@ export const resolveAssetUrl = (value?: string | null) => {
   }
 
   if (isAssetPath(lower)) {
+    if (shouldPreferRelativeAssetUrls()) {
+      return toRelativeAssetPath(trimmed);
+    }
     if (lower.startsWith('uploads/')) return `${backendOrigin}/${trimmed}`;
     if (lower.startsWith('api/files/')) return `${backendOrigin}/${trimmed}`;
     if (lower.startsWith('files/content/')) return `${backendOrigin}/${trimmed}`;

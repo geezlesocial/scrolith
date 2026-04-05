@@ -847,7 +847,7 @@ class CommunityService {
     if (params?.businessPageSlug) search.set('businessPageSlug', String(params.businessPageSlug));
     const endpoint = `/community/posts${search.toString() ? `?${search.toString()}` : ''}`;
     const data = await this.get(endpoint);
-    return Array.isArray(data) ? data : [];
+    return toArray(data);
   }
 
   static async getFeed(params?: {
