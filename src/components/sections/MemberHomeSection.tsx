@@ -817,6 +817,20 @@ const dedupeById = <T extends { id?: string | null }>(items: T[]) => {
   return out;
 };
 
+const withFeedFallbackTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> => {
+  let timer: number | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timer = window.setTimeout(() => resolve(fallback), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer !== null) window.clearTimeout(timer);
+  }
+};
+
 const formatListingAmount = (value: any, fallback = 'Flexible') => {
   const raw =
     typeof value === 'number'
@@ -2136,34 +2150,50 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           );
         });
       };
-      const feedRequest = CommunityService.getFeed(payload);
-      const baselinePostsRequest = shouldFetchCommunityBaseline
-        ? Promise.allSettled([
-            CommunityService.getPosts({ limit: maxFeedItems }),
-            fetchPublicCommunityPostsBaseline(maxFeedItems)
-          ]).then((results) => {
-            const serviceItems = results[0]?.status === 'fulfilled' ? extractFeedItems(results[0].value) : [];
-            const publicItems = results[1]?.status === 'fulfilled' ? extractFeedItems(results[1].value) : [];
-            return dedupeById(
-              [...serviceItems, ...publicItems].filter(Boolean) as Array<any & { id?: string | null }>
-            );
-          })
-        : Promise.resolve([]);
-      const seededBaselineRequest = baselinePostsRequest
+      const feedRequest = withFeedFallbackTimeout(
+        CommunityService.getFeed(payload),
+        desktopConstrainedFeed ? 15000 : 18000,
+        null
+      );
+      const serviceBaselineRequest = shouldFetchCommunityBaseline
+        ? withFeedFallbackTimeout(CommunityService.getPosts({ limit: maxFeedItems }), 12000, [] as any[])
+        : Promise.resolve([] as any[]);
+      const publicBaselineRequest = shouldFetchCommunityBaseline
+        ? withFeedFallbackTimeout(fetchPublicCommunityPostsBaseline(maxFeedItems), 9000, [] as any[])
+        : Promise.resolve([] as any[]);
+      void publicBaselineRequest
         .then((value) => {
           const normalizedBaselineItems = normalizeFeedItems(extractFeedItems(value));
           if (normalizedBaselineItems.length > 0 && feedItemsRef.current.length === 0) {
             applyImmediateFeedSeed(normalizedBaselineItems);
           }
-          return normalizedBaselineItems;
         })
-        .catch(() => []);
-      const [feedResult, baselinePostsResult] = await Promise.allSettled([feedRequest, seededBaselineRequest]);
+        .catch(() => {
+          // Ignore seeding failures and continue with the merged load below.
+        });
+      const [feedResult, serviceBaselineResult, publicBaselineResult] = await Promise.allSettled([
+        feedRequest,
+        serviceBaselineRequest,
+        publicBaselineRequest
+      ]);
       if (requestId !== feedLoadRequestIdRef.current) return;
       const data = feedResult.status === 'fulfilled' ? feedResult.value : null;
       let items = extractFeedItems(data);
-      const normalizedBaselineItems =
-        baselinePostsResult.status === 'fulfilled' ? baselinePostsResult.value : [];
+      const normalizedServiceBaselineItems =
+        serviceBaselineResult.status === 'fulfilled'
+          ? normalizeFeedItems(extractFeedItems(serviceBaselineResult.value))
+          : [];
+      const normalizedPublicBaselineItems =
+        publicBaselineResult.status === 'fulfilled'
+          ? normalizeFeedItems(extractFeedItems(publicBaselineResult.value))
+          : [];
+      const normalizedBaselineItems = mergeFeedItems(
+        normalizedPublicBaselineItems,
+        normalizedServiceBaselineItems
+      );
+      if (normalizedBaselineItems.length > 0 && feedItemsRef.current.length === 0) {
+        applyImmediateFeedSeed(normalizedBaselineItems);
+      }
       if (
         scope === 'discover' &&
         resolvedMode &&
@@ -2186,6 +2216,34 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       let normalized = normalizedFeedItems;
       if (shouldFetchCommunityBaseline) {
         normalized = mergeFeedItems(normalizedFeedItems, normalizedBaselineItems);
+      }
+      if (normalized.length === 0 && shouldFetchCommunityBaseline) {
+        try {
+          const emergencyPosts = normalizeFeedItems(
+            extractFeedItems(
+              await withFeedFallbackTimeout(fetchPublicCommunityPostsBaseline(maxFeedItems), 9000, [] as any[])
+            )
+          );
+          if (emergencyPosts.length > 0) {
+            normalized = emergencyPosts;
+          }
+        } catch (emergencyBaselineError) {
+          console.warn('Failed to load emergency desktop community baseline', emergencyBaselineError);
+        }
+      }
+      if (normalized.length === 0 && shouldFetchCommunityBaseline) {
+        try {
+          const emergencyPosts = normalizeFeedItems(
+            extractFeedItems(
+              await withFeedFallbackTimeout(CommunityService.getPosts({ limit: maxFeedItems }), 12000, [] as any[])
+            )
+          );
+          if (emergencyPosts.length > 0) {
+            normalized = emergencyPosts;
+          }
+        } catch (emergencyPostsError) {
+          console.warn('Failed to load emergency desktop posts feed', emergencyPostsError);
+        }
       }
       const sorted =
         feedTab === 'trending'

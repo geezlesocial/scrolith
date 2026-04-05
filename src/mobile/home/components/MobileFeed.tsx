@@ -1083,42 +1083,88 @@ export default function MobileFeed({
           constrainedForFeed ? 15000 : 18000,
           'Feed request timed out. Please retry.'
         );
-        const fallbackRequest = withFastFail(
-          Promise.allSettled([
-            CommunityService.getPosts({ limit: feedLimit }),
-            fetchPublicCommunityPostsBaseline(feedLimit)
-          ]).then((results) => {
-            const serviceItems = results[0]?.status === 'fulfilled' ? extractFeedItemsFromPayload(results[0].value) : [];
-            const publicItems = results[1]?.status === 'fulfilled' ? extractFeedItemsFromPayload(results[1].value) : [];
-            return dedupeById([
-              ...(serviceItems as Array<any & { id?: string | null }>),
-              ...(publicItems as Array<any & { id?: string | null }>)
-            ]);
-          }),
-          constrainedForFeed ? 12000 : 15000,
-          'Fallback feed request timed out. Please retry.'
+        const serviceBaselineRequest = withFastFail(
+          CommunityService.getPosts({ limit: feedLimit }),
+          constrainedForFeed ? 10000 : 12000,
+          [] as any[]
         );
-        const seededFallbackRequest = fallbackRequest.then((value) => {
-          const fallbackItems = extractFeedItemsFromPayload(value);
-          if (fallbackItems.length > 0 && postsRef.current.length === 0) {
-            postsRef.current = fallbackItems;
-            startTransition(() => {
-              setPosts(fallbackItems);
-              setRenderedPostCount(Math.min(initialRenderCount, fallbackItems.length || initialRenderCount));
-            });
-          }
-          return fallbackItems;
-        });
-        const [feedResult, fallbackResult] = await Promise.allSettled([feedRequest, seededFallbackRequest]);
+        const publicBaselineRequest = withFastFail(
+          fetchPublicCommunityPostsBaseline(feedLimit),
+          constrainedForFeed ? 7000 : 9000,
+          [] as any[]
+        );
+        void publicBaselineRequest
+          .then((value) => {
+            const fallbackItems = extractFeedItemsFromPayload(value);
+            if (fallbackItems.length > 0 && postsRef.current.length === 0) {
+              postsRef.current = fallbackItems;
+              startTransition(() => {
+                setPosts(fallbackItems);
+                setRenderedPostCount(Math.min(initialRenderCount, fallbackItems.length || initialRenderCount));
+              });
+            }
+          })
+          .catch(() => {
+            // Ignore seeding failures and continue with the merged load below.
+          });
+        const [feedResult, serviceBaselineResult, publicBaselineResult] = await Promise.allSettled([
+          feedRequest,
+          serviceBaselineRequest,
+          publicBaselineRequest
+        ]);
         const feedResponse = feedResult.status === 'fulfilled' ? feedResult.value : null;
         const discoveredPosts = extractFeedItemsFromPayload(feedResponse);
-        const fallbackPosts =
-          fallbackResult.status === 'fulfilled' ? extractFeedItemsFromPayload(fallbackResult.value) : [];
+        const serviceBaselinePosts =
+          serviceBaselineResult.status === 'fulfilled'
+            ? extractFeedItemsFromPayload(serviceBaselineResult.value)
+            : [];
+        const publicBaselinePosts =
+          publicBaselineResult.status === 'fulfilled'
+            ? extractFeedItemsFromPayload(publicBaselineResult.value)
+            : [];
+        const fallbackPosts = dedupeById([
+          ...(publicBaselinePosts as Array<any & { id?: string | null }>),
+          ...(serviceBaselinePosts as Array<any & { id?: string | null }>)
+        ]);
         nextPosts = fallbackPosts.length > 0
           ? dedupeById([...(fallbackPosts as Array<any & { id?: string | null }>), ...(discoveredPosts as Array<any & { id?: string | null }>)])
           : discoveredPosts;
         nextCursor = discoveredPosts.length > 0 && feedResponse?.nextCursor ? String(feedResponse.nextCursor) : null;
         usedPostsFallback = fallbackPosts.length > 0 && discoveredPosts.length === 0;
+        if (nextPosts.length === 0) {
+          try {
+            const emergencyBaseline = extractFeedItemsFromPayload(
+              await withFastFail(
+                fetchPublicCommunityPostsBaseline(feedLimit),
+                constrainedForFeed ? 7000 : 9000,
+                [] as any[]
+              )
+            );
+            if (emergencyBaseline.length > 0) {
+              nextPosts = emergencyBaseline;
+              usedPostsFallback = true;
+            }
+          } catch {
+            // Ignore and try the authenticated posts endpoint next.
+          }
+        }
+        if (nextPosts.length === 0) {
+          try {
+            const emergencyPosts = extractFeedItemsFromPayload(
+              await withFastFail(
+                CommunityService.getPosts({ limit: feedLimit }),
+                constrainedForFeed ? 10000 : 12000,
+                [] as any[]
+              )
+            );
+            if (emergencyPosts.length > 0) {
+              nextPosts = emergencyPosts;
+              usedPostsFallback = true;
+            }
+          } catch {
+            // Ignore and allow the preserved-feed path below to win.
+          }
+        }
       } else {
         const resp = await withFastFail(
           CommunityService.getFeed({
