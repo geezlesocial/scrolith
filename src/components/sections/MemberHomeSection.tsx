@@ -1119,6 +1119,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [renderedFeedItemCount, setRenderedFeedItemCount] = useState(desktopInitialRenderCount);
   const feedItemsRef = useRef<FeedPost[]>([]);
   const feedLoadRequestIdRef = useRef(0);
+  const commitFeedItems = useCallback((items: FeedPost[]) => {
+    feedItemsRef.current = items;
+    setFeedItems(items);
+    setRenderedFeedItemCount(
+      Math.min(desktopInitialRenderCount, items.length || desktopInitialRenderCount)
+    );
+  }, [desktopInitialRenderCount]);
   const deferredFeedItems = useDeferredValue(feedItems);
   const visibleFeedItems = useMemo(
     () => deferredFeedItems.slice(0, Math.min(renderedFeedItemCount, deferredFeedItems.length)),
@@ -1174,6 +1181,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [storyTextOpen, setStoryTextOpen] = useState(false);
   const [storyEditOpen, setStoryEditOpen] = useState(false);
   const [editingStory, setEditingStory] = useState<any | null>(null);
+  useEffect(() => {
+    feedItemsRef.current = feedItems;
+  }, [feedItems]);
   const [storyDraft, setStoryDraft] = useState<StoryDraft>(() => ({
     content: '',
     visibility: 'public',
@@ -2142,13 +2152,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       const applyImmediateFeedSeed = (itemsToSeed: FeedPost[]) => {
         if (!itemsToSeed.length) return;
         if (requestId !== feedLoadRequestIdRef.current) return;
-        feedItemsRef.current = itemsToSeed;
-        startTransition(() => {
-          setFeedItems(itemsToSeed);
-          setRenderedFeedItemCount(
-            Math.min(desktopInitialRenderCount, itemsToSeed.length || desktopInitialRenderCount)
-          );
-        });
+        commitFeedItems(itemsToSeed);
       };
       const feedRequest = withFeedFallbackTimeout(
         CommunityService.getFeed(payload),
@@ -2331,13 +2335,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         !feedTopic &&
         !feedRegion;
       const effectiveFeedItems = shouldPreserveExistingFeed ? feedItemsRef.current : sorted;
-      feedItemsRef.current = effectiveFeedItems;
-      startTransition(() => {
-        setFeedItems(effectiveFeedItems);
-        setRenderedFeedItemCount(
-          Math.min(desktopInitialRenderCount, effectiveFeedItems.length || desktopInitialRenderCount)
-        );
-      });
+      commitFeedItems(effectiveFeedItems);
       if (effectiveFeedItems.length > 0) {
         try {
           window.localStorage.setItem(
@@ -2390,13 +2388,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           const parsed = raw ? (JSON.parse(raw) as { items?: FeedPost[] }) : null;
           const cachedItems = Array.isArray(parsed?.items) ? parsed.items : [];
           if (cachedItems.length > 0) {
-            feedItemsRef.current = cachedItems;
-            startTransition(() => {
-              setFeedItems(cachedItems);
-              setRenderedFeedItemCount(
-                Math.min(desktopInitialRenderCount, cachedItems.length || desktopInitialRenderCount)
-              );
-            });
+            commitFeedItems(cachedItems);
             return;
           }
         } catch {
@@ -2413,6 +2405,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       }
     }
   }, [
+    commitFeedItems,
     defaultIntentFeedTab,
     desktopInitialRenderCount,
     feedCacheKey,
@@ -4134,17 +4127,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       const parsed = JSON.parse(raw) as { items?: FeedPost[] };
       const cachedItems = Array.isArray(parsed?.items) ? parsed.items : [];
       if (!cachedItems.length) return;
-      feedItemsRef.current = cachedItems;
-      startTransition(() => {
-        setFeedItems(cachedItems);
-        setRenderedFeedItemCount(
-          Math.min(desktopInitialRenderCount, cachedItems.length || desktopInitialRenderCount)
-        );
-      });
+      commitFeedItems(cachedItems);
     } catch {
       // Ignore cache read failures.
     }
-  }, [desktopInitialRenderCount, feedCacheKey]);
+  }, [commitFeedItems, feedCacheKey]);
 
   useEffect(() => {
     if (!feedTabInitializedRef.current) return;

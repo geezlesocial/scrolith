@@ -767,6 +767,14 @@ export default function MobileFeed({
   const viewTrackedRef = useRef<Set<string>>(new Set());
   const postMediaTapTimersRef = useRef<Record<string, number>>({});
   const postMediaLastTapAtRef = useRef<Record<string, number>>({});
+  const commitVisiblePosts = useCallback((items: any[], nextCursorValue: string | null, mode: 'initial' | 'more') => {
+    postsRef.current = items;
+    setCursor(nextCursorValue);
+    setPosts(items);
+    if (mode === 'initial') {
+      setRenderedPostCount(Math.min(initialRenderCount, items.length || initialRenderCount));
+    }
+  }, [initialRenderCount]);
 
   useEffect(() => {
     postsRef.current = posts;
@@ -780,20 +788,15 @@ export default function MobileFeed({
       const parsed = JSON.parse(raw) as { ts?: number; items?: any[]; cursor?: string | null };
       const cachedPosts = Array.isArray(parsed?.items) ? parsed.items : [];
       if (!cachedPosts.length) return;
-      postsRef.current = cachedPosts;
       const cachedCursor = parsed?.cursor ? String(parsed.cursor) : null;
       cursorRef.current = cachedCursor;
-      startTransition(() => {
-        setPosts(cachedPosts);
-        setCursor(cachedCursor);
-        setRenderedPostCount(Math.min(initialRenderCount, cachedPosts.length || initialRenderCount));
-      });
+      commitVisiblePosts(cachedPosts, cachedCursor, 'initial');
       setLoading(false);
       setError(null);
     } catch {
       // Ignore cache parse errors and continue network-first.
     }
-  }, [feedCacheKey, initialRenderCount]);
+  }, [commitVisiblePosts, feedCacheKey]);
 
   useEffect(() => {
     setRenderedPostCount((prev) => {
@@ -1097,11 +1100,7 @@ export default function MobileFeed({
           .then((value) => {
             const fallbackItems = extractFeedItemsFromPayload(value);
             if (fallbackItems.length > 0 && postsRef.current.length === 0) {
-              postsRef.current = fallbackItems;
-              startTransition(() => {
-                setPosts(fallbackItems);
-                setRenderedPostCount(Math.min(initialRenderCount, fallbackItems.length || initialRenderCount));
-              });
+              commitVisiblePosts(fallbackItems, cursorRef.current, 'initial');
             }
           })
           .catch(() => {
@@ -1231,14 +1230,7 @@ export default function MobileFeed({
         : mode === 'more'
           ? [...postsRef.current, ...nextPosts]
           : nextPosts;
-      postsRef.current = mergedPosts;
-      startTransition(() => {
-        setCursor(nextCursor);
-        setPosts(mergedPosts);
-        if (mode === 'initial') {
-          setRenderedPostCount(Math.min(initialRenderCount, mergedPosts.length || initialRenderCount));
-        }
-      });
+      commitVisiblePosts(mergedPosts, nextCursor, mode);
       if (shouldPreserveExistingFeed) {
         setStatusMessage('Showing your saved feed while we reconnect.');
       }
@@ -1302,7 +1294,7 @@ export default function MobileFeed({
       setLoadingMore(false);
       loadInFlightRef.current = false;
     }
-  }, [constrainedForFeed, profile.feedPageSize, feedCacheKey, initialRenderCount]);
+  }, [commitVisiblePosts, constrainedForFeed, profile.feedPageSize, feedCacheKey, initialRenderCount]);
 
   useEffect(() => {
     void load('initial');
