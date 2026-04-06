@@ -20,6 +20,11 @@ export type ScrollEngagementType =
 export interface ScrollVideo {
   id: string;
   authorId: string;
+  bridgeSource?: {
+    type: 'post';
+    postId: string;
+    mediaFileId?: string | null;
+  } | null;
   sourceScrollId?: string | null;
   responseMode?: 'remix' | 'duet' | string | null;
   author: {

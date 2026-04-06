@@ -21,6 +21,7 @@ import { useUser } from '../../context/UserContext';
 import RepostModal from '../../community/components/RepostModal';
 import PostShareModal from '../../community/components/PostShareModal';
 import SendGcoinModal from '../../components/SendGcoinModal';
+import PostComments from '../../components/PostComments';
 import { LiveService, type LiveSession } from '../../services/live';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY } from '../../utils/inlineMedia';
 import {
@@ -34,6 +35,7 @@ import {
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../utils/postAttachmentMedia';
 import { buildPublicAppUrl } from '../../utils/siteUrl';
 import { pickInterestSurveyCandidateId } from '../../components/recommendation/ContentInterestSurvey';
+import { postOptionsApi } from '../../services/postOptions';
 
 const LAST_SCROLL_INDEX_KEY = 'scroll:lastIndex';
 const GLOBAL_SCROLL_MUTED_KEY = 'scroll:muted';
@@ -59,9 +61,38 @@ const isInteractiveScrollControlTarget = (target: EventTarget | null) => {
   );
 };
 
+const getPostBridgeSource = (scroll?: ScrollVideo | null) => {
+  const bridgeType = String(scroll?.bridgeSource?.type || '').trim().toLowerCase();
+  const directPostId = String(scroll?.bridgeSource?.postId || '').trim();
+  const directMediaFileId = String(scroll?.bridgeSource?.mediaFileId || '').trim();
+  if (bridgeType === 'post' && directPostId) {
+    return {
+      postId: directPostId,
+      mediaFileId: directMediaFileId || String(scroll?.media?.id || '').trim() || null
+    };
+  }
+
+  const rawId = String(scroll?.id || '').trim();
+  if (!rawId.toLowerCase().startsWith('post-video:')) return null;
+  const remainder = rawId.slice('post-video:'.length);
+  const separatorIndex = remainder.indexOf(':');
+  const postId = separatorIndex >= 0 ? remainder.slice(0, separatorIndex).trim() : '';
+  const mediaFileId = separatorIndex >= 0 ? remainder.slice(separatorIndex + 1).trim() : '';
+  if (!postId) return null;
+  return {
+    postId,
+    mediaFileId: mediaFileId || String(scroll?.media?.id || '').trim() || null
+  };
+};
+
 const buildViewerSeedScroll = (source: PendingPostVideoScrollViewerSource): ScrollVideo => ({
   id: `post-video:${String(source.sourcePostId || '').trim()}:${String(source.fileId || source.mediaUrl || '').trim()}`,
   authorId: String(source.sourcePostId || '').trim() || 'post-video',
+  bridgeSource: {
+    type: 'post',
+    postId: String(source.sourcePostId || '').trim(),
+    mediaFileId: String(source.fileId || '').trim() || null
+  },
   author: {
     id: String(source.sourcePostId || '').trim() || 'post-video',
     name: String(source.authorName || 'Scrolith creator').trim() || 'Scrolith creator',
@@ -155,6 +186,11 @@ const buildViewerSeedScrollFromPost = (post: any): ScrollVideo | null => {
   return {
     id: `post-video:${postId}:${attachmentId}`,
     authorId,
+    bridgeSource: {
+      type: 'post',
+      postId,
+      mediaFileId: attachmentId
+    },
     author: {
       id: authorId,
       name: authorName,
@@ -297,6 +333,52 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
       )
     );
   }, []);
+
+  const patchPostBridgeState = useCallback(
+    (
+      postId: string,
+      update: Partial<ScrollVideo> & { metrics?: Partial<ScrollVideo['metrics']> }
+    ) => {
+      const normalizedPostId = String(postId || '').trim();
+      if (!normalizedPostId) return;
+      setItems((prev) =>
+        prev.map((item) => {
+          const bridge = getPostBridgeSource(item);
+          if (!bridge || bridge.postId !== normalizedPostId) return item;
+          return {
+            ...item,
+            ...update,
+            metrics: {
+              ...item.metrics,
+              ...(update.metrics || {})
+            }
+          };
+        })
+      );
+    },
+    []
+  );
+
+  const incrementPostBridgeMetric = useCallback(
+    (postId: string, field: keyof ScrollVideo['metrics'], amount = 1) => {
+      const normalizedPostId = String(postId || '').trim();
+      if (!normalizedPostId) return;
+      setItems((prev) =>
+        prev.map((item) => {
+          const bridge = getPostBridgeSource(item);
+          if (!bridge || bridge.postId !== normalizedPostId) return item;
+          return {
+            ...item,
+            metrics: {
+              ...item.metrics,
+              [field]: Math.max(0, Number((item.metrics as any)?.[field] || 0) + amount)
+            }
+          };
+        })
+      );
+    },
+    []
+  );
 
   const patchScrollState = useCallback(
     (
@@ -771,12 +853,18 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     };
     const onReactionUpdated = (event: Event) => {
       const detail = (event as CustomEvent<any>).detail;
-      if (String(detail?.targetType || '').toUpperCase() !== 'SCROLL') return;
+      const targetType = String(detail?.targetType || '').toUpperCase();
       const scrollId = String(detail?.targetId || '').trim();
-      if (!scrollId) return;
       const counts = detail?.counts && typeof detail.counts === 'object' ? detail.counts : {};
       const likes = Object.values(counts).reduce((total: number, value: any) => total + Math.max(0, Number(value || 0)), 0);
-      patchMetrics(scrollId, { likes });
+      if (targetType === 'SCROLL') {
+        if (!scrollId) return;
+        patchMetrics(scrollId, { likes });
+        return;
+      }
+      if (targetType === 'POST' && scrollId) {
+        patchPostBridgeState(scrollId, { metrics: { likes } });
+      }
     };
     const onRemoved = (event: Event) => {
       const detail = (event as CustomEvent<any>).detail;
@@ -818,10 +906,23 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
       window.removeEventListener('live:ended', onLiveChanged as EventListener);
       window.removeEventListener('live:viewer_count_updated', onLiveChanged as EventListener);
     };
-  }, [loadLiveSessions, patchMetrics, patchScrollState]);
+  }, [loadLiveSessions, patchMetrics, patchPostBridgeState, patchScrollState]);
 
   const handleEngage = useCallback(
-    async (scrollId: string, type: ScrollEngagementType, payload?: { watchedSeconds?: number }) => {
+    async (scroll: ScrollVideo, type: ScrollEngagementType, payload?: { watchedSeconds?: number }) => {
+      const postBridge = getPostBridgeSource(scroll);
+      if (postBridge) {
+        if (type === 'impression') {
+          try {
+            await CommunityService.postView(postBridge.postId);
+          } catch {
+            // non-blocking by design
+          }
+        }
+        return;
+      }
+      const scrollId = String(scroll?.id || '').trim();
+      if (!scrollId) return;
       try {
         const response = await ScrollService.engage(scrollId, {
           type,
@@ -840,17 +941,23 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const handleShareToStory = useCallback(
     async (scroll: ScrollVideo) => {
       if (!ensureAuth('Log in to share Scroll videos to Story?')) return;
-      if (!scroll?.media?.id) {
+      const postBridge = getPostBridgeSource(scroll);
+      const mediaFileId = String(postBridge?.mediaFileId || scroll?.media?.id || '').trim();
+      if (!mediaFileId) {
         showNotification('error', 'Scroll', 'Scroll media is not available.');
         return;
       }
       try {
         await CommunityService.createStory({
           type: 'video',
-          mediaFileId: scroll.media.id,
+          mediaFileId,
           content: scroll.title || scroll.description || 'Shared from Scroll'
         });
-        await handleEngage(scroll.id, 'share');
+        if (postBridge) {
+          await CommunityService.postShare(postBridge.postId, 'story');
+        } else {
+          await handleEngage(scroll, 'share');
+        }
         showNotification('success', 'Scroll', 'Shared to Story.');
       } catch (error: any) {
         const message = error?.response?.data?.error || error?.message || 'Failed to share to Story.';
@@ -899,12 +1006,20 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     async (scroll: ScrollVideo) => {
       const reason = window.prompt('Report reason');
       if (!reason || !reason.trim()) return;
+      const postBridge = getPostBridgeSource(scroll);
       try {
         setReportBusyId(scroll.id);
-        await ScrollService.report(scroll.id, { reason: reason.trim() });
-        patchScrollState(scroll.id, {
-          pendingReportCount: Math.max(0, Number(scroll.pendingReportCount || 0)) + 1
-        });
+        if (postBridge) {
+          await postOptionsApi.report(postBridge.postId, { reason: reason.trim() });
+          patchPostBridgeState(postBridge.postId, {
+            pendingReportCount: Math.max(0, Number(scroll.pendingReportCount || 0)) + 1
+          });
+        } else {
+          await ScrollService.report(scroll.id, { reason: reason.trim() });
+          patchScrollState(scroll.id, {
+            pendingReportCount: Math.max(0, Number(scroll.pendingReportCount || 0)) + 1
+          });
+        }
         showNotification('success', 'Scroll', 'Report submitted.');
       } catch (error: any) {
         const message = error?.response?.data?.error || error?.message || 'Failed to submit report.';
@@ -913,7 +1028,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         setReportBusyId(null);
       }
     },
-    [patchScrollState, showNotification]
+    [patchPostBridgeState, patchScrollState, showNotification]
   );
 
   const handleEdit = useCallback((scroll: ScrollVideo) => {
@@ -1024,14 +1139,26 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
       if (!activeActionScroll?.id || actionBusy) return;
       setActionBusy(true);
       try {
-        const text = withComment
-          ? `${withComment.trim()}\n\n${buildScrollUrl(activeActionScroll.id)}`
-          : `${activeActionScroll.description || activeActionScroll.title || 'Shared from Scroll'}\n\n${buildScrollUrl(activeActionScroll.id)}`;
-        await CommunityService.createPost({
-          title: activeActionScroll.title || 'Scroll repost',
-          content: text
-        });
-        await handleEngage(activeActionScroll.id, 'repost');
+        const postBridge = getPostBridgeSource(activeActionScroll);
+        if (postBridge) {
+          const ok = await CommunityService.postRepost(postBridge.postId, {
+            createWrapper: true,
+            content: withComment ? withComment.trim() : undefined
+          });
+          if (!ok) {
+            throw new Error('Failed to repost this post video.');
+          }
+          incrementPostBridgeMetric(postBridge.postId, 'reposts');
+        } else {
+          const text = withComment
+            ? `${withComment.trim()}\n\n${buildScrollUrl(activeActionScroll.id)}`
+            : `${activeActionScroll.description || activeActionScroll.title || 'Shared from Scroll'}\n\n${buildScrollUrl(activeActionScroll.id)}`;
+          await CommunityService.createPost({
+            title: activeActionScroll.title || 'Scroll repost',
+            content: text
+          });
+          await handleEngage(activeActionScroll, 'repost');
+        }
         setRepostOpen(false);
         showNotification('success', 'Scroll', 'Shared to your feed.');
       } catch (error: any) {
@@ -1041,10 +1168,11 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         setActionBusy(false);
       }
     },
-    [actionBusy, activeActionScroll, buildScrollUrl, handleEngage, showNotification]
+    [actionBusy, activeActionScroll, buildScrollUrl, handleEngage, incrementPostBridgeMetric, showNotification]
   );
 
   const activeScrollUrl = activeActionScroll?.id ? buildScrollUrl(activeActionScroll.id) : '';
+  const activeActionPostBridge = activeActionScroll ? getPostBridgeSource(activeActionScroll) : null;
   const handleClose = useCallback(() => {
     if (embedded && onClose) {
       onClose();
@@ -1125,7 +1253,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         ref={containerRef}
         className="h-screen snap-y snap-mandatory overflow-y-auto"
         style={{ WebkitOverflowScrolling: 'touch', overscrollBehaviorY: 'contain', touchAction: 'pan-y' }}
-        onWheel={(event) => {
+        onWheelCapture={(event) => {
           if (isInteractiveScrollControlTarget(event.target)) return;
           if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || Math.abs(event.deltaY) < 40) return;
           const now = Date.now();
@@ -1137,7 +1265,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           event.preventDefault();
           void navigateRelative(event.deltaY > 0 ? 1 : -1);
         }}
-        onTouchStart={(event) => {
+        onTouchStartCapture={(event) => {
           if (isInteractiveScrollControlTarget(event.target)) {
             touchSwipeStartRef.current = null;
             return;
@@ -1149,7 +1277,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           }
           touchSwipeStartRef.current = { x: touch.clientX, y: touch.clientY };
         }}
-        onTouchEnd={(event) => {
+        onTouchEndCapture={(event) => {
           const start = touchSwipeStartRef.current;
           touchSwipeStartRef.current = null;
           if (!start || isInteractiveScrollControlTarget(event.target)) return;
@@ -1224,6 +1352,8 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
                   headlinePreviewLimit={headlinePreviewLimit}
                   descriptionPreviewLimit={descriptionPreviewLimit}
                   interestSurveyEnabled={scroll.id === interestSurveyScrollId}
+                  reactionTargetType={getPostBridgeSource(scroll) ? 'POST' : 'SCROLL'}
+                  reactionTargetId={getPostBridgeSource(scroll)?.postId || scroll.id}
                 />
               </div>
             ))}
@@ -1302,14 +1432,53 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         </div>
       ) : null}
 
-      <ScrollCommentsSheet
-        scroll={activeActionScroll}
-        isOpen={commentOpen}
-        onClose={() => setCommentOpen(false)}
-        onCountChange={(scrollId, count) => {
-          patchMetrics(scrollId, { comments: count });
-        }}
-      />
+      {activeActionPostBridge ? (
+        <div
+          className={`fixed inset-0 z-[70] ${commentOpen ? 'pointer-events-auto' : 'pointer-events-none opacity-0'}`}
+          data-scroll-skip-swipe="true"
+          aria-hidden={!commentOpen}
+        >
+          <div
+            className="absolute inset-0 bg-black/65 backdrop-blur-[1px]"
+            onClick={() => setCommentOpen(false)}
+          />
+          <div className="absolute inset-x-0 bottom-0 max-h-[88svh] overflow-hidden rounded-t-[28px] bg-white text-slate-900 shadow-[0_-24px_64px_-28px_rgba(15,23,42,0.5)] md:inset-x-auto md:bottom-6 md:left-1/2 md:w-[min(56rem,calc(100vw-2rem))] md:-translate-x-1/2 md:rounded-[30px]">
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">Comments</p>
+                <p className="text-xs text-slate-500">This video was opened from a post.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCommentOpen(false)}
+                className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+            <div className="max-h-[calc(88svh-64px)] overflow-y-auto px-4 py-3" data-scroll-skip-swipe="true">
+              <PostComments
+                postId={activeActionPostBridge.postId}
+                authorId={activeActionScroll?.authorId}
+                initialCount={Number(activeActionScroll?.metrics?.comments || 0)}
+                expanded
+                onCountChange={(postId, count) => {
+                  patchPostBridgeState(postId, { metrics: { comments: count } });
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      ) : (
+        <ScrollCommentsSheet
+          scroll={activeActionScroll}
+          isOpen={commentOpen}
+          onClose={() => setCommentOpen(false)}
+          onCountChange={(scrollId, count) => {
+            patchMetrics(scrollId, { comments: count });
+          }}
+        />
+      )}
 
       <RepostModal
         isOpen={repostOpen}
@@ -1325,6 +1494,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
       <PostShareModal
         isOpen={shareOpen}
         onClose={() => setShareOpen(false)}
+        postId={activeActionPostBridge?.postId}
         postUrl={activeScrollUrl || buildPublicAppUrl('/scroll')}
         entityLabel="scroll"
         shareText={
@@ -1338,26 +1508,39 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           setRepostOpen(true);
         }}
         onTrackedShare={async () => {
+          if (activeActionPostBridge?.postId) {
+            incrementPostBridgeMetric(activeActionPostBridge.postId, 'sends');
+            return;
+          }
           if (!activeActionScroll?.id) return;
-          await handleEngage(activeActionScroll.id, 'send');
+          await handleEngage(activeActionScroll, 'send');
         }}
       />
 
       <SendGcoinModal
         isOpen={dashOpen}
         onClose={() => setDashOpen(false)}
-        donateScrollId={activeActionScroll?.id}
+        donatePostId={activeActionPostBridge?.postId}
+        donateScrollId={activeActionPostBridge ? undefined : activeActionScroll?.id}
         titleOverride="Dash Gcoin"
         subtitleOverride="Support this Scroll creator instantly with your Gcoin balance."
         onSuccess={async (result) => {
+          const postBridge = activeActionScroll ? getPostBridgeSource(activeActionScroll) : null;
+          const data = result?.data || {};
+          if (postBridge?.postId) {
+            patchPostBridgeState(postBridge.postId, {
+              dashGcoinTotal: Number(data?.dashGcoinTotal || 0),
+              metrics: data?.metrics || {}
+            });
+            return;
+          }
           const scrollId = String(activeActionScroll?.id || '').trim();
           if (!scrollId) return;
-          const data = result?.data || {};
           patchScrollState(scrollId, {
             dashGcoinTotal: Number(data?.dashGcoinTotal || 0),
             metrics: data?.metrics || {}
           });
-          await handleEngage(scrollId, 'dash');
+          await handleEngage(activeActionScroll, 'dash');
         }}
       />
 

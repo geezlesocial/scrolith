@@ -23,7 +23,7 @@ import ExpandablePreviewText from '../../components/common/ExpandablePreviewText
 import ContentOfferTags from '../../components/commerce/ContentOfferTags';
 import ReactionBar from '../../community/components/ReactionBar';
 import FollowButton from '../../community/components/FollowButton';
-import { ReactionsService } from '../../services/reactions';
+import { ReactionsService, type ReactionTargetType } from '../../services/reactions';
 import { useUser } from '../../context/UserContext';
 import { resolveInlineMedia } from '../../utils/inlineMedia';
 import GraphicWarningGate from '../../components/media/GraphicWarningGate';
@@ -55,6 +55,8 @@ type ScrollCardProps = {
   descriptionPreviewLimit?: number;
   interestSurveyEnabled?: boolean;
   initialIsFollowing?: boolean;
+  reactionTargetType?: ReactionTargetType;
+  reactionTargetId?: string;
 };
 
 const authorInitial = (name?: string | null) => String(name || 'S').trim().charAt(0).toUpperCase() || 'S';
@@ -119,7 +121,9 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   headlinePreviewLimit = 72,
   descriptionPreviewLimit = 120,
   interestSurveyEnabled = false,
-  initialIsFollowing
+  initialIsFollowing,
+  reactionTargetType = 'SCROLL',
+  reactionTargetId
 }) => {
   const navigate = useNavigate();
   const { user } = useUser();
@@ -378,19 +382,19 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   };
 
   const triggerDoubleTapLike = useCallback(async () => {
-    const scrollId = String(scroll?.id || '').trim();
-    if (!scrollId) return;
+    const targetId = String(reactionTargetId || scroll?.id || '').trim();
+    if (!targetId) return;
     if (!user?.id) {
       if (confirm('Log in to like scroll videos?')) window.location.href = '/auth/login';
       return;
     }
     try {
-      const summary = await ReactionsService.react('SCROLL', scrollId, 'like');
+      const summary = await ReactionsService.react(reactionTargetType, targetId, 'like');
       window.dispatchEvent(
         new CustomEvent('reactions:updated', {
           detail: {
-            targetType: 'SCROLL',
-            targetId: scrollId,
+            targetType: reactionTargetType,
+            targetId,
             counts: summary?.counts || {},
             userReaction: summary?.userReaction || null,
             actorUserId: user.id
@@ -400,7 +404,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     } catch (error) {
       console.error('Failed to apply scroll double-tap like', error);
     }
-  }, [scroll?.id, user?.id]);
+  }, [reactionTargetId, reactionTargetType, scroll?.id, user?.id]);
 
   const mediaFilterStyle = useMemo(() => {
     const strength = Math.max(0, Math.min(100, Number(scroll.filterStrength ?? 60))) / 100;
@@ -733,8 +737,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         }`}
       >
         <ReactionBar
-          targetType="SCROLL"
-          targetId={scroll.id}
+          targetType={reactionTargetType}
+          targetId={reactionTargetId || scroll.id}
           layout="rail"
           className="w-[60px] sm:w-[68px]"
           compact
