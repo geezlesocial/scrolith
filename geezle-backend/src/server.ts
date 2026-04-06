@@ -78,6 +78,7 @@ import recoRoutes from './routes/reco.routes';
 import scrolithaRoutes from './routes/scrolitha.routes';
 import insightsRoutes from './routes/insights.routes';
 import { authMiddleware } from './middleware/auth.middleware';
+import { adminMiddleware } from './middleware/admin.middleware';
 import { maintenanceModeMiddleware } from './middleware/maintenance.middleware';
 import {
   createRuntimeOptimizationMiddlewareBundle,
@@ -94,6 +95,8 @@ import { handleStripeWalletWebhook } from './controllers/walletFunding.controlle
 import cron from 'node-cron';
 import { reconcileAdPayments } from './scripts/reconcileAdPayments';
 import { registerInsightsJobs } from './modules/insights/jobs/insights.jobs';
+import { registerFxJobs } from './services/fx.service';
+import fxAdminRoutes from './routes/admin/fx.routes';
 import { insightsActionTrackerMiddleware } from './modules/insights/realtime/insights.tracker.middleware';
 import {
   getOrCreateMessengerVoiceConfig,
@@ -2717,6 +2720,7 @@ app.use('/api/cms', cmsRoutes);
 app.use('/api/cms', cmsAuthPagesRoutes);
 app.use('/api/homepage', homepageRoutes);
 app.use('/api/i18n', i18nRoutes);
+app.use('/api/admin/fx', authMiddleware, adminMiddleware, fxAdminRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/apps', appsRoutes);
 app.use('/api/auth', authRoutes);
@@ -3196,6 +3200,9 @@ app.use((err: Error, req: Request, res: Response, next: any) => {
 const PORT = parseInt(process.env.PORT!) || 5000;
 if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
   registerInsightsJobs(app);
+  registerFxJobs(app).catch((error) => {
+    console.error('[fx] Failed to register FX jobs:', error);
+  });
   server.listen(PORT, () => {
     console.log(`========================================`);
     console.log(`🚀 Scrolith Marketplace Backend Started`);

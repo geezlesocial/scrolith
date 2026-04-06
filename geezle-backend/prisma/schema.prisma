@@ -641,6 +641,97 @@ model AppSetting {
   createdAt DateTime @default(now())
 }
 
+model FxProvider {
+  code         String   @id
+  name         String
+  kind         String
+  baseUrl      String?
+  enabled      Boolean  @default(true)
+  priority     Int      @default(100)
+  settingsJson Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  snapshots FxSnapshot[]
+  syncJobs   FxSyncJob[]
+
+  @@index([enabled, priority])
+}
+
+model FxSnapshot {
+  id              String   @id @default(cuid())
+  providerCode    String
+  baseCurrency    String
+  status          String   @default("PENDING")
+  sourceTimestamp DateTime
+  fetchedAt       DateTime @default(now())
+  approvedAt      DateTime?
+  approvedById    String?
+  isFrozen        Boolean  @default(false)
+  sourceMeta      Json?
+
+  provider FxProvider @relation(fields: [providerCode], references: [code], onDelete: Restrict)
+  rates    FxRate[]
+  syncJobs FxSyncJob[]
+
+  @@index([providerCode, baseCurrency, fetchedAt])
+  @@index([status, baseCurrency, approvedAt])
+  @@index([isFrozen, baseCurrency, fetchedAt])
+}
+
+model FxRate {
+  id            String   @id @default(cuid())
+  snapshotId    String
+  quoteCurrency String
+  rate          Decimal  @db.Decimal(20, 10)
+  effectiveRate Decimal? @db.Decimal(20, 10)
+  createdAt     DateTime @default(now())
+
+  snapshot FxSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId, quoteCurrency])
+  @@index([quoteCurrency])
+}
+
+model FxManualOverride {
+  id            String   @id @default(cuid())
+  fromCurrency  String
+  toCurrency    String
+  rate          Decimal  @db.Decimal(20, 10)
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  reason        String
+  status        String   @default("PENDING")
+  createdById   String?
+  approvedById  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([fromCurrency, toCurrency, status, effectiveFrom])
+  @@index([status, createdAt])
+}
+
+model FxSyncJob {
+  id              String   @id @default(cuid())
+  providerCode    String
+  snapshotId      String?
+  status          String   @default("RUNNING")
+  startedAt       DateTime @default(now())
+  finishedAt      DateTime?
+  baseCurrency    String
+  requestedById   String?
+  triggerType     String   @default("manual")
+  error           String?
+  recordsInserted Int      @default(0)
+  meta            Json?
+
+  provider FxProvider  @relation(fields: [providerCode], references: [code], onDelete: Restrict)
+  snapshot FxSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+
+  @@index([providerCode, startedAt])
+  @@index([status, startedAt])
+}
+
 model DeveloperPlatformConfig {
   id                                     String   @id @default("default")
   developerBaseUrl                       String   @default("https://scrolith.com/developer")

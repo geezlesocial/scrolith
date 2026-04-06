@@ -1,4 +1,4 @@
-import prisma from '../utils/prismaClient';
+import { resolveEffectiveCurrencies } from '../services/fx.service';
 
 type SystemCurrencyEntry = {
   code: string;
@@ -9,37 +9,10 @@ type SystemCurrencyEntry = {
   isDefault?: boolean;
 };
 
-type SystemSettings = {
-  currency?: {
-    baseCurrency?: string;
-  };
-  currencies?: SystemCurrencyEntry[];
-};
-
 export type CurrencyConfig = {
   baseCurrency: string;
   currencies: Array<SystemCurrencyEntry & { code: string; rate: number; isActive: boolean; isDefault: boolean }>;
   rates: Map<string, number>;
-};
-
-const DEFAULT_SYSTEM: SystemSettings = {
-  currency: { baseCurrency: 'USD' },
-  currencies: []
-};
-
-const normalizeCurrency = (entry: any, baseCode?: string) => {
-  const code = (entry?.code || '').toString().toUpperCase();
-  const parsedRate = Number(entry?.rate);
-  const rate = Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : 1;
-  const isDefault = baseCode ? code === baseCode : Boolean(entry?.isDefault ?? entry?.is_default);
-  return {
-    code,
-    name: entry?.name || code,
-    symbol: entry?.symbol || '',
-    rate,
-    isActive: entry?.isActive !== false,
-    isDefault
-  };
 };
 
 const normalizeCountry = (value?: string | null) => (value || '').toString().trim().toUpperCase();
@@ -56,29 +29,18 @@ const COUNTRY_CURRENCY_MAP: Record<string, string> = {
 };
 
 export const loadCurrencyConfig = async (): Promise<CurrencyConfig> => {
-  const record = await prisma.appSetting.findUnique({ where: { scope: 'system' } });
-  const data = (record?.data as SystemSettings) || DEFAULT_SYSTEM;
-  const baseCurrency = data?.currency?.baseCurrency ? String(data.currency.baseCurrency).toUpperCase() : 'USD';
-  const list = Array.isArray(data?.currencies) ? data.currencies : [];
-  let active = list
-    .filter((c: any) => c && c.isActive !== false)
-    .map((entry: any) => normalizeCurrency(entry, baseCurrency));
-
-  if (!active.some((c) => c.code === baseCurrency)) {
-    active = [normalizeCurrency({ code: baseCurrency, isActive: true, rate: 1 }, baseCurrency), ...active];
-  } else {
-    active = active.map((c) => ({ ...c, isDefault: c.code === baseCurrency }));
-  }
-
-  const rates = new Map<string, number>();
-  active.forEach((c) => {
-    if (c.code) rates.set(c.code, c.rate || 1);
-  });
-
+  const resolved = await resolveEffectiveCurrencies();
   return {
-    baseCurrency,
-    currencies: active,
-    rates
+    baseCurrency: resolved.baseCurrency,
+    currencies: resolved.currencies.map((entry) => ({
+      code: entry.code,
+      name: entry.name,
+      symbol: entry.symbol,
+      rate: entry.rate,
+      isActive: entry.isActive,
+      isDefault: entry.isDefault
+    })),
+    rates: resolved.rates
   };
 };
 

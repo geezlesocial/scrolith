@@ -54,6 +54,19 @@ export const DEFAULT_SYSTEM = {
     baseCurrency: 'USD',
     provider: 'openexchangerates'
   },
+  fx: {
+    enabled: true,
+    providerCode: 'frankfurter_ecb',
+    syncBaseCurrency: 'USD',
+    autoApproveSnapshots: true,
+    refreshEnabled: true,
+    refreshCron: '17 0 * * 1-5',
+    staleAfterSeconds: 172800,
+    fallbackToStoredRates: true,
+    sourceBaseUrl: process.env.FX_SOURCE_BASE_URL || 'https://api.frankfurter.app',
+    sourceProvider: 'ECB',
+    timezone: process.env.SCHEDULE_TIMEZONE || 'UTC'
+  },
   optimization: serializeRuntimeOptimizationConfig(DEFAULT_RUNTIME_OPTIMIZATION_CONFIG),
   verification: DEFAULT_VERIFICATION_SETTINGS,
   trustScore: DEFAULT_TRUST_SCORE_SETTINGS,
@@ -135,6 +148,36 @@ export const validateSystem = (obj: any) => {
     if (currency.baseCurrency && obj.currencies && Array.isArray(obj.currencies)) {
       const exists = obj.currencies.some((c: any) => c.code === currency.baseCurrency && c.isActive !== false);
       if (!exists) errors.push('currency.baseCurrency must exist in active currencies');
+    }
+  }
+
+  const fx = obj.fx;
+  if (fx !== undefined) {
+    if (!isPlainObject(fx)) {
+      errors.push('fx must be an object');
+    } else {
+      if (fx.providerCode !== undefined && !String(fx.providerCode || '').trim()) {
+        errors.push('fx.providerCode is required when fx is configured');
+      }
+      if (fx.syncBaseCurrency !== undefined && !String(fx.syncBaseCurrency || '').trim()) {
+        errors.push('fx.syncBaseCurrency is required when provided');
+      }
+      if (
+        fx.syncBaseCurrency !== undefined &&
+        currency?.baseCurrency !== undefined &&
+        String(fx.syncBaseCurrency || '').trim().toUpperCase() !== String(currency.baseCurrency || '').trim().toUpperCase()
+      ) {
+        errors.push('fx.syncBaseCurrency must match currency.baseCurrency in Phase 1');
+      }
+      if (fx.refreshCron !== undefined && !String(fx.refreshCron || '').trim()) {
+        errors.push('fx.refreshCron must be a non-empty cron expression');
+      }
+      if (fx.staleAfterSeconds !== undefined) {
+        const staleAfterSeconds = Number(fx.staleAfterSeconds);
+        if (!Number.isFinite(staleAfterSeconds) || staleAfterSeconds < 60) {
+          errors.push('fx.staleAfterSeconds must be a number greater than or equal to 60');
+        }
+      }
     }
   }
 
