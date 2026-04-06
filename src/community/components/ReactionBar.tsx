@@ -89,6 +89,11 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
   const [userReaction, setUserReaction] = useState<string | null>(initialUserReaction || null);
   const [busy, setBusy] = useState(false);
   const [openMore, setOpenMore] = useState(false);
+  const interactionProps = {
+    onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.stopPropagation(),
+    onTouchStart: (event: React.TouchEvent<HTMLButtonElement>) => event.stopPropagation(),
+    style: { WebkitTapHighlightColor: 'transparent', touchAction: 'manipulation' as const }
+  };
 
   useEffect(() => {
     setCounts(initialCounts || {});
@@ -217,6 +222,7 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
               event.stopPropagation();
               setOpenMore((prev) => !prev);
             }}
+            {...interactionProps}
             className={`${railBaseClass} text-white transition ${
               selectedReaction ? 'bg-blue-600/85 ring-1 ring-blue-200/60' : 'bg-black/45 hover:bg-black/65'
             } disabled:cursor-not-allowed disabled:opacity-60`}
@@ -243,6 +249,7 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
                     void react(event, item.key);
                     setOpenMore(false);
                   }}
+                  {...interactionProps}
                   className={`inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition ${
                     userReaction === item.key ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-100'
                   }`}
@@ -269,6 +276,7 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
               type="button"
               disabled={busy || disabled}
               onClick={(event) => react(event, item.key)}
+              {...interactionProps}
               className={`${railBaseClass} text-white transition ${
                 selected ? 'bg-blue-600/85 ring-1 ring-blue-200/60' : 'bg-black/45 hover:bg-black/65'
               } disabled:cursor-not-allowed disabled:opacity-60`}
@@ -293,6 +301,7 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
                 event.stopPropagation();
                 setOpenMore((prev) => !prev);
               }}
+              {...interactionProps}
               className={`${railBaseClass} bg-black/45 text-white transition hover:bg-black/65`}
               title="More reactions"
             >
@@ -313,6 +322,7 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
                       void react(event, item.key);
                       setOpenMore(false);
                     }}
+                    {...interactionProps}
                     className={`rounded-lg px-2 py-1 text-sm transition ${
                       userReaction === item.key ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-100'
                     }`}
@@ -340,6 +350,7 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
             type="button"
             disabled={busy || disabled}
             onClick={(event) => react(event, item.key)}
+            {...interactionProps}
             className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition ${
               selected ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
             } disabled:cursor-not-allowed disabled:opacity-60`}
@@ -360,6 +371,7 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
               event.stopPropagation();
               setOpenMore((prev) => !prev);
             }}
+            {...interactionProps}
             className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
           >
             <SmilePlus className="h-3.5 w-3.5" />
@@ -375,6 +387,7 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
                     void react(event, item.key);
                     setOpenMore(false);
                   }}
+                  {...interactionProps}
                   className={`rounded-lg px-2 py-1 text-sm transition ${
                     userReaction === item.key ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-100'
                   }`}

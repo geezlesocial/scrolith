@@ -257,7 +257,11 @@ const ScrollCommentsSheet: React.FC<ScrollCommentsSheetProps> = ({
 
       setSubmitting(true);
       try {
-        await ScrollService.createComment(scrollId, { content, parentId: parentId || null });
+        const response = await ScrollService.createComment(scrollId, { content, parentId: parentId || null });
+        const createdComment = response?.comment;
+        if (createdComment?.id) {
+          setComments((prev) => (commentExists(prev, createdComment.id) ? prev : insertComment(prev, createdComment)));
+        }
         if (isReply) {
           setReplyDraft('');
           setReplyToId(null);
@@ -283,7 +287,10 @@ const ScrollCommentsSheet: React.FC<ScrollCommentsSheetProps> = ({
     }
     setSubmitting(true);
     try {
-      await ScrollService.updateComment(editingId, { content });
+      const updated = await ScrollService.updateComment(editingId, { content });
+      if (updated?.id) {
+        setComments((prev) => updateCommentInTree(prev, updated));
+      }
       setEditingId(null);
       setEditDraft('');
     } catch (error: any) {
@@ -301,6 +308,7 @@ const ScrollCommentsSheet: React.FC<ScrollCommentsSheetProps> = ({
       setSubmitting(true);
       try {
         await ScrollService.deleteComment(commentId);
+        setComments((prev) => markCommentDeleted(prev, commentId).items);
       } catch (error: any) {
         const message = error?.response?.data?.error || error?.message || 'Failed to delete comment.';
         showNotification('error', 'Scroll', message);

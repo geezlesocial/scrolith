@@ -50,6 +50,15 @@ const readMutedPreference = () => {
   return !(raw === 'false' || raw === '0' || raw === 'off');
 };
 
+const isInteractiveScrollControlTarget = (target: EventTarget | null) => {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(
+    target.closest(
+      'button, a, input, textarea, select, label, [role="dialog"], [data-scroll-skip-swipe="true"]'
+    )
+  );
+};
+
 const buildViewerSeedScroll = (source: PendingPostVideoScrollViewerSource): ScrollVideo => ({
   id: `post-video:${String(source.sourcePostId || '').trim()}:${String(source.fileId || source.mediaUrl || '').trim()}`,
   authorId: String(source.sourcePostId || '').trim() || 'post-video',
@@ -266,9 +275,12 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const openedSeriesSourceRef = useRef<string | null>(null);
   const pendingViewerSourceConsumedRef = useRef(false);
   const itemsRef = useRef<ScrollVideo[]>([]);
+  const activeIndexRef = useRef(activeIndex);
   const nextCursorRef = useRef<string | null>(null);
   const loadingMoreRef = useRef(false);
   const pendingAutoAdvanceIndexRef = useRef<number | null>(null);
+  const wheelNavigationLockRef = useRef<number>(0);
+  const touchSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const patchMetrics = useCallback((scrollId: string, metrics: Partial<ScrollVideo['metrics']>) => {
     setItems((prev) =>
@@ -626,12 +638,32 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   }, [items]);
 
   useEffect(() => {
+    activeIndexRef.current = activeIndex;
+  }, [activeIndex]);
+
+  useEffect(() => {
     nextCursorRef.current = nextCursor;
   }, [nextCursor]);
 
   useEffect(() => {
     loadingMoreRef.current = loadingMore;
   }, [loadingMore]);
+
+  const navigateRelative = useCallback(
+    async (delta: number) => {
+      if (!Number.isFinite(delta) || delta === 0) return;
+      const nextIndex = Math.max(0, activeIndexRef.current + (delta > 0 ? 1 : -1));
+      if (nextIndex < itemsRef.current.length) {
+        scrollToIndex(nextIndex);
+        return;
+      }
+      if (delta > 0 && nextCursorRef.current && !loadingMoreRef.current) {
+        pendingAutoAdvanceIndexRef.current = nextIndex;
+        await loadFeed(nextCursorRef.current);
+      }
+    },
+    [loadFeed, scrollToIndex]
+  );
 
   const handleAdvanceToNextScroll = useCallback(
     async (originIndex: number) => {
@@ -711,13 +743,13 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+      if (isInteractiveScrollControlTarget(event.target)) return;
       event.preventDefault();
-      const next = event.key === 'ArrowDown' ? activeIndex + 1 : activeIndex - 1;
-      scrollToIndex(next);
+      void navigateRelative(event.key === 'ArrowDown' ? 1 : -1);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeIndex, scrollToIndex]);
+  }, [navigateRelative]);
 
   useEffect(() => {
     const onNew = (event: Event) => {
@@ -807,6 +839,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
   const handleShareToStory = useCallback(
     async (scroll: ScrollVideo) => {
+      if (!ensureAuth('Log in to share Scroll videos to Story?')) return;
       if (!scroll?.media?.id) {
         showNotification('error', 'Scroll', 'Scroll media is not available.');
         return;
@@ -817,13 +850,14 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           mediaFileId: scroll.media.id,
           content: scroll.title || scroll.description || 'Shared from Scroll'
         });
+        await handleEngage(scroll.id, 'share');
         showNotification('success', 'Scroll', 'Shared to Story.');
       } catch (error: any) {
         const message = error?.response?.data?.error || error?.message || 'Failed to share to Story.';
         showNotification('error', 'Scroll', message);
       }
     },
-    [showNotification]
+    [ensureAuth, handleEngage, showNotification]
   );
 
   const handleRepost = useCallback(
@@ -868,6 +902,9 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
       try {
         setReportBusyId(scroll.id);
         await ScrollService.report(scroll.id, { reason: reason.trim() });
+        patchScrollState(scroll.id, {
+          pendingReportCount: Math.max(0, Number(scroll.pendingReportCount || 0)) + 1
+        });
         showNotification('success', 'Scroll', 'Report submitted.');
       } catch (error: any) {
         const message = error?.response?.data?.error || error?.message || 'Failed to submit report.';
@@ -876,7 +913,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         setReportBusyId(null);
       }
     },
-    [showNotification]
+    [patchScrollState, showNotification]
   );
 
   const handleEdit = useCallback((scroll: ScrollVideo) => {
@@ -1084,7 +1121,47 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         </section>
       ) : null}
 
-      <div ref={containerRef} className="h-screen snap-y snap-mandatory overflow-y-auto">
+      <div
+        ref={containerRef}
+        className="h-screen snap-y snap-mandatory overflow-y-auto"
+        style={{ WebkitOverflowScrolling: 'touch', overscrollBehaviorY: 'contain', touchAction: 'pan-y' }}
+        onWheel={(event) => {
+          if (isInteractiveScrollControlTarget(event.target)) return;
+          if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || Math.abs(event.deltaY) < 40) return;
+          const now = Date.now();
+          if (now - wheelNavigationLockRef.current < 420) {
+            event.preventDefault();
+            return;
+          }
+          wheelNavigationLockRef.current = now;
+          event.preventDefault();
+          void navigateRelative(event.deltaY > 0 ? 1 : -1);
+        }}
+        onTouchStart={(event) => {
+          if (isInteractiveScrollControlTarget(event.target)) {
+            touchSwipeStartRef.current = null;
+            return;
+          }
+          const touch = event.changedTouches?.[0];
+          if (!touch) {
+            touchSwipeStartRef.current = null;
+            return;
+          }
+          touchSwipeStartRef.current = { x: touch.clientX, y: touch.clientY };
+        }}
+        onTouchEnd={(event) => {
+          const start = touchSwipeStartRef.current;
+          touchSwipeStartRef.current = null;
+          if (!start || isInteractiveScrollControlTarget(event.target)) return;
+          const touch = event.changedTouches?.[0];
+          if (!touch) return;
+          const deltaX = touch.clientX - start.x;
+          const deltaY = touch.clientY - start.y;
+          if (Math.abs(deltaY) < 54 || Math.abs(deltaY) <= Math.abs(deltaX) * 1.2) return;
+          event.preventDefault();
+          void navigateRelative(deltaY > 0 ? -1 : 1);
+        }}
+      >
         {loading ? (
           <div className="flex h-screen items-center justify-center">
             <Loader2 className="h-8 w-8 animate-spin text-cyan-300" />
@@ -1280,6 +1357,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
             dashGcoinTotal: Number(data?.dashGcoinTotal || 0),
             metrics: data?.metrics || {}
           });
+          await handleEngage(scrollId, 'dash');
         }}
       />
 

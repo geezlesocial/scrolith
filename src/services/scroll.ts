@@ -7,6 +7,7 @@ export type ScrollEngagementType =
   | 'like'
   | 'comment'
   | 'repost'
+  | 'share'
   | 'dash'
   | 'send'
   | 'impression'
