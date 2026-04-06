@@ -18,7 +18,7 @@ import {
   MoreHorizontal,
   Maximize2
 } from 'lucide-react';
-import type { ScrollEngagementType, ScrollVideo } from '../../services/scroll';
+import { ScrollService, type ScrollEngagementType, type ScrollVideo } from '../../services/scroll';
 import ExpandablePreviewText from '../../components/common/ExpandablePreviewText';
 import ContentOfferTags from '../../components/commerce/ContentOfferTags';
 import ReactionBar from '../../community/components/ReactionBar';
@@ -30,6 +30,7 @@ import GraphicWarningGate from '../../components/media/GraphicWarningGate';
 import OverlayActionRailButton from '../../components/media/OverlayActionRailButton';
 import OptimizedImage from '../../components/media/OptimizedImage';
 import { resolvePostAttachmentMediaUrl } from '../../utils/postAttachmentMedia';
+import ContentInterestSurvey from '../../components/recommendation/ContentInterestSurvey';
 
 type ScrollCardProps = {
   scroll: ScrollVideo;
@@ -50,6 +51,7 @@ type ScrollCardProps = {
   onOpenSeries: (seriesId: string, scrollId?: string) => Promise<void> | void;
   headlinePreviewLimit?: number;
   descriptionPreviewLimit?: number;
+  interestSurveyEnabled?: boolean;
 };
 
 const authorInitial = (name?: string | null) => String(name || 'S').trim().charAt(0).toUpperCase() || 'S';
@@ -110,7 +112,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   onRemix,
   onOpenSeries,
   headlinePreviewLimit = 72,
-  descriptionPreviewLimit = 120
+  descriptionPreviewLimit = 120,
+  interestSurveyEnabled = false
 }) => {
   const navigate = useNavigate();
   const { user } = useUser();
@@ -125,6 +128,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const [touchOverlayMode, setTouchOverlayMode] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [ownerMenuOpen, setOwnerMenuOpen] = useState(false);
+  const [interestSignal, setInterestSignal] = useState<string | null>(scroll.viewer?.feedbackSignal || null);
   const media = resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
   const mediaUrl = media.src;
   const authorName = scroll.author?.name || 'Community member';
@@ -148,6 +152,10 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   useEffect(() => {
     setGraphicRevealed(false);
   }, [scroll.id]);
+
+  useEffect(() => {
+    setInterestSignal(scroll.viewer?.feedbackSignal || null);
+  }, [scroll.id, scroll.viewer?.feedbackSignal]);
 
   const clearControlsHideTimer = useCallback(() => {
     if (controlsHideTimerRef.current !== null) {
@@ -413,6 +421,24 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     ],
     [onComment, onDash, onRepost, onSend, scroll]
   );
+
+  const showInterestSurvey =
+    interestSurveyEnabled &&
+    isActive &&
+    Boolean(user?.id) &&
+    String(scroll.author?.id || '').trim() !== String(user?.id || '').trim();
+
+  const handleInterestSurveySubmit = async (signal: 'INTERESTED' | 'NOT_INTERESTED') => {
+    if (!user?.id) {
+      throw new Error('Authentication required.');
+    }
+    if (signal === 'INTERESTED') {
+      await ScrollService.interested(scroll.id, { surface: 'scroll_interest_survey' });
+    } else {
+      await ScrollService.notInterested(scroll.id, { surface: 'scroll_interest_survey' });
+    }
+    setInterestSignal(signal);
+  };
 
   return (
     <article
@@ -843,6 +869,19 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               ))}
             </div>
           </div>
+          {showInterestSurvey ? (
+            <div className="pointer-events-auto">
+              <ContentInterestSurvey
+                entityId={scroll.id}
+                viewerId={user?.id}
+                contentType="scroll"
+                initialSignal={interestSignal}
+                enabled
+                appearance="dark"
+                onSubmit={handleInterestSurveySubmit}
+              />
+            </div>
+          ) : null}
           <div className="pointer-events-auto">
             <ContentOfferTags offerTags={scroll.offerTags} variant="dark" />
           </div>

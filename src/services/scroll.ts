@@ -86,6 +86,15 @@ export interface ScrollVideo {
   viewer?: {
     liked?: boolean;
     impressed?: boolean;
+    feedbackSignal?: 'INTERESTED' | 'NOT_INTERESTED' | string | null;
+    feedbackUpdatedAt?: string | null;
+  };
+  topicSummary?: string[];
+  ranking?: {
+    mode?: string;
+    score?: number;
+    primaryReason?: string | null;
+    reasons?: string[];
   };
   canEdit?: boolean;
   canDelete?: boolean;
@@ -297,6 +306,16 @@ class ScrollService {
   static async report(id: string, payload: { reason: string }) {
     const response = await api.post(`/scroll/${encodeURIComponent(id)}/report`, payload);
     return extractData<any>(response);
+  }
+
+  static async interested(id: string, payload?: { surface?: string }) {
+    const response = await api.post(`/scroll/${encodeURIComponent(id)}/interested`, payload || {});
+    return extractData<{ signal: string }>(response);
+  }
+
+  static async notInterested(id: string, payload?: { surface?: string }) {
+    const response = await api.post(`/scroll/${encodeURIComponent(id)}/not-interested`, payload || {});
+    return extractData<{ signal: string; hidden?: boolean }>(response);
   }
 
   static async getComments(id: string) {

@@ -10,10 +10,12 @@ import { useUser } from '../../context/UserContext';
 import { useContent } from '../../context/ContentContext';
 import { useNotification } from '../../context/NotificationContext';
 import { CommunityService } from '../../services/community';
+import { postOptionsApi } from '../../services/postOptions';
 import PostComments from '../../components/PostComments';
 import SendGcoinModal from '../../components/SendGcoinModal';
 import PostShareModal from './PostShareModal';
 import RepostModal from './RepostModal';
+import ContentInterestSurvey from '../../components/recommendation/ContentInterestSurvey';
 
 type AllowedReaction = {
   key: string;
@@ -37,6 +39,8 @@ type Props = {
   focusCommentId?: string;
   focusMentionToken?: string;
   onCommentCountChange?: (postId: string, count: number) => void;
+  interestSurveyEnabled?: boolean;
+  initialInterestSignal?: string | null;
   features?: {
     reactions?: boolean;
     comments?: boolean;
@@ -162,6 +166,8 @@ const PostEngagementBar: React.FC<Props> = ({
   focusCommentId,
   focusMentionToken,
   onCommentCountChange,
+  interestSurveyEnabled = false,
+  initialInterestSignal,
   features,
   className = ''
 }) => {
@@ -203,6 +209,7 @@ const PostEngagementBar: React.FC<Props> = ({
   const [repostOpen, setRepostOpen] = useState(false);
   const [dashOpen, setDashOpen] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
+  const [interestSignal, setInterestSignal] = useState<string | null>(initialInterestSignal || null);
 
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const summaryRef = useRef<HTMLButtonElement | null>(null);
@@ -229,6 +236,9 @@ const PostEngagementBar: React.FC<Props> = ({
     if (typeof initialUserReaction === 'undefined') return;
     setUserReaction(initialUserReaction || null);
   }, [postId, initialUserReaction]);
+  useEffect(() => {
+    setInterestSignal(initialInterestSignal || null);
+  }, [postId, initialInterestSignal]);
 
   useEffect(() => {
     const onUpdated = (event: Event) => {
@@ -386,8 +396,37 @@ const PostEngagementBar: React.FC<Props> = ({
     void react(userReaction || defaultReactionKey);
   };
 
+  const handleInterestSurveySubmit = async (signal: 'INTERESTED' | 'NOT_INTERESTED') => {
+    if (!ensureAuth()) {
+      throw new Error('Authentication required.');
+    }
+    if (signal === 'INTERESTED') {
+      await postOptionsApi.interested(postId, { surface: 'post_interest_survey' });
+    } else {
+      await postOptionsApi.notInterested(postId, { surface: 'post_interest_survey' });
+    }
+    setInterestSignal(signal);
+  };
+
+  const showInterestSurvey =
+    interestSurveyEnabled &&
+    Boolean(postId) &&
+    Boolean(user?.id) &&
+    String(authorId || '').trim() !== String(user?.id || '').trim();
+
   return (
     <div className={`mt-3 ${className}`}>
+      {showInterestSurvey ? (
+        <ContentInterestSurvey
+          entityId={postId}
+          viewerId={user?.id}
+          contentType="post"
+          initialSignal={interestSignal}
+          enabled
+          className="mb-3"
+          onSubmit={handleInterestSurveySubmit}
+        />
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-[24px] border border-slate-200/80 bg-white/90 px-3 py-3 text-xs text-slate-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.82)]">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           {showCounts && reactionsEnabled ? (

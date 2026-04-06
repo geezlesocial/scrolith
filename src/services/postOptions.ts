@@ -20,12 +20,12 @@ export const postOptionsApi = {
     const res = await api.post(`/posts/${encodeURIComponent(postId)}/hide`);
     return res.data as ApiResponse<{ hidden: boolean }>;
   },
-  interested: async (postId: string) => {
-    const res = await api.post(`/posts/${encodeURIComponent(postId)}/interested`);
+  interested: async (postId: string, payload?: { surface?: string }) => {
+    const res = await api.post(`/posts/${encodeURIComponent(postId)}/interested`, payload || {});
     return res.data as ApiResponse<{ signal: string }>;
   },
-  notInterested: async (postId: string) => {
-    const res = await api.post(`/posts/${encodeURIComponent(postId)}/not-interested`);
+  notInterested: async (postId: string, payload?: { surface?: string }) => {
+    const res = await api.post(`/posts/${encodeURIComponent(postId)}/not-interested`, payload || {});
     return res.data as ApiResponse<{ signal: string; hidden?: boolean }>;
   },
   report: async (postId: string, payload?: { reason?: string; details?: string }) => {

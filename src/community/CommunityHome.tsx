@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   TrendingUp,
   Calendar,
@@ -64,6 +64,7 @@ import GraphicWarningGate from '../components/media/GraphicWarningGate';
 import PostOriginPreview from '../components/post/PostOriginPreview';
 import StoryUploadStatusCard from '../components/stories/StoryUploadStatusCard';
 import StoryReplySheet from '../components/stories/StoryReplySheet';
+import { pickInterestSurveyCandidateId } from '../components/recommendation/ContentInterestSurvey';
 import {
   postAiInsightPreferenceToBoolean,
   resolvePostAiInsightPreference,
@@ -2277,6 +2278,20 @@ const CommunityHome = () => {
     isVisibleForDevice(section?.visibility, viewportDevice)
   );
 
+  const interestSurveyPostId = useMemo(
+    () =>
+      pickInterestSurveyCandidateId(
+        posts.map((post: any) => ({
+          id: post?.id,
+          authorId: post?.authorUserId || post?.authorId,
+          initialSignal: post?.userState?.interestSignal
+        })),
+        user?.id,
+        'post'
+      ),
+    [posts, user?.id]
+  );
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero Section */}
@@ -3228,6 +3243,8 @@ const CommunityHome = () => {
                             viewCount={post.interactions?.views ?? post.viewsCount ?? 0}
                             initialReactionCounts={post.interactions?.reactions}
                             initialUserReaction={post.userState?.reaction}
+                            interestSurveyEnabled={post.id === interestSurveyPostId}
+                            initialInterestSignal={post.userState?.interestSignal}
                             focusCommentId={focusPostId === post.id ? focusCommentId : undefined}
                             focusMentionToken={focusPostId === post.id ? focusMentionToken : undefined}
                             onCommentCountChange={syncCommentCount}

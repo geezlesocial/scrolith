@@ -31,6 +31,7 @@ import {
   type PendingPostVideoScrollViewerSource
 } from '../../utils/postVideoScrollBridge';
 import { buildPublicAppUrl } from '../../utils/siteUrl';
+import { pickInterestSurveyCandidateId } from '../../components/recommendation/ContentInterestSurvey';
 
 const LAST_SCROLL_INDEX_KEY = 'scroll:lastIndex';
 const GLOBAL_SCROLL_MUTED_KEY = 'scroll:muted';
@@ -702,6 +703,19 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
   const headlinePreviewLimit = Math.max(40, Number(config?.headlinePreviewCharacters || 72));
   const descriptionPreviewLimit = Math.max(60, Number(config?.descriptionPreviewCharacters || 120));
+  const interestSurveyScrollId = useMemo(
+    () =>
+      pickInterestSurveyCandidateId(
+        items.map((scroll) => ({
+          id: String(scroll?.id || '').startsWith('post-video:') ? '' : scroll?.id,
+          authorId: scroll?.authorId,
+          initialSignal: scroll?.viewer?.feedbackSignal
+        })),
+        user?.id,
+        'scroll'
+      ),
+    [items, user?.id]
+  );
 
   const repostScroll = useCallback(
     async (withComment?: string) => {
@@ -858,6 +872,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
                   onOpenSeries={handleOpenSeries}
                   headlinePreviewLimit={headlinePreviewLimit}
                   descriptionPreviewLimit={descriptionPreviewLimit}
+                  interestSurveyEnabled={scroll.id === interestSurveyScrollId}
                 />
               </div>
             ))}

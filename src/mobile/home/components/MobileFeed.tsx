@@ -42,6 +42,7 @@ import { usePerformanceProfile } from '../../../hooks/usePerformanceProfile';
 import type { MemberHomeHighlightItem, MemberHomeHighlightPill } from '../../../components/member-home/MemberHomeHighlightsBoard';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../../utils/communityEventHighlights';
 import { MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
+import { pickInterestSurveyCandidateId } from '../../../components/recommendation/ContentInterestSurvey';
 
 const MediaPreviewModal = React.lazy(() => import('../../../components/media/MediaPreviewModal'));
 const PostExpandModal = React.lazy(() => import('../../../components/post/PostExpandModal'));
@@ -409,6 +410,19 @@ export default function MobileFeed({
   const visiblePosts = useMemo(
     () => deferredPosts.slice(0, Math.min(renderedPostCount, deferredPosts.length)),
     [deferredPosts, renderedPostCount]
+  );
+  const interestSurveyPostId = useMemo(
+    () =>
+      pickInterestSurveyCandidateId(
+        visiblePosts.map((post: any) => ({
+          id: post?.id,
+          authorId: post?.authorUserId || post?.authorId,
+          initialSignal: post?.userState?.interestSignal
+        })),
+        user?.id,
+        'post'
+      ),
+    [visiblePosts, user?.id]
   );
   const listingSlots = useMemo(() => {
     if (!showRecommendedGigsJobs || !user?.id || !posts.length) return 0;
@@ -2173,6 +2187,8 @@ export default function MobileFeed({
                   viewCount={post?.interactions?.views ?? post?.viewsCount ?? 0}
                   initialReactionCounts={reactionCounts}
                   initialUserReaction={post?.userState?.reaction}
+                  interestSurveyEnabled={postId === interestSurveyPostId}
+                  initialInterestSignal={post?.userState?.interestSignal}
                   onCommentCountChange={syncCommentCount}
                   features={{
                     reactions: postCardSettings.reactionsEnabled !== false,

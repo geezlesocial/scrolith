@@ -83,6 +83,7 @@ import { normalizeContentOfferTags, type OfferTagSelection } from '../../utils/c
 import { buildPublicAppUrl } from '../../utils/siteUrl';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../utils/communityEventHighlights';
 import type { StructuredLocationFields } from '../../types';
+import { pickInterestSurveyCandidateId } from '../recommendation/ContentInterestSurvey';
 
 const RepostModal = React.lazy(() => import('../../community/components/RepostModal'));
 const PostShareModal = React.lazy(() => import('../../community/components/PostShareModal'));
@@ -1135,6 +1136,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     if (visibleFeedItems.length > 0 || feedItems.length === 0) return visibleFeedItems;
     return feedItems.slice(0, Math.min(renderedFeedItemCount, feedItems.length));
   }, [feedItems, renderedFeedItemCount, visibleFeedItems]);
+  const interestSurveyPostId = useMemo(
+    () =>
+      pickInterestSurveyCandidateId(
+        renderableFeedItems.map((post: any) => ({
+          id: post?.id,
+          authorId: post?.authorUserId || post?.authorId,
+          initialSignal: post?.userState?.interestSignal
+        })),
+        user?.id,
+        'post'
+      ),
+    [renderableFeedItems, user?.id]
+  );
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [pipelineBusyByPostId, setPipelineBusyByPostId] = useState<Record<string, boolean>>({});
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
@@ -7098,6 +7112,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             viewCount={post.interactions?.views ?? post.viewsCount ?? 0}
                             initialReactionCounts={post.interactions?.reactions}
                             initialUserReaction={post.userState?.reaction}
+                            interestSurveyEnabled={post.id === interestSurveyPostId}
+                            initialInterestSignal={post.userState?.interestSignal}
                             focusCommentId={focusPostId === post.id ? focusCommentId : undefined}
                             focusMentionToken={focusPostId === post.id ? focusMentionToken : undefined}
                             onCommentCountChange={syncCommentCount}
