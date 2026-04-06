@@ -1,4 +1,5 @@
 import prisma from '../utils/prismaClient';
+const MAX_SCROLL_VIDEO_DURATION_SECONDS = 2 * 60 * 60;
 
 export type ScrollConfig = {
   id: string;
@@ -105,7 +106,7 @@ export const sanitizeScrollConfigInput = (input: any) => {
     maxDurationSeconds: clamp(
       toInt(payload.maxDurationSeconds ?? payload.maxDuration, DEFAULT_CONFIG.maxDurationSeconds),
       5,
-      600
+      MAX_SCROLL_VIDEO_DURATION_SECONDS
     ),
     aiLabelRequired: toBool(payload.aiLabelRequired, DEFAULT_CONFIG.aiLabelRequired),
     autoModeration: toBool(payload.autoModeration, DEFAULT_CONFIG.autoModeration),
