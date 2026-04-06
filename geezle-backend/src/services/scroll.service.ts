@@ -25,6 +25,8 @@ const SCROLL_TABLE_NAMES = [
   'ScrollSeriesItem',
   'ScrollTag',
   'ScrollEngagement',
+  'ScrollHidden',
+  'ScrollFeedback',
   'ScrollReport',
   'ScrollPostingRestriction'
 ];

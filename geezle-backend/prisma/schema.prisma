@@ -156,6 +156,8 @@ model User {
   businessPageAdminships             CommunityBusinessPageAdmin[]
   scrollSeriesCreated                ScrollSeries[]                      @relation("ScrollSeriesCreator")
   scrollSeriesItemsAdded             ScrollSeriesItem[]                  @relation("ScrollSeriesItemAddedBy")
+  scrollHides                        ScrollHidden[]
+  scrollFeedback                     ScrollFeedback[]
 
   // Profile views
   profileViewsReceived ProfileView[] @relation("ProfileViewViewed")
@@ -3566,6 +3568,8 @@ model ScrollVideo {
   tags         ScrollTag[]
   comments     ScrollComment[]
   engagements  ScrollEngagement[]
+  hiddenBy     ScrollHidden[]
+  feedback     ScrollFeedback[]
   reports      ScrollReport[]
 
   @@index([authorId, createdAt])
@@ -3662,6 +3666,44 @@ model ScrollEngagement {
   @@index([scrollId, createdAt])
   @@index([userId, createdAt])
   @@index([type, createdAt])
+}
+
+enum ScrollFeedbackSignal {
+  INTERESTED
+  NOT_INTERESTED
+}
+
+model ScrollHidden {
+  id        String   @id @default(cuid())
+  scrollId  String
+  userId    String
+  createdAt DateTime @default(now())
+
+  scroll ScrollVideo @relation(fields: [scrollId], references: [id], onDelete: Cascade)
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([scrollId, userId])
+  @@index([userId])
+  @@index([scrollId])
+  @@index([createdAt])
+}
+
+model ScrollFeedback {
+  id        String               @id @default(cuid())
+  scrollId  String
+  userId    String
+  signal    ScrollFeedbackSignal
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  scroll ScrollVideo @relation(fields: [scrollId], references: [id], onDelete: Cascade)
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([scrollId, userId])
+  @@index([userId])
+  @@index([scrollId])
+  @@index([signal])
+  @@index([updatedAt])
 }
 
 model ScrollReport {

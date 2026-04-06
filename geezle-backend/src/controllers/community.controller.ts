@@ -1926,7 +1926,7 @@ export const getPosts = async (req: Request, res: Response) => {
     const attachmentMap = await buildAttachmentLookup(
       posts.flatMap((post: any) => (Array.isArray(post.attachments) ? post.attachments : []))
     );
-    const [reactionRows, commentRows, userReactions, dashTotals] = await Promise.all([
+    const [reactionRows, commentRows, userReactions, userFeedbackRows, dashTotals] = await Promise.all([
       prisma.communityPostReaction.groupBy({
         by: ['postId', 'type'],
         where: { postId: { in: postIds } },
@@ -1943,12 +1943,27 @@ export const getPosts = async (req: Request, res: Response) => {
             select: { postId: true, type: true }
           })
         : Promise.resolve([]),
+      userId
+        ? prisma.communityPostFeedback.findMany({
+            where: { postId: { in: postIds }, userId },
+            select: { postId: true, signal: true, updatedAt: true }
+          })
+        : Promise.resolve([]),
       getPostDashTotals(postIds)
     ]);
 
     const reactionMap = buildReactionSummary(reactionRows);
     const commentMap = buildCommentCounts(commentRows);
     const userReactionMap = new Map(userReactions.map((r) => [r.postId, r.type]));
+    const userFeedbackMap = new Map(
+      (userFeedbackRows as any[]).map((row) => [
+        row.postId,
+        {
+          signal: String(row.signal || '').trim().toUpperCase() || null,
+          updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null
+        }
+      ])
+    );
     const { followingUserIds, followingPageIds } = await resolveFollowLookupForPosts(posts, userId);
 
     // Check which posts user liked (if authenticated)
@@ -2049,7 +2064,9 @@ export const getPosts = async (req: Request, res: Response) => {
         userState: {
           liked: likedPostIds.has(post.id),
           reposted: false,
-          reaction: userReactionMap.get(post.id) || null
+          reaction: userReactionMap.get(post.id) || null,
+          interestSignal: userFeedbackMap.get(post.id)?.signal || null,
+          interestUpdatedAt: userFeedbackMap.get(post.id)?.updatedAt || null
         }
       };
     }));
@@ -2141,7 +2158,7 @@ export const getFeed = async (req: Request, res: Response) => {
     const attachmentMap = await buildAttachmentLookup(
       posts.flatMap((post: any) => (Array.isArray(post.attachments) ? post.attachments : []))
     );
-    const [reactionRows, commentRows, userReactions, dashTotals, pipelineRows, viewerProfile, feedContext] = await Promise.all([
+    const [reactionRows, commentRows, userReactions, userFeedbackRows, dashTotals, pipelineRows, viewerProfile, feedContext] = await Promise.all([
       prisma.communityPostReaction.groupBy({
         by: ['postId', 'type'],
         where: { postId: { in: postIds } },
@@ -2156,6 +2173,12 @@ export const getFeed = async (req: Request, res: Response) => {
         ? prisma.communityPostReaction.findMany({
             where: { postId: { in: postIds }, userId },
             select: { postId: true, type: true }
+          })
+        : Promise.resolve([]),
+      userId
+        ? prisma.communityPostFeedback.findMany({
+            where: { postId: { in: postIds }, userId },
+            select: { postId: true, signal: true, updatedAt: true }
           })
         : Promise.resolve([]),
       getPostDashTotals(postIds),
@@ -2184,6 +2207,15 @@ export const getFeed = async (req: Request, res: Response) => {
     const reactionMap = buildReactionSummary(reactionRows);
     const commentMap = buildCommentCounts(commentRows);
     const userReactionMap = new Map(userReactions.map((r) => [r.postId, r.type]));
+    const userFeedbackMap = new Map(
+      (userFeedbackRows as any[]).map((row) => [
+        row.postId,
+        {
+          signal: String(row.signal || '').trim().toUpperCase() || null,
+          updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : null
+        }
+      ])
+    );
     const { followingUserIds, followingPageIds } = await resolveFollowLookupForPosts(posts, userId);
     const pipelineSavedIds = new Set(pipelineRows.map((row) => String(row.entityId)));
     const viewerRegion = String(
@@ -2301,7 +2333,9 @@ export const getFeed = async (req: Request, res: Response) => {
         userState: {
           liked: false,
           reposted: false,
-          reaction: userReactionMap.get(post.id) || null
+          reaction: userReactionMap.get(post.id) || null,
+          interestSignal: userFeedbackMap.get(post.id)?.signal || null,
+          interestUpdatedAt: userFeedbackMap.get(post.id)?.updatedAt || null
         },
         ranking: {
           mode: feedMode,

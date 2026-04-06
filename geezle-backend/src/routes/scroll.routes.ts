@@ -16,6 +16,8 @@ import {
   getScrollSeriesDetail,
   getScrollComments,
   engageScroll,
+  markScrollInterested,
+  markScrollNotInterested,
   reportScroll,
   updateScrollSeries
 } from '../controllers/scroll.controller';
@@ -34,6 +36,8 @@ router.delete('/series/:id', authMiddleware, deleteScrollSeries);
 router.get('/:id/comments', authMiddleware, getScrollComments);
 router.put('/:id', authMiddleware, updateScroll);
 router.delete('/:id', authMiddleware, deleteScroll);
+router.post('/:id/interested', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), markScrollInterested);
+router.post('/:id/not-interested', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), markScrollNotInterested);
 router.post('/:id/engage', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), engageScroll);
 router.post('/:id/report', authMiddleware, reportScroll);
 router.post('/:id/comments', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), createScrollComment);

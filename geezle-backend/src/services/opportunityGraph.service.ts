@@ -8,6 +8,7 @@ export type FeedRecipeWeights = {
   highlightBoost?: number;
   followedTopicBoost?: number;
   interestedTopicBoost?: number;
+  avoidedTopicPenalty?: number;
   requestedTopicBoost?: number;
   regionalBoost?: number;
   hireIntentBoost?: number;
@@ -32,18 +33,54 @@ type IntentSignalInput = {
 type ViewerFeedContext = {
   followedTopics: Set<string>;
   interestedTopics: Set<string>;
+  avoidedTopics: Set<string>;
   hiddenEntityIds: Set<string>;
 };
 
 const HIRE_KEYWORDS = ['hire', 'hiring', 'recruit', 'job', 'apply', 'looking for', 'talent', 'contract', 'freelancer needed'];
 const SELL_KEYWORDS = ['service', 'offer', 'available', 'package', 'quote', 'book', 'for hire', 'portfolio', 'client work'];
 const LEARN_KEYWORDS = ['guide', 'tutorial', 'tips', 'how to', 'lesson', 'case study', 'breakdown', 'insight', 'explained'];
+const NEGATIVE_INTENT_SIGNALS = new Set(['NOT_INTERESTED', 'HIDE', 'REPORT']);
+const INTEREST_KEYWORD_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'by',
+  'for',
+  'from',
+  'how',
+  'i',
+  'in',
+  'into',
+  'is',
+  'it',
+  'its',
+  'my',
+  'of',
+  'on',
+  'or',
+  'our',
+  'that',
+  'the',
+  'their',
+  'this',
+  'to',
+  'we',
+  'with',
+  'you',
+  'your'
+]);
 
 const DEFAULT_FEED_RECIPE_WEIGHTS: Required<FeedRecipeWeights> = {
   freshnessBaseHours: 42,
   highlightBoost: 18,
   followedTopicBoost: 28,
   interestedTopicBoost: 18,
+  avoidedTopicPenalty: 26,
   requestedTopicBoost: 24,
   regionalBoost: 26,
   hireIntentBoost: 34,
@@ -82,6 +119,25 @@ export const dedupeTopicLabels = (values: Array<unknown>) => {
     list.push(label);
   });
   return list;
+};
+
+export const extractInterestKeywords = (...values: Array<unknown>) => {
+  const tokens = values.flatMap((value) => {
+    if (Array.isArray(value)) return value.flatMap((entry) => extractInterestKeywords(entry));
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9#\s-]+/g, ' ')
+      .split(/[\s#-]+/g)
+      .map((entry) => entry.trim())
+      .filter(
+        (entry) =>
+          entry.length >= 3 &&
+          entry.length <= 32 &&
+          !INTEREST_KEYWORD_STOP_WORDS.has(entry)
+      );
+  });
+
+  return Array.from(new Set(tokens)).slice(0, 24);
 };
 
 export const extractTopicCandidates = (...values: Array<unknown>) =>
@@ -190,6 +246,7 @@ export const getViewerFeedContext = async (userId?: string | null): Promise<View
     return {
       followedTopics: new Set<string>(),
       interestedTopics: new Set<string>(),
+      avoidedTopics: new Set<string>(),
       hiddenEntityIds: new Set<string>()
     };
   }
@@ -232,17 +289,22 @@ export const getViewerFeedContext = async (userId?: string | null): Promise<View
   });
 
   const interestedTopics = new Set<string>();
+  const avoidedTopics = new Set<string>();
   signalRows.forEach((row) => {
     const topics = Array.isArray((row.meta as any)?.topics) ? (row.meta as any).topics : [];
+    const targetSet = NEGATIVE_INTENT_SIGNALS.has(String(row.signal || '').trim().toUpperCase())
+      ? avoidedTopics
+      : interestedTopics;
     topics.forEach((topic: unknown) => {
       const normalized = normalizeTopicLabel(topic);
-      if (normalized) interestedTopics.add(normalized.toLowerCase());
+      if (normalized) targetSet.add(normalized.toLowerCase());
     });
   });
 
   return {
     followedTopics,
     interestedTopics,
+    avoidedTopics,
     hiddenEntityIds: new Set(hiddenRows.map((row) => String(row.entityId)))
   };
 };
@@ -326,6 +388,11 @@ export const scoreCommunityPostForMode = (input: {
     reasons.push(`Similar to topics you engaged with recently: ${interestedTopicMatch}`);
   }
 
+  const avoidedTopicMatch = topicLabels.find((topic) => context.avoidedTopics.has(topic));
+  if (avoidedTopicMatch) {
+    score -= recipeWeights.avoidedTopicPenalty;
+  }
+
   if (requestedTopic && topicSet.has(requestedTopic)) {
     score += recipeWeights.requestedTopicBoost;
     reasons.push(`Matches the selected topic: ${requestedTopic}`);
@@ -356,6 +423,111 @@ export const scoreCommunityPostForMode = (input: {
 
   if (mode === 'for_you' && !reasons.length) {
     reasons.push('Recommended from recent community activity');
+  }
+
+  return {
+    score,
+    reasons,
+    topicSummary: topicLabels
+  };
+};
+
+export const scoreScrollForMode = (input: {
+  scroll: {
+    id: string;
+    title?: string | null;
+    description?: string | null;
+    location?: string | null;
+    seriesTitles?: string[] | null;
+    likesCount?: number;
+    commentsCount?: number;
+    repostsCount?: number;
+    sharesCount?: number;
+    sendCount?: number;
+    views3s?: number;
+    views10s?: number;
+    views95pct?: number;
+    createdAt?: string | Date | null;
+  };
+  mode?: FeedSurfaceMode;
+  context: ViewerFeedContext;
+  viewerRegion?: string | null;
+  recipe?: { weights?: FeedRecipeWeights | null } | null;
+}) => {
+  const { scroll, context } = input;
+  const mode = normalizeFeedSurfaceMode(input.mode, 'for_you');
+  const recipeWeights: Required<FeedRecipeWeights> = {
+    ...DEFAULT_FEED_RECIPE_WEIGHTS,
+    ...((input.recipe?.weights || {}) as FeedRecipeWeights)
+  };
+  const topicLabels = extractInterestKeywords(
+    scroll.title,
+    scroll.description,
+    scroll.location,
+    scroll.seriesTitles || []
+  ).map((entry) => entry.toLowerCase());
+  const location = normalizeText(scroll.location).toLowerCase();
+  const viewerRegion = normalizeText(input.viewerRegion).toLowerCase();
+  const corpus = `${normalizeText(scroll.title)} ${normalizeText(scroll.description)} ${normalizeText(
+    scroll.location
+  )} ${Array.isArray(scroll.seriesTitles) ? scroll.seriesTitles.join(' ') : ''}`.toLowerCase();
+
+  const ageMs = Date.now() - new Date(scroll.createdAt || Date.now()).getTime();
+  const ageHours = Math.max(0, ageMs / (1000 * 60 * 60));
+  const engagementScore =
+    Number(scroll.likesCount || 0) * 1.35 +
+    Number(scroll.commentsCount || 0) * 1.45 +
+    Number(scroll.sharesCount || 0) * recipeWeights.shareWeight +
+    Number(scroll.repostsCount || 0) * recipeWeights.repostWeight +
+    Number(scroll.sendCount || 0) * 1.25 +
+    Number(scroll.views3s || 0) * recipeWeights.viewWeight +
+    Number(scroll.views10s || 0) * recipeWeights.viewWeight * 1.8 +
+    Number(scroll.views95pct || 0) * recipeWeights.viewWeight * 2.6;
+
+  let score = Math.max(0, recipeWeights.freshnessBaseHours - ageHours) + engagementScore;
+  const reasons: string[] = [];
+
+  const followedTopicMatch = topicLabels.find((topic) => context.followedTopics.has(topic));
+  if (followedTopicMatch) {
+    score += recipeWeights.followedTopicBoost;
+    reasons.push(`Matches a topic you follow: ${followedTopicMatch}`);
+  }
+
+  const interestedTopicMatch = topicLabels.find((topic) => context.interestedTopics.has(topic));
+  if (interestedTopicMatch) {
+    score += recipeWeights.interestedTopicBoost;
+    reasons.push(`Similar to Scrolls you engaged with recently: ${interestedTopicMatch}`);
+  }
+
+  const avoidedTopicMatch = topicLabels.find((topic) => context.avoidedTopics.has(topic));
+  if (avoidedTopicMatch) {
+    score -= recipeWeights.avoidedTopicPenalty;
+  }
+
+  if (viewerRegion && location.includes(viewerRegion)) {
+    score += recipeWeights.regionalBoost;
+    reasons.push('Relevant to your location');
+  }
+
+  if (mode === 'hire' && matchesKeywordSet(corpus, HIRE_KEYWORDS)) {
+    score += recipeWeights.hireIntentBoost;
+    reasons.push('Strong hiring intent');
+  }
+  if (mode === 'sell' && matchesKeywordSet(corpus, SELL_KEYWORDS)) {
+    score += recipeWeights.sellIntentBoost;
+    reasons.push('Strong service or selling intent');
+  }
+  if (mode === 'learn' && matchesKeywordSet(corpus, LEARN_KEYWORDS)) {
+    score += recipeWeights.learnIntentBoost;
+    reasons.push('Strong learning value');
+  }
+  if (mode === 'local' && location) {
+    score += recipeWeights.localContextBoost;
+    reasons.push('Has local context');
+  }
+
+  if (mode === 'for_you' && !reasons.length) {
+    reasons.push('Recommended from recent Scroll activity');
   }
 
   return {

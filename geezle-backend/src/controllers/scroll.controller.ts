@@ -18,6 +18,12 @@ import {
   resolveSubmittedContentOfferTags
 } from '../services/contentOfferTagging.service';
 import { dispatchMessageReceiptNotifications } from '../services/messageNotifications';
+import {
+  extractInterestKeywords,
+  getViewerFeedContext,
+  recordFeedIntentSignal,
+  scoreScrollForMode
+} from '../services/opportunityGraph.service';
 
 const SCROLL_VISIBILITIES = new Set(['public', 'network', 'followers', 'private']);
 const SCROLL_FILTER_PRESETS = new Set(['none', 'vibrant', 'cinematic', 'bw', 'sepia', 'warm']);
@@ -543,6 +549,13 @@ const scrollVideoListSelect: any = {
   updatedAt: true
 };
 
+const buildScrollIntentMeta = (scroll: any, seriesTitles: string[] = []) => ({
+  topics: extractInterestKeywords(scroll?.title, scroll?.description, scroll?.location, seriesTitles),
+  authorId: String(scroll?.authorId || '').trim(),
+  visibility: String(scroll?.visibility || '').trim(),
+  responseMode: String(scroll?.responseMode || '').trim()
+});
+
 const buildSourceScrollSummaryMap = async (
   req: Request,
   scrolls: any[],
@@ -810,7 +823,7 @@ const fetchScrollPayloadList = async (
   const authorIds = Array.from(new Set(scrolls.map((scroll) => String(scroll?.authorId || '').trim()).filter(Boolean)));
   const fileIds = Array.from(new Set(scrolls.map((scroll) => String(scroll?.fileId || '').trim()).filter(Boolean)));
   const scrollIds = Array.from(new Set(scrolls.map((scroll) => String(scroll?.id || '').trim()).filter(Boolean)));
-  const [authors, mediaMap, tags, viewerLikes, dashTotals, reportRows, activeRestrictionMap, sourceScrollMap, seriesMap] = await Promise.all([
+  const [authors, mediaMap, tags, viewerLikes, viewerFeedbackRows, dashTotals, reportRows, activeRestrictionMap, sourceScrollMap, seriesMap] = await Promise.all([
     authorIds.length
       ? prisma.user.findMany({
           where: { id: { in: authorIds } },
@@ -845,6 +858,15 @@ const fetchScrollPayloadList = async (
           select: { scrollId: true, type: true }
         })
       : Promise.resolve([]),
+    viewerId && scrollIds.length
+      ? prismaAny.scrollFeedback.findMany({
+          where: { scrollId: { in: scrollIds }, userId: viewerId },
+          select: { scrollId: true, signal: true, updatedAt: true }
+        }).catch((error: any) => {
+          if (isScrollSchemaMissingError(error)) return [];
+          throw error;
+        })
+      : Promise.resolve([]),
     getScrollDashTotals(scrollIds),
     includeAdminFields && scrollIds.length
       ? prismaAny.scrollReport.findMany({
@@ -872,6 +894,15 @@ const fetchScrollPayloadList = async (
     if (!viewerStateMap.has(scrollId)) viewerStateMap.set(scrollId, new Set<string>());
     viewerStateMap.get(scrollId)!.add(type);
   });
+  const feedbackMap = new Map<string, { signal: string | null; updatedAt: string | null }>();
+  (viewerFeedbackRows || []).forEach((row: any) => {
+    const scrollId = String(row?.scrollId || '').trim();
+    if (!scrollId) return;
+    feedbackMap.set(scrollId, {
+      signal: String(row?.signal || '').trim().toUpperCase() || null,
+      updatedAt: row?.updatedAt ? new Date(row.updatedAt).toISOString() : null
+    });
+  });
   const reportSummaryMap = new Map<string, { total: number; pending: number }>();
   (reportRows || []).forEach((row: any) => {
     const scrollId = String(row?.scrollId || '').trim();
@@ -887,6 +918,7 @@ const fetchScrollPayloadList = async (
   return scrolls.map((scroll: any) => {
     const author = authorMap.get(String(scroll.authorId)) || null;
     const viewerState = viewerStateMap.get(String(scroll.id)) || new Set<string>();
+    const feedback = feedbackMap.get(String(scroll.id)) || { signal: null, updatedAt: null };
     const reportSummary = reportSummaryMap.get(String(scroll.id)) || { total: 0, pending: 0 };
     const activePostingRestriction = activeRestrictionMap.get(String(scroll.authorId)) || null;
     return {
@@ -946,7 +978,9 @@ const fetchScrollPayloadList = async (
       },
       viewer: {
         liked: viewerState.has('like'),
-        impressed: viewerState.has('impression')
+        impressed: viewerState.has('impression'),
+        feedbackSignal: feedback.signal,
+        feedbackUpdatedAt: feedback.updatedAt
       },
       canEdit:
         Boolean(viewerId) &&
@@ -1513,6 +1547,7 @@ export const getScrollFeed = async (req: Request, res: Response) => {
           OR: [{ visibility: { in: ['public', 'network', 'followers'] } }, { authorId: userId }]
         }
       : { visibility: { in: ['public'] } };
+    const candidateTake = Math.min(Math.max(limit * 4, limit), 120);
 
     const rows = await prismaAny.scrollVideo.findMany({
       where: {
@@ -1522,12 +1557,85 @@ export const getScrollFeed = async (req: Request, res: Response) => {
       },
       select: scrollVideoListSelect,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: limit + 1
+      take: candidateTake + 1
     });
 
-    const hasNext = rows.length > limit;
-    const slice = hasNext ? rows.slice(0, limit) : rows;
-    const items = await fetchScrollPayloadList(req, slice, userId);
+    const hasNext = rows.length > candidateTake;
+    const slice = hasNext ? rows.slice(0, candidateTake) : rows;
+    const hiddenRows =
+      userId && slice.length
+        ? await prismaAny.scrollHidden
+            .findMany({
+              where: { userId, scrollId: { in: slice.map((row: any) => String(row.id || '').trim()).filter(Boolean) } },
+              select: { scrollId: true }
+            })
+            .catch((error: any) => {
+              if (isScrollSchemaMissingError(error)) return [];
+              throw error;
+            })
+        : [];
+    const hiddenScrollIds = new Set((hiddenRows || []).map((row: any) => String(row?.scrollId || '').trim()));
+    const visibleSlice = slice.filter((row: any) => !hiddenScrollIds.has(String(row?.id || '').trim()));
+    const [baseItems, viewerProfile, feedContext] = await Promise.all([
+      fetchScrollPayloadList(req, visibleSlice, userId),
+      userId
+        ? prisma.user.findUnique({
+            where: { id: userId },
+            select: {
+              country: true,
+              profile: {
+                select: {
+                  location: true
+                }
+              }
+            }
+          })
+        : Promise.resolve(null),
+      getViewerFeedContext(userId)
+    ]);
+    const viewerRegion = String(viewerProfile?.profile?.location || viewerProfile?.country || '').trim();
+    const items = [...baseItems]
+      .map((item: any) => {
+        const seriesTitles = Array.isArray(item?.series) ? item.series.map((entry: any) => String(entry?.title || '').trim()) : [];
+        const ranking = scoreScrollForMode({
+          scroll: {
+            id: item.id,
+            title: item.title,
+            description: item.description,
+            location: item.location,
+            seriesTitles,
+            likesCount: item.metrics?.likes,
+            commentsCount: item.metrics?.comments,
+            repostsCount: item.metrics?.reposts,
+            sharesCount: item.metrics?.shares,
+            sendCount: item.metrics?.sends,
+            views3s: item.metrics?.views3s,
+            views10s: item.metrics?.views10s,
+            views95pct: item.metrics?.views95pct,
+            createdAt: item.createdAt
+          },
+          context: feedContext,
+          viewerRegion
+        });
+        return {
+          ...item,
+          topicSummary: ranking.topicSummary,
+          ranking: {
+            mode: 'for_you',
+            score: ranking.score,
+            primaryReason: ranking.reasons[0] || 'Recommended from recent Scroll activity.',
+            reasons: ranking.reasons
+          }
+        };
+      })
+      .sort((left: any, right: any) => {
+        const scoreDelta = Number(right?.ranking?.score || 0) - Number(left?.ranking?.score || 0);
+        if (scoreDelta !== 0) return scoreDelta;
+        const rightCreatedAt = new Date(String(right?.createdAt || 0)).getTime();
+        const leftCreatedAt = new Date(String(left?.createdAt || 0)).getTime();
+        return rightCreatedAt - leftCreatedAt;
+      })
+      .slice(0, limit);
 
     return res.json({
       success: true,
@@ -1547,6 +1655,151 @@ export const getScrollFeed = async (req: Request, res: Response) => {
     }
     console.error('getScrollFeed error:', error);
     return res.status(500).json({ success: false, error: error?.message || 'Failed to load scroll feed.' });
+  }
+};
+
+export const markScrollInterested = async (req: Request, res: Response) => {
+  try {
+    const scrollId = String(req.params.id || '').trim();
+    const userId = String((req as any)?.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const prismaAny = prisma as any;
+    const scroll = await prismaAny.scrollVideo.findUnique({
+      where: { id: scrollId },
+      select: {
+        id: true,
+        authorId: true,
+        title: true,
+        description: true,
+        location: true,
+        visibility: true,
+        responseMode: true,
+        status: true
+      }
+    });
+    const access = await canAccessScroll(scroll, userId, isPrivilegedUser((req as any)?.user));
+    if (!access.ok) {
+      return res.status(access.status).json({ success: false, error: access.error });
+    }
+
+    const seriesRows = await prismaAny.scrollSeriesItem.findMany({
+      where: { scrollId },
+      select: {
+        series: {
+          select: {
+            title: true
+          }
+        }
+      }
+    });
+    const seriesTitles = uniqueStrings(seriesRows.map((row: any) => row?.series?.title));
+    const row = await prismaAny.scrollFeedback.upsert({
+      where: { scrollId_userId: { scrollId, userId } },
+      update: { signal: 'INTERESTED' },
+      create: { scrollId, userId, signal: 'INTERESTED' }
+    });
+
+    await recordFeedIntentSignal({
+      userId,
+      entityType: 'SCROLL',
+      entityId: scrollId,
+      signal: 'INTERESTED',
+      surface: String(req.body?.surface || 'scroll_interest_survey').trim() || 'scroll_interest_survey',
+      weight: 1.25,
+      meta: buildScrollIntentMeta(scroll, seriesTitles)
+    }).catch(() => null);
+
+    return res.json({
+      success: true,
+      message: 'Sounds good! Expect more Scrolls like this coming your way.',
+      data: { signal: row.signal }
+    });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll module tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    console.error('markScrollInterested error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to record Scroll feedback.' });
+  }
+};
+
+export const markScrollNotInterested = async (req: Request, res: Response) => {
+  try {
+    const scrollId = String(req.params.id || '').trim();
+    const userId = String((req as any)?.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const prismaAny = prisma as any;
+    const scroll = await prismaAny.scrollVideo.findUnique({
+      where: { id: scrollId },
+      select: {
+        id: true,
+        authorId: true,
+        title: true,
+        description: true,
+        location: true,
+        visibility: true,
+        responseMode: true,
+        status: true
+      }
+    });
+    const access = await canAccessScroll(scroll, userId, isPrivilegedUser((req as any)?.user));
+    if (!access.ok) {
+      return res.status(access.status).json({ success: false, error: access.error });
+    }
+
+    const seriesRows = await prismaAny.scrollSeriesItem.findMany({
+      where: { scrollId },
+      select: {
+        series: {
+          select: {
+            title: true
+          }
+        }
+      }
+    });
+    const seriesTitles = uniqueStrings(seriesRows.map((row: any) => row?.series?.title));
+    const row = await prismaAny.scrollFeedback.upsert({
+      where: { scrollId_userId: { scrollId, userId } },
+      update: { signal: 'NOT_INTERESTED' },
+      create: { scrollId, userId, signal: 'NOT_INTERESTED' }
+    });
+    await prismaAny.scrollHidden.upsert({
+      where: { scrollId_userId: { scrollId, userId } },
+      update: {},
+      create: { scrollId, userId }
+    });
+
+    await recordFeedIntentSignal({
+      userId,
+      entityType: 'SCROLL',
+      entityId: scrollId,
+      signal: 'NOT_INTERESTED',
+      surface: String(req.body?.surface || 'scroll_interest_survey').trim() || 'scroll_interest_survey',
+      weight: 1.5,
+      meta: buildScrollIntentMeta(scroll, seriesTitles)
+    }).catch(() => null);
+
+    return res.json({
+      success: true,
+      message: "Sounds good! We'll show you fewer Scrolls like this for now.",
+      data: { signal: row.signal, hidden: true }
+    });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll module tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    console.error('markScrollNotInterested error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to record Scroll feedback.' });
   }
 };
 

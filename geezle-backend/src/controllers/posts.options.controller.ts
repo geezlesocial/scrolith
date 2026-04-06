@@ -172,12 +172,12 @@ export const markInterested = async (req: Request, res: Response) => {
       entityType: 'POST',
       entityId: post.id,
       signal: 'INTERESTED',
-      surface: 'post_options',
+      surface: normalizeId(req.body?.surface) || 'post_options',
       weight: 1.25,
       meta: buildPostIntentMeta(post)
     }).catch(() => null);
 
-    return ok(res, 'Thanks for your feedback', { signal: row.signal });
+    return ok(res, 'Sounds good! Expect more Posts like this coming your way.', { signal: row.signal });
   } catch (error: any) {
     console.error('[posts.markInterested] error:', error);
     return fail(res, 500, 'Failed to record feedback', error?.message);
@@ -210,12 +210,12 @@ export const markNotInterested = async (req: Request, res: Response) => {
       entityType: 'POST',
       entityId: post.id,
       signal: 'NOT_INTERESTED',
-      surface: 'post_options',
+      surface: normalizeId(req.body?.surface) || 'post_options',
       weight: 1.5,
       meta: buildPostIntentMeta(post)
     }).catch(() => null);
 
-    return ok(res, 'We will show you fewer posts like this', { signal: row.signal, hidden: true });
+    return ok(res, "Sounds good! We'll show you fewer posts like this for now.", { signal: row.signal, hidden: true });
   } catch (error: any) {
     console.error('[posts.markNotInterested] error:', error);
     return fail(res, 500, 'Failed to record feedback', error?.message);
