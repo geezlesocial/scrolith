@@ -15,6 +15,7 @@ import {
   updateFxConfig,
   updateFxProvider
 } from '../../services/fx.service';
+import { listFxLocks } from '../../services/fxLock.service';
 
 const router = express.Router();
 
@@ -80,6 +81,19 @@ router.get('/health', async (_req, res) => {
     return res.json({ success: true, data: health });
   } catch (error) {
     return handleError(res, error, 'Failed to load FX health');
+  }
+});
+
+router.get('/locks', async (req, res) => {
+  try {
+    const locks = await listFxLocks({
+      limit: Number(req.query.limit || 25),
+      entityType: String(req.query.entityType || ''),
+      entityId: String(req.query.entityId || '')
+    });
+    return res.json({ success: true, data: locks });
+  } catch (error) {
+    return handleError(res, error, 'Failed to load FX locks');
   }
 });
 

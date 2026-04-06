@@ -1,6 +1,7 @@
 import type { Application } from 'express';
 import cron from 'node-cron';
 import prisma from '../utils/prismaClient';
+import { listFxLocks } from './fxLock.service';
 
 type SystemCurrencyEntry = {
   code?: string;
@@ -800,13 +801,15 @@ export const approveFxOverride = async (overrideId: string, actorId?: string | n
 };
 
 export const getFxHealth = async () => {
-  const [providers, latestSync, resolved] = await Promise.all([
+  const [providers, latestSync, resolved, recentLocks, lockCount] = await Promise.all([
     listFxProviders(),
     prisma.fxSyncJob.findFirst({
       orderBy: [{ startedAt: 'desc' }],
       include: { provider: true, snapshot: true }
     }),
-    resolveEffectiveCurrencies()
+    resolveEffectiveCurrencies(),
+    listFxLocks({ limit: 10 }),
+    prisma.fxLock.count()
   ]);
 
   return {
@@ -814,7 +817,9 @@ export const getFxHealth = async () => {
     snapshot: resolved.snapshot,
     latestSync,
     providers,
-    currencyCount: resolved.currencies.length
+    currencyCount: resolved.currencies.length,
+    recentLocks,
+    lockCount
   };
 };
 

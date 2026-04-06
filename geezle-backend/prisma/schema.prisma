@@ -732,6 +732,35 @@ model FxSyncJob {
   @@index([status, startedAt])
 }
 
+model FxLock {
+  id               String   @id @default(cuid())
+  entityType       String
+  entityId         String
+  fromCurrency     String
+  toCurrency       String
+  sourceAmount     Decimal  @db.Decimal(20, 8)
+  convertedAmount  Decimal  @db.Decimal(20, 8)
+  rate             Decimal  @db.Decimal(20, 10)
+  baseCurrency     String
+  rateSource       String   @default("identity")
+  snapshotId       String?
+  overrideId       String?
+  stale            Boolean  @default(false)
+  isFrozenSnapshot Boolean  @default(false)
+  markupBps        Int      @default(0)
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  walletFundingIntents WalletFundingIntent[]
+  orderPaymentIntents  OrderPaymentIntent[]
+  withdrawalRequests   WithdrawalRequest[]
+
+  @@unique([entityType, entityId])
+  @@index([fromCurrency, toCurrency, createdAt])
+  @@index([createdAt])
+}
+
 model DeveloperPlatformConfig {
   id                                     String   @id @default("default")
   developerBaseUrl                       String   @default("https://scrolith.com/developer")
@@ -2327,6 +2356,7 @@ model WalletFundingIntent {
   id                  String    @id @default(cuid())
   userId              String
   walletId            String
+  fxLockId            String?   @unique
   provider            String
   amount              Float
   currency            String
@@ -2341,6 +2371,7 @@ model WalletFundingIntent {
 
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   wallet            Wallet             @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  fxLock            FxLock?            @relation(fields: [fxLockId], references: [id], onDelete: SetNull)
   paymentSettlement PaymentSettlement?
 
   @@index([userId])
@@ -2369,6 +2400,7 @@ model OrderPaymentIntent {
   id                  String   @id @default(cuid())
   orderId             String
   clientId            String
+  fxLockId            String?  @unique
   provider            String
   amount              Float
   currency            String
@@ -2381,6 +2413,7 @@ model OrderPaymentIntent {
   updatedAt           DateTime @updatedAt
 
   order      Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fxLock     FxLock?                 @relation(fields: [fxLockId], references: [id], onDelete: SetNull)
   settlement OrderPaymentSettlement?
 
   @@index([orderId])
@@ -2518,6 +2551,7 @@ model GcoinConversionRequest {
 model WithdrawalRequest {
   id          String           @id @default(cuid())
   userId      String
+  fxLockId    String?          @unique
   amount      Float
   method      String // "bank", "paypal", "stripe"
   details     Json // Bank details or PayPal email
@@ -2526,7 +2560,8 @@ model WithdrawalRequest {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
-  user User @relation(fields: [userId], references: [id])
+  user   User    @relation(fields: [userId], references: [id])
+  fxLock FxLock? @relation(fields: [fxLockId], references: [id], onDelete: SetNull)
 }
 
 model SupportTicketCategory {

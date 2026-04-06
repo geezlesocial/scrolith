@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import prisma from '../utils/prismaClient';
 import { initiateHostedCheckout, parseNotification } from '../services/payments/providers/payoneer';
+import { createFxLock } from '../services/fxLock.service';
 import { findOrderPaymentIntentByReference, settleOrderPaymentIntent } from '../services/orderPayments';
 import { encryptSecret, maybeDecryptSecret } from '../utils/secretCipher';
 import { getStripeClient, getStripeGatewayConfig, invalidateStripeConfigCache } from '../services/stripeConfig.service';
@@ -553,7 +554,10 @@ const settleWalletFundingIntent = async (
   rawEvent: any
 ) => {
   return prisma.$transaction(async (tx) => {
-    const intent = await tx.walletFundingIntent.findUnique({ where: { id: intentId } });
+    const intent = await tx.walletFundingIntent.findUnique({
+      where: { id: intentId },
+      include: { fxLock: true, wallet: true }
+    });
     if (!intent) {
       throw new Error('Funding intent not found');
     }
@@ -592,9 +596,11 @@ const settleWalletFundingIntent = async (
     });
 
     if (status === 'succeeded') {
+      const creditedAmount = intent.fxLock ? Number(intent.fxLock.convertedAmount) : Number(intent.amount);
+      const walletCurrency = (intent.wallet?.currency || intent.currency || 'USD').toString().toUpperCase();
       const wallet = await tx.wallet.update({
         where: { id: intent.walletId },
-        data: { balance: { increment: intent.amount } }
+        data: { balance: { increment: creditedAmount } }
       });
 
       await tx.transaction.create({
@@ -602,11 +608,20 @@ const settleWalletFundingIntent = async (
           userId: intent.userId,
           walletId: wallet.id,
           type: 'DEPOSIT',
-          amount: intent.amount,
+          amount: creditedAmount,
           status: 'CLEARED',
-          currency: intent.currency,
+          currency: walletCurrency,
           description: `Wallet top-up via ${provider}`,
-          referenceId: `${provider}:${providerReferenceId}`
+          referenceId: `${provider}:${providerReferenceId}`,
+          metadata: {
+            fundingAmount: Number(intent.amount),
+            fundingCurrency: intent.currency,
+            walletCreditAmount: creditedAmount,
+            walletCurrency,
+            fxLockId: intent.fxLock?.id || null,
+            fxRate: intent.fxLock ? Number(intent.fxLock.rate) : 1,
+            fxSource: intent.fxLock?.rateSource || 'identity'
+          }
         }
       });
     }
@@ -707,17 +722,50 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
       return fail(res, 400, 'Selected provider is not enabled', 'ERR_PROVIDER_DISABLED');
     }
 
-    const intent = await prisma.walletFundingIntent.create({
-      data: {
-        userId: user.id,
-        walletId: wallet.id,
-        provider,
-        amount,
-        currency,
-        country,
-        status: 'initiated'
-      }
+    const walletCurrency = (wallet.currency || currency).toString().toUpperCase();
+    const { intent, fxLock } = await prisma.$transaction(async (tx) => {
+      const createdIntent = await tx.walletFundingIntent.create({
+        data: {
+          userId: user.id,
+          walletId: wallet.id,
+          provider,
+          amount,
+          currency,
+          country,
+          status: 'initiated'
+        }
+      });
+
+      const lock = await createFxLock(
+        {
+          entityType: 'WALLET_FUNDING_INTENT',
+          entityId: createdIntent.id,
+          fromCurrency: currency,
+          toCurrency: walletCurrency,
+          sourceAmount: amount,
+          metadata: {
+            provider,
+            userId: user.id,
+            walletId: wallet.id,
+            country
+          }
+        },
+        tx
+      );
+
+      const updatedIntent = await tx.walletFundingIntent.update({
+        where: { id: createdIntent.id },
+        data: { fxLockId: lock.id }
+      });
+
+      return { intent: updatedIntent, fxLock: lock };
     });
+
+    const topupResponseMeta = {
+      fx_lock_id: intent.fxLockId,
+      wallet_credit_amount: Number(fxLock.convertedAmount),
+      wallet_currency: walletCurrency
+    };
 
     if (provider === 'stripe') {
       const frontendBase = process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:3000';
@@ -768,7 +816,8 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
       return ok(res, {
         intent_id: intent.id,
         provider,
-        redirect_url: session.url
+        redirect_url: session.url,
+        ...topupResponseMeta
       });
     }
 
@@ -834,7 +883,8 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
       return ok(res, {
         intent_id: intent.id,
         provider,
-        redirect_url: approveLink?.href || null
+        redirect_url: approveLink?.href || null,
+        ...topupResponseMeta
       });
     }
 
@@ -883,7 +933,8 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
       return ok(res, {
         intent_id: intent.id,
         provider,
-        redirect_url: init.data?.authorization_url || null
+        redirect_url: init.data?.authorization_url || null,
+        ...topupResponseMeta
       });
     }
 
@@ -935,7 +986,8 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
       return ok(res, {
         intent_id: intent.id,
         provider,
-        redirect_url: init.data?.link || null
+        redirect_url: init.data?.link || null,
+        ...topupResponseMeta
       });
     }
 
@@ -979,7 +1031,8 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
       return ok(res, {
         intent_id: intent.id,
         provider,
-        redirect_url: checkoutUrl
+        redirect_url: checkoutUrl,
+        ...topupResponseMeta
       });
     }
 
@@ -1020,7 +1073,8 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
       return ok(res, {
         intent_id: intent.id,
         provider,
-        redirect_url: checkoutUrl
+        redirect_url: checkoutUrl,
+        ...topupResponseMeta
       });
     }
 
@@ -1077,7 +1131,8 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
       return ok(res, {
         intent_id: intent.id,
         provider,
-        redirect_url: checkoutUrl
+        redirect_url: checkoutUrl,
+        ...topupResponseMeta
       });
     }
 
@@ -1125,7 +1180,8 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
       return ok(res, {
         intent_id: intent.id,
         provider,
-        redirect_url: checkoutUrl
+        redirect_url: checkoutUrl,
+        ...topupResponseMeta
       });
     }
 
@@ -1157,7 +1213,8 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
       return ok(res, {
         intent_id: intent.id,
         provider,
-        redirect_url: redirectUrl
+        redirect_url: redirectUrl,
+        ...topupResponseMeta
       });
     }
 
@@ -1203,7 +1260,8 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
       return ok(res, {
         intent_id: intent.id,
         provider,
-        redirect_url: session.redirectUrl
+        redirect_url: session.redirectUrl,
+        ...topupResponseMeta
       });
     }
 
@@ -1220,7 +1278,10 @@ export const getWalletTopupStatus = async (req: AuthRequest, res: Response) => {
     if (!user?.id) return fail(res, 401, 'Unauthorized', 'ERR_UNAUTHORIZED');
 
     const { intentId } = req.params;
-    const intent = await prisma.walletFundingIntent.findUnique({ where: { id: intentId } });
+    const intent = await prisma.walletFundingIntent.findUnique({
+      where: { id: intentId },
+      include: { fxLock: true, wallet: { select: { currency: true } } }
+    });
     if (!intent) return fail(res, 404, 'Funding intent not found', 'ERR_NOT_FOUND');
     if (intent.userId !== user.id) {
       return fail(res, 403, 'Not authorized', 'ERR_FORBIDDEN');
@@ -1232,7 +1293,10 @@ export const getWalletTopupStatus = async (req: AuthRequest, res: Response) => {
       provider: intent.provider,
       amount: intent.amount,
       currency: intent.currency,
-      provider_reference_id: intent.providerReferenceId
+      provider_reference_id: intent.providerReferenceId,
+      fx_lock_id: intent.fxLockId || null,
+      wallet_credit_amount: intent.fxLock ? Number(intent.fxLock.convertedAmount) : Number(intent.amount),
+      wallet_currency: intent.wallet?.currency || intent.currency
     });
   } catch (error: any) {
     console.error('Get wallet topup status error:', error);

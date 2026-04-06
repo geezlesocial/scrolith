@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import { initiateHostedCheckout } from '../services/payments/providers/payoneer';
+import { createFxLock } from '../services/fxLock.service';
 import { computeCommissionBreakdown } from '../utils/commission';
 import { notifyAdmins } from '../utils/notify';
 import { sendSystemMessage } from '../services/systemMessaging';
@@ -348,7 +349,7 @@ export const purchaseGig = async (req: Request, res: Response) => {
           }
         });
 
-        const intent = await tx.orderPaymentIntent.create({
+        const createdIntent = await tx.orderPaymentIntent.create({
           data: {
             orderId: order.id,
             clientId: user.id,
@@ -359,6 +360,30 @@ export const purchaseGig = async (req: Request, res: Response) => {
             status: 'succeeded',
             providerReferenceId: `wallet-${order.id}`
           }
+        });
+
+        const fxLock = await createFxLock(
+          {
+            entityType: 'ORDER_PAYMENT_INTENT',
+            entityId: createdIntent.id,
+            fromCurrency: currency,
+            toCurrency: currency,
+            sourceAmount: totalCharged,
+            metadata: {
+              orderId: order.id,
+              gigId: gig.id,
+              clientId: user.id,
+              provider: 'wallet',
+              baseAmount,
+              employerFee
+            }
+          },
+          tx
+        );
+
+        const intent = await tx.orderPaymentIntent.update({
+          where: { id: createdIntent.id },
+          data: { fxLockId: fxLock.id }
         });
 
         await tx.wallet.update({
@@ -474,7 +499,8 @@ export const purchaseGig = async (req: Request, res: Response) => {
         provider: 'wallet',
         amount: totalCharged,
         currency,
-        status: 'paid'
+        status: 'paid',
+        fx_lock_id: result.intent.fxLockId || null
       });
     }
 
@@ -482,38 +508,66 @@ export const purchaseGig = async (req: Request, res: Response) => {
       return fail(res, 400, 'Selected provider is not enabled', 'ERR_PROVIDER_DISABLED');
     }
 
-    const order = await prisma.order.create({
-      data: {
-        gigId: gig.id,
-        clientId: user.id,
-        freelancerId: gig.userId,
-        amount: baseAmount,
-        status: 'PENDING',
-        deliveryDate
-      }
-    });
+    const { order, intent } = await prisma.$transaction(async (tx) => {
+      const order = await tx.order.create({
+        data: {
+          gigId: gig.id,
+          clientId: user.id,
+          freelancerId: gig.userId,
+          amount: baseAmount,
+          status: 'PENDING',
+          deliveryDate
+        }
+      });
 
-    await prisma.escrow.create({
-      data: {
-        orderId: order.id,
-        clientId: user.id,
-        freelancerId: gig.userId,
-        amount: baseAmount,
-        commission: freelancerCommission,
-        status: 'PENDING'
-      }
-    });
+      await tx.escrow.create({
+        data: {
+          orderId: order.id,
+          clientId: user.id,
+          freelancerId: gig.userId,
+          amount: baseAmount,
+          commission: freelancerCommission,
+          status: 'PENDING'
+        }
+      });
 
-    const intent = await prisma.orderPaymentIntent.create({
-      data: {
-        orderId: order.id,
-        clientId: user.id,
-        provider,
-        amount: totalCharged,
-        currency,
-        country,
-        status: 'initiated'
-      }
+      const createdIntent = await tx.orderPaymentIntent.create({
+        data: {
+          orderId: order.id,
+          clientId: user.id,
+          provider,
+          amount: totalCharged,
+          currency,
+          country,
+          status: 'initiated'
+        }
+      });
+
+      const fxLock = await createFxLock(
+        {
+          entityType: 'ORDER_PAYMENT_INTENT',
+          entityId: createdIntent.id,
+          fromCurrency: currency,
+          toCurrency: currency,
+          sourceAmount: totalCharged,
+          metadata: {
+            orderId: order.id,
+            gigId: gig.id,
+            clientId: user.id,
+            provider,
+            baseAmount,
+            employerFee
+          }
+        },
+        tx
+      );
+
+      const intent = await tx.orderPaymentIntent.update({
+        where: { id: createdIntent.id },
+        data: { fxLockId: fxLock.id }
+      });
+
+      return { order, intent };
     });
 
     try {
@@ -567,6 +621,9 @@ export const purchaseGig = async (req: Request, res: Response) => {
       : '/client/dashboard';
     const successUrl = `${frontendBase}${dashboardPath}?tab=orders&order_id=${order.id}&payment_status=success`;
     const cancelUrl = `${frontendBase}${dashboardPath}?tab=orders&order_id=${order.id}&payment_status=cancel`;
+    const orderIntentResponseMeta = {
+      fx_lock_id: intent.fxLockId || null
+    };
 
     if (provider === 'stripe') {
       const stripeClient = await getStripeClient();
@@ -614,7 +671,8 @@ export const purchaseGig = async (req: Request, res: Response) => {
         provider,
         redirect_url: session.url,
         amount: totalCharged,
-        currency
+        currency,
+        ...orderIntentResponseMeta
       });
     }
 
@@ -678,7 +736,8 @@ export const purchaseGig = async (req: Request, res: Response) => {
         provider,
         redirect_url: approveLink?.href || null,
         amount: totalCharged,
-        currency
+        currency,
+        ...orderIntentResponseMeta
       });
     }
 
@@ -722,7 +781,8 @@ export const purchaseGig = async (req: Request, res: Response) => {
         provider,
         redirect_url: checkoutUrl,
         amount: totalCharged,
-        currency
+        currency,
+        ...orderIntentResponseMeta
       });
     }
 
@@ -773,7 +833,8 @@ export const purchaseGig = async (req: Request, res: Response) => {
         provider,
         redirect_url: checkoutUrl,
         amount: totalCharged,
-        currency
+        currency,
+        ...orderIntentResponseMeta
       });
     }
 
@@ -819,7 +880,8 @@ export const purchaseGig = async (req: Request, res: Response) => {
         provider,
         redirect_url: checkoutUrl,
         amount: totalCharged,
-        currency
+        currency,
+        ...orderIntentResponseMeta
       });
     }
 
@@ -863,7 +925,8 @@ export const purchaseGig = async (req: Request, res: Response) => {
         provider,
         redirect_url: checkoutUrl,
         amount: totalCharged,
-        currency
+        currency,
+        ...orderIntentResponseMeta
       });
     }
 
@@ -916,7 +979,8 @@ export const purchaseGig = async (req: Request, res: Response) => {
         provider,
         redirect_url: checkoutUrl,
         amount: totalCharged,
-        currency
+        currency,
+        ...orderIntentResponseMeta
       });
     }
 
@@ -960,7 +1024,8 @@ export const purchaseGig = async (req: Request, res: Response) => {
         provider,
         redirect_url: checkoutUrl,
         amount: totalCharged,
-        currency
+        currency,
+        ...orderIntentResponseMeta
       });
     }
 
@@ -995,7 +1060,8 @@ export const purchaseGig = async (req: Request, res: Response) => {
         provider,
         redirect_url: redirectUrl,
         amount: totalCharged,
-        currency
+        currency,
+        ...orderIntentResponseMeta
       });
     }
 
@@ -1037,7 +1103,8 @@ export const purchaseGig = async (req: Request, res: Response) => {
         provider,
         redirect_url: session.redirectUrl,
         amount: totalCharged,
-        currency
+        currency,
+        ...orderIntentResponseMeta
       });
     }
 

@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import prisma from '../utils/prismaClient';
-import { loadCurrencyConfig, getDefaultCurrencyForCountry, convertAmount } from '../utils/currency';
+import { loadCurrencyConfig, getDefaultCurrencyForCountry } from '../utils/currency';
+import { createFxLock, quoteFxAmount } from '../services/fxLock.service';
 import { notifyAdmins } from '../utils/notify';
 import { sendSystemMessage } from '../services/systemMessaging';
 import { maybeDecryptSecret } from '../utils/secretCipher';
@@ -81,6 +82,10 @@ const mapWithdrawal = (req: any) => ({
   amount: Number(req.amount ?? 0),
   method: req.method,
   details: req.details ?? {},
+  fx_lock_id:
+    (req?.details && typeof req.details === 'object'
+      ? (req.details as any).fxLockId ?? (req.details as any).fx_lock_id
+      : null) ?? req?.fxLockId ?? null,
   status: (req.status || '').toString().toLowerCase(),
   created_at: req.createdAt ? req.createdAt.toISOString() : nowIso(),
   updated_at: req.updatedAt ? req.updatedAt.toISOString() : nowIso(),
@@ -450,8 +455,13 @@ export const requestWithdrawal = async (req: Request, res: Response) => {
       .toString()
       .toUpperCase();
     const walletCurrency = (wallet.currency || currencyConfig.baseCurrency || 'USD').toString().toUpperCase();
-    const conversion = convertAmount(rawAmount, payoutCurrency, walletCurrency, currencyConfig);
-    const walletAmount = Number(conversion.amount ?? rawAmount);
+    const withdrawalQuote = await quoteFxAmount({
+      fromCurrency: payoutCurrency,
+      toCurrency: walletCurrency,
+      sourceAmount: rawAmount,
+      metadata: null
+    });
+    const walletAmount = Number(withdrawalQuote.convertedAmount);
     if (Number(wallet.balance) < walletAmount) {
       return fail(res, 400, 'Insufficient balance', 'ERR_INSUFFICIENT');
     }
@@ -462,24 +472,58 @@ export const requestWithdrawal = async (req: Request, res: Response) => {
           userId,
           amount: rawAmount,
           method,
+          details,
+          status: 'PENDING'
+        }
+      });
+
+      const fxLock = await createFxLock(
+        {
+          entityType: 'WITHDRAWAL_REQUEST',
+          entityId: withdrawalRequest.id,
+          fromCurrency: payoutCurrency,
+          toCurrency: walletCurrency,
+          sourceAmount: rawAmount,
+          metadata: {
+            userId,
+            method,
+            payoutCountry: details.country || userRecord?.country || null
+          }
+        },
+        tx
+      );
+
+      const lockedWalletAmount = Number(fxLock.convertedAmount);
+
+      if (Number(wallet.balance) < lockedWalletAmount) {
+        throw new Error('Insufficient balance');
+      }
+
+      const enrichedRequest = await tx.withdrawalRequest.update({
+        where: { id: withdrawalRequest.id },
+        data: {
+          fxLockId: fxLock.id,
           details: {
             ...details,
             payoutAmount: rawAmount,
             payoutCurrency,
-            walletAmount,
+            walletAmount: lockedWalletAmount,
             walletCurrency,
-            fxRate: conversion.rate,
-            fxBase: currencyConfig.baseCurrency
-          },
-          status: 'PENDING'
+            fxRate: Number(fxLock.rate),
+            fxBase: fxLock.baseCurrency,
+            fxLockId: fxLock.id,
+            fxSource: fxLock.rateSource,
+            fxSnapshotId: fxLock.snapshotId,
+            fxStale: fxLock.stale
+          }
         }
       });
 
       await tx.wallet.update({
         where: { userId },
         data: {
-          balance: { decrement: walletAmount },
-          pendingClearance: { increment: walletAmount }
+          balance: { decrement: lockedWalletAmount },
+          pendingClearance: { increment: lockedWalletAmount }
         }
       });
 
@@ -488,15 +532,24 @@ export const requestWithdrawal = async (req: Request, res: Response) => {
           userId,
           walletId: wallet.id,
           type: 'WITHDRAWAL',
-          amount: walletAmount,
+          amount: lockedWalletAmount,
           status: 'PENDING',
           currency: walletCurrency,
           description: `Withdrawal request via ${method}`,
-          referenceId: withdrawalRequest.id
+          referenceId: withdrawalRequest.id,
+          metadata: {
+            payoutAmount: rawAmount,
+            payoutCurrency,
+            walletAmount: lockedWalletAmount,
+            walletCurrency,
+            fxLockId: fxLock.id,
+            fxRate: Number(fxLock.rate),
+            fxSource: fxLock.rateSource
+          }
         }
       });
 
-      return withdrawalRequest;
+      return enrichedRequest;
     });
 
     notifyAdmins({
