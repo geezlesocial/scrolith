@@ -984,11 +984,109 @@ export interface Currency {
   name: string;
   symbol: string;
   rate: number;
+  rateSource?: 'base' | 'snapshot' | 'override' | 'manual';
+  snapshotId?: string | null;
+  rateUpdatedAt?: string | null;
+  stale?: boolean;
   is_active?: boolean;
   // camelCase aliases
   isActive?: boolean;
   isDefault?: boolean;
   is_default?: boolean;
+}
+
+export interface FxSystemConfig {
+  enabled: boolean;
+  providerCode: string;
+  syncBaseCurrency: string;
+  autoApproveSnapshots: boolean;
+  refreshEnabled: boolean;
+  refreshCron: string;
+  staleAfterSeconds: number;
+  fallbackToStoredRates: boolean;
+  sourceBaseUrl: string;
+  sourceProvider: string;
+  timezone: string;
+}
+
+export interface FxProviderRecord {
+  code: string;
+  name: string;
+  kind: string;
+  baseUrl?: string | null;
+  enabled: boolean;
+  priority: number;
+  settingsJson?: Record<string, any> | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface FxSnapshotRecord {
+  id: string;
+  providerCode: string;
+  baseCurrency: string;
+  status: string;
+  sourceTimestamp: string;
+  fetchedAt: string;
+  approvedAt?: string | null;
+  approvedById?: string | null;
+  isFrozen: boolean;
+  sourceMeta?: Record<string, any> | null;
+  provider?: FxProviderRecord | null;
+  _count?: { rates?: number; syncJobs?: number };
+}
+
+export interface FxManualOverrideRecord {
+  id: string;
+  fromCurrency: string;
+  toCurrency: string;
+  rate: number;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  reason: string;
+  status: string;
+  createdById?: string | null;
+  approvedById?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface FxLockRecord {
+  id: string;
+  entityType: string;
+  entityId: string;
+  fromCurrency: string;
+  toCurrency: string;
+  sourceAmount: number;
+  convertedAmount: number;
+  rate: number;
+  baseCurrency: string;
+  rateSource: string;
+  snapshotId?: string | null;
+  overrideId?: string | null;
+  stale: boolean;
+  isFrozenSnapshot: boolean;
+  markupBps: number;
+  metadata?: Record<string, any> | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface FxHealth {
+  config: FxSystemConfig;
+  snapshot?: {
+    id: string;
+    providerCode: string;
+    fetchedAt: string;
+    approvedAt?: string | null;
+    stale: boolean;
+    isFrozen: boolean;
+  } | null;
+  latestSync?: any;
+  providers: FxProviderRecord[];
+  currencyCount: number;
+  recentLocks?: FxLockRecord[];
+  lockCount?: number;
 }
 
 // ==================== AFFILIATE & MARKETING ====================
@@ -1855,9 +1953,10 @@ export interface SystemConfig {
   currency?: {
     auto_exchange_rate: boolean;
     base_currency: string;
-    provider: 'openexchangerates' | 'fixer' | 'mock';
+    provider: string;
     api_key?: string;
   };
+  fx?: FxSystemConfig;
   storage?: {
     driver: string;
     s3: { access_key_id: string; secret_access_key: string; region: string; bucket: string };

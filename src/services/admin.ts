@@ -23,7 +23,14 @@ import type {
   EmailProviderConfig,
   AdminDashboardStats,
   ApiResponse,
-  MessengerVoiceConfig
+  MessengerVoiceConfig,
+  Currency,
+  FxSystemConfig,
+  FxProviderRecord,
+  FxSnapshotRecord,
+  FxManualOverrideRecord,
+  FxLockRecord,
+  FxHealth
 } from '../types';
 
 const ADMIN_BASE = '/admin';
@@ -1302,6 +1309,93 @@ export const AdminService = {
     const data = await adminPost<SystemConfig>('/system/settings', settings);
     // adminPost/extractData returns the inner `data` payload when server responds { success:true, data: ... }
     return data ?? settings;
+  },
+
+  getActiveCurrencies: async (): Promise<Currency[]> => {
+    const response = await api.get('/currencies/active');
+    const data = extractData<Currency[]>(response);
+    return Array.isArray(data) ? data : [];
+  },
+
+  getFxConfig: async (): Promise<FxSystemConfig> => {
+    return adminGet<FxSystemConfig>('/fx/config');
+  },
+
+  updateFxConfig: async (payload: Partial<FxSystemConfig>): Promise<FxSystemConfig> => {
+    return adminPut<FxSystemConfig>('/fx/config', payload);
+  },
+
+  getFxProviders: async (): Promise<FxProviderRecord[]> => {
+    const data = await adminGet<FxProviderRecord[]>('/fx/providers');
+    return Array.isArray(data) ? data : [];
+  },
+
+  updateFxProvider: async (
+    code: string,
+    payload: Partial<Pick<FxProviderRecord, 'enabled' | 'priority' | 'baseUrl' | 'settingsJson'>>
+  ): Promise<FxProviderRecord> => {
+    return adminPut<FxProviderRecord>(`/fx/providers/${encodeURIComponent(code)}`, payload);
+  },
+
+  getFxHealth: async (): Promise<FxHealth> => {
+    return adminGet<FxHealth>('/fx/health');
+  },
+
+  getFxLocks: async (params?: {
+    limit?: number;
+    entityType?: string;
+    entityId?: string;
+  }): Promise<FxLockRecord[]> => {
+    const data = await adminGet<FxLockRecord[]>('/fx/locks', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  getFxSnapshots: async (params?: {
+    limit?: number;
+    providerCode?: string;
+    baseCurrency?: string;
+  }): Promise<FxSnapshotRecord[]> => {
+    const data = await adminGet<FxSnapshotRecord[]>('/fx/snapshots', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  runFxSync: async (payload?: {
+    providerCode?: string;
+    baseCurrency?: string;
+  }): Promise<any> => {
+    return adminPost<any>('/fx/sync', payload || {});
+  },
+
+  approveFxSnapshot: async (id: string, payload?: { freeze?: boolean }): Promise<FxSnapshotRecord> => {
+    return adminPost<FxSnapshotRecord>(`/fx/snapshots/${encodeURIComponent(id)}/approve`, payload || {});
+  },
+
+  setFxSnapshotFrozen: async (id: string, frozen = true): Promise<FxSnapshotRecord> => {
+    return adminPost<FxSnapshotRecord>(`/fx/snapshots/${encodeURIComponent(id)}/freeze`, { frozen });
+  },
+
+  getFxOverrides: async (params?: {
+    limit?: number;
+    status?: string;
+  }): Promise<FxManualOverrideRecord[]> => {
+    const data = await adminGet<FxManualOverrideRecord[]>('/fx/overrides', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createFxOverride: async (payload: {
+    fromCurrency: string;
+    toCurrency: string;
+    rate: number;
+    effectiveFrom?: string;
+    effectiveTo?: string | null;
+    reason: string;
+    status?: string;
+  }): Promise<FxManualOverrideRecord> => {
+    return adminPost<FxManualOverrideRecord>('/fx/overrides', payload);
+  },
+
+  approveFxOverride: async (id: string): Promise<FxManualOverrideRecord> => {
+    return adminPost<FxManualOverrideRecord>(`/fx/overrides/${encodeURIComponent(id)}/approve`, {});
   },
 
   testEmailSettings: async (payload: { to: string; config?: EmailProviderConfig }): Promise<any> => {

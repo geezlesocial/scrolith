@@ -179,8 +179,21 @@ export interface SystemConfig {
   currency?: {
     auto_exchange_rate: boolean;
     base_currency: string;
-    provider: 'openexchangerates' | 'fixer' | 'mock';
+    provider: string;
     api_key?: string;
+  };
+  fx?: {
+    enabled: boolean;
+    providerCode: string;
+    syncBaseCurrency: string;
+    autoApproveSnapshots: boolean;
+    refreshEnabled: boolean;
+    refreshCron: string;
+    staleAfterSeconds: number;
+    fallbackToStoredRates: boolean;
+    sourceBaseUrl: string;
+    sourceProvider: string;
+    timezone: string;
   };
   storage?: {
     driver: string;

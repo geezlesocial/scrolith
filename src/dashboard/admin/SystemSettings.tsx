@@ -5,7 +5,22 @@ import { useNotification } from '../../context/NotificationContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import { Save, Settings, Mail, HardDrive, DollarSign, Cpu, CheckCircle, ShieldCheck, Globe, FileText, Database, Server, RefreshCw, Plus, Trash2, X, Network, Send, Loader2, AlertTriangle, Image as ImageIcon, Gauge } from 'lucide-react';
 import { AIConfigManager } from '../../services/ai/ai.config';
-import { AIConfig, ComplianceConfig, Currency, PlatformSettings, EmailProviderConfig, UploadedFile, SystemConfig, OptimizationConfig } from '../../types';
+import {
+    AIConfig,
+    ComplianceConfig,
+    Currency,
+    PlatformSettings,
+    EmailProviderConfig,
+    UploadedFile,
+    SystemConfig,
+    OptimizationConfig,
+    FxSystemConfig,
+    FxProviderRecord,
+    FxHealth,
+    FxSnapshotRecord,
+    FxManualOverrideRecord,
+    FxLockRecord
+} from '../../types';
 import { INITIAL_CURRENCIES } from '../../constants';
 import { CMSService } from '../../services/cms';
 import FilePickerModal from '../shared/FilePickerModal';
@@ -14,6 +29,7 @@ import { normalizeTrustScoreSettings } from '../../utils/trustScore';
 import { normalizeDealFlowSettings } from '../../utils/dealFlow';
 import { normalizeStorefrontSettings } from '../../utils/storefront';
 import { normalizeContentOfferSettings } from '../../utils/contentOffers';
+import FxControlPlanePanel from './fx/FxControlPlanePanel';
 
 const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab }: any) => (
     <button 
@@ -245,9 +261,51 @@ const normalizeCurrencyConfig = (raw: any) => {
     return {
         autoExchangeRate: normalizeBoolean(source.autoExchangeRate ?? source.auto_exchange_rate, false),
         baseCurrency,
-        provider: (source.provider || 'openexchangerates') as 'openexchangerates' | 'fixer' | 'mock',
+        provider: String(source.provider || 'frankfurter_ecb'),
         apiKey: source.apiKey || source.api_key || ''
     };
+};
+
+const normalizeFxSystemConfig = (raw: any, baseCurrency = 'USD'): FxSystemConfig => {
+    const source = raw || {};
+    const safeBaseCurrency = (source.syncBaseCurrency || baseCurrency || 'USD').toString().toUpperCase();
+    return {
+        enabled: normalizeBoolean(source.enabled, true),
+        providerCode: String(source.providerCode || source.provider || 'frankfurter_ecb').trim() || 'frankfurter_ecb',
+        syncBaseCurrency: safeBaseCurrency,
+        autoApproveSnapshots: normalizeBoolean(source.autoApproveSnapshots, true),
+        refreshEnabled: normalizeBoolean(source.refreshEnabled, true),
+        refreshCron: String(source.refreshCron || '17 0 * * 1-5').trim() || '17 0 * * 1-5',
+        staleAfterSeconds: Math.max(60, Math.round(normalizeNumber(source.staleAfterSeconds, 172800))),
+        fallbackToStoredRates: normalizeBoolean(source.fallbackToStoredRates, true),
+        sourceBaseUrl: String(source.sourceBaseUrl || 'https://api.frankfurter.app').trim() || 'https://api.frankfurter.app',
+        sourceProvider: String(source.sourceProvider || 'ECB').trim().toUpperCase() || 'ECB',
+        timezone: String(source.timezone || 'UTC').trim() || 'UTC'
+    };
+};
+
+const overlayLiveCurrencyRates = (configuredCurrencies: Currency[], liveCurrencies: Currency[], baseCurrency: string) => {
+    const normalizedConfigured = normalizeCurrencies(configuredCurrencies, baseCurrency);
+    const liveByCode = new Map(
+        normalizeCurrencies(liveCurrencies, baseCurrency).map((entry) => [entry.code, entry] as const)
+    );
+
+    return normalizedConfigured.map((entry) => {
+        const live = liveByCode.get(entry.code);
+        if (!live) return entry;
+        return {
+            ...entry,
+            name: entry.name || live.name,
+            symbol: entry.symbol || live.symbol,
+            rate: live.rate,
+            rateSource: live.rateSource || entry.rateSource,
+            snapshotId: live.snapshotId ?? entry.snapshotId ?? null,
+            rateUpdatedAt: live.rateUpdatedAt ?? entry.rateUpdatedAt ?? null,
+            stale: live.stale ?? entry.stale ?? false,
+            isDefault: entry.isDefault || live.isDefault || entry.code === baseCurrency,
+            is_default: entry.isDefault || live.isDefault || entry.code === baseCurrency
+        } as Currency;
+    });
 };
 
 const normalizeCurrencies = (list: any[], baseCurrency: string) => {
@@ -605,9 +663,18 @@ const SystemSettings = () => {
     const [currencyConfig, setCurrencyConfig] = useState(normalizeCurrencyConfig({
         autoExchangeRate: false,
         baseCurrency: 'USD',
-        provider: 'openexchangerates',
+        provider: 'frankfurter_ecb',
         apiKey: ''
     }));
+    const [fxConfig, setFxConfig] = useState<FxSystemConfig>(
+        normalizeFxSystemConfig({ providerCode: 'frankfurter_ecb', syncBaseCurrency: 'USD' }, 'USD')
+    );
+    const [fxProviders, setFxProviders] = useState<FxProviderRecord[]>([]);
+    const [fxHealth, setFxHealth] = useState<FxHealth | null>(null);
+    const [fxSnapshots, setFxSnapshots] = useState<FxSnapshotRecord[]>([]);
+    const [fxOverrides, setFxOverrides] = useState<FxManualOverrideRecord[]>([]);
+    const [fxLocks, setFxLocks] = useState<FxLockRecord[]>([]);
+    const [fxBusyAction, setFxBusyAction] = useState<string | null>(null);
 
     // Email State
     const [emailConfig, setEmailConfig] = useState<EmailProviderConfig>(normalizeEmailConfig({ 
@@ -639,6 +706,19 @@ const SystemSettings = () => {
         loadSystemSettings();
     }, []);
 
+    useEffect(() => {
+        if (!availableCurrencies?.length) return;
+        setCurrencies((prev) => overlayLiveCurrencyRates(prev, availableCurrencies, currencyConfig.baseCurrency || 'USD'));
+    }, [availableCurrencies, currencyConfig.baseCurrency]);
+
+    useEffect(() => {
+        setFxConfig((prev) => ({
+            ...prev,
+            syncBaseCurrency: (currencyConfig.baseCurrency || 'USD').toString().toUpperCase(),
+            providerCode: String(currencyConfig.provider || prev.providerCode || 'frankfurter_ecb').trim() || 'frankfurter_ecb'
+        }));
+    }, [currencyConfig.baseCurrency, currencyConfig.provider]);
+
     // When global content settings update (via socket or external save), reflect them here
     useEffect(() => {
         if (!isSaving && settings) {
@@ -650,6 +730,12 @@ const SystemSettings = () => {
             setOptimizationConfig(normalizeOptimizationConfig(systemSource?.optimization || DEFAULT_OPTIMIZATION_CONFIG));
             if (systemSource?.email) setEmailConfig(normalizeEmailConfig(systemSource.email));
             if (systemSource?.currency) setCurrencyConfig(normalizeCurrencyConfig(systemSource.currency));
+            setFxConfig(
+                normalizeFxSystemConfig(
+                    systemSource?.fx || {},
+                    systemSource?.currency?.baseCurrency || systemSource?.currency?.base_currency || 'USD'
+                )
+            );
 
             const incomingCurrencies =
                 systemSource?.currencies ??
@@ -660,7 +746,7 @@ const SystemSettings = () => {
             const currencySource = Array.isArray(incomingCurrencies) && incomingCurrencies.length
                 ? incomingCurrencies
                 : (currencies && currencies.length ? currencies : INITIAL_CURRENCIES);
-            const normalized = normalizeCurrencies(currencySource, baseCode);
+            const normalized = overlayLiveCurrencyRates(currencySource, availableCurrencies, baseCode);
             setCurrencies(normalized);
             const defaultCurrency = normalized.find((c) => c.isDefault) || normalized.find((c) => c.code === baseCode);
             if (defaultCurrency && defaultCurrency.code !== baseCode) {
@@ -677,6 +763,7 @@ const SystemSettings = () => {
             setAiConfig(normalizedAi);
             // Keep local storage aligned so other modules read the same config
             AIConfigManager.saveConfig(normalizedAi);
+            void loadFxControlPlane(baseCode);
         }
     }, [settings, isSaving]);
 
@@ -710,6 +797,12 @@ const SystemSettings = () => {
                 if (systemSource?.currency) {
                     setCurrencyConfig(normalizeCurrencyConfig(systemSource.currency));
                 }
+                setFxConfig(
+                    normalizeFxSystemConfig(
+                        systemSource?.fx || {},
+                        systemSource?.currency?.baseCurrency || systemSource?.currency?.base_currency || 'USD'
+                    )
+                );
                 const incomingCurrencies =
                     systemSource?.currencies ??
                     systemSource?.currency_list ??
@@ -719,7 +812,7 @@ const SystemSettings = () => {
                 const currencySource = Array.isArray(incomingCurrencies) && incomingCurrencies.length
                     ? incomingCurrencies
                     : (currencies && currencies.length ? currencies : INITIAL_CURRENCIES);
-                const normalized = normalizeCurrencies(currencySource, baseCode);
+                const normalized = overlayLiveCurrencyRates(currencySource, availableCurrencies, baseCode);
                 setCurrencies(normalized);
                 const defaultCurrency = normalized.find((c) => c.isDefault) || normalized.find((c) => c.code === baseCode);
                 if (defaultCurrency && defaultCurrency.code !== baseCode) {
@@ -733,11 +826,17 @@ const SystemSettings = () => {
                 const normalizedAi = AIConfigManager.normalizeConfig(aiSource || AIConfigManager.getConfig());
                 setAiConfig(normalizedAi);
                 AIConfigManager.saveConfig(normalizedAi);
+                await loadFxControlPlane(baseCode);
             } catch (error) {
                 console.warn('Failed to load system settings from API, using context/default state:', error);
                 // Fallback to context settings
                 if (settings) {
                     setLocalSettings(settings);
+                }
+                try {
+                    await loadFxControlPlane();
+                } catch (fxError) {
+                    console.warn('Failed to load FX control plane:', fxError);
                 }
             }
             
@@ -750,6 +849,26 @@ const SystemSettings = () => {
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const loadFxControlPlane = async (baseCurrencyOverride?: string) => {
+        const baseCurrency = (baseCurrencyOverride || currencyConfig.baseCurrency || 'USD').toString().toUpperCase();
+        const [health, providers, snapshots, overrides, locks, liveCurrencies] = await Promise.all([
+            AdminService.getFxHealth(),
+            AdminService.getFxProviders(),
+            AdminService.getFxSnapshots({ limit: 10, baseCurrency }),
+            AdminService.getFxOverrides({ limit: 10 }),
+            AdminService.getFxLocks({ limit: 10 }),
+            AdminService.getActiveCurrencies()
+        ]);
+
+        setFxHealth(health);
+        setFxProviders(providers);
+        setFxSnapshots(snapshots);
+        setFxOverrides(overrides);
+        setFxLocks(locks);
+        setFxConfig(normalizeFxSystemConfig(health?.config || {}, baseCurrency));
+        setCurrencies((prev) => overlayLiveCurrencyRates(prev, liveCurrencies, baseCurrency));
     };
 
     // 3. Handlers
@@ -829,7 +948,15 @@ const SystemSettings = () => {
             const normalizedCurrencyConfig = { 
                 ...currencyConfig, 
                 baseCurrency,
+                provider: fxConfig.providerCode,
                 api_key: (currencyConfig as any).api_key || currencyConfig.apiKey || ''
+            };
+            const normalizedFxConfig = {
+                ...fxConfig,
+                providerCode: String(fxConfig.providerCode || normalizedCurrencyConfig.provider || 'frankfurter_ecb').trim() || 'frankfurter_ecb',
+                syncBaseCurrency: baseCurrency,
+                refreshEnabled: normalizeBoolean(fxConfig.refreshEnabled, currencyConfig.autoExchangeRate),
+                enabled: normalizeBoolean(fxConfig.enabled, true)
             };
 
             const systemValues = (localSettings.system || {}) as Record<string, any>;
@@ -857,6 +984,7 @@ const SystemSettings = () => {
                 optimization: serializeOptimizationConfig(optimizationConfig),
                 email: safeEmail,
                 currency: normalizedCurrencyConfig,
+                fx: normalizedFxConfig,
                 currencies: persistedCurrencies,
                 aiConfig: normalizedAiConfig
             };
@@ -869,6 +997,7 @@ const SystemSettings = () => {
             // Persist via ContentContext (which calls AdminService appropriately)
             try {
                 await updateSettings(updatedSettings);
+                await loadFxControlPlane(baseCurrency);
                 showNotification('success', 'Settings Saved', 'System configuration saved successfully.');
             } catch (err) {
                 console.warn('Failed to save to API, falling back to localStorage:', err);
@@ -1182,24 +1311,124 @@ const SystemSettings = () => {
     };
 
     const handleAutoUpdateRates = async () => {
-        showNotification('info', 'Updating Rates...', 'Fetching latest exchange rates from provider...');
-        
+        setFxBusyAction('sync');
+        showNotification('info', 'FX Sync Started', 'Fetching the latest approved FX snapshot.');
         try {
-            // In a real app, this would call an API
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            
-            // Mock update - ensure rates don't go negative
-            const updated = currencies.map(c => {
-                if (c.isDefault) return c;
-                const randomAdjustment = (Math.random() * 0.05 - 0.025);
-                const newRate = Math.max(0.0001, c.rate + randomAdjustment);
-                return { ...c, rate: parseFloat(newRate.toFixed(4)) };
+            await AdminService.runFxSync({
+                providerCode: fxConfig.providerCode,
+                baseCurrency: fxConfig.syncBaseCurrency
             });
-            
-            setCurrencies(updated);
-            showNotification('success', 'Rates Updated', 'Exchange rates synchronized successfully.');
+            await loadFxControlPlane(fxConfig.syncBaseCurrency);
+            showNotification('success', 'FX Sync Completed', 'Exchange rates synchronized successfully.');
         } catch (error) {
-            showNotification('error', 'Update Failed', 'Failed to update exchange rates.');
+            console.error('FX sync failed:', error);
+            showNotification('error', 'FX Sync Failed', 'Failed to update exchange rates.');
+        } finally {
+            setFxBusyAction(null);
+        }
+    };
+
+    const handleRefreshFxControlPlane = async () => {
+        setFxBusyAction('refresh');
+        try {
+            await loadFxControlPlane(fxConfig.syncBaseCurrency);
+            showNotification('success', 'FX Data Refreshed', 'The FX control plane data is up to date.');
+        } catch (error) {
+            console.error('Failed to refresh FX data:', error);
+            showNotification('error', 'Refresh Failed', 'Could not refresh FX data.');
+        } finally {
+            setFxBusyAction(null);
+        }
+    };
+
+    const handleUpdateFxProvider = async (
+        code: string,
+        payload: Partial<Pick<FxProviderRecord, 'enabled' | 'priority' | 'baseUrl' | 'settingsJson'>>
+    ) => {
+        setFxBusyAction(`provider:${code}`);
+        try {
+            await AdminService.updateFxProvider(code, payload);
+            await loadFxControlPlane(fxConfig.syncBaseCurrency);
+            showNotification('success', 'Provider Updated', `${code} has been updated.`);
+        } catch (error) {
+            console.error('Failed to update FX provider:', error);
+            showNotification('error', 'Provider Update Failed', `Could not update ${code}.`);
+        } finally {
+            setFxBusyAction(null);
+        }
+    };
+
+    const handleApproveFxSnapshot = async (snapshotId: string, freeze = false) => {
+        setFxBusyAction(`snapshot:${freeze ? 'freeze' : 'approve'}:${snapshotId}`);
+        try {
+            await AdminService.approveFxSnapshot(snapshotId, { freeze });
+            await loadFxControlPlane(fxConfig.syncBaseCurrency);
+            showNotification(
+                'success',
+                freeze ? 'Snapshot Approved & Frozen' : 'Snapshot Approved',
+                freeze
+                    ? 'The snapshot is now approved and frozen for production use.'
+                    : 'The snapshot is now approved for production use.'
+            );
+        } catch (error) {
+            console.error('Failed to approve FX snapshot:', error);
+            showNotification('error', 'Snapshot Approval Failed', 'Could not approve the FX snapshot.');
+        } finally {
+            setFxBusyAction(null);
+        }
+    };
+
+    const handleSetSnapshotFrozen = async (snapshotId: string, frozen: boolean) => {
+        setFxBusyAction(`snapshot:freeze:${snapshotId}`);
+        try {
+            await AdminService.setFxSnapshotFrozen(snapshotId, frozen);
+            await loadFxControlPlane(fxConfig.syncBaseCurrency);
+            showNotification(
+                'success',
+                frozen ? 'Snapshot Frozen' : 'Snapshot Unfrozen',
+                frozen ? 'The snapshot has been pinned for runtime use.' : 'The snapshot is no longer pinned.'
+            );
+        } catch (error) {
+            console.error('Failed to update snapshot freeze state:', error);
+            showNotification('error', 'Freeze Update Failed', 'Could not update snapshot freeze state.');
+        } finally {
+            setFxBusyAction(null);
+        }
+    };
+
+    const handleCreateFxOverride = async (payload: {
+        fromCurrency: string;
+        toCurrency: string;
+        rate: number;
+        effectiveFrom?: string;
+        effectiveTo?: string | null;
+        reason: string;
+    }) => {
+        setFxBusyAction('override:create');
+        try {
+            await AdminService.createFxOverride(payload);
+            await loadFxControlPlane(fxConfig.syncBaseCurrency);
+            showNotification('success', 'Override Created', 'The FX override has been created.');
+        } catch (error) {
+            console.error('Failed to create FX override:', error);
+            showNotification('error', 'Override Failed', 'Could not create the FX override.');
+            throw error;
+        } finally {
+            setFxBusyAction(null);
+        }
+    };
+
+    const handleApproveFxOverride = async (overrideId: string) => {
+        setFxBusyAction(`override:approve:${overrideId}`);
+        try {
+            await AdminService.approveFxOverride(overrideId);
+            await loadFxControlPlane(fxConfig.syncBaseCurrency);
+            showNotification('success', 'Override Approved', 'The FX override is now active.');
+        } catch (error) {
+            console.error('Failed to approve FX override:', error);
+            showNotification('error', 'Approval Failed', 'Could not approve the FX override.');
+        } finally {
+            setFxBusyAction(null);
         }
     };
 
@@ -3192,10 +3421,14 @@ const SystemSettings = () => {
                                 <input 
                                     type="checkbox" 
                                     checked={currencyConfig.autoExchangeRate} 
-                                    onChange={e => setCurrencyConfig({...currencyConfig, autoExchangeRate: e.target.checked})} 
+                                    onChange={e => {
+                                        const checked = e.target.checked;
+                                        setCurrencyConfig({...currencyConfig, autoExchangeRate: checked});
+                                        setFxConfig(prev => ({ ...prev, refreshEnabled: checked, enabled: true }));
+                                    }} 
                                     className="rounded text-blue-600 mr-2" 
                                 />
-                                <span className="text-sm font-medium text-gray-700">Auto Exchange Rate</span>
+                                <span className="text-sm font-medium text-gray-700">Auto FX Sync</span>
                             </label>
                             
                             <div className="flex items-center gap-2">
@@ -3215,31 +3448,49 @@ const SystemSettings = () => {
                             </div>
 
                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-gray-700">Provider:</span>
+                                <span className="text-sm font-medium text-gray-700">Authority:</span>
                                 <select 
                                     className="border-gray-300 rounded-md text-sm p-1"
                                     value={currencyConfig.provider}
-                                    onChange={e => setCurrencyConfig({...currencyConfig, provider: e.target.value as unknown as typeof currencyConfig.provider})}
+                                    onChange={e => {
+                                        const providerCode = e.target.value;
+                                        setCurrencyConfig({...currencyConfig, provider: providerCode});
+                                        setFxConfig(prev => ({ ...prev, providerCode }));
+                                    }}
                                 >
-                                    <option value="openexchangerates">Open Exchange Rates</option>
-                                    <option value="fixer">Fixer.io</option>
-                                    <option value="mock">Mock (Demo)</option>
+                                    {fxProviders.map(provider => (
+                                        <option key={`fx-provider-${provider.code}`} value={provider.code}>
+                                            {provider.name}
+                                        </option>
+                                    ))}
                                 </select>
                             </div>
-                            
-                            {currencyConfig.provider !== 'mock' && (
-                                <div className="flex-1">
-                                    <label className="block text-xs font-medium text-gray-500 mb-1">API Key</label>
-                                    <input 
-                                        type="password"
-                                        className="w-full border-gray-300 rounded-md p-1.5 text-sm"
-                                        value={currencyConfig.apiKey || (currencyConfig as any).api_key || ''}
-                                        onChange={e => setCurrencyConfig({...currencyConfig, apiKey: e.target.value})}
-                                        placeholder="Enter API key"
-                                    />
-                                </div>
-                            )}
+
+                            <div className="min-w-[16rem] text-xs text-gray-500">
+                                Live rates come from approved FX snapshots. Manual rate edits below are fallback values and local defaults only.
+                            </div>
                         </div>
+
+                        <FxControlPlanePanel
+                            currencies={currencies}
+                            fxConfig={fxConfig}
+                            onFxConfigChange={(updater) =>
+                                setFxConfig((prev) => (typeof updater === 'function' ? updater(prev) : updater))
+                            }
+                            providers={fxProviders}
+                            health={fxHealth}
+                            snapshots={fxSnapshots}
+                            overrides={fxOverrides}
+                            locks={fxLocks}
+                            busyAction={fxBusyAction}
+                            onRefresh={handleRefreshFxControlPlane}
+                            onRunSync={handleAutoUpdateRates}
+                            onUpdateProvider={handleUpdateFxProvider}
+                            onApproveSnapshot={handleApproveFxSnapshot}
+                            onSetSnapshotFrozen={handleSetSnapshotFrozen}
+                            onCreateOverride={handleCreateFxOverride}
+                            onApproveOverride={handleApproveFxOverride}
+                        />
 
                         {/* Currency Table */}
                         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -3250,6 +3501,7 @@ const SystemSettings = () => {
                                         <th className="px-6 py-3">Name</th>
                                         <th className="px-6 py-3">Symbol</th>
                                         <th className="px-6 py-3">Rate (vs Base)</th>
+                                        <th className="px-6 py-3">Rate Source</th>
                                         <th className="px-6 py-3">Status</th>
                                         <th className="px-6 py-3">Default</th>
                                         <th className="px-6 py-3 text-right">Actions</th>
@@ -3271,6 +3523,25 @@ const SystemSettings = () => {
                                                     value={curr.rate || 0}
                                                     onChange={e => updateCurrencyRate(curr.code, parseFloat(e.target.value) || 0)}
                                                 />
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex flex-col gap-1">
+                                                    <span className={`inline-flex w-fit rounded-full px-2 py-1 text-[10px] font-bold uppercase ${
+                                                        curr.rateSource === 'override'
+                                                            ? 'bg-amber-100 text-amber-700'
+                                                            : curr.rateSource === 'snapshot'
+                                                                ? 'bg-blue-100 text-blue-700'
+                                                                : curr.rateSource === 'base'
+                                                                    ? 'bg-emerald-100 text-emerald-700'
+                                                                    : 'bg-slate-100 text-slate-700'
+                                                    }`}>
+                                                        {curr.rateSource || 'manual'}
+                                                    </span>
+                                                    <span className="text-[11px] text-gray-400">
+                                                        {curr.rateUpdatedAt ? new Date(curr.rateUpdatedAt).toLocaleString() : 'No runtime snapshot'}
+                                                    </span>
+                                                    {curr.stale && <span className="text-[11px] font-semibold text-amber-600">Stale</span>}
+                                                </div>
                                             </td>
                                             <td className="px-6 py-4">
                                                 <button 
