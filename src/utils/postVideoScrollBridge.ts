@@ -19,6 +19,7 @@ export type PendingPostVideoScrollViewerSource = {
   authorName?: string | null;
   authorAvatar?: string | null;
   authorUsername?: string | null;
+  isFollowingAuthor?: boolean | null;
   createdAt?: string | null;
 };
 
@@ -31,6 +32,12 @@ const normalizeString = (value: unknown, maxLength = 280) => {
   const normalized = String(value || '').trim();
   if (!normalized) return null;
   return normalized.slice(0, maxLength);
+};
+
+const normalizeOptionalBoolean = (value: unknown) => {
+  if (typeof value === 'boolean') return value;
+  if (value === null) return null;
+  return undefined;
 };
 
 export const stashPendingPostVideoScrollSource = (source: PendingPostVideoScrollSource) => {
@@ -90,6 +97,7 @@ export const stashPendingPostVideoScrollViewerSource = (source: PendingPostVideo
     authorName: normalizeString(source.authorName, 120),
     authorAvatar: normalizeString(source.authorAvatar, 1200),
     authorUsername: normalizeString(source.authorUsername, 80),
+    isFollowingAuthor: normalizeOptionalBoolean(source.isFollowingAuthor),
     createdAt: normalizeString(source.createdAt, 80),
     savedAt: Date.now()
   };
@@ -117,6 +125,7 @@ export const readPendingPostVideoScrollViewerSource = (): PendingPostVideoScroll
       authorName: normalizeString(parsed?.authorName, 120),
       authorAvatar: normalizeString(parsed?.authorAvatar, 1200),
       authorUsername: normalizeString(parsed?.authorUsername, 80),
+      isFollowingAuthor: normalizeOptionalBoolean(parsed?.isFollowingAuthor),
       createdAt: normalizeString(parsed?.createdAt, 80)
     };
   } catch {

@@ -86,6 +86,7 @@ export interface ScrollVideo {
   viewer?: {
     liked?: boolean;
     impressed?: boolean;
+    isFollowingAuthor?: boolean;
     feedbackSignal?: 'INTERESTED' | 'NOT_INTERESTED' | string | null;
     feedbackUpdatedAt?: string | null;
   };

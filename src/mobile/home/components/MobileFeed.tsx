@@ -932,6 +932,8 @@ export default function MobileFeed({
         authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
         authorAvatar: String(post?.author?.avatarUrl || post?.authorAvatar || '').trim() || null,
         authorUsername: String(post?.author?.username || post?.authorUsername || '').trim() || null,
+        isFollowingAuthor:
+          typeof post?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(post.viewer.isFollowingAuthor) : null,
         createdAt: String(post?.createdAt || '').trim() || null
       };
       if (onOpenPostVideoScroll) {
@@ -939,7 +941,11 @@ export default function MobileFeed({
         return;
       }
       stashPendingPostVideoScrollViewerSource(sourcePayload);
-      navigate('/scroll?watch=post-video');
+      navigate('/scroll?watch=post-video', {
+        state: {
+          pendingViewerSource: sourcePayload
+        }
+      });
     },
     [navigate, onOpenPostVideoScroll]
   );

@@ -1332,9 +1332,29 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
         authorAvatar: String(post?.author?.avatarUrl || post?.authorAvatar || '').trim() || null,
         authorUsername: String(post?.author?.username || post?.authorUsername || '').trim() || null,
+        isFollowingAuthor:
+          typeof post?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(post.viewer.isFollowingAuthor) : null,
         createdAt: String(post?.createdAt || '').trim() || null
       });
-      navigate('/scroll?watch=post-video');
+      navigate('/scroll?watch=post-video', {
+        state: {
+          pendingViewerSource: {
+            sourcePostId: postId,
+            fileId: String(media?.fileId || media?.file_id || media?.file?.id || media?.asset?.id || media?.id || '').trim() || null,
+            mediaUrl,
+            thumbnailUrl: String(media?.thumbnailUrl || resolvePostAttachmentPosterUrl(media) || '').trim() || null,
+            title: String(post?.title || media?.name || '').trim() || null,
+            description: String(post?.content || '').trim() || null,
+            location: String(post?.location || '').trim() || null,
+            authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
+            authorAvatar: String(post?.author?.avatarUrl || post?.authorAvatar || '').trim() || null,
+            authorUsername: String(post?.author?.username || post?.authorUsername || '').trim() || null,
+            isFollowingAuthor:
+              typeof post?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(post.viewer.isFollowingAuthor) : null,
+            createdAt: String(post?.createdAt || '').trim() || null
+          }
+        }
+      });
     },
     [navigate]
   );

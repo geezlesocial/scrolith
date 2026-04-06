@@ -52,6 +52,7 @@ type ScrollCardProps = {
   headlinePreviewLimit?: number;
   descriptionPreviewLimit?: number;
   interestSurveyEnabled?: boolean;
+  initialIsFollowing?: boolean;
 };
 
 const authorInitial = (name?: string | null) => String(name || 'S').trim().charAt(0).toUpperCase() || 'S';
@@ -113,7 +114,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   onOpenSeries,
   headlinePreviewLimit = 72,
   descriptionPreviewLimit = 120,
-  interestSurveyEnabled = false
+  interestSurveyEnabled = false,
+  initialIsFollowing
 }) => {
   const navigate = useNavigate();
   const { user } = useUser();
@@ -629,6 +631,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                 <FollowButton
                   targetUserId={scroll.author?.id}
                   currentUserId={user?.id}
+                  initialIsFollowing={initialIsFollowing}
+                  tone="overlay"
                   className="h-7 border-white/15 bg-white/10 px-2.5 text-[11px] text-white shadow-sm backdrop-blur-sm hover:bg-white/20 hover:text-white"
                 />
               </div>

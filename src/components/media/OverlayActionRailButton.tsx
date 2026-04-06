@@ -7,6 +7,7 @@ type OverlayActionRailButtonProps = {
   disabled?: boolean;
   active?: boolean;
   danger?: boolean;
+  showLabel?: boolean;
   className?: string;
 };
 
@@ -17,6 +18,7 @@ const OverlayActionRailButton: React.FC<OverlayActionRailButtonProps> = ({
   disabled,
   active = false,
   danger = false,
+  showLabel = false,
   className = ''
 }) => {
   const toneClass = danger
@@ -30,11 +32,16 @@ const OverlayActionRailButton: React.FC<OverlayActionRailButtonProps> = ({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`inline-flex min-h-[46px] min-w-[64px] flex-col items-center justify-center rounded-2xl px-2 py-1.5 text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${toneClass} ${className}`.trim()}
+      className={`inline-flex items-center justify-center text-white transition disabled:cursor-not-allowed disabled:opacity-60 ${
+        showLabel
+          ? 'min-h-[46px] min-w-[64px] flex-col rounded-2xl px-2 py-1.5'
+          : 'h-11 w-11 rounded-2xl sm:h-12 sm:w-12'
+      } ${toneClass} ${className}`.trim()}
       aria-label={label}
+      title={label}
     >
-      <Icon className="h-4 w-4" />
-      <span className="mt-1 text-[10px] font-semibold">{label}</span>
+      <Icon className={showLabel ? 'h-4 w-4' : 'h-5 w-5'} />
+      {showLabel ? <span className="mt-1 text-[10px] font-semibold">{label}</span> : <span className="sr-only">{label}</span>}
     </button>
   );
 };

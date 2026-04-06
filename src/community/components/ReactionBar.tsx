@@ -23,6 +23,7 @@ type ReactionBarProps = {
   railVariant?: 'quick' | 'launcher';
   railLauncherLabel?: string;
   railTextMode?: 'count' | 'label';
+  railShowText?: boolean;
   className?: string;
 };
 
@@ -63,6 +64,7 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
   railVariant = 'quick',
   railLauncherLabel = 'Reaction',
   railTextMode = 'count',
+  railShowText = false,
   className = ''
 }) => {
   const { user } = useUser();
@@ -193,9 +195,13 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
   const more = allowed.slice(safeQuickLimit);
 
   if (layout === 'rail') {
-    const railBaseClass = compact
-      ? 'inline-flex min-h-[38px] min-w-[52px] flex-col items-center justify-center rounded-xl px-1.5 py-1'
-      : 'inline-flex min-h-[46px] min-w-[64px] flex-col items-center justify-center rounded-2xl px-2 py-1.5';
+    const railBaseClass = railShowText
+      ? compact
+        ? 'inline-flex min-h-[38px] min-w-[52px] flex-col items-center justify-center rounded-xl px-1.5 py-1'
+        : 'inline-flex min-h-[46px] min-w-[64px] flex-col items-center justify-center rounded-2xl px-2 py-1.5'
+      : compact
+        ? 'inline-flex h-10 w-10 items-center justify-center rounded-xl'
+        : 'inline-flex h-12 w-12 items-center justify-center rounded-2xl';
     const railEmojiClass = compact ? 'text-sm leading-none' : 'text-lg';
     const railIconClass = compact ? 'h-3.5 w-3.5' : 'h-4 w-4';
     const selectedReaction = allowed.find((item) => item.key === userReaction) || null;
@@ -215,13 +221,13 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
               selectedReaction ? 'bg-blue-600/85 ring-1 ring-blue-200/60' : 'bg-black/45 hover:bg-black/65'
             } disabled:cursor-not-allowed disabled:opacity-60`}
             title={selectedReaction?.label || railLauncherLabel}
-          >
+            >
             {selectedReaction ? (
               <span className={railEmojiClass}>{selectedReaction.emoji}</span>
             ) : (
               <SmilePlus className={railIconClass} />
             )}
-            <span className="text-[10px] font-semibold">{railLauncherLabel}</span>
+            {railShowText ? <span className="text-[10px] font-semibold">{railLauncherLabel}</span> : <span className="sr-only">{railLauncherLabel}</span>}
           </button>
           {openMore ? (
             <div
@@ -269,9 +275,9 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
               title={item.label}
             >
               <span className={railEmojiClass}>{item.emoji}</span>
-              {railTextMode === 'label' ? (
+              {railShowText && railTextMode === 'label' ? (
                 <span className="text-[10px] font-semibold">{item.label}</span>
-              ) : showCounts && count > 0 ? (
+              ) : railShowText && showCounts && count > 0 ? (
                 <span className="text-[10px] font-semibold">{count}</span>
               ) : null}
             </button>
@@ -288,9 +294,10 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
                 setOpenMore((prev) => !prev);
               }}
               className={`${railBaseClass} bg-black/45 text-white transition hover:bg-black/65`}
+              title="More reactions"
             >
               <SmilePlus className={railIconClass} />
-              <span className="text-[10px] font-semibold">More</span>
+              {railShowText ? <span className="text-[10px] font-semibold">More</span> : <span className="sr-only">More reactions</span>}
             </button>
             {openMore ? (
               <div

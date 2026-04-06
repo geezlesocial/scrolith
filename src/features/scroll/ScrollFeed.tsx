@@ -15,6 +15,7 @@ import {
 import { useNotification } from '../../context/NotificationContext';
 import { useLiveFeature } from '../../context/LiveFeatureContext';
 import { CommunityService } from '../../services/community';
+import { applyFollowUpdatePayload, setFollowStatuses, useFollowStateMap } from '../../community/followState';
 import { usePerformanceProfile } from '../../hooks/usePerformanceProfile';
 import { useUser } from '../../context/UserContext';
 import RepostModal from '../../community/components/RepostModal';
@@ -30,6 +31,7 @@ import {
   type PendingPostVideoScrollSource,
   type PendingPostVideoScrollViewerSource
 } from '../../utils/postVideoScrollBridge';
+import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../utils/postAttachmentMedia';
 import { buildPublicAppUrl } from '../../utils/siteUrl';
 import { pickInterestSurveyCandidateId } from '../../components/recommendation/ContentInterestSurvey';
 
@@ -90,11 +92,110 @@ const buildViewerSeedScroll = (source: PendingPostVideoScrollViewerSource): Scro
   },
   viewer: {
     liked: false,
-    impressed: false
+    impressed: false,
+    isFollowingAuthor:
+      typeof source.isFollowingAuthor === 'boolean' ? Boolean(source.isFollowingAuthor) : undefined
   },
   createdAt: source.createdAt || new Date().toISOString(),
   updatedAt: source.createdAt || new Date().toISOString()
 });
+
+const inferPostAttachmentType = (attachment: any) => {
+  const mimeType = String(attachment?.mimeType || attachment?.mime_type || '').trim().toLowerCase();
+  if (mimeType.startsWith('video/')) return 'video';
+  const explicitType = String(attachment?.type || attachment?.kind || '').trim().toLowerCase();
+  if (explicitType === 'video') return 'video';
+  const mediaUrl = String(attachment?.url || attachment?.path || attachment?.downloadUrl || '').trim().toLowerCase();
+  if (/\.(mp4|mov|m4v|webm|ogg)(\?|$)/i.test(mediaUrl)) return 'video';
+  return explicitType;
+};
+
+const findPrimaryVideoAttachment = (post: any) => {
+  const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+  return attachments.find((attachment: any) => inferPostAttachmentType(attachment) === 'video') || null;
+};
+
+const buildViewerSeedScrollFromPost = (post: any): ScrollVideo | null => {
+  const postId = String(post?.id || '').trim();
+  const attachment = findPrimaryVideoAttachment(post);
+  const mediaUrl = attachment ? String(resolvePostAttachmentMediaUrl(attachment) || '').trim() : '';
+  if (!postId || !attachment || !mediaUrl) return null;
+
+  const attachmentId =
+    String(
+      attachment?.fileId ||
+        attachment?.file_id ||
+        attachment?.file?.id ||
+        attachment?.asset?.id ||
+        attachment?.id ||
+        mediaUrl
+    ).trim() || mediaUrl;
+  const authorId =
+    String(post?.author?.id || post?.authorId || post?.userId || post?.user_id || '').trim() || postId;
+  const authorName =
+    String(
+      post?.author?.displayName ||
+        post?.author?.name ||
+        post?.authorName ||
+        post?.userName ||
+        post?.user_name ||
+        'Scrolith creator'
+    ).trim() || 'Scrolith creator';
+
+  return {
+    id: `post-video:${postId}:${attachmentId}`,
+    authorId,
+    author: {
+      id: authorId,
+      name: authorName,
+      avatar:
+        String(post?.author?.avatarUrl || post?.author?.avatar || post?.authorAvatar || '').trim() || null,
+      username:
+        String(post?.author?.username || post?.authorUsername || post?.userUsername || '').trim() || null,
+      isVerified: Boolean(post?.author?.isVerified)
+    },
+    title: String(post?.title || attachment?.name || '').trim() || 'Featured from post',
+    description: String(post?.content || post?.description || '').trim() || null,
+    location: String(post?.location || '').trim() || null,
+    visibility: 'public',
+    graphicWarning: Boolean(post?.graphicWarning),
+    isAIEnhanced: Boolean(post?.isAIEnhanced),
+    dashGcoinTotal: Number(post?.dashGcoinTotal ?? post?.interactions?.dashGcoinTotal ?? post?.interactions?.dash ?? 0),
+    filterPreset: null,
+    filterStrength: null,
+    media: {
+      id: attachmentId,
+      url: mediaUrl,
+      mimeType: String(attachment?.mimeType || attachment?.mime_type || 'video/mp4').trim() || 'video/mp4',
+      thumbnailUrl: String(resolvePostAttachmentPosterUrl(attachment) || '').trim() || null
+    },
+    tags: [],
+    offerTags: [],
+    status: 'active',
+    metrics: {
+      impressions: Number(post?.interactions?.impressions || 0),
+      views3s: Number(post?.interactions?.views3s || 0),
+      views10s: Number(post?.interactions?.views10s || 0),
+      views25pct: Number(post?.interactions?.views25pct || 0),
+      views50pct: Number(post?.interactions?.views50pct || 0),
+      views95pct: Number(post?.interactions?.views95pct || 0),
+      likes: Number(post?.interactions?.likes || post?.interactions?.reactions || 0),
+      comments: Number(post?.interactions?.comments || 0),
+      reposts: Number(post?.interactions?.reposts || 0),
+      shares: Number(post?.interactions?.shares || 0),
+      sends: Number(post?.interactions?.sends || 0),
+      dashGcoinTotal: Number(post?.dashGcoinTotal ?? post?.interactions?.dashGcoinTotal ?? post?.interactions?.dash ?? 0)
+    },
+    viewer: {
+      liked: Boolean(post?.userState?.liked || post?.viewer?.liked),
+      impressed: false,
+      isFollowingAuthor:
+        typeof post?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(post.viewer.isFollowingAuthor) : undefined
+    },
+    createdAt: post?.createdAt || new Date().toISOString(),
+    updatedAt: post?.updatedAt || post?.createdAt || new Date().toISOString()
+  };
+};
 
 type ScrollFeedProps = {
   embedded?: boolean;
@@ -103,6 +204,10 @@ type ScrollFeedProps = {
   initialActiveScrollId?: string | null;
   initialViewerSource?: PendingPostVideoScrollViewerSource | null;
   initialSeriesId?: string | null;
+};
+
+type ScrollFeedRouteState = {
+  pendingViewerSource?: PendingPostVideoScrollViewerSource | null;
 };
 
 const ScrollFeed: React.FC<ScrollFeedProps> = ({
@@ -115,7 +220,10 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const routeState = (location.state as ScrollFeedRouteState | null) || null;
+  const routePendingViewerSource = routeState?.pendingViewerSource || null;
   const { user } = useUser();
+  const followStateMap = useFollowStateMap();
   const { status: liveFeatureStatus } = useLiveFeature();
   const { showNotification } = useNotification();
   const { profile } = usePerformanceProfile();
@@ -154,6 +262,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const viewerSeedSourceRef = useRef<PendingPostVideoScrollViewerSource | null>(null);
   const seededItemsRef = useRef<ScrollVideo[]>(Array.isArray(initialItems) ? initialItems.filter(Boolean) : []);
   const openedSeriesSourceRef = useRef<string | null>(null);
+  const pendingViewerSourceConsumedRef = useRef(false);
 
   const patchMetrics = useCallback((scrollId: string, metrics: Partial<ScrollVideo['metrics']>) => {
     setItems((prev) =>
@@ -205,6 +314,48 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
       return Array.from(nextMap.values());
     });
   }, []);
+
+  const hydratePostVideoStream = useCallback(
+    async (activeSource: PendingPostVideoScrollViewerSource) => {
+      try {
+        const response = await CommunityService.getFeed({
+          limit: Math.max(18, Number(profile.feedPageSize || 0) * 3 || 18),
+          scope: 'discover'
+        });
+        const rows = Array.isArray(response?.items) ? response.items : Array.isArray(response) ? response : [];
+        const activeSeed = buildViewerSeedScroll(activeSource);
+        const discovered = rows.map((post: any) => buildViewerSeedScrollFromPost(post)).filter(Boolean) as ScrollVideo[];
+        const seen = new Set<string>();
+        const synthetic: ScrollVideo[] = [];
+        const pushUnique = (entry: ScrollVideo | null | undefined) => {
+          if (!entry?.id || seen.has(entry.id)) return;
+          seen.add(entry.id);
+          synthetic.push(entry);
+        };
+        pushUnique(activeSeed);
+        discovered.forEach((entry) => pushUnique(entry));
+        if (!synthetic.length) return;
+        seededItemsRef.current = synthetic;
+        setItems((prev) => {
+          const next: ScrollVideo[] = [];
+          const nextSeen = new Set<string>();
+          const pushIntoNext = (entry: ScrollVideo | null | undefined) => {
+            if (!entry?.id || nextSeen.has(entry.id)) return;
+            nextSeen.add(entry.id);
+            next.push(entry);
+          };
+          synthetic.forEach((entry) => pushIntoNext(entry));
+          prev
+            .filter((entry) => !String(entry?.id || '').startsWith('post-video:'))
+            .forEach((entry) => pushIntoNext(entry));
+          return next;
+        });
+      } catch {
+        // Keep the tapped post playable even if related post-video discovery fails.
+      }
+    },
+    [profile.feedPageSize]
+  );
 
   const loadLiveSessions = useCallback(async () => {
     if (!showLiveDiscovery) {
@@ -306,6 +457,45 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   }, [initialViewerSource]);
 
   useEffect(() => {
+    if (!user?.id) return;
+    const seed: Record<string, boolean> = {};
+    const authorIds = new Set<string>();
+    items.forEach((item) => {
+      const authorId = String(item?.author?.id || item?.authorId || '').trim();
+      if (!authorId || authorId === String(user.id)) return;
+      authorIds.add(authorId);
+      if (typeof item?.viewer?.isFollowingAuthor === 'boolean') {
+        seed[authorId] = Boolean(item.viewer.isFollowingAuthor);
+      }
+    });
+    if (Object.keys(seed).length) {
+      setFollowStatuses(seed);
+    }
+    const unresolved = Array.from(authorIds).filter((id) => followStateMap[id] === undefined && !Object.prototype.hasOwnProperty.call(seed, id));
+    if (!unresolved.length) return;
+    let active = true;
+    CommunityService.getFollowStatus(unresolved)
+      .then((statusMap) => {
+        if (!active || !statusMap) return;
+        setFollowStatuses(statusMap);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [followStateMap, items, user?.id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onFollowUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail;
+      applyFollowUpdatePayload(detail, user?.id);
+    };
+    window.addEventListener('community:follow_updated', onFollowUpdated as EventListener);
+    return () => window.removeEventListener('community:follow_updated', onFollowUpdated as EventListener);
+  }, [user?.id]);
+
+  useEffect(() => {
     seededItemsRef.current = Array.isArray(initialItems) ? initialItems.filter(Boolean) : [];
     if (!embedded || seededItemsRef.current.length === 0) return;
     setItems((prev) => {
@@ -342,25 +532,54 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     if (embedded) return;
     const params = new URLSearchParams(location.search);
     if (params.get('watch') !== 'post-video') return;
-    const pendingViewerSource = readPendingPostVideoScrollViewerSource();
-    viewerSeedSourceRef.current = pendingViewerSource;
-    if (pendingViewerSource) {
-      setActiveIndex(0);
-      setItems((prev) => {
-        const seededItem = buildViewerSeedScroll(pendingViewerSource);
-        return [seededItem, ...prev.filter((entry) => entry.id !== seededItem.id)];
-      });
-    }
-    clearPendingPostVideoScrollViewerSource();
+    const pendingViewerSource = routePendingViewerSource || readPendingPostVideoScrollViewerSource();
     params.delete('watch');
     navigate(
       {
         pathname: location.pathname,
         search: params.toString() ? `?${params.toString()}` : ''
       },
-      { replace: true }
+      {
+        replace: true,
+        state: {
+          ...(routeState || {}),
+          pendingViewerSource
+        }
+      }
     );
-  }, [location.pathname, location.search, navigate]);
+  }, [embedded, location.pathname, location.search, navigate, routePendingViewerSource, routeState]);
+
+  useEffect(() => {
+    if (embedded) return;
+    if (pendingViewerSourceConsumedRef.current) return;
+    const params = new URLSearchParams(location.search);
+    if (params.get('watch') === 'post-video') return;
+    const pendingViewerSource = routePendingViewerSource;
+    if (!pendingViewerSource) return;
+
+    pendingViewerSourceConsumedRef.current = true;
+    viewerSeedSourceRef.current = pendingViewerSource;
+    const seededItem = buildViewerSeedScroll(pendingViewerSource);
+    seededItemsRef.current = [seededItem];
+    setActiveIndex(0);
+    setItems((prev) => [seededItem, ...prev.filter((entry) => entry.id !== seededItem.id)]);
+    void hydratePostVideoStream(pendingViewerSource);
+    clearPendingPostVideoScrollViewerSource();
+
+    navigate(
+      {
+        pathname: location.pathname,
+        search: location.search
+      },
+      {
+        replace: true,
+        state: {
+          ...(routeState || {}),
+          pendingViewerSource: null
+        }
+      }
+    );
+  }, [embedded, hydratePostVideoStream, location.pathname, location.search, navigate, routePendingViewerSource, routeState]);
 
   useEffect(() => {
     const targetScrollId = String(initialActiveScrollId || '').trim();
@@ -844,7 +1063,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           </div>
         ) : (
           <>
-            {items.map((scroll, index) => (
+      {items.map((scroll, index) => (
               <div
                 key={scroll.id}
                 ref={(node) => {
@@ -856,6 +1075,13 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
                 <ScrollCard
                   scroll={scroll}
                   isActive={index === activeIndex}
+                  initialIsFollowing={
+                    (() => {
+                      const authorId = String(scroll.author?.id || scroll.authorId || '').trim();
+                      if (!authorId) return undefined;
+                      return followStateMap[authorId] ?? scroll.viewer?.isFollowingAuthor;
+                    })()
+                  }
                   autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
                   muted={muted}
                   onToggleMute={() => setMuted((prev) => !prev)}

@@ -186,7 +186,6 @@ const PostEngagementBar: React.FC<Props> = ({
   const dashEnabled = features?.dash !== false && (memberHomeSettings?.feed?.dashEnabled ?? (memberHomeSettings as any)?.feed?.dash_enabled ?? true) !== false;
   const dashEnabledForPost = dashEnabled && !(authorId && user?.id && String(authorId) === String(user.id));
   const actionCols = Math.max(1, [reactionsEnabled, commentsEnabled, repostsEnabled, sendEnabled, dashEnabledForPost].filter(Boolean).length);
-  const compactActions = actionCols >= 5;
 
   const allowed = useMemo(() => normalizeAllowed(reactionsSettings?.allowed), [reactionsSettings?.allowed]);
   const allowedMap = useMemo(() => {
@@ -354,9 +353,10 @@ const PostEngagementBar: React.FC<Props> = ({
 
   const likeLabel = userReaction ? (allowedMap.get(userReaction)?.label || DEFAULT_META[userReaction]?.label || 'Like') : 'Like';
   const likeEmoji = userReaction ? (allowedMap.get(userReaction)?.emoji || DEFAULT_META[userReaction]?.emoji || DEFAULT_META.like.emoji) : '';
-  const actionButtonBase = compactActions
-    ? 'group flex w-full min-w-0 flex-col items-center justify-center gap-1.5 rounded-[20px] border border-transparent bg-white px-2 py-2.5 text-[11px] font-semibold leading-tight text-slate-700 transition hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-sm'
-    : 'group flex w-full min-w-0 items-center justify-center gap-2.5 rounded-[20px] border border-transparent bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-sm';
+  const actionButtonBase =
+    'group relative inline-flex min-h-[52px] w-full items-center justify-center rounded-[20px] border border-transparent bg-white px-2 py-2.5 text-slate-700 transition hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-sm';
+  const actionIconBase =
+    'inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white';
   const postUrl = buildPostUrl(postId);
 
   const onReactionButtonHover = () => {
@@ -492,7 +492,7 @@ const PostEngagementBar: React.FC<Props> = ({
       </div>
 
       <div
-        className={`mt-3 grid rounded-[24px] border border-slate-200/80 bg-slate-50/70 p-1.5 shadow-sm ${compactActions ? 'gap-1.5' : 'gap-1.5'}`}
+        className="mt-3 grid gap-1.5 rounded-[24px] border border-slate-200/80 bg-slate-50/70 p-1.5 shadow-sm"
         style={{ gridTemplateColumns: `repeat(${actionCols}, minmax(0, 1fr))` }}
       >
         {reactionsEnabled ? (
@@ -500,6 +500,8 @@ const PostEngagementBar: React.FC<Props> = ({
             ref={buttonRef}
             type="button"
             disabled={busy}
+            aria-label={likeLabel}
+            title={likeLabel}
             onClick={onPrimaryReactionClick}
             onMouseEnter={onReactionButtonHover}
             onContextMenu={(event) => {
@@ -515,19 +517,21 @@ const PostEngagementBar: React.FC<Props> = ({
           >
             <span
               className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-[15px] leading-none transition ${
-                userReaction ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600 group-hover:bg-slate-900 group-hover:text-white'
+                userReaction ? 'bg-blue-100 text-blue-700' : actionIconBase
               }`}
             >
               {likeEmoji || DEFAULT_META.like.emoji}
             </span>
-            <span className="max-w-full truncate">{likeLabel}</span>
-            <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition ${pickerOpen ? 'rotate-180' : ''}`} />
+            <ChevronDown className={`absolute bottom-1.5 right-1.5 h-3.5 w-3.5 text-slate-400 transition ${pickerOpen ? 'rotate-180' : ''}`} />
+            <span className="sr-only">{likeLabel}</span>
           </button>
         ) : null}
 
         {commentsEnabled ? (
           <button
             type="button"
+            aria-label="Comment"
+            title="Comment"
             onClick={() => {
               if (!ensureAuth()) return;
               setCommentsOpen((prev) => !prev);
@@ -536,51 +540,55 @@ const PostEngagementBar: React.FC<Props> = ({
             }}
             className={actionButtonBase}
           >
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white">
+            <span className={actionIconBase}>
               <MessageCircle className="h-4 w-4" />
             </span>
-            <span className="max-w-full truncate">Comment</span>
+            <span className="sr-only">Comment</span>
           </button>
         ) : null}
 
         {repostsEnabled ? (
           <button
             type="button"
+            aria-label="Repost"
+            title="Repost"
             onClick={() => {
               if (!ensureAuth()) return;
               setRepostOpen(true);
             }}
             className={actionButtonBase}
           >
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white">
+            <span className={actionIconBase}>
               <Repeat2 className="h-4 w-4" />
             </span>
-            <span className="max-w-full truncate">Repost</span>
+            <span className="sr-only">Repost</span>
           </button>
         ) : null}
 
         {dashEnabledForPost ? (
           <button
             type="button"
+            aria-label="Dash"
+            title="Dash"
             onClick={() => {
               if (!ensureAuth()) return;
               setDashOpen(true);
             }}
             className={actionButtonBase}
           >
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white">
+            <span className={actionIconBase}>
               <Coins className="h-4 w-4" />
             </span>
-            <span className="max-w-full truncate">Dash</span>
+            <span className="sr-only">Dash</span>
           </button>
         ) : null}
 
         {sendEnabled ? (
-          <button type="button" onClick={() => setShareOpen(true)} className={actionButtonBase}>
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white">
+          <button type="button" aria-label="Send" title="Send" onClick={() => setShareOpen(true)} className={actionButtonBase}>
+            <span className={actionIconBase}>
               <Send className="h-4 w-4" />
             </span>
-            <span className="max-w-full truncate">Send</span>
+            <span className="sr-only">Send</span>
           </button>
         ) : null}
       </div>
