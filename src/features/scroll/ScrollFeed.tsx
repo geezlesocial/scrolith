@@ -37,6 +37,7 @@ import { pickInterestSurveyCandidateId } from '../../components/recommendation/C
 
 const LAST_SCROLL_INDEX_KEY = 'scroll:lastIndex';
 const GLOBAL_SCROLL_MUTED_KEY = 'scroll:muted';
+const SCROLL_VIDEO_ROUTE_PATTERN = /^\/scroll(?:\/|$)/i;
 
 const readStoredIndex = () => {
   const value = Number(localStorage.getItem(LAST_SCROLL_INDEX_KEY) || 0);
@@ -255,6 +256,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const [seriesError, setSeriesError] = useState<string | null>(null);
   const [seriesActiveScrollId, setSeriesActiveScrollId] = useState<string | null>(null);
   const showLiveDiscovery = liveFeatureStatus.enabled && liveFeatureStatus.experienceConfig?.showFeaturedRailInScrollFeed !== false;
+  const autoAdvanceOnEnd = !embedded && SCROLL_VIDEO_ROUTE_PATTERN.test(location.pathname);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Record<number, HTMLDivElement | null>>({});
@@ -263,6 +265,10 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const seededItemsRef = useRef<ScrollVideo[]>(Array.isArray(initialItems) ? initialItems.filter(Boolean) : []);
   const openedSeriesSourceRef = useRef<string | null>(null);
   const pendingViewerSourceConsumedRef = useRef(false);
+  const itemsRef = useRef<ScrollVideo[]>([]);
+  const nextCursorRef = useRef<string | null>(null);
+  const loadingMoreRef = useRef(false);
+  const pendingAutoAdvanceIndexRef = useRef<number | null>(null);
 
   const patchMetrics = useCallback((scrollId: string, metrics: Partial<ScrollVideo['metrics']>) => {
     setItems((prev) =>
@@ -313,6 +319,13 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
       });
       return Array.from(nextMap.values());
     });
+  }, []);
+
+  const scrollToIndex = useCallback((nextIndex: number, behavior: ScrollBehavior = 'smooth') => {
+    const maxIndex = Math.max(0, itemsRef.current.length - 1);
+    const clamped = Math.max(0, Math.min(nextIndex, maxIndex));
+    setActiveIndex(clamped);
+    itemRefs.current[clamped]?.scrollIntoView({ behavior, block: 'start' });
   }, []);
 
   const hydratePostVideoStream = useCallback(
@@ -609,6 +622,45 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   }, [muted]);
 
   useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
+  useEffect(() => {
+    nextCursorRef.current = nextCursor;
+  }, [nextCursor]);
+
+  useEffect(() => {
+    loadingMoreRef.current = loadingMore;
+  }, [loadingMore]);
+
+  const handleAdvanceToNextScroll = useCallback(
+    async (originIndex: number) => {
+      const nextIndex = Math.max(0, originIndex + 1);
+      if (nextIndex < itemsRef.current.length) {
+        scrollToIndex(nextIndex);
+        return;
+      }
+      if (!nextCursorRef.current || loadingMoreRef.current) return;
+      pendingAutoAdvanceIndexRef.current = nextIndex;
+      await loadFeed(nextCursorRef.current);
+    },
+    [loadFeed, scrollToIndex]
+  );
+
+  useEffect(() => {
+    const pendingIndex = pendingAutoAdvanceIndexRef.current;
+    if (pendingIndex === null) return;
+    if (pendingIndex < items.length) {
+      pendingAutoAdvanceIndexRef.current = null;
+      scrollToIndex(pendingIndex);
+      return;
+    }
+    if (!nextCursor && !loadingMore) {
+      pendingAutoAdvanceIndexRef.current = null;
+    }
+  }, [items.length, loadingMore, nextCursor, scrollToIndex]);
+
+  useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
@@ -643,11 +695,8 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
   useEffect(() => {
     if (loading) return;
-    const idx = Math.max(0, Math.min(activeIndex, items.length - 1));
-    const node = itemRefs.current[idx];
-    if (node) {
-      node.scrollIntoView({ block: 'start', behavior: 'auto' });
-    }
+    const idx = Math.max(0, Math.min(activeIndex, itemsRef.current.length - 1));
+    itemRefs.current[idx]?.scrollIntoView({ block: 'start', behavior: 'auto' });
     // restore once after initial load
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
@@ -664,13 +713,11 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
       event.preventDefault();
       const next = event.key === 'ArrowDown' ? activeIndex + 1 : activeIndex - 1;
-      const clamped = Math.max(0, Math.min(next, items.length - 1));
-      const node = itemRefs.current[clamped];
-      if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      scrollToIndex(next);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeIndex, items.length]);
+  }, [activeIndex, scrollToIndex]);
 
   useEffect(() => {
     const onNew = (event: Event) => {
@@ -896,13 +943,12 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
       if (!targetScrollId) return;
       const nextIndex = items.findIndex((entry) => entry.id === targetScrollId);
       if (nextIndex >= 0) {
-        setActiveIndex(nextIndex);
-        itemRefs.current[nextIndex]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        scrollToIndex(nextIndex);
       }
       setSeriesActiveScrollId(targetScrollId);
       setSeriesModalOpen(false);
     },
-    [items]
+    [items, scrollToIndex]
   );
 
   const handleDelete = useCallback(
@@ -1075,6 +1121,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
                 <ScrollCard
                   scroll={scroll}
                   isActive={index === activeIndex}
+                  autoAdvanceOnEnd={autoAdvanceOnEnd}
                   initialIsFollowing={
                     (() => {
                       const authorId = String(scroll.author?.id || scroll.authorId || '').trim();
@@ -1085,6 +1132,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
                   autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
                   muted={muted}
                   onToggleMute={() => setMuted((prev) => !prev)}
+                  onRequestNext={() => handleAdvanceToNextScroll(index)}
                   onEngage={handleEngage}
                   onComment={handleComment}
                   onShareToStory={handleShareToStory}

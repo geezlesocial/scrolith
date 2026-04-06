@@ -36,8 +36,10 @@ type ScrollCardProps = {
   scroll: ScrollVideo;
   isActive: boolean;
   autoplayEnabled: boolean;
+  autoAdvanceOnEnd?: boolean;
   muted: boolean;
   onToggleMute: () => void;
+  onRequestNext?: () => Promise<void> | void;
   onEngage: (scrollId: string, type: ScrollEngagementType, payload?: { watchedSeconds?: number }) => Promise<void> | void;
   onComment: (scroll: ScrollVideo) => Promise<void> | void;
   onShareToStory: (scroll: ScrollVideo) => Promise<void> | void;
@@ -99,8 +101,10 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   scroll,
   isActive,
   autoplayEnabled,
+  autoAdvanceOnEnd = false,
   muted,
   onToggleMute,
+  onRequestNext,
   onEngage,
   onComment,
   onShareToStory,
@@ -287,7 +291,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
 
     video.muted = muted;
     video.playsInline = true;
-    video.loop = true;
+    video.loop = !autoAdvanceOnEnd;
 
     if (!isActive) {
       video.pause();
@@ -310,7 +314,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
       video.removeEventListener('loadedmetadata', tryPlay);
       video.removeEventListener('canplay', tryPlay);
     };
-  }, [autoplayEnabled, isActive, muted, scroll.id]);
+  }, [autoAdvanceOnEnd, autoplayEnabled, isActive, muted, scroll.id]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -327,6 +331,11 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [autoplayEnabled, isActive]);
+
+  const handleVideoEnded = useCallback(() => {
+    if (!autoAdvanceOnEnd || !isActive) return;
+    void onRequestNext?.();
+  }, [autoAdvanceOnEnd, isActive, onRequestNext]);
 
   const handleTimeUpdate = async () => {
     if (!isActive || !videoRef.current) return;
@@ -516,13 +525,14 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               className="relative z-0 h-full w-full object-contain"
               style={mediaFilterStyle}
               muted={muted}
-              loop
+              loop={!autoAdvanceOnEnd}
               playsInline
               autoPlay={autoplayEnabled && isActive}
               controls={!autoplayEnabled}
               controlsList={!autoplayEnabled ? 'nodownload' : undefined}
               preload={isActive ? (autoplayEnabled ? 'auto' : 'metadata') : 'none'}
               onTimeUpdate={handleTimeUpdate}
+              onEnded={handleVideoEnded}
               poster={media.poster}
               onContextMenu={(event) => event.preventDefault()}
               onClick={() => resumePlaybackFromGesture()}

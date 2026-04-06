@@ -21,6 +21,7 @@ import {
 } from '../../services/scroll';
 
 type ComposerMode = 'message' | 'warning' | 'restrict';
+const MAX_SCROLL_VIDEO_DURATION_SECONDS = 2 * 60 * 60;
 
 const numberValue = (value: any, fallback: number) => {
   const parsed = Number(value);
@@ -28,6 +29,14 @@ const numberValue = (value: any, fallback: number) => {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const formatDurationWindow = (secondsValue: number) => {
+  const totalSeconds = Math.max(0, Math.round(Number(secondsValue) || 0));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours ? `${hours}h` : null, minutes ? `${minutes}m` : null, `${seconds}s`].filter(Boolean).join(' ');
+};
 
 const formatDateTime = (value?: string | null) => {
   if (!value) return 'N/A';
@@ -124,7 +133,7 @@ const ScrollAdminPanel: React.FC = () => {
       setSaving(true);
       const saved = await ScrollService.saveAdminConfig({
         ...config,
-        maxDurationSeconds: clamp(Math.round(numberValue(config.maxDurationSeconds, 90)), 5, 600),
+        maxDurationSeconds: clamp(Math.round(numberValue(config.maxDurationSeconds, 90)), 5, MAX_SCROLL_VIDEO_DURATION_SECONDS),
         impressionThresholdSeconds: clamp(Math.round(numberValue(config.impressionThresholdSeconds, 2)), 1, 15),
         headlinePreviewCharacters: clamp(Math.round(numberValue(config.headlinePreviewCharacters, 72)), 40, 220),
         descriptionPreviewCharacters: clamp(Math.round(numberValue(config.descriptionPreviewCharacters, 120)), 60, 480)
@@ -285,7 +294,26 @@ const ScrollAdminPanel: React.FC = () => {
           </label>
           <label className="block text-sm">
             <span className="mb-1 block text-slate-600">Max duration (seconds)</span>
-            <input type="number" value={config.maxDurationSeconds} min={5} max={600} onChange={(event) => setConfig((prev) => (prev ? { ...prev, maxDurationSeconds: numberValue(event.target.value, prev.maxDurationSeconds) } : prev))} className="w-full rounded-xl border border-slate-300 px-3 py-2" />
+            <input
+              type="number"
+              value={config.maxDurationSeconds}
+              min={5}
+              max={MAX_SCROLL_VIDEO_DURATION_SECONDS}
+              onChange={(event) =>
+                setConfig((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        maxDurationSeconds: numberValue(event.target.value, prev.maxDurationSeconds)
+                      }
+                    : prev
+                )
+              }
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            />
+            <span className="mt-1 block text-xs text-slate-500">
+              Up to 2 hours per Scroll video. Current window: {formatDurationWindow(config.maxDurationSeconds)}.
+            </span>
           </label>
           <label className="block text-sm">
             <span className="mb-1 block text-slate-600">Impression threshold (seconds)</span>
