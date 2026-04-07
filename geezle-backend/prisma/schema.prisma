@@ -1812,6 +1812,82 @@ model LanguageConfig {
   @@index([updatedAt])
 }
 
+model ContentTranslationGlossaryEntry {
+  id              String   @id @default(cuid())
+  sourceText      String   @db.Text
+  replacementText String   @db.Text
+  locale          String?
+  targetLocale    String?
+  enabled         Boolean  @default(true)
+  caseSensitive   Boolean  @default(false)
+  priority        Int      @default(100)
+  createdById     String?
+  updatedById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([enabled, priority])
+  @@index([locale, enabled])
+  @@index([targetLocale, enabled])
+}
+
+model ContentLanguageDetection {
+  id           String   @id @default(cuid())
+  entityType   String
+  entityId     String
+  sourceLocale String
+  confidence   Float?
+  detectorKey  String?
+  contentHash  String
+  metadata     Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([entityType, entityId, contentHash])
+  @@index([entityType, entityId])
+  @@index([sourceLocale])
+  @@index([updatedAt])
+}
+
+model ContentTranslation {
+  id                String   @id @default(cuid())
+  entityType        String
+  entityId          String
+  sourceLocale      String
+  targetLocale      String
+  contentHash       String
+  translatedTitle   String?  @db.Text
+  translatedContent String   @db.Text
+  engineKey         String
+  modelVersion      String?
+  status            String   @default("ready")
+  glossaryApplied   Boolean  @default(false)
+  latencyMs         Int?
+  errorMessage      String?  @db.Text
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([entityType, entityId, targetLocale, contentHash])
+  @@index([entityType, entityId, targetLocale])
+  @@index([status])
+  @@index([updatedAt])
+}
+
+model ContentTranslationAuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  eventType  String
+  entityType String?
+  entityId   String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([eventType, createdAt])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
 model RecoConfig {
   id         String   @id @default(cuid())
   surface    String
@@ -3454,6 +3530,10 @@ model CommunityPost {
   authorId                       String
   title                          String?
   content                        String   @db.Text
+  sourceLanguage                 String?
+  sourceLanguageConfidence       Float?
+  contentHash                    String?
+  translationVersion             String?
   attachments                    String[] @default([])
   offerTags                      Json?
   tags                           String[] @default([])
@@ -3505,6 +3585,8 @@ model CommunityPost {
   @@index([authorId])
   @@index([status])
   @@index([createdAt])
+  @@index([sourceLanguage])
+  @@index([contentHash])
   @@index([businessPageId])
   @@index([visibility])
   @@index([topic])

@@ -15,6 +15,7 @@ import {
   updateAdminI18nOverride,
   upsertAdminI18nValue
 } from '../../controllers/i18n.controller';
+import contentTranslationAdminRoutes from './i18n.translation.routes';
 
 const router = express.Router();
 
@@ -36,5 +37,6 @@ router.delete('/overrides/:id', deleteAdminI18nOverride);
 
 router.post('/import', importAdminI18n);
 router.get('/export', exportAdminI18n);
+router.use('/translation', contentTranslationAdminRoutes);
 
 export default router;

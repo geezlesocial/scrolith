@@ -13,6 +13,7 @@ import {
   deleteComment,
   getPosts,
   getPostById,
+  getPostTranslation,
   createPost,
   updatePost,
   deletePost,
@@ -229,6 +230,7 @@ router.post('/events/:eventId/delete', authMiddleware, adminMiddleware, deleteEv
 // CommunityPost CRUD endpoints
 router.get('/posts', getPosts); // Public: list posts (feed)
 router.get('/posts/:id', getPostById); // Public: get single post
+router.get('/posts/:id/translation', getPostTranslation);
 router.get('/posts/:id/comments', getPostComments); // Public: get post comments
 router.post('/posts', authMiddleware, createPost); // Auth: create post
 router.put('/posts/:id', authMiddleware, updatePost); // Auth: update post (owner/admin/moderator)

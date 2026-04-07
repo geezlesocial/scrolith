@@ -38,6 +38,10 @@ import {
   normalizeStoredContentOfferTags,
   resolveSubmittedContentOfferTags
 } from '../services/contentOfferTagging.service';
+import {
+  translateCommunityPostForLocale,
+  upsertCommunityPostLanguageMetadata
+} from '../services/contentTranslation.service';
 
 // Safe helper to retrieve the `io` instance from `req.app` without broad `as any` casts
 const getAppIo = (req: Request) => {
@@ -570,6 +574,21 @@ const resolvePostAuthorIdentity = (
   };
 };
 
+const buildPostTranslationMetadata = (post: {
+  sourceLanguage?: string | null;
+  sourceLanguageConfidence?: number | null;
+  contentHash?: string | null;
+  translationVersion?: string | null;
+}) => ({
+  sourceLanguage: String(post?.sourceLanguage || '').trim() || null,
+  sourceLanguageConfidence:
+    typeof post?.sourceLanguageConfidence === 'number' && Number.isFinite(post.sourceLanguageConfidence)
+      ? post.sourceLanguageConfidence
+      : null,
+  contentHash: String(post?.contentHash || '').trim() || null,
+  translationVersion: String(post?.translationVersion || '').trim() || null
+});
+
 const resolveFollowLookupForPosts = async (
   posts: Array<{ authorId: string; businessPageId?: string | null }>,
   viewerId?: string
@@ -634,6 +653,10 @@ const communityPostFeedSelect: any = {
   authorId: true,
   title: true,
   content: true,
+  sourceLanguage: true,
+  sourceLanguageConfidence: true,
+  contentHash: true,
+  translationVersion: true,
   attachments: true,
   offerTags: true,
   tags: true,
@@ -1687,6 +1710,17 @@ export const postRepost = async (req: Request, res: Response) => {
           }
         });
         try { await syncFileUsages('community_post', wrapperPost.id, wrapperAttachmentIds, 'Community Post Media'); } catch (e) {}
+        try {
+          const translationUpdated = await upsertCommunityPostLanguageMetadata(wrapperPost.id, wrapperPost.title, wrapperPost.content);
+          if (translationUpdated) {
+            (wrapperPost as any).sourceLanguage = translationUpdated.sourceLanguage;
+            (wrapperPost as any).sourceLanguageConfidence = translationUpdated.sourceLanguageConfidence;
+            (wrapperPost as any).contentHash = translationUpdated.contentHash;
+            (wrapperPost as any).translationVersion = translationUpdated.translationVersion;
+          }
+        } catch (error) {
+          console.warn('[community.postRepost] wrapper language metadata update failed', error);
+        }
         const wrapperAuthor = buildPostAuthorPayload(wrapperPost.author as any, null);
         const wrapperIdentity = resolvePostAuthorIdentity(
           { authorId: wrapperPost.authorId, businessPageId: wrapperPost.businessPageId },
@@ -1715,6 +1749,7 @@ export const postRepost = async (req: Request, res: Response) => {
           },
           title: wrapperPost.title,
           content: wrapperPost.content,
+          ...buildPostTranslationMetadata(wrapperPost),
           attachmentFileIds: wrapperAttachmentIds,
           attachments: await resolveAttachments(wrapperAttachmentIds),
           tags: wrapperPost.tags || [],
@@ -2012,6 +2047,7 @@ export const getPosts = async (req: Request, res: Response) => {
         },
         title: post.title,
         content: post.content,
+        ...buildPostTranslationMetadata(post),
         attachmentFileIds: post.attachments || [],
         attachments: mapAttachmentIds(post.attachments || [], attachmentMap),
         tags: post.tags || [],
@@ -2280,6 +2316,7 @@ export const getFeed = async (req: Request, res: Response) => {
         },
         title: post.title,
         content: post.content,
+        ...buildPostTranslationMetadata(post),
         attachmentFileIds: post.attachments || [],
         attachments: mapAttachmentIds(post.attachments || [], attachmentMap),
         tags: post.tags || [],
@@ -2557,6 +2594,7 @@ export const getPostById = async (req: Request, res: Response) => {
       },
       title: post.title,
       content: post.content,
+      ...buildPostTranslationMetadata(post),
       attachmentFileIds: post.attachments || [],
       attachments: await resolveAttachments(post.attachments || []),
       tags: post.tags || [],
@@ -2827,6 +2865,7 @@ export const getCommunityPostsByTag = async (req: Request, res: Response) => {
           },
           title: post.title,
           content: post.content,
+          ...buildPostTranslationMetadata(post),
           attachmentFileIds: post.attachments || [],
           attachments: await resolveAttachments(post.attachments || []),
           tags: post.tags || [],
@@ -2863,6 +2902,50 @@ export const getCommunityPostsByTag = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Get community posts by tag error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load posts for tag' });
+  }
+};
+
+export const getPostTranslation = async (req: Request, res: Response) => {
+  try {
+    const postId = String(req.params.id || '').trim();
+    if (!postId) {
+      return res.status(400).json({ success: false, error: 'Post ID is required' });
+    }
+
+    const viewer = await resolveOptionalUserFromRequest(req);
+    const userId = viewer?.id;
+    const post = await prisma.communityPost.findUnique({
+      where: { id: postId },
+      select: { id: true, authorId: true, status: true }
+    });
+
+    if (!post || post.status === 'deleted') {
+      return res.status(404).json({ success: false, error: 'Post not found' });
+    }
+    if (userId && (await hasUserBlockRelation(userId, post.authorId))) {
+      return res.status(404).json({ success: false, error: 'Post not found' });
+    }
+
+    const requestedLocale =
+      String(req.query.targetLocale || req.query.locale || req.header('x-scrolith-locale') || '').trim() ||
+      String(req.header('accept-language') || '').split(',')[0].trim() ||
+      'en';
+
+    const translation = await translateCommunityPostForLocale(postId, requestedLocale);
+    return res.json({ success: true, data: translation });
+  } catch (error: any) {
+    console.error('Get post translation error:', error);
+    const message = String(error?.message || 'Failed to translate post');
+    const normalized = message.toLowerCase();
+    const status =
+      normalized.includes('not found')
+        ? 404
+        : normalized.includes('disabled')
+          ? 409
+          : normalized.includes('not configured')
+            ? 503
+            : 500;
+    return res.status(status).json({ success: false, error: message });
   }
 };
 
@@ -3038,6 +3121,17 @@ export const createPost = async (req: Request, res: Response) => {
     try {
       await syncFileUsages('community_post', post.id, post.attachments || [], 'Community Post Media');
     } catch (e) {}
+    try {
+      const translationUpdated = await upsertCommunityPostLanguageMetadata(post.id, post.title, post.content);
+      if (translationUpdated) {
+        (post as any).sourceLanguage = translationUpdated.sourceLanguage;
+        (post as any).sourceLanguageConfidence = translationUpdated.sourceLanguageConfidence;
+        (post as any).contentHash = translationUpdated.contentHash;
+        (post as any).translationVersion = translationUpdated.translationVersion;
+      }
+    } catch (error) {
+      console.warn('[community.createPost] language metadata update failed', error);
+    }
 
     const io = getAppIo(req);
     const author = buildPostAuthorPayload(post.author as any, post.businessPage as any);
@@ -3069,6 +3163,7 @@ export const createPost = async (req: Request, res: Response) => {
       },
       title: post.title,
       content: post.content,
+      ...buildPostTranslationMetadata(post),
       attachmentFileIds: post.attachments || [],
       attachments: await resolveAttachments(post.attachments || []),
       tags: post.tags || [],
@@ -3540,6 +3635,17 @@ export const updatePost = async (req: Request, res: Response) => {
     if (attachmentsProvided) {
       try { await syncFileUsages('community_post', updated.id, updated.attachments || [], 'Community Post Media'); } catch (e) {}
     }
+    try {
+      const translationUpdated = await upsertCommunityPostLanguageMetadata(updated.id, updated.title, updated.content);
+      if (translationUpdated) {
+        (updated as any).sourceLanguage = translationUpdated.sourceLanguage;
+        (updated as any).sourceLanguageConfidence = translationUpdated.sourceLanguageConfidence;
+        (updated as any).contentHash = translationUpdated.contentHash;
+        (updated as any).translationVersion = translationUpdated.translationVersion;
+      }
+    } catch (error) {
+      console.warn('[community.updatePost] language metadata update failed', error);
+    }
 
     const io = getAppIo(req);
     const author = buildPostAuthorPayload(updated.author as any, updated.businessPage as any);
@@ -3572,6 +3678,7 @@ export const updatePost = async (req: Request, res: Response) => {
       },
       title: updated.title,
       content: updated.content,
+      ...buildPostTranslationMetadata(updated),
       attachmentFileIds: updated.attachments || [],
       attachments: await resolveAttachments(updated.attachments || []),
       tags: updated.tags || [],
