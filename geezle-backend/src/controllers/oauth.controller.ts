@@ -449,7 +449,9 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
             avatar: normalizedProfile.avatar || null,
             isActive: true,
             isVerified: true,
-            kycStatus: 'PENDING'
+            kycStatus: 'PENDING',
+            followOnboardingRequired: mode === 'signup',
+            followOnboardingCompletedAt: null
           }
         });
       } else if (mode === 'signup') {
@@ -457,7 +459,11 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
         if (user.role === Role.GUEST || user.role === Role.USER) {
           user = await prisma.user.update({
             where: { id: user.id },
-            data: { role: requestedRole }
+            data: {
+              role: requestedRole,
+              followOnboardingRequired: true,
+              followOnboardingCompletedAt: null
+            }
           });
         }
       }
@@ -501,7 +507,7 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
       path: '/'
     });
 
-    const finalRedirect = redirectPath || resolveDashboardPath(user.role);
+    const finalRedirect = mode === 'signup' ? '/member_home' : redirectPath || resolveDashboardPath(user.role);
     const params = new URLSearchParams();
     params.set('token', token);
     params.set('redirect', finalRedirect);

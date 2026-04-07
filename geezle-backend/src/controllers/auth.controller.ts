@@ -6,6 +6,10 @@ import crypto from 'crypto';
 import { Role as PrismaRole, KYCStatus as PrismaKYCStatus } from '@prisma/client'; // Import Prisma Client, Role, and KYCStatus enums
 import { resolveUserProStatus } from '../utils/proStatus';
 import { verifyRecaptcha } from '../utils/recaptcha';
+import {
+  completeFollowOnboarding,
+  getFollowOnboardingStatus
+} from '../services/followOnboarding.service';
 import { sendSystemMessage } from '../services/systemMessaging';
 import { toAbsoluteFrontendUrl } from '../services/notificationActionUrl.service';
 import prisma from '../utils/prismaClient';
@@ -16,6 +20,8 @@ const minimalLoginSelect = {
   name: true,
   username: true,
   role: true,
+  followOnboardingRequired: true,
+  followOnboardingCompletedAt: true,
   passwordHash: true
 };
 
@@ -24,7 +30,9 @@ const minimalMeSelect = {
   email: true,
   name: true,
   username: true,
-  role: true
+  role: true,
+  followOnboardingRequired: true,
+  followOnboardingCompletedAt: true
 };
 
 const baseLoginSelect = {
@@ -36,6 +44,8 @@ const baseLoginSelect = {
   avatar: true,
   profilePhotoFileId: true,
   kycStatus: true,
+  followOnboardingRequired: true,
+  followOnboardingCompletedAt: true,
   passwordHash: true
 };
 
@@ -47,7 +57,9 @@ const baseMeSelect = {
   role: true,
   avatar: true,
   profilePhotoFileId: true,
-  kycStatus: true
+  kycStatus: true,
+  followOnboardingRequired: true,
+  followOnboardingCompletedAt: true
 };
 
 const fullUserSelect = {
@@ -171,7 +183,11 @@ const mapUserPayload = (user: any) => {
     isProFreelancer: pro.freelancerIsPro,
     is_pro_freelancer: pro.freelancerIsPro,
     isProEmployer: pro.employerIsPro,
-    is_pro_employer: pro.employerIsPro
+    is_pro_employer: pro.employerIsPro,
+    followOnboardingRequired: Boolean(user.followOnboardingRequired),
+    follow_onboarding_required: Boolean(user.followOnboardingRequired),
+    followOnboardingCompletedAt: toIso(user.followOnboardingCompletedAt),
+    follow_onboarding_completed_at: toIso(user.followOnboardingCompletedAt)
   };
 };
 
@@ -274,6 +290,8 @@ export const register = async (req: Request, res: Response) => {
         role: role as PrismaRole,
         isActive: true,
         kycStatus: 'PENDING' as PrismaKYCStatus,
+        followOnboardingRequired: true,
+        followOnboardingCompletedAt: null
       },
     });
 
@@ -419,6 +437,56 @@ export const getCurrentUser = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Get current user error:', error);
     return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getFollowOnboardingController = async (req: Request, res: Response) => {
+  try {
+    const user = await safeFindUserById(req.user?.id);
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    const onboarding = await getFollowOnboardingStatus(user.id, {
+      required: Boolean((user as any)?.followOnboardingRequired),
+      completedAt: (user as any)?.followOnboardingCompletedAt || null
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        user: mapUserPayload(user),
+        onboarding
+      }
+    });
+  } catch (error) {
+    console.error('Get follow onboarding error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to load follow onboarding state' });
+  }
+};
+
+export const completeFollowOnboardingController = async (req: Request, res: Response) => {
+  try {
+    const userId = String(req.user?.id || '').trim();
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const result = await completeFollowOnboarding(userId);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        user: mapUserPayload(result.user),
+        onboarding: result.onboarding
+      }
+    });
+  } catch (error: any) {
+    const message = String(error?.message || 'Unable to complete follow onboarding');
+    const status = message.toLowerCase().includes('follow at least') ? 409 : 500;
+    console.error('Complete follow onboarding error:', error);
+    return res.status(status).json({ success: false, error: message });
   }
 };
 

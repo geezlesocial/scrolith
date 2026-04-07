@@ -43,6 +43,8 @@ model User {
   employerPlanExpiresAt     DateTime?
   stripeAccountId           String?
   refreshToken              String?
+  followOnboardingRequired  Boolean   @default(false)
+  followOnboardingCompletedAt DateTime?
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
 

@@ -3,6 +3,8 @@ import {
   register, 
   login, 
   getCurrentUser, 
+  getFollowOnboardingController,
+  completeFollowOnboardingController,
   logout,
   forgotPassword,
   resetPassword
@@ -28,6 +30,8 @@ router.get('/oauth/:provider/callback', handleOAuthCallback);
 
 // Protected routes
 router.get('/me', authMiddleware, getCurrentUser);
+router.get('/follow-onboarding', authMiddleware, getFollowOnboardingController);
+router.post('/follow-onboarding/complete', authMiddleware, completeFollowOnboardingController);
 router.post('/logout', authMiddleware, logout);
 
 export default router;
