@@ -19,6 +19,7 @@ import PostOptionsButton from '../community/components/post-options/PostOptionsB
 import GraphicWarningGate from '../components/media/GraphicWarningGate';
 import InlineAutoplayVideo from '../components/media/InlineAutoplayVideo';
 import PostVideoActionBar from '../components/media/PostVideoActionBar';
+import TranslatablePostText from '../components/translation/TranslatablePostText';
 import FeedAdCard from '../mobile/home/components/FeedAdCard';
 import RecommendedListingCard from '../mobile/home/components/RecommendedListingCard';
 import SuggestedCard from '../mobile/home/components/SuggestedCard';
@@ -1349,19 +1350,21 @@ export default function PostDetailView() {
             }
           />
 
-          {post.title ? <h1 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950 md:text-[2rem]">{post.title}</h1> : null}
           {focusMentionToken ? (
             <div className="mt-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs font-medium text-blue-700">
               You were mentioned in this post.
             </div>
           ) : null}
-
-          <div className="mt-4 text-[15px] leading-[1.82] text-slate-700 [overflow-wrap:anywhere] md:text-base">
-            <MentionText
-              text={post.content}
-              mentionToken={focusMentionToken || undefined}
+          <div className="mt-4">
+            <TranslatablePostText
+              post={post}
               viewerId={user?.id}
               viewerUsername={user?.username}
+              mentionToken={focusMentionToken || undefined}
+              expandable={false}
+              titleClassName="text-2xl font-semibold tracking-tight text-slate-950 md:text-[2rem]"
+              contentClassName="text-[15px] leading-[1.82] text-slate-700 [overflow-wrap:anywhere] md:text-base"
+              translationRowClassName="text-slate-500"
             />
           </div>
 

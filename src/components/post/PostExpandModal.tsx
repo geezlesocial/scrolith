@@ -3,6 +3,7 @@ import { ExternalLink, X } from 'lucide-react';
 
 import MentionText from '../../community/components/MentionText';
 import GraphicWarningGate from '../media/GraphicWarningGate';
+import TranslatablePostText from '../translation/TranslatablePostText';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../utils/postAttachmentMedia';
 
 type ExpandedPostAttachment = {
@@ -18,6 +19,8 @@ type ExpandedPost = {
   id?: string | null;
   title?: string | null;
   content?: string | null;
+  sourceLanguage?: string | null;
+  translationVersion?: string | null;
   createdAt?: string | null;
   authorName?: string | null;
   authorUsername?: string | null;
@@ -134,21 +137,15 @@ const PostExpandModal: React.FC<PostExpandModalProps> = ({
 
         <div className="flex-1 overflow-y-auto px-5 py-5">
           <div className="mx-auto w-full max-w-3xl space-y-4">
-            {post.title ? (
-              <h2 className="text-2xl font-semibold leading-tight tracking-tight text-slate-950 [overflow-wrap:anywhere]">
-                {post.title}
-              </h2>
-            ) : null}
-
-            {post.content ? (
-              <div className="text-[15px] leading-7 text-slate-700 [overflow-wrap:anywhere]">
-                <MentionText
-                  text={String(post.content)}
-                  viewerId={viewerId}
-                  viewerUsername={viewerUsername}
-                />
-              </div>
-            ) : null}
+            <TranslatablePostText
+              post={post}
+              viewerId={viewerId}
+              viewerUsername={viewerUsername}
+              expandable={false}
+              titleClassName="text-2xl font-semibold leading-tight tracking-tight text-slate-950 [overflow-wrap:anywhere]"
+              contentClassName="text-[15px] leading-7 text-slate-700 [overflow-wrap:anywhere]"
+              translationRowClassName="text-slate-500"
+            />
 
             {post.aiInsightGenerated && post.aiInsightText ? (
               <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 px-4 py-3">

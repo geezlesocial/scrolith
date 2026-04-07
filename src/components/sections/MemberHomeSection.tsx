@@ -73,6 +73,7 @@ import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
 import OptimizedImage from '../media/OptimizedImage';
 import OverlayActionRailButton from '../media/OverlayActionRailButton';
 import PostOriginPreview from '../post/PostOriginPreview';
+import TranslatablePostText from '../translation/TranslatablePostText';
 import type { MemberHomeHighlightItem, MemberHomeHighlightPill } from '../member-home/MemberHomeHighlightsBoard';
 import StoryUploadStatusCard from '../stories/StoryUploadStatusCard';
 import { usePerformanceProfile } from '../../hooks/usePerformanceProfile';
@@ -7003,48 +7004,32 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                       ) : (
                         <>
                           <div className="mt-4 space-y-4">
-                            {postTitle ? (
-                              <button
-                                type="button"
-                                onClick={() => openPostCard(post)}
-                                className="text-left text-xl font-semibold leading-tight tracking-tight text-slate-950 transition hover:text-slate-700 [overflow-wrap:anywhere]"
-                              >
-                                {postTitle}
-                              </button>
-                            ) : null}
                             {focusPostId === post.id && focusMentionToken ? (
                               <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
                                 You were mentioned in this post.
                               </div>
                             ) : null}
                             <PostOriginPreview originalPost={post.originalPost} />
-                            {postContent ? (
-                              <div
-                                className="cursor-pointer text-[15px] leading-[1.78] text-slate-700 [overflow-wrap:anywhere]"
-                                role="button"
-                                tabIndex={0}
-                                onClick={(event) => openPostFromText(event, post)}
-                                onKeyDown={(event) => {
+                            {postContent || postTitle ? (
+                              <TranslatablePostText
+                                post={post}
+                                viewerId={user?.id}
+                                viewerUsername={user?.username}
+                                mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
+                                expandable
+                                titleClassName="text-left text-xl font-semibold leading-tight tracking-tight text-slate-950 transition hover:text-slate-700 [overflow-wrap:anywhere]"
+                                contentWrapperClassName="cursor-pointer text-[15px] leading-[1.78] text-slate-700 [overflow-wrap:anywhere]"
+                                buttonClassName="text-slate-900"
+                                translationRowClassName="text-slate-500"
+                                onTitleClick={postTitle ? () => openPostCard(post) : undefined}
+                                onContentClick={(event) => openPostFromText(event, post)}
+                                onContentKeyDown={(event) => {
                                   if (event.key === 'Enter' || event.key === ' ') {
                                     event.preventDefault();
                                     openPostCard(post);
                                   }
                                 }}
-                              >
-                                <ExpandablePreviewText
-                                  text={postContent}
-                                  className="inline"
-                                  buttonClassName="text-slate-900"
-                                  renderText={(visibleText) => (
-                                    <MentionText
-                                      text={visibleText}
-                                      mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
-                                      viewerId={user?.id}
-                                      viewerUsername={user?.username}
-                                    />
-                                  )}
-                                />
-                              </div>
+                              />
                             ) : !post.attachments?.length ? (
                               <button
                                 type="button"

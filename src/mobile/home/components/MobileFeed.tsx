@@ -28,6 +28,7 @@ import InlineAutoplayVideo from '../../../components/media/InlineAutoplayVideo';
 import OptimizedImage from '../../../components/media/OptimizedImage';
 import type { PreviewMedia } from '../../../components/media/MediaPreviewModal';
 import PostVideoActionBar from '../../../components/media/PostVideoActionBar';
+import TranslatablePostText from '../../../components/translation/TranslatablePostText';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY } from '../../../utils/inlineMedia';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../../utils/postAttachmentMedia';
 import {
@@ -1988,36 +1989,24 @@ export default function MobileFeed({
                 </div>
 
                 <div className="mt-4 space-y-4">
-                  {post?.title ? (
-                    <button
-                      type="button"
-                      onClick={() => openPostCard(post)}
-                      className="text-left text-lg font-semibold tracking-tight text-slate-950 break-words [overflow-wrap:anywhere] hover:text-blue-700 hover:underline"
-                    >
-                      {post.title}
-                    </button>
-                  ) : null}
-                  <div
-                    className="cursor-pointer text-[15px] leading-7 text-slate-700 break-words [overflow-wrap:anywhere]"
-                    role="button"
-                    tabIndex={0}
-                    onClick={(event) => openPostFromText(event, post)}
-                    onKeyDown={(event) => {
+                  <TranslatablePostText
+                    post={post}
+                    viewerId={user?.id}
+                    viewerUsername={user?.username}
+                    expandable
+                    titleClassName="text-left text-lg font-semibold tracking-tight text-slate-950 break-words [overflow-wrap:anywhere] hover:text-blue-700 hover:underline"
+                    contentWrapperClassName="cursor-pointer text-[15px] leading-7 text-slate-700 break-words [overflow-wrap:anywhere]"
+                    buttonClassName="text-slate-900"
+                    translationRowClassName="text-slate-500"
+                    onTitleClick={post?.title ? () => openPostCard(post) : undefined}
+                    onContentClick={(event) => openPostFromText(event, post)}
+                    onContentKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
                         openPostCard(post);
                       }
                     }}
-                  >
-                    <ExpandablePreviewText
-                      text={content}
-                      className="inline"
-                      buttonClassName="text-slate-900"
-                      renderText={(visibleText) => (
-                        <MentionText text={visibleText} viewerId={user?.id} viewerUsername={user?.username} />
-                      )}
-                    />
-                  </div>
+                  />
 
                   {showHashtags && tags.length ? (
                     <div className="flex flex-wrap gap-2">

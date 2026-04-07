@@ -1,15 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNotification } from '../../context/NotificationContext';
 import { I18nService, I18nConfig, TextOverrideRow, TranslationKeyRow, TranslationValueRow } from '../../services/i18n';
+import ContentTranslationPanel from './ContentTranslationPanel';
 
-type TabId = 'settings' | 'keys' | 'editor' | 'overrides' | 'import_export';
+type TabId = 'settings' | 'keys' | 'editor' | 'overrides' | 'import_export' | 'content_translation';
 
 const tabs: Array<{ id: TabId; label: string }> = [
   { id: 'settings', label: 'Locales & Settings' },
   { id: 'keys', label: 'Translation Keys' },
   { id: 'editor', label: 'Translate / Correct' },
   { id: 'overrides', label: 'Quick Fix Overrides' },
-  { id: 'import_export', label: 'Import / Export' }
+  { id: 'import_export', label: 'Import / Export' },
+  { id: 'content_translation', label: 'Content Translation' }
 ];
 
 const defaultConfig: I18nConfig = {
@@ -470,6 +472,8 @@ const LanguagesAdmin: React.FC = () => {
           </div>
         </div>
       )}
+
+      {tab === 'content_translation' && <ContentTranslationPanel />}
     </div>
   );
 };

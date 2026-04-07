@@ -62,6 +62,7 @@ import { usePerformanceProfile } from '../hooks/usePerformanceProfile';
 import { upsertImagePreloadLink } from '../utils/resourceHints';
 import GraphicWarningGate from '../components/media/GraphicWarningGate';
 import PostOriginPreview from '../components/post/PostOriginPreview';
+import TranslatablePostText from '../components/translation/TranslatablePostText';
 import StoryUploadStatusCard from '../components/stories/StoryUploadStatusCard';
 import StoryReplySheet from '../components/stories/StoryReplySheet';
 import { pickInterestSurveyCandidateId } from '../components/recommendation/ContentInterestSurvey';
@@ -3066,47 +3067,31 @@ const CommunityHome = () => {
                       ) : (
                         <>
                           <div className="mt-4 space-y-4">
-                          {post.title ? (
-                              <button
-                                type="button"
-                                onClick={() => openPostCard(post)}
-                                className="text-left text-xl font-semibold leading-tight tracking-tight text-slate-950 transition hover:text-slate-700 [overflow-wrap:anywhere]"
-                              >
-                                {post.title}
-                              </button>
-                          ) : null}
                           {focusPostId === post.id && focusMentionToken ? (
                             <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
                               You were mentioned in this post.
                             </div>
                           ) : null}
                           <PostOriginPreview originalPost={post.originalPost} className="mt-2" />
-                          <div
-                              className="cursor-pointer text-[15px] leading-[1.78] text-slate-700 [overflow-wrap:anywhere]"
-                              role="button"
-                              tabIndex={0}
-                              onClick={(event) => openPostFromText(event, post)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' || event.key === ' ') {
-                                  event.preventDefault();
-                                  openPostCard(post);
-                                }
-                              }}
-                            >
-                            <ExpandablePreviewText
-                              text={post.content}
-                              className="inline"
-                              buttonClassName="text-slate-900"
-                              renderText={(visibleText) => (
-                                <MentionText
-                                  text={visibleText}
-                                  mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
-                                  viewerId={user?.id}
-                                  viewerUsername={user?.username}
-                                />
-                              )}
-                            />
-                          </div>
+                          <TranslatablePostText
+                            post={post}
+                            viewerId={user?.id}
+                            viewerUsername={user?.username}
+                            mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
+                            expandable
+                            titleClassName="text-left text-xl font-semibold leading-tight tracking-tight text-slate-950 transition hover:text-slate-700 [overflow-wrap:anywhere]"
+                            contentWrapperClassName="cursor-pointer text-[15px] leading-[1.78] text-slate-700 [overflow-wrap:anywhere]"
+                            buttonClassName="text-slate-900"
+                            translationRowClassName="text-slate-500"
+                            onTitleClick={() => openPostCard(post)}
+                            onContentClick={(event) => openPostFromText(event, post)}
+                            onContentKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                openPostCard(post);
+                              }
+                            }}
+                          />
                           {post.tags?.length ? (
                             <div className="flex flex-wrap gap-2">
                               {post.tags.map((tag: string) => (
