@@ -507,7 +507,7 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
       path: '/'
     });
 
-    const finalRedirect = mode === 'signup' ? '/member_home' : redirectPath || resolveDashboardPath(user.role);
+    const finalRedirect = mode === 'signup' ? '/' : redirectPath || resolveDashboardPath(user.role);
     const params = new URLSearchParams();
     params.set('token', token);
     params.set('redirect', finalRedirect);

@@ -2,7 +2,7 @@ import prisma from '../utils/prismaClient';
 
 export const FOLLOW_ONBOARDING_MIN_REQUIRED = 1;
 export const FOLLOW_ONBOARDING_MAX_SELECTABLE = 6;
-export const FOLLOW_ONBOARDING_REDIRECT_PATH = '/member_home';
+export const FOLLOW_ONBOARDING_REDIRECT_PATH = '/';
 
 const toIso = (value?: Date | string | null) => {
   if (!value) return null;
