@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Loader } from 'lucide-react';
 import { AuthService } from '../services/authService';
-import { resolveAuthenticatedEntryPath, resolveDashboardPath } from '../utils/authRedirect';
+import { resolveAuthenticatedEntryPath } from '../utils/authRedirect';
 
 const OAuthCallback = () => {
   const [message, setMessage] = useState('Completing sign in...');
@@ -30,7 +30,7 @@ const OAuthCallback = () => {
         const me = await AuthService.getCurrentUser();
         if (me) {
           window.location.replace(
-            me.followOnboardingRequired ? resolveAuthenticatedEntryPath(me) : (next !== '/' ? next : resolveDashboardPath(me.role))
+            me.followOnboardingRequired ? resolveAuthenticatedEntryPath(me) : next
           );
           return;
         }

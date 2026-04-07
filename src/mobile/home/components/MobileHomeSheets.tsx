@@ -131,25 +131,42 @@ const Sheet = ({
   onClose: () => void;
   children: React.ReactNode;
 }) => {
+  const titleId = React.useId();
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[1000] flex items-end justify-center bg-slate-950/55 p-3">
-      <div className={MOBILE_SHEET_CARD_CLASS}>
-        <div className="flex justify-center pt-3">
-          <div className="h-1.5 w-14 rounded-full bg-slate-200" />
-        </div>
-        <div className="flex max-h-[88vh] flex-col">
-          <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-2">
-            <div className="text-sm font-semibold text-slate-900">{title}</div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600"
-            >
-              Close
-            </button>
+    <div className="fixed inset-0 z-[1000]">
+      <button
+        type="button"
+        aria-label={`Close ${title}`}
+        onClick={onClose}
+        className="absolute inset-0 bg-slate-950/55"
+      />
+      <div className="absolute inset-x-0 bottom-0 flex justify-center p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:inset-0 sm:items-center sm:p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          className={MOBILE_SHEET_CARD_CLASS}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex justify-center pt-3">
+            <div className="h-1.5 w-14 rounded-full bg-slate-200" />
           </div>
-          <div className="overflow-y-auto px-4 pb-4">{children}</div>
+          <div className="flex max-h-[82dvh] flex-col">
+            <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-2 sm:px-5">
+              <div id={titleId} className="text-sm font-semibold text-slate-900">
+                {title}
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600"
+              >
+                Close
+              </button>
+            </div>
+            <div className="overflow-y-auto px-4 pb-4 sm:px-5">{children}</div>
+          </div>
         </div>
       </div>
     </div>

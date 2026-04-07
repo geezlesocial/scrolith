@@ -529,7 +529,7 @@ const MOBILE_STANDALONE_ROUTE_RULES = [
 
 // Inner App component to use hooks
 const AppContent = () => {
-  const { user, isAuthenticated, logout } = useUser();
+  const { user, isAuthenticated, isLoading, logout } = useUser();
   const { settings, loading: settingsLoading } = useContent();
   const { showNotification } = useNotification();
   const location = useLocation();
@@ -998,6 +998,17 @@ const AppContent = () => {
     ) : (
       <>{node}</>
     );
+  const signedInHomepageElement = isLoading ? (
+    <RouteLoadingFallback />
+  ) : !isAuthenticated || !user ? (
+    <Landing />
+  ) : hasPendingFollowOnboarding(user) ? (
+    <Navigate to={FOLLOW_ONBOARDING_PATH} replace />
+  ) : shouldUseMobileMemberHome ? (
+    <Navigate to="/m/home" replace />
+  ) : (
+    <MemberHomeSection />
+  );
   
   return (
     <div className="flex flex-col min-h-screen relative">
@@ -1009,12 +1020,12 @@ const AppContent = () => {
         <ErrorBoundary key={routeRenderKey}>
           <Suspense key={routeRenderKey} fallback={<RouteLoadingFallback />}>
             <Routes location={location} key={routeRenderKey}>
-              <Route path="/" element={<Landing />} />
+              <Route path="/" element={signedInHomepageElement} />
               <Route
                 path="/member_home"
                 element={
                   <ProtectedRoute>
-                    {shouldUseMobileMemberHome ? <Navigate to="/m/home" replace /> : <MemberHomeSection />}
+                    <LegacyMemberHomeRedirect />
                   </ProtectedRoute>
                 }
               />
@@ -1502,6 +1513,11 @@ const DashboardAliasRedirect: React.FC = () => {
   return <Navigate to={targetUrl} replace />;
 };
 
+const LegacyMemberHomeRedirect: React.FC = () => {
+  const location = useLocation();
+  return <Navigate to={{ pathname: '/', search: location.search, hash: location.hash }} replace />;
+};
+
 const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated, isLoading } = useUser();
 
@@ -1510,7 +1526,7 @@ const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) 
   }
 
   if (isAuthenticated && user) {
-    return <Navigate to={resolveAuthenticatedEntryPath(user)} replace />;
+    return <Navigate to={hasPendingFollowOnboarding(user) ? FOLLOW_ONBOARDING_PATH : '/'} replace />;
   }
 
   return <>{children}</>;

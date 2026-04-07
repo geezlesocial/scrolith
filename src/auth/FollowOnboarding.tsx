@@ -37,7 +37,7 @@ const DEFAULT_STATUS: FollowOnboardingStatus = {
   minimumRequired: 1,
   maximumSelectable: 6,
   canContinue: false,
-  redirectPath: '/member_home'
+  redirectPath: '/'
 };
 
 const normalizeUserReco = (item: any): RecommendationCard | null => {
@@ -141,7 +141,7 @@ const FollowOnboarding = () => {
         if (!active) return;
 
         if (!onboarding.required) {
-          navigate(onboarding.redirectPath || '/member_home', { replace: true });
+          navigate(onboarding.redirectPath || '/', { replace: true });
           return;
         }
 
@@ -267,7 +267,7 @@ const FollowOnboarding = () => {
           follow_onboarding_completed_at: new Date().toISOString()
         } as any);
       }
-      navigate(response?.onboarding?.redirectPath || '/member_home', { replace: true });
+      navigate(response?.onboarding?.redirectPath || '/', { replace: true });
     } catch (completeError: any) {
       setError(completeError?.response?.data?.error || completeError?.message || 'Unable to continue yet.');
     } finally {

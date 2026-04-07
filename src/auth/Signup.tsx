@@ -134,7 +134,7 @@ const Signup = () => {
       const success = await register(formData.email, fullName, formData.password, role, recaptchaToken);
 
       if (success) {
-        navigate('/member_home', { replace: true });
+        navigate('/', { replace: true });
       } else {
         setErrors({ submit: t('auth.signup.failed', 'Signup failed. Please try again.') });
       }

@@ -11,8 +11,9 @@ export const MOBILE_HEADER_BAR_CLASS =
 export const MOBILE_BOTTOM_NAV_CONTAINER_CLASS =
   'mx-auto flex w-full max-w-[760px] items-center justify-around px-2 py-2 sm:px-3';
 export const MOBILE_SHEET_CARD_CLASS =
-  'w-full max-w-[720px] overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-2xl';
-export const MOBILE_MODAL_CARD_CLASS = 'w-full max-w-[720px] rounded-3xl bg-white p-4 shadow-2xl';
+  'w-full max-w-[34rem] max-h-[82dvh] overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-2xl sm:rounded-[32px]';
+export const MOBILE_MODAL_CARD_CLASS =
+  'w-full max-w-[32rem] max-h-[82dvh] overflow-y-auto rounded-[26px] bg-white p-4 shadow-2xl sm:rounded-3xl sm:p-5';
 export const MOBILE_STORY_VIEWER_CLASS =
   'relative h-full w-full max-w-[720px] overflow-hidden rounded-[2rem] bg-slate-900';
 

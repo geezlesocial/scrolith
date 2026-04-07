@@ -33,6 +33,11 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const url = new URL(window.location.href);
           url.searchParams.delete('from');
           window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+          try {
+            window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }));
+          } catch {
+            // Ignore popstate synthesis failures.
+          }
         }
       } catch {}
       setIsLoading(true);
@@ -48,17 +53,6 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (me && mounted) {
           setUser(me);
           setIsAuthenticated(true);
-
-          const fromAuth = window.location.search.includes('from=auth');
-          if (fromAuth && window.location.pathname === '/') {
-            if (me.role === UserRole.ADMIN) {
-              window.location.href = '/admin/dashboard';
-            } else if (me.role === UserRole.FREELANCER) {
-              window.location.href = '/freelancer/dashboard';
-            } else if (me.role === UserRole.EMPLOYER) {
-              window.location.href = '/client/dashboard';
-            }
-          }
         } else if (unauthorized) {
           setUser(null);
           setIsAuthenticated(false);
