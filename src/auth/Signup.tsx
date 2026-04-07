@@ -134,10 +134,7 @@ const Signup = () => {
       const success = await register(formData.email, fullName, formData.password, role, recaptchaToken);
 
       if (success) {
-        // Redirect based on role after successful registration
-        if (role === UserRole.ADMIN) navigate('/admin');
-        else if (role === UserRole.EMPLOYER) navigate('/client/dashboard');
-        else navigate('/freelancer/dashboard');
+        navigate('/member_home', { replace: true });
       } else {
         setErrors({ submit: t('auth.signup.failed', 'Signup failed. Please try again.') });
       }

@@ -169,6 +169,10 @@ export interface User {
   employer_plan_purchased_at?: string | null;
   employerPlanExpiresAt?: string | null;
   employer_plan_expires_at?: string | null;
+  followOnboardingRequired?: boolean;
+  follow_onboarding_required?: boolean;
+  followOnboardingCompletedAt?: string | null;
+  follow_onboarding_completed_at?: string | null;
   gcoinBalance?: number; // Renamed from gcoin_balance
   joinDate?: string; // Renamed from join_date
   country?: string;
@@ -193,6 +197,16 @@ export interface User {
     isSuspended?: boolean;
     requiresKyc?: boolean;
   };
+}
+
+export interface FollowOnboardingStatus {
+  required: boolean;
+  completedAt?: string | null;
+  followedCount: number;
+  minimumRequired: number;
+  maximumSelectable: number;
+  canContinue: boolean;
+  redirectPath: string;
 }
 
 export interface StructuredLocationFields {

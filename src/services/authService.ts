@@ -1,10 +1,14 @@
 import api from './api';
 import { tokenStore } from './tokenStore';
-import { User, UserRole } from '../types';
+import { FollowOnboardingStatus, User, UserRole } from '../types';
 import { resolveAssetUrl } from '../utils/assetUrl';
 
 type AuthResponse = { token?: string; user?: User; success?: boolean; error?: string };
 type CurrentUserResult = { user: User | null; unauthorized: boolean };
+type FollowOnboardingResponse = {
+  user?: User;
+  onboarding?: FollowOnboardingStatus;
+};
 
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
@@ -116,6 +120,36 @@ class AuthService {
   static async getCurrentUser(): Promise<User | null> {
     const { user } = await AuthService.getCurrentUserWithStatus();
     return user;
+  }
+
+  static async getFollowOnboarding(): Promise<FollowOnboardingResponse> {
+    const response = await api.get('/auth/follow-onboarding');
+    const payload = extractData<FollowOnboardingResponse>(response) || {};
+    const user = normalizeUser(payload.user);
+    if (user) {
+      try {
+        localStorage.setItem('user', JSON.stringify(user));
+      } catch {}
+    }
+    return {
+      ...payload,
+      user
+    };
+  }
+
+  static async completeFollowOnboarding(): Promise<FollowOnboardingResponse> {
+    const response = await api.post('/auth/follow-onboarding/complete');
+    const payload = extractData<FollowOnboardingResponse>(response) || {};
+    const user = normalizeUser(payload.user);
+    if (user) {
+      try {
+        localStorage.setItem('user', JSON.stringify(user));
+      } catch {}
+    }
+    return {
+      ...payload,
+      user
+    };
   }
 
   static async logout() {

@@ -185,8 +185,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
         setSignupErrors((prev) => ({ ...prev, submit: "Unable to create account right now." }));
         return;
       }
-      if (signupRole === UserRole.EMPLOYER) navigate("/client/dashboard");
-      else navigate("/freelancer/dashboard");
+      navigate("/member_home", { replace: true });
     } catch (error: any) {
       setSignupErrors((prev) => ({ ...prev, submit: error?.message || "Signup failed. Please try again." }));
     } finally {

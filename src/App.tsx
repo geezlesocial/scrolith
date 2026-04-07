@@ -58,6 +58,12 @@ import { DashboardRouter } from './dashboard/DashboardRouter';
 import CommunityLayout from './community/CommunityLayout';
 import CommunityHome from './community/CommunityHome';
 import { shouldUseMobileShellViewport } from './mobile/home/mobileShellLayout';
+import {
+  FOLLOW_ONBOARDING_PATH,
+  hasPendingFollowOnboarding,
+  resolveAuthenticatedEntryPath,
+  resolveDashboardPath
+} from './utils/authRedirect';
 
 const HISTORY_SYNC_EVENT = 'scrolith:history-sync';
 const CHUNK_RELOAD_GUARD_KEY = 'scrolith:chunk-reload-target';
@@ -297,6 +303,7 @@ const Signup = React.lazy(() => import('./auth/Signup'));
 const ForgotPassword = React.lazy(() => import('./auth/ForgotPassword'));
 const ResetPassword = React.lazy(() => import('./auth/ResetPassword'));
 const OAuthCallback = React.lazy(() => import('./auth/OAuthCallback'));
+const FollowOnboarding = React.lazy(() => import('./auth/FollowOnboarding'));
 const DynamicFooter = React.lazy(() => import('./components/DynamicFooter'));
 const SupportWidget = React.lazy(() => import('./components/SupportWidget'));
 const MarketingPopups = React.lazy(() => import('./components/MarketingPopups'));
@@ -1061,6 +1068,14 @@ const AppContent = () => {
                   </PublicOnlyRoute>
                 }
               />
+              <Route
+                path="/auth/follow-onboarding"
+                element={
+                  <ProtectedRoute>
+                    <FollowOnboarding />
+                  </ProtectedRoute>
+                }
+              />
               <Route path="/auth/oauth/callback" element={<OAuthCallback />} />
               
                {/* Browse & Search Pages */}
@@ -1457,20 +1472,6 @@ interface ProtectedRouteProps {
   allowedRoles?: UserRole[];
 }
 
-const resolveDashboardPath = (role?: UserRole | string) => {
-  const normalizedRole = (role || '').toString().toLowerCase() as UserRole;
-  switch (normalizedRole) {
-    case UserRole.ADMIN:
-      return '/admin/dashboard';
-    case UserRole.FREELANCER:
-      return '/freelancer/dashboard';
-    case UserRole.EMPLOYER:
-      return '/client/dashboard';
-    default:
-      return '/';
-  }
-};
-
 const DashboardAliasRedirect: React.FC = () => {
   const { user } = useUser();
   const location = useLocation();
@@ -1490,6 +1491,10 @@ const DashboardAliasRedirect: React.FC = () => {
   if (overrideRaw.startsWith('e') || overrideRaw.startsWith('c')) overrideRole = UserRole.EMPLOYER;
   if (overrideRaw.startsWith('a')) overrideRole = UserRole.ADMIN;
 
+  if (hasPendingFollowOnboarding(user)) {
+    return <Navigate to={FOLLOW_ONBOARDING_PATH} replace />;
+  }
+
   const effectiveRole = user.role === UserRole.ADMIN ? overrideRole || user.role : user.role;
   const targetPath = resolveDashboardPath(effectiveRole);
   const targetUrl = `${targetPath}${location.search || ''}`;
@@ -1505,7 +1510,7 @@ const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) 
   }
 
   if (isAuthenticated && user) {
-    return <Navigate to={resolveDashboardPath(user.role)} replace />;
+    return <Navigate to={resolveAuthenticatedEntryPath(user)} replace />;
   }
 
   return <>{children}</>;
@@ -1537,6 +1542,10 @@ const LiveFeatureRoute: React.FC<{ children: React.ReactNode }> = ({ children })
 
   if (!isAuthenticated || !user) {
     return <Navigate to="/auth/login" state={{ from: location }} replace />;
+  }
+
+  if (hasPendingFollowOnboarding(user) && location.pathname !== FOLLOW_ONBOARDING_PATH) {
+    return <Navigate to={FOLLOW_ONBOARDING_PATH} replace />;
   }
 
   // If allowedRoles is provided, check if user has the required role
