@@ -12,9 +12,10 @@ from pydantic import BaseModel, Field
 
 
 APP_NAME = "scrolith-translation-runtime"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 
 DEFAULT_FASTTEXT_URL = "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin"
+DEFAULT_CTRANSLATE2_MODEL_REPO = "jncraton/m2m100_418M-ct2-int8"
 SUPPORTED_LANGUAGE_LABELS = {
     "en": "English",
     "es": "Spanish",
@@ -97,18 +98,27 @@ def heuristic_detect(text: str) -> Dict[str, Any]:
 class RuntimeSettings(BaseModel):
     runtime_mode: str = Field(default_factory=lambda: os.getenv("TRANSLATION_RUNTIME_MODE", "m2m100"))
     model_name: str = Field(default_factory=lambda: os.getenv("TRANSLATION_MODEL_NAME", "facebook/m2m100_418M"))
+    model_repo: str = Field(
+        default_factory=lambda: os.getenv("TRANSLATION_MODEL_REPO", DEFAULT_CTRANSLATE2_MODEL_REPO)
+    )
     engine_key: str = Field(default_factory=lambda: os.getenv("TRANSLATION_ENGINE_KEY", "m2m100_418m"))
     detector_key: str = Field(default_factory=lambda: os.getenv("TRANSLATION_DETECTOR_KEY", "fasttext_lid_176"))
     model_cache_dir: str = Field(default_factory=lambda: os.getenv("TRANSLATION_MODEL_CACHE_DIR", "/models/huggingface"))
-    preload_models: bool = Field(default_factory=lambda: env_flag("TRANSLATION_PRELOAD_MODELS", True))
+    preload_models: bool = Field(default_factory=lambda: env_flag("TRANSLATION_PRELOAD_MODELS", False))
     auto_download_fasttext: bool = Field(default_factory=lambda: env_flag("TRANSLATION_AUTO_DOWNLOAD_FASTTEXT", True))
     max_chars: int = Field(default_factory=lambda: env_int("TRANSLATION_MAX_CHARS", 5000, 120, 20000))
     beam_size: int = Field(default_factory=lambda: env_int("TRANSLATION_BEAM_SIZE", 4, 1, 8))
     num_threads: int = Field(default_factory=lambda: env_int("TRANSLATION_NUM_THREADS", 2, 1, 16))
     max_new_tokens: int = Field(default_factory=lambda: env_int("TRANSLATION_MAX_NEW_TOKENS", 512, 32, 4096))
-    fasttext_model_path: str = Field(default_factory=lambda: os.getenv("TRANSLATION_FASTTEXT_MODEL_PATH", "/models/fasttext/lid.176.bin"))
-    fasttext_model_url: str = Field(default_factory=lambda: os.getenv("TRANSLATION_FASTTEXT_MODEL_URL", DEFAULT_FASTTEXT_URL))
+    fasttext_model_path: str = Field(
+        default_factory=lambda: os.getenv("TRANSLATION_FASTTEXT_MODEL_PATH", "/models/fasttext/lid.176.bin")
+    )
+    fasttext_model_url: str = Field(
+        default_factory=lambda: os.getenv("TRANSLATION_FASTTEXT_MODEL_URL", DEFAULT_FASTTEXT_URL)
+    )
     runtime_api_key: str = Field(default_factory=lambda: os.getenv("TRANSLATION_RUNTIME_API_KEY", ""))
+    compute_type: str = Field(default_factory=lambda: os.getenv("TRANSLATION_COMPUTE_TYPE", "int8"))
+    device: str = Field(default_factory=lambda: os.getenv("TRANSLATION_DEVICE", "cpu"))
 
 
 class DetectRequest(BaseModel):
@@ -130,9 +140,7 @@ class RuntimeState:
         self._lock = threading.Lock()
         self._fasttext_model = None
         self._tokenizer = None
-        self._model = None
-        self._torch = None
-        self._transformers = None
+        self._translator = None
         self._load_error: Optional[str] = None
 
     def ensure_fasttext_model(self):
@@ -152,37 +160,54 @@ class RuntimeState:
             self._fasttext_model = fasttext.load_model(str(path))
             return self._fasttext_model
 
+    def _resolve_model_dir(self) -> Path:
+        repo_id = str(self.settings.model_repo or DEFAULT_CTRANSLATE2_MODEL_REPO).strip()
+        repo_slug = re.sub(r"[^0-9A-Za-z._-]+", "--", repo_id)
+        return Path(self.settings.model_cache_dir) / repo_slug
+
     def ensure_translation_model(self):
         if self.settings.runtime_mode == "mock":
             return None, None
-        if self._tokenizer is not None and self._model is not None:
-            return self._tokenizer, self._model
+        if self._tokenizer is not None and self._translator is not None:
+            return self._tokenizer, self._translator
         with self._lock:
-            if self._tokenizer is not None and self._model is not None:
-                return self._tokenizer, self._model
+            if self._tokenizer is not None and self._translator is not None:
+                return self._tokenizer, self._translator
             try:
-                import torch  # type: ignore
-                from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer  # type: ignore
+                import ctranslate2  # type: ignore
+                from huggingface_hub import snapshot_download  # type: ignore
+                from transformers import M2M100Tokenizer  # type: ignore
 
-                cache_dir = Path(self.settings.model_cache_dir)
-                cache_dir.mkdir(parents=True, exist_ok=True)
-                torch.set_num_threads(self.settings.num_threads)
-                tokenizer = M2M100Tokenizer.from_pretrained(self.settings.model_name, cache_dir=str(cache_dir))
-                model = M2M100ForConditionalGeneration.from_pretrained(
-                    self.settings.model_name,
-                    cache_dir=str(cache_dir),
-                    low_cpu_mem_usage=True
+                model_dir = self._resolve_model_dir()
+                model_dir.mkdir(parents=True, exist_ok=True)
+                model_bin = model_dir / "model.bin"
+                if not model_bin.exists():
+                    snapshot_download(
+                        repo_id=self.settings.model_repo,
+                        local_dir=str(model_dir),
+                        allow_patterns=[
+                            "*.bin",
+                            "*.json",
+                            "*.model",
+                            "*.txt",
+                        ],
+                    )
+
+                tokenizer = M2M100Tokenizer.from_pretrained(str(model_dir))
+                translator = ctranslate2.Translator(
+                    str(model_dir),
+                    device=self.settings.device,
+                    compute_type=self.settings.compute_type,
+                    inter_threads=1,
+                    intra_threads=self.settings.num_threads,
                 )
-                model.eval()
-                self._torch = torch
-                self._transformers = True
                 self._tokenizer = tokenizer
-                self._model = model
+                self._translator = translator
                 self._load_error = None
             except Exception as error:
                 self._load_error = str(error)
                 raise
-            return self._tokenizer, self._model
+            return self._tokenizer, self._translator
 
     def health(self) -> Dict[str, Any]:
         return {
@@ -192,8 +217,11 @@ class RuntimeState:
             "engineKey": self.settings.engine_key,
             "detectorKey": self.settings.detector_key,
             "modelName": self.settings.model_name,
-            "modelLoaded": self._model is not None or self.settings.runtime_mode == "mock",
+            "modelRepo": self.settings.model_repo,
+            "modelLoaded": self._translator is not None or self.settings.runtime_mode == "mock",
             "fasttextLoaded": self._fasttext_model is not None,
+            "computeType": self.settings.compute_type,
+            "device": self.settings.device,
             "loadError": self._load_error,
         }
 
@@ -283,25 +311,34 @@ def translate_text(text: str, source_language: str, target_language: str) -> Dic
         }
 
     try:
-        tokenizer, model = state.ensure_translation_model()
+        tokenizer, translator = state.ensure_translation_model()
         tokenizer.src_lang = source
-        encoded = tokenizer(text[: state.settings.max_chars], return_tensors="pt")
-        generated_tokens = model.generate(
-            **encoded,
-            forced_bos_token_id=tokenizer.get_lang_id(target),
-            num_beams=state.settings.beam_size,
-            max_new_tokens=state.settings.max_new_tokens,
+        encoded_ids = tokenizer.encode(text[: state.settings.max_chars])
+        source_tokens = tokenizer.convert_ids_to_tokens(encoded_ids)
+        target_prefix = [tokenizer.lang_code_to_token[target]]
+        results = translator.translate_batch(
+            [source_tokens],
+            target_prefix=[target_prefix],
+            beam_size=state.settings.beam_size,
+            max_decoding_length=state.settings.max_new_tokens,
         )
-        translated = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)[0]
+        translated_tokens = list(results[0].hypotheses[0])
+        if translated_tokens[:1] == target_prefix:
+            translated_tokens = translated_tokens[1:]
+        translated_ids = tokenizer.convert_tokens_to_ids(translated_tokens)
+        translated = tokenizer.decode(translated_ids, skip_special_tokens=True).strip()
+        if not translated:
+            raise RuntimeError("The runtime returned an empty translation.")
         return {
             "translatedText": translated,
             "engineKey": state.settings.engine_key,
-            "modelVersion": state.settings.model_name,
+            "modelVersion": state.settings.model_repo or state.settings.model_name,
             "metadata": {
                 "latencyMs": int((time.perf_counter() - started) * 1000),
                 "runtimeMode": state.settings.runtime_mode,
                 "sourceLanguage": source,
                 "targetLanguage": target,
+                "computeType": state.settings.compute_type,
             },
         }
     except Exception as error:

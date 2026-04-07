@@ -13,6 +13,7 @@ Self-hosted content translation runtime for Scrolith.
 
 - `TRANSLATION_RUNTIME_MODE=m2m100|mock`
 - `TRANSLATION_MODEL_NAME=facebook/m2m100_418M`
+- `TRANSLATION_MODEL_REPO=jncraton/m2m100_418M-ct2-int8`
 - `TRANSLATION_ENGINE_KEY=m2m100_418m`
 - `TRANSLATION_DETECTOR_KEY=fasttext_lid_176`
 - `TRANSLATION_PRELOAD_MODELS=true|false`
@@ -20,11 +21,15 @@ Self-hosted content translation runtime for Scrolith.
 - `TRANSLATION_FASTTEXT_MODEL_PATH=/models/fasttext/lid.176.bin`
 - `TRANSLATION_FASTTEXT_MODEL_URL=https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin`
 - `TRANSLATION_AUTO_DOWNLOAD_FASTTEXT=true|false`
+- `TRANSLATION_COMPUTE_TYPE=int8`
+- `TRANSLATION_DEVICE=cpu`
 - `TRANSLATION_MAX_CHARS=5000`
 - `TRANSLATION_BEAM_SIZE=4`
 - `TRANSLATION_NUM_THREADS=2`
 - `TRANSLATION_MAX_NEW_TOKENS=512`
 - `TRANSLATION_RUNTIME_API_KEY=shared-bearer-token`
+
+The runtime image stays small by downloading the converted CTranslate2 model snapshot into the container's runtime storage instead of baking the full M2M100 weights into the registry image.
 
 ## Local Run
 
