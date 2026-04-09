@@ -396,6 +396,16 @@ const PostEngagementBar: React.FC<Props> = ({
     void react(userReaction || defaultReactionKey);
   };
 
+  const stopActionPropagation = (event: React.SyntheticEvent) => {
+    event.stopPropagation();
+  };
+
+  const triggerAction = (event: React.SyntheticEvent, callback: () => void) => {
+    event.preventDefault();
+    event.stopPropagation();
+    callback();
+  };
+
   const handleInterestSurveySubmit = async (signal: 'INTERESTED' | 'NOT_INTERESTED') => {
     if (!ensureAuth()) {
       throw new Error('Authentication required.');
@@ -434,10 +444,15 @@ const PostEngagementBar: React.FC<Props> = ({
               <button
                 ref={summaryRef}
                 type="button"
-                onClick={() => {
-                  setPickerAnchor('summary');
-                  setPickerOpen(true);
-                }}
+                data-post-action-control="true"
+                onMouseDown={stopActionPropagation}
+                onTouchStart={stopActionPropagation}
+                onClick={(event) =>
+                  triggerAction(event, () => {
+                    setPickerAnchor('summary');
+                    setPickerOpen(true);
+                  })
+                }
                 className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/90 bg-white px-3 py-1.5 shadow-sm hover:bg-slate-50"
               >
                 <span className="inline-flex -space-x-1">
@@ -462,11 +477,16 @@ const PostEngagementBar: React.FC<Props> = ({
           {commentsEnabled ? (
             <button
               type="button"
-              onClick={() => {
-                setCommentsOpen(true);
-                setFocusInputKey((prev) => prev + 1);
-                window.setTimeout(() => commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
-              }}
+              data-post-action-control="true"
+              onMouseDown={stopActionPropagation}
+              onTouchStart={stopActionPropagation}
+              onClick={(event) =>
+                triggerAction(event, () => {
+                  setCommentsOpen(true);
+                  setFocusInputKey((prev) => prev + 1);
+                  window.setTimeout(() => commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
+                })
+              }
               className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:text-slate-900"
             >
               <span className="font-semibold text-slate-900">{commentCount}</span> comments
@@ -502,14 +522,20 @@ const PostEngagementBar: React.FC<Props> = ({
             disabled={busy}
             aria-label={likeLabel}
             title={likeLabel}
-            onClick={onPrimaryReactionClick}
+            data-post-action-control="true"
+            onMouseDown={stopActionPropagation}
+            onTouchStart={(event) => {
+              stopActionPropagation(event);
+              onReactionButtonTouchStart();
+            }}
+            onClick={(event) => triggerAction(event, onPrimaryReactionClick)}
             onMouseEnter={onReactionButtonHover}
             onContextMenu={(event) => {
               event.preventDefault();
+              event.stopPropagation();
               setPickerAnchor('button');
               setPickerOpen(true);
             }}
-            onTouchStart={onReactionButtonTouchStart}
             onTouchMove={onReactionButtonTouchEnd}
             onTouchEnd={onReactionButtonTouchEnd}
             onTouchCancel={onReactionButtonTouchEnd}
@@ -532,12 +558,17 @@ const PostEngagementBar: React.FC<Props> = ({
             type="button"
             aria-label="Comment"
             title="Comment"
-            onClick={() => {
-              if (!ensureAuth()) return;
-              setCommentsOpen((prev) => !prev);
-              setFocusInputKey((prev) => prev + 1);
-              window.setTimeout(() => commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
-            }}
+            data-post-action-control="true"
+            onMouseDown={stopActionPropagation}
+            onTouchStart={stopActionPropagation}
+            onClick={(event) =>
+              triggerAction(event, () => {
+                if (!ensureAuth()) return;
+                setCommentsOpen((prev) => !prev);
+                setFocusInputKey((prev) => prev + 1);
+                window.setTimeout(() => commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
+              })
+            }
             className={actionButtonBase}
           >
             <span className={actionIconBase}>
@@ -552,10 +583,15 @@ const PostEngagementBar: React.FC<Props> = ({
             type="button"
             aria-label="Repost"
             title="Repost"
-            onClick={() => {
-              if (!ensureAuth()) return;
-              setRepostOpen(true);
-            }}
+            data-post-action-control="true"
+            onMouseDown={stopActionPropagation}
+            onTouchStart={stopActionPropagation}
+            onClick={(event) =>
+              triggerAction(event, () => {
+                if (!ensureAuth()) return;
+                setRepostOpen(true);
+              })
+            }
             className={actionButtonBase}
           >
             <span className={actionIconBase}>
@@ -570,10 +606,15 @@ const PostEngagementBar: React.FC<Props> = ({
             type="button"
             aria-label="Dash"
             title="Dash"
-            onClick={() => {
-              if (!ensureAuth()) return;
-              setDashOpen(true);
-            }}
+            data-post-action-control="true"
+            onMouseDown={stopActionPropagation}
+            onTouchStart={stopActionPropagation}
+            onClick={(event) =>
+              triggerAction(event, () => {
+                if (!ensureAuth()) return;
+                setDashOpen(true);
+              })
+            }
             className={actionButtonBase}
           >
             <span className={actionIconBase}>
@@ -584,7 +625,16 @@ const PostEngagementBar: React.FC<Props> = ({
         ) : null}
 
         {sendEnabled ? (
-          <button type="button" aria-label="Send" title="Send" onClick={() => setShareOpen(true)} className={actionButtonBase}>
+          <button
+            type="button"
+            aria-label="Send"
+            title="Send"
+            data-post-action-control="true"
+            onMouseDown={stopActionPropagation}
+            onTouchStart={stopActionPropagation}
+            onClick={(event) => triggerAction(event, () => setShareOpen(true))}
+            className={actionButtonBase}
+          >
             <span className={actionIconBase}>
               <Send className="h-4 w-4" />
             </span>

@@ -597,20 +597,20 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
   return (
     <div
       className={`fixed inset-0 z-[120] flex bg-slate-950/72 backdrop-blur-sm ${
-        compactSurface ? "items-end justify-stretch overflow-y-auto px-0 py-0" : "items-center justify-center px-4 py-6"
+        compactSurface ? "items-end justify-center overflow-y-auto px-2 py-2" : "items-center justify-center px-4 py-6"
       }`}
       onClick={onClose}
     >
       <div
         className={`grid w-full gap-4 border border-white/10 bg-white shadow-[0_40px_120px_rgba(15,23,42,0.45)] ${
           compactSurface
-            ? "max-h-[100dvh] grid-cols-1 overflow-y-auto rounded-t-[30px] px-3 pb-3 pt-3"
+            ? "mx-auto max-h-[min(92dvh,48rem)] max-w-[34rem] grid-cols-1 overflow-hidden rounded-[28px]"
             : "max-w-5xl rounded-[32px] p-4 md:grid-cols-[1.1fr_0.9fr] md:p-5"
         }`}
         style={
           compactSurface
             ? {
-                paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.75rem)",
+                paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.5rem)",
                 WebkitOverflowScrolling: "touch"
               }
             : undefined
@@ -618,10 +618,16 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
         onClick={(event) => event.stopPropagation()}
       >
         <div
-          className={`relative min-h-0 ${compactSurface ? "order-1 overflow-visible" : "order-2 overflow-y-auto"}`}
+          className={`relative min-h-0 ${
+            compactSurface ? "order-1 overflow-y-auto px-3 pb-3 pt-3" : "order-2 overflow-y-auto"
+          }`}
           style={compactSurface ? { WebkitOverflowScrolling: "touch" } : undefined}
         >
-          <div className="sticky top-0 z-10 -mx-1 mb-3 flex justify-end bg-white/96 px-1 pb-2 pt-1 backdrop-blur">
+          <div
+            className={`sticky top-0 z-10 mb-3 flex justify-end bg-white/96 pb-2 pt-1 backdrop-blur ${
+              compactSurface ? "-mx-3 px-3" : "-mx-1 px-1"
+            }`}
+          >
             <button
               type="button"
               onClick={onClose}
@@ -639,9 +645,13 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
             subtitle={popup.subheadline || content?.authPanelSubtitle}
             footerNote={popup.trustNote}
             hideStandaloneLinks
-            surfaceClassName="h-full rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm sm:rounded-[28px] sm:p-6"
+            surfaceClassName={
+              compactSurface
+                ? "h-full rounded-[22px] border border-slate-200 bg-white p-3 shadow-sm sm:rounded-[28px] sm:p-6"
+                : "h-full rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm sm:rounded-[28px] sm:p-6"
+            }
           />
-          <div className="mt-4 text-center">
+          <div className={`text-center ${compactSurface ? "mt-3" : "mt-4"}`}>
             <button
               type="button"
               onClick={onClose}
@@ -654,21 +664,21 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
 
         <div
           className={`overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white ${
-            compactSurface ? "order-2 rounded-[24px] p-4" : "order-1 rounded-[28px] p-6"
+            compactSurface ? "order-2 mx-3 mb-3 rounded-[22px] p-4" : "order-1 rounded-[28px] p-6"
           }`}
         >
           <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-100">
             <Sparkles className="h-3.5 w-3.5" />
             Guest access unlock
           </div>
-          <h3 className="mt-4 text-xl font-semibold leading-tight text-white sm:mt-5 sm:text-2xl md:text-3xl">
+          <h3 className={`font-semibold leading-tight text-white ${compactSurface ? "mt-3 text-lg" : "mt-4 text-xl sm:mt-5 sm:text-2xl md:text-3xl"}`}>
             {popup.headline || "Stay on the homepage and continue with your account"}
           </h3>
-          <p className="mt-3 max-w-xl text-sm leading-relaxed text-slate-200 md:text-base">
+          <p className={`max-w-xl leading-relaxed text-slate-200 ${compactSurface ? "mt-2 text-[13px]" : "mt-3 text-sm md:text-base"}`}>
             {popup.subheadline ||
               "Sign in or create your Scrolith account directly here. No separate auth page is required for the guest homepage flow."}
           </p>
-          <div className="mt-6 grid gap-3 sm:mt-8 sm:grid-cols-2">
+          <div className={`grid gap-3 ${compactSurface ? "mt-4" : "mt-6 sm:mt-8 sm:grid-cols-2"}`}>
             <div className="rounded-3xl border border-white/12 bg-white/10 p-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-100">Scrolitha ready</p>
               <p className="mt-2 text-sm leading-relaxed text-slate-100">
@@ -682,7 +692,7 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
               </p>
             </div>
           </div>
-          <p className="mt-6 text-xs leading-relaxed text-slate-300 sm:mt-8">
+          <p className={`text-xs leading-relaxed text-slate-300 ${compactSurface ? "mt-4" : "mt-6 sm:mt-8"}`}>
             {popup.trustNote ||
               "This prompt is guest-homepage specific. It does not replace your existing login or signup routes, and users can dismiss it any time."}
           </p>

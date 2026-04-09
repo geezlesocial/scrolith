@@ -214,11 +214,11 @@ const SheetItem = ({ icon, label, description, badge, tone = 'slate', onClick }:
   return (
     <button
       type="button"
-      onPointerDown={(event) => {
-        if (event.pointerType === 'mouse' && event.button !== 0) return;
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
         triggerAction();
       }}
-      onClick={triggerAction}
       className="flex w-full touch-manipulation items-start justify-between gap-3 rounded-3xl border border-slate-200 bg-white px-3 py-3 text-left shadow-sm transition hover:border-indigo-200 hover:bg-slate-50 active:scale-[0.995]"
       style={{ WebkitTapHighlightColor: 'transparent' }}
     >

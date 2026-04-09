@@ -4,11 +4,15 @@ import { getApiBaseUrl } from '../utils/apiBase';
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 const extractItems = (value: any): any[] => {
+  if (Array.isArray(value?.data?.data?.items)) return value.data.data.items;
+  if (Array.isArray(value?.data?.data?.posts)) return value.data.data.posts;
   if (Array.isArray(value?.data?.items)) return value.data.items;
   if (Array.isArray(value?.data?.posts)) return value.data.posts;
   if (Array.isArray(value?.data)) return value.data;
   if (Array.isArray(value?.items)) return value.items;
   if (Array.isArray(value?.posts)) return value.posts;
+  if (Array.isArray(value?.result?.items)) return value.result.items;
+  if (Array.isArray(value?.result?.posts)) return value.result.posts;
   return Array.isArray(value) ? value : [];
 };
 

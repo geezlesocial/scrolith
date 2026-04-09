@@ -115,11 +115,9 @@ export default function MobileBottomNav({
           return (
             <button
               key={item.key}
-              onPointerDown={(event) => {
-                if (event.pointerType === 'mouse' && event.button !== 0) return;
-                triggerTabChange(item.key);
-              }}
-              onClick={() => {
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
                 triggerTabChange(item.key);
               }}
               className={[

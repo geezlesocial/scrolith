@@ -30,6 +30,7 @@ import type { PreviewMedia } from '../../../components/media/MediaPreviewModal';
 import PostVideoActionBar from '../../../components/media/PostVideoActionBar';
 import TranslatablePostText from '../../../components/translation/TranslatablePostText';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY } from '../../../utils/inlineMedia';
+import { normalizeContentOfferTags } from '../../../utils/contentOffers';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../../utils/postAttachmentMedia';
 import {
   stashPendingPostVideoScrollViewerSource,
@@ -215,11 +216,15 @@ const extractGigsFromPayload = (payload: any): Gig[] => {
 };
 
 const extractFeedItemsFromPayload = (payload: any): any[] => {
+  if (Array.isArray(payload?.data?.data?.items)) return payload.data.data.items;
+  if (Array.isArray(payload?.data?.data?.posts)) return payload.data.data.posts;
   if (Array.isArray(payload?.items)) return payload.items;
   if (Array.isArray(payload?.posts)) return payload.posts;
   if (Array.isArray(payload?.data?.items)) return payload.data.items;
   if (Array.isArray(payload?.data?.posts)) return payload.data.posts;
   if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.result?.items)) return payload.result.items;
+  if (Array.isArray(payload?.result?.posts)) return payload.result.posts;
   if (Array.isArray(payload)) return payload;
   return [];
 };
@@ -539,6 +544,160 @@ export default function MobileFeed({
     window.open(destination, '_blank', 'noopener,noreferrer');
   }, []);
 
+  const normalizePost = useCallback((post: any) => {
+    const interactions = { ...(post?.interactions || {}) };
+    if (interactions.likes === undefined) interactions.likes = post?.likesCount ?? post?.likes_count ?? 0;
+    if (interactions.comments === undefined) interactions.comments = post?.commentsCount ?? post?.comments_count ?? 0;
+    if (interactions.reposts === undefined) interactions.reposts = post?.repostsCount ?? post?.reposts_count ?? 0;
+    if (interactions.shares === undefined) interactions.shares = post?.sharesCount ?? post?.shares_count ?? 0;
+    if (interactions.views === undefined) interactions.views = post?.viewsCount ?? post?.views_count ?? 0;
+    if (interactions.reactions === undefined) interactions.reactions = post?.reactions || {};
+    if (interactions.dashGcoinTotal === undefined) {
+      interactions.dashGcoinTotal = post?.dashGcoinTotal ?? post?.dash_gcoin_total ?? 0;
+    }
+
+    const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+    const authorId =
+      post?.authorId ||
+      post?.userId ||
+      post?.user_id ||
+      post?.author?.id ||
+      post?.author?.userId ||
+      post?.author?.user_id ||
+      null;
+    const authorName =
+      post?.authorName ||
+      post?.userName ||
+      post?.user_name ||
+      post?.author?.displayName ||
+      post?.author?.name ||
+      'Community member';
+    const authorUsername =
+      post?.authorUsername ||
+      post?.userUsername ||
+      post?.user_username ||
+      post?.author?.username ||
+      post?.author?.userName ||
+      post?.author?.user_name ||
+      null;
+    const authorAvatar =
+      post?.authorAvatar ||
+      post?.userAvatar ||
+      post?.user_avatar ||
+      post?.author?.avatarUrl ||
+      post?.author?.avatar ||
+      '';
+    const authorType = post?.author?.type || (post?.businessPage ? 'business' : 'user');
+    const authorUserId =
+      post?.authorUserId ||
+      post?.author_user_id ||
+      post?.author?.userId ||
+      post?.author?.user_id ||
+      (authorType === 'user' ? authorId : null);
+
+    return {
+      ...post,
+      id: post?.id || `${authorId || 'post'}-${post?.createdAt || post?.created_at || Date.now()}`,
+      title: post?.title || '',
+      content: post?.content || '',
+      attachments: attachments.map((item: any) => ({
+        ...item,
+        id: item?.id || item?.fileId || item?.file_id || resolvePostAttachmentMediaUrl(item),
+        fileId: item?.fileId || item?.file_id || item?.file?.id || item?.asset?.id || item?.id || null,
+        url: resolvePostAttachmentMediaUrl(item),
+        name: item?.name || item?.originalName || item?.filename || '',
+        mimeType: item?.mimeType || item?.mime_type || '',
+        type: item?.type || (isVideo(item?.mimeType || item?.mime_type) ? 'video' : isImage(item?.mimeType || item?.mime_type) ? 'image' : 'document'),
+        thumbnailUrl: resolvePostAttachmentPosterUrl(item),
+        duration: item?.duration,
+        width: item?.width,
+        height: item?.height
+      })),
+      author: {
+        ...(post?.author || {}),
+        id: post?.author?.id || (authorType === 'business' ? post?.businessPage?.id : authorId),
+        username: post?.author?.username ?? authorUsername,
+        displayName: post?.author?.displayName || authorName,
+        avatarUrl: post?.author?.avatarUrl || authorAvatar,
+        type: authorType,
+        businessSlug: post?.author?.businessSlug || post?.businessPage?.slug || null,
+        isVerified: Boolean(post?.author?.isVerified ?? post?.authorIsVerified ?? post?.author_verified),
+        isPro: Boolean(post?.author?.isPro ?? post?.authorIsPro ?? post?.author_pro)
+      },
+      viewer: {
+        ...(post?.viewer || {}),
+        isFollowingAuthor:
+          typeof post?.viewer?.isFollowingAuthor === 'boolean'
+            ? post.viewer.isFollowingAuthor
+            : typeof post?.viewer?.is_following_author === 'boolean'
+              ? post.viewer.is_following_author
+              : undefined
+      },
+      authorId,
+      authorUserId,
+      authorName,
+      authorUsername,
+      authorAvatar,
+      createdAt: post?.createdAt || post?.created_at || null,
+      updatedAt: post?.updatedAt || post?.updated_at || null,
+      tags: Array.isArray(post?.tags) ? post.tags : [],
+      mentions: Array.isArray(post?.mentions) ? post.mentions : [],
+      topic: post?.topic || null,
+      location: post?.location || null,
+      visibility: post?.visibility || 'public',
+      commentPolicy: post?.commentPolicy || post?.comment_policy || 'everyone',
+      repostsEnabled: post?.repostsEnabled ?? post?.reposts_enabled ?? true,
+      isPinned: post?.isPinned ?? post?.is_pinned ?? false,
+      isHighlighted: post?.isHighlighted ?? post?.is_highlighted ?? false,
+      graphicWarning: Boolean(post?.graphicWarning ?? post?.graphic_warning ?? false),
+      isAIEnhanced: Boolean(post?.isAIEnhanced ?? post?.is_ai_enhanced ?? false),
+      offerTags: normalizeContentOfferTags(post?.offerTags ?? post?.offer_tags),
+      originalPost:
+        post?.originalPost && typeof post.originalPost === 'object'
+          ? {
+              ...post.originalPost,
+              id: post.originalPost.id,
+              authorName: post.originalPost.authorName ?? post.originalPost.author_name ?? null,
+              authorUsername: post.originalPost.authorUsername ?? post.originalPost.author_username ?? null,
+              title: post.originalPost.title ?? null,
+              content: post.originalPost.content ?? null
+            }
+          : null,
+      dashGcoinTotal: Number(post?.dashGcoinTotal ?? post?.dash_gcoin_total ?? interactions.dashGcoinTotal ?? 0),
+      aiInsightEnabled: Boolean(post?.aiInsightEnabled ?? post?.ai_insight_enabled ?? false),
+      aiInsightGenerated: Boolean(
+        post?.aiInsightGenerated ??
+          post?.ai_insight_generated ??
+          (String(post?.aiInsightText ?? post?.ai_insight_text ?? '').trim() ? true : false)
+      ),
+      aiInsightText: String(post?.aiInsightText ?? post?.ai_insight_text ?? '').trim() || null,
+      aiScore:
+        post?.aiScore !== undefined && post?.aiScore !== null
+          ? Number(post.aiScore)
+          : post?.ai_score !== undefined && post?.ai_score !== null
+            ? Number(post.ai_score)
+            : null,
+      likesCount: post?.likesCount ?? post?.likes_count ?? interactions.likes,
+      sharesCount: post?.sharesCount ?? post?.shares_count ?? interactions.shares,
+      repostsCount: post?.repostsCount ?? post?.reposts_count ?? interactions.reposts,
+      sourceLanguage: post?.sourceLanguage ?? post?.source_language ?? null,
+      translationVersion: post?.translationVersion ?? post?.translation_version ?? null,
+      interactions,
+      userState: post?.userState || post?.user_state || {}
+    };
+  }, []);
+
+  const sortPosts = useCallback((items: any[]) => {
+    return [...items].sort((a, b) => {
+      if (Boolean(a?.isPinned) !== Boolean(b?.isPinned)) {
+        return a?.isPinned ? -1 : 1;
+      }
+      const timeA = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
+  }, []);
+
   const highlightPills = useMemo<MemberHomeHighlightPill[]>(() => {
     const pills: MemberHomeHighlightPill[] = [{ label: 'Posts', value: String(posts.length) }];
     if (recommendedJobs.length) pills.push({ label: 'Jobs', value: String(recommendedJobs.length) });
@@ -783,13 +942,22 @@ export default function MobileFeed({
   const postMediaTapTimersRef = useRef<Record<string, number>>({});
   const postMediaLastTapAtRef = useRef<Record<string, number>>({});
   const commitVisiblePosts = useCallback((items: any[], nextCursorValue: string | null, mode: 'initial' | 'more') => {
-    postsRef.current = items;
+    const normalizedItems = sortPosts(
+      dedupeById(
+        (Array.isArray(items) ? items : [])
+          .map((item) => normalizePost(item))
+          .filter((item) => Boolean(item?.id))
+      )
+    );
+    postsRef.current = normalizedItems;
     setCursor(nextCursorValue);
-    setPosts(items);
+    startTransition(() => {
+      setPosts(normalizedItems);
+    });
     if (mode === 'initial') {
-      setRenderedPostCount(Math.min(initialRenderCount, items.length || initialRenderCount));
+      setRenderedPostCount(Math.min(initialRenderCount, normalizedItems.length || initialRenderCount));
     }
-  }, [initialRenderCount]);
+  }, [initialRenderCount, normalizePost, sortPosts]);
 
   useEffect(() => {
     postsRef.current = posts;
@@ -1262,7 +1430,7 @@ export default function MobileFeed({
               JSON.stringify({
                 ts: Date.now(),
                 cursor: nextCursor,
-                items: mergedPosts.slice(0, 80)
+                items: postsRef.current.slice(0, 80)
               })
             );
           } catch {
@@ -1563,16 +1731,35 @@ export default function MobileFeed({
       const payload = (event as CustomEvent).detail;
       const post = payload?.post;
       if (!post?.id) return;
+      const normalized = normalizePost(post);
       setPosts((prev) => {
-        if (prev.some((p) => String(p?.id) === String(post.id))) return prev;
-        return [post, ...prev];
+        if (prev.some((p) => String(p?.id) === String(normalized.id))) return prev;
+        return sortPosts([normalized, ...prev]);
       });
     };
     const onUpdated = (event: Event) => {
       const payload = (event as CustomEvent).detail;
       const post = payload?.post;
       if (!post?.id) return;
-      setPosts((prev) => prev.map((p) => (String(p?.id) === String(post.id) ? { ...p, ...post } : p)));
+      const normalized = normalizePost(post);
+      setPosts((prev) =>
+        sortPosts(
+          prev.map((p) =>
+            String(p?.id) === String(normalized.id)
+              ? {
+                  ...p,
+                  ...normalized,
+                  interactions: normalized.interactions
+                    ? { ...(p?.interactions || {}), ...normalized.interactions }
+                    : p?.interactions,
+                  userState: normalized.userState
+                    ? { ...(p?.userState || {}), ...normalized.userState }
+                    : p?.userState
+                }
+              : p
+          )
+        )
+      );
     };
     const onDeleted = (event: Event) => {
       const payload = (event as CustomEvent).detail;
@@ -1662,7 +1849,7 @@ export default function MobileFeed({
       window.removeEventListener('community:post_ai_insight_ready', onPostAiInsightReady as EventListener);
       window.removeEventListener('post:aiInsightReady', onPostAiInsightReady as EventListener);
     };
-  }, []);
+  }, [normalizePost, sortPosts]);
 
   useEffect(() => {
     viewTrackedRef.current.clear();
