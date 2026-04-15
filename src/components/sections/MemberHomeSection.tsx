@@ -1193,6 +1193,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [searchGroups, setSearchGroups] = useState<SearchGroupMap>(() => emptySearchGroups());
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const searchRequestRef = useRef(0);
   const [stories, setStories] = useState<any[]>([]);
   const [storiesLoading, setStoriesLoading] = useState(false);
   const [reels, setReels] = useState<ScrollVideo[]>([]);
@@ -1774,24 +1775,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     );
   }, [filterActiveStories, maxStories]);
 
-  const buildProfileUrl = (entry?: { id?: string | null; username?: string | null }) => {
+  const buildProfileUrl = useCallback((entry?: { id?: string | null; username?: string | null }) => {
     const handle = (entry?.username || '').toString().trim().replace(/^@+/, '');
     if (handle) return `/u/${handle}`;
     const id = (entry?.id || '').toString().trim();
     if (id) return `/profile/${id}`;
     if (currentUserId) return `/profile/${currentUserId}`;
     return '/profile/edit';
-  };
-  const buildSeriesUrl = (seriesId?: string | null) => {
+  }, [currentUserId]);
+  const buildSeriesUrl = useCallback((seriesId?: string | null) => {
     const id = String(seriesId || '').trim();
     if (!id) return '/scroll';
     return `/scroll?series=${encodeURIComponent(id)}`;
-  };
-  const buildPageUrl = (page?: { slug?: string | null; handle?: string | null }) => {
+  }, []);
+  const buildPageUrl = useCallback((page?: { slug?: string | null; handle?: string | null }) => {
     const slug = String(page?.slug || page?.handle || '').trim().replace(/^@+/, '');
     if (!slug) return '/community';
     return `/company/${encodeURIComponent(slug)}`;
-  };
+  }, []);
   const resolveSearchItemUrl = useCallback(
     (item: any, normalizedType?: SearchGroupKey | string | undefined) => {
       const direct = String(item?.url || item?.link || item?.href || '').trim();
@@ -1832,7 +1833,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
       return '';
     },
-    [buildPageUrl]
+    [buildPageUrl, buildProfileUrl]
   );
   const normalizeSidebarAd = useCallback((ad: any): SidebarAdCard | null => {
     const id = String(ad?.id || '').trim();
@@ -2930,10 +2931,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const performSearch = useCallback(async (term: string) => {
     const clean = term.trim();
     if (!clean) {
+      searchRequestRef.current += 1;
       setSearchResults([]);
       setSearchGroups(emptySearchGroups());
+      setSearchLoading(false);
       return;
     }
+    const requestId = searchRequestRef.current + 1;
+    searchRequestRef.current = requestId;
     setSearchLoading(true);
     try {
       const perType = Math.max(2, Math.min(6, Math.ceil(maxSearchResults / 2)));
@@ -2963,17 +2968,21 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             ])
         ).values()
       );
+      if (searchRequestRef.current !== requestId) return;
       setSearchGroups(groups);
       setSearchResults(unique.slice(0, maxSearchResults));
       if (user?.id) {
         SearchService.saveSearchHistory(user.id, clean).catch(() => {});
       }
     } catch (error) {
+      if (searchRequestRef.current !== requestId) return;
       console.error('Search failed', error);
       setSearchResults([]);
       setSearchGroups(emptySearchGroups());
     } finally {
-      setSearchLoading(false);
+      if (searchRequestRef.current === requestId) {
+        setSearchLoading(false);
+      }
     }
   }, [maxSearchResults, normalizeSearchGroups, normalizeSearchItem, user?.id]);
 
@@ -3005,6 +3014,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     if (!showSearch) return;
     const term = searchQuery.trim();
     if (term.length < 2) {
+      searchRequestRef.current += 1;
       setSearchResults([]);
       setSearchGroups(emptySearchGroups());
       setSearchLoading(false);
