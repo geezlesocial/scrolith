@@ -48,6 +48,17 @@ const DEFAULT_UNIFIED_GROUPS: UnifiedSearchGroups = {
   gigs: []
 };
 
+const DEFAULT_SEARCH_PROMPTS = [
+  'interview tips',
+  'latest in ai',
+  'balancing work and personal life',
+  'remote work',
+  "when's the best time to switch jobs",
+  'logo design',
+  'web development',
+  'social media marketing'
+];
+
 class SearchService {
   // Rate limiting helper (GLOBAL)
   private static async delay(ms: number) {
@@ -119,22 +130,29 @@ class SearchService {
     }
 
     if (endpoint.includes("/search/trending")) {
-      return [
-        { id: "trend-1", keyword: "Python", count: 1240 },
-        { id: "trend-2", keyword: "Logo Design", count: 850 },
-        { id: "trend-3", keyword: "SEO", count: 600 },
-        { id: "trend-4", keyword: "Web Development", count: 450 },
-      ];
+      return DEFAULT_SEARCH_PROMPTS.slice(0, 6).map((keyword, index) => ({
+        id: `trend-${index + 1}`,
+        keyword,
+        count: Math.max(120, 960 - index * 80),
+        trend: index < 3 ? 'up' : 'stable'
+      }));
     }
 
     if (endpoint.includes("/search/quick-tags")) {
-      return [
-        { id: "qt-1", label: "Python", url: "/browse?q=Python", bgColor: "#EEF2FF" },
-        { id: "qt-2", label: "Logo Design", url: "/browse?q=Logo%20Design", bgColor: "#FCE7F3" },
-        { id: "qt-3", label: "Video Editing", url: "/browse?q=Video%20Editing", bgColor: "#F3E8FF" },
-        { id: "qt-4", label: "SEO", url: "/browse?q=SEO", bgColor: "#ECFDF5" },
-        { id: "qt-5", label: "Web Development", url: "/browse?q=Web%20Development", bgColor: "#EFF6FF" },
-      ];
+      return DEFAULT_SEARCH_PROMPTS.slice(0, 6).map((label, index) => ({
+        id: `qt-${index + 1}`,
+        label,
+        url: `/search?q=${encodeURIComponent(label)}`,
+        bgColor: ['#EEF2FF', '#FCE7F3', '#F3E8FF', '#ECFDF5', '#EFF6FF', '#FFF7ED'][index % 6]
+      }));
+    }
+
+    if (endpoint.includes("/search/suggestions")) {
+      return DEFAULT_SEARCH_PROMPTS.slice(0, 5).map((text) => ({
+        text,
+        type: 'keyword',
+        category: 'Try searching for'
+      }));
     }
 
     return [];
@@ -143,6 +161,8 @@ class SearchService {
   private static extractList<T = any>(payload: any): T[] {
     if (Array.isArray(payload)) return payload as T[];
     if (Array.isArray(payload?.data)) return payload.data as T[];
+    if (Array.isArray(payload?.data?.items)) return payload.data.items as T[];
+    if (Array.isArray(payload?.items)) return payload.items as T[];
     return [];
   }
 
@@ -192,12 +212,14 @@ class SearchService {
 
   static async getRecommendations(userId: string): Promise<Recommendation[]> {
     const data = await this.get<any>(`/search/recommendations?userId=${encodeURIComponent(userId)}`);
-    return Array.isArray(data) ? data : this.getFallbackData("/search/recommendations");
+    const list = this.extractList<Recommendation>(data);
+    return list.length ? list : this.getFallbackData("/search/recommendations");
   }
 
   static async getTrendingSearches(limit: number = 5): Promise<any[]> {
     const data = await this.get<any>(`/search/trending?limit=${limit}`);
-    return Array.isArray(data) ? data : this.getFallbackData(`/search/trending?limit=${limit}`);
+    const list = this.extractList<any>(data);
+    return list.length ? list : this.getFallbackData(`/search/trending?limit=${limit}`);
   }
 
   static async search(
@@ -253,7 +275,8 @@ class SearchService {
 
   static async getQuickTags(): Promise<any[]> {
     const data = await this.get<any>("/search/quick-tags");
-    return Array.isArray(data) ? data : this.getFallbackData("/search/quick-tags");
+    const list = this.extractList<any>(data);
+    return list.length ? list : this.getFallbackData("/search/quick-tags");
   }
 
   static async getSearchHistory(userId: string): Promise<any[]> {
@@ -319,7 +342,8 @@ class SearchService {
     if (userRole) params.append("role", userRole);
 
     const data = await this.get<any>(`/search/suggestions?${params.toString()}`);
-    return Array.isArray(data) ? data : [];
+    const list = this.extractList<any>(data);
+    return list.length ? list : this.getFallbackData(`/search/suggestions?${params.toString()}`);
   }
 
   static async saveSearchQuery(userId: string, query: string): Promise<ApiResponse<null>> {

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BriefcaseIcon as Briefcase,
   HistoryIcon as History,
@@ -21,8 +21,20 @@ interface SearchInputProps {
     buttonAriaLabel?: string;
     searchMode?: 'keyword' | 'semantic';
     searchPath?: string;
+    initialQuery?: string;
     onSearch?: (term: string) => void;
 }
+
+const DEFAULT_SEARCH_RECOMMENDATIONS: SearchSuggestion[] = [
+    { text: 'interview tips', type: 'keyword', category: 'Careers' },
+    { text: 'latest in ai', type: 'keyword', category: 'Trends' },
+    { text: 'balancing work and personal life', type: 'keyword', category: 'Work life' },
+    { text: 'remote work', type: 'keyword', category: 'Jobs' },
+    { text: "when's the best time to switch jobs", type: 'keyword', category: 'Careers' }
+];
+
+const normalizeSuggestionText = (value: any) =>
+    String(value?.text || value?.keyword || value?.title || value?.name || value?.query || '').trim();
 
 const SearchInput: React.FC<SearchInputProps> = ({
     placeholder = "",
@@ -33,15 +45,63 @@ const SearchInput: React.FC<SearchInputProps> = ({
     buttonAriaLabel = "",
     searchMode = "keyword",
     searchPath,
+    initialQuery = "",
     onSearch
 }) => {
-    const [query, setQuery] = useState('');
+    const [query, setQuery] = useState(initialQuery);
     const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
+    const [recommendedSuggestions, setRecommendedSuggestions] = useState<SearchSuggestion[]>(DEFAULT_SEARCH_RECOMMENDATIONS);
     const [isOpen, setIsOpen] = useState(false);
     const [isThinking, setIsThinking] = useState(false);
+    const [recommendationsLoaded, setRecommendationsLoaded] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const navigate = useNavigate();
     const { user } = useUser();
+
+    useEffect(() => {
+        setQuery(initialQuery);
+    }, [initialQuery]);
+
+    const loadRecommendations = useCallback(async () => {
+        if (recommendationsLoaded) return;
+        setRecommendationsLoaded(true);
+        try {
+            const [trending, personalized] = await Promise.all([
+                SearchService.getTrendingSearches(6).catch(() => []),
+                user?.id ? SearchService.getRecommendations(user.id).catch(() => []) : Promise.resolve([])
+            ]);
+
+            const rows: SearchSuggestion[] = [];
+            (Array.isArray(personalized) ? personalized : []).forEach((item: any) => {
+                const text = normalizeSuggestionText(item);
+                if (!text) return;
+                rows.push({
+                    text,
+                    type: 'result',
+                    category: item?.type ? String(item.type).replace(/s$/, '') : 'Recommended',
+                    url: item?.url,
+                    description: item?.snippet || item?.description
+                });
+            });
+            (Array.isArray(trending) ? trending : []).forEach((item: any) => {
+                const text = normalizeSuggestionText(item);
+                if (!text) return;
+                rows.push({
+                    text,
+                    type: 'keyword',
+                    category: 'Trending',
+                    description: Number(item?.count) ? `${Number(item.count).toLocaleString()} searches` : undefined
+                });
+            });
+
+            const deduped = Array.from(
+                new Map([...rows, ...DEFAULT_SEARCH_RECOMMENDATIONS].map((item) => [item.text.toLowerCase(), item])).values()
+            ).slice(0, 8);
+            setRecommendedSuggestions(deduped.length ? deduped : DEFAULT_SEARCH_RECOMMENDATIONS);
+        } catch {
+            setRecommendedSuggestions(DEFAULT_SEARCH_RECOMMENDATIONS);
+        }
+    }, [recommendationsLoaded, user?.id]);
 
     // Debounce Suggestions
     useEffect(() => {
@@ -49,6 +109,9 @@ const SearchInput: React.FC<SearchInputProps> = ({
             if (query.trim().length < 2) {
                 setSuggestions([]);
                 setIsThinking(false);
+                if (isOpen) {
+                    loadRecommendations();
+                }
                 return;
             }
             setIsThinking(true);
@@ -64,7 +127,7 @@ const SearchInput: React.FC<SearchInputProps> = ({
 
         const timer = setTimeout(fetchSuggestions, 300);
         return () => clearTimeout(timer);
-    }, [query, user]);
+    }, [isOpen, loadRecommendations, query, user]);
 
     // Outside Click Handler
     useEffect(() => {
@@ -79,22 +142,23 @@ const SearchInput: React.FC<SearchInputProps> = ({
 
     const handleSearch = (term: string) => {
         if (!term.trim()) return;
+        const cleanTerm = term.trim();
         
         // Save history if user is logged in
         if (user && user.id) {
-            SearchService.saveSearchQuery(user.id, term).catch(err => {
+            SearchService.saveSearchQuery(user.id, cleanTerm).catch(err => {
                 console.warn('Failed to save search query:', err);
             });
         }
 
-        setQuery(term);
+        setQuery(cleanTerm);
         setIsOpen(false);
-        if (onSearch) onSearch(term);
+        if (onSearch) onSearch(cleanTerm);
 
         const basePath = searchPath && searchPath.trim() ? searchPath.trim() : "/search";
         const isExternal = basePath.startsWith("http");
         const url = isExternal ? new URL(basePath) : new URL(basePath, window.location.origin);
-        url.searchParams.set('q', term);
+        url.searchParams.set('q', cleanTerm);
         if (searchMode === "semantic") {
             url.searchParams.set('mode', 'semantic');
         }
@@ -114,7 +178,13 @@ const SearchInput: React.FC<SearchInputProps> = ({
     const clearSearch = () => {
         setQuery('');
         setSuggestions([]);
-        setIsOpen(false);
+        setIsOpen(true);
+        loadRecommendations();
+    };
+
+    const handleFocus = () => {
+        setIsOpen(true);
+        loadRecommendations();
     };
 
     const sizeClasses = {
@@ -154,6 +224,24 @@ const SearchInput: React.FC<SearchInputProps> = ({
     };
 
     const effectiveAriaLabel = buttonAriaLabel || buttonLabel || placeholder || '';
+    const cleanQuery = query.trim();
+    const activeSuggestions = useMemo(() => {
+        const source = cleanQuery.length >= 2 ? suggestions : recommendedSuggestions;
+        const deduped = new Map<string, SearchSuggestion>();
+        source.forEach((item: any) => {
+            const text = normalizeSuggestionText(item);
+            if (!text) return;
+            deduped.set(text.toLowerCase(), {
+                ...item,
+                text,
+                type: item?.type || 'keyword',
+                category: item?.category || item?.type || 'Suggested'
+            });
+        });
+        return Array.from(deduped.values()).slice(0, cleanQuery.length >= 2 ? 8 : 6);
+    }, [cleanQuery.length, recommendedSuggestions, suggestions]);
+    const shouldShowDropdown = isOpen && (isThinking || activeSuggestions.length > 0);
+    const dropdownTitle = cleanQuery.length >= 2 ? 'Scrolith suggestions' : 'Try searching for';
 
     return (
         <div className={`relative w-full ${className}`} ref={containerRef}>
@@ -163,11 +251,11 @@ const SearchInput: React.FC<SearchInputProps> = ({
                 </div>
                 <input
                     type="text"
-                    className={`block w-full ${inputPaddingLeft[size]} ${showButton ? inputPaddingRight[size] : 'pr-12'} border border-gray-200 leading-5 bg-white shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 ${sizeClasses[size]}`}
+                    className={`block w-full ${inputPaddingLeft[size]} ${showButton ? inputPaddingRight[size] : 'pr-12'} border border-gray-300 leading-5 bg-white shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-slate-900/80 focus:border-slate-900 transition-colors duration-150 ${sizeClasses[size]}`}
                     placeholder={placeholder}
                     value={query}
                     onChange={(e) => { setQuery(e.target.value); setIsOpen(true); }}
-                    onFocus={() => setIsOpen(true)}
+                    onFocus={handleFocus}
                     onKeyDown={handleKeyDown}
                 />
                 {!showButton && query && (
@@ -191,39 +279,59 @@ const SearchInput: React.FC<SearchInputProps> = ({
             </div>
 
             {/* Dropdown */}
-            {isOpen && (suggestions.length > 0 || isThinking) && (
-                <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden z-50 animate-fade-in-up text-left">
-                    {/* Suggestions List */}
-                    {(suggestions.length > 0 || isThinking) && (
-                        <div className="py-2">
-                            {isThinking && <div className="px-4 py-2 text-xs text-gray-400 flex items-center"><Sparkles className="w-3 h-3 mr-1 animate-pulse" /> AI is thinking...</div>}
-                            
-                            {suggestions.map((s, i) => (
+            {shouldShowDropdown && (
+                <div
+                    className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[min(26rem,calc(100dvh-8rem))] overflow-y-auto overscroll-contain rounded-2xl border border-gray-200 bg-white text-left shadow-2xl animate-fade-in"
+                    style={{ contain: 'layout paint', scrollbarGutter: 'stable' }}
+                >
+                    <div className="border-b border-gray-100 px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-semibold text-gray-950">{dropdownTitle}</p>
+                            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                <Sparkles className="h-3 w-3" />
+                                Scrolith
+                            </span>
+                        </div>
+                        {cleanQuery.length >= 2 ? (
+                            <p className="mt-1 text-xs text-gray-500">Real-time matches across posts, people, pages, jobs, and gigs.</p>
+                        ) : null}
+                    </div>
+                    <div className="py-2">
+                        {isThinking && (
+                            <div className="flex items-center px-4 py-2 text-xs text-gray-500">
+                                <Sparkles className="mr-2 h-3.5 w-3.5 animate-pulse" />
+                                Scrolith is finding the best matches...
+                            </div>
+                        )}
+
+                        {activeSuggestions.map((s, i) => {
+                            const Icon = s.type === 'category' || s.type === 'result' ? Briefcase : s.type === 'history' ? History : Search;
+                            return (
                                 <button
-                                    key={i}
+                                    key={`${s.text}-${i}`}
                                     onClick={() => handleSearch(s.text)}
-                                    className="w-full text-left px-4 py-3 hover:bg-gray-50 flex items-center transition-colors group"
+                                    className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50"
                                 >
-                                    {s.type === 'category' ? (
-                                        <Briefcase className="w-4 h-4 text-gray-400 mr-3 group-hover:text-blue-500" />
-                                    ) : s.type === 'history' ? (
-                                        <History className="w-4 h-4 text-gray-400 mr-3" />
-                                    ) : (
-                                        <Search className="w-4 h-4 text-gray-400 mr-3" />
-                                    )}
-                                    
-                                    <div className="flex flex-col">
-                                        <span className="text-sm font-medium text-gray-900 group-hover:text-blue-600">
+                                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 group-hover:bg-slate-900 group-hover:text-white">
+                                        <Icon className="h-4 w-4" />
+                                    </span>
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block truncate text-sm font-semibold text-gray-950">
                                             {s.text}
                                         </span>
-                                        {s.category && (
-                                            <span className="text-xs text-gray-500">in {s.category}</span>
+                                        {(s.description || s.category) && (
+                                            <span className="block truncate text-xs text-gray-500">
+                                                {s.description || `in ${s.category}`}
+                                            </span>
                                         )}
-                                    </div>
+                                    </span>
+                                    <span className="hidden shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:inline-flex">
+                                        {s.category || s.type}
+                                    </span>
                                 </button>
-                            ))}
-                        </div>
-                    )}
+                            );
+                        })}
+                    </div>
                 </div>
             )}
         </div>

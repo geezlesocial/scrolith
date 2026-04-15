@@ -5990,12 +5990,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     className="h-12 sm:h-14 w-full rounded-full border border-slate-200 bg-white pl-12 pr-5 text-base sm:text-lg text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
                   />
                   {searchOpen && (
-                    <div className="absolute left-0 right-0 top-[calc(100%+0.625rem)] z-[300] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+                    <div
+                      className="absolute left-0 right-0 top-[calc(100%+0.625rem)] z-[300] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+                      style={{ contain: 'layout paint' }}
+                    >
                       <div className="border-b border-slate-100 px-4 py-2 text-xs text-slate-500">
                         {searchHint}
                         {searchQuery.trim().length >= 2 && !searchLoading ? ' (' + searchResults.length + ' result' + (searchResults.length === 1 ? '' : 's') + ')' : ''}
                       </div>
-                      <div className="max-h-[min(65vh,32rem)] overflow-y-auto overscroll-contain pb-2">
+                      <div className="max-h-[min(65vh,32rem)] overflow-y-auto overscroll-contain pb-2" style={{ scrollbarGutter: 'stable' }}>
                         {searchLoading ? (
                           <div className="px-4 py-3 text-sm text-slate-500">Searching...</div>
                         ) : searchSections.length === 0 ? (

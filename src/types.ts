@@ -3480,10 +3480,14 @@ export interface TrendingSearch {
 
 export interface SearchResult {
   id: string;
-  type: 'gig' | 'job' | 'blog';
+  type: 'gig' | 'job' | 'blog' | 'gigs' | 'jobs' | 'post' | 'posts' | 'people' | 'pages';
   title: string;
   description: string;
   image?: string;
+  avatarUrl?: string;
+  name?: string;
+  username?: string;
+  subtitle?: string;
   url: string;
   relevance_score?: number;
   meta?: any;
@@ -3498,8 +3502,11 @@ export interface SearchConfig {
 
 export interface SearchSuggestion {
   text: string;
-  type: 'keyword' | 'category' | 'history';
+  type: 'keyword' | 'category' | 'history' | 'result';
   category?: string;
+  url?: string;
+  description?: string;
+  score?: number;
 }
 
 export interface SearchHistory {
