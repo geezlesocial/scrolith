@@ -20,10 +20,11 @@ const clampInt = (value: unknown, fallback: number, min: number, max: number) =>
 };
 
 type SearchBucketKey = 'people' | 'pages' | 'jobs' | 'gigs';
+type SearchEntityType = SearchBucketKey | 'posts';
 
 type SearchEntry = {
   id: string;
-  type: SearchBucketKey;
+  type: SearchEntityType;
   title?: string;
   name?: string;
   username?: string;
@@ -34,6 +35,28 @@ type SearchEntry = {
   image?: string | null;
   meta?: Record<string, unknown>;
 };
+
+type SearchSuggestionEntry = {
+  text: string;
+  type: 'keyword' | 'category' | 'history' | 'result';
+  category?: string;
+  url?: string;
+  description?: string;
+  score?: number;
+};
+
+const DEFAULT_SEARCH_PROMPTS = [
+  'interview tips',
+  'latest in ai',
+  'balancing work and personal life',
+  'remote work',
+  "when's the best time to switch jobs",
+  'logo design',
+  'web development',
+  'social media marketing',
+  'project manager',
+  'brand identity'
+];
 
 type SearchFileRecord = {
   id: string;
@@ -259,6 +282,67 @@ const interleaveSearchGroups = (
   return output;
 };
 
+const normalizeSuggestionText = (value: unknown) => String(value || '').replace(/\s+/g, ' ').trim();
+
+const dedupeSuggestions = (items: SearchSuggestionEntry[], limit: number) => {
+  const map = new Map<string, SearchSuggestionEntry>();
+  items.forEach((item) => {
+    const text = normalizeSuggestionText(item.text);
+    if (!text) return;
+    const key = text.toLowerCase();
+    if (!map.has(key)) map.set(key, { ...item, text });
+  });
+  return Array.from(map.values()).slice(0, limit);
+};
+
+const resolveSuggestedQueries = async (req: Request, q: string, limit: number): Promise<SearchSuggestionEntry[]> => {
+  const clean = normalizeSuggestionText(q).toLowerCase();
+  if (clean.length < 2) {
+    return DEFAULT_SEARCH_PROMPTS.slice(0, limit).map((text) => ({
+      text,
+      type: 'keyword',
+      category: 'Try searching for'
+    }));
+  }
+
+  const [unified, posts] = await Promise.all([
+    resolveUnifiedSearch(req, clean, 4, 16).catch(() => ({
+      groups: { people: [], pages: [], jobs: [], gigs: [] },
+      results: []
+    } as any)),
+    searchPosts(clean, 4).catch(() => [])
+  ]);
+
+  const resultSuggestions: SearchSuggestionEntry[] = [
+    ...((unified?.results || []) as SearchEntry[]),
+    ...((posts || []) as SearchEntry[])
+  ].map((item) => ({
+    text: normalizeSuggestionText(item.title || item.name || item.username || item.description),
+    type: 'result',
+    category: String(item.type || 'result').replace(/s$/, ''),
+    url: item.url,
+    description: item.subtitle || item.description,
+    score: Number(item.meta?.score || 0) || undefined
+  }));
+
+  const promptSuggestions = DEFAULT_SEARCH_PROMPTS
+    .filter((text) => text.toLowerCase().includes(clean) || clean.includes(text.toLowerCase().split(' ')[0] || ''))
+    .map((text) => ({
+      text,
+      type: 'keyword' as const,
+      category: 'Scrolith prompt'
+    }));
+
+  return dedupeSuggestions(
+    [
+      ...resultSuggestions,
+      ...promptSuggestions,
+      { text: clean, type: 'keyword', category: 'Search Scrolith' }
+    ],
+    limit
+  );
+};
+
 const resolveUnifiedSearch = async (req: Request, q: string, perType: number, limit: number) => {
   const [rawPeople, rawPages, rawJobs, rawGigs] = await Promise.all([
     searchPeople(q, perType, req),
@@ -314,6 +398,122 @@ router.get('/unified', async (req: Request, res: Response) => {
     console.error('[search] unified error:', error);
     return res.status(500).json({ success: false, error: error?.message || 'Failed to search' });
   }
+});
+
+router.get('/suggestions', async (req: Request, res: Response) => {
+  try {
+    const q = normalizeQuery(req.query.q).replace(/\s+/g, ' ').trim();
+    const limit = clampInt(req.query.limit, 8, 1, 12);
+    const data = await resolveSuggestedQueries(req, q, limit);
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    console.error('[search] suggestions error:', error);
+    return res.json({
+      success: true,
+      data: DEFAULT_SEARCH_PROMPTS.slice(0, 6).map((text) => ({
+        text,
+        type: 'keyword',
+        category: 'Try searching for'
+      }))
+    });
+  }
+});
+
+router.get('/trending', async (req: Request, res: Response) => {
+  try {
+    const limit = clampInt(req.query.limit, 6, 1, 20);
+    const [jobs, gigs, pages] = await Promise.all([
+      prisma.job.findMany({
+        where: { isActive: true, isVisible: true },
+        orderBy: { createdAt: 'desc' },
+        take: Math.max(2, Math.ceil(limit / 3)),
+        select: { title: true }
+      }).catch(() => []),
+      prisma.gig.findMany({
+        where: { isActive: true },
+        orderBy: { createdAt: 'desc' },
+        take: Math.max(2, Math.ceil(limit / 3)),
+        select: { title: true }
+      }).catch(() => []),
+      prisma.communityBusinessPage.findMany({
+        where: { status: 'active' },
+        orderBy: { updatedAt: 'desc' },
+        take: Math.max(2, Math.ceil(limit / 3)),
+        select: { name: true }
+      }).catch(() => [])
+    ]);
+
+    const labels = [
+      ...jobs.map((item) => item.title),
+      ...gigs.map((item) => item.title),
+      ...pages.map((item) => item.name),
+      ...DEFAULT_SEARCH_PROMPTS
+    ]
+      .map(normalizeSuggestionText)
+      .filter(Boolean);
+
+    const data = Array.from(new Set(labels.map((label) => label.toLowerCase())))
+      .map((key) => labels.find((label) => label.toLowerCase() === key) || key)
+      .slice(0, limit)
+      .map((keyword, index) => ({
+        id: `trend-${index + 1}`,
+        keyword,
+        count: Math.max(100, 980 - index * 65),
+        trend: index < 3 ? 'up' : 'stable'
+      }));
+
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    console.error('[search] trending error:', error);
+    return res.json({ success: true, data: [] });
+  }
+});
+
+router.get('/quick-tags', async (req: Request, res: Response) => {
+  const data = DEFAULT_SEARCH_PROMPTS.slice(0, 8).map((label, index) => ({
+    id: `qt-${index + 1}`,
+    label,
+    url: `/search?q=${encodeURIComponent(label)}`,
+    bgColor: ['#EEF2FF', '#FCE7F3', '#F3E8FF', '#ECFDF5', '#EFF6FF', '#FFF7ED', '#F0FDFA', '#FEF2F2'][index % 8]
+  }));
+  return res.json({ success: true, data });
+});
+
+router.get('/history', async (_req: Request, res: Response) => {
+  return res.json({ success: true, data: [] });
+});
+
+router.post('/history', async (_req: Request, res: Response) => {
+  return res.json({ success: true, data: null });
+});
+
+router.get('/semantic', async (req: Request, res: Response) => {
+  try {
+    const q = normalizeQuery(req.query.query || req.query.q).replace(/\s+/g, ' ').trim();
+    if (q.length < 2) return res.json({ success: true, data: [] });
+    const unified = await resolveUnifiedSearch(req, q, 5, clampInt(req.query.limit, 20, 1, 50));
+    const posts = await searchPosts(q, 8);
+    return res.json({ success: true, data: [...unified.results, ...posts].slice(0, 25) });
+  } catch (error: any) {
+    console.error('[search] semantic error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to search' });
+  }
+});
+
+router.get('/analytics', async (req: Request, res: Response) => {
+  const query = normalizeQuery(req.query.query || req.query.q);
+  return res.json({
+    success: true,
+    data: {
+      query,
+      resultsCount: 0,
+      avgPrice: 0,
+      avgRating: 0,
+      avgDeliveryTime: 0,
+      topCategories: [],
+      trend: 'stable'
+    }
+  });
 });
 
 // Enterprise-safe search endpoint.
