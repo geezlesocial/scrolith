@@ -2397,8 +2397,18 @@ const limiter = rateLimit({
   max: (req) => {
     const auth = String(req.headers.authorization || '').trim();
     const baseLimit = auth ? apiRateLimitMaxAuthenticated : apiRateLimitMaxAnonymous;
-    const path = String(req.path || req.originalUrl || '').toLowerCase();
-    if (req.method === 'GET' && path.startsWith('/api/search')) {
+    const path = String(req.path || '').toLowerCase();
+    const originalUrl = String(req.originalUrl || '').toLowerCase();
+    const mountedPath = String(`${req.baseUrl || ''}${req.path || ''}`).toLowerCase();
+    const isSearchRead =
+      req.method === 'GET' &&
+      (
+        path === '/search' ||
+        path.startsWith('/search/') ||
+        originalUrl.startsWith('/api/search') ||
+        mountedPath.startsWith('/api/search')
+      );
+    if (isSearchRead) {
       return Math.max(baseLimit, auth ? 1200 : 360);
     }
     return baseLimit;
