@@ -2,6 +2,7 @@
 import { Recommendation } from "../types";
 
 import { getApiBaseUrl } from '../utils/apiBase';
+import { tokenStore } from './tokenStore';
 
 const getSearchApiUrl = () => getApiBaseUrl();
 
@@ -16,7 +17,7 @@ type ApiFail = { success: false; error?: string; status?: number };
 type ApiResponse<T> = ApiOk<T> | ApiFail;
 
 export type SearchEntityType = "posts" | "people" | "pages" | "jobs" | "gigs";
-export type UnifiedSearchEntityType = Exclude<SearchEntityType, "posts">;
+export type UnifiedSearchEntityType = SearchEntityType;
 
 export type UnifiedSearchItem = {
   id: string;
@@ -42,6 +43,7 @@ export type UnifiedSearchPayload = {
 };
 
 const DEFAULT_UNIFIED_GROUPS: UnifiedSearchGroups = {
+  posts: [],
   people: [],
   pages: [],
   jobs: [],
@@ -58,6 +60,51 @@ const DEFAULT_SEARCH_PROMPTS = [
   'web development',
   'social media marketing'
 ];
+
+const readQueryFromEndpoint = (endpoint: string) => {
+  try {
+    const raw = endpoint.startsWith('http') ? endpoint : `https://scrolith.local${endpoint}`;
+    const url = new URL(raw);
+    return String(url.searchParams.get('q') || url.searchParams.get('query') || '').trim();
+  } catch {
+    return '';
+  }
+};
+
+const fallbackSearchRows = (query: string) => {
+  const clean = String(query || '').trim();
+  const encoded = encodeURIComponent(clean || 'Scrolith');
+  const label = clean || 'Scrolith';
+  return [
+    {
+      id: `fallback-people-${encoded}`,
+      type: 'people',
+      title: `People matching "${label}"`,
+      name: `People matching "${label}"`,
+      subtitle: 'Search Scrolith members',
+      description: 'Search Scrolith members',
+      url: `/search?q=${encoded}&type=people`
+    },
+    {
+      id: `fallback-pages-${encoded}`,
+      type: 'pages',
+      title: `Pages related to "${label}"`,
+      name: `Pages related to "${label}"`,
+      subtitle: 'Explore Scrolith pages',
+      description: 'Explore Scrolith pages',
+      url: `/search?q=${encoded}&type=pages`
+    },
+    {
+      id: `fallback-posts-${encoded}`,
+      type: 'posts',
+      title: `Posts mentioning "${label}"`,
+      name: `Posts mentioning "${label}"`,
+      subtitle: 'Open full post search',
+      description: 'Open full post search',
+      url: `/search?q=${encoded}&type=posts`
+    }
+  ];
+};
 
 class SearchService {
   // Rate limiting helper (GLOBAL)
@@ -80,10 +127,16 @@ class SearchService {
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const token = await tokenStore.get().catch(() => null);
+      const headers: Record<string, string> = {
+        Accept: "application/json"
+      };
+      if (method === "POST") headers["Content-Type"] = "application/json";
+      if (token) headers.Authorization = `Bearer ${token}`;
 
       const res = await fetch(`${getSearchApiUrl()}${endpoint}`, {
         method,
-        headers: method === "POST" ? { "Content-Type": "application/json" } : undefined,
+        headers,
         body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
         signal: controller.signal,
       });
@@ -125,6 +178,41 @@ class SearchService {
    *   (e.g., quick tags, trending keywords) when backend isn't ready.
    */
   private static getFallbackData(endpoint: string): any {
+    if (endpoint.includes("/search/unified")) {
+      const query = readQueryFromEndpoint(endpoint);
+      const rows = fallbackSearchRows(query);
+      return {
+        query,
+        groups: {
+          people: rows.filter((row) => row.type === 'people'),
+          pages: rows.filter((row) => row.type === 'pages'),
+          jobs: [],
+          gigs: [],
+          posts: rows.filter((row) => row.type === 'posts')
+        },
+        results: rows,
+        totals: {
+          people: 1,
+          pages: 1,
+          jobs: 0,
+          gigs: 0,
+          posts: 1,
+          total: rows.length
+        },
+        fallback: true
+      };
+    }
+
+    if (endpoint.startsWith("/search?") || endpoint.includes("/search?")) {
+      const query = readQueryFromEndpoint(endpoint);
+      const rows = fallbackSearchRows(query);
+      const normalizedEndpoint = endpoint.toLowerCase();
+      if (normalizedEndpoint.includes("type=people")) return rows.filter((row) => row.type === 'people');
+      if (normalizedEndpoint.includes("type=pages")) return rows.filter((row) => row.type === 'pages');
+      if (normalizedEndpoint.includes("type=posts")) return rows.filter((row) => row.type === 'posts');
+      return rows;
+    }
+
     if (endpoint.includes("/search/recommendations")) {
       return [];
     }
@@ -174,6 +262,7 @@ class SearchService {
 
     const groupsSource = source?.groups || {};
     const groups: UnifiedSearchGroups = {
+      posts: this.extractList<UnifiedSearchItem>(groupsSource?.posts),
       people: this.extractList<UnifiedSearchItem>(groupsSource?.people),
       pages: this.extractList<UnifiedSearchItem>(groupsSource?.pages),
       jobs: this.extractList<UnifiedSearchItem>(groupsSource?.jobs),
@@ -181,6 +270,7 @@ class SearchService {
     };
 
     const interleavedFallback = [
+      ...groups.posts,
       ...groups.people,
       ...groups.pages,
       ...groups.jobs,
@@ -195,6 +285,7 @@ class SearchService {
       pages: Number(source?.totals?.pages ?? groups.pages.length) || 0,
       jobs: Number(source?.totals?.jobs ?? groups.jobs.length) || 0,
       gigs: Number(source?.totals?.gigs ?? groups.gigs.length) || 0,
+      posts: Number(source?.totals?.posts ?? groups.posts.length) || 0,
       total: Number(source?.totals?.total ?? finalResults.length) || 0
     };
 
@@ -260,7 +351,7 @@ class SearchService {
         query: "",
         groups: { ...DEFAULT_UNIFIED_GROUPS },
         results: [],
-        totals: { people: 0, pages: 0, jobs: 0, gigs: 0, total: 0 }
+        totals: { posts: 0, people: 0, pages: 0, jobs: 0, gigs: 0, total: 0 }
       };
     }
 

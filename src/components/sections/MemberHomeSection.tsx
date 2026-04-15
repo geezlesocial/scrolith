@@ -351,23 +351,34 @@ type SearchResultItem = {
   meta?: Record<string, any>;
 };
 
-type SearchGroupKey = 'people' | 'pages' | 'jobs' | 'gigs';
+type SearchGroupKey = 'people' | 'pages' | 'jobs' | 'gigs' | 'posts';
 type SearchGroupMap = Record<SearchGroupKey, SearchResultItem[]>;
 
-const SEARCH_GROUP_ORDER: SearchGroupKey[] = ['people', 'pages', 'jobs', 'gigs'];
+const SEARCH_GROUP_ORDER: SearchGroupKey[] = ['people', 'pages', 'jobs', 'gigs', 'posts'];
 const SEARCH_GROUP_LABELS: Record<SearchGroupKey, string> = {
   people: 'Users',
   pages: 'Pages',
   jobs: 'Jobs',
-  gigs: 'Gigs'
+  gigs: 'Gigs',
+  posts: 'Posts'
 };
 
 const emptySearchGroups = (): SearchGroupMap => ({
   people: [],
   pages: [],
   jobs: [],
-  gigs: []
+  gigs: [],
+  posts: []
 });
+
+const MEMBER_HOME_SEARCH_PROMPTS = [
+  'interview tips',
+  'remote work',
+  'Scrolith',
+  'latest in ai',
+  'logo design',
+  'project manager'
+];
 
 const createEmptyPostDraft = (): PostDraft => ({
   title: '',
@@ -2855,6 +2866,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     if (key === 'pages' || key === 'page') return 'pages';
     if (key === 'jobs' || key === 'job') return 'jobs';
     if (key === 'gigs' || key === 'gig') return 'gigs';
+    if (key === 'posts' || key === 'post') return 'posts';
     return undefined;
   }, []);
 
@@ -2898,6 +2910,23 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     [searchGroups]
   );
 
+  const searchRecommendationPrompts = useMemo(() => {
+    const clean = searchQuery.trim();
+    if (clean.length >= 2) {
+      const encoded = encodeURIComponent(clean);
+      return [
+        { label: `Search all Scrolith for "${clean}"`, url: `/search?q=${encoded}` },
+        { label: `People matching "${clean}"`, url: `/search?q=${encoded}&type=people` },
+        { label: `Posts mentioning "${clean}"`, url: `/search?q=${encoded}&type=posts` },
+        { label: `Pages related to "${clean}"`, url: `/search?q=${encoded}&type=pages` }
+      ];
+    }
+    return MEMBER_HOME_SEARCH_PROMPTS.map((label) => ({
+      label,
+      url: `/search?q=${encodeURIComponent(label)}`
+    }));
+  }, [searchQuery]);
+
   const performSearch = useCallback(async (term: string) => {
     const clean = term.trim();
     if (!clean) {
@@ -2908,13 +2937,21 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     setSearchLoading(true);
     try {
       const perType = Math.max(2, Math.min(6, Math.ceil(maxSearchResults / 2)));
-      const unified = await SearchService.searchUnified(clean, {
-        limit: Math.max(maxSearchResults, 12),
-        perType
+      const [unified, posts] = await Promise.all([
+        SearchService.searchUnified(clean, {
+          limit: Math.max(maxSearchResults, 12),
+          perType
+        }),
+        SearchService.search(clean, { type: 'posts', limit: Math.max(4, Math.min(8, maxSearchResults)) }).catch(() => [])
+      ]);
+      const groups = normalizeSearchGroups({
+        ...(unified.groups || {}),
+        posts: Array.isArray((unified.groups as any)?.posts) && (unified.groups as any).posts.length
+          ? (unified.groups as any).posts
+          : posts
       });
-      const groups = normalizeSearchGroups(unified.groups);
       const merged = Array.isArray(unified.results) && unified.results.length
-        ? unified.results.map(normalizeSearchItem)
+        ? [...unified.results, ...(posts || [])].map(normalizeSearchItem)
         : SEARCH_GROUP_ORDER.flatMap((key) => groups[key]);
       const unique = Array.from(
         new Map(
@@ -5996,13 +6033,36 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     >
                       <div className="border-b border-slate-100 px-4 py-2 text-xs text-slate-500">
                         {searchHint}
-                        {searchQuery.trim().length >= 2 && !searchLoading ? ' (' + searchResults.length + ' result' + (searchResults.length === 1 ? '' : 's') + ')' : ''}
+                        {searchQuery.trim().length >= 2 && !searchLoading && searchResults.length > 0
+                          ? ' (' + searchResults.length + ' result' + (searchResults.length === 1 ? '' : 's') + ')'
+                          : ''}
                       </div>
                       <div className="max-h-[min(65vh,32rem)] overflow-y-auto overscroll-contain pb-2" style={{ scrollbarGutter: 'stable' }}>
                         {searchLoading ? (
                           <div className="px-4 py-3 text-sm text-slate-500">Searching...</div>
                         ) : searchSections.length === 0 ? (
-                          <div className="px-4 py-3 text-sm text-slate-500">No results yet.</div>
+                          <div className="px-3 py-3">
+                            <div className="mb-2 flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                              <Sparkles className="h-3.5 w-3.5" />
+                              Scrolith embedded recommendations
+                            </div>
+                            <div className="space-y-1">
+                              {searchRecommendationPrompts.map((prompt) => (
+                                <button
+                                  key={prompt.url}
+                                  type="button"
+                                  onClick={() => {
+                                    setSearchOpen(false);
+                                    navigate(prompt.url);
+                                  }}
+                                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                                >
+                                  <Search className="h-4 w-4 shrink-0 text-slate-400" />
+                                  <span className="truncate">{prompt.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         ) : (
                           searchSections.map((section) => (
                             <div key={section.key} className="px-2 py-1">
