@@ -19,7 +19,7 @@ const clampInt = (value: unknown, fallback: number, min: number, max: number) =>
   return Math.max(min, Math.min(max, Math.trunc(n)));
 };
 
-type SearchBucketKey = 'people' | 'pages' | 'jobs' | 'gigs';
+type SearchBucketKey = 'people' | 'pages' | 'jobs' | 'gigs' | 'posts';
 type SearchEntityType = SearchBucketKey | 'posts';
 
 type SearchEntry = {
@@ -82,7 +82,7 @@ const fallbackAvatar = (label: string, kind: string) =>
 
 const containsFilter = (q: string) => ({ contains: q, mode: 'insensitive' as const });
 
-const searchPosts = async (q: string, limit: number) => {
+const searchPosts = async (q: string, limit: number): Promise<SearchEntry[]> => {
   const contains = containsFilter(q);
   const rows = await prisma.communityPost.findMany({
     where: {
@@ -268,7 +268,8 @@ const interleaveSearchGroups = (
     [...(groups.people || [])],
     [...(groups.pages || [])],
     [...(groups.jobs || [])],
-    [...(groups.gigs || [])]
+    [...(groups.gigs || [])],
+    [...(groups.posts || [])]
   ];
 
   const output: SearchEntry[] = [];
@@ -307,7 +308,7 @@ const resolveSuggestedQueries = async (req: Request, q: string, limit: number): 
 
   const [unified, posts] = await Promise.all([
     resolveUnifiedSearch(req, clean, 4, 16).catch(() => ({
-      groups: { people: [], pages: [], jobs: [], gigs: [] },
+      groups: { people: [], pages: [], jobs: [], gigs: [], posts: [] },
       results: []
     } as any)),
     searchPosts(clean, 4).catch(() => [])
@@ -344,21 +345,23 @@ const resolveSuggestedQueries = async (req: Request, q: string, limit: number): 
 };
 
 const resolveUnifiedSearch = async (req: Request, q: string, perType: number, limit: number) => {
-  const [rawPeople, rawPages, rawJobs, rawGigs] = await Promise.all([
+  const [rawPeople, rawPages, rawJobs, rawGigs, rawPosts] = await Promise.all([
     searchPeople(q, perType, req),
     searchPages(q, perType, req),
     searchJobs(q, perType),
-    searchGigs(q, perType, req)
+    searchGigs(q, perType, req),
+    searchPosts(q, perType)
   ]);
 
-  const [people, pages, jobs, gigs] = await Promise.all([
+  const [people, pages, jobs, gigs, posts] = await Promise.all([
     applySearchRankingRules(rawPeople, { scope: 'unified', query: q }) as Promise<SearchEntry[]>,
     applySearchRankingRules(rawPages, { scope: 'unified', query: q }) as Promise<SearchEntry[]>,
     applySearchRankingRules(rawJobs, { scope: 'unified', query: q }) as Promise<SearchEntry[]>,
-    applySearchRankingRules(rawGigs, { scope: 'unified', query: q }) as Promise<SearchEntry[]>
+    applySearchRankingRules(rawGigs, { scope: 'unified', query: q }) as Promise<SearchEntry[]>,
+    applySearchRankingRules(rawPosts, { scope: 'unified', query: q }) as Promise<SearchEntry[]>
   ]);
 
-  const groups: Record<SearchBucketKey, SearchEntry[]> = { people, pages, jobs, gigs };
+  const groups: Record<SearchBucketKey, SearchEntry[]> = { people, pages, jobs, gigs, posts };
   const results = interleaveSearchGroups(groups, limit);
   return {
     query: q,
@@ -369,6 +372,7 @@ const resolveUnifiedSearch = async (req: Request, q: string, perType: number, li
       pages: pages.length,
       jobs: jobs.length,
       gigs: gigs.length,
+      posts: posts.length,
       total: results.length
     }
   };
@@ -385,9 +389,9 @@ router.get('/unified', async (req: Request, res: Response) => {
         success: true,
         data: {
           query: q,
-          groups: { people: [], pages: [], jobs: [], gigs: [] },
+          groups: { people: [], pages: [], jobs: [], gigs: [], posts: [] },
           results: [],
-          totals: { people: 0, pages: 0, jobs: 0, gigs: 0, total: 0 }
+          totals: { people: 0, pages: 0, jobs: 0, gigs: 0, posts: 0, total: 0 }
         }
       });
     }

@@ -2396,7 +2396,12 @@ const limiter = rateLimit({
   windowMs: apiRateLimitWindowMs,
   max: (req) => {
     const auth = String(req.headers.authorization || '').trim();
-    return auth ? apiRateLimitMaxAuthenticated : apiRateLimitMaxAnonymous;
+    const baseLimit = auth ? apiRateLimitMaxAuthenticated : apiRateLimitMaxAnonymous;
+    const path = String(req.path || req.originalUrl || '').toLowerCase();
+    if (req.method === 'GET' && path.startsWith('/api/search')) {
+      return Math.max(baseLimit, auth ? 1200 : 360);
+    }
+    return baseLimit;
   },
   message: { error: 'Too many requests from this IP, please try again later.' },
   standardHeaders: 'draft-7',
