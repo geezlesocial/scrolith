@@ -1,4 +1,4 @@
-package com.geezle.app;
+package com.scrolith.scrolith;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
