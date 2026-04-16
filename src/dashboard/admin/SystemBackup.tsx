@@ -36,7 +36,17 @@ type BackupRecord = {
   restoreCount: number;
   licenseHint: string;
   notes: string | null;
+  storage?: 'local' | 'database' | 'azure_blob' | null;
   fileMissing?: boolean;
+};
+
+type BackupRuntimeMeta = {
+  storageDriver?: string;
+  durable?: boolean;
+  importLimitBytes?: number;
+  maxSingleFileBytes?: number;
+  maxTotalFileSnapshotBytes?: number;
+  databaseChunkBytes?: number | null;
 };
 
 type BackupJobStatus = 'queued' | 'running' | 'completed' | 'failed';
@@ -141,10 +151,12 @@ const SystemBackup: React.FC = () => {
   const [importing, setImporting] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [verifyingIds, setVerifyingIds] = useState<Set<string>>(new Set());
 
   const [backups, setBackups] = useState<BackupRecord[]>([]);
   const [backupJobs, setBackupJobs] = useState<BackupJobRecord[]>([]);
   const [sections, setSections] = useState<string[]>([]);
+  const [runtimeMeta, setRuntimeMeta] = useState<BackupRuntimeMeta | null>(null);
   const [selectedBackupIds, setSelectedBackupIds] = useState<Set<string>>(new Set());
   const [latestLicense, setLatestLicense] = useState<{ backupId: string; license: string } | null>(null);
 
@@ -171,6 +183,7 @@ const SystemBackup: React.FC = () => {
         ]);
         const resolvedSections = Array.isArray(meta?.sections) ? meta.sections : [];
         setSections(resolvedSections);
+        setRuntimeMeta(meta?.runtime || null);
         setBackups(Array.isArray(backupRows) ? backupRows : []);
         setBackupJobs(Array.isArray(backupJobRows) ? backupJobRows : []);
       } catch (error: any) {
@@ -226,6 +239,13 @@ const SystemBackup: React.FC = () => {
     () => backups.reduce((sum, backup) => sum + Number(backup?.sizeBytes || 0), 0),
     [backups]
   );
+
+  const storageLabel = useMemo(() => {
+    const driver = String(runtimeMeta?.storageDriver || 'local').trim().toLowerCase();
+    if (driver === 'database') return 'IBM Postgres durable';
+    if (driver === 'azure_blob') return 'External blob';
+    return 'Local instance';
+  }, [runtimeMeta?.storageDriver]);
 
   const activeCreateJob = useMemo(
     () => backupJobs.find((job) => job.type === 'create' && (job.status === 'queued' || job.status === 'running')) || null,
@@ -394,6 +414,30 @@ const SystemBackup: React.FC = () => {
     }
   };
 
+  const verifyBackup = async (backup: BackupRecord) => {
+    setVerifyingIds((prev) => new Set(prev).add(backup.id));
+    try {
+      const result = await AdminService.verifySystemBackup(backup.id);
+      const tableCount = Number(result?.tables || 0);
+      const rowCount = Number(result?.rows || 0);
+      const fileCount = Number(result?.files || 0);
+      showNotification(
+        'success',
+        'Backup Verified',
+        `Archive integrity verified: ${tableCount} tables, ${rowCount} rows, ${fileCount} file snapshots.`
+      );
+      await loadData(true);
+    } catch (error: any) {
+      showNotification('error', 'Backup Verification', getApiErrorMessage(error, 'Failed to verify backup archive.'));
+    } finally {
+      setVerifyingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(backup.id);
+        return next;
+      });
+    }
+  };
+
   const deleteBackups = async (backupIds: string[]) => {
     if (!backupIds.length) return;
     const confirmed = window.confirm(
@@ -509,7 +553,7 @@ const SystemBackup: React.FC = () => {
           </button>
         </div>
 
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
+        <div className="mt-4 grid gap-4 md:grid-cols-4">
           <div className="rounded-xl border border-gray-200 p-4">
             <p className="text-xs uppercase tracking-wide text-gray-500">Backup Files</p>
             <p className="mt-2 text-2xl font-bold text-gray-900">{backups.length}</p>
@@ -521,6 +565,19 @@ const SystemBackup: React.FC = () => {
           <div className="rounded-xl border border-gray-200 p-4">
             <p className="text-xs uppercase tracking-wide text-gray-500">Selected For Delete</p>
             <p className="mt-2 text-2xl font-bold text-gray-900">{selectedBackupIds.size}</p>
+          </div>
+          <div
+            className={`rounded-xl border p-4 ${
+              runtimeMeta?.durable ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'
+            }`}
+          >
+            <p className="text-xs uppercase tracking-wide text-gray-500">Storage Backend</p>
+            <p className="mt-2 text-sm font-bold text-gray-900">{storageLabel}</p>
+            <p className="mt-1 text-xs text-gray-600">
+              {runtimeMeta?.durable
+                ? 'Durable across IBM Code Engine revisions.'
+                : 'Instance-local; configure durable storage before production restores.'}
+            </p>
           </div>
         </div>
       </section>
@@ -831,6 +888,7 @@ const SystemBackup: React.FC = () => {
               {backups.map((backup) => {
                 const deleting = deletingIds.has(backup.id);
                 const selected = selectedBackupIds.has(backup.id);
+                const verifying = verifyingIds.has(backup.id);
                 return (
                   <tr key={backup.id} className="border-b border-gray-100 align-top">
                     <td className="px-2 py-3">
@@ -855,7 +913,10 @@ const SystemBackup: React.FC = () => {
                       <p className="text-xs text-gray-600">Tables: {Array.isArray(backup.tables) ? backup.tables.length : 0}</p>
                       <p className="text-xs text-gray-600">Files: {backup.includeFiles ? backup.fileCount : 0}</p>
                     </td>
-                    <td className="px-2 py-3 text-gray-700">{formatBytes(backup.sizeBytes)}</td>
+                    <td className="px-2 py-3 text-gray-700">
+                      <p>{formatBytes(backup.sizeBytes)}</p>
+                      <p className="text-xs text-gray-500">{backup.storage || runtimeMeta?.storageDriver || 'local'}</p>
+                    </td>
                     <td className="px-2 py-3 font-mono text-xs text-gray-700">...{backup.licenseHint || '------'}</td>
                     <td className="px-2 py-3 text-xs text-gray-600">
                       <p>Last: {formatDateTime(backup.lastRestoredAt)}</p>
@@ -871,6 +932,15 @@ const SystemBackup: React.FC = () => {
                         >
                           <Download className="mr-1 h-3 w-3" />
                           Export
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void verifyBackup(backup)}
+                          disabled={Boolean(backup.fileMissing) || verifying}
+                          className="inline-flex items-center rounded border border-emerald-300 px-2 py-1 text-xs text-emerald-700 hover:bg-emerald-50 disabled:opacity-60"
+                        >
+                          {verifying ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <CheckCircle2 className="mr-1 h-3 w-3" />}
+                          Verify
                         </button>
                         <button
                           type="button"

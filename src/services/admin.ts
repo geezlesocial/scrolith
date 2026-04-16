@@ -1906,8 +1906,28 @@ export const AdminService = {
   },
 
   // ---- System Backup Module ----
-  async getSystemBackupMeta(): Promise<{ sections: string[] }> {
-    return adminGet<{ sections: string[] }>('/system-backups/meta');
+  async getSystemBackupMeta(): Promise<{
+    sections: string[];
+    runtime?: {
+      storageDriver?: string;
+      durable?: boolean;
+      importLimitBytes?: number;
+      maxSingleFileBytes?: number;
+      maxTotalFileSnapshotBytes?: number;
+      databaseChunkBytes?: number | null;
+    };
+  }> {
+    return adminGet<{
+      sections: string[];
+      runtime?: {
+        storageDriver?: string;
+        durable?: boolean;
+        importLimitBytes?: number;
+        maxSingleFileBytes?: number;
+        maxTotalFileSnapshotBytes?: number;
+        databaseChunkBytes?: number | null;
+      };
+    }>('/system-backups/meta');
   },
 
   async getSystemBackups(): Promise<any[]> {
@@ -1941,6 +1961,18 @@ export const AdminService = {
       timeout: SYSTEM_BACKUP_TIMEOUT_MS
     });
     return response.data as Blob;
+  },
+
+  async verifySystemBackup(backupId: string): Promise<any> {
+    const response = await api.post(
+      `${ADMIN_BASE}/system-backups/${encodeURIComponent(backupId)}/verify`,
+      {},
+      {
+        headers: await getAuthHeaders(),
+        timeout: SYSTEM_BACKUP_TIMEOUT_MS
+      }
+    );
+    return extractData<any>(response);
   },
 
   async importSystemBackup(file: File, notes?: string): Promise<any> {
