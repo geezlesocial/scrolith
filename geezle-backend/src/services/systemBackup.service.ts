@@ -143,7 +143,15 @@ const BACKUP_LICENSE_PEPPER =
   process.env.BACKUP_LICENSE_PEPPER || process.env.JWT_SECRET || 'scrolith-backup-license-pepper';
 const EXCLUDED_TABLES = new Set<string>(['_prisma_migrations']);
 const DEFAULT_STORAGE_PROVIDER = 'local';
+const DATABASE_STORAGE_PROVIDER = 'database';
 const AZURE_BLOB_STORAGE_PROVIDER = 'azure_blob';
+const DATABASE_BACKUP_SCOPE_PREFIX = 'systemBackup';
+const DATABASE_BACKUP_CATALOG_SCOPE = `${DATABASE_BACKUP_SCOPE_PREFIX}.catalog`;
+const DATABASE_BACKUP_JOBS_SCOPE = `${DATABASE_BACKUP_SCOPE_PREFIX}.jobs`;
+const DATABASE_BACKUP_CHUNK_BYTES = Math.max(
+  256 * 1024,
+  Number(process.env.SYSTEM_BACKUP_DB_CHUNK_BYTES || 2 * 1024 * 1024)
+);
 const DEFAULT_VIDEO_THUMBNAIL_FILENAME = '__video_fallback_thumbnail.svg';
 const MANAGED_UPLOAD_SOURCE_ID = 'managed_upload';
 const MANAGED_THUMBNAIL_SOURCE_ID = 'managed_thumbnail';
@@ -217,6 +225,9 @@ function resolveBackupStorageProvider() {
   if (['azure_blob', 'azure', 'blob'].includes(explicitDriver)) {
     return isAzureBlobConfigured() ? AZURE_BLOB_STORAGE_PROVIDER : DEFAULT_STORAGE_PROVIDER;
   }
+  if (['database', 'db', 'postgres', 'postgresql', 'appsetting'].includes(explicitDriver)) {
+    return DATABASE_STORAGE_PROVIDER;
+  }
   if (['local', 'disk', 'filesystem'].includes(explicitDriver)) {
     return DEFAULT_STORAGE_PROVIDER;
   }
@@ -236,6 +247,126 @@ const streamToBuffer = async (stream: NodeJS.ReadableStream) =>
     stream.once('error', reject);
     stream.once('end', () => resolve(Buffer.concat(chunks)));
   });
+
+const shouldUseDatabaseBackupStorage = () => resolveBackupStorageProvider() === DATABASE_STORAGE_PROVIDER;
+
+const buildDatabaseBackupKey = (fileName: string) =>
+  hashBytes(path.basename(String(fileName || '').trim() || 'backup')).slice(0, 40);
+
+const buildDatabaseBackupMetaScope = (key: string) => `${DATABASE_BACKUP_SCOPE_PREFIX}.file.${key}.meta`;
+
+const buildDatabaseBackupChunkScope = (key: string, index: number) =>
+  `${DATABASE_BACKUP_SCOPE_PREFIX}.file.${key}.chunk.${index}`;
+
+const readAppSettingData = async (scope: string) => {
+  const row = await prisma.appSetting.findUnique({
+    where: { scope },
+    select: { data: true }
+  });
+  return row?.data as any;
+};
+
+const writeAppSettingData = async (scope: string, data: Record<string, any>) => {
+  await prisma.appSetting.upsert({
+    where: { scope },
+    update: { data },
+    create: { scope, data }
+  });
+};
+
+const readDatabaseBackupMeta = async (fileName: string) => {
+  const key = buildDatabaseBackupKey(fileName);
+  const meta = await readAppSettingData(buildDatabaseBackupMetaScope(key));
+  if (!meta || typeof meta !== 'object') return null;
+  return {
+    key,
+    fileName: String(meta.fileName || fileName || ''),
+    contentType: String(meta.contentType || 'application/gzip'),
+    sizeBytes: Number(meta.sizeBytes || 0),
+    checksumSha256: String(meta.checksumSha256 || ''),
+    chunkCount: Math.max(0, Number(meta.chunkCount || 0)),
+    updatedAt: meta.updatedAt ? String(meta.updatedAt) : null
+  };
+};
+
+const writeDatabaseBackupBinary = async (fileName: string, buffer: Buffer) => {
+  const key = buildDatabaseBackupKey(fileName);
+  const previousMeta = await readDatabaseBackupMeta(fileName);
+  const chunkCount = Math.ceil(buffer.length / DATABASE_BACKUP_CHUNK_BYTES);
+
+  for (let index = 0; index < chunkCount; index += 1) {
+    const start = index * DATABASE_BACKUP_CHUNK_BYTES;
+    const chunk = buffer.subarray(start, Math.min(buffer.length, start + DATABASE_BACKUP_CHUNK_BYTES));
+    await writeAppSettingData(buildDatabaseBackupChunkScope(key, index), {
+      fileName,
+      index,
+      contentBase64: chunk.toString('base64'),
+      updatedAt: toIso()
+    });
+  }
+
+  if (previousMeta?.chunkCount && previousMeta.chunkCount > chunkCount) {
+    const staleScopes = Array.from(
+      { length: previousMeta.chunkCount - chunkCount },
+      (_unused, index) => buildDatabaseBackupChunkScope(key, chunkCount + index)
+    );
+    if (staleScopes.length) {
+      await prisma.appSetting.deleteMany({
+        where: { scope: { in: staleScopes } }
+      });
+    }
+  }
+
+  await writeAppSettingData(buildDatabaseBackupMetaScope(key), {
+    fileName,
+    contentType: 'application/gzip',
+    sizeBytes: buffer.length,
+    checksumSha256: hashBytes(buffer),
+    chunkBytes: DATABASE_BACKUP_CHUNK_BYTES,
+    chunkCount,
+    updatedAt: toIso()
+  });
+};
+
+const readDatabaseBackupBinary = async (fileName: string) => {
+  const meta = await readDatabaseBackupMeta(fileName);
+  if (!meta?.chunkCount) {
+    throw toError('Backup file is missing from database storage.', 404, 'BACKUP_FILE_MISSING');
+  }
+
+  const chunks: Buffer[] = [];
+  for (let index = 0; index < meta.chunkCount; index += 1) {
+    const chunk = await readAppSettingData(buildDatabaseBackupChunkScope(meta.key, index));
+    const contentBase64 = String(chunk?.contentBase64 || '');
+    if (!contentBase64) {
+      throw toError('Backup file chunk is missing from database storage.', 500, 'BACKUP_FILE_CHUNK_MISSING');
+    }
+    chunks.push(Buffer.from(contentBase64, 'base64'));
+  }
+
+  const buffer = Buffer.concat(chunks);
+  if (meta.sizeBytes && buffer.length !== meta.sizeBytes) {
+    throw toError('Backup file size check failed.', 500, 'BACKUP_FILE_SIZE_MISMATCH');
+  }
+  if (meta.checksumSha256 && hashBytes(buffer) !== meta.checksumSha256) {
+    throw toError('Backup file checksum check failed.', 500, 'BACKUP_FILE_CHECKSUM_MISMATCH');
+  }
+  return buffer;
+};
+
+const deleteDatabaseBackupBinary = async (fileName: string) => {
+  const meta = await readDatabaseBackupMeta(fileName);
+  if (!meta) return;
+  const scopes = [
+    buildDatabaseBackupMetaScope(meta.key),
+    ...Array.from({ length: meta.chunkCount }, (_unused, index) =>
+      buildDatabaseBackupChunkScope(meta.key, index)
+    )
+  ];
+  await prisma.appSetting.deleteMany({
+    where: { scope: { in: scopes } }
+  });
+};
 
 const isSafeIdentifier = (value: string) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
 
@@ -391,6 +522,18 @@ const readJobsLocal = (): BackupJobRecord[] => {
 
 const readCatalog = async (): Promise<BackupCatalogRecord[]> => {
   ensureBackupDir();
+  if (shouldUseDatabaseBackupStorage()) {
+    try {
+      const data = await readAppSettingData(DATABASE_BACKUP_CATALOG_SCOPE);
+      return Array.isArray(data?.records)
+        ? data.records
+            .map(normalizeCatalogRecord)
+            .filter((entry: BackupCatalogRecord | null): entry is BackupCatalogRecord => Boolean(entry))
+        : readCatalogLocal();
+    } catch {
+      return readCatalogLocal();
+    }
+  }
   if (!shouldUseAzureBackupStorage()) {
     return readCatalogLocal();
   }
@@ -409,6 +552,18 @@ const readCatalog = async (): Promise<BackupCatalogRecord[]> => {
 
 const readJobs = async (): Promise<BackupJobRecord[]> => {
   ensureBackupDir();
+  if (shouldUseDatabaseBackupStorage()) {
+    try {
+      const data = await readAppSettingData(DATABASE_BACKUP_JOBS_SCOPE);
+      return Array.isArray(data?.records)
+        ? data.records
+            .map(normalizeBackupJobRecord)
+            .filter((entry: BackupJobRecord | null): entry is BackupJobRecord => Boolean(entry))
+        : readJobsLocal();
+    } catch {
+      return readJobsLocal();
+    }
+  }
   if (!shouldUseAzureBackupStorage()) {
     return readJobsLocal();
   }
@@ -463,6 +618,13 @@ const writeCatalog = async (records: BackupCatalogRecord[]) => {
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
   writeCatalogLocal(sorted);
+  if (shouldUseDatabaseBackupStorage()) {
+    await writeAppSettingData(DATABASE_BACKUP_CATALOG_SCOPE, {
+      records: sorted,
+      updatedAt: toIso()
+    });
+    return;
+  }
   if (!shouldUseAzureBackupStorage()) return;
   await uploadBufferToBlob({
     buffer: Buffer.from(JSON.stringify(sorted, null, 2), 'utf-8'),
@@ -474,6 +636,13 @@ const writeCatalog = async (records: BackupCatalogRecord[]) => {
 const writeJobs = async (records: BackupJobRecord[]) => {
   const trimmed = sanitizeJobsForWrite(records);
   persistJobsLocal(trimmed);
+  if (shouldUseDatabaseBackupStorage()) {
+    await writeAppSettingData(DATABASE_BACKUP_JOBS_SCOPE, {
+      records: trimmed,
+      updatedAt: toIso()
+    });
+    return;
+  }
   if (!shouldUseAzureBackupStorage()) return;
   await uploadBufferToBlob({
     buffer: Buffer.from(JSON.stringify(trimmed, null, 2), 'utf-8'),
@@ -486,6 +655,10 @@ const resolveBackupPath = (fileName: string) => path.join(BACKUP_ROOT_DIR, path.
 
 const writeBackupBinary = async (fileName: string, buffer: Buffer) => {
   ensureBackupDir();
+  if (shouldUseDatabaseBackupStorage()) {
+    await writeDatabaseBackupBinary(fileName, buffer);
+    return;
+  }
   if (!shouldUseAzureBackupStorage()) {
     fs.writeFileSync(resolveBackupPath(fileName), buffer);
     return;
@@ -499,6 +672,9 @@ const writeBackupBinary = async (fileName: string, buffer: Buffer) => {
 
 const readBackupBinary = async (fileName: string) => {
   const localPath = resolveBackupPath(fileName);
+  if (shouldUseDatabaseBackupStorage()) {
+    return readDatabaseBackupBinary(fileName);
+  }
   if (!shouldUseAzureBackupStorage()) {
     return fs.readFileSync(localPath);
   }
@@ -518,6 +694,14 @@ const readBackupBinary = async (fileName: string) => {
 
 const getBackupFileStatus = async (fileName: string, fallbackSizeBytes: number) => {
   const absolutePath = resolveBackupPath(fileName);
+  if (shouldUseDatabaseBackupStorage()) {
+    const meta = await readDatabaseBackupMeta(fileName);
+    return {
+      exists: Boolean(meta?.chunkCount),
+      sizeBytes: Number(meta?.sizeBytes || fallbackSizeBytes || 0),
+      storage: meta?.chunkCount ? ('database' as const) : null
+    };
+  }
   if (!shouldUseAzureBackupStorage()) {
     const exists = fs.existsSync(absolutePath);
     return {
@@ -555,6 +739,9 @@ const getBackupFileStatus = async (fileName: string, fallbackSizeBytes: number) 
 
 const deleteBackupBinary = async (fileName: string) => {
   const absolutePath = resolveBackupPath(fileName);
+  if (shouldUseDatabaseBackupStorage()) {
+    await deleteDatabaseBackupBinary(fileName);
+  }
   if (shouldUseAzureBackupStorage()) {
     await deleteBlobByName(buildBackupBlobName(fileName)).catch(() => undefined);
   }
@@ -971,6 +1158,13 @@ const loadTableRows = async (client: Client, tableName: string) => {
   if (!isSafeIdentifier(tableName)) {
     throw toError(`Unsafe table identifier detected: ${tableName}`, 400, 'BACKUP_UNSAFE_TABLE');
   }
+  if (tableName === 'AppSetting') {
+    const result = await client.query(
+      `SELECT * FROM "AppSetting" WHERE scope NOT LIKE $1 ORDER BY "createdAt" ASC`,
+      [`${DATABASE_BACKUP_SCOPE_PREFIX}.%`]
+    );
+    return result.rows;
+  }
   const result = await client.query(`SELECT * FROM "${tableName}"`);
   return result.rows;
 };
@@ -1144,7 +1338,11 @@ const cloneRestoreDatabase = (database: Record<string, any[]>, tables: string[])
   const cloned: Record<string, any[]> = {};
   tables.forEach((table) => {
     const rows = Array.isArray(database?.[table]) ? database[table] : [];
-    cloned[table] = rows.map((row) => (row && typeof row === 'object' ? { ...row } : row));
+    const restorableRows =
+      table === 'AppSetting'
+        ? rows.filter((row) => !String(row?.scope || '').startsWith(`${DATABASE_BACKUP_SCOPE_PREFIX}.`))
+        : rows;
+    cloned[table] = restorableRows.map((row) => (row && typeof row === 'object' ? { ...row } : row));
   });
   return cloned;
 };
@@ -1624,6 +1822,20 @@ export const getSystemBackupSections = (): BackupSection[] => [
   'custom'
 ];
 
+export const getSystemBackupRuntimeMeta = () => {
+  const storageDriver = resolveBackupStorageProvider();
+  return {
+    storageDriver,
+    durable: storageDriver !== DEFAULT_STORAGE_PROVIDER,
+    catalogScope: shouldUseDatabaseBackupStorage() ? DATABASE_BACKUP_CATALOG_SCOPE : null,
+    blobPrefix: shouldUseAzureBackupStorage() ? BACKUP_BLOB_PREFIX : null,
+    importLimitBytes: BACKUP_IMPORT_LIMIT_BYTES,
+    maxSingleFileBytes: BACKUP_MAX_FILE_BYTES,
+    maxTotalFileSnapshotBytes: BACKUP_MAX_TOTAL_FILE_BYTES,
+    databaseChunkBytes: shouldUseDatabaseBackupStorage() ? DATABASE_BACKUP_CHUNK_BYTES : null
+  };
+};
+
 export const listSystemBackups = async () => {
   const catalog = await readCatalog();
   const records = await Promise.all(
@@ -1632,11 +1844,53 @@ export const listSystemBackups = async () => {
       return {
         ...record,
         sizeBytes: status.sizeBytes,
+        storage: status.storage,
         fileMissing: !status.exists
       };
     })
   );
   return records.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+};
+
+export const verifySystemBackup = async (backupId: string) => {
+  const catalog = await readCatalog();
+  const record = resolveRecordById(catalog, backupId);
+  const status = await getBackupFileStatus(record.fileName, record.sizeBytes);
+  if (!status.exists) {
+    throw toError('Backup file is missing on the server.', 404, 'BACKUP_FILE_MISSING');
+  }
+
+  const buffer = await readBackupBinary(record.fileName);
+  const checksumSha256 = hashBytes(buffer);
+  if (record.checksumSha256 && checksumSha256 !== record.checksumSha256) {
+    throw toError('Backup checksum validation failed.', 409, 'BACKUP_CHECKSUM_INVALID');
+  }
+
+  const backupPackage = parseBackupBuffer(buffer);
+  const database = backupPackage.payload?.database || {};
+  const tableNames = Object.keys(database).filter(isSafeIdentifier);
+  const rowCount = tableNames.reduce((sum, tableName) => {
+    const rows = Array.isArray(database?.[tableName]) ? database[tableName] : [];
+    return sum + rows.length;
+  }, 0);
+  const files = Array.isArray(backupPackage.payload?.files) ? backupPackage.payload.files : [];
+
+  return {
+    backupId: record.id,
+    fileName: record.fileName,
+    storage: status.storage,
+    sizeBytes: buffer.length,
+    checksumSha256,
+    formatVersion: backupPackage.formatVersion,
+    generatedAt: backupPackage.platform?.generatedAt || record.createdAt,
+    generatedByAdminEmail: backupPackage.platform?.generatedByAdminEmail || record.createdByAdminEmail || null,
+    mode: backupPackage.backup?.mode || record.mode,
+    tables: tableNames.length,
+    rows: rowCount,
+    files: files.length,
+    licenseHint: record.licenseHint,
+    verifiedAt: toIso()
+  };
 };
 
 export const listSystemBackupJobs = async () => {
@@ -1869,6 +2123,13 @@ export const getSystemBackupDownload = async (backupId: string) => {
       record,
       storage: 'azure_blob' as const,
       blobName: buildBackupBlobName(record.fileName)
+    };
+  }
+  if (status.storage === 'database') {
+    return {
+      record,
+      storage: 'database' as const,
+      buffer: await readBackupBinary(record.fileName)
     };
   }
   return {
@@ -2119,6 +2380,9 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
         }
       : entry
   );
+  if (shouldUseDatabaseBackupStorage()) {
+    await writeBackupBinary(record.fileName, backupBuffer);
+  }
   await writeCatalog(updated);
 
   return {

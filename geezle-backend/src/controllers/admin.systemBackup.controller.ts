@@ -3,13 +3,15 @@ import fs from 'fs';
 import {
   deleteSystemBackups,
   getSystemBackupDownload,
+  getSystemBackupRuntimeMeta,
   getSystemBackupSections,
   importSystemBackup,
   listSystemBackupJobs,
   listSystemBackups,
   queueSystemBackupCreation,
   restoreSystemBackup,
-  runSystemBackupCreationJob
+  runSystemBackupCreationJob,
+  verifySystemBackup
 } from '../services/systemBackup.service';
 import { downloadBlobBufferByName } from '../services/storage/blobStorage';
 
@@ -50,7 +52,8 @@ export const getAdminSystemBackupMeta = async (_req: Request, res: Response) => 
     return res.json({
       success: true,
       data: {
-        sections: getSystemBackupSections()
+        sections: getSystemBackupSections(),
+        runtime: getSystemBackupRuntimeMeta()
       }
     });
   } catch (error: any) {
@@ -73,6 +76,21 @@ export const getAdminSystemBackupJobs = async (_req: Request, res: Response) => 
     return res.json({ success: true, data: rows });
   } catch (error: any) {
     return toErrorResponse(res, error, 'Failed to load system backup jobs.');
+  }
+};
+
+export const verifyAdminSystemBackup = async (req: Request, res: Response) => {
+  try {
+    const backupId = String(req.params.id || '').trim();
+    const result = await verifySystemBackup(backupId);
+    emitAdminSystemBackupUpdate(req, {
+      action: 'verified',
+      backupId: result.backupId,
+      verifiedAt: result.verifiedAt
+    });
+    return res.json({ success: true, data: result });
+  } catch (error: any) {
+    return toErrorResponse(res, error, 'Failed to verify system backup.');
   }
 };
 
@@ -123,6 +141,14 @@ export const downloadAdminSystemBackup = async (req: Request, res: Response) => 
     const download = await getSystemBackupDownload(backupId);
     if (download.storage === 'azure_blob') {
       const buffer = await downloadBlobBufferByName(download.blobName);
+      res.setHeader('Content-Type', 'application/gzip');
+      res.setHeader('Content-Disposition', `attachment; filename="${download.record.fileName}"`);
+      res.setHeader('Content-Length', String(buffer.length || 0));
+      res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+      return res.end(buffer);
+    }
+    if (download.storage === 'database') {
+      const buffer = download.buffer;
       res.setHeader('Content-Type', 'application/gzip');
       res.setHeader('Content-Disposition', `attachment; filename="${download.record.fileName}"`);
       res.setHeader('Content-Length', String(buffer.length || 0));

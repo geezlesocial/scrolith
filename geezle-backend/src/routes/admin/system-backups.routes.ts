@@ -11,7 +11,8 @@ import {
   getAdminSystemBackupJobs,
   getAdminSystemBackups,
   importAdminSystemBackup,
-  restoreAdminSystemBackup
+  restoreAdminSystemBackup,
+  verifyAdminSystemBackup
 } from '../../controllers/admin.systemBackup.controller';
 
 const router = express.Router();
@@ -66,6 +67,7 @@ router.get('/', getAdminSystemBackups);
 router.get('/jobs', getAdminSystemBackupJobs);
 router.post('/create', createAdminSystemBackup);
 router.get('/:id/download', downloadAdminSystemBackup);
+router.post('/:id/verify', verifyAdminSystemBackup);
 router.post('/import', backupImportUploadMiddleware, importAdminSystemBackup);
 router.post('/:id/restore', restoreAdminSystemBackup);
 router.delete('/:id', deleteAdminSystemBackup);
