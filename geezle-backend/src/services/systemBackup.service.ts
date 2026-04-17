@@ -141,12 +141,12 @@ const BACKUP_MAX_FILE_BYTES = Math.max(
 );
 const BACKUP_MAX_TOTAL_FILE_BYTES = Math.max(
   BACKUP_MAX_FILE_BYTES,
-  Number(process.env.BACKUP_MAX_TOTAL_FILE_BYTES || 200 * 1024 * 1024)
+  Number(process.env.BACKUP_MAX_TOTAL_FILE_BYTES || 64 * 1024 * 1024)
 );
 const BACKUP_LICENSE_PEPPER =
   process.env.BACKUP_LICENSE_PEPPER || process.env.JWT_SECRET || 'scrolith-backup-license-pepper';
-const EXCLUDED_TABLES = new Set<string>(['_prisma_migrations']);
-const MANAGED_UPLOAD_OBJECT_TABLE = 'ManagedUploadObject';
+const MANAGED_UPLOAD_OBJECT_TABLE = 'managed_upload_objects';
+const EXCLUDED_TABLES = new Set<string>(['_prisma_migrations', MANAGED_UPLOAD_OBJECT_TABLE]);
 const DEFAULT_STORAGE_PROVIDER = 'local';
 const DATABASE_STORAGE_PROVIDER = 'database';
 const AZURE_BLOB_STORAGE_PROVIDER = 'azure_blob';
