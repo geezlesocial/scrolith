@@ -152,6 +152,14 @@ const DATABASE_BACKUP_CHUNK_BYTES = Math.max(
   256 * 1024,
   Number(process.env.SYSTEM_BACKUP_DB_CHUNK_BYTES || 2 * 1024 * 1024)
 );
+const BACKUP_JOB_STALE_MS = Math.max(
+  5 * 60 * 1000,
+  Number(process.env.SYSTEM_BACKUP_JOB_STALE_MS || 45 * 60 * 1000)
+);
+const BACKUP_JOB_HEARTBEAT_MS = Math.max(
+  5 * 1000,
+  Math.min(BACKUP_JOB_STALE_MS / 3, Number(process.env.SYSTEM_BACKUP_JOB_HEARTBEAT_MS || 30 * 1000))
+);
 const DEFAULT_VIDEO_THUMBNAIL_FILENAME = '__video_fallback_thumbnail.svg';
 const MANAGED_UPLOAD_SOURCE_ID = 'managed_upload';
 const MANAGED_THUMBNAIL_SOURCE_ID = 'managed_thumbnail';
@@ -496,6 +504,51 @@ const parseJobsPayload = (raw: string): BackupJobRecord[] => {
   } catch {
     return [];
   }
+};
+
+const isActiveBackupJob = (entry: BackupJobRecord) =>
+  entry.type === 'create' && (entry.status === 'queued' || entry.status === 'running');
+
+const parseBackupJobTime = (value: string | null | undefined) => {
+  const timestamp = Date.parse(String(value || ''));
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const shouldFailStaleBackupJob = (entry: BackupJobRecord, nowMs = Date.now()) => {
+  if (!isActiveBackupJob(entry)) return false;
+  const heartbeatMs = parseBackupJobTime(entry.updatedAt) || parseBackupJobTime(entry.startedAt) || parseBackupJobTime(entry.createdAt);
+  if (!heartbeatMs) return true;
+  return nowMs - heartbeatMs > BACKUP_JOB_STALE_MS;
+};
+
+const reconcileStaleBackupJobs = (records: BackupJobRecord[]) => {
+  const now = toIso();
+  let changed = false;
+  const reconciled = records.map((entry) => {
+    if (!shouldFailStaleBackupJob(entry)) return entry;
+    changed = true;
+    return {
+      ...entry,
+      status: 'failed' as BackupJobStatus,
+      updatedAt: now,
+      failedAt: now,
+      completedAt: null,
+      message:
+        'Backup job timed out or the worker was interrupted before a package was saved. Start a new backup.',
+      errorCode: 'BACKUP_JOB_STALE_TIMEOUT',
+      scrolithLicense: null
+    };
+  });
+  return { records: reconciled, changed };
+};
+
+const readReconciledJobs = async () => {
+  const jobs = await readJobs();
+  const reconciled = reconcileStaleBackupJobs(jobs);
+  if (reconciled.changed) {
+    await writeJobs(reconciled.records);
+  }
+  return reconciled.records;
 };
 
 const readCatalogLocal = (): BackupCatalogRecord[] => {
@@ -1832,7 +1885,9 @@ export const getSystemBackupRuntimeMeta = () => {
     importLimitBytes: BACKUP_IMPORT_LIMIT_BYTES,
     maxSingleFileBytes: BACKUP_MAX_FILE_BYTES,
     maxTotalFileSnapshotBytes: BACKUP_MAX_TOTAL_FILE_BYTES,
-    databaseChunkBytes: shouldUseDatabaseBackupStorage() ? DATABASE_BACKUP_CHUNK_BYTES : null
+    databaseChunkBytes: shouldUseDatabaseBackupStorage() ? DATABASE_BACKUP_CHUNK_BYTES : null,
+    jobHeartbeatMs: BACKUP_JOB_HEARTBEAT_MS,
+    staleJobTimeoutMs: BACKUP_JOB_STALE_MS
   };
 };
 
@@ -1894,7 +1949,7 @@ export const verifySystemBackup = async (backupId: string) => {
 };
 
 export const listSystemBackupJobs = async () => {
-  const jobs = await readJobs();
+  const jobs = await readReconciledJobs();
   return jobs.sort(
     (a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()
   );
@@ -1993,10 +2048,8 @@ export const createSystemBackup = async (input: CreateBackupInput) => {
 };
 
 export const queueSystemBackupCreation = async (input: CreateBackupInput) => {
-  const jobs = await readJobs();
-  const existingActiveJob = jobs.find(
-    (entry) => entry.type === 'create' && (entry.status === 'queued' || entry.status === 'running')
-  );
+  const jobs = await readReconciledJobs();
+  const existingActiveJob = jobs.find(isActiveBackupJob);
   if (existingActiveJob) {
     throw toError(
       'Another system backup is already running. Wait for it to finish before starting a new one.',
@@ -2047,22 +2100,42 @@ export const runSystemBackupCreationJob = async (
     }
   };
 
-  await patchBackupJob(jobId, {
-    status: 'running',
-    startedAt: toIso(),
-    failedAt: null,
-    completedAt: null,
-    message: 'Generating backup package.',
-    errorCode: null
-  });
-  await emitUpdate({
-    action: 'job_running',
-    jobId,
-    status: 'running'
-  });
+  let heartbeat: NodeJS.Timeout | null = null;
+  const stopHeartbeat = () => {
+    if (!heartbeat) return;
+    clearInterval(heartbeat);
+    heartbeat = null;
+  };
+  const startHeartbeat = () => {
+    stopHeartbeat();
+    heartbeat = setInterval(() => {
+      void patchBackupJob(jobId, {
+        message: 'Generating backup package.'
+      }).catch((error) => {
+        console.warn('[system-backup] job heartbeat failed:', (error as any)?.message || error);
+      });
+    }, BACKUP_JOB_HEARTBEAT_MS);
+    heartbeat.unref?.();
+  };
 
   try {
+    await patchBackupJob(jobId, {
+      status: 'running',
+      startedAt: toIso(),
+      failedAt: null,
+      completedAt: null,
+      message: 'Generating backup package.',
+      errorCode: null
+    });
+    await emitUpdate({
+      action: 'job_running',
+      jobId,
+      status: 'running'
+    });
+    startHeartbeat();
+
     const result = await createSystemBackup(input);
+    stopHeartbeat();
     const completedJob = await patchBackupJob(jobId, {
       status: 'completed',
       completedAt: toIso(),
@@ -2085,6 +2158,7 @@ export const runSystemBackupCreationJob = async (
 
     return completedJob;
   } catch (error: any) {
+    stopHeartbeat();
     const failedJob = await patchBackupJob(jobId, {
       status: 'failed',
       failedAt: toIso(),
