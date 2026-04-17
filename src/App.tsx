@@ -23,6 +23,7 @@ import { NetworkStatusProvider } from './context/NetworkStatusContext';
 import { UserProvider, useUser } from './context/UserContext';
 import { SocketProvider } from './context/SocketContext';
 import { PreloaderProvider } from './context/PreloaderContext';
+import { RealtimeProvider } from './dashboard/shared/RealtimeProvider';
 import { I18nProvider } from './i18n/I18nProvider';
 import GlobalPreloader from './components/GlobalPreloader';
 import { AlertTriangleIcon } from './components/icons/ShellIcons';
@@ -1580,9 +1581,6 @@ const LiveFeatureRoute: React.FC<{ children: React.ReactNode }> = ({ children })
       }
   }
 
-  // TODO: Re-add RealtimeProvider after fixing socket initialization issues
-  // RealtimeProvider removed temporarily to fix lazy loading errors
-
   return <>{children}</>;
 };
 // ============ END ProtectedRoute ============
@@ -1600,18 +1598,20 @@ function App() {
                 <I18nProvider>
                   <NotificationProvider>
                     <ToastContainer />
-                    <CurrencyProvider>
-                      <FavoritesProvider>
-                        <CartProvider>
-                          <MessageProvider>
-                            <LiveFeatureProvider>
-                              <GlobalPreloader />
-                              <AppContent />
-                            </LiveFeatureProvider>
-                          </MessageProvider>
-                        </CartProvider>
-                      </FavoritesProvider>
-                    </CurrencyProvider>
+                    <RealtimeProvider>
+                      <CurrencyProvider>
+                        <FavoritesProvider>
+                          <CartProvider>
+                            <MessageProvider>
+                              <LiveFeatureProvider>
+                                <GlobalPreloader />
+                                <AppContent />
+                              </LiveFeatureProvider>
+                            </MessageProvider>
+                          </CartProvider>
+                        </FavoritesProvider>
+                      </CurrencyProvider>
+                    </RealtimeProvider>
                   </NotificationProvider>
                 </I18nProvider>
               </ContentProvider>

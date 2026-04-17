@@ -54,7 +54,9 @@ const SearchInput: React.FC<SearchInputProps> = ({
     const [isOpen, setIsOpen] = useState(false);
     const [isThinking, setIsThinking] = useState(false);
     const [recommendationsLoaded, setRecommendationsLoaded] = useState(false);
+    const [suggestionsResolvedFor, setSuggestionsResolvedFor] = useState('');
     const containerRef = useRef<HTMLDivElement>(null);
+    const suggestionRequestSeqRef = useRef(0);
     const navigate = useNavigate();
     const { user } = useUser();
 
@@ -105,9 +107,13 @@ const SearchInput: React.FC<SearchInputProps> = ({
 
     // Debounce Suggestions
     useEffect(() => {
+        const clean = query.trim();
+        const requestSeq = ++suggestionRequestSeqRef.current;
+
         const fetchSuggestions = async () => {
-            if (query.trim().length < 2) {
+            if (clean.length < 2) {
                 setSuggestions([]);
+                setSuggestionsResolvedFor('');
                 setIsThinking(false);
                 if (isOpen) {
                     loadRecommendations();
@@ -116,18 +122,25 @@ const SearchInput: React.FC<SearchInputProps> = ({
             }
             setIsThinking(true);
             try {
-                const results = await SearchService.getSuggestions(query, user?.role);
-                setSuggestions(results);
+                const results = await SearchService.getSuggestions(clean, user?.role);
+                if (suggestionRequestSeqRef.current !== requestSeq) return;
+                setSuggestions(Array.isArray(results) ? results : []);
+                setSuggestionsResolvedFor(clean);
             } catch (error) {
+                if (suggestionRequestSeqRef.current !== requestSeq) return;
                 console.error("Failed to fetch suggestions", error);
+                setSuggestions([]);
+                setSuggestionsResolvedFor(clean);
             } finally {
-                setIsThinking(false);
+                if (suggestionRequestSeqRef.current === requestSeq) {
+                    setIsThinking(false);
+                }
             }
         };
 
         const timer = setTimeout(fetchSuggestions, 300);
         return () => clearTimeout(timer);
-    }, [isOpen, loadRecommendations, query, user]);
+    }, [isOpen, loadRecommendations, query, user?.role]);
 
     // Outside Click Handler
     useEffect(() => {
@@ -226,7 +239,10 @@ const SearchInput: React.FC<SearchInputProps> = ({
     const effectiveAriaLabel = buttonAriaLabel || buttonLabel || placeholder || '';
     const cleanQuery = query.trim();
     const activeSuggestions = useMemo(() => {
-        const source = cleanQuery.length >= 2 ? suggestions : recommendedSuggestions;
+        const source =
+            cleanQuery.length >= 2
+                ? (suggestionsResolvedFor === cleanQuery || isThinking ? suggestions : [])
+                : recommendedSuggestions;
         const deduped = new Map<string, SearchSuggestion>();
         source.forEach((item: any) => {
             const text = normalizeSuggestionText(item);
@@ -239,8 +255,16 @@ const SearchInput: React.FC<SearchInputProps> = ({
             });
         });
         return Array.from(deduped.values()).slice(0, cleanQuery.length >= 2 ? 8 : 6);
-    }, [cleanQuery.length, recommendedSuggestions, suggestions]);
-    const shouldShowDropdown = isOpen && (isThinking || activeSuggestions.length > 0);
+    }, [cleanQuery, isThinking, recommendedSuggestions, suggestions, suggestionsResolvedFor]);
+    const showEmptySearchState =
+        isOpen &&
+        cleanQuery.length >= 2 &&
+        !isThinking &&
+        suggestionsResolvedFor === cleanQuery &&
+        activeSuggestions.length === 0;
+    const shouldShowDropdown =
+        isOpen &&
+        (cleanQuery.length >= 2 || isThinking || activeSuggestions.length > 0 || recommendedSuggestions.length > 0);
     const dropdownTitle = cleanQuery.length >= 2 ? 'Scrolith suggestions' : 'Try searching for';
 
     return (
@@ -301,6 +325,15 @@ const SearchInput: React.FC<SearchInputProps> = ({
                             <div className="flex items-center px-4 py-2 text-xs text-gray-500">
                                 <Sparkles className="mr-2 h-3.5 w-3.5 animate-pulse" />
                                 Scrolith is finding the best matches...
+                            </div>
+                        )}
+
+                        {showEmptySearchState && (
+                            <div className="px-4 py-5 text-sm text-gray-500">
+                                <p className="font-semibold text-gray-800">No exact matches yet.</p>
+                                <p className="mt-1 text-xs">
+                                    Press Enter to search all of Scrolith for "{cleanQuery}".
+                                </p>
                             </div>
                         )}
 

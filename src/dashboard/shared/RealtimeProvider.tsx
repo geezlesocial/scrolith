@@ -13,7 +13,8 @@ type RealtimeContextType = {
   socketConnected: boolean;
 };
 
-const RealtimeContext = createContext<RealtimeContextType>({ socketConnected: false });
+const RealtimeContext = createContext<RealtimeContextType | null>(null);
+const DEFAULT_REALTIME_CONTEXT: RealtimeContextType = { socketConnected: false };
 
 const normalizeRole = (role?: string) => {
   if (!role) return undefined;
@@ -22,7 +23,7 @@ const normalizeRole = (role?: string) => {
   return normalized;
 };
 
-export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const RealtimeProviderCore: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated, updateAdminProfile, updateUser } = useUser();
   const { socket } = useSocket();
   const { refreshNotifications } = useNotification();
@@ -151,6 +152,12 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;
 };
 
-export const useRealtime = () => useContext(RealtimeContext);
+export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const parentRealtime = useContext(RealtimeContext);
+  if (parentRealtime) return <>{children}</>;
+  return <RealtimeProviderCore>{children}</RealtimeProviderCore>;
+};
+
+export const useRealtime = () => useContext(RealtimeContext) || DEFAULT_REALTIME_CONTEXT;
 
 export default RealtimeProvider;
