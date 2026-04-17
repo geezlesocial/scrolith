@@ -76,10 +76,12 @@ import monetizationRoutes from './routes/monetization.routes';
 import payoutsStripeRoutes from './routes/payouts.stripe.routes';
 import preloaderRoutes from './routes/preloader.routes';
 import publicDeveloperRoutes from './routes/public.developer.routes';
+import publicV1Routes from './routes/public.v1.routes';
 import adminPreloadersRoutes from './routes/admin/preloaders.routes';
 import recoRoutes from './routes/reco.routes';
 import scrolithaRoutes from './routes/scrolitha.routes';
 import phase3Routes from './routes/phase3.routes';
+import ecosystemRoutes from './routes/ecosystem.routes';
 import insightsRoutes from './routes/insights.routes';
 import { authMiddleware } from './middleware/auth.middleware';
 import { adminMiddleware } from './middleware/admin.middleware';
@@ -2660,6 +2662,14 @@ const buildHealthPayload = () => ({
       payoutOrchestration: '/api/phase3/payouts/orchestration',
       globalLocalization: '/api/phase3/localization/global'
     },
+    phase4: {
+      publicApiCatalog: '/api/public/v1/catalog',
+      publicSearch: '/api/public/v1/search',
+      ecosystemManifest: '/api/ecosystem/public/apis',
+      developerDashboard: '/api/ecosystem/developer/dashboard',
+      webhooks: '/api/ecosystem/developer/webhooks',
+      widgets: '/api/ecosystem/developer/widgets'
+    },
     rollback: {
       config: '/api/admin/config/snapshots'
     },
@@ -2919,10 +2929,12 @@ app.use('/api/forms', formsRoutes);
 app.use('/api/monetization', monetizationRoutes);
 app.use('/api/payouts/stripe', payoutsStripeRoutes);
 app.use('/api/public/preloader', preloaderRoutes);
+app.use('/api/public/v1', publicV1Routes);
 app.use('/api/public/developer', publicDeveloperRoutes);
 app.use('/api/reco', recoRoutes);
 app.use('/api/scrolitha', scrolithaRoutes);
 app.use('/api/phase3', phase3Routes);
+app.use('/api/ecosystem', ecosystemRoutes);
 app.use('/api/insights', insightsRoutes);
 app.use('/api/admin/preloaders', adminPreloadersRoutes);
 
