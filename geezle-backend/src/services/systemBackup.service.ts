@@ -15,6 +15,10 @@ import {
   isAzureBlobConfigured,
   uploadBufferToBlob
 } from './storage/blobStorage';
+import {
+  downloadDatabaseStorageBufferByName,
+  uploadBufferToDatabaseStorage
+} from './storage/databaseStorage';
 
 export type BackupMode = 'full' | 'partial';
 export type RestoreMode = 'replace' | 'append';
@@ -142,9 +146,11 @@ const BACKUP_MAX_TOTAL_FILE_BYTES = Math.max(
 const BACKUP_LICENSE_PEPPER =
   process.env.BACKUP_LICENSE_PEPPER || process.env.JWT_SECRET || 'scrolith-backup-license-pepper';
 const EXCLUDED_TABLES = new Set<string>(['_prisma_migrations']);
+const MANAGED_UPLOAD_OBJECT_TABLE = 'ManagedUploadObject';
 const DEFAULT_STORAGE_PROVIDER = 'local';
 const DATABASE_STORAGE_PROVIDER = 'database';
 const AZURE_BLOB_STORAGE_PROVIDER = 'azure_blob';
+const MANAGED_DATABASE_STORAGE_PROVIDER = 'database_storage';
 const DATABASE_BACKUP_SCOPE_PREFIX = 'systemBackup';
 const DATABASE_BACKUP_CATALOG_SCOPE = `${DATABASE_BACKUP_SCOPE_PREFIX}.catalog`;
 const DATABASE_BACKUP_JOBS_SCOPE = `${DATABASE_BACKUP_SCOPE_PREFIX}.jobs`;
@@ -152,10 +158,7 @@ const DATABASE_BACKUP_CHUNK_BYTES = Math.max(
   256 * 1024,
   Number(process.env.SYSTEM_BACKUP_DB_CHUNK_BYTES || 2 * 1024 * 1024)
 );
-const BACKUP_JOB_STALE_MS = Math.max(
-  5 * 60 * 1000,
-  Number(process.env.SYSTEM_BACKUP_JOB_STALE_MS || 45 * 60 * 1000)
-);
+const BACKUP_JOB_STALE_MS = Math.max(5 * 60 * 1000, Number(process.env.SYSTEM_BACKUP_JOB_STALE_MS || 8 * 60 * 1000));
 const BACKUP_JOB_HEARTBEAT_MS = Math.max(
   5 * 1000,
   Math.min(BACKUP_JOB_STALE_MS / 3, Number(process.env.SYSTEM_BACKUP_JOB_HEARTBEAT_MS || 30 * 1000))
@@ -820,9 +823,13 @@ const resolveManagedStorageProvider = () => {
   const driver = String(process.env.UPLOAD_DRIVER || process.env.STORAGE_DRIVER || DEFAULT_STORAGE_PROVIDER)
     .trim()
     .toLowerCase();
-  return ['azure_blob', 'azure', 'blob'].includes(driver) && isAzureBlobConfigured()
-    ? AZURE_BLOB_STORAGE_PROVIDER
-    : DEFAULT_STORAGE_PROVIDER;
+  if (['database_storage', 'database', 'db', 'postgres', 'postgresql'].includes(driver)) {
+    return MANAGED_DATABASE_STORAGE_PROVIDER;
+  }
+  if (['azure_blob', 'azure', 'blob'].includes(driver) && isAzureBlobConfigured()) {
+    return AZURE_BLOB_STORAGE_PROVIDER;
+  }
+  return DEFAULT_STORAGE_PROVIDER;
 };
 
 const getSystemBackupBaseUrl = () => {
@@ -989,6 +996,13 @@ const readManagedFileBuffer = async (file: {
   }
 
   const provider = String(file.storageProvider || '').trim().toLowerCase();
+  if (provider === MANAGED_DATABASE_STORAGE_PROVIDER) {
+    return {
+      relativePath: normalizedStorageKey,
+      buffer: await downloadDatabaseStorageBufferByName(normalizedStorageKey)
+    };
+  }
+
   if (provider === 'azure_blob' && isAzureBlobConfigured()) {
     const blobResponse = await downloadBlobByName(normalizedStorageKey);
     const stream = blobResponse.readableStreamBody;
@@ -1544,6 +1558,15 @@ const restoreManagedStorageSnapshot = async (file: FileSnapshot) => {
   if (!content.length) return false;
   if (content.length > BACKUP_MAX_FILE_BYTES) return false;
 
+  if (resolveManagedStorageProvider() === MANAGED_DATABASE_STORAGE_PROVIDER) {
+    await uploadBufferToDatabaseStorage({
+      buffer: content,
+      contentType: String(file.contentType || 'application/octet-stream'),
+      fileName: relativePath
+    });
+    return true;
+  }
+
   const localTarget = path.resolve(UPLOAD_DIR, relativePath);
   if (!localTarget.startsWith(path.resolve(UPLOAD_DIR))) return false;
   fs.mkdirSync(path.dirname(localTarget), { recursive: true });
@@ -1669,7 +1692,7 @@ const reconcileRestoredFileRecords = async (rows: any[]) => {
         const mimeType = String(row?.mime_type || row?.mimeType || row?.type || '').trim().toLowerCase();
         const thumbnailRelativePath = resolveStoredThumbnailRelativePath(row?.thumbnail_url || row?.thumbnailUrl);
         const nextUrl =
-          targetProvider === AZURE_BLOB_STORAGE_PROVIDER
+          targetProvider === AZURE_BLOB_STORAGE_PROVIDER || targetProvider === MANAGED_DATABASE_STORAGE_PROVIDER
             ? buildFileContentUrlForRestore(fileId)
             : buildUploadsUrlForRestore(storageKey);
 
@@ -1968,8 +1991,12 @@ export const createSystemBackup = async (input: CreateBackupInput) => {
   try {
     const allTables = await listPublicTables(dbClient);
     const selectedTables = resolveTargetTables(allTables, mode, sections, customTables);
+    const exportTables =
+      includeFiles && selectedTables.includes(MANAGED_UPLOAD_OBJECT_TABLE)
+        ? selectedTables.filter((table) => table !== MANAGED_UPLOAD_OBJECT_TABLE)
+        : selectedTables;
     const database: Record<string, any[]> = {};
-    for (const table of selectedTables) {
+    for (const table of exportTables) {
       database[table] = await loadTableRows(dbClient, table);
     }
 
@@ -1991,7 +2018,7 @@ export const createSystemBackup = async (input: CreateBackupInput) => {
         id: backupId,
         mode,
         sections,
-        tables: selectedTables,
+        tables: exportTables,
         includeFiles,
         notes,
         createdAt,
@@ -2017,7 +2044,7 @@ export const createSystemBackup = async (input: CreateBackupInput) => {
       formatVersion: BACKUP_FORMAT_VERSION,
       mode,
       sections,
-      tables: selectedTables,
+      tables: exportTables,
       includeFiles,
       fileCount: files.length,
       sizeBytes: compressed.byteLength,
