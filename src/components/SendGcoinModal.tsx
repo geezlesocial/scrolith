@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { GcoinService } from '../services/gcoin';
+import MobileDialog, { MobileDialogFooter } from './mobile/MobileDialog';
 
 interface Props {
   isOpen: boolean;
@@ -147,14 +148,34 @@ const SendGcoinModal: React.FC<Props> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-40">
-      <div className="w-full max-w-md rounded-lg bg-white p-6 text-slate-900 shadow-lg">
-        <h3 className="mb-1 text-lg font-bold text-slate-900">{titleOverride || (isDonationMode ? 'Dash Gcoin' : 'Send Gcoin')}</h3>
-        {(subtitleOverride || isDonationMode) && (
-          <p className="mb-3 text-xs text-slate-600">
-            {subtitleOverride || 'Dash lets you gift Gcoin to support creators and posts instantly.'}
-          </p>
-        )}
+    <MobileDialog
+      open={isOpen}
+      onClose={onClose}
+      size="sm"
+      title={titleOverride || (isDonationMode ? 'Dash Gcoin' : 'Send Gcoin')}
+      description={subtitleOverride || (isDonationMode ? 'Dash lets you gift Gcoin to support creators and posts instantly.' : undefined)}
+      closeDisabled={loading}
+      footer={
+        <MobileDialogFooter>
+          <button
+            type="button"
+            className="inline-flex h-11 w-full items-center justify-center rounded-xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            onClick={onClose}
+            disabled={loading}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            onClick={submit}
+            disabled={loading || !canSubmit}
+          >
+            {loading ? (isDonationMode ? 'Dashing...' : 'Sending...') : isDonationMode ? 'Dash' : 'Send'}
+          </button>
+        </MobileDialogFooter>
+      }
+    >
         {error ? <div className="mb-2 text-sm text-red-600">{error}</div> : null}
         <div className="mb-3 text-xs text-slate-600">
           {walletLoading ? 'Loading your Gcoin balance...' : `Your Gcoin balance: ${availableBalance} GC`}
@@ -204,17 +225,7 @@ const SendGcoinModal: React.FC<Props> = ({
           value={note}
           onChange={(event) => setNote(event.target.value)}
         />
-
-        <div className="flex justify-end gap-2">
-          <button className="rounded bg-slate-100 px-4 py-2 text-slate-700 disabled:cursor-not-allowed disabled:opacity-60" onClick={onClose} disabled={loading}>
-            Cancel
-          </button>
-          <button className="rounded bg-blue-600 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60" onClick={submit} disabled={loading || !canSubmit}>
-            {loading ? (isDonationMode ? 'Dashing...' : 'Sending...') : isDonationMode ? 'Dash' : 'Send'}
-          </button>
-        </div>
-      </div>
-    </div>
+    </MobileDialog>
   );
 };
 

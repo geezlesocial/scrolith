@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
-import { X, Link as LinkIcon, Copy, Mail, Facebook, Twitter, Linkedin } from 'lucide-react';
+import React from 'react';
+import { Link as LinkIcon, Copy, Mail, Facebook, Twitter, Linkedin } from 'lucide-react';
+import MobileDialog from './mobile/MobileDialog';
 
 interface ShareModalProps {
   isOpen: boolean;
@@ -11,22 +12,6 @@ interface ShareModalProps {
 }
 
 const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, url, title, description, onShare }) => {
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'hidden';
-    }
-
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = '';
-    };
-  }, [isOpen, onClose]);
-
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(url);
@@ -47,16 +32,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, url, title, de
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose}></div>
-      <div className="relative bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-bold text-gray-900">Share this</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-        
+    <MobileDialog open={isOpen} onClose={onClose} size="sm" title="Share this">
         <div className="flex items-center p-3 bg-gray-50 rounded-lg mb-4">
           <LinkIcon className="w-4 h-4 text-gray-500 mr-2" />
           <span className="text-sm text-gray-700 truncate">{url}</span>
@@ -86,8 +62,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ isOpen, onClose, url, title, de
             );
           })}
         </div>
-      </div>
-    </div>
+    </MobileDialog>
   );
 };
 

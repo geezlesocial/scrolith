@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:mobile:unit": "node --import tsx --test tests/unit/**/*.test.ts",
+    "test:mobile:release": "node scripts/mobile-release-gate.cjs",
     "server": "npx tsx server/src/server.ts",
     "generate-favicon": "node scripts/generate-favicon.cjs",
     "db:migrate": "npx prisma migrate dev",

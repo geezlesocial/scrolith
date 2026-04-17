@@ -3,12 +3,15 @@ import ReactDOM from 'react-dom/client'
 import { Capacitor } from '@capacitor/core'
 import App from './App'
 import './index.css'
+import { installMobileObservability } from './mobile/runtime/mobileObservability'
 
 const WEB_CACHE_RESET_KEY = 'scrolith:web-cache-reset-v1'
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
 )
+
+installMobileObservability()
 
 root.render(
   <React.StrictMode>

@@ -18,6 +18,15 @@ const GROUP_LABELS: Record<SearchCategory, string> = {
 };
 
 const DEFAULT_ORDER: SearchCategory[] = ['people', 'pages', 'jobs', 'gigs', 'posts'];
+const SEARCH_RECENTS_KEY = 'scrolith:mobile-search-recents:v1';
+const RECOMMENDED_QUERIES = [
+  'remote work',
+  'AI tools',
+  'frontend developer',
+  'business automation',
+  'creator campaigns',
+  'project manager'
+];
 
 type SearchBuckets = Record<SearchCategory, any[]>;
 
@@ -27,6 +36,25 @@ const EMPTY_BUCKETS: SearchBuckets = {
   pages: [],
   jobs: [],
   gigs: []
+};
+
+const readRecentSearches = () => {
+  if (typeof window === 'undefined') return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SEARCH_RECENTS_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.map((entry) => String(entry || '').trim()).filter(Boolean).slice(0, 8) : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeRecentSearches = (items: string[]) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SEARCH_RECENTS_KEY, JSON.stringify(items.slice(0, 8)));
+  } catch {
+    // Search history is optional and should never block navigation.
+  }
 };
 
 export default function SearchScreen({
@@ -48,6 +76,7 @@ export default function SearchScreen({
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<SearchBuckets>(EMPTY_BUCKETS);
   const [retryTick, setRetryTick] = useState(0);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const requestIdRef = useRef(0);
 
   const normalizedQuery = q.trim();
@@ -83,6 +112,32 @@ export default function SearchScreen({
   useEffect(() => {
     setActive('all');
   }, [categories, enabled]);
+
+  useEffect(() => {
+    setRecentSearches(readRecentSearches());
+  }, []);
+
+  const rememberSearch = (query: string) => {
+    const normalized = query.trim();
+    if (normalized.length < 2) return;
+    const next = [normalized, ...recentSearches.filter((entry) => entry.toLowerCase() !== normalized.toLowerCase())].slice(0, 8);
+    setRecentSearches(next);
+    writeRecentSearches(next);
+  };
+
+  const navigateAfterResult = () => {
+    rememberSearch(normalizedQuery);
+    (onNavigate || onClose)();
+  };
+
+  const navigateUrlAfterResult = (url: string) => {
+    rememberSearch(normalizedQuery);
+    if (onNavigateUrl) {
+      onNavigateUrl(url);
+      return;
+    }
+    (onNavigate || onClose)();
+  };
 
   useEffect(() => {
     if (!enabled || normalizedQuery.length < 2) {
@@ -216,14 +271,46 @@ export default function SearchScreen({
         </div>
       </div>
 
-      <div className="mt-3 space-y-3">
+      <div className="mt-3 min-h-[45dvh] space-y-3">
         {!enabled ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
             Search is disabled by admin settings.
           </div>
         ) : q.trim().length < 2 ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-            Type at least 2 characters to search.
+          <div className="space-y-3">
+            {recentSearches.length > 0 ? (
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Recent searches</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {recentSearches.map((entry) => (
+                    <button
+                      key={entry}
+                      type="button"
+                      onClick={() => setQ(entry)}
+                      className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                    >
+                      {entry}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Recommended by Scrolith</div>
+              <div className="mt-3 grid grid-cols-1 gap-2">
+                {RECOMMENDED_QUERIES.map((entry) => (
+                  <button
+                    key={entry}
+                    type="button"
+                    onClick={() => setQ(entry)}
+                    className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-3 text-left text-sm font-semibold text-slate-800 hover:bg-slate-100"
+                  >
+                    <Search className="h-4 w-4 text-slate-500" />
+                    <span>{entry}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         ) : loading && !hasVisibleResults ? (
           <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
@@ -251,6 +338,11 @@ export default function SearchScreen({
           </div>
         ) : active === 'all' ? (
           <div className="space-y-3">
+            {loading ? (
+              <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+                Updating results...
+              </div>
+            ) : null}
             {allSections.map((section) => (
               <div key={section.key} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
                 <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -263,8 +355,8 @@ export default function SearchScreen({
                         key={`${section.key}-${row?.id ?? row?.url ?? index}`}
                         type={section.key}
                         row={row}
-                        onNavigate={onNavigate || onClose}
-                        onNavigateUrl={onNavigateUrl}
+                        onNavigate={navigateAfterResult}
+                        onNavigateUrl={navigateUrlAfterResult}
                       />
                     ))}
                 </div>
@@ -273,13 +365,18 @@ export default function SearchScreen({
           </div>
         ) : (
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+            {loading ? (
+              <div className="bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+                Updating results...
+              </div>
+            ) : null}
             {activeResults.map((row: any, index: number) => (
                 <SearchRow
                   key={`${active}-${row?.id ?? row?.url ?? index}`}
                   type={active}
                   row={row}
-                  onNavigate={onNavigate || onClose}
-                  onNavigateUrl={onNavigateUrl}
+                  onNavigate={navigateAfterResult}
+                  onNavigateUrl={navigateUrlAfterResult}
                 />
               ))}
           </div>

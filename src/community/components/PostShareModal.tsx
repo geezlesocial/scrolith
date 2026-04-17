@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Copy, ExternalLink, Link as LinkIcon, MessageCircle, Send, X } from 'lucide-react';
+import { Copy, ExternalLink, Link as LinkIcon, MessageCircle, Send } from 'lucide-react';
 import { useUser } from '../../context/UserContext';
 import { useNotification } from '../../context/NotificationContext';
 import { MessagingService } from '../../services/messaging';
 import { CommunityService } from '../../services/community';
+import MobileDialog from '../../components/mobile/MobileDialog';
 
 type TabKey = 'message' | 'link' | 'network';
 
@@ -43,19 +44,6 @@ const PostShareModal: React.FC<Props> = ({
     setSearch('');
     setSelected({});
   }, [isOpen, user?.id]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    if (!isOpen) return;
-    document.addEventListener('keydown', onKeyDown);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      document.body.style.overflow = '';
-    };
-  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -145,17 +133,15 @@ const PostShareModal: React.FC<Props> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl">
-        <div className="flex items-center justify-between">
-          <h3 className="text-base font-semibold text-slate-900">Send / Share</h3>
-          <button type="button" onClick={onClose} className="rounded-full p-2 text-slate-500 hover:bg-slate-100">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="mt-4 flex flex-wrap gap-2">
+    <MobileDialog
+      open={isOpen}
+      onClose={onClose}
+      size="md"
+      title="Send / Share"
+      description={`Share this ${entityLabel} by message, link, or repost.`}
+      closeDisabled={busy}
+    >
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={() => setTab('message')}
@@ -320,8 +306,7 @@ const PostShareModal: React.FC<Props> = ({
             </div>
           </div>
         ) : null}
-      </div>
-    </div>
+    </MobileDialog>
   );
 };
 
