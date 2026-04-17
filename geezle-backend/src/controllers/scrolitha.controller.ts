@@ -9,6 +9,7 @@ import {
   scrolithaFeedback,
   scrolithaHistory
 } from '../services/scrolitha/scrolitha.orchestrator';
+import { buildScrolithaWorkOsPlan } from '../services/phase2.service';
 
 const unauthorized = (res: Response) =>
   res.status(401).json({
@@ -168,5 +169,25 @@ export const scrolithaWidgetConfigController = async (_req: Request, res: Respon
       message: 'Failed to load Scrolitha widget config',
       error: String(error?.message || 'Unknown error')
     });
+  }
+};
+
+export const scrolithaWorkOsPlanController = async (req: Request, res: Response) => {
+  try {
+    if (!req.user?.id) return unauthorized(res);
+    const data = await buildScrolithaWorkOsPlan(
+      { id: req.user.id, role: req.user.role },
+      {
+        goal: req.body?.goal,
+        context: req.body?.context,
+        roomId: req.body?.roomId
+      }
+    );
+    return res.json({ success: true, data, message: 'Scrolitha Work OS plan ready' });
+  } catch (error: any) {
+    const message = String(error?.message || 'Failed to build Scrolitha Work OS plan');
+    const status = message.toLowerCase().includes('required') ? 400 : 500;
+    if (status >= 500) console.error('[scrolitha] work os plan error', error);
+    return res.status(status).json({ success: false, message: 'Scrolitha Work OS plan failed', error: message });
   }
 };

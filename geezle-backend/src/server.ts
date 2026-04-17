@@ -29,6 +29,7 @@ import locationRoutes from './routes/location.routes';
 import settingsRoutes from './routes/settings.routes';
 import commerceRoutes from './routes/commerce';
 import searchRoutes from './routes/search';
+import discoveryV2Routes from './routes/discovery.v2.routes';
 import feedRoutes from './routes/feed';
 import topicsRoutes from './routes/topics.routes';
 import pipelineRoutes from './routes/pipeline.routes';
@@ -48,6 +49,8 @@ import liveRoutes from './routes/live.routes';
 import postsRoutes from './routes/posts.routes';
 import contractsRoutes from './routes/contracts.routes';
 import messagesRoutes from './routes/messages.routes';
+import collaborationRoutes from './routes/collaboration.routes';
+import trustRoutes from './routes/trust.routes';
 import moderationChatRoutes from './routes/moderation.chat.routes';
 import filesRoutes from './routes/files.routes';
 import { serveLegacyUploadAsset } from './controllers/filesController';
@@ -1200,6 +1203,55 @@ communityNs.on('connection', (socket) => {
       return;
     };
     void handleJoinAd(payload);
+  });
+
+  socket.on('collaboration:join', (payload: { roomId: string }, ack?: (result: any) => void) => {
+    const handleJoinCollaborationRoom = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        const roomId = String(payload?.roomId || '').trim();
+        if (!userId || !roomId) {
+          const result = { success: false, error: 'roomId is required.' };
+          if (ack) ack(result);
+          else socket.emit('error', { code: 'MISSING_ROOMID', message: result.error });
+          return;
+        }
+
+        const membership = await prisma.conversationParticipant.findUnique({
+          where: {
+            conversationId_userId: {
+              conversationId: roomId,
+              userId
+            }
+          },
+          select: { id: true, deletedAt: true, conversation: { select: { type: true } } }
+        });
+
+        if (!membership?.id || membership.deletedAt || membership.conversation?.type !== 'GROUP') {
+          const result = { success: false, error: 'Collaboration room not found.' };
+          if (ack) ack(result);
+          else socket.emit('error', { code: 'FORBIDDEN', message: result.error });
+          return;
+        }
+
+        const roomName = `collaboration:room:${roomId}`;
+        socket.join(roomName);
+        syncRealtimeRooms();
+        const result = { success: true, data: { room: roomName, roomId, userId } };
+        socket.emit('joined', result.data);
+        communityNs.to(roomName).emit('collaboration:presence', {
+          roomId,
+          userId,
+          status: 'joined',
+          at: new Date().toISOString()
+        });
+        if (ack) ack(result);
+      } catch (error: any) {
+        console.error('collaboration:join error', error);
+        if (ack) ack({ success: false, error: error?.message || 'Unable to join collaboration room.' });
+      }
+    };
+    void handleJoinCollaborationRoom();
   });
 
   socket.on('live:join', (payload: any, ack?: (result: any) => void) => {
@@ -2591,7 +2643,14 @@ const buildHealthPayload = () => ({
     search: {
       health: '/api/search/health',
       unified: '/api/search/unified',
-      suggestions: '/api/search/suggestions'
+      suggestions: '/api/search/suggestions',
+      discoveryV2: '/api/discovery/v2'
+    },
+    phase2: {
+      discovery: '/api/discovery/v2/feed',
+      trustGraph: '/api/trust/graph/me',
+      scrolithaWorkOs: '/api/scrolitha/work-os/plan',
+      collaborationRooms: '/api/collaboration/rooms'
     },
     rollback: {
       config: '/api/admin/config/snapshots'
@@ -2774,6 +2833,7 @@ app.use('/api/feed', feedRoutes);
 app.use('/api/topics', topicsRoutes);
 app.use('/api/pipeline', pipelineRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/discovery', discoveryV2Routes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/gigs', gigRoutes);
 app.use('/api/jobs', jobsRoutes);
@@ -2829,6 +2889,8 @@ app.put('/api/community/admin/config', (req: Request, res: Response, next) => {
 });
 app.use('/api/contracts', contractsRoutes);
 app.use('/api/messages', messagesRoutes);
+app.use('/api/collaboration', collaborationRoutes);
+app.use('/api/trust', trustRoutes);
 app.use('/api/moderation/chat', moderationChatRoutes);
 app.use('/api/reactions', reactionsRoutes);
 app.use('/api/files', filesRoutes);

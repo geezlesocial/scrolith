@@ -7,7 +7,8 @@ import {
   scrolithaHistoryController,
   scrolithaKnowledgeController,
   scrolithaRecordsController,
-  scrolithaWidgetConfigController
+  scrolithaWidgetConfigController,
+  scrolithaWorkOsPlanController
 } from '../controllers/scrolitha.controller';
 import {
   scrolithaCommentSuggestionsController,
@@ -27,6 +28,7 @@ router.use(authMiddleware);
 
 router.post('/chat', scrolithaChatController);
 router.post('/execute', scrolithaExecuteController);
+router.post('/work-os/plan', scrolithaWorkOsPlanController);
 router.post('/rewrite', scrolithaRewriteController);
 router.post('/hashtags', scrolithaHashtagsController);
 router.post('/comment-suggestions', scrolithaCommentSuggestionsController);
