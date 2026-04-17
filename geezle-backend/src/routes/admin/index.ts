@@ -54,7 +54,8 @@ import bcrypt from 'bcryptjs';
 // Persist to repository-level `Scrolith-backend/data` so it's easy to find and permissions are typical.
 const SETTINGS_DIR = path.resolve(__dirname, '../../../data');
 const SETTINGS_FILE = path.join(SETTINGS_DIR, 'platform-system-settings.json');
-const BRAND_ASSET_URL = 'https://scrolith.com/icon-192.png';
+const BRAND_LOGO_URL = 'https://scrolith.com/logo.png';
+const BRAND_FAVICON_URL = 'https://scrolith.com/favicon.png';
 
 const ensureSettingsDir = () => {
   try {
@@ -548,8 +549,8 @@ router.get('/platform/settings', async (req, res) => {
   const defaults = {
     siteName: 'Scrolith Marketplace',
     tagline: 'AI-Powered Social Freelance Marketplace with Secure Escrow & Monetization',
-    logoUrl: BRAND_ASSET_URL,
-    faviconUrl: BRAND_ASSET_URL,
+    logoUrl: BRAND_LOGO_URL,
+    faviconUrl: BRAND_FAVICON_URL,
     adminEmail: 'admin@Scrolith.com',
     supportEmail: 'support@Scrolith.com',
     reactions: {
@@ -1086,7 +1087,7 @@ router.get('/settings', (req, res) => {
     data: {
       siteName: 'Scrolith Marketplace',
       tagline: 'AI-Powered Social Freelance Marketplace with Secure Escrow & Monetization',
-      logoUrl: BRAND_ASSET_URL
+      logoUrl: BRAND_LOGO_URL
     }
   });
 });
