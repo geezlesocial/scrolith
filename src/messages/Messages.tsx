@@ -3396,19 +3396,22 @@ const Messages = () => {
         </div>
     )}
     {showBriefComposer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <div className="w-full max-w-3xl rounded-3xl bg-white p-6 shadow-2xl">
-                <div className="mb-5 flex items-center justify-between gap-3">
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 sm:p-4"
+            data-scroll-skip-swipe="true"
+        >
+            <div className="flex max-h-[calc(100dvh-1rem)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-3xl">
+                <div className="flex shrink-0 items-start justify-between gap-3 border-b border-gray-100 px-4 py-4 sm:px-6 sm:py-5">
                     <div>
                         <h3 className="text-lg font-bold text-gray-900">Conversation Brief</h3>
                         <p className="text-sm text-gray-500">Edit the structured request before saving it back into the relationship timeline.</p>
                     </div>
-                    <button type="button" onClick={() => setShowBriefComposer(false)} className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+                    <button type="button" onClick={() => setShowBriefComposer(false)} className="shrink-0 rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
                         <X className="h-4 w-4" />
                     </button>
                 </div>
 
-                <div className="space-y-4">
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <label className="block">
                             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Title</span>
@@ -3493,12 +3496,14 @@ const Messages = () => {
                             </div>
                         </div>
                     )}
+                </div>
 
-                    <div className="flex items-center justify-end gap-3">
+                <div className="shrink-0 border-t border-gray-100 bg-white/95 px-4 py-3 shadow-[0_-12px_28px_-24px_rgba(15,23,42,0.7)] backdrop-blur sm:px-6">
+                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
                         <button
                             type="button"
                             onClick={() => setShowBriefComposer(false)}
-                            className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                            className="inline-flex h-11 w-full items-center justify-center rounded-xl border border-gray-200 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 sm:w-auto"
                         >
                             Cancel
                         </button>
@@ -3506,7 +3511,7 @@ const Messages = () => {
                             type="button"
                             onClick={() => void handleSaveBrief()}
                             disabled={briefComposerBusy}
-                            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                            className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60 sm:w-auto"
                         >
                             {briefComposerBusy ? 'Saving...' : 'Save Brief'}
                         </button>
