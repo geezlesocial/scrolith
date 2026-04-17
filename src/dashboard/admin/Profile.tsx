@@ -1,194 +1,232 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Camera, Lock, LogOut, Mail, Save, User } from 'lucide-react';
 import { useUser } from '../../context/UserContext';
 import { useNotification } from '../../context/NotificationContext';
-import { Save, User, Lock, Mail, Camera, LogOut } from 'lucide-react';
 import FilePickerModal from '../shared/FilePickerModal';
-import { UploadedFile } from '../../types';
 import { AdminService } from '../../services/admin';
+import type { UploadedFile } from '../../types';
+
+const DEFAULT_ADMIN_AVATAR = 'https://scrolith.com/icon-192.png';
 
 const Profile = () => {
-    const { user, updateAdminProfile, getAdminProfile, logout, updateUser } = useUser();
-    const { showNotification } = useNotification();
-    
-    // Safely get admin profile with fallback
-    const currentProfile = (getAdminProfile && typeof getAdminProfile === 'function' ? getAdminProfile() : null) || { 
-        username: user?.username || user?.name || '', 
-        email: user?.email || '', 
-        password: '',
-        avatar: user?.avatar || null,
-        profilePhotoFileId: user?.profilePhotoFileId || null
-    };
-    
-    // State for image handling
-    const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
-    const [avatarPreview, setAvatarPreview] = useState(user?.avatar || currentProfile?.avatar || "https://ui-avatars.com/api/?name=Admin&background=000&color=fff");
-    const [avatarFileId, setAvatarFileId] = useState<string | null>(user?.profilePhotoFileId || currentProfile?.profilePhotoFileId || null);
-
-    // Form state
-    const [formData, setFormData] = useState({
-        username: currentProfile.username || '',
-        email: currentProfile.email || '',
-        password: currentProfile.password || '',
-        confirmPassword: currentProfile.password || ''
-    });
-    
-    // Sync state when user context updates (e.g. initial load)
-    useEffect(() => {
-        if (user?.avatar) {
-            setAvatarPreview(user.avatar);
-        }
-        if (user?.profilePhotoFileId) {
-            setAvatarFileId(user.profilePhotoFileId);
-        }
-    }, [user]);
-
-    const handleSave = async () => {
-        if (formData.password !== formData.confirmPassword) {
-            showNotification('alert', 'Error', 'Passwords do not match.');
-            return;
-        }
-        
-            // Persist to backend, then update local context/storage and notify
-            try {
-                const payload = {
-                    username: formData.username,
-                    email: formData.email,
-                    password: formData.password,
-                    avatar: avatarPreview,
-                    profilePhotoFileId: avatarFileId || undefined
-                };
-
-                const result = await AdminService.updateProfile(payload);
-
-                // Prefer authoritative server response when updating local state
-                const savedProfile = (result && (result.data || result)) || payload;
-
-                if (updateAdminProfile && typeof updateAdminProfile === 'function') {
-                    updateAdminProfile(savedProfile);
-                }
-                if (updateUser && typeof updateUser === 'function') {
-                    updateUser({ name: formData.username, email: formData.email, avatar: avatarPreview, profilePhotoFileId: avatarFileId || undefined });
-                }
-
-                showNotification('success', 'Profile Updated', 'Admin credentials have been saved.');
-            } catch (err: any) {
-                console.error('Failed to save admin profile:', err);
-                const serverMsg = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Unable to save admin profile.';
-                showNotification('alert', 'Save Failed', String(serverMsg));
-            }
-    };
-    
-    const handleAvatarSelect = (file: UploadedFile) => {
-        setAvatarPreview(file.url);
-        setAvatarFileId(file.id || null);
-        setIsFilePickerOpen(false);
+  const { user, updateAdminProfile, getAdminProfile, logout, updateUser } = useUser();
+  const { showNotification } = useNotification();
+  const currentProfile =
+    (typeof getAdminProfile === 'function' ? getAdminProfile() : null) || {
+      username: user?.username || user?.name || '',
+      email: user?.email || '',
+      password: '',
+      avatar: user?.avatar || DEFAULT_ADMIN_AVATAR,
+      profilePhotoFileId: user?.profilePhotoFileId || null
     };
 
-    return (
-        <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                <div className="p-6 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-                    <h2 className="text-xl font-bold text-gray-900">Admin Profile</h2>
-                    <button onClick={logout} className="text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg text-sm font-medium flex items-center transition-colors">
-                        <LogOut className="w-4 h-4 mr-2" /> Sign Out
-                    </button>
-                </div>
-                
-                <div className="p-8">
-                    <div className="flex flex-col md:flex-row gap-8">
-                        {/* Avatar Section */}
-                        <div className="flex flex-col items-center space-y-4">
-                            <div 
-                                className="w-32 h-32 rounded-full bg-gray-200 relative overflow-hidden border-4 border-white shadow-lg group cursor-pointer"
-                                onClick={() => setIsFilePickerOpen(true)}
-                            >
-                                <img src={avatarPreview} alt="Admin" className="w-full h-full object-cover" />
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                    <Camera className="w-8 h-8 text-white" />
-                                </div>
-                            </div>
-                            <p className="text-sm text-gray-500">Administrator</p>
-                            <button 
-                                onClick={() => setIsFilePickerOpen(true)}
-                                className="text-xs text-blue-600 hover:text-blue-800 font-medium hover:underline"
-                            >
-                                Change Photo
-                            </button>
-                        </div>
+  const [isSaving, setIsSaving] = useState(false);
+  const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState(
+    user?.avatar || currentProfile?.avatar || DEFAULT_ADMIN_AVATAR
+  );
+  const [avatarFileId, setAvatarFileId] = useState<string | null>(
+    user?.profilePhotoFileId || currentProfile?.profilePhotoFileId || null
+  );
+  const [formData, setFormData] = useState({
+    username: currentProfile.username || '',
+    email: currentProfile.email || '',
+    password: '',
+    confirmPassword: ''
+  });
 
-                        {/* Form Section */}
-                        <div className="flex-1 space-y-6 max-w-lg">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
-                                <div className="relative">
-                                    <User className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-                                    <input 
-                                        type="text" 
-                                        className="w-full pl-10 border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                                        value={formData.username}
-                                        onChange={e => setFormData({...formData, username: e.target.value})}
-                                    />
-                                </div>
-                            </div>
+  useEffect(() => {
+    setAvatarPreview(user?.avatar || currentProfile?.avatar || DEFAULT_ADMIN_AVATAR);
+    setAvatarFileId(user?.profilePhotoFileId || currentProfile?.profilePhotoFileId || null);
+    setFormData((prev) => ({
+      ...prev,
+      username: currentProfile.username || user?.username || user?.name || '',
+      email: currentProfile.email || user?.email || ''
+    }));
+  }, [
+    currentProfile?.avatar,
+    currentProfile?.email,
+    currentProfile?.profilePhotoFileId,
+    currentProfile?.username,
+    user?.avatar,
+    user?.email,
+    user?.name,
+    user?.profilePhotoFileId,
+    user?.username
+  ]);
 
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
-                                <div className="relative">
-                                    <Mail className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-                                    <input 
-                                        type="email" 
-                                        className="w-full pl-10 border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                                        value={formData.email}
-                                        onChange={e => setFormData({...formData, email: e.target.value})}
-                                    />
-                                </div>
-                            </div>
+  const handleAvatarSelect = (file: UploadedFile) => {
+    setAvatarPreview(file.url);
+    setAvatarFileId(file.id || null);
+    setIsFilePickerOpen(false);
+  };
 
-                            <div className="pt-4 border-t border-gray-100">
-                                <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center"><Lock className="w-4 h-4 mr-2" /> Security</h3>
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
-                                        <input 
-                                            type="password" 
-                                            className="w-full border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                                            value={formData.password}
-                                            onChange={e => setFormData({...formData, password: e.target.value})}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
-                                        <input 
-                                            type="password" 
-                                            className="w-full border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                                            value={formData.confirmPassword}
-                                            onChange={e => setFormData({...formData, confirmPassword: e.target.value})}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
+  const handleSave = async () => {
+    if (isSaving) return;
+    if (formData.password && formData.password !== formData.confirmPassword) {
+      showNotification('alert', 'Profile', 'Passwords do not match.');
+      return;
+    }
 
-                            <div className="pt-6 flex justify-end">
-                                <button onClick={handleSave} className="bg-blue-600 text-white px-6 py-2.5 rounded-lg font-medium shadow-lg shadow-blue-600/20 hover:bg-blue-700 transition-all flex items-center">
-                                    <Save className="w-4 h-4 mr-2" /> Save Changes
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <FilePickerModal
-                isOpen={isFilePickerOpen}
-                onClose={() => setIsFilePickerOpen(false)}
-                onSelect={handleAvatarSelect}
-                acceptedTypes="image/*"
-                filterType="image"
-                title="Update Profile Photo"
-                role="admin"
-            />
+    setIsSaving(true);
+    try {
+      const payload = {
+        username: formData.username.trim(),
+        email: formData.email.trim(),
+        ...(formData.password ? { password: formData.password } : {}),
+        avatar: avatarPreview,
+        profilePhotoFileId: avatarFileId || undefined
+      };
+      const result = await AdminService.updateProfile(payload);
+      const savedProfile = (result && ((result as any).data || result)) || payload;
+
+      if (typeof updateAdminProfile === 'function') {
+        updateAdminProfile(savedProfile);
+      }
+      if (typeof updateUser === 'function') {
+        updateUser({
+          name: payload.username,
+          username: payload.username,
+          email: payload.email,
+          avatar: payload.avatar,
+          profilePhotoFileId: avatarFileId || undefined
+        });
+      }
+      setFormData((prev) => ({ ...prev, password: '', confirmPassword: '' }));
+      showNotification('success', 'Profile Updated', 'Admin profile changes have been saved.');
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'Unable to save admin profile.';
+      showNotification('alert', 'Save Failed', String(message));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="mx-auto max-w-4xl space-y-6 animate-fade-in">
+      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-gray-200 bg-gray-50 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">Admin Profile</h2>
+            <p className="mt-1 text-sm text-gray-500">Manage your administrator identity and security details.</p>
+          </div>
+          <button
+            type="button"
+            onClick={logout}
+            className="inline-flex w-full items-center justify-center rounded-xl border border-red-200 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 sm:w-auto"
+          >
+            <LogOut className="mr-2 h-4 w-4" /> Sign Out
+          </button>
         </div>
-    );
+
+        <div className="grid gap-8 p-4 sm:p-6 md:grid-cols-[14rem,1fr] md:p-8">
+          <div className="flex flex-col items-center rounded-2xl border border-gray-100 bg-gray-50 p-5 text-center">
+            <button
+              type="button"
+              className="group relative h-32 w-32 overflow-hidden rounded-full border-4 border-white bg-gray-200 shadow-lg"
+              onClick={() => setIsFilePickerOpen(true)}
+              aria-label="Change admin profile photo"
+            >
+              <img src={avatarPreview || DEFAULT_ADMIN_AVATAR} alt="Admin" className="h-full w-full object-cover" />
+              <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition group-hover:opacity-100">
+                <Camera className="h-8 w-8 text-white" />
+              </span>
+            </button>
+            <p className="mt-4 text-sm font-semibold text-gray-900">{formData.username || 'Administrator'}</p>
+            <p className="text-xs text-gray-500">{formData.email}</p>
+            <button
+              type="button"
+              onClick={() => setIsFilePickerOpen(true)}
+              className="mt-4 rounded-full border border-gray-200 px-4 py-2 text-xs font-semibold text-blue-600 hover:bg-white"
+            >
+              Change Photo
+            </button>
+          </div>
+
+          <div className="space-y-6">
+            <label className="block">
+              <span className="mb-1 block text-sm font-semibold text-gray-700">Display Name</span>
+              <span className="relative block">
+                <User className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  className="w-full rounded-xl border border-gray-300 py-3 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                  value={formData.username}
+                  onChange={(event) => setFormData((prev) => ({ ...prev, username: event.target.value }))}
+                />
+              </span>
+            </label>
+
+            <label className="block">
+              <span className="mb-1 block text-sm font-semibold text-gray-700">Email Address</span>
+              <span className="relative block">
+                <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="email"
+                  className="w-full rounded-xl border border-gray-300 py-3 pl-10 pr-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                  value={formData.email}
+                  onChange={(event) => setFormData((prev) => ({ ...prev, email: event.target.value }))}
+                />
+              </span>
+            </label>
+
+            <div className="rounded-2xl border border-gray-100 p-4">
+              <h3 className="mb-4 flex items-center text-sm font-bold text-gray-900">
+                <Lock className="mr-2 h-4 w-4" /> Security
+              </h3>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block text-sm font-semibold text-gray-700">New Password</span>
+                  <input
+                    type="password"
+                    className="w-full rounded-xl border border-gray-300 px-3 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    value={formData.password}
+                    onChange={(event) => setFormData((prev) => ({ ...prev, password: event.target.value }))}
+                    autoComplete="new-password"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-semibold text-gray-700">Confirm Password</span>
+                  <input
+                    type="password"
+                    className="w-full rounded-xl border border-gray-300 px-3 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    value={formData.confirmPassword}
+                    onChange={(event) => setFormData((prev) => ({ ...prev, confirmPassword: event.target.value }))}
+                    autoComplete="new-password"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={isSaving}
+                className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+              >
+                <Save className="mr-2 h-4 w-4" /> {isSaving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <FilePickerModal
+        isOpen={isFilePickerOpen}
+        onClose={() => setIsFilePickerOpen(false)}
+        onSelect={handleAvatarSelect}
+        acceptedTypes="image/*"
+        filterType="image"
+        title="Update Profile Photo"
+        role="admin"
+      />
+    </div>
+  );
 };
 
 export default Profile;
