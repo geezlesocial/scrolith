@@ -2566,6 +2566,8 @@ app.get('/apple-touch-icon.png', faviconHandler);
 const buildHealthPayload = () => ({
   status: 'OK',
   timestamp: new Date().toISOString(),
+  uptimeSeconds: Math.round(process.uptime()),
+  environment: process.env.NODE_ENV || 'development',
   services: {
     cms: '/api/cms/test',
     admin: '/api/admin/test',
@@ -2580,6 +2582,27 @@ const buildHealthPayload = () => ({
   socket: {
     status: io.engine?.clientsCount ? 'active' : 'inactive',
     connected: io.engine?.clientsCount || 0
+  },
+  foundation: {
+    realtime: {
+      namespace: '/community',
+      adminOps: '/api/admin/realtime/summary'
+    },
+    search: {
+      health: '/api/search/health',
+      unified: '/api/search/unified',
+      suggestions: '/api/search/suggestions'
+    },
+    rollback: {
+      config: '/api/admin/config/snapshots'
+    },
+    backup: {
+      catalog: '/api/admin/system-backups/catalog'
+    },
+    observability: {
+      metrics: '/metrics',
+      health: '/api/health'
+    }
   }
 });
 
