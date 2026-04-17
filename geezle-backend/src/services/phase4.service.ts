@@ -223,7 +223,7 @@ const mapPublicPost = (post: any) => ({
   metrics: {
     views: post.viewsCount || 0,
     likes: post.likesCount || 0,
-    comments: post.commentsCount || 0,
+    comments: post._count?.comments || 0,
     shares: post.sharesCount || 0,
     reposts: post.repostsCount || 0
   },
@@ -309,13 +309,13 @@ export const listPublicPosts = async (params: { q?: unknown; limit?: unknown }) 
       topic: true,
       viewsCount: true,
       likesCount: true,
-      commentsCount: true,
       sharesCount: true,
       repostsCount: true,
       createdAt: true,
       updatedAt: true,
       author: { select: { id: true, name: true, username: true, avatar: true, isVerified: true } },
-      businessPage: { select: { id: true, name: true, slug: true, handle: true, tagline: true } }
+      businessPage: { select: { id: true, name: true, slug: true, handle: true, tagline: true } },
+      _count: { select: { comments: true } }
     }
   });
   return { generatedAt: nowIso(), items: posts.map(mapPublicPost), nextCursor: null };
