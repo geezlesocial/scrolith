@@ -27,7 +27,8 @@
     "sync-env": "ts-node src/scripts/syncEnvToSettings.ts",
     "test:docker": "powershell -ExecutionPolicy Bypass -File ./scripts/test-with-docker.ps1",
     "test:phase1": "powershell -ExecutionPolicy Bypass -File ./scripts/phase1-foundation-smoke.ps1",
-    "test:phase2": "powershell -ExecutionPolicy Bypass -File ./scripts/phase2-platform-smoke.ps1"
+    "test:phase2": "powershell -ExecutionPolicy Bypass -File ./scripts/phase2-platform-smoke.ps1",
+    "test:phase3": "powershell -ExecutionPolicy Bypass -File ./scripts/phase3-platform-smoke.ps1"
   },
   "dependencies": {
     "@azure/storage-blob": "^12.31.0",

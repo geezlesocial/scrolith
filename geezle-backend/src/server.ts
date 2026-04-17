@@ -79,6 +79,7 @@ import publicDeveloperRoutes from './routes/public.developer.routes';
 import adminPreloadersRoutes from './routes/admin/preloaders.routes';
 import recoRoutes from './routes/reco.routes';
 import scrolithaRoutes from './routes/scrolitha.routes';
+import phase3Routes from './routes/phase3.routes';
 import insightsRoutes from './routes/insights.routes';
 import { authMiddleware } from './middleware/auth.middleware';
 import { adminMiddleware } from './middleware/admin.middleware';
@@ -2652,6 +2653,13 @@ const buildHealthPayload = () => ({
       scrolithaWorkOs: '/api/scrolitha/work-os/plan',
       collaborationRooms: '/api/collaboration/rooms'
     },
+    phase3: {
+      briefing: '/api/phase3/briefing',
+      enterpriseWorkspaces: '/api/phase3/workspaces',
+      creatorCommerce: '/api/phase3/creator-commerce/campaigns',
+      payoutOrchestration: '/api/phase3/payouts/orchestration',
+      globalLocalization: '/api/phase3/localization/global'
+    },
     rollback: {
       config: '/api/admin/config/snapshots'
     },
@@ -2914,6 +2922,7 @@ app.use('/api/public/preloader', preloaderRoutes);
 app.use('/api/public/developer', publicDeveloperRoutes);
 app.use('/api/reco', recoRoutes);
 app.use('/api/scrolitha', scrolithaRoutes);
+app.use('/api/phase3', phase3Routes);
 app.use('/api/insights', insightsRoutes);
 app.use('/api/admin/preloaders', adminPreloadersRoutes);
 
